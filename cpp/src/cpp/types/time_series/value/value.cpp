@@ -10,58 +10,60 @@ namespace hgraph
 {
     namespace
     {
-        [[nodiscard]] const char *schema_name(const value::TypeMeta *schema) noexcept
-        {
+        [[nodiscard]] const char *schema_name(const value::TypeMeta *schema) noexcept {
             if (schema == nullptr || schema->name == nullptr) { return "<null>"; }
             return schema->name;
         }
-    }
+    }  // namespace
 
-    void View::copy_from(const View &other)
-    {
+    bool detail::ViewDispatch::try_copy_from(void *, const View &) const { return false; }
+
+    void View::copy_from(const View &other) {
         if (!has_value() || !other.has_value()) { throw std::runtime_error("View::copy_from requires non-empty views"); }
         if (data() == data_of(other)) { return; }
         if (schema() != other.schema()) {
-            throw std::invalid_argument(
-                fmt::format("View::copy_from requires matching schemas: {} != {}",
-                            schema_name(schema()),
-                            schema_name(other.schema())));
+            throw std::invalid_argument(fmt::format("View::copy_from requires matching schemas: {} != {}", schema_name(schema()),
+                                                    schema_name(other.schema())));
         }
 
         dispatch()->copy_from(data(), other);
     }
 
-    Value::Value(const value::TypeMeta *schema, MutationTracking tracking)
-        : Value(*schema, tracking)
-    {
+    bool View::try_copy_from(const View &other) {
+        if (!has_value() || !other.has_value()) { return false; }
+        if (data() == data_of(other)) { return true; }
+        if (schema() == other.schema()) {
+            dispatch()->copy_from(data(), other);
+            return true;
+        }
+        return dispatch()->try_copy_from(data(), other);
+    }
+
+    Value::Value(const value::TypeMeta *schema, MutationTracking tracking) : Value(*schema, tracking) {
         if (schema == nullptr) { throw std::invalid_argument("Value requires a non-null schema"); }
     }
 
-    Value::Value(const value::TypeMeta &schema, MutationTracking tracking)
-    {
+    Value::Value(const value::TypeMeta &schema, MutationTracking tracking) {
         ValueBuilderFactory::checked_builder_for(&schema, tracking).construct_value(*this);
     }
 
     Value::Value(const View &view, MutationTracking tracking)
-        : Value(*(view.schema() != nullptr ? view.schema() : throw std::invalid_argument("Value(View) requires a schema-bound view")),
-                tracking)
-    {
+        : Value(
+              *(view.schema() != nullptr ? view.schema() : throw std::invalid_argument("Value(View) requires a schema-bound view")),
+              tracking) {
         if (!view.has_value()) { return; }
         this->view().copy_from(view);
     }
 
-    Value::Value(const Value &other)
-    {
+    Value::Value(const Value &other) {
         if (other.m_builder != nullptr) { other.builder().copy_construct_value(*this, other); }
     }
 
-    Value::Value(Value &&other) noexcept
-    {
+    Value::Value(Value &&other) noexcept {
         if (other.m_builder != nullptr) { other.builder().move_construct_value(*this, other); }
     }
 
-    Value &Value::operator=(const Value &other)
-    {
+    Value &Value::operator=(const Value &other) {
         if (this == &other) { return *this; }
         if (other.m_builder == nullptr) {
             clear_storage();
@@ -85,9 +87,7 @@ namespace hgraph
             }
             return *this;
         }
-        if (&builder() != &other.builder()) {
-            throw std::invalid_argument("Value copy assignment requires matching builder");
-        }
+        if (&builder() != &other.builder()) { throw std::invalid_argument("Value copy assignment requires matching builder"); }
 
         if (!other.has_value()) {
             clear_storage();
@@ -113,8 +113,7 @@ namespace hgraph
         return *this;
     }
 
-    Value &Value::operator=(Value &&other)
-    {
+    Value &Value::operator=(Value &&other) {
         if (this == &other) { return *this; }
         if (other.m_builder == nullptr) {
             clear_storage();
@@ -127,14 +126,12 @@ namespace hgraph
             if (builder().stores_inline_in_value_handle()) {
                 builder().move_construct(storage_memory(), other.storage_memory(), other.builder());
             } else {
-                m_storage.heap_memory = other.m_storage.heap_memory;
+                m_storage.heap_memory       = other.m_storage.heap_memory;
                 other.m_storage.heap_memory = nullptr;
             }
             return *this;
         }
-        if (&builder() != &other.builder()) {
-            throw std::invalid_argument("Value move assignment requires matching builder");
-        }
+        if (&builder() != &other.builder()) { throw std::invalid_argument("Value move assignment requires matching builder"); }
 
         clear_storage();
         if (!other.has_value()) { return *this; }
@@ -142,157 +139,80 @@ namespace hgraph
         if (builder().stores_inline_in_value_handle()) {
             builder().move_construct(storage_memory(), other.storage_memory(), other.builder());
         } else {
-            m_storage.heap_memory = other.m_storage.heap_memory;
+            m_storage.heap_memory       = other.m_storage.heap_memory;
             other.m_storage.heap_memory = nullptr;
         }
         return *this;
     }
 
-    Value::~Value()
-    {
-        clear_storage();
-    }
+    Value::~Value() { clear_storage(); }
 
-    bool Value::has_value() const noexcept
-    {
+    bool Value::has_value() const noexcept {
         return m_builder != nullptr && (builder().stores_inline_in_value_handle() || m_storage.heap_memory != nullptr);
     }
 
-    Value::operator bool() const noexcept
-    {
-        return has_value();
-    }
+    Value::operator bool() const noexcept { return has_value(); }
 
-    const value::TypeMeta *Value::schema() const noexcept
-    {
-        return m_builder != nullptr ? &builder().schema() : nullptr;
-    }
+    const value::TypeMeta *Value::schema() const noexcept { return m_builder != nullptr ? &builder().schema() : nullptr; }
 
-    MutationTracking Value::tracking() const noexcept
-    {
+    MutationTracking Value::tracking() const noexcept {
         return m_builder != nullptr ? builder().tracking() : MutationTracking::Plain;
     }
 
-    View Value::view() noexcept
-    {
+    View Value::view() noexcept {
         return m_builder != nullptr ? View{&builder().dispatch(), has_value() ? storage_memory() : nullptr, schema()}
-                                 : View::invalid_for(nullptr);
+                                    : View::invalid_for(nullptr);
     }
 
-    View Value::view() const noexcept
-    {
+    View Value::view() const noexcept {
         return m_builder != nullptr
                    ? View{&builder().dispatch(), has_value() ? const_cast<void *>(storage_memory()) : nullptr, schema()}
-                                 : View::invalid_for(nullptr);
+                   : View::invalid_for(nullptr);
     }
 
-    AtomicView Value::atomic_view()
-    {
-        return view().as_atomic();
-    }
+    AtomicView Value::atomic_view() { return view().as_atomic(); }
 
-    AtomicView Value::atomic_view() const
-    {
-        return view().as_atomic();
-    }
+    AtomicView Value::atomic_view() const { return view().as_atomic(); }
 
-    TupleView Value::tuple_view()
-    {
-        return view().as_tuple();
-    }
+    TupleView Value::tuple_view() { return view().as_tuple(); }
 
-    TupleView Value::tuple_view() const
-    {
-        return view().as_tuple();
-    }
+    TupleView Value::tuple_view() const { return view().as_tuple(); }
 
-    BundleView Value::bundle_view()
-    {
-        return view().as_bundle();
-    }
+    BundleView Value::bundle_view() { return view().as_bundle(); }
 
-    BundleView Value::bundle_view() const
-    {
-        return view().as_bundle();
-    }
+    BundleView Value::bundle_view() const { return view().as_bundle(); }
 
-    ListView Value::list_view()
-    {
-        return view().as_list();
-    }
+    ListView Value::list_view() { return view().as_list(); }
 
-    ListView Value::list_view() const
-    {
-        return view().as_list();
-    }
+    ListView Value::list_view() const { return view().as_list(); }
 
-    SetView Value::set_view()
-    {
-        return view().as_set();
-    }
+    SetView Value::set_view() { return view().as_set(); }
 
-    SetView Value::set_view() const
-    {
-        return view().as_set();
-    }
+    SetView Value::set_view() const { return view().as_set(); }
 
-    MapView Value::map_view()
-    {
-        return view().as_map();
-    }
+    MapView Value::map_view() { return view().as_map(); }
 
-    MapView Value::map_view() const
-    {
-        return view().as_map();
-    }
+    MapView Value::map_view() const { return view().as_map(); }
 
-    CyclicBufferView Value::cyclic_buffer_view()
-    {
-        return view().as_cyclic_buffer();
-    }
+    CyclicBufferView Value::cyclic_buffer_view() { return view().as_cyclic_buffer(); }
 
-    CyclicBufferView Value::cyclic_buffer_view() const
-    {
-        return view().as_cyclic_buffer();
-    }
+    CyclicBufferView Value::cyclic_buffer_view() const { return view().as_cyclic_buffer(); }
 
-    QueueView Value::queue_view()
-    {
-        return view().as_queue();
-    }
+    QueueView Value::queue_view() { return view().as_queue(); }
 
-    QueueView Value::queue_view() const
-    {
-        return view().as_queue();
-    }
+    QueueView Value::queue_view() const { return view().as_queue(); }
 
-    bool Value::equals(const Value &other) const
-    {
-        return view().equals(other.view());
-    }
+    bool Value::equals(const Value &other) const { return view().equals(other.view()); }
 
-    bool Value::equals(const View &other) const
-    {
-        return view().equals(other);
-    }
+    bool Value::equals(const View &other) const { return view().equals(other); }
 
-    size_t Value::hash() const
-    {
-        return view().hash();
-    }
+    size_t Value::hash() const { return view().hash(); }
 
-    std::string Value::to_string() const
-    {
-        return view().to_string();
-    }
+    std::string Value::to_string() const { return view().to_string(); }
 
-    nb::object Value::to_python() const
-    {
-        return view().to_python();
-    }
+    nb::object Value::to_python() const { return view().to_python(); }
 
-    void Value::from_python(const nb::object &src)
-    {
+    void Value::from_python(const nb::object &src) {
         if (src.is_none()) {
             reset();
             return;
@@ -301,41 +221,31 @@ namespace hgraph
         view().from_python(src);
     }
 
-    void Value::reset()
-    {
+    void Value::reset() {
         clear_storage();
         allocate_and_construct();
     }
 
-    void Value::allocate_and_construct()
-    {
+    void Value::allocate_and_construct() {
         if (m_builder == nullptr) { throw std::runtime_error("Cannot materialize a schema-less Value"); }
         builder().construct_value(*this);
     }
 
-    void Value::clear_storage() noexcept
-    {
+    void Value::clear_storage() noexcept {
         if (m_builder == nullptr) { return; }
         builder().destruct_value(*this);
     }
 
-    void *Value::storage_memory() noexcept
-    {
-        return builder().stores_inline_in_value_handle()
-                   ? static_cast<void *>(m_storage.inline_storage.data())
-                   : m_storage.heap_memory;
+    void *Value::storage_memory() noexcept {
+        return builder().stores_inline_in_value_handle() ? static_cast<void *>(m_storage.inline_storage.data())
+                                                         : m_storage.heap_memory;
     }
 
-    const void *Value::storage_memory() const noexcept
-    {
-        return builder().stores_inline_in_value_handle()
-                   ? static_cast<const void *>(m_storage.inline_storage.data())
-                   : m_storage.heap_memory;
+    const void *Value::storage_memory() const noexcept {
+        return builder().stores_inline_in_value_handle() ? static_cast<const void *>(m_storage.inline_storage.data())
+                                                         : m_storage.heap_memory;
     }
 
-    const ValueBuilder &Value::builder() const noexcept
-    {
-        return *m_builder;
-    }
+    const ValueBuilder &Value::builder() const noexcept { return *m_builder; }
 
 }  // namespace hgraph

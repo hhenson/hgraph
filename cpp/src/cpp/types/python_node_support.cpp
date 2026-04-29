@@ -1,6 +1,11 @@
 #include <hgraph/types/python_node_support.h>
 
 #include <hgraph/types/constants.h>
+#include <hgraph/types/evaluation_clock.h>
+#include <hgraph/types/evaluation_engine.h>
+#include <hgraph/types/graph.h>
+#include <hgraph/types/node.h>
+#include <hgraph/types/ref.h>
 #include <hgraph/types/time_series/time_series_state.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -9,11 +14,6 @@
 #include <hgraph/types/time_series/ts_value_builder.h>
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/traits.h>
-#include <hgraph/types/evaluation_clock.h>
-#include <hgraph/types/evaluation_engine.h>
-#include <hgraph/types/graph.h>
-#include <hgraph/types/node.h>
-#include <hgraph/types/ref.h>
 #include <hgraph/types/value/type_meta.h>
 
 #include <fmt/format.h>
@@ -67,10 +67,7 @@ namespace hgraph
                 std::visit(
                     [&](auto &state) {
                         hgraph::visit(
-                            state.parent,
-                            [&](Node *parent) noexcept { owner = parent; },
-                            [](auto *) noexcept {},
-                            []() noexcept {});
+                            state.parent, [&](Node *parent) noexcept { owner = parent; }, [](auto *) noexcept {}, []() noexcept {});
                     },
                     output->root_state_variant());
                 return owner;
@@ -78,39 +75,39 @@ namespace hgraph
 
             BaseState *cursor = context.notification_state != nullptr ? context.notification_state : context.ts_state;
             while (cursor != nullptr) {
-                Node *owner = nullptr;
+                Node *owner    = nullptr;
                 bool  advanced = false;
                 hgraph::visit(
                     cursor->parent,
                     [&](TSLState *parent) {
-                        cursor = parent;
+                        cursor   = parent;
                         advanced = true;
                     },
                     [&](TSDState *parent) {
-                        cursor = parent;
+                        cursor   = parent;
                         advanced = true;
                     },
                     [&](TSBState *parent) {
-                        cursor = parent;
+                        cursor   = parent;
                         advanced = true;
                     },
                     [&](SignalState *parent) {
-                        cursor = parent;
+                        cursor   = parent;
                         advanced = true;
                     },
                     [&](Node *parent) {
-                        owner = parent;
-                        cursor = nullptr;
+                        owner    = parent;
+                        cursor   = nullptr;
                         advanced = true;
                     },
                     [&](TSInput *parent) {
                         static_cast<void>(parent);
-                        cursor = nullptr;
+                        cursor   = nullptr;
                         advanced = true;
                     },
                     [&](TSOutput *parent) {
-                        owner = owner_from_output(parent);
-                        cursor = nullptr;
+                        owner    = owner_from_output(parent);
+                        cursor   = nullptr;
                         advanced = true;
                     },
                     [] {});
@@ -194,22 +191,17 @@ namespace hgraph
             return MIN_DT;
         }
 
-        [[nodiscard]] bool sampled_this_tick(const TSViewContext &context, engine_time_t evaluation_time) noexcept
-        {
+        [[nodiscard]] bool sampled_this_tick(const TSViewContext &context, engine_time_t evaluation_time) noexcept {
             const auto snapshot = detail::transition_snapshot(context);
             return snapshot.active() && snapshot.modified_time == evaluation_time;
         }
 
-        template <typename TView>
-        [[nodiscard]] const Value *transition_previous_value(const TView &view) noexcept
-        {
+        template <typename TView> [[nodiscard]] const Value *transition_previous_value(const TView &view) noexcept {
             const auto snapshot = detail::transition_snapshot(view.context_ref());
             return snapshot.active() && snapshot.modified_time == view.evaluation_time() ? snapshot.previous_value : nullptr;
         }
 
-        template <typename TView>
-        [[nodiscard]] const Value *transition_previous_map_value(const TView &view) noexcept
-        {
+        template <typename TView> [[nodiscard]] const Value *transition_previous_map_value(const TView &view) noexcept {
             const Value *previous = transition_previous_value(view);
             if (previous == nullptr || !previous->has_value() || previous->view().schema() == nullptr ||
                 previous->view().schema()->kind != value::TypeKind::Map) {
@@ -437,15 +429,16 @@ namespace hgraph
             [[nodiscard]] nb::object delta_value() const {
                 if (m_schema != nullptr && m_schema->kind == TSKind::TSValue && !valid()) { return nb::none(); }
                 if (m_input != nullptr) {
-                    TSInputView view = input_view();
-                    nb::object delta = view.delta_to_python();
-                    if (delta.is_none() && m_schema != nullptr && m_schema->kind == TSKind::TSD && view.modified() && view.valid()) {
+                    TSInputView view  = input_view();
+                    nb::object  delta = view.delta_to_python();
+                    if (delta.is_none() && m_schema != nullptr && m_schema->kind == TSKind::TSD && view.modified() &&
+                        view.valid()) {
                         return view.to_python();
                     }
                     return delta;
                 }
-                TSOutputView view = output_view();
-                nb::object delta = view.delta_to_python();
+                TSOutputView view  = output_view();
+                nb::object   delta = view.delta_to_python();
                 if (delta.is_none() && m_schema != nullptr && m_schema->kind == TSKind::TSD && view.modified() && view.valid()) {
                     return view.to_python();
                 }
@@ -1026,8 +1019,8 @@ namespace hgraph
                 if (is_bundle()) {
                     const auto append_modified_items = [this, &result](const auto &bundle) {
                         for (const auto &[name, child] : bundle.modified_items()) {
-                            result.append(
-                                nb::make_tuple(nb::str(name.data(), name.size()), nb::cast(handle_from_context(child.context_ref()))));
+                            result.append(nb::make_tuple(nb::str(name.data(), name.size()),
+                                                         nb::cast(handle_from_context(child.context_ref()))));
                         }
                     };
                     if (m_input != nullptr) {
@@ -1273,6 +1266,11 @@ namespace hgraph
                 output_view().clear();
             }
 
+            void copy_from_input(const PythonTimeSeriesHandle &input) const {
+                ensure_output();
+                output_view().copy_from_input(input.input_view());
+            }
+
             [[nodiscard]] nb::object as_schema() const {
                 if (!is_bundle()) { throw std::logic_error("v2 Python time-series as_schema requires a TSB schema"); }
                 return nb::cast(*this);
@@ -1332,9 +1330,9 @@ namespace hgraph
             [[nodiscard]] PythonTimeSeriesHandle handle_from_context(const TSViewContext &context) const {
                 if (!context.is_bound()) { return PythonTimeSeriesHandle{LinkedTSContext::none(), evaluation_time()}; }
                 LinkedTSContext linked{
-                    context.schema,   context.value_dispatch, context.ts_dispatch,     context.value_data,
-                    context.ts_state, context.owning_output,  context.output_view_ops, context.notification_state,
-                    context.pending_dict_child,
+                    context.schema,          context.value_dispatch,     context.ts_dispatch,
+                    context.value_data,      context.ts_state,           context.owning_output,
+                    context.output_view_ops, context.notification_state, context.pending_dict_child,
                 };
                 return PythonTimeSeriesHandle{linked, evaluation_time()};
             }
@@ -1480,12 +1478,12 @@ namespace hgraph
                             {
                                 TSOutputView child = view.as_dict().at(step.key.view());
                                 if (child.context_ref().ts_state == nullptr && !child.context_ref().is_bound()) {
-                                    BaseState *state =
-                                        view.context_ref().ts_state != nullptr ? view.context_ref().ts_state->resolved_state()
-                                                                               : nullptr;
+                                    BaseState *state = view.context_ref().ts_state != nullptr
+                                                           ? view.context_ref().ts_state->resolved_state()
+                                                           : nullptr;
                                     if (state != nullptr && state->storage_kind == TSStorageKind::Native) {
-                                        auto *dict_state = static_cast<TSDState *>(state);
-                                        const size_t slot = view.value().as_map().find_slot(step.key.view());
+                                        auto        *dict_state = static_cast<TSDState *>(state);
+                                        const size_t slot       = view.value().as_map().find_slot(step.key.view());
                                         if (slot != static_cast<size_t>(-1)) {
                                             dict_state->on_insert(slot);
                                             child = view.as_dict().at(step.key.view());
@@ -1970,9 +1968,7 @@ namespace hgraph
         if (!callable.is_valid() || callable.is_none()) { return nb::none(); }
 
         nb::object context_inputs = nb::borrow(signature).attr("context_inputs");
-        if (context_inputs.is_none() || nb::len(context_inputs) == 0) {
-            return call_python_callable(callable, kwargs);
-        }
+        if (context_inputs.is_none() || nb::len(context_inputs) == 0) { return call_python_callable(callable, kwargs); }
 
         nb::object contextlib = nb::module_::import_("contextlib");
         nb::object stack      = contextlib.attr("ExitStack")();
@@ -2059,14 +2055,15 @@ namespace hgraph
             .def("get_trait", &PythonTraitsHandle::get_trait, "trait_name"_a)
             .def("get_trait_or", &PythonTraitsHandle::get_trait_or, "trait_name"_a, "default"_a = nb::none());
 
-        auto graph_cls = nb::class_<PythonGraphHandle>(m, "Graph")
-            .def_prop_ro("graph_id", &PythonGraphHandle::graph_id)
-            .def_prop_ro("parent_node", &PythonGraphHandle::parent_node)
-            .def_prop_ro("label", &PythonGraphHandle::label)
-            .def_prop_ro("evaluation_clock", &PythonGraphHandle::evaluation_clock)
-            .def_prop_ro("evaluation_engine_api", &PythonGraphHandle::evaluation_engine_api)
-            .def_prop_ro("traits", &PythonGraphHandle::traits)
-            .def("schedule_node", &PythonGraphHandle::schedule_node, "node_ndx"_a, "when"_a, "force_set"_a = false);
+        auto graph_cls =
+            nb::class_<PythonGraphHandle>(m, "Graph")
+                .def_prop_ro("graph_id", &PythonGraphHandle::graph_id)
+                .def_prop_ro("parent_node", &PythonGraphHandle::parent_node)
+                .def_prop_ro("label", &PythonGraphHandle::label)
+                .def_prop_ro("evaluation_clock", &PythonGraphHandle::evaluation_clock)
+                .def_prop_ro("evaluation_engine_api", &PythonGraphHandle::evaluation_engine_api)
+                .def_prop_ro("traits", &PythonGraphHandle::traits)
+                .def("schedule_node", &PythonGraphHandle::schedule_node, "node_ndx"_a, "when"_a, "force_set"_a = false);
         m.attr("_PythonGraphHandle") = m.attr("Graph");
 
         nb::class_<NodeSchedulerHandle>(m, "_NodeSchedulerHandle")
@@ -2121,115 +2118,118 @@ namespace hgraph
             .def("__getitem__", &TimeSeriesReference::operator[])
             .def_static("make", &V2PythonReferenceSupport::make, "ts"_a = nb::none(), "from_items"_a = nb::none());
 
-        auto time_series_cls = nb::class_<PythonTimeSeriesHandle>(m, "TimeSeriesHandle")
-            .def("__bool__", &PythonTimeSeriesHandle::truthy)
-            .def("__getitem__", &PythonTimeSeriesHandle::get_item, "key"_a)
-            .def("__delitem__", &PythonTimeSeriesHandle::del_item, "key"_a)
-            .def("__getattr__", &PythonTimeSeriesHandle::get_attr, "key"_a)
-            .def("__contains__", &PythonTimeSeriesHandle::contains, "item"_a)
-            .def("__len__", &PythonTimeSeriesHandle::len)
-            .def(
-                "__iter__",
-                [](const PythonTimeSeriesHandle &self) { return self.is_dict() ? nb::iter(self.keys()) : nb::iter(self.values()); })
-            .def_prop_ro("owning_node", &PythonTimeSeriesHandle::owning_node)
-            .def_prop_ro("owning_graph", &PythonTimeSeriesHandle::owning_graph)
-            .def_prop_ro("has_owning_node", &PythonTimeSeriesHandle::has_owning_node)
-            .def_prop_ro("parent_input", &PythonTimeSeriesHandle::parent_input)
-            .def_prop_ro("has_parent_input", &PythonTimeSeriesHandle::has_parent_input)
-            .def_prop_ro("parent_output", &PythonTimeSeriesHandle::parent_output)
-            .def_prop_ro("has_parent_output", &PythonTimeSeriesHandle::has_parent_output)
-            .def_prop_rw("value", &PythonTimeSeriesHandle::value, &PythonTimeSeriesHandle::set_value)
-            .def_prop_ro("delta_value", &PythonTimeSeriesHandle::delta_value)
-            .def_prop_ro("is_reference", &PythonTimeSeriesHandle::is_reference)
-            .def_prop_ro("modified", &PythonTimeSeriesHandle::modified)
-            .def_prop_ro("valid", &PythonTimeSeriesHandle::valid)
-            .def_prop_ro("all_valid", &PythonTimeSeriesHandle::all_valid)
-            .def_prop_ro("last_modified_time", &PythonTimeSeriesHandle::last_modified_time)
-            .def_prop_ro("key_set", &PythonTimeSeriesHandle::key_set)
-            .def("get", &PythonTimeSeriesHandle::get, "key"_a, "default"_a = nb::none())
-            .def("get_or_create", &PythonTimeSeriesHandle::get_or_create, "key"_a)
-            .def("create", &PythonTimeSeriesHandle::create, "key"_a)
-            .def("on_key_removed", &PythonTimeSeriesHandle::on_key_removed, "key"_a)
-            .def("get_ref", &PythonTimeSeriesHandle::get_ref, "key"_a, "requester"_a = nb::none())
-            .def("release_ref", &PythonTimeSeriesHandle::release_ref, "key"_a, "requester"_a = nb::none())
-            .def("get_contains_output", &PythonTimeSeriesHandle::get_contains_output, "item"_a, "requester"_a)
-            .def("release_contains_output", &PythonTimeSeriesHandle::release_contains_output, "item"_a, "requester"_a)
-            .def("is_empty_output", &PythonTimeSeriesHandle::is_empty_output)
-            .def_prop_ro("bound", &PythonTimeSeriesHandle::bound)
-            .def_prop_ro("has_peer", &PythonTimeSeriesHandle::has_peer)
-            .def_prop_ro("has_output", &PythonTimeSeriesHandle::has_output)
-            .def_prop_ro("output", &PythonTimeSeriesHandle::output)
-            .def_prop_ro("reference_output", &PythonTimeSeriesHandle::reference_output)
-            .def("bind_output", &PythonTimeSeriesHandle::bind_output, "output"_a)
-            .def("un_bind_output", &PythonTimeSeriesHandle::un_bind_output, "unbind_refs"_a = false)
-            .def("key_from_value", &PythonTimeSeriesHandle::key_from_value, "value"_a)
-            .def("keys", &PythonTimeSeriesHandle::keys)
-            .def("valid_keys", &PythonTimeSeriesHandle::valid_keys)
-            .def("modified_keys", &PythonTimeSeriesHandle::modified_keys)
-            .def("values", &PythonTimeSeriesHandle::values)
-            .def("added", &PythonTimeSeriesHandle::added)
-            .def("removed", &PythonTimeSeriesHandle::removed)
-            .def(
-                "add", [](const PythonTimeSeriesHandle &self, nb::handle item) { self.add_set_item(item); }, "item"_a)
-            .def(
-                "remove", [](const PythonTimeSeriesHandle &self, nb::handle item) { self.remove_set_item(item); }, "item"_a)
-            .def("clear", &PythonTimeSeriesHandle::clear)
-            .def("valid_values", &PythonTimeSeriesHandle::valid_values)
-            .def("modified_values", &PythonTimeSeriesHandle::modified_values)
-            .def("items", &PythonTimeSeriesHandle::items)
-            .def("added_keys", &PythonTimeSeriesHandle::added_keys)
-            .def("added_values", &PythonTimeSeriesHandle::added_values)
-            .def("added_items", &PythonTimeSeriesHandle::added_items)
-            .def("removed_keys", &PythonTimeSeriesHandle::removed_keys)
-            .def("removed_values", &PythonTimeSeriesHandle::removed_values)
-            .def("removed_items", &PythonTimeSeriesHandle::removed_items)
-            .def("valid_items", &PythonTimeSeriesHandle::valid_items)
-            .def("modified_items", &PythonTimeSeriesHandle::modified_items)
-            .def("make_active", &PythonTimeSeriesHandle::make_active)
-            .def("make_passive", &PythonTimeSeriesHandle::make_passive)
-            .def_prop_ro("active", &PythonTimeSeriesHandle::active)
-            .def_prop_ro("as_schema", &PythonTimeSeriesHandle::as_schema)
-            .def_prop_ro("has_removed_value", &PythonTimeSeriesHandle::has_removed_value)
-            .def_prop_ro("removed_value", &PythonTimeSeriesHandle::removed_value)
-            .def("can_apply_result", &PythonTimeSeriesHandle::can_apply_result, "value"_a)
-            .def("apply_result", &PythonTimeSeriesHandle::apply_result, "value"_a)
-            .def("__repr__", &PythonTimeSeriesHandle::repr);
-        m.attr("_PythonTimeSeriesHandle") = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesInput")         = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesOutput")        = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesValueInput")    = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesValueOutput")   = m.attr("TimeSeriesHandle");
+        auto time_series_cls =
+            nb::class_<PythonTimeSeriesHandle>(m, "TimeSeriesHandle")
+                .def("__bool__", &PythonTimeSeriesHandle::truthy)
+                .def("__getitem__", &PythonTimeSeriesHandle::get_item, "key"_a)
+                .def("__delitem__", &PythonTimeSeriesHandle::del_item, "key"_a)
+                .def("__getattr__", &PythonTimeSeriesHandle::get_attr, "key"_a)
+                .def("__contains__", &PythonTimeSeriesHandle::contains, "item"_a)
+                .def("__len__", &PythonTimeSeriesHandle::len)
+                .def("__iter__",
+                     [](const PythonTimeSeriesHandle &self) {
+                         return self.is_dict() ? nb::iter(self.keys()) : nb::iter(self.values());
+                     })
+                .def_prop_ro("owning_node", &PythonTimeSeriesHandle::owning_node)
+                .def_prop_ro("owning_graph", &PythonTimeSeriesHandle::owning_graph)
+                .def_prop_ro("has_owning_node", &PythonTimeSeriesHandle::has_owning_node)
+                .def_prop_ro("parent_input", &PythonTimeSeriesHandle::parent_input)
+                .def_prop_ro("has_parent_input", &PythonTimeSeriesHandle::has_parent_input)
+                .def_prop_ro("parent_output", &PythonTimeSeriesHandle::parent_output)
+                .def_prop_ro("has_parent_output", &PythonTimeSeriesHandle::has_parent_output)
+                .def_prop_rw("value", &PythonTimeSeriesHandle::value, &PythonTimeSeriesHandle::set_value)
+                .def_prop_ro("delta_value", &PythonTimeSeriesHandle::delta_value)
+                .def_prop_ro("is_reference", &PythonTimeSeriesHandle::is_reference)
+                .def_prop_ro("modified", &PythonTimeSeriesHandle::modified)
+                .def_prop_ro("valid", &PythonTimeSeriesHandle::valid)
+                .def_prop_ro("all_valid", &PythonTimeSeriesHandle::all_valid)
+                .def_prop_ro("last_modified_time", &PythonTimeSeriesHandle::last_modified_time)
+                .def_prop_ro("key_set", &PythonTimeSeriesHandle::key_set)
+                .def("get", &PythonTimeSeriesHandle::get, "key"_a, "default"_a = nb::none())
+                .def("get_or_create", &PythonTimeSeriesHandle::get_or_create, "key"_a)
+                .def("create", &PythonTimeSeriesHandle::create, "key"_a)
+                .def("on_key_removed", &PythonTimeSeriesHandle::on_key_removed, "key"_a)
+                .def("get_ref", &PythonTimeSeriesHandle::get_ref, "key"_a, "requester"_a = nb::none())
+                .def("release_ref", &PythonTimeSeriesHandle::release_ref, "key"_a, "requester"_a = nb::none())
+                .def("get_contains_output", &PythonTimeSeriesHandle::get_contains_output, "item"_a, "requester"_a)
+                .def("release_contains_output", &PythonTimeSeriesHandle::release_contains_output, "item"_a, "requester"_a)
+                .def("is_empty_output", &PythonTimeSeriesHandle::is_empty_output)
+                .def_prop_ro("bound", &PythonTimeSeriesHandle::bound)
+                .def_prop_ro("has_peer", &PythonTimeSeriesHandle::has_peer)
+                .def_prop_ro("has_output", &PythonTimeSeriesHandle::has_output)
+                .def_prop_ro("output", &PythonTimeSeriesHandle::output)
+                .def_prop_ro("reference_output", &PythonTimeSeriesHandle::reference_output)
+                .def("bind_output", &PythonTimeSeriesHandle::bind_output, "output"_a)
+                .def("un_bind_output", &PythonTimeSeriesHandle::un_bind_output, "unbind_refs"_a = false)
+                .def("key_from_value", &PythonTimeSeriesHandle::key_from_value, "value"_a)
+                .def("keys", &PythonTimeSeriesHandle::keys)
+                .def("valid_keys", &PythonTimeSeriesHandle::valid_keys)
+                .def("modified_keys", &PythonTimeSeriesHandle::modified_keys)
+                .def("values", &PythonTimeSeriesHandle::values)
+                .def("added", &PythonTimeSeriesHandle::added)
+                .def("removed", &PythonTimeSeriesHandle::removed)
+                .def(
+                    "add", [](const PythonTimeSeriesHandle &self, nb::handle item) { self.add_set_item(item); }, "item"_a)
+                .def(
+                    "remove", [](const PythonTimeSeriesHandle &self, nb::handle item) { self.remove_set_item(item); }, "item"_a)
+                .def("clear", &PythonTimeSeriesHandle::clear)
+                .def("valid_values", &PythonTimeSeriesHandle::valid_values)
+                .def("modified_values", &PythonTimeSeriesHandle::modified_values)
+                .def("items", &PythonTimeSeriesHandle::items)
+                .def("added_keys", &PythonTimeSeriesHandle::added_keys)
+                .def("added_values", &PythonTimeSeriesHandle::added_values)
+                .def("added_items", &PythonTimeSeriesHandle::added_items)
+                .def("removed_keys", &PythonTimeSeriesHandle::removed_keys)
+                .def("removed_values", &PythonTimeSeriesHandle::removed_values)
+                .def("removed_items", &PythonTimeSeriesHandle::removed_items)
+                .def("valid_items", &PythonTimeSeriesHandle::valid_items)
+                .def("modified_items", &PythonTimeSeriesHandle::modified_items)
+                .def("make_active", &PythonTimeSeriesHandle::make_active)
+                .def("make_passive", &PythonTimeSeriesHandle::make_passive)
+                .def("copy_from_input", &PythonTimeSeriesHandle::copy_from_input, "input"_a)
+                .def_prop_ro("active", &PythonTimeSeriesHandle::active)
+                .def_prop_ro("as_schema", &PythonTimeSeriesHandle::as_schema)
+                .def_prop_ro("has_removed_value", &PythonTimeSeriesHandle::has_removed_value)
+                .def_prop_ro("removed_value", &PythonTimeSeriesHandle::removed_value)
+                .def("can_apply_result", &PythonTimeSeriesHandle::can_apply_result, "value"_a)
+                .def("apply_result", &PythonTimeSeriesHandle::apply_result, "value"_a)
+                .def("__repr__", &PythonTimeSeriesHandle::repr);
+        m.attr("_PythonTimeSeriesHandle")   = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesInput")           = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesOutput")          = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesValueInput")      = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesValueOutput")     = m.attr("TimeSeriesHandle");
         m.attr("TimeSeriesReferenceInput")  = m.attr("TimeSeriesHandle");
         m.attr("TimeSeriesReferenceOutput") = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesListInput")     = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesListOutput")    = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesDictInput")     = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesDictOutput")    = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesBundleInput")   = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesBundleOutput")  = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesSetInput")      = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesSetOutput")     = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesListInput")       = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesListOutput")      = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesDictInput")       = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesDictOutput")      = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesBundleInput")     = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesBundleOutput")    = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesSetInput")        = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesSetOutput")       = m.attr("TimeSeriesHandle");
 
-        auto node_cls = nb::class_<PythonNodeHandle>(m, "Node")
-            .def_prop_ro("node_ndx", &PythonNodeHandle::node_ndx)
-            .def_prop_ro("owning_graph_id", &PythonNodeHandle::owning_graph_id)
-            .def_prop_ro("node_id", &PythonNodeHandle::node_id)
-            .def_prop_ro("signature", &PythonNodeHandle::signature)
-            .def_prop_ro("scalars", &PythonNodeHandle::scalars)
-            .def_prop_ro("graph", &PythonNodeHandle::graph)
-            .def_prop_ro("input", &PythonNodeHandle::input)
-            .def_prop_ro("output", &PythonNodeHandle::output)
-            .def_prop_ro("error_output", &PythonNodeHandle::error_output)
-            .def_prop_ro("recordable_state", &PythonNodeHandle::recordable_state)
-            .def_prop_ro("scheduler", &PythonNodeHandle::scheduler)
-            .def_prop_ro("has_scheduler", &PythonNodeHandle::has_scheduler)
-            .def_prop_ro("has_input", &PythonNodeHandle::has_input)
-            .def_prop_ro("has_output", &PythonNodeHandle::has_output)
-            .def_prop_ro("has_error_output", &PythonNodeHandle::has_error_output)
-            .def("notify", &PythonNodeHandle::notify, "modified_time"_a = nb::none())
-            .def("notify_next_cycle", &PythonNodeHandle::notify_next_cycle)
-            .def("__repr__", &PythonNodeHandle::repr)
-            .def("__str__", &PythonNodeHandle::repr);
+        auto node_cls               = nb::class_<PythonNodeHandle>(m, "Node")
+                                          .def_prop_ro("node_ndx", &PythonNodeHandle::node_ndx)
+                                          .def_prop_ro("owning_graph_id", &PythonNodeHandle::owning_graph_id)
+                                          .def_prop_ro("node_id", &PythonNodeHandle::node_id)
+                                          .def_prop_ro("signature", &PythonNodeHandle::signature)
+                                          .def_prop_ro("scalars", &PythonNodeHandle::scalars)
+                                          .def_prop_ro("graph", &PythonNodeHandle::graph)
+                                          .def_prop_ro("input", &PythonNodeHandle::input)
+                                          .def_prop_ro("output", &PythonNodeHandle::output)
+                                          .def_prop_ro("error_output", &PythonNodeHandle::error_output)
+                                          .def_prop_ro("recordable_state", &PythonNodeHandle::recordable_state)
+                                          .def_prop_ro("scheduler", &PythonNodeHandle::scheduler)
+                                          .def_prop_ro("has_scheduler", &PythonNodeHandle::has_scheduler)
+                                          .def_prop_ro("has_input", &PythonNodeHandle::has_input)
+                                          .def_prop_ro("has_output", &PythonNodeHandle::has_output)
+                                          .def_prop_ro("has_error_output", &PythonNodeHandle::has_error_output)
+                                          .def("notify", &PythonNodeHandle::notify, "modified_time"_a = nb::none())
+                                          .def("notify_next_cycle", &PythonNodeHandle::notify_next_cycle)
+                                          .def("__repr__", &PythonNodeHandle::repr)
+                                          .def("__str__", &PythonNodeHandle::repr);
         m.attr("_PythonNodeHandle") = m.attr("Node");
         m.attr("NestedNode")        = m.attr("Node");
         m.attr("PushQueueNode")     = m.attr("Node");

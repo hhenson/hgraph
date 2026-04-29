@@ -225,7 +225,7 @@ namespace hgraph
         m_clock_state.parent_node           = &parent_node;
         m_clock_state.nested_next_scheduled = MAX_DT;
         m_clock_state.evaluation_time       = MIN_DT;
-        m_clock_state.is_stopping          = false;
+        m_clock_state.is_stopping           = false;
 
         // Create the nested evaluation engine state (heap-allocated, owned by the engine ops destruct)
         auto *engine_state        = new NestedEvaluationEngineState{};
@@ -233,9 +233,7 @@ namespace hgraph
 
         // Start the child clock from the parent graph's current evaluation time
         // so the nested graph begins on the same engine tick as its owner.
-        if (parent_node.graph() != nullptr) {
-            m_clock_state.evaluation_time = parent_node.graph()->evaluation_time();
-        }
+        if (parent_node.graph() != nullptr) { m_clock_state.evaluation_time = parent_node.graph()->evaluation_time(); }
 
         GraphEvaluationEngine nested_engine{engine_state, &s_nested_engine_ops};
         if (storage.data != nullptr) {
@@ -254,7 +252,7 @@ namespace hgraph
         // Reset the nested clock before restart so new scheduling requests are
         // floored from the current parent tick rather than an old child tick.
         m_clock_state.reset_next_scheduled();
-        m_clock_state.is_stopping = false;
+        m_clock_state.is_stopping     = false;
         m_clock_state.evaluation_time = eval_time;
         m_graph->start();
         m_started = true;
@@ -265,7 +263,6 @@ namespace hgraph
 
         m_clock_state.reset_next_scheduled();
         m_graph->evaluate(eval_time);
-        m_clock_state.reset_next_scheduled();
     }
 
     void ChildGraphInstance::stop(engine_time_t /*eval_time*/) {
@@ -278,7 +275,7 @@ namespace hgraph
         }
         m_clock_state.reset_next_scheduled();
         m_clock_state.is_stopping = false;
-        m_started = false;
+        m_started                 = false;
     }
 
     void ChildGraphInstance::dispose(engine_time_t eval_time) {

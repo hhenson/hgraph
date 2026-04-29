@@ -19,7 +19,7 @@ namespace hgraph
 
     struct ChildGraphTemplateFlags
     {
-        bool has_output : 1 = false;
+        bool has_output : 1       = false;
         bool requires_context : 1 = false;
     };
 
@@ -37,9 +37,9 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT ChildGraphTemplate
     {
-        GraphBuilder graph_builder;
-        BoundaryBindingPlan boundary_plan;
-        std::string default_label;
+        GraphBuilder            graph_builder;
+        BoundaryBindingPlan     boundary_plan;
+        std::string             default_label;
         ChildGraphTemplateFlags flags{};
 
         /**
@@ -48,11 +48,8 @@ namespace hgraph
          * The returned pointer is registry-owned and remains valid until the
          * registry is reset.
          */
-        [[nodiscard]] static const ChildGraphTemplate *create(
-            GraphBuilder graph_builder,
-            BoundaryBindingPlan boundary_plan,
-            std::string label,
-            ChildGraphTemplateFlags flags = {});
+        [[nodiscard]] static const ChildGraphTemplate *create(GraphBuilder graph_builder, BoundaryBindingPlan boundary_plan,
+                                                              std::string label, ChildGraphTemplateFlags flags = {});
     };
 
     /**
@@ -65,20 +62,17 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT ChildGraphTemplateRegistry
     {
-        ChildGraphTemplateRegistry() = default;
-        ChildGraphTemplateRegistry(const ChildGraphTemplateRegistry &) = delete;
+        ChildGraphTemplateRegistry()                                              = default;
+        ChildGraphTemplateRegistry(const ChildGraphTemplateRegistry &)            = delete;
         ChildGraphTemplateRegistry &operator=(const ChildGraphTemplateRegistry &) = delete;
 
         [[nodiscard]] static ChildGraphTemplateRegistry &instance();
 
         [[nodiscard]] const ChildGraphTemplate *register_template(ChildGraphTemplate tmpl);
-        [[nodiscard]] const ChildGraphTemplate *create(
-            GraphBuilder graph_builder,
-            BoundaryBindingPlan boundary_plan,
-            std::string label,
-            ChildGraphTemplateFlags flags = {});
+        [[nodiscard]] const ChildGraphTemplate *create(GraphBuilder graph_builder, BoundaryBindingPlan boundary_plan,
+                                                       std::string label, ChildGraphTemplateFlags flags = {});
 
-        void reset();
+        void                 reset();
         [[nodiscard]] size_t size() const noexcept { return m_templates.size(); }
 
       private:
@@ -87,7 +81,7 @@ namespace hgraph
 
     struct GraphStorageReservation
     {
-        void *data{nullptr};
+        void  *data{nullptr};
         size_t size{0};
         size_t alignment{alignof(std::max_align_t)};
     };
@@ -107,7 +101,7 @@ namespace hgraph
     {
         ChildGraphInstance() = default;
         ~ChildGraphInstance();
-        ChildGraphInstance(const ChildGraphInstance &) = delete;
+        ChildGraphInstance(const ChildGraphInstance &)            = delete;
         ChildGraphInstance &operator=(const ChildGraphInstance &) = delete;
         ChildGraphInstance(ChildGraphInstance &&) noexcept;
         ChildGraphInstance &operator=(ChildGraphInstance &&) noexcept;
@@ -126,10 +120,7 @@ namespace hgraph
          *                     non-negative node ids in the owning graph path.
          * @param label        Instance label (empty = use template default)
          */
-        void initialise(const ChildGraphTemplate &tmpl,
-                        Node &parent_node,
-                        std::vector<int64_t> graph_id,
-                        std::string label = {},
+        void initialise(const ChildGraphTemplate &tmpl, Node &parent_node, std::vector<int64_t> graph_id, std::string label = {},
                         GraphStorageReservation storage = {});
 
         /**
@@ -142,7 +133,8 @@ namespace hgraph
          * 1. Set child clock evaluation_time
          * 2. Evaluate child graph
          * 3. Update last_evaluation_time
-         * 4. Reset nested_next_scheduled for next cycle
+         * 4. Preserve nested_next_scheduled so the owning operator can
+         *    propagate child wake-ups to the parent scheduler.
          */
         void evaluate(engine_time_t eval_time);
 
@@ -161,7 +153,7 @@ namespace hgraph
         [[nodiscard]] engine_time_t next_scheduled_time() const noexcept;
 
         /** Access the underlying graph. */
-        [[nodiscard]] Graph *graph() noexcept;
+        [[nodiscard]] Graph       *graph() noexcept;
         [[nodiscard]] const Graph *graph() const noexcept;
 
         /** The graph_id assigned to this instance. */
@@ -177,14 +169,14 @@ namespace hgraph
         /** Access the boundary plan from the template. */
         [[nodiscard]] const BoundaryBindingPlan &boundary_plan() const;
 
-    private:
+      private:
         const ChildGraphTemplate *m_template{nullptr};
-        std::optional<Graph> m_graph;
-        NestedClockState m_clock_state;
-        std::vector<int64_t> m_graph_id;
-        std::string m_label;
-        bool m_started{false};
-        bool m_disposed{false};
+        std::optional<Graph>      m_graph;
+        NestedClockState          m_clock_state;
+        std::vector<int64_t>      m_graph_id;
+        std::string               m_label;
+        bool                      m_started{false};
+        bool                      m_disposed{false};
     };
 
 }  // namespace hgraph

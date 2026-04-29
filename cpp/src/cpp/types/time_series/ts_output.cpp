@@ -1,11 +1,12 @@
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/value/type_meta_bindings.h>
-#include <hgraph/types/ref.h>
+#include <hgraph/util/scope.h>
 #include <hgraph/util/stack_trace.h>
 #include <hgraph/util/tagged_ptr.h>
-#include <hgraph/util/scope.h>
 
 #include <algorithm>
 #include <memory>
@@ -25,57 +26,50 @@ namespace hgraph
     {
         using TSPath = std::vector<size_t>;
 
-        [[nodiscard]] const char *safe_type_name(const value::TypeMeta *schema) noexcept
-        {
+        [[nodiscard]] const char *safe_type_name(const value::TypeMeta *schema) noexcept {
             return schema != nullptr && schema->name != nullptr ? schema->name : "?";
         }
 
-        [[nodiscard]] std::string schema_debug_name(const TSMeta *schema)
-        {
+        [[nodiscard]] std::string schema_debug_name(const TSMeta *schema) {
             if (schema == nullptr) { return "<null>"; }
 
             switch (schema->kind) {
-                case TSKind::TSValue:
-                    return fmt::format("TS[{}]", safe_type_name(schema->value_type));
+                case TSKind::TSValue: return fmt::format("TS[{}]", safe_type_name(schema->value_type));
                 case TSKind::TSS:
                     return fmt::format("TSS[{}]",
                                        schema->value_type != nullptr ? safe_type_name(schema->value_type->element_type) : "?");
                 case TSKind::TSD:
-                    return fmt::format("TSD[{}, {}]",
-                                       safe_type_name(schema->key_type()),
+                    return fmt::format("TSD[{}, {}]", safe_type_name(schema->key_type()),
                                        schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
                 case TSKind::TSL:
-                    return fmt::format("TSL[{}]",
-                                       schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                    return fmt::format("TSL[{}]", schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
                 case TSKind::TSW:
-                    return fmt::format("TSW[{}]",
-                                       schema->value_type != nullptr && schema->value_type->field_count > 1 &&
-                                               schema->value_type->fields != nullptr &&
-                                               schema->value_type->fields[1].type != nullptr &&
-                                               schema->value_type->fields[1].type->element_type != nullptr
-                                           ? safe_type_name(schema->value_type->fields[1].type->element_type)
-                                           : "?");
+                    return fmt::format("TSW[{}]", schema->value_type != nullptr && schema->value_type->field_count > 1 &&
+                                                          schema->value_type->fields != nullptr &&
+                                                          schema->value_type->fields[1].type != nullptr &&
+                                                          schema->value_type->fields[1].type->element_type != nullptr
+                                                      ? safe_type_name(schema->value_type->fields[1].type->element_type)
+                                                      : "?");
                 case TSKind::TSB:
-                    return fmt::format("TSB[{}]",
-                                       schema->data.tsb.bundle_name != nullptr ? schema->data.tsb.bundle_name : "?");
+                    return fmt::format("TSB[{}]", schema->data.tsb.bundle_name != nullptr ? schema->data.tsb.bundle_name : "?");
                 case TSKind::REF:
-                    return fmt::format("REF[{}]",
-                                       schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
-                case TSKind::SIGNAL:
-                    return "SIGNAL";
+                    return fmt::format("REF[{}]", schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                case TSKind::SIGNAL: return "SIGNAL";
             }
 
             return "<?>";
         }
 
-        [[nodiscard]] nb::object bundle_python_class(const TSMeta *schema)
-        {
+        [[nodiscard]] nb::object bundle_python_class(const TSMeta *schema) {
             if (schema == nullptr || schema->kind != TSKind::TSB || schema->value_type == nullptr) { return nb::none(); }
             return value::get_compound_scalar_class(schema->value_type);
         }
 
-        [[nodiscard]] const TSMeta *ts_bool_schema()
-        {
+        [[nodiscard]] bool callable_python_type(const nb::object &type) noexcept {
+            return type.is_valid() && !type.is_none() && PyCallable_Check(type.ptr());
+        }
+
+        [[nodiscard]] const TSMeta *ts_bool_schema() {
             static const TSMeta *schema = TSTypeRegistry::instance().ts(value::scalar_type_meta<bool>());
             return schema;
         }
@@ -83,25 +77,22 @@ namespace hgraph
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSBState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSDState &state) noexcept { return &state; }
-        [[nodiscard]] BaseState *notification_state_of(const LinkedTSContext &context) noexcept
-        {
+        [[nodiscard]] BaseState               *notification_state_of(const LinkedTSContext &context) noexcept {
             return context.notification_state != nullptr ? context.notification_state : context.ts_state;
         }
 
-        [[nodiscard]] TSOutputView output_view_from_context(const LinkedTSContext &context, engine_time_t evaluation_time)
-        {
-            TSViewContext view_context{
-                TSContext{
-                    context.schema,
-                    context.value_dispatch,
-                    context.ts_dispatch,
-                    context.value_data,
-                    context.ts_state,
-                    context.owning_output,
-                    context.output_view_ops,
-                    context.notification_state,
-                    context.pending_dict_child,
-                }};
+        [[nodiscard]] TSOutputView output_view_from_context(const LinkedTSContext &context, engine_time_t evaluation_time) {
+            TSViewContext view_context{TSContext{
+                context.schema,
+                context.value_dispatch,
+                context.ts_dispatch,
+                context.value_data,
+                context.ts_state,
+                context.owning_output,
+                context.output_view_ops,
+                context.notification_state,
+                context.pending_dict_child,
+            }};
             return TSOutputView{
                 view_context,
                 TSViewContext::none(),
@@ -111,8 +102,7 @@ namespace hgraph
             };
         }
 
-        [[nodiscard]] TSOutputView output_view_from_context(const TSViewContext &context, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView output_view_from_context(const TSViewContext &context, engine_time_t evaluation_time) {
             return TSOutputView{
                 context,
                 TSViewContext::none(),
@@ -123,19 +113,17 @@ namespace hgraph
         }
 
         [[nodiscard]] TSOutputView pending_dict_parent_output_view(const PendingDictChildContext &context,
-                                                                   engine_time_t evaluation_time)
-        {
-            TSViewContext view_context{
-                TSContext{
-                    context.parent_schema,
-                    context.parent_value_dispatch,
-                    context.parent_ts_dispatch,
-                    context.parent_value_data,
-                    context.parent_ts_state,
-                    context.parent_owning_output,
-                    context.parent_output_view_ops,
-                    context.parent_notification_state != nullptr ? context.parent_notification_state : context.parent_ts_state,
-                }};
+                                                                   engine_time_t                  evaluation_time) {
+            TSViewContext view_context{TSContext{
+                context.parent_schema,
+                context.parent_value_dispatch,
+                context.parent_ts_dispatch,
+                context.parent_value_data,
+                context.parent_ts_state,
+                context.parent_owning_output,
+                context.parent_output_view_ops,
+                context.parent_notification_state != nullptr ? context.parent_notification_state : context.parent_ts_state,
+            }};
             return TSOutputView{
                 view_context,
                 TSViewContext::none(),
@@ -145,45 +133,36 @@ namespace hgraph
             };
         }
 
-        [[nodiscard]] nb::object removed_type()
-        {
+        [[nodiscard]] nb::object removed_type() {
             static nb::object type = nb::module_::import_("hgraph").attr("Removed");
             return nb::borrow(type);
         }
 
-        [[nodiscard]] nb::object remove_sentinel()
-        {
+        [[nodiscard]] nb::object remove_sentinel() {
             static nb::object value = nb::module_::import_("hgraph").attr("REMOVE");
             return nb::borrow(value);
         }
 
-        [[nodiscard]] nb::object remove_if_exists_sentinel()
-        {
+        [[nodiscard]] nb::object remove_if_exists_sentinel() {
             static nb::object value = nb::module_::import_("hgraph").attr("REMOVE_IF_EXISTS");
             return nb::borrow(value);
         }
 
-        [[nodiscard]] nb::object set_delta_builder()
-        {
+        [[nodiscard]] nb::object set_delta_builder() {
             static nb::object fn = nb::module_::import_("hgraph").attr("set_delta");
             return nb::borrow(fn);
         }
 
-        [[nodiscard]] Value ts_nested_value_from_python(const value::TypeMeta &schema, const nb::handle &value)
-        {
+        [[nodiscard]] Value ts_nested_value_from_python(const value::TypeMeta &schema, const nb::handle &value) {
             Value nested_value(schema, MutationTracking::Plain);
             nested_value.reset();
             nested_value.from_python(nb::borrow<nb::object>(value));
             return nested_value;
         }
 
-        [[nodiscard]] Value ts_nested_clone(const View &value)
-        {
-            return value.clone(MutationTracking::Plain);
-        }
+        [[nodiscard]] Value ts_nested_clone(const View &value) { return value.clone(MutationTracking::Plain); }
 
-        [[nodiscard]] bool tsd_key_is_live(const TSOutputView &view, const View &key)
-        {
+        [[nodiscard]] bool tsd_key_is_live(const TSOutputView &view, const View &key) {
             const MapView map_view = view.value().as_map();
             if (key.schema() != map_view.key_schema()) { return false; }
 
@@ -194,37 +173,32 @@ namespace hgraph
             return slot < delta.slot_capacity() && delta.slot_occupied(slot) && !delta.slot_removed(slot);
         }
 
-        [[nodiscard]] bool context_valid(const TSViewContext &context) noexcept
-        {
+        [[nodiscard]] bool context_valid(const TSViewContext &context) noexcept {
             if (context.ts_state == nullptr) { return context.value().has_value(); }
             const auto *dispatch = context.resolved().ts_dispatch;
             return dispatch != nullptr ? dispatch->valid(context) : false;
         }
 
-        [[nodiscard]] bool context_modified(const TSViewContext &context, engine_time_t evaluation_time) noexcept
-        {
+        [[nodiscard]] bool context_modified(const TSViewContext &context, engine_time_t evaluation_time) noexcept {
             if (evaluation_time == MIN_DT) { return false; }
 
             const TSViewContext resolved = context.resolved();
-            const auto *dispatch = resolved.ts_dispatch;
+            const auto         *dispatch = resolved.ts_dispatch;
             const engine_time_t last_modified =
                 dispatch != nullptr ? dispatch->last_modified_time(resolved)
                                     : (resolved.ts_state != nullptr ? resolved.ts_state->last_modified_time : MIN_DT);
             return last_modified == evaluation_time;
         }
 
-        [[nodiscard]] TSViewContext detached_context(const TSViewContext &context) noexcept
-        {
+        [[nodiscard]] TSViewContext detached_context(const TSViewContext &context) noexcept {
             TSViewContext detached = context.resolved();
-            detached.ts_state = nullptr;
+            detached.ts_state      = nullptr;
             return detached;
         }
 
-        [[nodiscard]] TSViewContext dict_slot_context(const TSViewContext &context, size_t slot)
-        {
-            const auto *collection = context.resolved().ts_dispatch != nullptr
-                                         ? context.resolved().ts_dispatch->as_collection()
-                                         : nullptr;
+        [[nodiscard]] TSViewContext dict_slot_context(const TSViewContext &context, size_t slot) {
+            const auto *collection =
+                context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
             const auto *dispatch = collection != nullptr ? collection->as_keys() : nullptr;
             if (dispatch == nullptr) { return TSViewContext::none(); }
 
@@ -233,71 +207,66 @@ namespace hgraph
             return dispatch->child_at(detached_context(context), slot);
         }
 
-        [[nodiscard]] TSOutputView ensure_tsd_child_view(const TSOutputView &view, const View &key)
-        {
+        [[nodiscard]] TSOutputView ensure_tsd_child_view(const TSOutputView &view, const View &key) {
             TSOutputView child_view = view.as_dict().at(key);
             if (child_view.context_ref().ts_state != nullptr || child_view.context_ref().is_bound()) { return child_view; }
 
             BaseState *state = view.context_ref().ts_state != nullptr ? view.context_ref().ts_state->resolved_state() : nullptr;
             if (state == nullptr || state->storage_kind != TSStorageKind::Native) { return child_view; }
 
-            auto *dict_state = static_cast<TSDState *>(state);
-            const size_t slot = view.value().as_map().find_slot(key);
+            auto        *dict_state = static_cast<TSDState *>(state);
+            const size_t slot       = view.value().as_map().find_slot(key);
             if (slot == static_cast<size_t>(-1)) { return child_view; }
 
             dict_state->on_insert(slot);
             child_view = view.as_dict().at(key);
             if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr &&
-                !(child_view.context_ref().ts_state != nullptr || child_view.context_ref().is_bound() || child_view.value().has_value())) {
+                !(child_view.context_ref().ts_state != nullptr || child_view.context_ref().is_bound() ||
+                  child_view.value().has_value())) {
                 std::fprintf(stderr,
-                             "ensure_tsd_child_view key=%s slot=%zu root_state=%p root_storage=%d resolved_state=%p child_state=%p child_bound=%d child_has_value=%d child_schema_kind=%d\n",
-                             key.to_string().c_str(),
-                             slot,
-                             static_cast<void *>(view.context_ref().ts_state),
-                             view.context_ref().ts_state != nullptr ? static_cast<int>(view.context_ref().ts_state->storage_kind) : -1,
-                             static_cast<void *>(state),
-                             static_cast<void *>(child_view.context_ref().ts_state),
-                             child_view.context_ref().is_bound(),
-                             child_view.value().has_value(),
+                             "ensure_tsd_child_view key=%s slot=%zu root_state=%p root_storage=%d resolved_state=%p child_state=%p "
+                             "child_bound=%d child_has_value=%d child_schema_kind=%d\n",
+                             key.to_string().c_str(), slot, static_cast<void *>(view.context_ref().ts_state),
+                             view.context_ref().ts_state != nullptr ? static_cast<int>(view.context_ref().ts_state->storage_kind)
+                                                                    : -1,
+                             static_cast<void *>(state), static_cast<void *>(child_view.context_ref().ts_state),
+                             child_view.context_ref().is_bound(), child_view.value().has_value(),
                              child_view.ts_schema() != nullptr ? static_cast<int>(child_view.ts_schema()->kind) : -1);
                 std::fflush(stderr);
             }
             return child_view;
         }
 
-        [[nodiscard]] bool child_view_materialized(const TSOutputView &view) noexcept
-        {
+        [[nodiscard]] bool child_view_materialized(const TSOutputView &view) noexcept {
             return view.context_ref().ts_state != nullptr || view.context_ref().is_bound() || view.value().has_value();
         }
 
-        void debug_unmaterialized_dict_child(const TSOutputView &parent, const TSOutputView &child, const View &key, const char *label)
-        {
+        void debug_unmaterialized_dict_child(const TSOutputView &parent, const TSOutputView &child, const View &key,
+                                             const char *label) {
             if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") == nullptr) { return; }
 
-            BaseState *parent_state = parent.context_ref().ts_state;
+            BaseState *parent_state          = parent.context_ref().ts_state;
             BaseState *resolved_parent_state = parent_state != nullptr ? parent_state->resolved_state() : nullptr;
-            std::fprintf(stderr,
-                         "%s key=%s parent_kind=%d parent_state=%p parent_storage=%d resolved_parent=%p resolved_storage=%d child_kind=%d child_state=%p child_bound=%d child_has_value=%d\n",
-                         label,
-                         key.to_string().c_str(),
-                         parent.ts_schema() != nullptr ? static_cast<int>(parent.ts_schema()->kind) : -1,
-                         static_cast<void *>(parent_state),
-                         parent_state != nullptr ? static_cast<int>(parent_state->storage_kind) : -1,
-                         static_cast<void *>(resolved_parent_state),
-                         resolved_parent_state != nullptr ? static_cast<int>(resolved_parent_state->storage_kind) : -1,
-                         child.ts_schema() != nullptr ? static_cast<int>(child.ts_schema()->kind) : -1,
-                         static_cast<void *>(child.context_ref().ts_state),
-                         child.context_ref().is_bound(),
-                         child.value().has_value());
+            std::fprintf(
+                stderr,
+                "%s key=%s parent_kind=%d parent_state=%p parent_storage=%d resolved_parent=%p resolved_storage=%d child_kind=%d "
+                "child_state=%p child_bound=%d child_has_value=%d\n",
+                label, key.to_string().c_str(), parent.ts_schema() != nullptr ? static_cast<int>(parent.ts_schema()->kind) : -1,
+                static_cast<void *>(parent_state), parent_state != nullptr ? static_cast<int>(parent_state->storage_kind) : -1,
+                static_cast<void *>(resolved_parent_state),
+                resolved_parent_state != nullptr ? static_cast<int>(resolved_parent_state->storage_kind) : -1,
+                child.ts_schema() != nullptr ? static_cast<int>(child.ts_schema()->kind) : -1,
+                static_cast<void *>(child.context_ref().ts_state), child.context_ref().is_bound(), child.value().has_value());
             std::fflush(stderr);
         }
 
-        [[nodiscard]] TimeSeriesStateV *owning_state_variant(BaseState *state, TSOutput *root_output) noexcept
-        {
+        [[nodiscard]] TimeSeriesStateV *owning_state_variant(BaseState *state, TSOutput *root_output) noexcept {
             if (state == nullptr) { return nullptr; }
             if (root_output != nullptr) {
                 auto &root_state = root_output->root_state_variant();
-                if (std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, root_state) == state) { return &root_state; }
+                if (std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, root_state) == state) {
+                    return &root_state;
+                }
             }
 
             TimeSeriesStateV *slot = nullptr;
@@ -307,9 +276,10 @@ namespace hgraph
                     using T = std::remove_pointer_t<decltype(parent)>;
                     if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState> ||
                                   std::same_as<T, SignalState>) {
-                        if (parent != nullptr && state->index < parent->child_states.size() && parent->child_states[state->index] != nullptr &&
-                            std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, *parent->child_states[state->index]) ==
-                                state) {
+                        if (parent != nullptr && state->index < parent->child_states.size() &&
+                            parent->child_states[state->index] != nullptr &&
+                            std::visit([](auto &typed_state) -> BaseState * { return &typed_state; },
+                                       *parent->child_states[state->index]) == state) {
                             slot = parent->child_states[state->index].get();
                         }
                     }
@@ -325,13 +295,12 @@ namespace hgraph
         [[nodiscard]] nb::object to_python_impl(const TSViewContext &context, engine_time_t evaluation_time);
         [[nodiscard]] nb::object delta_to_python_impl(const TSViewContext &context, engine_time_t evaluation_time);
 
-        [[nodiscard]] nb::object reference_to_python(const TSViewContext &context, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] nb::object reference_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
             BaseState *state = context.ts_state;
             if (state != nullptr) {
                 if (const LinkedTSContext *target = state->linked_target(); target != nullptr && target->is_bound()) {
-                    TSOutputView target_view = output_view_from_context(*target, evaluation_time);
-                    const View target_value = target_view.value();
+                    TSOutputView target_view  = output_view_from_context(*target, evaluation_time);
+                    const View   target_value = target_view.value();
                     if (target_value.has_value()) {
                         if (const auto *ref = target_value.as_atomic().try_as<TimeSeriesReference>()) { return nb::cast(*ref); }
                     }
@@ -347,82 +316,69 @@ namespace hgraph
             return nb::cast(TimeSeriesReference::make());
         }
 
-        [[nodiscard]] nb::object bundle_to_python(const TSViewContext &context, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] nb::object bundle_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
             const TSMeta *schema = context.resolved().schema;
             if (schema == nullptr || schema->kind != TSKind::TSB) { return nb::none(); }
 
-            nb::object python_type = bundle_python_class(schema);
+            nb::object python_type  = bundle_python_class(schema);
             const bool debug_bundle = std::getenv("HGRAPH_DEBUG_BUNDLE_TO_PY") != nullptr;
             if (!context_valid(context)) {
-                if (python_type.is_valid() && !python_type.is_none()) {
+                if (callable_python_type(python_type)) {
                     nb::dict kwargs;
-                    for (size_t i = 0; i < schema->field_count(); ++i) {
-                        kwargs[nb::str(schema->fields()[i].name)] = nb::none();
-                    }
+                    for (size_t i = 0; i < schema->field_count(); ++i) { kwargs[nb::str(schema->fields()[i].name)] = nb::none(); }
                     return python_type(**kwargs);
                 }
                 return nb::dict();
             }
 
-            if (python_type.is_valid() && !python_type.is_none()) {
+            if (callable_python_type(python_type)) {
                 nb::dict kwargs;
                 for (size_t i = 0; i < schema->field_count(); ++i) {
                     const auto &field_info = schema->fields()[i];
-                    const auto *dispatch = context.resolved().ts_dispatch != nullptr
-                                               ? context.resolved().ts_dispatch->as_collection()
-                                               : nullptr;
-                    const auto *field_dispatch = dispatch != nullptr ? dispatch->as_fields() : nullptr;
+                    const auto *dispatch =
+                        context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
+                    const auto         *field_dispatch = dispatch != nullptr ? dispatch->as_fields() : nullptr;
                     const TSViewContext child =
                         field_dispatch != nullptr ? field_dispatch->child_at(context, i) : TSViewContext::none();
-                    kwargs[nb::str(field_info.name)] =
-                        context_valid(child) ? to_python_impl(child, evaluation_time) : nb::none();
+                    kwargs[nb::str(field_info.name)] = context_valid(child) ? to_python_impl(child, evaluation_time) : nb::none();
                     if (debug_bundle && !context.value().has_value()) {
                         std::fprintf(stderr,
-                                     "bundle_to_python schema=%s field=%s child_schema_kind=%d child_valid=%d child_bound=%d child_has_value=%d\n",
-                                     schema_debug_name(schema).c_str(),
-                                     field_info.name,
+                                     "bundle_to_python schema=%s field=%s child_schema_kind=%d child_valid=%d child_bound=%d "
+                                     "child_has_value=%d\n",
+                                     schema_debug_name(schema).c_str(), field_info.name,
                                      child.resolved().schema != nullptr ? static_cast<int>(child.resolved().schema->kind) : -1,
-                                     context_valid(child),
-                                     child.is_bound(),
-                                     child.value().has_value());
+                                     context_valid(child), child.is_bound(), child.value().has_value());
                     }
                 }
                 if (debug_bundle && !context.value().has_value()) {
-                    std::fprintf(stderr,
-                                 "bundle_to_python schema=%s root_valid=%d root_bound=%d root_has_value=%d\n",
-                                 schema_debug_name(schema).c_str(),
-                                 context_valid(context),
-                                 context.is_bound(),
+                    std::fprintf(stderr, "bundle_to_python schema=%s root_valid=%d root_bound=%d root_has_value=%d\n",
+                                 schema_debug_name(schema).c_str(), context_valid(context), context.is_bound(),
                                  context.value().has_value());
                 }
                 return python_type(**kwargs);
             }
 
-            nb::dict out;
-            const auto *dispatch = context.resolved().ts_dispatch != nullptr
-                                       ? context.resolved().ts_dispatch->as_collection()
-                                       : nullptr;
+            nb::dict    out;
+            const auto *dispatch =
+                context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
             const auto *field_dispatch = dispatch != nullptr ? dispatch->as_fields() : nullptr;
             if (field_dispatch == nullptr) { return out; }
 
             for (size_t i = 0; i < schema->field_count(); ++i) {
                 const TSViewContext child = field_dispatch->child_at(context, i);
                 if (!context_valid(child)) { continue; }
-                const auto &field_info = schema->fields()[i];
+                const auto &field_info        = schema->fields()[i];
                 out[nb::str(field_info.name)] = to_python_impl(child, evaluation_time);
             }
             return out;
         }
 
-        [[nodiscard]] nb::object bundle_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] nb::object bundle_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
             const TSMeta *schema = context.resolved().schema;
-            const auto *dispatch = context.resolved().ts_dispatch != nullptr
-                                       ? context.resolved().ts_dispatch->as_collection()
-                                       : nullptr;
+            const auto   *dispatch =
+                context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
             const auto *field_dispatch = dispatch != nullptr ? dispatch->as_fields() : nullptr;
-            nb::dict out;
+            nb::dict    out;
             if (schema == nullptr || schema->kind != TSKind::TSB || field_dispatch == nullptr || !context.value().has_value()) {
                 return out;
             }
@@ -431,21 +387,18 @@ namespace hgraph
                 const TSViewContext child = field_dispatch->child_at(context, i);
                 if (!context_modified(child, evaluation_time)) { continue; }
                 if (!context_valid(child)) { continue; }
-                const auto &field_info = schema->fields()[i];
+                const auto &field_info        = schema->fields()[i];
                 out[nb::str(field_info.name)] = delta_to_python_impl(child, evaluation_time);
             }
             if (out.empty()) { return nb::none(); }
             return std::move(out);
         }
 
-        [[nodiscard]] nb::object list_to_python(const TSViewContext &context, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] nb::object list_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
             const TSMeta *schema = context.resolved().schema;
-            const auto *dispatch = context.resolved().ts_dispatch != nullptr
-                                       ? context.resolved().ts_dispatch->as_collection()
-                                       : nullptr;
-            const size_t size =
-                dispatch != nullptr ? dispatch->size(context) : (schema != nullptr ? schema->fixed_size() : 0);
+            const auto   *dispatch =
+                context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
+            const size_t size = dispatch != nullptr ? dispatch->size(context) : (schema != nullptr ? schema->fixed_size() : 0);
 
             nb::list out;
             if (dispatch == nullptr || !context_valid(context)) {
@@ -460,20 +413,17 @@ namespace hgraph
             return nb::tuple(out);
         }
 
-        [[nodiscard]] nb::object list_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] nb::object list_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
             if (!context.value().has_value()) { return nb::dict(); }
 
             if (const BaseState *state = context.ts_state; state != nullptr && state->storage_kind != TSStorageKind::Native) {
                 if (const LinkedTSContext *target = state->linked_target();
-                    target != nullptr && target->ts_state != nullptr &&
-                    target->ts_state->resolved_state() != nullptr &&
+                    target != nullptr && target->ts_state != nullptr && target->ts_state->resolved_state() != nullptr &&
                     target->ts_state->resolved_state()->storage_kind == TSStorageKind::Native) {
-                    nb::dict out;
+                    nb::dict    out;
                     const auto *target_state = static_cast<const TSLState *>(target->ts_state->resolved_state());
-                    const auto *dispatch = context.resolved().ts_dispatch != nullptr
-                                               ? context.resolved().ts_dispatch->as_collection()
-                                               : nullptr;
+                    const auto *dispatch =
+                        context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
                     if (dispatch == nullptr) { return out; }
 
                     for (const size_t slot : target_state->modified_children) {
@@ -486,32 +436,28 @@ namespace hgraph
                 }
             }
 
-            nb::dict out;
-            const auto *dispatch = context.resolved().ts_dispatch != nullptr
-                                       ? context.resolved().ts_dispatch->as_collection()
-                                       : nullptr;
+            nb::dict    out;
+            const auto *dispatch =
+                context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
             if (dispatch == nullptr) { return out; }
 
             for (size_t i = 0, size = dispatch->size(context); i < size; ++i) {
                 if (!dispatch->child_modified(context, i)) { continue; }
                 const TSViewContext child = dispatch->child_at(context, i);
-                out[nb::int_(i)] = delta_to_python_impl(child, evaluation_time);
+                out[nb::int_(i)]          = delta_to_python_impl(child, evaluation_time);
             }
             if (out.empty()) { return nb::none(); }
             return std::move(out);
         }
 
-        [[nodiscard]] nb::object dict_to_python(const TSViewContext &context, engine_time_t evaluation_time)
-        {
-            nb::dict out;
-            const TSViewContext resolved = context.resolved();
-            const TSViewContext &effective = resolved.is_bound() ? resolved : context;
-            const auto *dispatch = effective.ts_dispatch != nullptr
-                                       ? effective.ts_dispatch->as_collection()
-                                       : nullptr;
-            const auto *key_dispatch = dispatch != nullptr ? dispatch->as_keys() : nullptr;
+        [[nodiscard]] nb::object dict_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
+            nb::dict             out;
+            const TSViewContext  resolved     = context.resolved();
+            const TSViewContext &effective    = resolved.is_bound() ? resolved : context;
+            const auto          *dispatch     = effective.ts_dispatch != nullptr ? effective.ts_dispatch->as_collection() : nullptr;
+            const auto          *key_dispatch = dispatch != nullptr ? dispatch->as_keys() : nullptr;
             if (key_dispatch == nullptr || !context_valid(context)) { return out; }
-            const bool debug_dict = std::getenv("HGRAPH_DEBUG_DICT_TO_PY") != nullptr;
+            const bool debug_dict                      = std::getenv("HGRAPH_DEBUG_DICT_TO_PY") != nullptr;
             const bool can_materialize_output_children = effective.owning_output != nullptr || effective.output_view_ops != nullptr;
             const TSOutputView output_view =
                 can_materialize_output_children ? output_view_from_context(effective, evaluation_time) : TSOutputView{};
@@ -519,13 +465,13 @@ namespace hgraph
             const size_t limit = key_dispatch->iteration_limit(effective);
             for (size_t slot = 0; slot < limit; ++slot) {
                 if (!key_dispatch->slot_is_live(effective, slot)) { continue; }
-                const View key = key_dispatch->key_at_slot(effective, slot);
-                TSOutputView child_view;
+                const View    key = key_dispatch->key_at_slot(effective, slot);
+                TSOutputView  child_view;
                 TSViewContext child;
-                nb::object child_value;
+                nb::object    child_value;
                 if (can_materialize_output_children) {
                     child_view = ensure_tsd_child_view(output_view, key);
-                    child = child_view.context_ref();
+                    child      = child_view.context_ref();
                     if (!child_view.valid()) { continue; }
                     child_value = child_view.to_python();
                 } else {
@@ -536,75 +482,69 @@ namespace hgraph
                 if (debug_dict) {
                     const TSViewContext resolved_child = child.resolved();
                     std::fprintf(stderr,
-                                 "dict_to_python key=%s child_schema_kind=%d child_valid=%d child_bound=%d child_has_value=%d child_py_none=%d\n",
+                                 "dict_to_python key=%s child_schema_kind=%d child_valid=%d child_bound=%d child_has_value=%d "
+                                 "child_py_none=%d\n",
                                  nb::str(key.to_python()).c_str(),
                                  resolved_child.schema != nullptr ? static_cast<int>(resolved_child.schema->kind) : -1,
-                                 can_materialize_output_children ? child_view.valid() : context_valid(child),
-                                 child.is_bound(),
-                                 child.value().has_value(),
-                                 child_value.is_none());
+                                 can_materialize_output_children ? child_view.valid() : context_valid(child), child.is_bound(),
+                                 child.value().has_value(), child_value.is_none());
                 }
                 out[key.to_python()] = std::move(child_value);
             }
             return out;
         }
 
-        [[nodiscard]] nb::object dict_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time)
-        {
-            nb::dict out;
-            const TSViewContext resolved = context.resolved();
-            const TSViewContext &effective = resolved.is_bound() ? resolved : context;
-            const auto *dispatch = effective.ts_dispatch != nullptr
-                                       ? effective.ts_dispatch->as_collection()
-                                       : nullptr;
-            const auto *key_dispatch = dispatch != nullptr ? dispatch->as_keys() : nullptr;
+        [[nodiscard]] nb::object dict_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
+            nb::dict             out;
+            const TSViewContext  resolved     = context.resolved();
+            const TSViewContext &effective    = resolved.is_bound() ? resolved : context;
+            const auto          *dispatch     = effective.ts_dispatch != nullptr ? effective.ts_dispatch->as_collection() : nullptr;
+            const auto          *key_dispatch = dispatch != nullptr ? dispatch->as_keys() : nullptr;
             if (key_dispatch == nullptr) { return nb::none(); }
             const bool can_materialize_output_children = effective.owning_output != nullptr || effective.output_view_ops != nullptr;
             const TSOutputView output_view =
                 can_materialize_output_children ? output_view_from_context(effective, evaluation_time) : TSOutputView{};
 
-            const auto *ts_dispatch = effective.ts_dispatch;
+            const auto         *ts_dispatch        = effective.ts_dispatch;
             const engine_time_t last_modified_time = ts_dispatch != nullptr ? ts_dispatch->last_modified_time(effective) : MIN_DT;
-            const bool debug_delta = std::getenv("HGRAPH_DEBUG_DICT_DELTA") != nullptr;
-            View current_view = effective.value();
+            const bool          debug_delta        = std::getenv("HGRAPH_DEBUG_DICT_DELTA") != nullptr;
+            View                current_view       = effective.value();
             if (!current_view.has_value()) {
                 if (TSDState *state = resolved.ts_state != nullptr && resolved.ts_state->storage_kind == TSStorageKind::Native
                                           ? static_cast<TSDState *>(resolved.ts_state)
                                           : nullptr;
                     state != nullptr && state->map_dispatch != nullptr && state->map_value_data != nullptr) {
-                    current_view =
-                        View{state->map_dispatch, state->map_value_data, resolved.schema != nullptr ? resolved.schema->value_type : nullptr};
+                    current_view = View{state->map_dispatch, state->map_value_data,
+                                        resolved.schema != nullptr ? resolved.schema->value_type : nullptr};
                 }
             }
             const auto serialize_child_delta = [&](const TSViewContext &child) -> nb::object {
                 return delta_to_python_impl(child, evaluation_time);
             };
             if (!current_view.has_value()) {
-                const engine_time_t resolved_last_modified = resolved.ts_state != nullptr ? resolved.ts_state->last_modified_time : MIN_DT;
+                const engine_time_t resolved_last_modified =
+                    resolved.ts_state != nullptr ? resolved.ts_state->last_modified_time : MIN_DT;
                 return (resolved_last_modified == evaluation_time && context_valid(context)) ? nb::object{std::move(out)}
-                                                                                            : nb::none();
+                                                                                             : nb::none();
             }
-            const auto current = current_view.as_map();
+            const auto current                 = current_view.as_map();
             const auto serialize_current_value = [&](const View &key) -> nb::object {
                 if (can_materialize_output_children) { return ensure_tsd_child_view(output_view, key).to_python(); }
                 return current.at(key).to_python();
             };
             if (const auto snapshot = detail::transition_snapshot(context);
-                snapshot.active() && snapshot.modified_time == evaluation_time &&
-                snapshot.previous_value->schema() != nullptr &&
+                snapshot.active() && snapshot.modified_time == evaluation_time && snapshot.previous_value->schema() != nullptr &&
                 snapshot.previous_value->schema()->kind == value::TypeKind::Map) {
-                const auto previous = snapshot.previous_value->view().as_map();
-                constexpr size_t no_slot = static_cast<size_t>(-1);
+                const auto       previous = snapshot.previous_value->view().as_map();
+                constexpr size_t no_slot  = static_cast<size_t>(-1);
 
                 for (size_t slot = current.first_live_slot(); slot != no_slot; slot = current.next_live_slot(slot)) {
-                    const View key = current.delta().key_at_slot(slot);
+                    const View key           = current.delta().key_at_slot(slot);
                     const View current_value = current.at(key);
                     if (!previous.contains(key) || previous.at(key) != current_value) {
                         nb::object child_value = serialize_current_value(key);
                         if (debug_delta) {
-                            std::fprintf(stderr,
-                                         "dict_delta snapshot key=%s child_py_none=%d\n",
-                                         nb::str(key.to_python()).c_str(),
+                            std::fprintf(stderr, "dict_delta snapshot key=%s child_py_none=%d\n", nb::str(key.to_python()).c_str(),
                                          child_value.is_none());
                         }
                         out[key.to_python()] = std::move(child_value);
@@ -622,10 +562,10 @@ namespace hgraph
                 return out.empty() ? nb::none() : nb::object{std::move(out)};
             }
 
-            const View delta_view =
-                ts_dispatch != nullptr ? ts_dispatch->delta_value(effective)
-                                       : View::invalid_for(effective.schema != nullptr ? effective.schema->value_type : nullptr);
-            MapDeltaView delta = delta_view.as_map().delta();
+            const View   delta_view = ts_dispatch != nullptr
+                                          ? ts_dispatch->delta_value(effective)
+                                          : View::invalid_for(effective.schema != nullptr ? effective.schema->value_type : nullptr);
+            MapDeltaView delta      = delta_view.as_map().delta();
             for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
                 if (!delta.slot_occupied(slot)) { continue; }
 
@@ -642,11 +582,11 @@ namespace hgraph
                     continue;
                 }
 
-                TSOutputView child_view;
+                TSOutputView  child_view;
                 TSViewContext child;
                 if (can_materialize_output_children) {
                     child_view = ensure_tsd_child_view(output_view, key);
-                    child = child_view.context_ref();
+                    child      = child_view.context_ref();
                 } else {
                     child = dict_slot_context(effective, slot);
                 }
@@ -658,23 +598,20 @@ namespace hgraph
                 }
             }
 
-            if (out.empty() && last_modified_time == evaluation_time && context_valid(context) &&
-                current_view.as_map().empty()) {
+            if (out.empty() && last_modified_time == evaluation_time && context_valid(context) && current_view.as_map().empty()) {
                 return nb::object{std::move(out)};
             }
             return out.empty() ? nb::none() : nb::object{std::move(out)};
         }
 
-        [[nodiscard]] nb::object set_to_python(const TSViewContext &context)
-        {
+        [[nodiscard]] nb::object set_to_python(const TSViewContext &context) {
             const View value = context.value();
             return value.has_value() ? value.to_python() : nb::set();
         }
 
-        [[nodiscard]] nb::object set_delta_to_python(const TSViewContext &context)
-        {
-            nb::list added_values;
-            nb::list removed_values;
+        [[nodiscard]] nb::object set_delta_to_python(const TSViewContext &context) {
+            nb::list    added_values;
+            nb::list    removed_values;
             const auto *dispatch = context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_set() : nullptr;
             if (dispatch != nullptr) {
                 for (const View &item : dispatch->added_values(context)) { added_values.append(item.to_python()); }
@@ -683,34 +620,29 @@ namespace hgraph
             return set_delta_builder()(added_values, removed_values);
         }
 
-        [[nodiscard]] nb::object leaf_to_python(const TSViewContext &context)
-        {
+        [[nodiscard]] nb::object leaf_to_python(const TSViewContext &context) {
             const View value = context.value();
             return value.has_value() ? value.to_python() : nb::none();
         }
 
-        [[nodiscard]] nb::object leaf_delta_to_python(const TSViewContext &context)
-        {
-            const auto *dispatch = context.resolved().ts_dispatch;
+        [[nodiscard]] nb::object leaf_delta_to_python(const TSViewContext &context) {
+            const auto *dispatch     = context.resolved().ts_dispatch;
             const auto *value_schema = context.resolved().schema != nullptr ? context.resolved().schema->value_type : nullptr;
-            const View value = dispatch != nullptr ? dispatch->delta_value(context) : View::invalid_for(value_schema);
+            const View  value        = dispatch != nullptr ? dispatch->delta_value(context) : View::invalid_for(value_schema);
             return value.has_value() ? value.to_python() : nb::none();
         }
 
-        [[nodiscard]] nb::object to_python_impl(const TSViewContext &context, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] nb::object to_python_impl(const TSViewContext &context, engine_time_t evaluation_time) {
             const auto *dispatch = context.resolved().ts_dispatch;
             return dispatch != nullptr ? dispatch->to_python(context, evaluation_time) : leaf_to_python(context);
         }
 
-        [[nodiscard]] nb::object delta_to_python_impl(const TSViewContext &context, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] nb::object delta_to_python_impl(const TSViewContext &context, engine_time_t evaluation_time) {
             const auto *dispatch = context.resolved().ts_dispatch;
             return dispatch != nullptr ? dispatch->delta_to_python(context, evaluation_time) : leaf_delta_to_python(context);
         }
 
-        void bundle_from_python(const TSOutputView &view, nb::handle value)
-        {
+        void bundle_from_python(const TSOutputView &view, nb::handle value) {
             const TSMeta *schema = view.ts_schema();
             if (schema == nullptr || schema->kind != TSKind::TSB) {
                 throw std::logic_error("TSOutputView bundle mutation requires a TSB schema");
@@ -720,7 +652,7 @@ namespace hgraph
             if (python_type.is_valid() && !python_type.is_none() && nb::isinstance(value, python_type)) {
                 for (size_t i = 0; i < schema->field_count(); ++i) {
                     const std::string_view field_name = schema->fields()[i].name;
-                    nb::object attr = nb::getattr(value, field_name.data(), nb::none());
+                    nb::object             attr       = nb::getattr(value, field_name.data(), nb::none());
                     if (!attr.is_none()) { view.as_bundle().field(field_name).from_python(attr); }
                 }
                 return;
@@ -733,8 +665,7 @@ namespace hgraph
             }
         }
 
-        void list_from_python(const TSOutputView &view, nb::handle value)
-        {
+        void list_from_python(const TSOutputView &view, nb::handle value) {
             const TSMeta *schema = view.ts_schema();
             if (schema == nullptr || schema->kind != TSKind::TSL) {
                 throw std::logic_error("TSOutputView list mutation requires a TSL schema");
@@ -744,8 +675,7 @@ namespace hgraph
             if (nb::isinstance<nb::tuple>(value) || nb::isinstance<nb::list>(value)) {
                 const size_t size = nb::len(value);
                 if (schema->fixed_size() != 0 && size != schema->fixed_size()) {
-                    throw nb::value_error(
-                        fmt::format("Expected {} elements, got {}", schema->fixed_size(), size).c_str());
+                    throw nb::value_error(fmt::format("Expected {} elements, got {}", schema->fixed_size(), size).c_str());
                 }
                 for (size_t i = 0; i < size; ++i) {
                     nb::object item = nb::borrow<nb::object>(value[i]);
@@ -765,16 +695,15 @@ namespace hgraph
             throw std::runtime_error("Invalid value type for TSOutputView list mutation");
         }
 
-        void dict_from_python(const TSOutputView &view, nb::handle value)
-        {
+        void dict_from_python(const TSOutputView &view, nb::handle value) {
             const TSMeta *schema = view.ts_schema();
             if (schema == nullptr || schema->kind != TSKind::TSD) {
                 throw std::logic_error("TSOutputView dict mutation requires a TSD schema");
             }
 
-            const value::TypeMeta *key_schema = schema->key_type();
-            const TSMeta *value_ts_schema = schema->element_ts();
-            const value::TypeMeta *mapped_schema = value_ts_schema != nullptr ? value_ts_schema->value_type : nullptr;
+            const value::TypeMeta *key_schema      = schema->key_type();
+            const TSMeta          *value_ts_schema = schema->element_ts();
+            const value::TypeMeta *mapped_schema   = value_ts_schema != nullptr ? value_ts_schema->value_type : nullptr;
             if (key_schema == nullptr || mapped_schema == nullptr) {
                 throw std::logic_error("TSOutputView dict mutation requires key and value schemas");
             }
@@ -803,11 +732,11 @@ namespace hgraph
             const auto apply_child_value = [&](const View &key, nb::handle entry_value, bool apply_result) {
                 ensure_live_child(key);
 
-                    TSOutputView child_view = ensure_tsd_child_view(view, key);
-                    if (!child_view_materialized(child_view)) {
-                        debug_unmaterialized_dict_child(view, child_view, key, "dict_from_python");
-                        throw std::logic_error("TSD child mutation failed to materialize a bound child view");
-                    }
+                TSOutputView child_view = ensure_tsd_child_view(view, key);
+                if (!child_view_materialized(child_view)) {
+                    debug_unmaterialized_dict_child(view, child_view, key, "dict_from_python");
+                    throw std::logic_error("TSD child mutation failed to materialize a bound child view");
+                }
 
                 if (apply_result && !entry_value.is_none()) {
                     child_view.apply_result(entry_value);
@@ -821,16 +750,15 @@ namespace hgraph
                 return;
             }
 
-            const nb::object item_attr = nb::getattr(value, "items", nb::none());
-            nb::iterator items = item_attr.is_none() ? nb::iter(value) : nb::iter(item_attr());
+            const nb::object                          item_attr = nb::getattr(value, "items", nb::none());
+            nb::iterator                              items     = item_attr.is_none() ? nb::iter(value) : nb::iter(item_attr());
             std::vector<std::pair<Value, nb::object>> entries;
 
             for (const auto &kv : items) {
                 nb::object entry_value = nb::borrow<nb::object>(kv[1]);
                 if (entry_value.is_none()) { continue; }
-                entries.emplace_back(
-                    ts_nested_value_from_python(*key_schema, nb::borrow<nb::object>(kv[0])),
-                    std::move(entry_value));
+                entries.emplace_back(ts_nested_value_from_python(*key_schema, nb::borrow<nb::object>(kv[0])),
+                                     std::move(entry_value));
             }
 
             bool structural_changed = false;
@@ -841,9 +769,7 @@ namespace hgraph
 
                     if (entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) {
                         const bool removed = mutation.remove(key);
-                        if (!removed && entry_value.is(remove_sentinel())) {
-                            throw nb::key_error("TSD key not found for REMOVE");
-                        }
+                        if (!removed && entry_value.is(remove_sentinel())) { throw nb::key_error("TSD key not found for REMOVE"); }
                         structural_changed = structural_changed || removed;
                         continue;
                     }
@@ -861,16 +787,13 @@ namespace hgraph
                 apply_child_value(key_value.view(), entry_value, false);
             }
 
-            if (structural_changed) {
-                mark_output_view_modified(view, view.evaluation_time());
-            }
+            if (structural_changed) { mark_output_view_modified(view, view.evaluation_time()); }
         }
 
-        void dict_apply_result(const TSOutputView &view, nb::handle value)
-        {
+        void dict_apply_result(const TSOutputView &view, nb::handle value) {
             if (nb::hasattr(value, "items")) {
-                const nb::object items_object = nb::getattr(value, "items")();
-                bool has_remove_sentinel = false;
+                const nb::object items_object        = nb::getattr(value, "items")();
+                bool             has_remove_sentinel = false;
                 for (auto item : nb::iter(items_object)) {
                     nb::object entry_value = nb::borrow<nb::object>(item[1]);
                     if (entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) {
@@ -888,9 +811,9 @@ namespace hgraph
                     throw std::logic_error("TSOutputView dict result application requires a TSD schema");
                 }
 
-                const value::TypeMeta *key_schema = schema->key_type();
-                const TSMeta *value_ts_schema = schema->element_ts();
-                const value::TypeMeta *mapped_schema = value_ts_schema != nullptr ? value_ts_schema->value_type : nullptr;
+                const value::TypeMeta *key_schema      = schema->key_type();
+                const TSMeta          *value_ts_schema = schema->element_ts();
+                const value::TypeMeta *mapped_schema   = value_ts_schema != nullptr ? value_ts_schema->value_type : nullptr;
                 if (key_schema == nullptr || mapped_schema == nullptr) {
                     throw std::logic_error("TSOutputView dict result application requires key and value schemas");
                 }
@@ -911,9 +834,9 @@ namespace hgraph
                     replacement.emplace_back(std::move(key_value), nb::borrow<nb::object>(item[1]));
                 }
 
-                auto map_view = view.value().as_map();
+                auto               map_view = view.value().as_map();
                 std::vector<Value> existing_keys;
-                const auto current_delta = map_view.delta();
+                const auto         current_delta = map_view.delta();
                 for (size_t slot = 0; slot < current_delta.slot_capacity(); ++slot) {
                     if (!current_delta.slot_occupied(slot) || current_delta.slot_removed(slot)) { continue; }
                     existing_keys.push_back(current_delta.key_at_slot(slot).clone());
@@ -924,10 +847,9 @@ namespace hgraph
                     auto mutation = map_view.begin_mutation(view.evaluation_time());
 
                     for (const Value &existing_key : existing_keys) {
-                        const bool keep = std::any_of(
-                            replacement.begin(),
-                            replacement.end(),
-                            [&](const auto &candidate) { return existing_key.view() == candidate.first.view(); });
+                        const bool keep = std::any_of(replacement.begin(), replacement.end(), [&](const auto &candidate) {
+                            return existing_key.view() == candidate.first.view();
+                        });
                         if (!keep) { structural_changed = mutation.remove(existing_key.view()) || structural_changed; }
                     }
 
@@ -943,7 +865,7 @@ namespace hgraph
                 }
 
                 for (const auto &[key, mapped_value] : replacement) {
-                    const View key_view = key.view();
+                    const View   key_view   = key.view();
                     TSOutputView child_view = ensure_tsd_child_view(view, key_view);
                     if (!child_view_materialized(child_view)) {
                         debug_unmaterialized_dict_child(view, child_view, key_view, "dict_apply_result");
@@ -966,8 +888,7 @@ namespace hgraph
             dict_from_python(view, value);
         }
 
-        void dict_child_from_python(const TSOutputView &view, const View &key, nb::handle value)
-        {
+        void dict_child_from_python(const TSOutputView &view, const View &key, nb::handle value) {
             const TSMeta *schema = view.ts_schema();
             if (schema == nullptr || schema->kind != TSKind::TSD) {
                 throw std::logic_error("TSOutputView dict child mutation requires a TSD schema");
@@ -988,7 +909,7 @@ namespace hgraph
 
             if (value.is_none()) {
                 Value mapped_value = make_mapped_placeholder();
-                bool inserted = false;
+                bool  inserted     = false;
 
                 {
                     auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
@@ -1012,18 +933,16 @@ namespace hgraph
                 bool removed = false;
                 {
                     auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
-                    removed = mutation.remove(key);
+                    removed       = mutation.remove(key);
                 }
-                if (!removed && entry_value.is(remove_sentinel())) {
-                    throw nb::key_error("TSD key not found for REMOVE");
-                }
+                if (!removed && entry_value.is(remove_sentinel())) { throw nb::key_error("TSD key not found for REMOVE"); }
                 if (removed) { mark_output_view_modified(view, view.evaluation_time()); }
                 return;
             }
 
             if (!tsd_key_is_live(view, key)) {
                 Value mapped_value = make_mapped_placeholder();
-                bool inserted = false;
+                bool  inserted     = false;
 
                 {
                     auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
@@ -1042,26 +961,20 @@ namespace hgraph
             child_view.from_python(entry_value);
         }
 
-        void erase_dict_key(const TSOutputView &view, const View &key)
-        {
-            dict_child_from_python(view, key, remove_sentinel());
-        }
+        void erase_dict_key(const TSOutputView &view, const View &key) { dict_child_from_python(view, key, remove_sentinel()); }
 
-        void set_from_python(const TSOutputView &view, nb::handle value)
-        {
+        void set_from_python(const TSOutputView &view, nb::handle value) {
             const TSMeta *schema = view.ts_schema();
             if (schema == nullptr || schema->kind != TSKind::TSS) {
                 throw std::logic_error("TSOutputView set mutation requires a TSS schema");
             }
 
-            auto set_view = view.value().as_set();
+            auto                   set_view       = view.value().as_set();
             const value::TypeMeta *element_schema = set_view.element_schema();
-            if (element_schema == nullptr) {
-                throw std::logic_error("TSOutputView set mutation requires an element schema");
-            }
+            if (element_schema == nullptr) { throw std::logic_error("TSOutputView set mutation requires an element schema"); }
 
             auto mutation = set_view.begin_mutation(view.evaluation_time());
-            bool changed = false;
+            bool changed  = false;
 
             const auto convert_value = [element_schema](const nb::handle &item) {
                 return ts_nested_value_from_python(*element_schema, nb::borrow<nb::object>(item));
@@ -1069,12 +982,12 @@ namespace hgraph
 
             const auto apply_added = [&](const nb::handle &item) {
                 Value element = convert_value(item);
-                changed = mutation.add(element.view()) || changed;
+                changed       = mutation.add(element.view()) || changed;
             };
 
             const auto apply_removed = [&](const nb::handle &item) {
                 Value element = convert_value(item);
-                changed = mutation.remove(element.view()) || changed;
+                changed       = mutation.remove(element.view()) || changed;
             };
 
             if (nb::hasattr(value, "added") && nb::hasattr(value, "removed")) {
@@ -1086,13 +999,10 @@ namespace hgraph
                 for (auto item : nb::iter(value)) { replacement.push_back(convert_value(nb::borrow<nb::object>(item))); }
 
                 std::vector<Value> existing_items;
-                for (const View &existing : set_view.values()) {
-                    existing_items.push_back(existing.clone());
-                }
+                for (const View &existing : set_view.values()) { existing_items.push_back(existing.clone()); }
 
                 for (const Value &existing : existing_items) {
-                    const bool keep = std::any_of(replacement.begin(),
-                                                  replacement.end(),
+                    const bool keep = std::any_of(replacement.begin(), replacement.end(),
                                                   [&](const Value &candidate) { return existing.view() == candidate.view(); });
                     if (!keep) { changed = mutation.remove(existing.view()) || changed; }
                 }
@@ -1117,8 +1027,7 @@ namespace hgraph
             if (changed || !view.valid()) { mark_output_view_modified(view, view.evaluation_time()); }
         }
 
-        void set_apply_result(const TSOutputView &view, nb::handle value)
-        {
+        void set_apply_result(const TSOutputView &view, nb::handle value) {
             if (nb::hasattr(value, "added") && nb::hasattr(value, "removed")) {
                 set_from_python(view, value);
                 return;
@@ -1140,7 +1049,7 @@ namespace hgraph
                 throw std::logic_error("TSOutputView set result application requires a TSS schema");
             }
 
-            auto set_view = view.value().as_set();
+            auto                   set_view       = view.value().as_set();
             const value::TypeMeta *element_schema = set_view.element_schema();
             if (element_schema == nullptr) {
                 throw std::logic_error("TSOutputView set result application requires an element schema");
@@ -1153,27 +1062,21 @@ namespace hgraph
             }
 
             std::vector<Value> existing_items;
-            for (const View &existing : set_view.values()) {
-                existing_items.push_back(existing.clone());
-            }
+            for (const View &existing : set_view.values()) { existing_items.push_back(existing.clone()); }
 
             bool changed = false;
             {
                 auto mutation = set_view.begin_mutation(view.evaluation_time());
 
                 for (const Value &existing : existing_items) {
-                    const bool keep = std::any_of(
-                        replacement.begin(),
-                        replacement.end(),
-                        [&](const Value &candidate) { return existing.view() == candidate.view(); });
+                    const bool keep = std::any_of(replacement.begin(), replacement.end(),
+                                                  [&](const Value &candidate) { return existing.view() == candidate.view(); });
                     if (!keep) { changed = mutation.remove(existing.view()) || changed; }
                 }
 
                 for (const Value &item : replacement) {
-                    const bool exists = std::any_of(
-                        existing_items.begin(),
-                        existing_items.end(),
-                        [&](const Value &existing) { return existing.view() == item.view(); });
+                    const bool exists = std::any_of(existing_items.begin(), existing_items.end(),
+                                                    [&](const Value &existing) { return existing.view() == item.view(); });
                     if (!exists) { changed = mutation.add(item.view()) || changed; }
                 }
             }
@@ -1181,35 +1084,32 @@ namespace hgraph
             if (changed || (!view.valid() && replacement.empty())) { mark_output_view_modified(view, view.evaluation_time()); }
         }
 
-        void add_set_item(const TSOutputView &view, const View &item)
-        {
+        void add_set_item(const TSOutputView &view, const View &item) {
             bool changed = false;
             {
                 auto set_view = view.value().as_set();
                 auto mutation = set_view.begin_mutation(view.evaluation_time());
-                changed = mutation.add(item);
+                changed       = mutation.add(item);
             }
             if (changed) { mark_output_view_modified(view, view.evaluation_time()); }
         }
 
-        void remove_set_item(const TSOutputView &view, const View &item)
-        {
+        void remove_set_item(const TSOutputView &view, const View &item) {
             bool changed = false;
             {
                 auto set_view = view.value().as_set();
                 auto mutation = set_view.begin_mutation(view.evaluation_time());
-                changed = mutation.remove(item);
+                changed       = mutation.remove(item);
             }
             if (changed) { mark_output_view_modified(view, view.evaluation_time()); }
         }
 
-        void clear_set_items(const TSOutputView &view)
-        {
+        void clear_set_items(const TSOutputView &view) {
             bool had_live_values = false;
             {
-                auto set_view = view.value().as_set();
+                auto set_view   = view.value().as_set();
                 had_live_values = set_view.size() != 0;
-                auto mutation = set_view.begin_mutation(view.evaluation_time());
+                auto mutation   = set_view.begin_mutation(view.evaluation_time());
                 mutation.clear();
             }
             if (had_live_values) { mark_output_view_modified(view, view.evaluation_time()); }
@@ -1223,8 +1123,7 @@ namespace hgraph
         {
             explicit RootRefValueNotifier(TSOutput *owner_) noexcept : owner(owner_) {}
 
-            void notify(engine_time_t modified_time) override
-            {
+            void notify(engine_time_t modified_time) override {
                 if (owner == nullptr) { return; }
                 if (BaseState *root = owner->view(modified_time).context_ref().ts_state; root != nullptr) {
                     root->mark_modified(modified_time);
@@ -1236,24 +1135,19 @@ namespace hgraph
 
         struct DerivedSetFeatureOutput final : Notifiable
         {
-            explicit DerivedSetFeatureOutput(const LinkedTSContext &source_context_,
-                                            engine_time_t initial_time,
-                                            std::optional<Value> item_ = std::nullopt)
-                : output(TSOutputBuilderFactory::checked_builder_for(ts_bool_schema())),
-                  source_context(source_context_),
-                  item(std::move(item_))
-            {
+            explicit DerivedSetFeatureOutput(const LinkedTSContext &source_context_, engine_time_t initial_time,
+                                             std::optional<Value> item_ = std::nullopt)
+                : output(TSOutputBuilderFactory::checked_builder_for(ts_bool_schema())), source_context(source_context_),
+                  item(std::move(item_)) {
                 if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->subscribe(this); }
                 refresh(initial_time != MIN_DT ? initial_time : MIN_ST, true);
             }
 
-            ~DerivedSetFeatureOutput() override
-            {
+            ~DerivedSetFeatureOutput() override {
                 if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->unsubscribe(this); }
             }
 
-            void rebind(const LinkedTSContext &new_source_context, engine_time_t evaluation_time)
-            {
+            void rebind(const LinkedTSContext &new_source_context, engine_time_t evaluation_time) {
                 if (detail::linked_context_equal(source_context, new_source_context)) {
                     refresh(evaluation_time != MIN_DT ? evaluation_time : MIN_ST, false);
                     return;
@@ -1267,64 +1161,56 @@ namespace hgraph
 
             void notify(engine_time_t modified_time) override { refresh(modified_time, false); }
 
-            void refresh(engine_time_t evaluation_time, bool initialise)
-            {
+            void refresh(engine_time_t evaluation_time, bool initialise) {
                 bool next_value = !item.has_value();
 
                 try {
                     TSOutputView source_view = output_view_from_context(source_context, evaluation_time);
                     if (source_view.valid()) {
-                        next_value = item.has_value()
-                                         ? source_view.value().as_set().contains(item->view())
-                                         : source_view.as_set().empty();
+                        next_value =
+                            item.has_value() ? source_view.value().as_set().contains(item->view()) : source_view.as_set().empty();
                     }
-                } catch (...) {
-                    next_value = !item.has_value();
-                }
+                } catch (...) { next_value = !item.has_value(); }
 
                 if (initialised && next_value == current_value) { return; }
 
                 TSOutputView output_view = output.view(evaluation_time);
                 output_view.value().as_atomic().set(next_value);
                 current_value = next_value;
-                initialised = true;
+                initialised   = true;
                 if (evaluation_time != MIN_DT || initialise) { mark_output_view_modified(output_view, evaluation_time); }
             }
 
-            TSOutput               output;
-            LinkedTSContext        source_context;
-            std::optional<Value>   item;
-            bool                   current_value{false};
-            bool                   initialised{false};
+            TSOutput             output;
+            LinkedTSContext      source_context;
+            std::optional<Value> item;
+            bool                 current_value{false};
+            bool                 initialised{false};
         };
 
         struct DerivedKeySetOutput final : Notifiable
         {
             explicit DerivedKeySetOutput(const LinkedTSContext &source_context_, engine_time_t initial_time)
                 : output([&]() -> TSOutput {
-                    if (source_context_.schema == nullptr || source_context_.schema->kind != TSKind::TSD ||
-                        source_context_.schema->key_type() == nullptr) {
-                        throw std::logic_error(
-                            fmt::format("DerivedKeySetOutput requires a rooted TSD source schema, got {}",
-                                        schema_debug_name(source_context_.schema)));
-                    }
-                    return TSOutputBuilderFactory::checked_builder_for(
-                               TSTypeRegistry::instance().tss(source_context_.schema->key_type()))
-                        .make_output();
-                }()),
-                  source_context(source_context_)
-            {
+                      if (source_context_.schema == nullptr || source_context_.schema->kind != TSKind::TSD ||
+                          source_context_.schema->key_type() == nullptr) {
+                          throw std::logic_error(fmt::format("DerivedKeySetOutput requires a rooted TSD source schema, got {}",
+                                                             schema_debug_name(source_context_.schema)));
+                      }
+                      return TSOutputBuilderFactory::checked_builder_for(
+                                 TSTypeRegistry::instance().tss(source_context_.schema->key_type()))
+                          .make_output();
+                  }()),
+                  source_context(source_context_) {
                 if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->subscribe(this); }
                 refresh(initial_time != MIN_DT ? initial_time : MIN_ST, true);
             }
 
-            ~DerivedKeySetOutput() override
-            {
+            ~DerivedKeySetOutput() override {
                 if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->unsubscribe(this); }
             }
 
-            void rebind(const LinkedTSContext &new_source_context, engine_time_t evaluation_time)
-            {
+            void rebind(const LinkedTSContext &new_source_context, engine_time_t evaluation_time) {
                 if (detail::linked_context_equal(source_context, new_source_context)) {
                     refresh(evaluation_time != MIN_DT ? evaluation_time : MIN_ST, false);
                     return;
@@ -1333,14 +1219,13 @@ namespace hgraph
                 source_context = new_source_context;
                 if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->subscribe(this); }
                 last_source_root_state = nullptr;
-                last_source_had_value = false;
+                last_source_had_value  = false;
                 refresh(evaluation_time != MIN_DT ? evaluation_time : MIN_ST, true);
             }
 
             void notify(engine_time_t modified_time) override { refresh(modified_time, false); }
 
-            void refresh(engine_time_t evaluation_time, bool initialise)
-            {
+            void refresh(engine_time_t evaluation_time, bool initialise) {
                 TSOutputView target_root = output.view(evaluation_time);
                 TSOutputView source_root = output_view_from_context(source_context, evaluation_time);
 
@@ -1349,22 +1234,20 @@ namespace hgraph
                     throw std::logic_error("TSOutput key-set feature requires a live target TSS state");
                 }
 
-                auto target_set = target_root.value().as_set();
-                auto mutation = target_set.begin_mutation(evaluation_time);
-                bool set_changed = false;
-                constexpr size_t no_slot = static_cast<size_t>(-1);
+                auto             target_set  = target_root.value().as_set();
+                auto             mutation    = target_set.begin_mutation(evaluation_time);
+                bool             set_changed = false;
+                constexpr size_t no_slot     = static_cast<size_t>(-1);
 
                 const BaseState *current_source_root_state =
                     source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr;
-                TSOutputView source_view = output_view_from_context(source_context, evaluation_time);
-                const bool current_source_had_value = source_view.value().has_value();
-                const bool source_rebound = !initialise && current_source_root_state != last_source_root_state;
-                const bool source_value_changed = !initialise && current_source_had_value != last_source_had_value;
-                const bool full_resync = initialise || source_rebound || source_value_changed || source_view.modified();
+                TSOutputView source_view              = output_view_from_context(source_context, evaluation_time);
+                const bool   current_source_had_value = source_view.value().has_value();
+                const bool   source_rebound           = !initialise && current_source_root_state != last_source_root_state;
+                const bool   source_value_changed     = !initialise && current_source_had_value != last_source_had_value;
+                const bool   full_resync = initialise || source_rebound || source_value_changed || source_view.modified();
 
-                auto remove_target_key = [&](const View &key) {
-                    set_changed = mutation.remove(key) || set_changed;
-                };
+                auto remove_target_key = [&](const View &key) { set_changed = mutation.remove(key) || set_changed; };
 
                 const View source_value = source_view.value();
                 if (!source_value.has_value()) {
@@ -1375,12 +1258,12 @@ namespace hgraph
                     }
 
                     last_source_root_state = current_source_root_state;
-                    last_source_had_value = false;
+                    last_source_had_value  = false;
                     if (initialise || set_changed) { mark_output_view_modified(target_root, evaluation_time); }
                     return;
                 }
 
-                const auto source_map = source_value.as_map();
+                const auto source_map   = source_value.as_map();
                 const auto source_delta = source_map.delta();
 
                 if (full_resync) {
@@ -1394,23 +1277,25 @@ namespace hgraph
                         set_changed = mutation.add(source_map.delta().key_at_slot(slot)) || set_changed;
                     }
                 } else {
-                    for (size_t slot = source_delta.first_removed_slot(); slot != no_slot; slot = source_delta.next_removed_slot(slot)) {
+                    for (size_t slot = source_delta.first_removed_slot(); slot != no_slot;
+                         slot        = source_delta.next_removed_slot(slot)) {
                         remove_target_key(source_delta.key_at_slot(slot));
                     }
-                    for (size_t slot = source_delta.first_added_slot(); slot != no_slot; slot = source_delta.next_added_slot(slot)) {
+                    for (size_t slot = source_delta.first_added_slot(); slot != no_slot;
+                         slot        = source_delta.next_added_slot(slot)) {
                         set_changed = mutation.add(source_delta.key_at_slot(slot)) || set_changed;
                     }
                 }
 
                 last_source_root_state = current_source_root_state;
-                last_source_had_value = true;
+                last_source_had_value  = true;
                 if (initialise || set_changed) { mark_output_view_modified(target_root, evaluation_time); }
             }
 
-            TSOutput        output;
-            LinkedTSContext source_context;
+            TSOutput         output;
+            LinkedTSContext  source_context;
             const BaseState *last_source_root_state{nullptr};
-            bool            last_source_had_value{false};
+            bool             last_source_had_value{false};
         };
 
         struct ValueKeyHash
@@ -1431,8 +1316,7 @@ namespace hgraph
             [[nodiscard]] bool operator()(const View &lhs, const View &rhs) const noexcept { return lhs.equals(rhs); }
         };
 
-        [[nodiscard]] LinkedTSContext feature_source_context(const TSOutputView &view)
-        {
+        [[nodiscard]] LinkedTSContext feature_source_context(const TSOutputView &view) {
             const TSViewContext &context = view.context_ref();
             if (context.is_bound()) {
                 LinkedTSContext source_context{
@@ -1454,20 +1338,21 @@ namespace hgraph
 
             const TSViewContext  resolved = context.resolved();
             const TSViewContext &source   = resolved;
-            LinkedTSContext source_context{
+            LinkedTSContext      source_context{
                 source.schema,
                 source.value_dispatch,
                 source.ts_dispatch,
                 source.value_data,
                 source.ts_state,
-                source.owning_output != nullptr ? source.owning_output
-                                                : (resolved.owning_output != nullptr ? resolved.owning_output : view.owning_output()),
-                source.output_view_ops != nullptr ? source.output_view_ops
-                                                  : (resolved.output_view_ops != nullptr ? resolved.output_view_ops
-                                                                                        : view.output_view_ops()),
-                source.notification_state != nullptr ? source.notification_state
-                                                     : (resolved.notification_state != nullptr ? resolved.notification_state
-                                                                                               : context.notification_state),
+                source.owning_output != nullptr
+                    ? source.owning_output
+                    : (resolved.owning_output != nullptr ? resolved.owning_output : view.owning_output()),
+                source.output_view_ops != nullptr
+                    ? source.output_view_ops
+                    : (resolved.output_view_ops != nullptr ? resolved.output_view_ops : view.output_view_ops()),
+                source.notification_state != nullptr
+                    ? source.notification_state
+                    : (resolved.notification_state != nullptr ? resolved.notification_state : context.notification_state),
                 source.pending_dict_child,
             };
             if (!source_context.is_bound()) {
@@ -1478,8 +1363,7 @@ namespace hgraph
 
         struct CollectionFeatureRegistry final : TimeSeriesFeatureRegistry
         {
-            void rebind_link_source(const LinkedTSContext *source_context, engine_time_t evaluation_time) override
-            {
+            void rebind_link_source(const LinkedTSContext *source_context, engine_time_t evaluation_time) override {
                 const LinkedTSContext next_source = source_context != nullptr ? *source_context : LinkedTSContext{};
                 if (key_set_output != nullptr) { key_set_output->rebind(next_source, evaluation_time); }
                 if (is_empty_output != nullptr) { is_empty_output->rebind(next_source, evaluation_time); }
@@ -1489,8 +1373,8 @@ namespace hgraph
                 }
             }
 
-            [[nodiscard]] TSOutputView register_key_set_output(const LinkedTSContext &source_context, engine_time_t evaluation_time)
-            {
+            [[nodiscard]] TSOutputView register_key_set_output(const LinkedTSContext &source_context,
+                                                               engine_time_t          evaluation_time) {
                 if (key_set_output == nullptr) {
                     key_set_output = std::make_unique<DerivedKeySetOutput>(source_context, evaluation_time);
                 } else {
@@ -1500,12 +1384,10 @@ namespace hgraph
             }
 
             [[nodiscard]] TSOutputView register_contains_output(const LinkedTSContext &source_context,
-                                                                engine_time_t evaluation_time,
-                                                                const View &item)
-            {
+                                                                engine_time_t evaluation_time, const View &item) {
                 auto it = contains_outputs.find(item);
                 if (it == contains_outputs.end()) {
-                    Value key = ts_nested_clone(item);
+                    Value key                = ts_nested_clone(item);
                     auto [inserted, success] = contains_outputs.emplace(
                         std::move(key),
                         std::make_unique<DerivedSetFeatureOutput>(source_context, evaluation_time, ts_nested_clone(item)));
@@ -1519,8 +1401,8 @@ namespace hgraph
 
             void unregister_contains_output(const View &) const noexcept {}
 
-            [[nodiscard]] TSOutputView register_is_empty_output(const LinkedTSContext &source_context, engine_time_t evaluation_time)
-            {
+            [[nodiscard]] TSOutputView register_is_empty_output(const LinkedTSContext &source_context,
+                                                                engine_time_t          evaluation_time) {
                 if (is_empty_output == nullptr) {
                     is_empty_output = std::make_unique<DerivedSetFeatureOutput>(source_context, evaluation_time);
                 } else {
@@ -1536,22 +1418,16 @@ namespace hgraph
             std::unique_ptr<DerivedKeySetOutput>                                                             key_set_output;
         };
 
-        [[nodiscard]] CollectionFeatureRegistry &ensure_collection_feature_registry(BaseState &state)
-        {
-            if (state.feature_registry == nullptr) {
-                state.feature_registry = std::make_unique<CollectionFeatureRegistry>();
-            }
+        [[nodiscard]] CollectionFeatureRegistry &ensure_collection_feature_registry(BaseState &state) {
+            if (state.feature_registry == nullptr) { state.feature_registry = std::make_unique<CollectionFeatureRegistry>(); }
             auto *registry = dynamic_cast<CollectionFeatureRegistry *>(state.feature_registry.get());
             if (registry == nullptr) { throw std::logic_error("TSOutputView state feature registry has an unexpected type"); }
             return *registry;
         }
 
-        void collect_ref_target_states(const TimeSeriesReference &ref,
-                                       std::unordered_set<BaseState *> &states) noexcept
-        {
+        void collect_ref_target_states(const TimeSeriesReference &ref, std::unordered_set<BaseState *> &states) noexcept {
             switch (ref.kind()) {
-                case TimeSeriesReference::Kind::EMPTY:
-                    return;
+                case TimeSeriesReference::Kind::EMPTY: return;
 
                 case TimeSeriesReference::Kind::PEERED:
                     if (BaseState *state = notification_state_of(ref.target()); state != nullptr) { states.insert(state); }
@@ -1564,35 +1440,27 @@ namespace hgraph
         }
 
         template <typename TState>
-        void initialize_base_state(TState &state,
-                                   TimeSeriesStateParentPtr parent,
-                                   size_t index,
+        void initialize_base_state(TState &state, TimeSeriesStateParentPtr parent, size_t index,
                                    engine_time_t modified_time = MIN_DT,
-                                   TSStorageKind storage_kind = TSStorageKind::Native) noexcept
-        {
-            state.parent = parent;
-            state.index = index;
+                                   TSStorageKind storage_kind  = TSStorageKind::Native) noexcept {
+            state.parent             = parent;
+            state.index              = index;
             state.last_modified_time = modified_time;
-            state.storage_kind = storage_kind;
+            state.storage_kind       = storage_kind;
             state.subscribers.clear();
         }
 
         template <typename TCollectionState>
-        void install_target_link(TCollectionState &parent_state, size_t slot, LinkedTSContext target, const char *origin = "unknown")
-        {
+        void install_target_link(TCollectionState &parent_state, size_t slot, LinkedTSContext target,
+                                 const char *origin = "unknown") {
             if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
-                std::fprintf(stderr,
-                             "install_target_link origin=%s slot=%zu target_schema_kind=%d target_state=%p\n",
-                             origin,
-                             slot,
+                std::fprintf(stderr, "install_target_link origin=%s slot=%zu target_schema_kind=%d target_state=%p\n", origin, slot,
                              target.schema != nullptr ? static_cast<int>(target.schema->kind) : -1,
                              static_cast<void *>(target.ts_state));
             }
-            auto link_state = std::make_unique<TimeSeriesStateV>();
+            auto  link_state  = std::make_unique<TimeSeriesStateV>();
             auto &typed_state = link_state->template emplace<TargetLinkState>();
-            initialize_base_state(typed_state,
-                                  parent_ptr(parent_state),
-                                  slot,
+            initialize_base_state(typed_state, parent_ptr(parent_state), slot,
                                   target.ts_state != nullptr ? target.ts_state->last_modified_time : MIN_DT,
                                   TSStorageKind::TargetLink);
             typed_state.target.clear();
@@ -1601,11 +1469,8 @@ namespace hgraph
             parent_state.child_states[slot] = std::move(link_state);
         }
 
-        void initialize_ref_link_state(RefLinkState &state,
-                                       TimeSeriesStateParentPtr parent,
-                                       size_t index,
-                                       engine_time_t modified_time = MIN_DT) noexcept
-        {
+        void initialize_ref_link_state(RefLinkState &state, TimeSeriesStateParentPtr parent, size_t index,
+                                       engine_time_t modified_time = MIN_DT) noexcept {
             initialize_base_state(state, parent, index, modified_time, TSStorageKind::RefLink);
             state.source.clear();
             initialize_base_state(state.bound_link, static_cast<TSOutput *>(nullptr), 0, MIN_DT, TSStorageKind::TargetLink);
@@ -1615,9 +1480,8 @@ namespace hgraph
         }
 
         template <typename TCollectionState>
-        void install_ref_link(TCollectionState &parent_state, size_t slot, LinkedTSContext ref_source)
-        {
-            auto link_state = std::make_unique<TimeSeriesStateV>();
+        void install_ref_link(TCollectionState &parent_state, size_t slot, LinkedTSContext ref_source) {
+            auto  link_state  = std::make_unique<TimeSeriesStateV>();
             auto &typed_state = link_state->template emplace<RefLinkState>();
             initialize_ref_link_state(typed_state, parent_ptr(parent_state), slot);
             // Alternative REF -> TS bindings should expose the current
@@ -1628,8 +1492,7 @@ namespace hgraph
             parent_state.child_states[slot] = std::move(link_state);
         }
 
-        [[nodiscard]] bool supports_alternative_cast(const TSMeta &source_schema, const TSMeta &target_schema)
-        {
+        [[nodiscard]] bool supports_alternative_cast(const TSMeta &source_schema, const TSMeta &target_schema) {
             if (&source_schema == &target_schema) { return true; }
 
             // The two schema-changing cases supported so far are:
@@ -1664,47 +1527,48 @@ namespace hgraph
                     return true;
 
                 case TSKind::TSL:
-                    if (source_schema.fixed_size() == 0 || source_schema.fixed_size() != target_schema.fixed_size()) { return false; }
+                    if (source_schema.fixed_size() == 0 || source_schema.fixed_size() != target_schema.fixed_size()) {
+                        return false;
+                    }
                     return supports_alternative_cast(*source_schema.element_ts(), *target_schema.element_ts());
 
                 case TSKind::TSD:
                     return source_schema.key_type() == target_schema.key_type() &&
                            supports_alternative_cast(*source_schema.element_ts(), *target_schema.element_ts());
 
-                default:
-                    return false;
+                default: return false;
             }
         }
 
-        [[nodiscard]] const TSMeta *child_schema_at(const TSMeta &schema, size_t slot)
-        {
+        [[nodiscard]] const TSMeta *child_schema_at(const TSMeta &schema, size_t slot) {
             switch (schema.kind) {
                 case TSKind::TSB:
-                    if (slot >= schema.field_count()) { throw std::out_of_range("TSOutput alternative child slot is out of range for TSB"); }
+                    if (slot >= schema.field_count()) {
+                        throw std::out_of_range("TSOutput alternative child slot is out of range for TSB");
+                    }
                     return schema.fields()[slot].ts_type;
 
                 case TSKind::TSL:
                     if (schema.fixed_size() == 0) {
                         throw std::invalid_argument("TSOutput alternatives do not yet support dynamic TSL path prefixes");
                     }
-                    if (slot >= schema.fixed_size()) { throw std::out_of_range("TSOutput alternative child slot is out of range for TSL"); }
+                    if (slot >= schema.fixed_size()) {
+                        throw std::out_of_range("TSOutput alternative child slot is out of range for TSL");
+                    }
                     return schema.element_ts();
 
-                case TSKind::TSD:
-                    return schema.element_ts();
+                case TSKind::TSD: return schema.element_ts();
 
                 default:
                     throw std::invalid_argument("TSOutput alternative child navigation only supports TSB, fixed-size TSL, and TSD");
             }
         }
 
-        [[nodiscard]] BaseState *base_state_of(TimeSeriesStateV &state) noexcept
-        {
+        [[nodiscard]] BaseState *base_state_of(TimeSeriesStateV &state) noexcept {
             return std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, state);
         }
 
-        [[nodiscard]] const BaseState *parent_collection_of(const BaseState *state) noexcept
-        {
+        [[nodiscard]] const BaseState *parent_collection_of(const BaseState *state) noexcept {
             if (state == nullptr) { return nullptr; }
 
             const BaseState *parent_state = nullptr;
@@ -1720,16 +1584,14 @@ namespace hgraph
             return parent_state;
         }
 
-        [[nodiscard]] bool is_descendant_state(const BaseState *state, const BaseState *ancestor) noexcept
-        {
+        [[nodiscard]] bool is_descendant_state(const BaseState *state, const BaseState *ancestor) noexcept {
             for (auto *current = state; current != nullptr; current = parent_collection_of(current)) {
                 if (current == ancestor) { return true; }
             }
             return false;
         }
 
-        [[nodiscard]] bool find_state_path(const BaseState *state, const TSMeta *schema, const BaseState *target, TSPath &path)
-        {
+        [[nodiscard]] bool find_state_path(const BaseState *state, const TSMeta *schema, const BaseState *target, TSPath &path) {
             if (state == nullptr || schema == nullptr) { return false; }
             if (state == target) { return true; }
 
@@ -1776,18 +1638,16 @@ namespace hgraph
                         return false;
                     }
 
-                default:
-                    return false;
+                default: return false;
             }
         }
 
-        [[nodiscard]] const TSMeta *
-        replace_schema_at_path(const TSMeta &source_schema, const TSPath &path, size_t depth, const TSMeta &replacement_schema)
-        {
+        [[nodiscard]] const TSMeta *replace_schema_at_path(const TSMeta &source_schema, const TSPath &path, size_t depth,
+                                                           const TSMeta &replacement_schema) {
             if (depth == path.size()) { return &replacement_schema; }
 
-            const size_t slot = path[depth];
-            auto &registry = TSTypeRegistry::instance();
+            const size_t slot     = path[depth];
+            auto        &registry = TSTypeRegistry::instance();
 
             switch (source_schema.kind) {
                 case TSKind::TSB:
@@ -1803,15 +1663,12 @@ namespace hgraph
                         std::vector<std::pair<std::string, const TSMeta *>> fields;
                         fields.reserve(source_schema.field_count());
                         for (size_t i = 0; i < source_schema.field_count(); ++i) {
-                            fields.emplace_back(
-                                source_schema.fields()[i].name,
-                                i == slot ? updated_child : source_schema.fields()[i].ts_type);
+                            fields.emplace_back(source_schema.fields()[i].name,
+                                                i == slot ? updated_child : source_schema.fields()[i].ts_type);
                         }
 
-                        return registry.tsb(
-                            fields,
-                            source_schema.bundle_name() != nullptr ? source_schema.bundle_name() : "",
-                            source_schema.python_type());
+                        return registry.tsb(fields, source_schema.bundle_name() != nullptr ? source_schema.bundle_name() : "",
+                                            source_schema.python_type());
                     }
 
                 case TSKind::TSL:
@@ -1825,8 +1682,9 @@ namespace hgraph
 
                         const TSMeta *updated_child =
                             replace_schema_at_path(*source_schema.element_ts(), path, depth + 1, replacement_schema);
-                        return updated_child == source_schema.element_ts() ? &source_schema
-                                                                           : registry.tsl(updated_child, source_schema.fixed_size());
+                        return updated_child == source_schema.element_ts()
+                                   ? &source_schema
+                                   : registry.tsl(updated_child, source_schema.fixed_size());
                     }
 
                 case TSKind::TSD:
@@ -1842,25 +1700,21 @@ namespace hgraph
             }
         }
 
-        [[nodiscard]] std::vector<Value> capture_dict_traversal_keys(const TSOutputView &view, const TSMeta *schema, const TSPath &path)
-        {
+        [[nodiscard]] std::vector<Value> capture_dict_traversal_keys(const TSOutputView &view, const TSMeta *schema,
+                                                                     const TSPath &path) {
             std::vector<Value> dict_keys;
             dict_keys.reserve(path.size());
 
-            TSOutputView current_view = view;
+            TSOutputView  current_view   = view;
             const TSMeta *current_schema = schema;
             for (const size_t slot : path) {
                 dict_keys.emplace_back();
                 if (current_schema == nullptr) { throw std::invalid_argument("TSOutput alternative traversal requires a schema"); }
 
                 switch (current_schema->kind) {
-                    case TSKind::TSB:
-                        current_view = current_view.as_bundle()[slot];
-                        break;
+                    case TSKind::TSB: current_view = current_view.as_bundle()[slot]; break;
 
-                    case TSKind::TSL:
-                        current_view = current_view.as_list()[slot];
-                        break;
+                    case TSKind::TSL: current_view = current_view.as_list()[slot]; break;
 
                     case TSKind::TSD:
                         {
@@ -1869,7 +1723,7 @@ namespace hgraph
                                 throw std::out_of_range("TSOutput alternative traversal slot is not live for TSD");
                             }
                             dict_keys.back() = delta.key_at_slot(slot).clone();
-                            current_view = detail::ensure_dict_child_output_view(current_view, dict_keys.back().view());
+                            current_view     = detail::ensure_dict_child_output_view(current_view, dict_keys.back().view());
                             break;
                         }
 
@@ -1883,24 +1737,17 @@ namespace hgraph
             return dict_keys;
         }
 
-        [[nodiscard]] TSOutputView traverse_output_path(TSOutputView view,
-                                                        const TSMeta *schema,
-                                                        const TSPath &path,
-                                                        std::span<const Value> dict_keys = {})
-        {
+        [[nodiscard]] TSOutputView traverse_output_path(TSOutputView view, const TSMeta *schema, const TSPath &path,
+                                                        std::span<const Value> dict_keys = {}) {
             const TSMeta *current_schema = schema;
             for (size_t depth = 0; depth < path.size(); ++depth) {
                 const size_t slot = path[depth];
                 if (current_schema == nullptr) { throw std::invalid_argument("TSOutput alternative traversal requires a schema"); }
 
                 switch (current_schema->kind) {
-                    case TSKind::TSB:
-                        view = view.as_bundle()[slot];
-                        break;
+                    case TSKind::TSB: view = view.as_bundle()[slot]; break;
 
-                    case TSKind::TSL:
-                        view = view.as_list()[slot];
-                        break;
+                    case TSKind::TSL: view = view.as_list()[slot]; break;
 
                     case TSKind::TSD:
                         {
@@ -1927,8 +1774,7 @@ namespace hgraph
     {
         namespace
         {
-            [[nodiscard]] LinkedTSContext stable_output_context(const TSOutputView &view) noexcept
-            {
+            [[nodiscard]] LinkedTSContext stable_output_context(const TSOutputView &view) noexcept {
                 const TSViewContext &context = view.context_ref();
                 if (context.is_bound()) {
                     return LinkedTSContext{
@@ -1962,13 +1808,12 @@ namespace hgraph
 
             struct DefaultTSOutputViewOps final : TSOutputViewOps
             {
-                [[nodiscard]] LinkedTSContext linked_context(const TSOutputView &view) const noexcept override
-                {
-                    const TSViewContext &context = view.context_ref();
-                    const bool has_live_context =
-                        context.is_bound() && context.schema != nullptr && context.value_dispatch != nullptr && context.ts_dispatch != nullptr;
-                    const TSViewContext resolved = has_live_context ? TSViewContext{} : context.resolved();
-                    const TSViewContext &source = has_live_context ? context : resolved;
+                [[nodiscard]] LinkedTSContext linked_context(const TSOutputView &view) const noexcept override {
+                    const TSViewContext &context          = view.context_ref();
+                    const bool           has_live_context = context.is_bound() && context.schema != nullptr &&
+                                                            context.value_dispatch != nullptr && context.ts_dispatch != nullptr;
+                    const TSViewContext  resolved         = has_live_context ? TSViewContext{} : context.resolved();
+                    const TSViewContext &source           = has_live_context ? context : resolved;
                     return LinkedTSContext{
                         source.schema,
                         source.value_dispatch,
@@ -1985,27 +1830,24 @@ namespace hgraph
 
         }  // namespace
 
-        TSOutputView output_view_from_pending_dict_child(const PendingDictChildContext &context, engine_time_t evaluation_time)
-        {
+        TSOutputView output_view_from_pending_dict_child(const PendingDictChildContext &context, engine_time_t evaluation_time) {
             return pending_dict_parent_output_view(context, evaluation_time);
         }
 
-        const TSOutputViewOps &default_output_view_ops() noexcept
-        {
+        const TSOutputViewOps &default_output_view_ops() noexcept {
             static DefaultTSOutputViewOps ops;
             return ops;
         }
 
-        TSOutputView make_missing_dict_child_output_view(const TSOutputView &view, const View &key)
-        {
-            const TSMeta *schema = view.ts_schema();
+        TSOutputView make_missing_dict_child_output_view(const TSOutputView &view, const View &key) {
+            const TSMeta *schema       = view.ts_schema();
             const TSMeta *child_schema = schema != nullptr ? schema->element_ts() : nullptr;
             if (child_schema == nullptr) {
                 return view.make_child_view_impl(TSViewContext::none(), view.context_ref(), view.evaluation_time());
             }
 
             TSViewContext child_context;
-            child_context.schema = child_schema;
+            child_context.schema             = child_schema;
             child_context.pending_dict_child = PendingDictChildContext{
                 view.context_ref().schema,
                 view.context_ref().value_dispatch,
@@ -2014,26 +1856,24 @@ namespace hgraph
                 view.context_ref().ts_state,
                 view.context_ref().owning_output != nullptr ? view.context_ref().owning_output : view.owning_output(),
                 view.context_ref().output_view_ops != nullptr ? view.context_ref().output_view_ops : view.output_view_ops(),
-                view.context_ref().notification_state != nullptr ? view.context_ref().notification_state : view.context_ref().ts_state,
+                view.context_ref().notification_state != nullptr ? view.context_ref().notification_state
+                                                                 : view.context_ref().ts_state,
                 key.clone(),
             };
             return view.make_child_view_impl(child_context, view.context_ref(), view.evaluation_time());
         }
 
-        TSOutputView ensure_dict_child_output_view(const TSOutputView &view, const View &key)
-        {
-            const TSViewContext &context = view.context_ref();
-            const auto has_child_context = [](const TSViewContext &child) noexcept {
+        TSOutputView ensure_dict_child_output_view(const TSOutputView &view, const View &key) {
+            const TSViewContext &context           = view.context_ref();
+            const auto           has_child_context = [](const TSViewContext &child) noexcept {
                 return child.schema != nullptr && child.value_dispatch != nullptr && child.ts_dispatch != nullptr &&
                        child.value_data != nullptr;
             };
-            if (!key.has_value()) {
-                return view.make_child_view_impl(TSViewContext::none(), context, view.evaluation_time());
-            }
+            if (!key.has_value()) { return view.make_child_view_impl(TSViewContext::none(), context, view.evaluation_time()); }
 
-            const bool has_live_context =
-                context.is_bound() && context.schema != nullptr && context.value_dispatch != nullptr && context.ts_dispatch != nullptr;
-            const TSViewContext resolved = has_live_context ? TSViewContext{} : context.resolved();
+            const bool has_live_context   = context.is_bound() && context.schema != nullptr && context.value_dispatch != nullptr &&
+                                            context.ts_dispatch != nullptr;
+            const TSViewContext  resolved = has_live_context ? TSViewContext{} : context.resolved();
             const TSViewContext &source_context = has_live_context ? context : resolved;
             const auto *collection = source_context.ts_dispatch != nullptr ? source_context.ts_dispatch->as_collection() : nullptr;
             const auto *key_dispatch = collection != nullptr ? collection->as_keys() : nullptr;
@@ -2041,23 +1881,22 @@ namespace hgraph
                 return view.make_child_view_impl(TSViewContext::none(), context, view.evaluation_time());
             }
 
-            TSDState *state = source_context.ts_state != nullptr ? static_cast<TSDState *>(source_context.ts_state->resolved_state()) : nullptr;
+            TSDState *state =
+                source_context.ts_state != nullptr ? static_cast<TSDState *>(source_context.ts_state->resolved_state()) : nullptr;
             if (state != nullptr && state->storage_kind != TSStorageKind::Native) { state = nullptr; }
 
             size_t slot = static_cast<size_t>(-1);
             if (state != nullptr && state->map_dispatch != nullptr && state->map_value_data != nullptr) {
                 slot = state->map_dispatch->find(state->map_value_data, detail::ViewAccess::data(key));
-                if (slot != static_cast<size_t>(-1) &&
-                    (!state->map_dispatch->slot_occupied(state->map_value_data, slot) ||
-                     state->map_dispatch->slot_removed(state->map_value_data, slot))) {
+                if (slot != static_cast<size_t>(-1) && (!state->map_dispatch->slot_occupied(state->map_value_data, slot) ||
+                                                        state->map_dispatch->slot_removed(state->map_value_data, slot))) {
                     slot = static_cast<size_t>(-1);
                 }
             }
 
             if (slot == static_cast<size_t>(-1)) {
-                const bool custom_output_ops =
-                    source_context.output_view_ops != nullptr &&
-                    source_context.output_view_ops != &detail::default_output_view_ops();
+                const bool custom_output_ops = source_context.output_view_ops != nullptr &&
+                                               source_context.output_view_ops != &detail::default_output_view_ops();
                 if (source_context.ts_state != nullptr && custom_output_ops) {
                     return make_missing_dict_child_output_view(view, key);
                 }
@@ -2079,7 +1918,7 @@ namespace hgraph
             TSViewContext lookup_context = source_context;
             if (state != nullptr) {
                 lookup_context.value_dispatch = nullptr;
-                lookup_context.value_data = nullptr;
+                lookup_context.value_data     = nullptr;
             }
 
             TSViewContext child = key_dispatch->child_at(lookup_context, slot);
@@ -2087,11 +1926,8 @@ namespace hgraph
                 return view.make_child_view_impl(child, lookup_context, view.evaluation_time());
             }
             if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
-                debug_unmaterialized_dict_child(
-                    view,
-                    view.make_child_view_impl(child, lookup_context, view.evaluation_time()),
-                    key,
-                    "ensure_dict_child_output_view pre_on_insert");
+                debug_unmaterialized_dict_child(view, view.make_child_view_impl(child, lookup_context, view.evaluation_time()), key,
+                                                "ensure_dict_child_output_view pre_on_insert");
             }
 
             if (state != nullptr) {
@@ -2101,17 +1937,12 @@ namespace hgraph
                     return view.make_child_view_impl(child, lookup_context, view.evaluation_time());
                 }
                 if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
-                    debug_unmaterialized_dict_child(
-                        view,
-                        view.make_child_view_impl(child, lookup_context, view.evaluation_time()),
-                        key,
-                        "ensure_dict_child_output_view post_on_insert");
+                    debug_unmaterialized_dict_child(view, view.make_child_view_impl(child, lookup_context, view.evaluation_time()),
+                                                    key, "ensure_dict_child_output_view post_on_insert");
                 }
             }
 
-            if (has_child_context(child)) {
-                return view.make_child_view_impl(child, lookup_context, view.evaluation_time());
-            }
+            if (has_child_context(child)) { return view.make_child_view_impl(child, lookup_context, view.evaluation_time()); }
 
             return make_missing_dict_child_output_view(view, key);
         }
@@ -2121,15 +1952,11 @@ namespace hgraph
     {
         struct ViewOps final : detail::TSOutputViewOps
         {
-            explicit ViewOps(AlternativeOutput *owner_) noexcept
-                : owner(owner_)
-            {
-            }
+            explicit ViewOps(AlternativeOutput *owner_) noexcept : owner(owner_) {}
 
-                [[nodiscard]] LinkedTSContext linked_context(const TSOutputView &view) const noexcept override
-                {
-                    const TSViewContext &context = view.context_ref();
-                    if (owner != nullptr) {
+            [[nodiscard]] LinkedTSContext linked_context(const TSOutputView &view) const noexcept override {
+                const TSViewContext &context = view.context_ref();
+                if (owner != nullptr) {
                     for (const auto &binding : owner->m_dynamic_dict_bindings) {
                         if (binding != nullptr && binding->target_context.ts_state == context.ts_state &&
                             binding->source_context.ts_state != nullptr) {
@@ -2178,41 +2005,26 @@ namespace hgraph
                             };
                         }
                     }
-                    }
-                    return LinkedTSContext{
-                        context.schema,
-                        context.value_dispatch,
-                        context.ts_dispatch,
-                        context.value_data,
-                        context.ts_state,
-                        view.owning_output(),
-                        view.output_view_ops(),
-                        context.notification_state,
-                        context.pending_dict_child,
-                    };
                 }
+                return LinkedTSContext{
+                    context.schema,         context.value_dispatch,     context.ts_dispatch,
+                    context.value_data,     context.ts_state,           view.owning_output(),
+                    view.output_view_ops(), context.notification_state, context.pending_dict_child,
+                };
+            }
 
             AlternativeOutput *owner{nullptr};
         };
 
         struct WrappedRefNotifier final : Notifiable
         {
-            explicit WrappedRefNotifier(BaseState *target_state_) noexcept
-                : target_state(target_state_)
-            {
-            }
+            explicit WrappedRefNotifier(BaseState *target_state_) noexcept : target_state(target_state_) {}
 
             WrappedRefNotifier(AlternativeOutput *owner_, TSViewContext target_context_, LinkedTSContext source_context_) noexcept
-                : owner(owner_),
-                  target_state(target_context_.ts_state),
-                  target_context(std::move(target_context_)),
-                  source_context(std::move(source_context_)),
-                  refresh_wrapped_ref(true)
-            {
-            }
+                : owner(owner_), target_state(target_context_.ts_state), target_context(std::move(target_context_)),
+                  source_context(std::move(source_context_)), refresh_wrapped_ref(true) {}
 
-            void notify(engine_time_t modified_time) override
-            {
+            void notify(engine_time_t modified_time) override {
                 if (refresh_wrapped_ref && owner != nullptr) {
                     owner->refresh_wrapped_ref(target_context, source_context, modified_time);
                     return;
@@ -2222,16 +2034,14 @@ namespace hgraph
             }
 
             AlternativeOutput *owner{nullptr};
-            BaseState *target_state{nullptr};
-            TSViewContext target_context{TSViewContext::none()};
-            LinkedTSContext source_context{};
-            bool refresh_wrapped_ref{false};
+            BaseState         *target_state{nullptr};
+            TSViewContext      target_context{TSViewContext::none()};
+            LinkedTSContext    source_context{};
+            bool               refresh_wrapped_ref{false};
         };
 
         AlternativeOutput(const TSOutputView &source, const TSMeta &schema)
-            : TSValue(schema),
-              m_root_source_context(detail::stable_output_context(source))
-        {
+            : TSValue(schema), m_root_source_context(detail::stable_output_context(source)) {
             const TSMeta *source_schema = source.ts_schema();
             if (source_schema == nullptr || !supports_alternative_cast(*source_schema, schema)) {
                 throw std::invalid_argument("TSOutput alternative does not support the requested wrap cast");
@@ -2240,8 +2050,7 @@ namespace hgraph
             configure_branch(view(nullptr), source);
         }
 
-            ~AlternativeOutput() override
-        {
+        ~AlternativeOutput() override {
             for (auto &binding : m_dynamic_dict_bindings) {
                 if (binding != nullptr) {
                     if (BaseState *source_state = notification_state_of(binding->source_context); source_state != nullptr) {
@@ -2281,48 +2090,40 @@ namespace hgraph
             }
         }
 
-        AlternativeOutput(const AlternativeOutput &) = delete;
+        AlternativeOutput(const AlternativeOutput &)            = delete;
         AlternativeOutput &operator=(const AlternativeOutput &) = delete;
-        AlternativeOutput(AlternativeOutput &&) = delete;
-        AlternativeOutput &operator=(AlternativeOutput &&) = delete;
+        AlternativeOutput(AlternativeOutput &&)                 = delete;
+        AlternativeOutput &operator=(AlternativeOutput &&)      = delete;
 
-        [[nodiscard]] TSOutputView view(TSOutput *owning_output, engine_time_t evaluation_time = MIN_DT)
-        {
+        [[nodiscard]] TSOutputView view(TSOutput *owning_output, engine_time_t evaluation_time = MIN_DT) {
             TSViewContext context = view_context();
             return TSOutputView{context, TSViewContext::none(), evaluation_time, owning_output, &m_view_ops};
         }
 
-        [[nodiscard]] const LinkedTSContext &root_source_context() const noexcept
-        {
-            return m_root_source_context;
-        }
+        [[nodiscard]] const LinkedTSContext &root_source_context() const noexcept { return m_root_source_context; }
 
-        [[nodiscard]] TSOutputView bindable_view(TSOutput *owning_output, const TSOutputView &source, const TSMeta *schema)
-        {
-            TSOutputView root_source = view(owning_output, source.evaluation_time());
-            TSPath source_path;
+        [[nodiscard]] TSOutputView bindable_view(TSOutput *owning_output, const TSOutputView &source, const TSMeta *schema) {
+            TSOutputView        root_source = view(owning_output, source.evaluation_time());
+            TSPath              source_path;
             const TSViewContext source_resolved = source.context_ref().resolved();
-            BaseState *target_state = source_resolved.ts_state != nullptr ? source_resolved.ts_state : source.context_ref().ts_state;
+            BaseState          *target_state =
+                source_resolved.ts_state != nullptr ? source_resolved.ts_state : source.context_ref().ts_state;
             if (target_state != nullptr &&
                 !find_state_path(root_source.context_ref().ts_state, root_source.ts_schema(), target_state, source_path)) {
                 if (std::getenv("HGRAPH_DEBUG_BINDABLE") != nullptr) {
                     std::fprintf(stderr,
                                  "bindable reachability fail scope=alternative owner=%p source_schema=%s target_schema=%s "
                                  "root_state=%p source_state=%p resolved_state=%p bound=%d pending=%d\n",
-                                 static_cast<void *>(owning_output),
-                                 schema_debug_name(source.ts_schema()).c_str(),
-                                 schema_debug_name(schema).c_str(),
-                                 static_cast<void *>(root_source.context_ref().ts_state),
-                                 static_cast<void *>(source.context_ref().ts_state),
-                                 static_cast<void *>(source_resolved.ts_state),
-                                 source.context_ref().is_bound(),
-                                 source.context_ref().pending_dict_child.active());
+                                 static_cast<void *>(owning_output), schema_debug_name(source.ts_schema()).c_str(),
+                                 schema_debug_name(schema).c_str(), static_cast<void *>(root_source.context_ref().ts_state),
+                                 static_cast<void *>(source.context_ref().ts_state), static_cast<void *>(source_resolved.ts_state),
+                                 source.context_ref().is_bound(), source.context_ref().pending_dict_child.active());
                 }
-                TSOutputView detached_source = output_view_from_context(detail::stable_output_context(source), source.evaluation_time());
+                TSOutputView detached_source =
+                    output_view_from_context(detail::stable_output_context(source), source.evaluation_time());
                 DetachedAlternativeKey detached_key{target_state, detached_source.ts_schema(), schema};
                 const auto [detached_it, detached_inserted] = m_detached_alternatives.try_emplace(detached_key, nullptr);
-                if (detached_inserted ||
-                    detached_it->second == nullptr ||
+                if (detached_inserted || detached_it->second == nullptr ||
                     !detail::linked_context_equal(detached_it->second->root_source_context(),
                                                   detail::stable_output_context(detached_source))) {
                     detached_it->second.reset(new AlternativeOutput(detached_source, *schema));
@@ -2336,16 +2137,15 @@ namespace hgraph
             }
 
             const TSMeta *alternative_schema = replace_schema_at_path(*root_source_schema, source_path, 0, *schema);
-            const auto [it, inserted] = m_alternatives.try_emplace(alternative_schema, nullptr);
+            const auto [it, inserted]        = m_alternatives.try_emplace(alternative_schema, nullptr);
             if (inserted) { it->second.reset(new AlternativeOutput(root_source, *alternative_schema)); }
 
             TSOutputView alternative_view = it->second->view(owning_output, source.evaluation_time());
-            const auto dict_keys = capture_dict_traversal_keys(root_source, root_source_schema, source_path);
+            const auto   dict_keys        = capture_dict_traversal_keys(root_source, root_source_schema, source_path);
             return traverse_output_path(alternative_view, alternative_schema, source_path, dict_keys);
         }
 
-        void notify(engine_time_t modified_time) override
-        {
+        void notify(engine_time_t modified_time) override {
             if (m_dynamic_dict_bindings.empty() && m_dynamic_key_set_bindings.empty() && m_collection_ref_bindings.empty()) {
                 if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
             }
@@ -2354,8 +2154,8 @@ namespace hgraph
       private:
         struct WrappedRefSubscription
         {
-            BaseState *source_state{nullptr};
-            BaseState *target_state{nullptr};
+            BaseState                          *source_state{nullptr};
+            BaseState                          *target_state{nullptr};
             std::unique_ptr<WrappedRefNotifier> notifier;
         };
 
@@ -2363,8 +2163,7 @@ namespace hgraph
         {
             struct SourceNotifier final : Notifiable
             {
-                void notify(engine_time_t modified_time) override
-                {
+                void notify(engine_time_t modified_time) override {
                     if (binding != nullptr && binding->owner != nullptr) {
                         binding->owner->sync_scalar_value(*binding, modified_time, false);
                     }
@@ -2374,25 +2173,22 @@ namespace hgraph
             };
 
             ScalarValueBinding(AlternativeOutput *owner_, const TSOutputView &target_view, const TSOutputView &source_view) noexcept
-                : owner(owner_),
-                  target_context(target_view.context_ref()),
-                  source_context(detail::stable_output_context(source_view))
-            {
+                : owner(owner_), target_context(target_view.context_ref()),
+                  source_context(detail::stable_output_context(source_view)) {
                 source_notifier.binding = this;
             }
 
             AlternativeOutput *owner{nullptr};
-            TSViewContext target_context{TSViewContext::none()};
-            LinkedTSContext source_context{};
-            SourceNotifier source_notifier{};
+            TSViewContext      target_context{TSViewContext::none()};
+            LinkedTSContext    source_context{};
+            SourceNotifier     source_notifier{};
         };
 
         struct DynamicDictBinding
         {
             struct SourceNotifier final : Notifiable
             {
-                void notify(engine_time_t modified_time) override
-                {
+                void notify(engine_time_t modified_time) override {
                     if (binding != nullptr && binding->owner != nullptr) {
                         binding->owner->sync_dynamic_dict(*binding, modified_time, false);
                     }
@@ -2406,52 +2202,41 @@ namespace hgraph
             // the alternative dict boundary, while source_context identifies
             // the live producer-side dict we replay from.
             DynamicDictBinding(AlternativeOutput *owner_, const TSOutputView &target_view, const TSOutputView &source_view) noexcept
-                : owner(owner_),
-                  target_context(detail::stable_output_context(target_view)),
-                  source_context(detail::stable_output_context(source_view))
-            {
+                : owner(owner_), target_context(detail::stable_output_context(target_view)),
+                  source_context(detail::stable_output_context(source_view)) {
                 source_notifier.binding = this;
-                set_last_source_snapshot(
-                    source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
-                    false);
+                set_last_source_snapshot(source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
+                                         false);
             }
 
-            DynamicDictBinding(AlternativeOutput *owner_,
-                               const TSOutputView &target_view,
-                               std::unique_ptr<TimeSeriesStateV> source_bridge_state_,
-                               LinkedTSContext source_context_) noexcept
-                : owner(owner_),
-                  target_context(detail::stable_output_context(target_view)),
-                  source_context(std::move(source_context_)),
-                  source_bridge_state(std::move(source_bridge_state_))
-            {
+            DynamicDictBinding(AlternativeOutput *owner_, const TSOutputView &target_view,
+                               std::unique_ptr<TimeSeriesStateV> source_bridge_state_, LinkedTSContext source_context_) noexcept
+                : owner(owner_), target_context(detail::stable_output_context(target_view)),
+                  source_context(std::move(source_context_)), source_bridge_state(std::move(source_bridge_state_)) {
                 source_notifier.binding = this;
-                set_last_source_snapshot(
-                    source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
-                    false);
+                set_last_source_snapshot(source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
+                                         false);
             }
 
             [[nodiscard]] const BaseState *last_source_root_state() const noexcept { return m_last_source_snapshot.ptr(); }
-            [[nodiscard]] bool last_source_had_value() const noexcept { return m_last_source_snapshot.tag() != 0; }
-            void set_last_source_snapshot(const BaseState *state, bool had_value) noexcept
-            {
+            [[nodiscard]] bool             last_source_had_value() const noexcept { return m_last_source_snapshot.tag() != 0; }
+            void                           set_last_source_snapshot(const BaseState *state, bool had_value) noexcept {
                 m_last_source_snapshot.set(state, had_value ? 1u : 0u);
             }
 
-            AlternativeOutput *owner{nullptr};
-            LinkedTSContext target_context{};
-            LinkedTSContext source_context{};
+            AlternativeOutput                *owner{nullptr};
+            LinkedTSContext                   target_context{};
+            LinkedTSContext                   source_context{};
             std::unique_ptr<TimeSeriesStateV> source_bridge_state{};
-            tagged_ptr<const BaseState, 1> m_last_source_snapshot{};
-            SourceNotifier source_notifier{};
+            tagged_ptr<const BaseState, 1>    m_last_source_snapshot{};
+            SourceNotifier                    source_notifier{};
         };
 
         struct DynamicKeySetBinding
         {
             struct SourceNotifier final : Notifiable
             {
-                void notify(engine_time_t modified_time) override
-                {
+                void notify(engine_time_t modified_time) override {
                     if (binding != nullptr && binding->owner != nullptr) {
                         binding->owner->sync_dynamic_key_set(*binding, modified_time, false);
                     }
@@ -2460,53 +2245,43 @@ namespace hgraph
                 DynamicKeySetBinding *binding{nullptr};
             };
 
-            DynamicKeySetBinding(AlternativeOutput *owner_, const TSOutputView &target_view, const TSOutputView &source_view) noexcept
-                : owner(owner_),
-                  target_context(detail::stable_output_context(target_view)),
-                  source_context(detail::stable_output_context(source_view))
-            {
+            DynamicKeySetBinding(AlternativeOutput *owner_, const TSOutputView &target_view,
+                                 const TSOutputView &source_view) noexcept
+                : owner(owner_), target_context(detail::stable_output_context(target_view)),
+                  source_context(detail::stable_output_context(source_view)) {
                 source_notifier.binding = this;
-                set_last_source_snapshot(
-                    source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
-                    false);
+                set_last_source_snapshot(source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
+                                         false);
             }
 
-            DynamicKeySetBinding(AlternativeOutput *owner_,
-                                 const TSOutputView &target_view,
-                                 std::unique_ptr<TimeSeriesStateV> source_bridge_state_,
-                                 LinkedTSContext source_context_) noexcept
-                : owner(owner_),
-                  target_context(detail::stable_output_context(target_view)),
-                  source_context(std::move(source_context_)),
-                  source_bridge_state(std::move(source_bridge_state_))
-            {
+            DynamicKeySetBinding(AlternativeOutput *owner_, const TSOutputView &target_view,
+                                 std::unique_ptr<TimeSeriesStateV> source_bridge_state_, LinkedTSContext source_context_) noexcept
+                : owner(owner_), target_context(detail::stable_output_context(target_view)),
+                  source_context(std::move(source_context_)), source_bridge_state(std::move(source_bridge_state_)) {
                 source_notifier.binding = this;
-                set_last_source_snapshot(
-                    source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
-                    false);
+                set_last_source_snapshot(source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
+                                         false);
             }
 
             [[nodiscard]] const BaseState *last_source_root_state() const noexcept { return m_last_source_snapshot.ptr(); }
-            [[nodiscard]] bool last_source_had_value() const noexcept { return m_last_source_snapshot.tag() != 0; }
-            void set_last_source_snapshot(const BaseState *state, bool had_value) noexcept
-            {
+            [[nodiscard]] bool             last_source_had_value() const noexcept { return m_last_source_snapshot.tag() != 0; }
+            void                           set_last_source_snapshot(const BaseState *state, bool had_value) noexcept {
                 m_last_source_snapshot.set(state, had_value ? 1u : 0u);
             }
 
-            AlternativeOutput *owner{nullptr};
-            LinkedTSContext target_context{};
-            LinkedTSContext source_context{};
+            AlternativeOutput                *owner{nullptr};
+            LinkedTSContext                   target_context{};
+            LinkedTSContext                   source_context{};
             std::unique_ptr<TimeSeriesStateV> source_bridge_state{};
-            tagged_ptr<const BaseState, 1> m_last_source_snapshot{};
-            SourceNotifier source_notifier{};
+            tagged_ptr<const BaseState, 1>    m_last_source_snapshot{};
+            SourceNotifier                    source_notifier{};
         };
 
         struct CollectionRefBinding
         {
             struct SourceNotifier final : Notifiable
             {
-                void notify(engine_time_t modified_time) override
-                {
+                void notify(engine_time_t modified_time) override {
                     if (binding != nullptr && binding->owner != nullptr) {
                         binding->owner->sync_collection_ref(*binding, modified_time, false);
                     }
@@ -2517,8 +2292,7 @@ namespace hgraph
 
             struct TargetNotifier final : Notifiable
             {
-                void notify(engine_time_t modified_time) override
-                {
+                void notify(engine_time_t modified_time) override {
                     if (binding != nullptr && binding->owner != nullptr) {
                         binding->owner->sync_collection_ref(*binding, modified_time, false);
                     }
@@ -2527,103 +2301,80 @@ namespace hgraph
                 CollectionRefBinding *binding{nullptr};
             };
 
-            CollectionRefBinding(AlternativeOutput *owner_, const TSOutputView &target_view, const TSOutputView &source_view) noexcept
-                : owner(owner_),
-                  target_context(target_view.context_ref()),
-                  source_context(detail::stable_output_context(source_view))
-            {
+            CollectionRefBinding(AlternativeOutput *owner_, const TSOutputView &target_view,
+                                 const TSOutputView &source_view) noexcept
+                : owner(owner_), target_context(target_view.context_ref()),
+                  source_context(detail::stable_output_context(source_view)) {
                 source_notifier.binding = this;
                 target_notifier.binding = this;
             }
 
-            AlternativeOutput *owner{nullptr};
-            TSViewContext target_context{TSViewContext::none()};
-            LinkedTSContext source_context{};
+            AlternativeOutput              *owner{nullptr};
+            TSViewContext                   target_context{TSViewContext::none()};
+            LinkedTSContext                 source_context{};
             std::unordered_set<BaseState *> target_subscription_states{};
-            SourceNotifier source_notifier{};
-            TargetNotifier target_notifier{};
+            SourceNotifier                  source_notifier{};
+            TargetNotifier                  target_notifier{};
         };
 
         [[nodiscard]] std::unique_ptr<DynamicDictBinding>
-        make_dereferenced_dynamic_dict_binding(const TSOutputView &target_view, const TSOutputView &ref_source_view)
-        {
+        make_dereferenced_dynamic_dict_binding(const TSOutputView &target_view, const TSOutputView &ref_source_view) {
             const TSMeta *source_schema = ref_source_view.ts_schema();
             if (source_schema == nullptr || source_schema->kind != TSKind::REF || source_schema->element_ts() == nullptr ||
                 source_schema->element_ts()->kind != TSKind::TSD) {
                 throw std::invalid_argument("TSOutput dereferenced dynamic dict binding requires REF[TSD[...]] source");
             }
 
-            auto source_bridge_state = std::make_unique<TimeSeriesStateV>();
-            auto &bridge_state = source_bridge_state->template emplace<RefLinkState>();
+            auto  source_bridge_state = std::make_unique<TimeSeriesStateV>();
+            auto &bridge_state        = source_bridge_state->template emplace<RefLinkState>();
             initialize_ref_link_state(bridge_state, TimeSeriesStateParentPtr{}, 0);
             bridge_state.retain_transition_value = false;
             bridge_state.set_source(detail::stable_output_context(ref_source_view));
 
             LinkedTSContext source_context{
-                source_schema->element_ts(),
-                nullptr,
-                nullptr,
-                nullptr,
-                base_state_of(*source_bridge_state),
+                source_schema->element_ts(), nullptr, nullptr, nullptr, base_state_of(*source_bridge_state),
             };
 
-            return std::make_unique<DynamicDictBinding>(
-                this,
-                target_view,
-                std::move(source_bridge_state),
-                std::move(source_context));
+            return std::make_unique<DynamicDictBinding>(this, target_view, std::move(source_bridge_state),
+                                                        std::move(source_context));
         }
 
         [[nodiscard]] std::unique_ptr<DynamicKeySetBinding>
-        make_dereferenced_dynamic_key_set_binding(const TSOutputView &target_view, const TSOutputView &ref_source_view)
-        {
+        make_dereferenced_dynamic_key_set_binding(const TSOutputView &target_view, const TSOutputView &ref_source_view) {
             const TSMeta *source_schema = ref_source_view.ts_schema();
             if (source_schema == nullptr || source_schema->kind != TSKind::REF || source_schema->element_ts() == nullptr ||
                 source_schema->element_ts()->kind != TSKind::TSD) {
                 throw std::invalid_argument("TSOutput dereferenced key-set binding requires REF[TSD[...]] source");
             }
 
-            auto source_bridge_state = std::make_unique<TimeSeriesStateV>();
-            auto &bridge_state = source_bridge_state->template emplace<RefLinkState>();
+            auto  source_bridge_state = std::make_unique<TimeSeriesStateV>();
+            auto &bridge_state        = source_bridge_state->template emplace<RefLinkState>();
             initialize_ref_link_state(bridge_state, TimeSeriesStateParentPtr{}, 0);
             bridge_state.retain_transition_value = false;
             bridge_state.set_source(detail::stable_output_context(ref_source_view));
 
             LinkedTSContext source_context{
-                source_schema->element_ts(),
-                nullptr,
-                nullptr,
-                nullptr,
-                base_state_of(*source_bridge_state),
+                source_schema->element_ts(), nullptr, nullptr, nullptr, base_state_of(*source_bridge_state),
             };
 
-            return std::make_unique<DynamicKeySetBinding>(
-                this,
-                target_view,
-                std::move(source_bridge_state),
-                std::move(source_context));
+            return std::make_unique<DynamicKeySetBinding>(this, target_view, std::move(source_bridge_state),
+                                                          std::move(source_context));
         }
 
-        [[nodiscard]] TSOutputView output_view_for(const TSViewContext &context, engine_time_t evaluation_time = MIN_DT) const
-        {
-            return TSOutputView{
-                context,
-                TSViewContext::none(),
-                evaluation_time,
-                context.owning_output,
-                context.output_view_ops != nullptr ? context.output_view_ops : &detail::default_output_view_ops()};
+        [[nodiscard]] TSOutputView output_view_for(const TSViewContext &context, engine_time_t evaluation_time = MIN_DT) const {
+            return TSOutputView{context, TSViewContext::none(), evaluation_time, context.owning_output,
+                                context.output_view_ops != nullptr ? context.output_view_ops : &detail::default_output_view_ops()};
         }
 
-        [[nodiscard]] TSOutputView output_view_for(const LinkedTSContext &context, engine_time_t evaluation_time = MIN_DT) const
-        {
+        [[nodiscard]] TSOutputView output_view_for(const LinkedTSContext &context, engine_time_t evaluation_time = MIN_DT) const {
             return output_view_from_context(context, evaluation_time);
         }
 
-        void refresh_wrapped_ref(const TSViewContext &target_context, const LinkedTSContext &source_context, engine_time_t modified_time)
-        {
-            TSOutputView target_view = output_view_for(target_context, modified_time);
-            TSOutputView source_view = output_view_for(source_context, modified_time);
-            BaseState *target_state = target_view.context_ref().ts_state;
+        void refresh_wrapped_ref(const TSViewContext &target_context, const LinkedTSContext &source_context,
+                                 engine_time_t modified_time) {
+            TSOutputView target_view  = output_view_for(target_context, modified_time);
+            TSOutputView source_view  = output_view_for(source_context, modified_time);
+            BaseState   *target_state = target_view.context_ref().ts_state;
             if (target_state == nullptr) { return; }
             const TSMeta *target_schema = target_view.ts_schema();
             if (target_schema == nullptr || target_schema->kind != TSKind::REF) { return; }
@@ -2633,15 +2384,12 @@ namespace hgraph
             if (source_view.valid()) { next_value = TimeSeriesReference::make(source_view); }
 
             target_view.value().as_atomic().set(next_value);
-            if (target_state->last_modified_time != modified_time) {
-                target_state->mark_modified(modified_time);
-            }
+            if (target_state->last_modified_time != modified_time) { target_state->mark_modified(modified_time); }
         }
 
-        void add_dynamic_dict_binding(std::unique_ptr<DynamicDictBinding> binding, engine_time_t initial_modified_time)
-        {
-            auto &binding_ref = *binding;
-            auto unsubscribe_on_failure = make_scope_exit([&] {
+        void add_dynamic_dict_binding(std::unique_ptr<DynamicDictBinding> binding, engine_time_t initial_modified_time) {
+            auto &binding_ref            = *binding;
+            auto  unsubscribe_on_failure = make_scope_exit([&] {
                 if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
                     source_state->unsubscribe(&binding_ref.source_notifier);
                 }
@@ -2654,10 +2402,9 @@ namespace hgraph
             m_dynamic_dict_bindings.push_back(std::move(binding));
         }
 
-        void add_scalar_value_binding(std::unique_ptr<ScalarValueBinding> binding, engine_time_t initial_modified_time)
-        {
-            auto &binding_ref = *binding;
-            auto unsubscribe_on_failure = make_scope_exit([&] {
+        void add_scalar_value_binding(std::unique_ptr<ScalarValueBinding> binding, engine_time_t initial_modified_time) {
+            auto &binding_ref            = *binding;
+            auto  unsubscribe_on_failure = make_scope_exit([&] {
                 if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
                     source_state->unsubscribe(&binding_ref.source_notifier);
                 }
@@ -2670,10 +2417,9 @@ namespace hgraph
             m_scalar_value_bindings.push_back(std::move(binding));
         }
 
-        void add_dynamic_key_set_binding(std::unique_ptr<DynamicKeySetBinding> binding, engine_time_t initial_modified_time)
-        {
-            auto &binding_ref = *binding;
-            auto unsubscribe_on_failure = make_scope_exit([&] {
+        void add_dynamic_key_set_binding(std::unique_ptr<DynamicKeySetBinding> binding, engine_time_t initial_modified_time) {
+            auto &binding_ref            = *binding;
+            auto  unsubscribe_on_failure = make_scope_exit([&] {
                 if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
                     source_state->unsubscribe(&binding_ref.source_notifier);
                 }
@@ -2686,10 +2432,9 @@ namespace hgraph
             m_dynamic_key_set_bindings.push_back(std::move(binding));
         }
 
-        void add_collection_ref_binding(std::unique_ptr<CollectionRefBinding> binding, engine_time_t initial_modified_time)
-        {
-            auto &binding_ref = *binding;
-            auto unsubscribe_on_failure = make_scope_exit([&] {
+        void add_collection_ref_binding(std::unique_ptr<CollectionRefBinding> binding, engine_time_t initial_modified_time) {
+            auto &binding_ref            = *binding;
+            auto  unsubscribe_on_failure = make_scope_exit([&] {
                 if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
                     source_state->unsubscribe(&binding_ref.source_notifier);
                 }
@@ -2706,8 +2451,7 @@ namespace hgraph
             m_collection_ref_bindings.push_back(std::move(binding));
         }
 
-        void release_wrapped_ref_subscriptions(const BaseState *subtree_root)
-        {
+        void release_wrapped_ref_subscriptions(const BaseState *subtree_root) {
             if (subtree_root == nullptr) { return; }
 
             // Dynamic TSD replay can replace an entire child subtree when a
@@ -2717,9 +2461,7 @@ namespace hgraph
             auto it = m_wrapped_ref_subscriptions.begin();
             while (it != m_wrapped_ref_subscriptions.end()) {
                 if (it->target_state != nullptr && is_descendant_state(it->target_state, subtree_root)) {
-                    if (it->source_state != nullptr && it->notifier) {
-                        it->source_state->unsubscribe(it->notifier.get());
-                    }
+                    if (it->source_state != nullptr && it->notifier) { it->source_state->unsubscribe(it->notifier.get()); }
                     it = m_wrapped_ref_subscriptions.erase(it);
                 } else {
                     ++it;
@@ -2727,12 +2469,12 @@ namespace hgraph
             }
         }
 
-        void release_scalar_value_bindings(const BaseState *subtree_root)
-        {
+        void release_scalar_value_bindings(const BaseState *subtree_root) {
             if (subtree_root == nullptr) { return; }
 
             for (auto it = m_scalar_value_bindings.begin(); it != m_scalar_value_bindings.end();) {
-                if ((*it)->target_context.ts_state != nullptr && is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
+                if ((*it)->target_context.ts_state != nullptr &&
+                    is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
                     if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
                         source_state->unsubscribe(&(*it)->source_notifier);
                     }
@@ -2743,12 +2485,12 @@ namespace hgraph
             }
         }
 
-        void release_dynamic_dict_bindings(const BaseState *subtree_root)
-        {
+        void release_dynamic_dict_bindings(const BaseState *subtree_root) {
             if (subtree_root == nullptr) { return; }
 
             for (auto it = m_dynamic_dict_bindings.begin(); it != m_dynamic_dict_bindings.end();) {
-                if ((*it)->target_context.ts_state != nullptr && is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
+                if ((*it)->target_context.ts_state != nullptr &&
+                    is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
                     if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
                         source_state->unsubscribe(&(*it)->source_notifier);
                     }
@@ -2759,12 +2501,12 @@ namespace hgraph
             }
         }
 
-        void release_dynamic_key_set_bindings(const BaseState *subtree_root)
-        {
+        void release_dynamic_key_set_bindings(const BaseState *subtree_root) {
             if (subtree_root == nullptr) { return; }
 
             for (auto it = m_dynamic_key_set_bindings.begin(); it != m_dynamic_key_set_bindings.end();) {
-                if ((*it)->target_context.ts_state != nullptr && is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
+                if ((*it)->target_context.ts_state != nullptr &&
+                    is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
                     if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
                         source_state->unsubscribe(&(*it)->source_notifier);
                     }
@@ -2775,12 +2517,12 @@ namespace hgraph
             }
         }
 
-        void release_collection_ref_bindings(const BaseState *subtree_root)
-        {
+        void release_collection_ref_bindings(const BaseState *subtree_root) {
             if (subtree_root == nullptr) { return; }
 
             for (auto it = m_collection_ref_bindings.begin(); it != m_collection_ref_bindings.end();) {
-                if ((*it)->target_context.ts_state != nullptr && is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
+                if ((*it)->target_context.ts_state != nullptr &&
+                    is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
                     if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
                         source_state->unsubscribe(&(*it)->source_notifier);
                     }
@@ -2795,8 +2537,7 @@ namespace hgraph
             }
         }
 
-        void clear_dynamic_child_slot(TSDState &state, size_t slot)
-        {
+        void clear_dynamic_child_slot(TSDState &state, size_t slot) {
             if (slot >= state.child_states.size() || state.child_states[slot] == nullptr) { return; }
 
             // The stable slot is being vacated from the alternative map. Tear
@@ -2813,8 +2554,7 @@ namespace hgraph
         }
 
         template <typename TCollectionState>
-        void reset_fixed_child_slot(TCollectionState &state, size_t slot, const TSMeta &child_schema)
-        {
+        void reset_fixed_child_slot(TCollectionState &state, size_t slot, const TSMeta &child_schema) {
             if (slot >= state.child_states.size()) {
                 throw std::out_of_range("TSOutput collection ref binding slot is out of range");
             }
@@ -2832,14 +2572,10 @@ namespace hgraph
         }
 
         template <typename TCollectionState, typename TCollectionView, typename TChildSchemaFn>
-        bool sync_fixed_collection_root_value(TCollectionState &target_state,
-                                              const TSOutputView &target_view,
-                                              const TCollectionView &target_collection,
-                                              engine_time_t modified_time,
-                                              size_t slot_count,
-                                              TChildSchemaFn &&child_schema_for_slot,
-                                              auto &&desired_value_for_slot)
-        {
+        bool sync_fixed_collection_root_value(TCollectionState &target_state, const TSOutputView &target_view,
+                                              const TCollectionView &target_collection, engine_time_t modified_time,
+                                              size_t slot_count, TChildSchemaFn &&child_schema_for_slot,
+                                              auto &&desired_value_for_slot) {
             const bool new_tick = target_state.last_modified_time != modified_time;
             if (new_tick) { target_state.modified_children.clear(); }
 
@@ -2848,16 +2584,16 @@ namespace hgraph
 
             if constexpr (std::same_as<TCollectionState, TSBState>) {
                 auto mutation = target_view.value().as_bundle().begin_mutation();
-                auto current = target_view.value().as_bundle();
+                auto current  = target_view.value().as_bundle();
                 for (size_t slot = 0; slot < slot_count; ++slot) {
                     const TSMeta *child_schema = child_schema_for_slot(slot);
                     if (child_schema == nullptr || child_schema->value_type == nullptr) {
                         throw std::logic_error("TSOutput collection ref binding requires target child value schemas");
                     }
 
-                    const TSOutputView child = target_collection[slot];
-                    const View desired = desired_value_for_slot(slot, child_schema, child);
-                    const View existing = current.at(slot);
+                    const TSOutputView child    = target_collection[slot];
+                    const View         desired  = desired_value_for_slot(slot, child_schema, child);
+                    const View         existing = current.at(slot);
                     if (desired == existing) { continue; }
 
                     mutation.set(slot, desired);
@@ -2865,16 +2601,16 @@ namespace hgraph
                 }
             } else if constexpr (std::same_as<TCollectionState, TSLState>) {
                 auto mutation = target_view.value().as_list().begin_mutation();
-                auto current = target_view.value().as_list();
+                auto current  = target_view.value().as_list();
                 for (size_t slot = 0; slot < slot_count; ++slot) {
                     const TSMeta *child_schema = child_schema_for_slot(slot);
                     if (child_schema == nullptr || child_schema->value_type == nullptr) {
                         throw std::logic_error("TSOutput collection ref binding requires target child value schemas");
                     }
 
-                    const TSOutputView child = target_collection[slot];
-                    const View desired = desired_value_for_slot(slot, child_schema, child);
-                    const View existing = current.at(slot);
+                    const TSOutputView child    = target_collection[slot];
+                    const View         desired  = desired_value_for_slot(slot, child_schema, child);
+                    const View         existing = current.at(slot);
                     if (desired == existing) { continue; }
 
                     mutation.set(slot, desired);
@@ -2884,10 +2620,9 @@ namespace hgraph
 
             bool child_published = false;
             for (const size_t slot : changed_slots) {
-                BaseState *child_state =
-                    slot < target_state.child_states.size() && target_state.child_states[slot] != nullptr
-                        ? base_state_of(*target_state.child_states[slot])
-                        : nullptr;
+                BaseState *child_state = slot < target_state.child_states.size() && target_state.child_states[slot] != nullptr
+                                             ? base_state_of(*target_state.child_states[slot])
+                                             : nullptr;
 
                 if (child_state != nullptr && child_state->last_modified_time != modified_time) {
                     child_state->mark_modified(modified_time);
@@ -2907,10 +2642,8 @@ namespace hgraph
             return !changed_slots.empty();
         }
 
-        void sync_collection_ref_from_output(const TSOutputView &target_view,
-                                             const TSOutputView &source_view,
-                                             engine_time_t       modified_time)
-        {
+        void sync_collection_ref_from_output(const TSOutputView &target_view, const TSOutputView &source_view,
+                                             engine_time_t modified_time) {
             const TSMeta *target_schema = target_view.ts_schema();
             const TSMeta *source_schema = source_view.ts_schema();
             if (target_schema == nullptr || source_schema == nullptr || target_schema->kind != source_schema->kind) {
@@ -2920,9 +2653,9 @@ namespace hgraph
             switch (target_schema->kind) {
                 case TSKind::TSB:
                     {
-                        auto &target_state = *static_cast<TSBState *>(target_view.context_ref().ts_state);
-                        auto target_bundle = target_view.as_bundle();
-                        auto source_bundle = source_view.as_bundle();
+                        auto &target_state  = *static_cast<TSBState *>(target_view.context_ref().ts_state);
+                        auto  target_bundle = target_view.as_bundle();
+                        auto  source_bundle = source_view.as_bundle();
                         for (size_t index = 0; index < target_schema->field_count(); ++index) {
                             const TSMeta *child_schema = target_schema->fields()[index].ts_type;
                             if (child_schema == nullptr) {
@@ -2933,22 +2666,20 @@ namespace hgraph
                             TSOutputView target_child = target_bundle[index];
                             TSOutputView source_child = source_bundle[index];
                             if (source_child.ts_schema() == child_schema) {
-                                install_target_link(target_state, index, detail::stable_output_context(source_child), "collection_ref_tsb");
+                                install_target_link(target_state, index, detail::stable_output_context(source_child),
+                                                    "collection_ref_tsb");
                             } else {
                                 configure_branch(target_child, source_child);
                             }
                         }
                         static_cast<void>(sync_fixed_collection_root_value(
-                            target_state,
-                            target_view,
-                            target_bundle,
-                            modified_time,
-                            target_schema->field_count(),
+                            target_state, target_view, target_bundle, modified_time, target_schema->field_count(),
                             [&](size_t slot) { return target_schema->fields()[slot].ts_type; },
                             [&](size_t slot, const TSMeta *child_schema, const TSOutputView &target_child) {
                                 TSOutputView source_child = source_bundle[slot];
                                 if (source_child.ts_schema() == child_schema) {
-                                    return source_child.valid() ? source_child.value() : View::invalid_for(child_schema->value_type);
+                                    return source_child.valid() ? source_child.value()
+                                                                : View::invalid_for(child_schema->value_type);
                                 }
                                 return target_child.valid() ? target_child.value() : View::invalid_for(child_schema->value_type);
                             }));
@@ -2958,8 +2689,8 @@ namespace hgraph
                 case TSKind::TSL:
                     {
                         auto &target_state = *static_cast<TSLState *>(target_view.context_ref().ts_state);
-                        auto target_list = target_view.as_list();
-                        auto source_list = source_view.as_list();
+                        auto  target_list  = target_view.as_list();
+                        auto  source_list  = source_view.as_list();
                         for (size_t index = 0; index < target_schema->fixed_size(); ++index) {
                             const TSMeta *child_schema = target_schema->element_ts();
                             if (child_schema == nullptr) {
@@ -2970,37 +2701,32 @@ namespace hgraph
                             TSOutputView target_child = target_list[index];
                             TSOutputView source_child = source_list[index];
                             if (source_child.ts_schema() == child_schema) {
-                                install_target_link(target_state, index, detail::stable_output_context(source_child), "collection_ref_tsl");
+                                install_target_link(target_state, index, detail::stable_output_context(source_child),
+                                                    "collection_ref_tsl");
                             } else {
                                 configure_branch(target_child, source_child);
                             }
                         }
                         static_cast<void>(sync_fixed_collection_root_value(
-                            target_state,
-                            target_view,
-                            target_list,
-                            modified_time,
-                            target_schema->fixed_size(),
+                            target_state, target_view, target_list, modified_time, target_schema->fixed_size(),
                             [&](size_t) { return target_schema->element_ts(); },
                             [&](size_t slot, const TSMeta *child_schema, const TSOutputView &target_child) {
                                 TSOutputView source_child = source_list[slot];
                                 if (source_child.ts_schema() == child_schema) {
-                                    return source_child.valid() ? source_child.value() : View::invalid_for(child_schema->value_type);
+                                    return source_child.valid() ? source_child.value()
+                                                                : View::invalid_for(child_schema->value_type);
                                 }
                                 return target_child.valid() ? target_child.value() : View::invalid_for(child_schema->value_type);
                             }));
                         return;
                     }
 
-                default:
-                    throw std::invalid_argument("TSOutput collection ref binding only supports TSB and fixed-size TSL");
+                default: throw std::invalid_argument("TSOutput collection ref binding only supports TSB and fixed-size TSL");
             }
         }
 
-        void sync_collection_ref_from_value(const TSOutputView &target_view,
-                                            const TimeSeriesReference &ref,
-                                            engine_time_t modified_time)
-        {
+        void sync_collection_ref_from_value(const TSOutputView &target_view, const TimeSeriesReference &ref,
+                                            engine_time_t modified_time) {
             const TSMeta *target_schema = target_view.ts_schema();
             if (target_schema == nullptr) {
                 throw std::invalid_argument("TSOutput collection ref binding requires a target schema");
@@ -3013,7 +2739,9 @@ namespace hgraph
                             case TSKind::TSB:
                                 {
                                     auto &target_state = *static_cast<TSBState *>(target_view.context_ref().ts_state);
-                                    if (target_state.last_modified_time != modified_time) { target_state.modified_children.clear(); }
+                                    if (target_state.last_modified_time != modified_time) {
+                                        target_state.modified_children.clear();
+                                    }
                                     for (size_t index = 0; index < target_schema->field_count(); ++index) {
                                         const TSMeta *child_schema = target_schema->fields()[index].ts_type;
                                         if (child_schema != nullptr) { reset_fixed_child_slot(target_state, index, *child_schema); }
@@ -3024,7 +2752,9 @@ namespace hgraph
                             case TSKind::TSL:
                                 {
                                     auto &target_state = *static_cast<TSLState *>(target_view.context_ref().ts_state);
-                                    if (target_state.last_modified_time != modified_time) { target_state.modified_children.clear(); }
+                                    if (target_state.last_modified_time != modified_time) {
+                                        target_state.modified_children.clear();
+                                    }
                                     for (size_t index = 0; index < target_schema->fixed_size(); ++index) {
                                         const TSMeta *child_schema = target_schema->element_ts();
                                         if (child_schema != nullptr) { reset_fixed_child_slot(target_state, index, *child_schema); }
@@ -3048,8 +2778,8 @@ namespace hgraph
                         switch (target_schema->kind) {
                             case TSKind::TSB:
                                 {
-                                    auto &target_state = *static_cast<TSBState *>(target_view.context_ref().ts_state);
-                                    auto target_bundle = target_view.as_bundle();
+                                    auto &target_state  = *static_cast<TSBState *>(target_view.context_ref().ts_state);
+                                    auto  target_bundle = target_view.as_bundle();
                                     for (size_t index = 0; index < target_schema->field_count(); ++index) {
                                         const TSMeta *child_schema = target_schema->fields()[index].ts_type;
                                         if (child_schema == nullptr) {
@@ -3068,11 +2798,7 @@ namespace hgraph
                                         }
                                     }
                                     static_cast<void>(sync_fixed_collection_root_value(
-                                        target_state,
-                                        target_view,
-                                        target_bundle,
-                                        modified_time,
-                                        target_schema->field_count(),
+                                        target_state, target_view, target_bundle, modified_time, target_schema->field_count(),
                                         [&](size_t slot) { return target_schema->fields()[slot].ts_type; },
                                         [&](size_t slot, const TSMeta *child_schema, const TSOutputView &target_child) {
                                             if (slot >= ref.items().size() || ref.items()[slot].is_empty()) {
@@ -3093,11 +2819,12 @@ namespace hgraph
                             case TSKind::TSL:
                                 {
                                     auto &target_state = *static_cast<TSLState *>(target_view.context_ref().ts_state);
-                                    auto target_list = target_view.as_list();
+                                    auto  target_list  = target_view.as_list();
                                     for (size_t index = 0; index < target_schema->fixed_size(); ++index) {
                                         const TSMeta *child_schema = target_schema->element_ts();
                                         if (child_schema == nullptr) {
-                                            throw std::logic_error("TSOutput collection ref binding requires a target element schema");
+                                            throw std::logic_error(
+                                                "TSOutput collection ref binding requires a target element schema");
                                         }
 
                                         reset_fixed_child_slot(target_state, index, *child_schema);
@@ -3112,11 +2839,7 @@ namespace hgraph
                                         }
                                     }
                                     static_cast<void>(sync_fixed_collection_root_value(
-                                        target_state,
-                                        target_view,
-                                        target_list,
-                                        modified_time,
-                                        target_schema->fixed_size(),
+                                        target_state, target_view, target_list, modified_time, target_schema->fixed_size(),
                                         [&](size_t) { return target_schema->element_ts(); },
                                         [&](size_t slot, const TSMeta *child_schema, const TSOutputView &target_child) {
                                             if (slot >= ref.items().size() || ref.items()[slot].is_empty()) {
@@ -3141,9 +2864,7 @@ namespace hgraph
             }
         }
 
-        void update_collection_ref_target_subscription(CollectionRefBinding &binding,
-                                                       const TimeSeriesReference &ref) noexcept
-        {
+        void update_collection_ref_target_subscription(CollectionRefBinding &binding, const TimeSeriesReference &ref) noexcept {
             std::unordered_set<BaseState *> next_target_states;
             collect_ref_target_states(ref, next_target_states);
             if (binding.target_subscription_states == next_target_states) { return; }
@@ -3161,25 +2882,38 @@ namespace hgraph
             binding.target_subscription_states = std::move(next_target_states);
         }
 
-        void sync_scalar_value(ScalarValueBinding &binding, engine_time_t modified_time, bool initializing)
-        {
-            TSOutputView target_view = output_view_for(binding.target_context, modified_time);
-            TSOutputView source_view = output_view_for(binding.source_context, modified_time);
-            BaseState *target_state = target_view.context_ref().ts_state;
-            if (target_state == nullptr) {
-                throw std::logic_error("TSOutput scalar cast binding requires a live target TS state");
+        [[nodiscard]] bool copy_scalar_value_natively(const TSOutputView &target_view, const TSOutputView &source_view) {
+            View target_value = target_view.value();
+            View source_value = source_view.value();
+            if (!target_value.has_value() || !source_value.has_value()) { return false; }
+
+            const TSMeta *target_schema = target_view.ts_schema();
+            const TSMeta *source_schema = source_view.ts_schema();
+            if (target_schema != nullptr && target_schema->kind == TSKind::REF && source_schema != nullptr &&
+                source_schema->kind == TSKind::REF) {
+                target_value.as_atomic().set(TimeSeriesReference::make(source_view));
+                return true;
             }
+
+            return target_value.try_copy_from(source_value);
+        }
+
+        void sync_scalar_value(ScalarValueBinding &binding, engine_time_t modified_time, bool initializing) {
+            TSOutputView target_view  = output_view_for(binding.target_context, modified_time);
+            TSOutputView source_view  = output_view_for(binding.source_context, modified_time);
+            BaseState   *target_state = target_view.context_ref().ts_state;
+            if (target_state == nullptr) { throw std::logic_error("TSOutput scalar cast binding requires a live target TS state"); }
 
             if (!source_view.valid()) {
                 if (initializing) { target_state->last_modified_time = MIN_DT; }
                 return;
             }
 
-            const nb::object source_value =
-                source_view.ts_schema() != nullptr && source_view.ts_schema()->kind == TSKind::REF
-                    ? detail::to_python(source_view.context_ref(), modified_time)
-                    : source_view.value().to_python();
-            target_view.value().from_python(source_value);
+            if (!copy_scalar_value_natively(target_view, source_view)) {
+                throw std::invalid_argument(
+                    fmt::format("TSOutput scalar cast binding requires a native-compatible value copy: {} -> {}",
+                                schema_debug_name(source_view.ts_schema()), schema_debug_name(target_view.ts_schema())));
+            }
             if (initializing) {
                 target_state->last_modified_time = source_view.last_modified_time();
             } else {
@@ -3187,14 +2921,11 @@ namespace hgraph
             }
         }
 
-        void sync_collection_ref(CollectionRefBinding &binding, engine_time_t modified_time, bool initializing)
-        {
+        void sync_collection_ref(CollectionRefBinding &binding, engine_time_t modified_time, bool initializing) {
             TSOutputView target_view = output_view_for(binding.target_context, modified_time);
             TSOutputView source_view = output_view_for(binding.source_context, modified_time);
-            const auto *ref = source_view.value().as_atomic().try_as<TimeSeriesReference>();
-            if (ref == nullptr) {
-                throw std::logic_error("TSOutput collection ref binding requires a REF source value");
-            }
+            const auto  *ref         = source_view.value().as_atomic().try_as<TimeSeriesReference>();
+            if (ref == nullptr) { throw std::logic_error("TSOutput collection ref binding requires a REF source value"); }
 
             update_collection_ref_target_subscription(binding, *ref);
             sync_collection_ref_from_value(target_view, *ref, modified_time);
@@ -3205,15 +2936,14 @@ namespace hgraph
             }
         }
 
-        void install_ref_link_for_target(const TSOutputView &target_view, const TSOutputView &source_view)
-        {
+        void install_ref_link_for_target(const TSOutputView &target_view, const TSOutputView &source_view) {
             BaseState *target_state = target_view.linked_context().ts_state;
             if (target_state == nullptr) {
                 throw std::logic_error("TSOutput alternative REF dereference requires a live target state");
             }
 
             const LinkedTSContext ref_source = detail::stable_output_context(source_view);
-            bool replaced = false;
+            bool                  replaced   = false;
             hgraph::visit(
                 target_state->parent,
                 [&](auto *parent_state) {
@@ -3230,7 +2960,7 @@ namespace hgraph
                 [&] {
                     // Root-level REF -> TS casts replace the alternative's
                     // root state node itself rather than a collection child.
-                    auto &root_state = state_variant();
+                    auto &root_state  = state_variant();
                     auto &typed_state = root_state.template emplace<RefLinkState>();
                     initialize_ref_link_state(typed_state, TimeSeriesStateParentPtr{}, 0);
                     typed_state.retain_transition_value = false;
@@ -3238,13 +2968,10 @@ namespace hgraph
                     replaced = true;
                 });
 
-            if (!replaced) {
-                throw std::logic_error("TSOutput alternative REF dereference could not replace the target state");
-            }
+            if (!replaced) { throw std::logic_error("TSOutput alternative REF dereference could not replace the target state"); }
         }
 
-        void install_signal_subscription(const TSOutputView &target_view, const TSOutputView &source_view)
-        {
+        void install_signal_subscription(const TSOutputView &target_view, const TSOutputView &source_view) {
             BaseState *target_state = target_view.linked_context().ts_state;
             BaseState *source_state = notification_state_of(detail::stable_output_context(source_view));
             if (target_state == nullptr) {
@@ -3257,27 +2984,24 @@ namespace hgraph
 
             auto notifier = std::make_unique<WrappedRefNotifier>(target_state);
             if (source_state != nullptr) { source_state->subscribe(notifier.get()); }
-            m_wrapped_ref_subscriptions.push_back(
-                WrappedRefSubscription{.source_state = source_state, .target_state = target_state, .notifier = std::move(notifier)});
+            m_wrapped_ref_subscriptions.push_back(WrappedRefSubscription{
+                .source_state = source_state, .target_state = target_state, .notifier = std::move(notifier)});
         }
 
-        void install_dynamic_child(const TSOutputView &target_dict_view,
-                                   const View &key,
-                                   const TSOutputView &source_child,
-                                   engine_time_t modified_time)
-        {
+        void install_dynamic_child(const TSOutputView &target_dict_view, const View &key, const TSOutputView &source_child,
+                                   engine_time_t modified_time) {
             // The mutation layer has already ensured the key exists in the
             // alternative map value. Resolve the corresponding output-side TS
             // slot and then install either:
             // - a direct TargetLink for unchanged child schema, or
             // - a recursively transformed child subtree when the value schema
             //   itself still needs wrapping/dereference work below this point.
-            TSOutputView target_child = detail::ensure_dict_child_output_view(target_dict_view, key);
-            BaseState *target_child_state = target_child.context_ref().ts_state;
-            auto &target_state = *static_cast<TSDState *>(target_dict_view.context_ref().ts_state);
+            TSOutputView target_child       = detail::ensure_dict_child_output_view(target_dict_view, key);
+            BaseState   *target_child_state = target_child.context_ref().ts_state;
+            auto        &target_state       = *static_cast<TSDState *>(target_dict_view.context_ref().ts_state);
             if (target_child_state == nullptr) {
-                auto target_map = target_dict_view.value().as_map();
-                const size_t slot = target_map.find_slot(key);
+                auto         target_map = target_dict_view.value().as_map();
+                const size_t slot       = target_map.find_slot(key);
                 if (slot == static_cast<size_t>(-1)) {
                     throw std::logic_error("TSOutput alternative dynamic dict child key is missing from the target map");
                 }
@@ -3286,14 +3010,14 @@ namespace hgraph
                 // child state has not been materialized yet, create it for the
                 // already-live slot before installing the child binding.
                 target_state.on_insert(slot);
-                target_child = detail::ensure_dict_child_output_view(target_dict_view, key);
+                target_child       = detail::ensure_dict_child_output_view(target_dict_view, key);
                 target_child_state = target_child.context_ref().ts_state;
             }
             if (target_child_state == nullptr) {
                 throw std::logic_error("TSOutput alternative dynamic dict child requires a live target state");
             }
 
-            const size_t target_slot = target_child_state->index;
+            const size_t  target_slot         = target_child_state->index;
             const TSMeta *target_child_schema = target_child.ts_schema();
             const TSMeta *source_child_schema = source_child.ts_schema();
             if (target_child_schema == nullptr || source_child_schema == nullptr) {
@@ -3305,11 +3029,9 @@ namespace hgraph
             } else {
                 configure_branch(target_child, source_child);
             }
-
         }
 
-        void sync_dynamic_dict(DynamicDictBinding &binding, engine_time_t modified_time, bool initializing)
-        {
+        void sync_dynamic_dict(DynamicDictBinding &binding, engine_time_t modified_time, bool initializing) {
             TSOutputView target_root = output_view_for(binding.target_context, modified_time);
             TSOutputView source_root = output_view_for(binding.source_context, modified_time);
 
@@ -3326,20 +3048,19 @@ namespace hgraph
                     target_root_context.value_data);
             }
 
-            const View source_value = source_root.value();
-            auto target_map = target_root.value().as_map();
-            auto target_dict = target_root.as_dict();
-            auto mutation = target_map.begin_mutation(modified_time);
-            bool map_value_changed = false;
-            constexpr size_t no_slot = static_cast<size_t>(-1);
+            const View       source_value      = source_root.value();
+            auto             target_map        = target_root.value().as_map();
+            auto             target_dict       = target_root.as_dict();
+            auto             mutation          = target_map.begin_mutation(modified_time);
+            bool             map_value_changed = false;
+            constexpr size_t no_slot           = static_cast<size_t>(-1);
             const BaseState *current_source_root_state =
                 binding.source_context.ts_state != nullptr ? binding.source_context.ts_state->resolved_state() : nullptr;
             const bool current_source_had_value = source_value.has_value();
-            const bool source_rebound = !initializing && current_source_root_state != binding.last_source_root_state();
-            const bool source_value_changed = !initializing && current_source_had_value != binding.last_source_had_value();
-            const bool sampled_root_tick =
-                sampled_transition_this_tick(source_root.context_ref(), modified_time);
-            const bool full_resync = initializing || source_rebound || source_value_changed || sampled_root_tick;
+            const bool source_rebound           = !initializing && current_source_root_state != binding.last_source_root_state();
+            const bool source_value_changed     = !initializing && current_source_had_value != binding.last_source_had_value();
+            const bool sampled_root_tick        = sampled_transition_this_tick(source_root.context_ref(), modified_time);
+            const bool full_resync              = initializing || source_rebound || source_value_changed || sampled_root_tick;
 
             auto remove_target_key = [&](const View &key) {
                 TSOutputView existing_child = target_dict.at(key);
@@ -3360,14 +3081,12 @@ namespace hgraph
                 }
 
                 binding.set_last_source_snapshot(current_source_root_state, false);
-                if (map_value_changed && modified_time != MIN_DT) {
-                    target_root_state->mark_modified(modified_time);
-                }
+                if (map_value_changed && modified_time != MIN_DT) { target_root_state->mark_modified(modified_time); }
                 return;
             }
 
             const auto source_delta = source_value.as_map().delta();
-            const auto source_map = source_value.as_map();
+            const auto source_map   = source_value.as_map();
 
             // TSD key flow:
             // 1. The source map delta is authoritative for structural changes.
@@ -3391,12 +3110,13 @@ namespace hgraph
                 }
                 for (const auto &key : stale_keys) { remove_target_key(key.view()); }
             } else {
-                for (size_t slot = source_delta.first_removed_slot(); slot != no_slot; slot = source_delta.next_removed_slot(slot)) {
+                for (size_t slot = source_delta.first_removed_slot(); slot != no_slot;
+                     slot        = source_delta.next_removed_slot(slot)) {
                     remove_target_key(source_delta.key_at_slot(slot));
                 }
             }
 
-            const bool has_added_slots = source_delta.first_added_slot() != no_slot;
+            const bool has_added_slots   = source_delta.first_added_slot() != no_slot;
             const bool has_updated_slots = source_delta.first_updated_slot() != no_slot;
             if (!full_resync && !map_value_changed && !has_added_slots && !has_updated_slots) {
                 binding.set_last_source_snapshot(current_source_root_state, current_source_had_value);
@@ -3404,7 +3124,7 @@ namespace hgraph
             }
 
             auto replay_live_slot = [&](size_t slot, bool source_updated, bool rebuild_child) {
-                const View key = source_delta.key_at_slot(slot);
+                const View   key          = source_delta.key_at_slot(slot);
                 TSOutputView source_child = ensure_tsd_child_view(source_root, key);
                 if (source_updated) {
                     if (BaseState *source_child_state = source_child.context_ref().ts_state;
@@ -3417,9 +3137,9 @@ namespace hgraph
                         source_child_state->mark_modified(modified_time);
                     }
                 }
-                TSOutputView target_child = target_dict.at(key);
-                const bool target_has_key = target_child.context_ref().is_bound();
-                const bool child_schema_differs = target_has_key && target_child.ts_schema() != source_child.ts_schema();
+                TSOutputView target_child         = target_dict.at(key);
+                const bool   target_has_key       = target_child.context_ref().is_bound();
+                const bool   child_schema_differs = target_has_key && target_child.ts_schema() != source_child.ts_schema();
 
                 // Dict-level slot updates can replace the child payload for an
                 // existing key without changing the key itself. When the child
@@ -3465,16 +3185,19 @@ namespace hgraph
                     // also value replacements at the dict level.
                     if (source_child.ts_schema() == target_child.ts_schema()) {
                         const View source_item_value = source_map.at(key);
-                        mutation.set(key,
-                                     source_item_value.has_value()
-                                         ? source_item_value
-                                         : View::invalid_for(target_root.ts_schema()->element_ts()->value_type));
+                        mutation.set(key, source_item_value.has_value()
+                                              ? source_item_value
+                                              : View::invalid_for(target_root.ts_schema()->element_ts()->value_type));
                     } else {
-                        Value materialized_child{
-                            *target_root.ts_schema()->element_ts()->value_type,
-                            MutationTracking::Plain};
+                        Value materialized_child{*target_root.ts_schema()->element_ts()->value_type, MutationTracking::Plain};
                         materialized_child.reset();
-                        materialized_child.from_python(detail::to_python(target_child.context_ref(), modified_time));
+                        const View target_child_value = target_child.value();
+                        if (target_child_value.has_value()) {
+                            if (target_child_value.schema() != materialized_child.view().schema()) {
+                                throw std::logic_error("TSOutput dynamic dict materialization requires matching value schemas");
+                            }
+                            materialized_child.view().copy_from(target_child_value);
+                        }
                         mutation.set(key, materialized_child.view());
                     }
                     map_value_changed = true;
@@ -3489,21 +3212,22 @@ namespace hgraph
                 for (size_t slot = source_delta.first_added_slot(); slot != no_slot; slot = source_delta.next_added_slot(slot)) {
                     replay_live_slot(slot, true, true);
                 }
-                for (size_t slot = source_delta.first_updated_slot(); slot != no_slot; slot = source_delta.next_updated_slot(slot)) {
+                for (size_t slot = source_delta.first_updated_slot(); slot != no_slot;
+                     slot        = source_delta.next_updated_slot(slot)) {
                     if (source_delta.slot_added(slot)) { continue; }
-                    const View key = source_delta.key_at_slot(slot);
+                    const View   key          = source_delta.key_at_slot(slot);
                     TSOutputView source_child = ensure_tsd_child_view(source_root, key);
                     TSOutputView target_child = target_dict.at(key);
 
                     const bool child_changed_this_tick = context_modified(source_child.context_ref(), modified_time);
-                    const bool target_has_key = target_child.context_ref().is_bound();
-                    const bool child_schema_differs = target_has_key && target_child.ts_schema() != source_child.ts_schema();
+                    const bool target_has_key          = target_child.context_ref().is_bound();
+                    const bool child_schema_differs    = target_has_key && target_child.ts_schema() != source_child.ts_schema();
 
                     bool materialized_value_changed = !target_has_key;
                     if (!materialized_value_changed && !child_schema_differs) {
                         const View source_item_value = source_map.at(key);
                         const View target_item_value = target_map.at(key);
-                        materialized_value_changed = source_item_value != target_item_value;
+                        materialized_value_changed   = source_item_value != target_item_value;
                     }
 
                     if (!child_changed_this_tick && !materialized_value_changed && !child_schema_differs) { continue; }
@@ -3524,54 +3248,41 @@ namespace hgraph
             }
         }
 
-        void sync_dynamic_key_set(DynamicKeySetBinding &binding, engine_time_t modified_time, bool initializing)
-        {
+        void sync_dynamic_key_set(DynamicKeySetBinding &binding, engine_time_t modified_time, bool initializing) {
             TSOutputView target_root = output_view_for(binding.target_context, modified_time);
             TSOutputView source_root = output_view_for(binding.source_context, modified_time);
 
             auto *target_root_state = target_root.context_ref().ts_state;
-            if (target_root_state == nullptr) {
-                throw std::logic_error("TSOutput key-set sync requires a live target TSS state");
-            }
+            if (target_root_state == nullptr) { throw std::logic_error("TSOutput key-set sync requires a live target TSS state"); }
 
-            auto target_set = target_root.value().as_set();
-            auto mutation = target_set.begin_mutation(modified_time);
-            bool set_changed = false;
-            const bool materialize_empty_set = initializing && !target_root.value().has_value();
-            constexpr size_t no_slot = static_cast<size_t>(-1);
+            auto             target_set            = target_root.value().as_set();
+            auto             mutation              = target_set.begin_mutation(modified_time);
+            bool             set_changed           = false;
+            const bool       materialize_empty_set = initializing && !target_root.value().has_value();
+            constexpr size_t no_slot               = static_cast<size_t>(-1);
             const BaseState *current_source_root_state =
                 binding.source_context.ts_state != nullptr ? binding.source_context.ts_state->resolved_state() : nullptr;
             const bool current_source_had_value = source_root.value().has_value();
-            const bool source_rebound = !initializing && current_source_root_state != binding.last_source_root_state();
-            const bool source_value_changed = !initializing && current_source_had_value != binding.last_source_had_value();
-            const bool sampled_root_tick =
-                sampled_transition_this_tick(source_root.context_ref(), modified_time);
-            const bool full_resync = initializing || source_rebound || source_value_changed || sampled_root_tick;
+            const bool source_rebound           = !initializing && current_source_root_state != binding.last_source_root_state();
+            const bool source_value_changed     = !initializing && current_source_had_value != binding.last_source_had_value();
+            const bool sampled_root_tick        = sampled_transition_this_tick(source_root.context_ref(), modified_time);
+            const bool full_resync              = initializing || source_rebound || source_value_changed || sampled_root_tick;
 
-            auto remove_target_key = [&](const View &key) {
-                set_changed = mutation.remove(key) || set_changed;
-            };
+            auto remove_target_key = [&](const View &key) { set_changed = mutation.remove(key) || set_changed; };
 
             const View source_value = source_root.value();
             if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
                 std::fprintf(stderr,
-                             "sync_dynamic_key_set initializing=%d source_valid=%d source_modified=%d source_has_value=%d target_valid=%d target_modified=%d last_source=%p rebound=%d source_value_changed=%d\n",
-                             initializing,
-                             source_root.valid(),
-                             source_root.modified(),
-                             source_value.has_value(),
-                             target_root.valid(),
-                             target_root.modified(),
-                             static_cast<const void *>(binding.last_source_root_state()),
-                             source_rebound,
-                             source_value_changed);
+                             "sync_dynamic_key_set initializing=%d source_valid=%d source_modified=%d source_has_value=%d "
+                             "target_valid=%d target_modified=%d last_source=%p rebound=%d source_value_changed=%d\n",
+                             initializing, source_root.valid(), source_root.modified(), source_value.has_value(),
+                             target_root.valid(), target_root.modified(),
+                             static_cast<const void *>(binding.last_source_root_state()), source_rebound, source_value_changed);
             }
             if (!source_value.has_value()) {
                 if (full_resync) {
                     std::vector<Value> stale_keys;
-                    for (const View &key : target_set.values()) {
-                        stale_keys.emplace_back(key.clone());
-                    }
+                    for (const View &key : target_set.values()) { stale_keys.emplace_back(key.clone()); }
                     for (const auto &key : stale_keys) { remove_target_key(key.view()); }
                 }
 
@@ -3582,18 +3293,15 @@ namespace hgraph
                 return;
             }
 
-            const auto source_map = source_value.as_map();
+            const auto source_map   = source_value.as_map();
             const auto source_delta = source_map.delta();
             if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
                 size_t source_live = 0;
                 for (size_t slot = source_map.first_live_slot(); slot != no_slot; slot = source_map.next_live_slot(slot)) {
                     ++source_live;
                 }
-                std::fprintf(stderr,
-                             "sync_dynamic_key_set source slot_capacity=%zu live=%zu full_resync=%d\n",
-                             source_delta.slot_capacity(),
-                             source_live,
-                             full_resync);
+                std::fprintf(stderr, "sync_dynamic_key_set source slot_capacity=%zu live=%zu full_resync=%d\n",
+                             source_delta.slot_capacity(), source_live, full_resync);
             }
 
             if (full_resync) {
@@ -3607,7 +3315,8 @@ namespace hgraph
                     set_changed = mutation.add(source_map.delta().key_at_slot(slot)) || set_changed;
                 }
             } else {
-                for (size_t slot = source_delta.first_removed_slot(); slot != no_slot; slot = source_delta.next_removed_slot(slot)) {
+                for (size_t slot = source_delta.first_removed_slot(); slot != no_slot;
+                     slot        = source_delta.next_removed_slot(slot)) {
                     remove_target_key(source_delta.key_at_slot(slot));
                 }
                 for (size_t slot = source_delta.first_added_slot(); slot != no_slot; slot = source_delta.next_added_slot(slot)) {
@@ -3621,17 +3330,16 @@ namespace hgraph
             }
         }
 
-        void configure_branch(const TSOutputView &target_view, const TSOutputView &source_view)
-        {
+        void configure_branch(const TSOutputView &target_view, const TSOutputView &source_view) {
             const TSMeta *target_schema = target_view.ts_schema();
             const TSMeta *source_schema = source_view.ts_schema();
             if (target_schema == nullptr || source_schema == nullptr) {
                 throw std::invalid_argument("TSOutput alternative configuration requires bound source and target schemas");
             }
 
-            BaseState *target_state = target_view.linked_context().ts_state;
+            BaseState            *target_state   = target_view.linked_context().ts_state;
             const LinkedTSContext source_context = detail::stable_output_context(source_view);
-            BaseState *source_state = source_context.ts_state;
+            BaseState            *source_state   = source_context.ts_state;
             if (target_state != nullptr) {
                 target_state->last_modified_time = source_state != nullptr ? source_state->last_modified_time : MIN_DT;
             }
@@ -3645,34 +3353,30 @@ namespace hgraph
                 if (target_schema->kind == TSKind::REF) {
                     const TSMeta *target_element = target_schema->element_ts();
                     if (target_element != nullptr && supports_alternative_cast(*dereferenced_schema, *target_element)) {
-                        add_scalar_value_binding(
-                            std::make_unique<ScalarValueBinding>(this, target_view, source_view),
-                            source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                        add_scalar_value_binding(std::make_unique<ScalarValueBinding>(this, target_view, source_view),
+                                                 source_state != nullptr ? source_state->last_modified_time : MIN_DT);
                         return;
                     }
                 }
 
                 if (target_schema->kind == TSKind::TSD && dereferenced_schema->kind == TSKind::TSD &&
                     supports_alternative_cast(*dereferenced_schema, *target_schema)) {
-                    add_dynamic_dict_binding(
-                        make_dereferenced_dynamic_dict_binding(target_view, source_view),
-                        source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                    add_dynamic_dict_binding(make_dereferenced_dynamic_dict_binding(target_view, source_view),
+                                             source_state != nullptr ? source_state->last_modified_time : MIN_DT);
                     return;
                 }
 
                 if (target_schema->kind == TSKind::TSS && dereferenced_schema->kind == TSKind::TSD &&
                     supports_alternative_cast(*dereferenced_schema, *target_schema)) {
-                    add_dynamic_key_set_binding(
-                        make_dereferenced_dynamic_key_set_binding(target_view, source_view),
-                        target_view.evaluation_time());
+                    add_dynamic_key_set_binding(make_dereferenced_dynamic_key_set_binding(target_view, source_view),
+                                                target_view.evaluation_time());
                     return;
                 }
 
                 if (supports_alternative_cast(*dereferenced_schema, *target_schema)) {
                     if (target_schema->kind == TSKind::TSB || target_schema->kind == TSKind::TSL) {
-                        add_collection_ref_binding(
-                            std::make_unique<CollectionRefBinding>(this, target_view, source_view),
-                            source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                        add_collection_ref_binding(std::make_unique<CollectionRefBinding>(this, target_view, source_view),
+                                                   source_state != nullptr ? source_state->last_modified_time : MIN_DT);
                     } else {
                         // REF -> TS does not copy target data into the alternative.
                         // Instead the alternative position becomes a RefLinkState that
@@ -3683,7 +3387,8 @@ namespace hgraph
                     return;
                 }
 
-                throw std::invalid_argument("TSOutput alternative REF dereference requires matching or recursively compatible schema");
+                throw std::invalid_argument(
+                    "TSOutput alternative REF dereference requires matching or recursively compatible schema");
             }
 
             if (target_schema->kind == TSKind::SIGNAL) {
@@ -3692,9 +3397,8 @@ namespace hgraph
             }
 
             if (target_schema->kind == TSKind::TSValue && source_schema->kind == TSKind::TSValue) {
-                add_scalar_value_binding(
-                    std::make_unique<ScalarValueBinding>(this, target_view, source_view),
-                    source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                add_scalar_value_binding(std::make_unique<ScalarValueBinding>(this, target_view, source_view),
+                                         source_state != nullptr ? source_state->last_modified_time : MIN_DT);
                 return;
             }
 
@@ -3706,21 +3410,19 @@ namespace hgraph
 
                 target_view.value().as_atomic().set(hgraph::TimeSeriesReference::make(source_view));
                 if (target_state != nullptr) {
-                    const engine_time_t source_modified_time =
-                        source_state != nullptr && source_state->last_modified_time != MIN_DT
-                            ? source_state->last_modified_time
-                            : source_view.evaluation_time();
-                    target_state->last_modified_time = source_modified_time;
+                    const engine_time_t source_modified_time = source_state != nullptr && source_state->last_modified_time != MIN_DT
+                                                                   ? source_state->last_modified_time
+                                                                   : source_view.evaluation_time();
+                    target_state->last_modified_time         = source_modified_time;
                 }
-                auto notifier = std::make_unique<WrappedRefNotifier>(this, target_view.context_ref(), source_context);
+                auto       notifier = std::make_unique<WrappedRefNotifier>(this, target_view.context_ref(), source_context);
                 BaseState *source_notification_state = notification_state_of(source_context);
                 if (source_notification_state != nullptr) { source_notification_state->subscribe(notifier.get()); }
-                m_wrapped_ref_subscriptions.push_back(
-                    WrappedRefSubscription{
-                        .source_state = source_notification_state,
-                        .target_state = target_state,
-                        .notifier = std::move(notifier),
-                    });
+                m_wrapped_ref_subscriptions.push_back(WrappedRefSubscription{
+                    .source_state = source_notification_state,
+                    .target_state = target_state,
+                    .notifier     = std::move(notifier),
+                });
                 return;
             }
 
@@ -3729,9 +3431,8 @@ namespace hgraph
             }
 
             if (target_schema->kind == TSKind::TSS && source_schema->kind == TSKind::TSD) {
-                add_dynamic_key_set_binding(
-                    std::make_unique<DynamicKeySetBinding>(this, target_view, source_view),
-                    target_view.evaluation_time());
+                add_dynamic_key_set_binding(std::make_unique<DynamicKeySetBinding>(this, target_view, source_view),
+                                            target_view.evaluation_time());
                 return;
             }
 
@@ -3742,34 +3443,32 @@ namespace hgraph
             switch (target_schema->kind) {
                 case TSKind::TSB:
                     {
-                        auto &target_state_ref = *static_cast<TSBState *>(target_view.linked_context().ts_state);
-                        auto source_bundle = source_view.as_bundle();
-                        auto target_bundle = target_view.as_bundle();
-                        const bool debug_links = std::getenv("HGRAPH_DEBUG_LINKS") != nullptr;
+                        auto      &target_state_ref = *static_cast<TSBState *>(target_view.linked_context().ts_state);
+                        auto       source_bundle    = source_view.as_bundle();
+                        auto       target_bundle    = target_view.as_bundle();
+                        const bool debug_links      = std::getenv("HGRAPH_DEBUG_LINKS") != nullptr;
                         if (debug_links) {
                             std::fprintf(stderr,
                                          "configure_branch TSB target=%p source=%p target_kind=%d source_kind=%d fields=%zu\n",
                                          static_cast<void *>(target_view.linked_context().ts_state),
                                          static_cast<void *>(detail::stable_output_context(source_view).ts_state),
-                                         static_cast<int>(target_schema->kind),
-                                         static_cast<int>(source_schema->kind),
+                                         static_cast<int>(target_schema->kind), static_cast<int>(source_schema->kind),
                                          target_schema->field_count());
                         }
                         for (size_t i = 0; i < target_schema->field_count(); ++i) {
                             const TSMeta *target_child_schema = target_schema->fields()[i].ts_type;
                             const TSMeta *source_child_schema = source_schema->fields()[i].ts_type;
-                            TSOutputView source_child = source_bundle[i];
+                            TSOutputView  source_child        = source_bundle[i];
                             if (debug_links) {
                                 const LinkedTSContext child_context = detail::stable_output_context(source_child);
-                                std::fprintf(stderr,
-                                             "  field[%zu] target_child_kind=%d source_child_kind=%d source_state=%p\n",
-                                             i,
+                                std::fprintf(stderr, "  field[%zu] target_child_kind=%d source_child_kind=%d source_state=%p\n", i,
                                              target_child_schema != nullptr ? static_cast<int>(target_child_schema->kind) : -1,
                                              source_child_schema != nullptr ? static_cast<int>(source_child_schema->kind) : -1,
                                              static_cast<void *>(child_context.ts_state));
                             }
                             if (target_child_schema == source_child_schema) {
-                                install_target_link(target_state_ref, i, detail::stable_output_context(source_child), "configure_branch_tsb");
+                                install_target_link(target_state_ref, i, detail::stable_output_context(source_child),
+                                                    "configure_branch_tsb");
                             } else {
                                 configure_branch(target_bundle[i], source_child);
                             }
@@ -3783,14 +3482,15 @@ namespace hgraph
                             throw std::invalid_argument("TSOutput alternatives only support fixed-size TSL wrap casts");
                         }
                         auto &target_state_ref = *static_cast<TSLState *>(target_view.linked_context().ts_state);
-                        auto source_list = source_view.as_list();
-                        auto target_list = target_view.as_list();
+                        auto  source_list      = source_view.as_list();
+                        auto  target_list      = target_view.as_list();
                         for (size_t i = 0; i < target_schema->fixed_size(); ++i) {
                             const TSMeta *target_child_schema = target_schema->element_ts();
                             const TSMeta *source_child_schema = source_schema->element_ts();
-                            TSOutputView source_child = source_list[i];
+                            TSOutputView  source_child        = source_list[i];
                             if (target_child_schema == source_child_schema) {
-                                install_target_link(target_state_ref, i, detail::stable_output_context(source_child), "configure_branch_tsl");
+                                install_target_link(target_state_ref, i, detail::stable_output_context(source_child),
+                                                    "configure_branch_tsl");
                             } else {
                                 configure_branch(target_list[i], source_child);
                             }
@@ -3808,50 +3508,46 @@ namespace hgraph
                         // construction. Instead of eagerly recursing every
                         // possible child, we subscribe to the source dict root
                         // and replay key-level structural changes on demand.
-                        add_dynamic_dict_binding(
-                            std::make_unique<DynamicDictBinding>(this, target_view, source_view),
-                            source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                        add_dynamic_dict_binding(std::make_unique<DynamicDictBinding>(this, target_view, source_view),
+                                                 source_state != nullptr ? source_state->last_modified_time : MIN_DT);
                         return;
                     }
 
                 default:
-                    throw std::invalid_argument("TSOutput alternatives only support collection wrap casts through TSB, TSL, TSD, and TSS");
+                    throw std::invalid_argument(
+                        "TSOutput alternatives only support collection wrap casts through TSB, TSL, TSD, and TSS");
             }
         }
 
-        std::vector<WrappedRefSubscription> m_wrapped_ref_subscriptions;
-        std::vector<std::unique_ptr<ScalarValueBinding>> m_scalar_value_bindings;
-        std::vector<std::unique_ptr<DynamicDictBinding>> m_dynamic_dict_bindings;
+        std::vector<WrappedRefSubscription>                m_wrapped_ref_subscriptions;
+        std::vector<std::unique_ptr<ScalarValueBinding>>   m_scalar_value_bindings;
+        std::vector<std::unique_ptr<DynamicDictBinding>>   m_dynamic_dict_bindings;
         std::vector<std::unique_ptr<DynamicKeySetBinding>> m_dynamic_key_set_bindings;
         std::vector<std::unique_ptr<CollectionRefBinding>> m_collection_ref_bindings;
-        ViewOps m_view_ops{this};
-        AlternativeMap m_alternatives;
-        DetachedAlternativeMap m_detached_alternatives;
-        LinkedTSContext m_root_source_context{};
+        ViewOps                                            m_view_ops{this};
+        AlternativeMap                                     m_alternatives;
+        DetachedAlternativeMap                             m_detached_alternatives;
+        LinkedTSContext                                    m_root_source_context{};
     };
 
     TSOutput::TSOutput() noexcept = default;
 
-    TSOutput::TSOutput(const TSOutputBuilder &builder)
-    {
-        builder.construct_output(*this);
-    }
+    TSOutput::TSOutput(const TSOutputBuilder &builder) { builder.construct_output(*this); }
 
-    void mark_output_view_modified(const TSOutputView &view, engine_time_t evaluation_time)
-    {
+    void mark_output_view_modified(const TSOutputView &view, engine_time_t evaluation_time) {
         LinkedTSContext context = view.linked_context();
-        if (context.ts_state == nullptr) {
-            throw std::logic_error("mark_output_view_modified requires a linked output state");
-        }
+        if (context.ts_state == nullptr) { throw std::logic_error("mark_output_view_modified requires a linked output state"); }
 
-        if (context.schema != nullptr && context.schema->kind == TSKind::TSD && context.ts_state->storage_kind == TSStorageKind::Native &&
-            context.value_dispatch != nullptr && context.value_data != nullptr) {
+        if (context.schema != nullptr && context.schema->kind == TSKind::TSD &&
+            context.ts_state->storage_kind == TSStorageKind::Native && context.value_dispatch != nullptr &&
+            context.value_data != nullptr) {
             auto &state = *static_cast<TSDState *>(context.ts_state);
-            state.bind_value_storage(
-                *context.schema->element_ts(),
-                static_cast<const detail::MapViewDispatch &>(*context.value_dispatch),
-                context.value_data);
-            if (state.publish_value_storage_delta(evaluation_time)) { return; }
+            state.bind_value_storage(*context.schema->element_ts(),
+                                     static_cast<const detail::MapViewDispatch &>(*context.value_dispatch), context.value_data);
+            // Child-slot deltas and root-level collection subscribers are both
+            // meaningful. Dynamic TSD alternatives need the root notification
+            // after batched map output publication has completed.
+            static_cast<void>(state.publish_value_storage_delta(evaluation_time));
         }
 
         if (TSOutput *owning_output = view.owning_output(); owning_output != nullptr) {
@@ -3862,8 +3558,7 @@ namespace hgraph
 
     namespace
     {
-        [[nodiscard]] OutputLinkState *ensure_output_link_state(const TSOutputView &target)
-        {
+        [[nodiscard]] OutputLinkState *ensure_output_link_state(const TSOutputView &target) {
             const TSMeta *target_schema = target.ts_schema();
             if (target_schema == nullptr) { throw std::invalid_argument("prepare_output_link requires a target schema"); }
 
@@ -3873,25 +3568,22 @@ namespace hgraph
             TimeSeriesStateV *slot = owning_state_variant(target_state, target.owning_output());
             if (slot == nullptr) { throw std::logic_error("prepare_output_link could not resolve the owning target state slot"); }
 
-            if (target_state->storage_kind == TSStorageKind::OutputLink) {
-                return static_cast<OutputLinkState *>(target_state);
-            }
+            if (target_state->storage_kind == TSStorageKind::OutputLink) { return static_cast<OutputLinkState *>(target_state); }
 
-            const TimeSeriesStateParentPtr parent = target_state->parent;
-            const size_t index = target_state->index;
-            const engine_time_t last_modified_time = target_state->last_modified_time;
-            auto subscribers = std::move(target_state->subscribers);
-            auto feature_registry = std::move(target_state->feature_registry);
-            auto &new_state = slot->emplace<OutputLinkState>();
+            const TimeSeriesStateParentPtr parent             = target_state->parent;
+            const size_t                   index              = target_state->index;
+            const engine_time_t            last_modified_time = target_state->last_modified_time;
+            auto                           subscribers        = std::move(target_state->subscribers);
+            auto                           feature_registry   = std::move(target_state->feature_registry);
+            auto                          &new_state          = slot->emplace<OutputLinkState>();
             initialize_base_state(new_state, parent, index, last_modified_time, TSStorageKind::OutputLink);
-            new_state.subscribers = std::move(subscribers);
+            new_state.subscribers      = std::move(subscribers);
             new_state.feature_registry = std::move(feature_registry);
             new_state.target.clear();
             return &new_state;
         }
 
-        void restore_native_output_link_state(const TSOutputView &target)
-        {
+        void restore_native_output_link_state(const TSOutputView &target) {
             BaseState *target_state = target.context_ref().ts_state;
             if (target_state == nullptr || target_state->storage_kind != TSStorageKind::OutputLink) { return; }
 
@@ -3899,52 +3591,51 @@ namespace hgraph
             if (schema == nullptr) { throw std::logic_error("restore_native_output_link_state requires a target schema"); }
 
             TimeSeriesStateV *slot = owning_state_variant(target_state, target.owning_output());
-            if (slot == nullptr) { throw std::logic_error("restore_native_output_link_state could not resolve the owning target state slot"); }
+            if (slot == nullptr) {
+                throw std::logic_error("restore_native_output_link_state could not resolve the owning target state slot");
+            }
 
-            const TimeSeriesStateParentPtr parent = target_state->parent;
-            const size_t index = target_state->index;
-            const engine_time_t last_modified_time = target_state->last_modified_time;
-            auto subscribers = std::move(target_state->subscribers);
-            auto feature_registry = std::move(target_state->feature_registry);
+            const TimeSeriesStateParentPtr parent             = target_state->parent;
+            const size_t                   index              = target_state->index;
+            const engine_time_t            last_modified_time = target_state->last_modified_time;
+            auto                           subscribers        = std::move(target_state->subscribers);
+            auto                           feature_registry   = std::move(target_state->feature_registry);
 
             auto restore_common = [&](auto &state) -> void {
                 initialize_base_state(state, parent, index, last_modified_time, TSStorageKind::Native);
-                state.subscribers = std::move(subscribers);
+                state.subscribers      = std::move(subscribers);
                 state.feature_registry = std::move(feature_registry);
             };
 
             switch (schema->kind) {
-                case TSKind::TSValue:
-                    restore_common(slot->emplace<TSState>());
-                    break;
-                case TSKind::TSS:
-                    restore_common(slot->emplace<TSSState>());
-                    break;
-                case TSKind::TSD:
-                    restore_common(slot->emplace<TSDState>());
-                    break;
-                default:
-                    throw std::logic_error("restore_native_output_link_state only supports TS/TSS/TSD outputs");
+                case TSKind::TSValue: restore_common(slot->emplace<TSState>()); break;
+                case TSKind::TSS: restore_common(slot->emplace<TSSState>()); break;
+                case TSKind::TSD: restore_common(slot->emplace<TSDState>()); break;
+                default: throw std::logic_error("restore_native_output_link_state only supports TS/TSS/TSD outputs");
             }
         }
 
-        void materialize_output_link_transition_delta(const TSOutputView &target, const Value &previous_value)
-        {
+        void materialize_output_link_transition_delta(const TSOutputView &target, const Value &previous_value) {
             if (!previous_value.has_value()) { return; }
 
             const TSMeta *schema = target.ts_schema();
             if (schema == nullptr) { return; }
 
-            if (target.context_ref().ts_state != nullptr && target.context_ref().ts_state->storage_kind == TSStorageKind::OutputLink) {
+            if (target.context_ref().ts_state != nullptr &&
+                target.context_ref().ts_state->storage_kind == TSStorageKind::OutputLink) {
                 restore_native_output_link_state(target);
             }
 
-            target.from_python(previous_value.to_python());
+            View target_value = target.value();
+            if (!target_value.has_value() || target_value.schema() != previous_value.view().schema()) {
+                throw std::logic_error("OutputLink transition materialization requires matching native value storage");
+            }
+            target_value.copy_from(previous_value.view());
 
             switch (schema->kind) {
                 case TSKind::TSS:
                     {
-                        auto set_view = target.value().as_set();
+                        auto               set_view = target.value().as_set();
                         std::vector<Value> items;
                         for (const View &item : set_view.values()) { items.emplace_back(item.clone()); }
                         set_view.clear_delta_tracking();
@@ -3955,9 +3646,9 @@ namespace hgraph
 
                 case TSKind::TSD:
                     {
-                        auto map_view = target.value().as_map();
+                        auto               map_view = target.value().as_map();
                         std::vector<Value> keys;
-                        constexpr size_t no_slot = static_cast<size_t>(-1);
+                        constexpr size_t   no_slot = static_cast<size_t>(-1);
                         for (size_t slot = map_view.first_live_slot(); slot != no_slot; slot = map_view.next_live_slot(slot)) {
                             keys.emplace_back(map_view.delta().key_at_slot(slot).clone());
                         }
@@ -3967,26 +3658,19 @@ namespace hgraph
                         break;
                     }
 
-                default:
-                    break;
+                default: break;
             }
         }
-    }
+    }  // namespace
 
-    void prepare_output_link(const TSOutputView &target)
-    {
-        static_cast<void>(ensure_output_link_state(target));
-    }
+    void prepare_output_link(const TSOutputView &target) { static_cast<void>(ensure_output_link_state(target)); }
 
-    bool bind_output_link(const TSOutputView &target, const TSOutputView &source)
-    {
+    bool bind_output_link(const TSOutputView &target, const TSOutputView &source) {
         const TSMeta *target_schema = target.ts_schema();
         const TSMeta *source_schema = source.ts_schema();
         if (target_schema == nullptr || source_schema == nullptr || target_schema != source_schema) {
-            throw std::invalid_argument(
-                fmt::format("bind_output_link requires matching source and target schemas: {} -> {}",
-                            schema_debug_name(source_schema),
-                            schema_debug_name(target_schema)));
+            throw std::invalid_argument(fmt::format("bind_output_link requires matching source and target schemas: {} -> {}",
+                                                    schema_debug_name(source_schema), schema_debug_name(target_schema)));
         }
 
         BaseState *target_state = target.context_ref().ts_state;
@@ -3998,13 +3682,9 @@ namespace hgraph
             std::fprintf(stderr,
                          "bind_output_link target_state=%p target_storage=%d source_state=%p source_value=%p "
                          "source_schema=%s source_bound=%d source_valid=%d source_mod=%d\n",
-                         static_cast<void *>(target_state),
-                         static_cast<int>(target_state->storage_kind),
-                         static_cast<void *>(source_context.ts_state),
-                         source_context.value_data,
-                         schema_debug_name(source_context.schema).c_str(),
-                         source_context.is_bound(),
-                         source.valid(),
+                         static_cast<void *>(target_state), static_cast<int>(target_state->storage_kind),
+                         static_cast<void *>(source_context.ts_state), source_context.value_data,
+                         schema_debug_name(source_context.schema).c_str(), source_context.is_bound(), source.valid(),
                          source.modified());
         }
         if (detail::linked_context_equal(link_state->target, source_context)) { return false; }
@@ -4015,21 +3695,18 @@ namespace hgraph
         return true;
     }
 
-    void clear_output_link(const TSOutputView &target)
-    {
+    void clear_output_link(const TSOutputView &target) {
         BaseState *target_state = target.context_ref().ts_state;
         if (target_state == nullptr || target_state->storage_kind != TSStorageKind::OutputLink) { return; }
-        auto &link_state = *static_cast<OutputLinkState *>(target_state);
+        auto               &link_state      = *static_cast<OutputLinkState *>(target_state);
         const engine_time_t evaluation_time = target.evaluation_time();
         link_state.reset_target(evaluation_time);
-        if (link_state.feature_registry != nullptr) {
-            link_state.feature_registry->rebind_link_source(nullptr, evaluation_time);
-        }
-        const bool transition_this_tick = evaluation_time != MIN_DT && link_state.switch_modified_time == evaluation_time;
-        Value previous_target_value = transition_this_tick && link_state.previous_target_value.has_value()
-                                          ? Value(link_state.previous_target_value)
-                                          : Value{};
-        bool materialized_transition = false;
+        if (link_state.feature_registry != nullptr) { link_state.feature_registry->rebind_link_source(nullptr, evaluation_time); }
+        const bool transition_this_tick    = evaluation_time != MIN_DT && link_state.switch_modified_time == evaluation_time;
+        Value      previous_target_value   = transition_this_tick && link_state.previous_target_value.has_value()
+                                                 ? Value(link_state.previous_target_value)
+                                                 : Value{};
+        bool       materialized_transition = false;
         if (transition_this_tick && previous_target_value.has_value()) {
             const TSMeta *schema = target.ts_schema();
             if (schema != nullptr && (schema->kind == TSKind::TSS || schema->kind == TSKind::TSD)) {
@@ -4043,59 +3720,135 @@ namespace hgraph
         }
     }
 
-    nb::object detail::TSDispatch::to_python(const TSViewContext &context, engine_time_t) const
-    {
+    nb::object detail::TSDispatch::to_python(const TSViewContext &context, engine_time_t) const {
         return detail::leaf_to_python(context);
     }
 
-    nb::object detail::TSDispatch::delta_to_python(const TSViewContext &context, engine_time_t) const
-    {
+    nb::object detail::TSDispatch::delta_to_python(const TSViewContext &context, engine_time_t) const {
         return detail::leaf_delta_to_python(context);
     }
 
-    void detail::TSDispatch::from_python(const TSOutputView &view, nb::handle value) const
+    namespace
     {
+        [[nodiscard]] const detail::TSDispatch *resolved_ts_dispatch(const TSViewContext &context) noexcept {
+            return context.ts_dispatch != nullptr ? context.ts_dispatch : context.resolved().ts_dispatch;
+        }
+
+        void copy_value_payload_to_output(const TSOutputView &target, const View &source_value, std::string_view operation) {
+            if (!source_value.has_value()) {
+                target.invalidate();
+                return;
+            }
+
+            View target_value = target.value();
+            if (!target_value.has_value()) {
+                throw std::logic_error(std::string(operation) + " requires live target value storage");
+            }
+            if (target_value.schema() != source_value.schema()) {
+                throw std::invalid_argument(std::string(operation) + " requires matching native value schemas");
+            }
+
+            target_value.copy_from(source_value);
+            mark_output_view_modified(target, target.evaluation_time());
+        }
+    }  // namespace
+
+    void detail::TSDispatch::from_python(const TSOutputView &view, nb::handle value) const {
         view.value().from_python(nb::borrow<nb::object>(value));
         mark_output_view_modified(view, view.evaluation_time());
     }
 
-    bool detail::TSDispatch::can_apply_result(const TSOutputView &view, nb::handle value) const
-    {
+    bool detail::TSDispatch::can_apply_result(const TSOutputView &view, nb::handle value) const {
         static_cast<void>(value);
         return !view.modified();
     }
 
-    void detail::TSDispatch::apply_result(const TSOutputView &view, nb::handle value) const
-    {
-        from_python(view, value);
-    }
+    void detail::TSDispatch::apply_result(const TSOutputView &view, nb::handle value) const { from_python(view, value); }
 
-    void detail::TSDispatch::clear(const TSOutputView &view) const
-    {
+    void detail::TSDispatch::clear(const TSOutputView &view) const {
         static_cast<void>(view);
         throw std::logic_error("TS clear() is only implemented for collection schemas");
     }
 
-    void detail::TSKeyDispatch::child_from_python(const TSOutputView &, const View &, nb::handle) const
-    {
+    void detail::TSDispatch::clear_for_input_copy(const TSOutputView &view) const {
+        if (view.valid()) { view.invalidate(); }
+    }
+
+    bool detail::TSDispatch::copy_to_output(const TSInputView &source, const TSOutputView &target) const {
+        static_cast<void>(source);
+        static_cast<void>(target);
+        return false;
+    }
+
+    bool detail::TSDispatch::copy_output_to_output(const TSOutputView &source, const TSOutputView &target) const {
+        static_cast<void>(source);
+        static_cast<void>(target);
+        return false;
+    }
+
+    bool detail::TSDispatch::copy_from_reference(const TSOutputView &view, const TimeSeriesReference &reference,
+                                                 engine_time_t evaluation_time) const {
+        if (!reference.is_peered()) { return false; }
+        view.copy_from_output(reference.target_view(evaluation_time));
+        return true;
+    }
+
+    void detail::TSDispatch::copy_from_input(const TSOutputView &view, const TSInputView &source) const {
+        if (source.ts_schema() == nullptr) { return; }
+
+        if (!source.valid()) {
+            clear_for_input_copy(view);
+            return;
+        }
+
+        const auto *source_dispatch = resolved_ts_dispatch(source.context_ref());
+        if (source_dispatch != nullptr && source_dispatch->copy_to_output(source, view)) { return; }
+
+        copy_value_payload_to_output(view, source.value(), "TS input copy");
+    }
+
+    void detail::TSDispatch::copy_from_output(const TSOutputView &view, const TSOutputView &source) const {
+        if (source.ts_schema() == nullptr) { return; }
+
+        if (!source.valid()) {
+            clear_for_input_copy(view);
+            return;
+        }
+
+        const auto *source_dispatch = resolved_ts_dispatch(source.context_ref());
+        if (source_dispatch != nullptr && source_dispatch->copy_output_to_output(source, view)) { return; }
+
+        copy_value_payload_to_output(view, source.value(), "TS output copy");
+    }
+
+    void detail::TSDispatch::patch_from_output(const TSOutputView &view, const TSOutputView &source) const {
+        copy_from_output(view, source);
+    }
+
+    void detail::TSCollectionDispatch::clear_for_input_copy(const TSOutputView &view) const {
+        if (view.valid()) { clear(view); }
+    }
+
+    void detail::TSSetDispatch::clear_for_input_copy(const TSOutputView &view) const {
+        if (view.valid()) { clear(view); }
+    }
+
+    void detail::TSKeyDispatch::child_from_python(const TSOutputView &, const View &, nb::handle) const {
         throw std::logic_error("TSKeyDispatch child_from_python is not implemented for this dispatch");
     }
 
     namespace detail
     {
-        nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time)
-        {
+        nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time) {
             return to_python_impl(context, evaluation_time);
         }
 
-        nb::object delta_to_python(const TSViewContext &context, engine_time_t evaluation_time)
-        {
+        nb::object delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
             return delta_to_python_impl(context, evaluation_time);
         }
     }  // namespace detail
 
-    void TSOutputView::apply_result(nb::handle value) const
-    {
+    void TSOutputView::apply_result(nb::handle value) const {
         if (value.is_none()) { return; }
         const auto *dispatch = context_ref().resolved().ts_dispatch;
         if (dispatch == nullptr) {
@@ -4105,15 +3858,13 @@ namespace hgraph
         dispatch->apply_result(*this, value);
     }
 
-    bool TSOutputView::can_apply_result(nb::handle value) const
-    {
+    bool TSOutputView::can_apply_result(nb::handle value) const {
         if (value.is_none()) { return true; }
         const auto *dispatch = context_ref().resolved().ts_dispatch;
         return dispatch != nullptr ? dispatch->can_apply_result(*this, value) : !modified();
     }
 
-    void TSOutputView::clear() const
-    {
+    void TSOutputView::clear() const {
         const auto *dispatch = context_ref().resolved().ts_dispatch;
         if (dispatch == nullptr) {
             from_python(nb::none());
@@ -4122,17 +3873,42 @@ namespace hgraph
         dispatch->clear(*this);
     }
 
-    void TSOutputView::invalidate() const
-    {
+    void TSOutputView::copy_from_input(const TSInputView &source) const {
+        const auto *dispatch = context_ref().resolved().ts_dispatch;
+        if (dispatch == nullptr) {
+            if (source.valid()) { copy_value_payload_to_output(*this, source.value(), "TS input copy"); }
+            return;
+        }
+        dispatch->copy_from_input(*this, source);
+    }
+
+    void TSOutputView::copy_from_output(const TSOutputView &source) const {
+        const auto *dispatch = context_ref().resolved().ts_dispatch;
+        if (dispatch == nullptr) {
+            if (source.valid()) { copy_value_payload_to_output(*this, source.value(), "TS output copy"); }
+            return;
+        }
+        dispatch->copy_from_output(*this, source);
+    }
+
+    void TSOutputView::patch_from_output(const TSOutputView &source) const {
+        const auto *dispatch = context_ref().resolved().ts_dispatch;
+        if (dispatch == nullptr) {
+            if (source.valid()) { copy_value_payload_to_output(*this, source.value(), "TS output patch"); }
+            return;
+        }
+        dispatch->patch_from_output(*this, source);
+    }
+
+    void TSOutputView::invalidate() const {
         LinkedTSContext context = linked_context();
         BaseState      *state   = context.ts_state;
         if (state == nullptr) { return; }
 
-        const engine_time_t evaluation_time          = this->evaluation_time();
-        const engine_time_t previous_modified_time   = state->last_modified_time;
-        const bool          already_invalid          = previous_modified_time == MIN_DT;
-        const bool          already_notified_this_tick =
-            evaluation_time != MIN_DT && previous_modified_time == evaluation_time;
+        const engine_time_t evaluation_time            = this->evaluation_time();
+        const engine_time_t previous_modified_time     = state->last_modified_time;
+        const bool          already_invalid            = previous_modified_time == MIN_DT;
+        const bool          already_notified_this_tick = evaluation_time != MIN_DT && previous_modified_time == evaluation_time;
 
         if (already_invalid) { return; }
 
@@ -4143,10 +3919,10 @@ namespace hgraph
         state->last_modified_time = MIN_DT;
     }
 
-    void TSOutputView::from_python(nb::handle value) const
-    {
+    void TSOutputView::from_python(nb::handle value) const {
         if (context_ref().pending_dict_child.active()) {
-            TSOutputView parent_view = detail::output_view_from_pending_dict_child(context_ref().pending_dict_child, evaluation_time());
+            TSOutputView parent_view =
+                detail::output_view_from_pending_dict_child(context_ref().pending_dict_child, evaluation_time());
             parent_view.as_dict().from_python(context_ref().pending_dict_child.key.view(), value);
             return;
         }
@@ -4159,31 +3935,27 @@ namespace hgraph
         dispatch->from_python(*this, value);
     }
 
-    TSOutput::TSOutput(const TSOutput &other)
-    {
+    TSOutput::TSOutput(const TSOutput &other) {
         if (other.m_builder != nullptr) {
             other.builder().copy_construct_output(*this, other);
             sync_ref_target_subscriptions(ts_root_state() != nullptr ? ts_root_state()->last_modified_time : MIN_DT);
         }
     }
 
-    TSOutput::TSOutput(TSOutput &&other) noexcept
-    {
+    TSOutput::TSOutput(TSOutput &&other) noexcept {
         if (other.m_builder != nullptr) {
             other.builder().move_construct_output(*this, other);
             sync_ref_target_subscriptions(ts_root_state() != nullptr ? ts_root_state()->last_modified_time : MIN_DT);
         }
     }
 
-    TSOutput &TSOutput::operator=(const TSOutput &other)
-    {
+    TSOutput &TSOutput::operator=(const TSOutput &other) {
         if (this == &other) { return *this; }
         TSOutput replacement(other);
         return *this = std::move(replacement);
     }
 
-    TSOutput &TSOutput::operator=(TSOutput &&other) noexcept
-    {
+    TSOutput &TSOutput::operator=(TSOutput &&other) noexcept {
         if (this == &other) { return *this; }
 
         clear_storage();
@@ -4198,26 +3970,20 @@ namespace hgraph
         return *this;
     }
 
-    TSOutput::~TSOutput()
-    {
-        clear_storage();
-    }
+    TSOutput::~TSOutput() { clear_storage(); }
 
-    TSOutputView TSOutput::view(engine_time_t evaluation_time)
-    {
+    TSOutputView TSOutput::view(engine_time_t evaluation_time) {
         TSViewContext context = view_context();
         return TSOutputView{context, TSViewContext::none(), evaluation_time, this, &detail::default_output_view_ops()};
     }
 
-    TSOutputView detail::register_set_contains_output(const TSOutputView &view, const View &item)
-    {
+    TSOutputView detail::register_set_contains_output(const TSOutputView &view, const View &item) {
         LinkedTSContext source_context = feature_source_context(view);
-        auto &registry = ensure_collection_feature_registry(*source_context.ts_state);
+        auto           &registry       = ensure_collection_feature_registry(*source_context.ts_state);
         return registry.register_contains_output(source_context, view.evaluation_time(), item);
     }
 
-    void detail::unregister_set_contains_output(const TSOutputView &view, const View &item)
-    {
+    void detail::unregister_set_contains_output(const TSOutputView &view, const View &item) {
         LinkedTSContext source_context = feature_source_context(view);
         if (source_context.ts_state == nullptr || source_context.ts_state->feature_registry == nullptr) { return; }
 
@@ -4225,15 +3991,13 @@ namespace hgraph
         if (registry != nullptr) { registry->unregister_contains_output(item); }
     }
 
-    TSOutputView detail::register_set_is_empty_output(const TSOutputView &view)
-    {
+    TSOutputView detail::register_set_is_empty_output(const TSOutputView &view) {
         LinkedTSContext source_context = feature_source_context(view);
-        auto &registry = ensure_collection_feature_registry(*source_context.ts_state);
+        auto           &registry       = ensure_collection_feature_registry(*source_context.ts_state);
         return registry.register_is_empty_output(source_context, view.evaluation_time());
     }
 
-    void detail::unregister_set_is_empty_output(const TSOutputView &view)
-    {
+    void detail::unregister_set_is_empty_output(const TSOutputView &view) {
         LinkedTSContext source_context = feature_source_context(view);
         if (source_context.ts_state == nullptr || source_context.ts_state->feature_registry == nullptr) { return; }
 
@@ -4241,67 +4005,57 @@ namespace hgraph
         if (registry != nullptr) { registry->unregister_is_empty_output(); }
     }
 
-    TSOutputView detail::register_dict_key_set_output(BaseState &owner_state,
-                                                      const LinkedTSContext &source_context,
-                                                      engine_time_t evaluation_time)
-    {
+    TSOutputView detail::register_dict_key_set_output(BaseState &owner_state, const LinkedTSContext &source_context,
+                                                      engine_time_t evaluation_time) {
         auto &registry = ensure_collection_feature_registry(owner_state);
         return registry.register_key_set_output(source_context, evaluation_time);
     }
 
-    TSOutputView detail::project_dict_key_set_output(const TSOutputView &source_view, engine_time_t evaluation_time)
-    {
-        const TSViewContext  &source_context_view = source_view.context_ref();
+    TSOutputView detail::project_dict_key_set_output(const TSOutputView &source_view, engine_time_t evaluation_time) {
+        const TSViewContext &source_context_view = source_view.context_ref();
         if (source_context_view.is_bound()) {
             LinkedTSContext feature_context = feature_source_context(source_view);
-            auto &registry = ensure_collection_feature_registry(*feature_context.ts_state);
+            auto           &registry        = ensure_collection_feature_registry(*feature_context.ts_state);
             return registry.register_key_set_output(feature_context, evaluation_time);
         }
 
-        const TSViewContext   resolved_context    = source_context_view.resolved();
+        const TSViewContext resolved_context = source_context_view.resolved();
         if (resolved_context.ts_state == nullptr) {
             const TSMeta *source_schema = source_view.ts_schema();
             if (source_schema == nullptr || source_schema->kind != TSKind::TSD || source_schema->key_type() == nullptr) {
-                throw std::logic_error(
-                    fmt::format("project_dict_key_set_output requires a TSD output view, got {}",
-                                schema_debug_name(source_schema)));
+                throw std::logic_error(fmt::format("project_dict_key_set_output requires a TSD output view, got {}",
+                                                   schema_debug_name(source_schema)));
             }
             TSViewContext deferred_context;
             deferred_context.schema = TSTypeRegistry::instance().tss(source_schema->key_type());
-            return TSOutputView{
-                deferred_context,
-                TSViewContext::none(),
-                evaluation_time,
-                source_view.owning_output(),
-                &detail::default_output_view_ops()};
+            return TSOutputView{deferred_context, TSViewContext::none(), evaluation_time, source_view.owning_output(),
+                                &detail::default_output_view_ops()};
         }
 
         LinkedTSContext feature_context = feature_source_context(source_view);
-        auto &registry = ensure_collection_feature_registry(*feature_context.ts_state);
+        auto           &registry        = ensure_collection_feature_registry(*feature_context.ts_state);
         return registry.register_key_set_output(feature_context, evaluation_time);
     }
 
-        TSOutputView TSOutput::bindable_view(const TSOutputView &source, const TSMeta *schema)
-        {
+    TSOutputView TSOutput::bindable_view(const TSOutputView &source, const TSMeta *schema) {
         if (schema == nullptr) { throw std::invalid_argument("TSOutput::bindable_view requires a non-null target schema"); }
 
         if (source.context_ref().pending_dict_child.active()) {
-            const auto &pending = source.context_ref().pending_dict_child;
-            TSOutputView parent_view = detail::output_view_from_pending_dict_child(pending, source.evaluation_time());
+            const auto   &pending       = source.context_ref().pending_dict_child;
+            TSOutputView  parent_view   = detail::output_view_from_pending_dict_child(pending, source.evaluation_time());
             const TSMeta *parent_schema = parent_view.ts_schema();
             if (parent_schema == nullptr || parent_schema->kind != TSKind::TSD) {
                 throw std::logic_error("TSOutput::bindable_view pending dict child requires a rooted TSD parent");
             }
 
             const TSMeta *alternative_parent_schema = TSTypeRegistry::instance().tsd(parent_schema->key_type(), schema);
-            TSOutputView bindable_parent =
-                equivalent_ts_schema(parent_schema, alternative_parent_schema)
-                    ? parent_view
-                    : parent_view.owning_output()->bindable_view(parent_view, alternative_parent_schema);
+            TSOutputView bindable_parent = equivalent_ts_schema(parent_schema, alternative_parent_schema)
+                                               ? parent_view
+                                               : parent_view.owning_output()->bindable_view(parent_view, alternative_parent_schema);
             return detail::ensure_dict_child_output_view(bindable_parent, pending.key.view());
         }
 
-        const LinkedTSContext source_context = source.linked_context();
+        const LinkedTSContext source_context  = source.linked_context();
         const TSMeta *effective_source_schema = source_context.schema != nullptr ? source_context.schema : source.ts_schema();
         if (equivalent_ts_schema(effective_source_schema, schema)) { return source; }
 
@@ -4310,21 +4064,15 @@ namespace hgraph
                 std::fprintf(stderr,
                              "bindable throw owner=%p source_owner=%p source_schema=%s target_schema=%s source_state=%p "
                              "resolved_state=%p bound=%d valid=%d modified=%d\n",
-                             static_cast<void *>(this),
-                             static_cast<void *>(source.owning_output()),
-                             schema_debug_name(effective_source_schema).c_str(),
-                             schema_debug_name(schema).c_str(),
+                             static_cast<void *>(this), static_cast<void *>(source.owning_output()),
+                             schema_debug_name(effective_source_schema).c_str(), schema_debug_name(schema).c_str(),
                              static_cast<void *>(source.context_ref().ts_state),
-                             static_cast<void *>(source.context_ref().resolved().ts_state),
-                             source.context_ref().is_bound(),
-                             source.valid(),
-                             source.modified());
+                             static_cast<void *>(source.context_ref().resolved().ts_state), source.context_ref().is_bound(),
+                             source.valid(), source.modified());
                 print_stack_trace();
             }
-            throw std::invalid_argument(
-                fmt::format("TSOutput::bindable_view does not support the requested schema cast: {} -> {}",
-                            schema_debug_name(effective_source_schema),
-                            schema_debug_name(schema)));
+            throw std::invalid_argument(fmt::format("TSOutput::bindable_view does not support the requested schema cast: {} -> {}",
+                                                    schema_debug_name(effective_source_schema), schema_debug_name(schema)));
         }
 
         if (source.owning_output() != nullptr && source.owning_output() != this) {
@@ -4342,17 +4090,16 @@ namespace hgraph
             return linked_ops->owner->bindable_view(this, linked_source, schema);
         }
 
-        TSOutputView root_source = view(source.evaluation_time());
-        TSPath source_path;
+        TSOutputView        root_source = view(source.evaluation_time());
+        TSPath              source_path;
         const TSViewContext source_resolved = source.context_ref().resolved();
         BaseState *target_state = source_resolved.ts_state != nullptr ? source_resolved.ts_state : source.context_ref().ts_state;
         if (target_state != nullptr &&
             !find_state_path(root_source.context_ref().ts_state, root_source.ts_schema(), target_state, source_path)) {
-            TSOutputView detached_source = output_view_from_context(source_context, source.evaluation_time());
+            TSOutputView           detached_source = output_view_from_context(source_context, source.evaluation_time());
             DetachedAlternativeKey detached_key{target_state, detached_source.ts_schema(), schema};
             const auto [detached_it, detached_inserted] = m_detached_alternatives.try_emplace(detached_key, nullptr);
-            if (detached_inserted ||
-                detached_it->second == nullptr ||
+            if (detached_inserted || detached_it->second == nullptr ||
                 !detail::linked_context_equal(detached_it->second->root_source_context(),
                                               detail::stable_output_context(detached_source))) {
                 detached_it->second.reset(new AlternativeOutput(detached_source, *schema));
@@ -4368,27 +4115,23 @@ namespace hgraph
         // requested subtree transformed, then project the requested child view
         // back out of that rooted alternative.
         const TSMeta *alternative_schema = replace_schema_at_path(*root_source_schema, source_path, 0, *schema);
-        const auto [it, inserted] = m_alternatives.try_emplace(alternative_schema, nullptr);
+        const auto [it, inserted]        = m_alternatives.try_emplace(alternative_schema, nullptr);
         if (inserted) { it->second.reset(new AlternativeOutput(root_source, *alternative_schema)); }
 
         TSOutputView alternative_view = it->second->view(this, source.evaluation_time());
-        const auto dict_keys = capture_dict_traversal_keys(root_source, root_source_schema, source_path);
+        const auto   dict_keys        = capture_dict_traversal_keys(root_source, root_source_schema, source_path);
         return traverse_output_path(alternative_view, alternative_schema, source_path, dict_keys);
     }
 
-    void TSOutput::clear_storage() noexcept
-    {
+    void TSOutput::clear_storage() noexcept {
         clear_ref_target_subscriptions();
         m_alternatives.clear();
         m_detached_alternatives.clear();
-        if (m_builder == nullptr) {
-            return;
-        }
+        if (m_builder == nullptr) { return; }
         builder().destruct_output(*this);
     }
 
-    void TSOutput::clear_ref_target_subscriptions() noexcept
-    {
+    void TSOutput::clear_ref_target_subscriptions() noexcept {
         for (auto &subscription : m_ref_target_subscriptions) {
             if (subscription.state != nullptr && subscription.notifier) {
                 // Skip the unsubscribe call when the target state has already
@@ -4404,11 +4147,10 @@ namespace hgraph
         m_ref_target_subscriptions.clear();
     }
 
-    void TSOutput::sync_ref_target_subscriptions(engine_time_t evaluation_time)
-    {
+    void TSOutput::sync_ref_target_subscriptions(engine_time_t evaluation_time) {
         clear_ref_target_subscriptions();
 
-        TSOutputView view = this->view(evaluation_time);
+        TSOutputView  view   = this->view(evaluation_time);
         const TSMeta *schema = view.ts_schema();
         if (schema == nullptr || schema->kind != TSKind::REF) { return; }
 
@@ -4425,8 +4167,5 @@ namespace hgraph
         }
     }
 
-    void TSOutput::AlternativeOutputDeleter::operator()(AlternativeOutput *value) const noexcept
-    {
-        delete value;
-    }
+    void TSOutput::AlternativeOutputDeleter::operator()(AlternativeOutput *value) const noexcept { delete value; }
 }  // namespace hgraph

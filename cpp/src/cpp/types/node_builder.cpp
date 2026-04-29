@@ -1,7 +1,3 @@
-#include <hgraph/types/time_series/time_series_state.h>
-#include <hgraph/types/time_series/ts_output_builder.h>
-#include <hgraph/types/time_series/value/keyed_slot_store.h>
-#include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/boundary_binding.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/nested_node_builder.h>
@@ -9,6 +5,10 @@
 #include <hgraph/types/path_constants.h>
 #include <hgraph/types/python_node_support.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/time_series_state.h>
+#include <hgraph/types/time_series/ts_output_builder.h>
+#include <hgraph/types/time_series/value/keyed_slot_store.h>
+#include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/util/scope.h>
 
@@ -28,19 +28,16 @@ namespace hgraph
 {
     namespace
     {
-        [[nodiscard]] std::string schema_debug_label(const value::TypeMeta *schema)
-        {
+        [[nodiscard]] std::string schema_debug_label(const value::TypeMeta *schema) {
             if (schema == nullptr) { return "<null>"; }
             return fmt::format("{}@{:p}[kind={}]", schema->name != nullptr ? schema->name : "<unnamed>",
-                               static_cast<const void *>(schema),
-                               static_cast<int>(schema->kind));
+                               static_cast<const void *>(schema), static_cast<int>(schema->kind));
         }
 
-        enum class RootNodePort : size_t
-        {
-            Input = 0,
-            Output = 1,
-            ErrorOutput = 2,
+        enum class RootNodePort : size_t {
+            Input           = 0,
+            Output          = 1,
+            ErrorOutput     = 2,
             RecordableState = 3,
         };
 
@@ -68,8 +65,8 @@ namespace hgraph
             }
 
             const TSViewContext source_context = view.context_ref().resolved();
-            if (source_context.schema == nullptr || source_context.value_dispatch == nullptr || source_context.ts_dispatch == nullptr ||
-                source_context.owning_output == nullptr) {
+            if (source_context.schema == nullptr || source_context.value_dispatch == nullptr ||
+                source_context.ts_dispatch == nullptr || source_context.owning_output == nullptr) {
                 return TSOutputView{};
             }
 
@@ -88,15 +85,15 @@ namespace hgraph
                 TSViewContext::none(),
                 view.evaluation_time(),
                 source_context.owning_output,
-                source_context.output_view_ops != nullptr ? source_context.output_view_ops : &hgraph::detail::default_output_view_ops(),
+                source_context.output_view_ops != nullptr ? source_context.output_view_ops
+                                                          : &hgraph::detail::default_output_view_ops(),
             };
         }
 
-        [[nodiscard]] TSOutputView live_bound_output_of(TSInputView view) noexcept
-        {
-            if (const LinkedTSContext *target = view.linked_target(); target != nullptr && target->is_bound() &&
-                target->schema != nullptr && target->value_dispatch != nullptr && target->ts_dispatch != nullptr &&
-                target->owning_output != nullptr) {
+        [[nodiscard]] TSOutputView live_bound_output_of(TSInputView view) noexcept {
+            if (const LinkedTSContext *target = view.linked_target();
+                target != nullptr && target->is_bound() && target->schema != nullptr && target->value_dispatch != nullptr &&
+                target->ts_dispatch != nullptr && target->owning_output != nullptr) {
                 return TSOutputView{
                     TSViewContext{TSContext{
                         target->schema,
@@ -119,54 +116,47 @@ namespace hgraph
             return bound_output_of(view);
         }
 
-        [[nodiscard]] bool sampled_this_tick(const TSViewContext &context, engine_time_t evaluation_time) noexcept
-        {
+        [[nodiscard]] bool sampled_this_tick(const TSViewContext &context, engine_time_t evaluation_time) noexcept {
             const auto snapshot = detail::transition_snapshot(context);
             return snapshot.active() && snapshot.modified_time == evaluation_time;
         }
 
-        [[nodiscard]] bool context_modified_this_tick(const TSViewContext &context, engine_time_t evaluation_time) noexcept
-        {
+        [[nodiscard]] bool context_modified_this_tick(const TSViewContext &context, engine_time_t evaluation_time) noexcept {
             if (evaluation_time == MIN_DT) { return false; }
 
-            const bool has_live_context =
-                context.is_bound() && context.schema != nullptr && context.value_dispatch != nullptr && context.ts_dispatch != nullptr;
-            const TSViewContext resolved = has_live_context ? TSViewContext{} : context.resolved();
-            const TSViewContext &source = has_live_context ? context : resolved;
-            const auto *dispatch = source.ts_dispatch;
-            const engine_time_t last_modified =
-                dispatch != nullptr ? dispatch->last_modified_time(source)
-                                    : (source.ts_state != nullptr ? source.ts_state->last_modified_time : MIN_DT);
+            const bool has_live_context   = context.is_bound() && context.schema != nullptr && context.value_dispatch != nullptr &&
+                                            context.ts_dispatch != nullptr;
+            const TSViewContext  resolved = has_live_context ? TSViewContext{} : context.resolved();
+            const TSViewContext &source   = has_live_context ? context : resolved;
+            const auto          *dispatch = source.ts_dispatch;
+            const engine_time_t  last_modified = dispatch != nullptr
+                                                     ? dispatch->last_modified_time(source)
+                                                     : (source.ts_state != nullptr ? source.ts_state->last_modified_time : MIN_DT);
             return last_modified == evaluation_time;
         }
 
-        [[nodiscard]] bool input_changed(TSInputView view) noexcept
-        {
+        [[nodiscard]] bool input_changed(TSInputView view) noexcept {
             return context_modified_this_tick(view.context_ref(), view.evaluation_time()) ||
                    sampled_this_tick(view.context_ref(), view.evaluation_time());
         }
 
-        [[nodiscard]] bool output_changed(TSOutputView view) noexcept
-        {
+        [[nodiscard]] bool output_changed(TSOutputView view) noexcept {
             return context_modified_this_tick(view.context_ref(), view.evaluation_time()) ||
                    sampled_this_tick(view.context_ref(), view.evaluation_time());
         }
 
-        [[nodiscard]] LinkedTSContext bound_output_context(const TSOutputView &view) noexcept
-        {
+        [[nodiscard]] LinkedTSContext bound_output_context(const TSOutputView &view) noexcept {
             const LinkedTSContext context = view.linked_context();
             return context.schema != nullptr ? context : LinkedTSContext{};
         }
 
         [[nodiscard]] const TSMeta *unwrap_navigation_schema(const TSMeta *schema);
 
-        [[nodiscard]] TSInputView resolve_parent_input_arg(Node &parent, std::string_view arg_name, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSInputView resolve_parent_input_arg(Node &parent, std::string_view arg_name, engine_time_t evaluation_time) {
             return parent.input_view(evaluation_time).as_bundle().field(arg_name);
         }
 
-        [[nodiscard]] TSInputView navigate_input(TSInputView view, PathView path)
-        {
+        [[nodiscard]] TSInputView navigate_input(TSInputView view, PathView path) {
             const TSMeta *schema = view.ts_schema();
             for (const int64_t slot : path) {
                 const TSMeta *collection_schema = unwrap_navigation_schema(schema);
@@ -176,7 +166,7 @@ namespace hgraph
                     if (collection_schema->kind != TSKind::TSD) {
                         throw std::logic_error("nested input key_set navigation requires a dict schema");
                     }
-                    view = view.as_dict().key_set().view();
+                    view   = view.as_dict().key_set().view();
                     schema = view.ts_schema();
                     continue;
                 }
@@ -191,12 +181,9 @@ namespace hgraph
             return view;
         }
 
-        [[nodiscard]] TSInputView select_multiplexed_parent_input(TSInputView parent_field, const value::View &key)
-        {
+        [[nodiscard]] TSInputView select_multiplexed_parent_input(TSInputView parent_field, const value::View &key) {
             const TSMeta *schema = unwrap_navigation_schema(parent_field.ts_schema());
-            if (schema == nullptr) {
-                throw std::logic_error("keyed nested binding requires a collection schema");
-            }
+            if (schema == nullptr) { throw std::logic_error("keyed nested binding requires a collection schema"); }
 
             switch (schema->kind) {
                 case TSKind::TSD: return parent_field.as_dict()[key];
@@ -205,8 +192,7 @@ namespace hgraph
             }
         }
 
-        [[nodiscard]] bool is_live_dict_key(const TSOutputView &view, const value::View &key)
-        {
+        [[nodiscard]] bool is_live_dict_key(const TSOutputView &view, const value::View &key) {
             const auto map = view.value().as_map();
             if (key.schema() != map.key_schema()) { return false; }
 
@@ -217,10 +203,8 @@ namespace hgraph
             return slot < delta.slot_capacity() && delta.slot_occupied(slot) && !delta.slot_removed(slot);
         }
 
-        [[nodiscard]] TSOutputView ensure_mapped_output_child(const TSOutputView &parent_output,
-                                                              const value::View  &key,
-                                                              engine_time_t       evaluation_time)
-        {
+        [[nodiscard]] TSOutputView ensure_mapped_output_child(const TSOutputView &parent_output, const value::View &key,
+                                                              engine_time_t evaluation_time) {
             if (is_live_dict_key(parent_output, key)) { return parent_output.as_dict().at(key); }
 
             const TSMeta *schema = parent_output.ts_schema();
@@ -244,9 +228,7 @@ namespace hgraph
             return remainder == 0 ? value : value + (alignment - remainder);
         }
 
-        template <typename TTimeSeries>
-        void set_root_parent(TTimeSeries *ts, Node *node, RootNodePort port) noexcept
-        {
+        template <typename TTimeSeries> void set_root_parent(TTimeSeries *ts, Node *node, RootNodePort port) noexcept {
             if (ts == nullptr || node == nullptr) { return; }
             std::visit(
                 [node, port](auto &state) {
@@ -380,24 +362,24 @@ namespace hgraph
         struct SwitchNodeBuilderState
         {
             std::vector<SwitchBranchTemplate> branches;
-            bool reload_on_ticked{false};
+            bool                              reload_on_ticked{false};
         };
 
         struct SwitchNodeRuntimeData
         {
-            TSInput            *input{nullptr};
-            TSOutput           *output{nullptr};
-            TSOutput           *error_output{nullptr};
-            TSOutput           *recordable_state{nullptr};
+            TSInput                          *input{nullptr};
+            TSOutput                         *output{nullptr};
+            TSOutput                         *error_output{nullptr};
+            TSOutput                         *recordable_state{nullptr};
             std::vector<SwitchBranchTemplate> branches;
-            ChildGraphInstance  child_instance;
-            std::optional<Value> active_key;
-            size_t              active_branch_index{static_cast<size_t>(-1)};
-            int64_t             next_child_graph_id{1};
-            size_t              child_graph_storage_size{0};
-            size_t              child_graph_storage_alignment{alignof(std::max_align_t)};
-            bool                reload_on_ticked{false};
-            bool                bound{false};
+            ChildGraphInstance                child_instance;
+            std::optional<Value>              active_key;
+            size_t                            active_branch_index{static_cast<size_t>(-1)};
+            int64_t                           next_child_graph_id{1};
+            size_t                            child_graph_storage_size{0};
+            size_t                            child_graph_storage_alignment{alignof(std::max_align_t)};
+            bool                              reload_on_ticked{false};
+            bool                              bound{false};
         };
 
         [[nodiscard]] nb::object push_queue_remove_sentinel() {
@@ -410,26 +392,44 @@ namespace hgraph
             return nb::borrow(value);
         }
 
-        [[nodiscard]] nb::object append_tuple_item(const nb::object &existing, const nb::object &item) {
-            const size_t existing_len = PyTuple_Size(existing.ptr());
-            nb::tuple    result       = nb::steal<nb::tuple>(PyTuple_New(existing_len + 1));
-            for (size_t i = 0; i < existing_len; ++i) {
-                PyTuple_SET_ITEM(result.ptr(), i, nb::borrow(existing[i]).release().ptr());
-            }
-            PyTuple_SET_ITEM(result.ptr(), existing_len, nb::borrow(item).release().ptr());
-            return std::move(result);
-        }
-
         [[nodiscard]] bool bool_scalar_or(const nb::dict &scalars, std::string_view key, bool default_value) {
             const nb::str py_key{key.data(), key.size()};
             if (!PyMapping_HasKey(scalars.ptr(), py_key.ptr())) { return default_value; }
             return nb::cast<bool>(nb::steal<nb::object>(PyObject_GetItem(scalars.ptr(), py_key.ptr())));
         }
 
-        [[nodiscard]] nb::object normalize_python_ref_result(const TSMeta *output_schema,
-                                                             nb::object result,
-                                                             engine_time_t evaluation_time)
-        {
+        void append_python_batch_item(TSOutputView output_view, const nb::object &item) {
+            View output_value = output_view.value();
+            if (!output_value.has_value()) {
+                throw std::logic_error("Python push-source batch append requires live output storage");
+            }
+
+            const value::TypeMeta *value_schema = output_value.schema();
+            if (value_schema == nullptr || value_schema->kind != value::TypeKind::List || value_schema->element_type == nullptr ||
+                value_schema->is_fixed_size()) {
+                throw std::logic_error("Python push-source batch append requires dynamic tuple/list output storage");
+            }
+
+            Value item_value{*value_schema->element_type, MutationTracking::Plain};
+            item_value.reset();
+            item_value.from_python(item);
+
+            auto list     = output_value.as_list();
+            auto mutation = list.begin_mutation();
+            mutation.push_back(item_value.view());
+            mark_output_view_modified(output_view, output_view.evaluation_time());
+        }
+
+        void push_python_batch_item(TSOutputView output_view, const nb::object &item) {
+            if (output_view.modified()) {
+                append_python_batch_item(output_view, item);
+            } else {
+                output_view.from_python(nb::make_tuple(item));
+            }
+        }
+
+        [[nodiscard]] nb::object normalize_python_ref_result(const TSMeta *output_schema, nb::object result,
+                                                             engine_time_t evaluation_time) {
             if (!result.is_valid() || result.is_none() || output_schema == nullptr || output_schema->kind != TSKind::REF ||
                 !nb::isinstance<TimeSeriesReference>(result)) {
                 return result;
@@ -438,8 +438,8 @@ namespace hgraph
             const TimeSeriesReference ref = nb::cast<TimeSeriesReference>(result);
             if (!ref.is_peered() || ref.target().schema == nullptr || ref.target().schema->kind != TSKind::REF) { return result; }
 
-            TSOutputView target_view = ref.target_view(evaluation_time);
-            const View target_value = target_view.value();
+            TSOutputView target_view  = ref.target_view(evaluation_time);
+            const View   target_value = target_view.value();
             if (target_value.has_value()) {
                 if (const auto *inner_ref = target_value.as_atomic().template try_as<TimeSeriesReference>(); inner_ref != nullptr) {
                     return nb::cast(*inner_ref);
@@ -503,19 +503,15 @@ namespace hgraph
 
                         TSOutputView child_view = output_view.as_dict().at(key_value.view());
                         if (child_view.context_ref().is_bound() && child_view.modified()) {
-                            child_view.from_python(append_tuple_item(child_view.to_python(), value));
+                            append_python_batch_item(child_view, value);
                         } else {
-                            child_view.from_python(nb::make_tuple(value));
+                            output_view.as_dict().from_python(key_value.view(), nb::make_tuple(value));
                         }
                     }
                     return true;
                 }
 
-                if (output_view.modified()) {
-                    output_view.from_python(append_tuple_item(output_view.to_python(), py_message));
-                } else {
-                    output_view.from_python(nb::make_tuple(py_message));
-                }
+                push_python_batch_item(output_view, py_message);
                 return true;
             }
 
@@ -583,7 +579,7 @@ namespace hgraph
         [[nodiscard]] ResolvedNodeBuilders resolve_builders(const NodeBuilder                          &builder,
                                                             const std::vector<TSInputConstructionEdge> &inbound_edges) {
             ResolvedNodeBuilders builders;
-            const bool has_dependency_only_edges =
+            const bool           has_dependency_only_edges =
                 std::all_of(inbound_edges.begin(), inbound_edges.end(),
                             [](const TSInputConstructionEdge &edge) { return edge.input_path.empty(); });
 
@@ -600,16 +596,13 @@ namespace hgraph
                 std::vector<std::string> edge_descriptions;
                 edge_descriptions.reserve(inbound_edges.size());
                 for (const auto &edge : inbound_edges) {
-                    edge_descriptions.push_back(fmt::format("src={} input_path={}",
-                                                            edge.binding.src_node,
-                                                            fmt::format("{}", edge.input_path)));
+                    edge_descriptions.push_back(
+                        fmt::format("src={} input_path={}", edge.binding.src_node, fmt::format("{}", edge.input_path)));
                 }
                 const std::string node_name =
                     !builder.label().empty() ? std::string{builder.label()} : builder.implementation_name();
-                throw std::invalid_argument(
-                    fmt::format("node '{}' without an input schema cannot accept inbound edges: {}",
-                                node_name,
-                                fmt::join(edge_descriptions, ", ")));
+                throw std::invalid_argument(fmt::format("node '{}' without an input schema cannot accept inbound edges: {}",
+                                                        node_name, fmt::join(edge_descriptions, ", ")));
             }
 
             if (builder.output_schema() != nullptr) {
@@ -830,8 +823,8 @@ namespace hgraph
                 return;
             }
             if (node.is_pull_source_node() && heap_state.generator_eval) {
-                heap_state.generator =
-                    nb::cast<nb::iterator>(call_python_node_eval(heap_state.python_signature, heap_state.eval_fn, heap_state.kwargs));
+                heap_state.generator = nb::cast<nb::iterator>(
+                    call_python_node_eval(heap_state.python_signature, heap_state.eval_fn, heap_state.kwargs));
                 heap_state.next_value = nb::object();
                 if (node.graph() != nullptr) { node.graph()->schedule_node(node.node_index(), node.evaluation_time()); }
                 return;
@@ -921,17 +914,14 @@ namespace hgraph
                     if (node_name == "union_multiple_tss") {
                         auto summarize_tss = [](nb::handle value) {
                             if (!value.is_valid() || value.is_none()) { return std::string{"<none>"}; }
-                            nb::object valid = nb::getattr(value, "valid", nb::none());
+                            nb::object valid   = nb::getattr(value, "valid", nb::none());
                             nb::object current = nb::getattr(value, "value", nb::none());
-                            nb::object added = nb::none();
+                            nb::object added   = nb::none();
                             nb::object removed = nb::none();
                             if (PyObject_HasAttrString(value.ptr(), "added")) { added = value.attr("added")(); }
                             if (PyObject_HasAttrString(value.ptr(), "removed")) { removed = value.attr("removed")(); }
-                            return fmt::format("valid={} value={} added={} removed={}",
-                                               nb::str(valid).c_str(),
-                                               nb::str(current).c_str(),
-                                               nb::str(added).c_str(),
-                                               nb::str(removed).c_str());
+                            return fmt::format("valid={} value={} added={} removed={}", nb::str(valid).c_str(),
+                                               nb::str(current).c_str(), nb::str(added).c_str(), nb::str(removed).c_str());
                         };
                         auto summarize_iter = [&](nb::handle iterable) {
                             if (!iterable.is_valid() || iterable.is_none()) { return std::string{"<none>"}; }
@@ -940,13 +930,11 @@ namespace hgraph
                             return fmt::format("[{}]", fmt::join(parts, "; "));
                         };
                         nb::object tsl = nb::steal<nb::object>(PyObject_GetItem(heap_state.kwargs.ptr(), nb::str("tsl").ptr()));
-                        PyObject *output_item = PyObject_GetItem(heap_state.kwargs.ptr(), nb::str("_output").ptr());
-                        nb::object output = output_item != nullptr ? nb::steal<nb::object>(output_item) : nb::none();
-                        std::fprintf(stderr,
-                                     "python_node_eval union_multiple_tss modified=%s valid=%s output_value=%s out=%s\n",
+                        PyObject  *output_item = PyObject_GetItem(heap_state.kwargs.ptr(), nb::str("_output").ptr());
+                        nb::object output      = output_item != nullptr ? nb::steal<nb::object>(output_item) : nb::none();
+                        std::fprintf(stderr, "python_node_eval union_multiple_tss modified=%s valid=%s output_value=%s out=%s\n",
                                      summarize_iter(tsl.attr("modified_values")()).c_str(),
-                                     summarize_iter(tsl.attr("valid_values")()).c_str(),
-                                     summarize_tss(output).c_str(),
+                                     summarize_iter(tsl.attr("valid_values")()).c_str(), summarize_tss(output).c_str(),
                                      nb::str(out).c_str());
                         std::fflush(stderr);
                     } else if (node_name == "bit_or_tsss") {
@@ -954,23 +942,17 @@ namespace hgraph
                             if (!PyObject_HasAttrString(heap_state.kwargs.ptr(), name)) { return std::string{"<missing>"}; }
                             nb::object arg = nb::steal<nb::object>(PyObject_GetItem(heap_state.kwargs.ptr(), nb::str(name).ptr()));
                             if (!arg.is_valid() || arg.is_none()) { return std::string{"<none>"}; }
-                            nb::object valid = nb::getattr(arg, "valid", nb::none());
-                            nb::object value = nb::getattr(arg, "value", nb::none());
-                            nb::object added = nb::none();
+                            nb::object valid   = nb::getattr(arg, "valid", nb::none());
+                            nb::object value   = nb::getattr(arg, "value", nb::none());
+                            nb::object added   = nb::none();
                             nb::object removed = nb::none();
                             if (PyObject_HasAttrString(arg.ptr(), "added")) { added = arg.attr("added")(); }
                             if (PyObject_HasAttrString(arg.ptr(), "removed")) { removed = arg.attr("removed")(); }
-                            return fmt::format("valid={} value={} added={} removed={}",
-                                               nb::str(valid).c_str(),
-                                               nb::str(value).c_str(),
-                                               nb::str(added).c_str(),
-                                               nb::str(removed).c_str());
+                            return fmt::format("valid={} value={} added={} removed={}", nb::str(valid).c_str(),
+                                               nb::str(value).c_str(), nb::str(added).c_str(), nb::str(removed).c_str());
                         };
-                        std::fprintf(stderr,
-                                     "python_node_eval bit_or_tsss lhs=%s rhs=%s out=%s\n",
-                                     render_arg("lhs").c_str(),
-                                     render_arg("rhs").c_str(),
-                                     nb::str(out).c_str());
+                        std::fprintf(stderr, "python_node_eval bit_or_tsss lhs=%s rhs=%s out=%s\n", render_arg("lhs").c_str(),
+                                     render_arg("rhs").c_str(), nb::str(out).c_str());
                         std::fflush(stderr);
                     }
                 }
@@ -1374,9 +1356,7 @@ namespace hgraph
         void nested_node_start(Node &node, engine_time_t evaluation_time) {
             auto &runtime = nested_runtime(node);
             if (!runtime.child_instance.is_initialised()) {
-                if (runtime.child_template == nullptr) {
-                    throw std::logic_error("nested node start requires a child template");
-                }
+                if (runtime.child_template == nullptr) { throw std::logic_error("nested node start requires a child template"); }
                 runtime.child_instance.initialise(*runtime.child_template, node, node.node_id());
             }
 
@@ -1399,8 +1379,7 @@ namespace hgraph
             }
         }
 
-        void rebind_nested_direct_inputs(Node &node, NestedNodeRuntimeData &runtime, engine_time_t evaluation_time)
-        {
+        void rebind_nested_direct_inputs(Node &node, NestedNodeRuntimeData &runtime, engine_time_t evaluation_time) {
             if (!runtime.bound || runtime.child_instance.graph() == nullptr) { return; }
 
             std::unordered_set<std::string> changed_args;
@@ -1413,22 +1392,20 @@ namespace hgraph
                     case InputBindingMode::DETACH_RESTORE_BLANK:
                         {
                             TSInputView parent_input = resolve_parent_input_arg(node, spec.arg_name, evaluation_time);
-                            if (!spec.parent_input_path.empty()) { parent_input = navigate_input(parent_input, spec.parent_input_path); }
+                            if (!spec.parent_input_path.empty()) {
+                                parent_input = navigate_input(parent_input, spec.parent_input_path);
+                            }
                             if (input_changed(parent_input)) { changed_args.emplace(spec.arg_name); }
                             break;
                         }
                     case InputBindingMode::BIND_MULTIPLEXED_ELEMENT:
-                    case InputBindingMode::BIND_KEY_VALUE:
-                        break;
+                    case InputBindingMode::BIND_KEY_VALUE: break;
                 }
             }
 
             for (const std::string &arg_name : changed_args) {
-                BoundaryBindingRuntime::rebind(runtime.child_instance.boundary_plan(),
-                                              *runtime.child_instance.graph(),
-                                              node,
-                                              arg_name,
-                                              evaluation_time);
+                BoundaryBindingRuntime::rebind(runtime.child_instance.boundary_plan(), *runtime.child_instance.graph(), node,
+                                               arg_name, evaluation_time);
             }
         }
 
@@ -1463,7 +1440,8 @@ namespace hgraph
             }
         }
 
-        void forward_child_outputs(Node &node, TSOutputView parent_output, NestedNodeRuntimeData &runtime, engine_time_t evaluation_time);
+        void forward_child_outputs(Node &node, TSOutputView parent_output, NestedNodeRuntimeData &runtime,
+                                   engine_time_t evaluation_time);
 
         [[nodiscard]] bool ensure_nested_child_bound(Node &node, NestedNodeRuntimeData &runtime, engine_time_t evaluation_time) {
             if (runtime.bound || node.graph() == nullptr) { return false; }
@@ -1473,11 +1451,11 @@ namespace hgraph
             return true;
         }
 
-        void publish_reduce_aggregate_output(const TSOutputView &target_output,
-                                             const TSOutputView &source_output,
-                                             engine_time_t       evaluation_time);
+        void publish_reduce_aggregate_output(const TSOutputView &target_output, const TSOutputView &source_output,
+                                             engine_time_t evaluation_time, bool force_sampled = false);
 
-        void forward_child_outputs(Node &node, TSOutputView parent_output, NestedNodeRuntimeData &runtime, engine_time_t evaluation_time) {
+        void forward_child_outputs(Node &node, TSOutputView parent_output, NestedNodeRuntimeData &runtime,
+                                   engine_time_t evaluation_time) {
             const auto &plan = runtime.child_instance.boundary_plan();
             for (const auto &spec : plan.outputs) {
                 TSOutputView source_output;
@@ -1486,7 +1464,7 @@ namespace hgraph
                         {
                             if (spec.child_node_index < 0) { continue; }
                             auto &child_node = runtime.child_instance.graph()->node_at(static_cast<size_t>(spec.child_node_index));
-                            source_output = navigate_output(child_node.output_view(evaluation_time), spec.child_output_path);
+                            source_output    = navigate_output(child_node.output_view(evaluation_time), spec.child_output_path);
                             break;
                         }
                     case OutputBindingMode::ALIAS_PARENT_INPUT:
@@ -1495,25 +1473,22 @@ namespace hgraph
                                 throw std::logic_error("parent-input output alias requires a parent input");
                             }
                             auto parent_input = runtime.input->view(&node, evaluation_time);
-                            source_output = bound_output_of(parent_input.as_bundle().field(spec.parent_arg_name));
+                            source_output     = bound_output_of(parent_input.as_bundle().field(spec.parent_arg_name));
                             if (source_output.ts_schema() == nullptr) { continue; }
                             source_output = navigate_output(source_output, spec.child_output_path);
                             break;
                         }
-                    default:
-                        throw std::logic_error("forward_child_outputs does not support this output binding mode");
+                    default: throw std::logic_error("forward_child_outputs does not support this output binding mode");
                 }
 
                 TSOutputView target_output = navigate_output(parent_output, spec.parent_output_path);
 
-                if (const auto *parent_schema = target_output.ts_schema(); parent_schema != nullptr &&
-                                                                           !binding_compatible_ts_schema(source_output.ts_schema(), parent_schema) &&
-                                                                           source_output.owning_output() != nullptr) {
+                if (const auto *parent_schema = target_output.ts_schema();
+                    parent_schema != nullptr && !binding_compatible_ts_schema(source_output.ts_schema(), parent_schema) &&
+                    source_output.owning_output() != nullptr) {
                     if (std::getenv("HGRAPH_DEBUG_BINDABLE") != nullptr) {
-                        std::fprintf(stderr,
-                                     "bindable site=node_builder:1355 bound=%d valid=%d source_kind=%d target_kind=%d\n",
-                                     source_output.context_ref().is_bound(),
-                                     source_output.valid(),
+                        std::fprintf(stderr, "bindable site=node_builder:1355 bound=%d valid=%d source_kind=%d target_kind=%d\n",
+                                     source_output.context_ref().is_bound(), source_output.valid(),
                                      source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
                                      parent_schema != nullptr ? static_cast<int>(parent_schema->kind) : -1);
                     }
@@ -1679,8 +1654,7 @@ namespace hgraph
 
         [[nodiscard]] Node *construct_nested_at(const NodeBuilder &builder, void *memory, int64_t node_index,
                                                 const std::vector<TSInputConstructionEdge> &inbound_edges,
-                                                const NodeRuntimeOps                       *runtime_ops,
-                                                bool                                        try_except_output_root) {
+                                                const NodeRuntimeOps *runtime_ops, bool try_except_output_root) {
             const auto &state = detail::node_builder_type_state<NestedNodeBuilderState>(builder);
 
             struct RuntimeLifecycle
@@ -1691,7 +1665,7 @@ namespace hgraph
 
                 void initialise(const NodeBuilder & /*builder*/, void *runtime_data_ptr, Node *node, TSInput * /*input*/,
                                 TSOutput *output, TSOutput * /*error_output*/, TSOutput * /*recordable_state*/) const {
-                    auto &runtime = *static_cast<NestedNodeRuntimeData *>(runtime_data_ptr);
+                    auto &runtime          = *static_cast<NestedNodeRuntimeData *>(runtime_data_ptr);
                     runtime.child_template = child_template;
                     prepare_child_output_links(output, child_template, try_except_output_root);
                 }
@@ -1719,18 +1693,24 @@ namespace hgraph
             return construct_nested_at(builder, memory, node_index, inbound_edges, &k_try_except_runtime_ops, true);
         }
 
-        [[nodiscard]] SwitchNodeRuntimeData &switch_runtime(Node &node)
-        {
+        [[nodiscard]] SwitchNodeRuntimeData &switch_runtime(Node &node) {
             return *static_cast<SwitchNodeRuntimeData *>(node.data());
         }
 
-        [[nodiscard]] const SwitchBranchTemplate *active_switch_branch(const SwitchNodeRuntimeData &runtime) noexcept
-        {
+        [[nodiscard]] const SwitchBranchTemplate *active_switch_branch(const SwitchNodeRuntimeData &runtime) noexcept {
             return runtime.active_branch_index < runtime.branches.size() ? &runtime.branches[runtime.active_branch_index] : nullptr;
         }
 
-        [[nodiscard]] int64_t next_switch_child_graph_id(SwitchNodeRuntimeData &runtime) noexcept
-        {
+        [[nodiscard]] bool active_switch_branch_aliases_parent_input_output(const SwitchNodeRuntimeData &runtime) noexcept {
+            const auto *branch = active_switch_branch(runtime);
+            if (branch == nullptr) { return false; }
+            for (const auto &spec : branch->child_template->boundary_plan.outputs) {
+                if (spec.mode == OutputBindingMode::ALIAS_PARENT_INPUT) { return true; }
+            }
+            return false;
+        }
+
+        [[nodiscard]] int64_t next_switch_child_graph_id(SwitchNodeRuntimeData &runtime) noexcept {
             return -runtime.next_child_graph_id++;
         }
 
@@ -1741,30 +1721,26 @@ namespace hgraph
         };
 
         [[nodiscard]] SwitchChildGraphStorageLayout
-        describe_switch_child_graph_storage(const std::vector<SwitchBranchTemplate> &branches)
-        {
+        describe_switch_child_graph_storage(const std::vector<SwitchBranchTemplate> &branches) {
             SwitchChildGraphStorageLayout layout;
             for (const auto &branch : branches) {
                 if (branch.child_template == nullptr) { continue; }
-                layout.size = std::max(layout.size, branch.child_template->graph_builder.memory_size());
+                layout.size      = std::max(layout.size, branch.child_template->graph_builder.memory_size());
                 layout.alignment = std::max(layout.alignment, branch.child_template->graph_builder.alignment());
             }
             return layout;
         }
 
-        [[nodiscard]] size_t switch_runtime_storage_size(const std::vector<SwitchBranchTemplate> &branches)
-        {
+        [[nodiscard]] size_t switch_runtime_storage_size(const std::vector<SwitchBranchTemplate> &branches) {
             const auto layout = describe_switch_child_graph_storage(branches);
             return align_up(sizeof(SwitchNodeRuntimeData), layout.alignment) + layout.size;
         }
 
-        [[nodiscard]] size_t switch_runtime_storage_alignment(const std::vector<SwitchBranchTemplate> &branches)
-        {
+        [[nodiscard]] size_t switch_runtime_storage_alignment(const std::vector<SwitchBranchTemplate> &branches) {
             return std::max(alignof(SwitchNodeRuntimeData), describe_switch_child_graph_storage(branches).alignment);
         }
 
-        [[nodiscard]] GraphStorageReservation switch_child_graph_storage(SwitchNodeRuntimeData &runtime) noexcept
-        {
+        [[nodiscard]] GraphStorageReservation switch_child_graph_storage(SwitchNodeRuntimeData &runtime) noexcept {
             if (runtime.child_graph_storage_size == 0) { return {}; }
 
             auto *storage = reinterpret_cast<std::byte *>(&runtime) +
@@ -1772,8 +1748,7 @@ namespace hgraph
             return GraphStorageReservation{storage, runtime.child_graph_storage_size, runtime.child_graph_storage_alignment};
         }
 
-        [[nodiscard]] size_t select_switch_branch(const SwitchNodeRuntimeData &runtime, const value::View &selector)
-        {
+        [[nodiscard]] size_t select_switch_branch(const SwitchNodeRuntimeData &runtime, const value::View &selector) {
             size_t default_branch_index = static_cast<size_t>(-1);
             for (size_t index = 0; index < runtime.branches.size(); ++index) {
                 const auto &branch = runtime.branches[index];
@@ -1788,11 +1763,8 @@ namespace hgraph
             throw std::runtime_error(fmt::format("switch_ has no graph defined for selector {}", selector.to_string()));
         }
 
-        [[nodiscard]] TSOutputView resolve_switch_source_output(Node &node,
-                                                                SwitchNodeRuntimeData &runtime,
-                                                                const OutputBindingSpec &spec,
-                                                                engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView resolve_switch_source_output(Node &node, SwitchNodeRuntimeData &runtime,
+                                                                const OutputBindingSpec &spec, engine_time_t evaluation_time) {
             switch (spec.mode) {
                 case OutputBindingMode::ALIAS_CHILD_OUTPUT:
                     {
@@ -1805,20 +1777,18 @@ namespace hgraph
                         if (runtime.input == nullptr) {
                             throw std::logic_error("switch parent-input output alias requires a parent input");
                         }
-                        auto parent_input = runtime.input->view(&node, evaluation_time);
+                        auto         parent_input  = runtime.input->view(&node, evaluation_time);
                         TSOutputView source_output = bound_output_of(parent_input.as_bundle().field(spec.parent_arg_name));
                         if (source_output.ts_schema() == nullptr) { return {}; }
                         return navigate_output(source_output, spec.child_output_path);
                     }
-                default:
-                    throw std::logic_error("switch output binding mode is not supported");
+                default: throw std::logic_error("switch output binding mode is not supported");
             }
         }
 
         void clear_output_value(TSOutputView output);
 
-        void clear_output_links_tree(TSOutputView output, bool clear_values)
-        {
+        void clear_output_links_tree(TSOutputView output, bool clear_values) {
             const TSMeta *schema = output.ts_schema();
             if (schema != nullptr) {
                 switch (schema->kind) {
@@ -1835,15 +1805,14 @@ namespace hgraph
                     case TSKind::TSD:
                         if (output.valid()) {
                             constexpr size_t no_slot = static_cast<size_t>(-1);
-                            auto map = output.value().as_map();
+                            auto             map     = output.value().as_map();
                             for (size_t slot = map.first_live_slot(); slot != no_slot; slot = map.next_live_slot(slot)) {
                                 Value key = map.delta().key_at_slot(slot).clone();
                                 clear_output_links_tree(detail::ensure_dict_child_output_view(output, key.view()), clear_values);
                             }
                         }
                         break;
-                    default:
-                        break;
+                    default: break;
                 }
             }
 
@@ -1851,8 +1820,7 @@ namespace hgraph
             if (clear_values) { clear_output_value(output); }
         }
 
-        void clear_switch_output_links(Node &node, SwitchNodeRuntimeData &runtime, engine_time_t evaluation_time)
-        {
+        void clear_switch_output_links(Node &node, SwitchNodeRuntimeData &runtime, engine_time_t evaluation_time) {
             if (!node.has_output()) { return; }
             const auto *branch = active_switch_branch(runtime);
             if (branch == nullptr) { return; }
@@ -1864,8 +1832,7 @@ namespace hgraph
             }
         }
 
-        void stop_switch_child(Node &node, SwitchNodeRuntimeData &runtime, engine_time_t evaluation_time) noexcept
-        {
+        void stop_switch_child(Node &node, SwitchNodeRuntimeData &runtime, engine_time_t evaluation_time) noexcept {
             try {
                 clear_switch_output_links(node, runtime, evaluation_time);
             } catch (...) {}
@@ -1880,20 +1847,26 @@ namespace hgraph
             runtime.bound = false;
         }
 
-        [[nodiscard]] bool ensure_switch_child_bound(Node &node, SwitchNodeRuntimeData &runtime, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] bool ensure_switch_child_bound(Node &node, SwitchNodeRuntimeData &runtime, engine_time_t evaluation_time) {
             if (runtime.bound || runtime.child_instance.graph() == nullptr) { return false; }
-            BoundaryBindingRuntime::bind(runtime.child_instance.boundary_plan(), *runtime.child_instance.graph(), node, evaluation_time);
+            BoundaryBindingRuntime::bind(runtime.child_instance.boundary_plan(), *runtime.child_instance.graph(), node,
+                                         evaluation_time);
             runtime.bound = true;
             return true;
         }
 
         void forward_switch_child_outputs(Node &node, TSOutputView parent_output, SwitchNodeRuntimeData &runtime,
-                                          engine_time_t evaluation_time)
-        {
+                                          engine_time_t evaluation_time, bool branch_changed = false, bool selector_ticked = false,
+                                          bool previous_branch_aliased_parent_input = false) {
             const auto &plan = runtime.child_instance.boundary_plan();
             for (const auto &spec : plan.outputs) {
                 TSOutputView source_output = resolve_switch_source_output(node, runtime, spec, evaluation_time);
+                TSInputView  source_input  = detail::invalid_input_view(evaluation_time);
+                if (spec.mode == OutputBindingMode::ALIAS_PARENT_INPUT && runtime.input != nullptr) {
+                    TSInputView parent_input = runtime.input->view(&node, evaluation_time);
+                    source_input             = parent_input.as_bundle().field(spec.parent_arg_name);
+                    if (!spec.child_output_path.empty()) { source_input = navigate_input(source_input, spec.child_output_path); }
+                }
 
                 TSOutputView target_output = navigate_output(parent_output, spec.parent_output_path);
 
@@ -1901,10 +1874,8 @@ namespace hgraph
                     parent_schema != nullptr && !binding_compatible_ts_schema(source_output.ts_schema(), parent_schema) &&
                     source_output.owning_output() != nullptr) {
                     if (std::getenv("HGRAPH_DEBUG_BINDABLE") != nullptr) {
-                        std::fprintf(stderr,
-                                     "bindable site=node_builder:1720 bound=%d valid=%d source_kind=%d target_kind=%d\n",
-                                     source_output.context_ref().is_bound(),
-                                     source_output.valid(),
+                        std::fprintf(stderr, "bindable site=node_builder:1720 bound=%d valid=%d source_kind=%d target_kind=%d\n",
+                                     source_output.context_ref().is_bound(), source_output.valid(),
                                      source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
                                      parent_schema != nullptr ? static_cast<int>(parent_schema->kind) : -1);
                     }
@@ -1913,30 +1884,58 @@ namespace hgraph
 
                 if (std::getenv("HGRAPH_DEBUG_SWITCH") != nullptr) {
                     std::fprintf(stderr,
-                                 "switch_forward eval=%lld source_schema=%p source_valid=%d source_modified=%d target_schema=%p\n",
-                                 static_cast<long long>(evaluation_time.time_since_epoch().count()),
-                                 static_cast<const void *>(source_output.ts_schema()),
-                                 source_output.valid(),
-                                 output_changed(source_output),
-                                 static_cast<const void *>(target_output.ts_schema()));
+                                 "switch_forward eval=%lld mode=%d parent_arg=%.*s child_node=%lld source_schema=%p "
+                                 "source_valid=%d source_modified=%d target_schema=%p\n",
+                                 static_cast<long long>(evaluation_time.time_since_epoch().count()), static_cast<int>(spec.mode),
+                                 static_cast<int>(spec.parent_arg_name.size()), spec.parent_arg_name.data(),
+                                 static_cast<long long>(spec.child_node_index),
+                                 static_cast<const void *>(source_output.ts_schema()), source_output.valid(),
+                                 output_changed(source_output), static_cast<const void *>(target_output.ts_schema()));
                 }
 
                 if (!source_output.ts_schema()) {
-                    clear_output_links_tree(target_output, evaluation_time != MIN_DT);
-                    if (evaluation_time != MIN_DT) { mark_output_view_modified(target_output, evaluation_time); }
+                    if (source_input.ts_schema() != nullptr) {
+                        if (source_input.valid()) {
+                            target_output.copy_from_input(source_input);
+                        } else {
+                            const bool target_had_published_value = target_output.last_modified_time() != MIN_DT;
+                            clear_output_links_tree(target_output, evaluation_time != MIN_DT && target_had_published_value);
+                            if (evaluation_time != MIN_DT && target_had_published_value) {
+                                mark_output_view_modified(target_output, evaluation_time);
+                            }
+                        }
+                        continue;
+                    }
+                    const bool target_had_published_value = target_output.last_modified_time() != MIN_DT;
+                    clear_output_links_tree(target_output, evaluation_time != MIN_DT && target_had_published_value);
+                    if (evaluation_time != MIN_DT && target_had_published_value) {
+                        mark_output_view_modified(target_output, evaluation_time);
+                    }
                     continue;
                 }
 
                 if (!source_output.valid()) {
-                    clear_output_links_tree(target_output, evaluation_time != MIN_DT);
-                    if (evaluation_time != MIN_DT) { mark_output_view_modified(target_output, evaluation_time); }
+                    const bool target_had_published_value = target_output.last_modified_time() != MIN_DT;
+                    clear_output_links_tree(target_output, evaluation_time != MIN_DT && target_had_published_value);
+                    if (evaluation_time != MIN_DT && target_had_published_value) {
+                        mark_output_view_modified(target_output, evaluation_time);
+                    }
                     continue;
                 }
 
                 if (const auto *schema = source_output.ts_schema();
                     schema != nullptr &&
                     (schema->kind == TSKind::TSB || schema->kind == TSKind::TSD || schema->kind == TSKind::TSS)) {
-                    publish_reduce_aggregate_output(target_output, source_output, evaluation_time);
+                    if (branch_changed && evaluation_time != MIN_DT) {
+                        if (previous_branch_aliased_parent_input) {
+                            target_output.patch_from_output(source_output);
+                        } else {
+                            clear_output_links_tree(target_output, true);
+                            target_output.copy_from_output(source_output);
+                        }
+                        continue;
+                    }
+                    publish_reduce_aggregate_output(target_output, source_output, evaluation_time, selector_ticked);
                     continue;
                 }
 
@@ -1952,8 +1951,7 @@ namespace hgraph
             }
         }
 
-        void clear_output_value(TSOutputView output)
-        {
+        void clear_output_value(TSOutputView output) {
             const TSMeta *schema = output.ts_schema();
             if (schema == nullptr) { return; }
 
@@ -1961,25 +1959,20 @@ namespace hgraph
                 case TSKind::TSB:
                 case TSKind::TSL:
                 case TSKind::TSD:
-                case TSKind::TSS:
-                    output.clear();
-                    break;
-                default:
-                    output.invalidate();
-                    break;
+                case TSKind::TSS: output.clear(); break;
+                default: output.invalidate(); break;
             }
         }
 
         void activate_switch_branch(Node &node, SwitchNodeRuntimeData &runtime, size_t branch_index, const value::View &selector,
-                                    engine_time_t evaluation_time)
-        {
+                                    engine_time_t evaluation_time) {
             // Switching branches must publish the delta from the old child to
             // the new child in the current tick. Clearing the old branch at
             // MIN_DT suppresses removals for collection outputs.
-            stop_switch_child(node, runtime, evaluation_time);
+            stop_switch_child(node, runtime, MIN_DT);
             runtime.child_instance = ChildGraphInstance{};
 
-            const auto &branch = runtime.branches[branch_index];
+            const auto          &branch   = runtime.branches[branch_index];
             std::vector<int64_t> graph_id = node.node_id();
             graph_id.push_back(next_switch_child_graph_id(runtime));
 
@@ -1988,69 +1981,58 @@ namespace hgraph
             static_cast<void>(ensure_switch_child_bound(node, runtime, evaluation_time));
             runtime.child_instance.start(evaluation_time);
             runtime.active_branch_index = branch_index;
-            runtime.active_key = selector.clone(MutationTracking::Plain);
+            runtime.active_key          = selector.clone(MutationTracking::Plain);
         }
 
-        [[nodiscard]] bool switch_has_input(const Node &node) noexcept
-        {
+        [[nodiscard]] bool switch_has_input(const Node &node) noexcept {
             return node.data() != nullptr && switch_runtime(const_cast<Node &>(node)).input != nullptr;
         }
 
-        [[nodiscard]] bool switch_has_output(const Node &node) noexcept
-        {
+        [[nodiscard]] bool switch_has_output(const Node &node) noexcept {
             return node.data() != nullptr && switch_runtime(const_cast<Node &>(node)).output != nullptr;
         }
 
-        [[nodiscard]] bool switch_has_error_output(const Node &node) noexcept
-        {
+        [[nodiscard]] bool switch_has_error_output(const Node &node) noexcept {
             return node.data() != nullptr && switch_runtime(const_cast<Node &>(node)).error_output != nullptr;
         }
 
         [[nodiscard]] bool switch_has_recordable_state(const Node & /*node*/) noexcept { return false; }
 
-        [[nodiscard]] TSInputView switch_input_view(Node &node, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSInputView switch_input_view(Node &node, engine_time_t evaluation_time) {
             if (!switch_has_input(node)) { return detail::invalid_input_view(evaluation_time); }
             return switch_runtime(node).input->view(&node, evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView switch_output_view(Node &node, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView switch_output_view(Node &node, engine_time_t evaluation_time) {
             if (!switch_has_output(node)) { return detail::invalid_output_view(evaluation_time); }
             return switch_runtime(node).output->view(evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView switch_error_output_view(Node &node, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView switch_error_output_view(Node &node, engine_time_t evaluation_time) {
             if (!switch_has_error_output(node)) { return detail::invalid_output_view(evaluation_time); }
             return switch_runtime(node).error_output->view(evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView switch_recordable_state_view(Node & /*node*/, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView switch_recordable_state_view(Node & /*node*/, engine_time_t evaluation_time) {
             return detail::invalid_output_view(evaluation_time);
         }
 
         void switch_node_start(Node & /*node*/, engine_time_t /*evaluation_time*/) {}
 
-        void switch_node_stop(Node &node, engine_time_t evaluation_time)
-        {
+        void switch_node_stop(Node &node, engine_time_t evaluation_time) {
+            static_cast<void>(evaluation_time);
             auto &runtime = switch_runtime(node);
-            stop_switch_child(node, runtime, evaluation_time);
+            stop_switch_child(node, runtime, MIN_DT);
         }
 
-        void switch_node_eval(Node &node, engine_time_t evaluation_time)
-        {
-            auto &runtime = switch_runtime(node);
+        void switch_node_eval(Node &node, engine_time_t evaluation_time) {
+            auto       &runtime        = switch_runtime(node);
             TSInputView selector_input = resolve_parent_input_arg(node, "key", evaluation_time);
             if (std::getenv("HGRAPH_DEBUG_SWITCH") != nullptr) {
                 std::fprintf(stderr,
                              "switch_eval eval=%lld selector_valid=%d selector_modified=%d child_started=%d active_branch=%zu\n",
-                             static_cast<long long>(evaluation_time.time_since_epoch().count()),
-                             selector_input.valid(),
-                             selector_input.modified(),
-                             runtime.child_instance.is_started(),
-                             runtime.active_branch_index);
+                             static_cast<long long>(evaluation_time.time_since_epoch().count()), selector_input.valid(),
+                             selector_input.modified(), runtime.child_instance.is_started(), runtime.active_branch_index);
             }
             if (!selector_input.valid()) {
                 if (!runtime.child_instance.is_started()) { return; }
@@ -2063,14 +2045,21 @@ namespace hgraph
                 return;
             }
 
-            const value::View selector = selector_input.value();
-            const size_t branch_index = select_switch_branch(runtime, selector);
-            const bool raw_selector_changed =
-                input_changed(selector_input) && (runtime.reload_on_ticked || !runtime.active_key.has_value() ||
-                                                  runtime.active_key->view() != selector);
-            const bool branch_changed =
-                runtime.active_branch_index == static_cast<size_t>(-1) || runtime.active_branch_index != branch_index ||
-                raw_selector_changed || !runtime.child_instance.is_initialised();
+            const value::View selector        = selector_input.value();
+            const size_t      branch_index    = select_switch_branch(runtime, selector);
+            const bool        selector_ticked = input_changed(selector_input);
+            const bool raw_selector_changed   = selector_ticked && (runtime.reload_on_ticked || !runtime.active_key.has_value() ||
+                                                                    runtime.active_key->view() != selector);
+            const bool branch_changed         = runtime.active_branch_index == static_cast<size_t>(-1) ||
+                                                runtime.active_branch_index != branch_index || raw_selector_changed ||
+                                                !runtime.child_instance.is_initialised();
+            const bool previous_branch_aliased_parent_input =
+                branch_changed && active_switch_branch_aliases_parent_input_output(runtime);
+            if (std::getenv("HGRAPH_DEBUG_SWITCH") != nullptr) {
+                std::fprintf(stderr, "switch_selected eval=%lld branch_index=%zu branch_changed=%d raw_selector_changed=%d\n",
+                             static_cast<long long>(evaluation_time.time_since_epoch().count()), branch_index, branch_changed,
+                             raw_selector_changed);
+            }
 
             if (branch_changed) { activate_switch_branch(node, runtime, branch_index, selector, evaluation_time); }
             if (!runtime.child_instance.is_started()) { return; }
@@ -2094,30 +2083,29 @@ namespace hgraph
                         case InputBindingMode::DETACH_RESTORE_BLANK:
                             {
                                 TSInputView parent_input = resolve_parent_input_arg(node, spec.arg_name, evaluation_time);
-                                if (!spec.parent_input_path.empty()) { parent_input = navigate_input(parent_input, spec.parent_input_path); }
+                                if (!spec.parent_input_path.empty()) {
+                                    parent_input = navigate_input(parent_input, spec.parent_input_path);
+                                }
                                 if (input_changed(parent_input)) { changed_args.emplace(spec.arg_name); }
                                 break;
                             }
                         case InputBindingMode::BIND_MULTIPLEXED_ELEMENT:
-                        case InputBindingMode::BIND_KEY_VALUE:
-                            break;
+                        case InputBindingMode::BIND_KEY_VALUE: break;
                     }
                 }
 
                 for (const std::string &arg_name : changed_args) {
-                    BoundaryBindingRuntime::rebind(runtime.child_instance.boundary_plan(),
-                                                  *runtime.child_instance.graph(),
-                                                  node,
-                                                  arg_name,
-                                                  evaluation_time);
+                    BoundaryBindingRuntime::rebind(runtime.child_instance.boundary_plan(), *runtime.child_instance.graph(), node,
+                                                   arg_name, evaluation_time);
                 }
             }
 
             runtime.child_instance.evaluate(evaluation_time);
             if (node.has_output()) {
                 TSOutputView output = node.output_view(evaluation_time);
-                forward_switch_child_outputs(node, output, runtime, evaluation_time);
-                if (branch_changed && !output.modified()) { clear_output_value(output); }
+                forward_switch_child_outputs(node, output, runtime, evaluation_time, branch_changed, selector_ticked,
+                                             previous_branch_aliased_parent_input);
+                if (branch_changed && !output.modified() && output.last_modified_time() != MIN_DT) { clear_output_value(output); }
             }
         }
 
@@ -2136,10 +2124,9 @@ namespace hgraph
             &nested_runtime_label,
         };
 
-        void destruct_switch_node(Node &node) noexcept
-        {
-            const BuiltNodeSpec &spec = node.spec();
-            auto &runtime_data = detail::runtime_data<SwitchNodeRuntimeData>(node);
+        void destruct_switch_node(Node &node) noexcept {
+            const BuiltNodeSpec &spec         = node.spec();
+            auto                &runtime_data = detail::runtime_data<SwitchNodeRuntimeData>(node);
 
             if (runtime_data.recordable_state != nullptr) { runtime_data.recordable_state->~TSOutput(); }
             if (runtime_data.error_output != nullptr) { runtime_data.error_output->~TSOutput(); }
@@ -2153,47 +2140,43 @@ namespace hgraph
 
         void validate_switch_contract(const NodeBuilder & /*builder*/) {}
 
-        [[nodiscard]] size_t switch_builder_size(const NodeBuilder &builder,
-                                                 const std::vector<TSInputConstructionEdge> &inbound_edges)
-        {
-            const auto &state = detail::node_builder_type_state<SwitchNodeBuilderState>(builder);
-            const auto builders = resolve_builders(builder, inbound_edges);
+        [[nodiscard]] size_t switch_builder_size(const NodeBuilder                          &builder,
+                                                 const std::vector<TSInputConstructionEdge> &inbound_edges) {
+            const auto &state    = detail::node_builder_type_state<SwitchNodeBuilderState>(builder);
+            const auto  builders = resolve_builders(builder, inbound_edges);
             return describe_layout(builder, switch_runtime_storage_size(state.branches),
                                    switch_runtime_storage_alignment(state.branches), builders)
                 .total_size;
         }
 
-        [[nodiscard]] size_t switch_builder_alignment(const NodeBuilder &builder,
-                                                      const std::vector<TSInputConstructionEdge> &inbound_edges)
-        {
-            const auto &state = detail::node_builder_type_state<SwitchNodeBuilderState>(builder);
-            const auto builders = resolve_builders(builder, inbound_edges);
+        [[nodiscard]] size_t switch_builder_alignment(const NodeBuilder                          &builder,
+                                                      const std::vector<TSInputConstructionEdge> &inbound_edges) {
+            const auto &state    = detail::node_builder_type_state<SwitchNodeBuilderState>(builder);
+            const auto  builders = resolve_builders(builder, inbound_edges);
             return describe_layout(builder, switch_runtime_storage_size(state.branches),
                                    switch_runtime_storage_alignment(state.branches), builders)
                 .alignment;
         }
 
         [[nodiscard]] Node *switch_construct_at(const NodeBuilder &builder, void *memory, int64_t node_index,
-                                                const std::vector<TSInputConstructionEdge> &inbound_edges)
-        {
+                                                const std::vector<TSInputConstructionEdge> &inbound_edges) {
             const auto &state = detail::node_builder_type_state<SwitchNodeBuilderState>(builder);
 
             struct RuntimeLifecycle
             {
                 const std::vector<SwitchBranchTemplate> *branches;
-                bool reload_on_ticked;
-                size_t child_graph_storage_size;
-                size_t child_graph_storage_alignment;
+                bool                                     reload_on_ticked;
+                size_t                                   child_graph_storage_size;
+                size_t                                   child_graph_storage_alignment;
 
                 void destroy(void *runtime_data) const { std::destroy_at(static_cast<SwitchNodeRuntimeData *>(runtime_data)); }
 
                 void initialise(const NodeBuilder & /*builder*/, void *runtime_data_ptr, Node * /*node*/, TSInput * /*input*/,
-                                TSOutput * /*output*/, TSOutput * /*error_output*/, TSOutput * /*recordable_state*/) const
-                {
-                    auto &runtime = *static_cast<SwitchNodeRuntimeData *>(runtime_data_ptr);
-                    runtime.branches = *branches;
-                    runtime.reload_on_ticked = reload_on_ticked;
-                    runtime.child_graph_storage_size = child_graph_storage_size;
+                                TSOutput * /*output*/, TSOutput * /*error_output*/, TSOutput * /*recordable_state*/) const {
+                    auto &runtime                         = *static_cast<SwitchNodeRuntimeData *>(runtime_data_ptr);
+                    runtime.branches                      = *branches;
+                    runtime.reload_on_ticked              = reload_on_ticked;
+                    runtime.child_graph_storage_size      = child_graph_storage_size;
                     runtime.child_graph_storage_alignment = child_graph_storage_alignment;
                 }
             };
@@ -2217,31 +2200,27 @@ namespace hgraph
 
         struct ReduceAggregateRef
         {
-            enum class Kind : uint8_t
-            {
+            enum class Kind : uint8_t {
                 Empty,
                 Zero,
                 Leaf,
                 Node,
             };
 
-            Kind kind{Kind::Empty};
+            Kind   kind{Kind::Empty};
             size_t index{static_cast<size_t>(-1)};
 
             [[nodiscard]] static ReduceAggregateRef empty() noexcept { return {}; }
             [[nodiscard]] static ReduceAggregateRef zero() noexcept { return {Kind::Zero, 0}; }
             [[nodiscard]] static ReduceAggregateRef leaf(size_t index) noexcept { return {Kind::Leaf, index}; }
             [[nodiscard]] static ReduceAggregateRef node(size_t index) noexcept { return {Kind::Node, index}; }
-            [[nodiscard]] bool active() const noexcept { return kind != Kind::Empty; }
-            [[nodiscard]] bool operator==(const ReduceAggregateRef &) const noexcept = default;
+            [[nodiscard]] bool                      active() const noexcept { return kind != Kind::Empty; }
+            [[nodiscard]] bool                      operator==(const ReduceAggregateRef &) const noexcept = default;
         };
 
         struct ReduceSourceSlotRuntime
         {
-            explicit ReduceSourceSlotRuntime(Value key_arg)
-                : key(std::move(key_arg))
-            {
-            }
+            explicit ReduceSourceSlotRuntime(Value key_arg) : key(std::move(key_arg)) {}
 
             Value  key;
             size_t dense_leaf{static_cast<size_t>(-1)};
@@ -2250,97 +2229,84 @@ namespace hgraph
 
         struct ReduceOpRuntime
         {
-            ChildGraphInstance child_instance;
+            ChildGraphInstance      child_instance;
             std::optional<TSOutput> published_output;
-            ReduceAggregateRef left_source{};
-            ReduceAggregateRef right_source{};
-            LinkedTSContext    left_bound_context{};
-            LinkedTSContext    right_bound_context{};
+            ReduceAggregateRef      left_source{};
+            ReduceAggregateRef      right_source{};
+            LinkedTSContext         left_bound_context{};
+            LinkedTSContext         right_bound_context{};
             // Generation counter that bumps every time this op rebinds its
             // child inputs. Parents observe via left/right_source_generation
             // to detect when a descendant restructured even though the
             // descendant's published_output address is stable across the
             // recycle/rebind cycle. This is the missing propagation that
             // `linked_context_equal` cannot provide.
-            uint64_t my_generation{0};
-            uint64_t left_source_generation{0};
-            uint64_t right_source_generation{0};
-            engine_time_t      next_scheduled{MAX_DT};
-            bool               bound{false};
+            uint64_t      my_generation{0};
+            uint64_t      left_source_generation{0};
+            uint64_t      right_source_generation{0};
+            engine_time_t next_scheduled{MAX_DT};
+            bool          bound{false};
         };
 
         struct ReduceNodeRuntimeData
         {
-            TSInput           *input{nullptr};
-            TSOutput          *output{nullptr};
-            TSOutput          *error_output{nullptr};
-            TSOutput          *recordable_state{nullptr};
+            TSInput                  *input{nullptr};
+            TSOutput                 *output{nullptr};
+            TSOutput                 *error_output{nullptr};
+            TSOutput                 *recordable_state{nullptr};
             const ChildGraphTemplate *child_template{nullptr};
-            const TSOutputBuilder *output_builder{nullptr};
-            int64_t            next_child_graph_id{1};
-            size_t             live_leaf_count{0};
-            size_t             leaf_capacity{1};
-            std::vector<size_t> dense_to_source_slot{};
-            bool               structure_changed{false};
-            bool               stores_initialized{false};
+            const TSOutputBuilder    *output_builder{nullptr};
+            int64_t                   next_child_graph_id{1};
+            size_t                    live_leaf_count{0};
+            size_t                    leaf_capacity{1};
+            std::vector<size_t>       dense_to_source_slot{};
+            bool                      structure_changed{false};
+            bool                      stores_initialized{false};
         };
 
         using ReduceSourceSlotStore = detail::KeyedPayloadStore<ReduceSourceSlotRuntime>;
-        using ReduceOpStore = detail::StablePayloadStore<ReduceOpRuntime>;
+        using ReduceOpStore         = detail::StablePayloadStore<ReduceOpRuntime>;
 
-        [[nodiscard]] constexpr size_t reduce_source_slot_store_offset() noexcept
-        {
+        [[nodiscard]] constexpr size_t reduce_source_slot_store_offset() noexcept {
             return align_up(sizeof(ReduceNodeRuntimeData), alignof(ReduceSourceSlotStore));
         }
 
-        [[nodiscard]] constexpr size_t reduce_op_store_offset() noexcept
-        {
+        [[nodiscard]] constexpr size_t reduce_op_store_offset() noexcept {
             return align_up(reduce_source_slot_store_offset() + sizeof(ReduceSourceSlotStore), alignof(ReduceOpStore));
         }
 
-        [[nodiscard]] constexpr size_t reduce_runtime_storage_size() noexcept
-        {
+        [[nodiscard]] constexpr size_t reduce_runtime_storage_size() noexcept {
             return reduce_op_store_offset() + sizeof(ReduceOpStore);
         }
 
-        [[nodiscard]] constexpr size_t reduce_runtime_storage_alignment() noexcept
-        {
+        [[nodiscard]] constexpr size_t reduce_runtime_storage_alignment() noexcept {
             return std::max({alignof(ReduceNodeRuntimeData), alignof(ReduceSourceSlotStore), alignof(ReduceOpStore)});
         }
 
-        [[nodiscard]] ReduceNodeRuntimeData &reduce_runtime(Node &node) noexcept
-        {
+        [[nodiscard]] ReduceNodeRuntimeData &reduce_runtime(Node &node) noexcept {
             return detail::runtime_data<ReduceNodeRuntimeData>(node);
         }
 
-        [[nodiscard]] ReduceSourceSlotStore &reduce_source_slots(ReduceNodeRuntimeData &runtime) noexcept
-        {
+        [[nodiscard]] ReduceSourceSlotStore &reduce_source_slots(ReduceNodeRuntimeData &runtime) noexcept {
             auto *storage = reinterpret_cast<std::byte *>(&runtime) + reduce_source_slot_store_offset();
             return *std::launder(reinterpret_cast<ReduceSourceSlotStore *>(storage));
         }
 
-        [[nodiscard]] ReduceOpStore &reduce_op_store(ReduceNodeRuntimeData &runtime) noexcept
-        {
+        [[nodiscard]] ReduceOpStore &reduce_op_store(ReduceNodeRuntimeData &runtime) noexcept {
             auto *storage = reinterpret_cast<std::byte *>(&runtime) + reduce_op_store_offset();
             return *std::launder(reinterpret_cast<ReduceOpStore *>(storage));
         }
 
-        [[nodiscard]] int64_t next_reduce_child_graph_id(ReduceNodeRuntimeData &runtime) noexcept
-        {
+        [[nodiscard]] int64_t next_reduce_child_graph_id(ReduceNodeRuntimeData &runtime) noexcept {
             return -runtime.next_child_graph_id++;
         }
 
-        [[nodiscard]] size_t reduce_internal_node_count(const ReduceNodeRuntimeData &runtime) noexcept
-        {
+        [[nodiscard]] size_t reduce_internal_node_count(const ReduceNodeRuntimeData &runtime) noexcept {
             return runtime.leaf_capacity > 0 ? runtime.leaf_capacity - 1 : 0;
         }
 
-        void stop_reduce_op(const ChildGraphTemplate &child_template,
-                            ReduceOpRuntime          &op,
-                            engine_time_t             evaluation_time,
-                            bool                      clear_published_output = true,
-                            bool                      release_child_bindings = true) noexcept
-        {
+        void stop_reduce_op(const ChildGraphTemplate &child_template, ReduceOpRuntime &op, engine_time_t evaluation_time,
+                            bool clear_published_output = true, bool release_child_bindings = true) noexcept {
             try {
                 static_cast<void>(child_template);
                 static_cast<void>(release_child_bindings);
@@ -2358,16 +2324,16 @@ namespace hgraph
                     }
                 }
             } catch (...) {}
-            op.bound = false;
-            op.left_source = {};
-            op.right_source = {};
-            op.left_bound_context = {};
+            op.bound               = false;
+            op.left_source         = {};
+            op.right_source        = {};
+            op.left_bound_context  = {};
             op.right_bound_context = {};
-            op.next_scheduled = MAX_DT;
+            op.next_scheduled      = MAX_DT;
         }
 
-        void dispose_reduce_op(const ChildGraphTemplate &child_template, ReduceOpRuntime &op, engine_time_t evaluation_time) noexcept
-        {
+        void dispose_reduce_op(const ChildGraphTemplate &child_template, ReduceOpRuntime &op,
+                               engine_time_t evaluation_time) noexcept {
             stop_reduce_op(child_template, op, evaluation_time, true, false);
             try {
                 if (op.child_instance.is_initialised()) { op.child_instance.dispose(evaluation_time); }
@@ -2375,8 +2341,8 @@ namespace hgraph
             op.child_instance = ChildGraphInstance{};
         }
 
-        void recycle_reduce_op(const ChildGraphTemplate &child_template, ReduceOpRuntime &op, engine_time_t evaluation_time) noexcept
-        {
+        void recycle_reduce_op(const ChildGraphTemplate &child_template, ReduceOpRuntime &op,
+                               engine_time_t evaluation_time) noexcept {
             stop_reduce_op(child_template, op, evaluation_time, false, true);
             try {
                 if (op.child_instance.is_initialised()) { op.child_instance.dispose(evaluation_time); }
@@ -2384,49 +2350,42 @@ namespace hgraph
             op.child_instance = ChildGraphInstance{};
         }
 
-        [[nodiscard]] bool reduce_has_input(const Node &node) noexcept
-        {
+        [[nodiscard]] bool reduce_has_input(const Node &node) noexcept {
             return node.data() != nullptr && reduce_runtime(const_cast<Node &>(node)).input != nullptr;
         }
 
-        [[nodiscard]] bool reduce_has_output(const Node &node) noexcept
-        {
+        [[nodiscard]] bool reduce_has_output(const Node &node) noexcept {
             return node.data() != nullptr && reduce_runtime(const_cast<Node &>(node)).output != nullptr;
         }
 
-        [[nodiscard]] bool reduce_has_error_output(const Node &node) noexcept
-        {
+        [[nodiscard]] bool reduce_has_error_output(const Node &node) noexcept {
             return node.data() != nullptr && reduce_runtime(const_cast<Node &>(node)).error_output != nullptr;
         }
 
         [[nodiscard]] bool reduce_has_recordable_state(const Node & /*node*/) noexcept { return false; }
 
-        [[nodiscard]] TSInputView reduce_input_view(Node &node, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSInputView reduce_input_view(Node &node, engine_time_t evaluation_time) {
             if (!reduce_has_input(node)) { return detail::invalid_input_view(evaluation_time); }
             return reduce_runtime(node).input->view(&node, evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView reduce_output_view(Node &node, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView reduce_output_view(Node &node, engine_time_t evaluation_time) {
             if (!reduce_has_output(node)) { return detail::invalid_output_view(evaluation_time); }
             return reduce_runtime(node).output->view(evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView reduce_error_output_view(Node &node, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView reduce_error_output_view(Node &node, engine_time_t evaluation_time) {
             if (!reduce_has_error_output(node)) { return detail::invalid_output_view(evaluation_time); }
             return reduce_runtime(node).error_output->view(evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView reduce_recordable_state_view(Node & /*node*/, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView reduce_recordable_state_view(Node & /*node*/, engine_time_t evaluation_time) {
             return detail::invalid_output_view(evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView reduce_bound_source_output(Node &node, std::string_view arg_name, engine_time_t evaluation_time)
-        {
-            TSInputView input = resolve_parent_input_arg(node, arg_name, evaluation_time);
+        [[nodiscard]] TSOutputView reduce_bound_source_output(Node &node, std::string_view arg_name,
+                                                              engine_time_t evaluation_time) {
+            TSInputView  input  = resolve_parent_input_arg(node, arg_name, evaluation_time);
             TSOutputView output = bound_output_of(input);
             if (output.ts_schema() != nullptr) {
                 if (output.ts_schema()->kind != TSKind::REF) { return output; }
@@ -2444,10 +2403,8 @@ namespace hgraph
             return detail::invalid_output_view(evaluation_time);
         }
 
-        void reduce_remove_live_leaf(ReduceNodeRuntimeData &runtime,
-                                     ReduceSourceSlotStore &source_slots,
-                                     size_t                 source_slot) noexcept
-        {
+        void reduce_remove_live_leaf(ReduceNodeRuntimeData &runtime, ReduceSourceSlotStore &source_slots,
+                                     size_t source_slot) noexcept {
             ReduceSourceSlotRuntime *payload = source_slots.try_slot(source_slot);
             if (payload == nullptr || !payload->live || payload->dense_leaf == static_cast<size_t>(-1) ||
                 runtime.live_leaf_count == 0) {
@@ -2455,39 +2412,36 @@ namespace hgraph
             }
 
             const size_t dense_leaf = payload->dense_leaf;
-            const size_t last_leaf = runtime.live_leaf_count - 1;
+            const size_t last_leaf  = runtime.live_leaf_count - 1;
             if (dense_leaf != last_leaf) {
-                const size_t moved_source_slot = runtime.dense_to_source_slot[last_leaf];
+                const size_t moved_source_slot           = runtime.dense_to_source_slot[last_leaf];
                 runtime.dense_to_source_slot[dense_leaf] = moved_source_slot;
                 if (ReduceSourceSlotRuntime *moved = source_slots.try_slot(moved_source_slot); moved != nullptr) {
                     moved->dense_leaf = dense_leaf;
                 }
             }
             runtime.dense_to_source_slot.pop_back();
-            runtime.live_leaf_count = last_leaf;
-            payload->dense_leaf = static_cast<size_t>(-1);
-            payload->live = false;
+            runtime.live_leaf_count   = last_leaf;
+            payload->dense_leaf       = static_cast<size_t>(-1);
+            payload->live             = false;
             runtime.structure_changed = true;
         }
 
-        [[nodiscard]] ReduceAggregateRef reduce_leaf_ref(const ReduceNodeRuntimeData &runtime, size_t dense_leaf) noexcept
-        {
+        [[nodiscard]] ReduceAggregateRef reduce_leaf_ref(const ReduceNodeRuntimeData &runtime, size_t dense_leaf) noexcept {
             return dense_leaf < runtime.live_leaf_count && dense_leaf < runtime.dense_to_source_slot.size()
                        ? ReduceAggregateRef::leaf(runtime.dense_to_source_slot[dense_leaf])
                        : ReduceAggregateRef::empty();
         }
 
-        [[nodiscard]] ReduceAggregateRef reduce_tree_child_ref(const ReduceNodeRuntimeData      &runtime,
+        [[nodiscard]] ReduceAggregateRef reduce_tree_child_ref(const ReduceNodeRuntimeData           &runtime,
                                                                const std::vector<ReduceAggregateRef> &internal_refs,
-                                                               size_t                           child_position) noexcept
-        {
+                                                               size_t                                 child_position) noexcept {
             const size_t internal_count = reduce_internal_node_count(runtime);
             if (child_position < internal_count) { return internal_refs[child_position]; }
             return reduce_leaf_ref(runtime, child_position - internal_count);
         }
 
-        void ensure_reduce_leaf_capacity(ReduceNodeRuntimeData &runtime, size_t required_leaf_count)
-        {
+        void ensure_reduce_leaf_capacity(ReduceNodeRuntimeData &runtime, size_t required_leaf_count) {
             if (required_leaf_count == 0) { return; }
             while (runtime.leaf_capacity < required_leaf_count) { runtime.leaf_capacity *= 2; }
         }
@@ -2498,46 +2452,36 @@ namespace hgraph
         // that op's `my_generation`, or 0 for refs that don't resolve to a
         // live op (Empty / Zero / Leaf). Capped at internal_count steps so a
         // malformed chain can never spin.
-        [[nodiscard]] uint64_t peer_generation_of(const ReduceNodeRuntimeData &runtime,
+        [[nodiscard]] uint64_t peer_generation_of(const ReduceNodeRuntimeData           &runtime,
                                                   const std::vector<ReduceAggregateRef> &internal_refs,
-                                                  ReduceAggregateRef ref) noexcept
-        {
+                                                  ReduceAggregateRef                     ref) noexcept {
             const size_t max_steps = internal_refs.size() + 1;
             for (size_t step = 0; step < max_steps; ++step) {
                 if (ref.kind != ReduceAggregateRef::Kind::Node) { return 0; }
                 if (ref.index >= internal_refs.size()) { return 0; }
-                const ReduceOpStore &op_store = reduce_op_store(const_cast<ReduceNodeRuntimeData &>(runtime));
-                const ReduceOpRuntime *op = op_store.try_slot(ref.index);
+                const ReduceOpStore   &op_store = reduce_op_store(const_cast<ReduceNodeRuntimeData &>(runtime));
+                const ReduceOpRuntime *op       = op_store.try_slot(ref.index);
                 if (op != nullptr && op->bound) { return op->my_generation; }
                 // Not a live op at this position — must be a pass-through.
                 // Follow the redirect.
                 const ReduceAggregateRef &next = internal_refs[ref.index];
-                if (next.kind == ReduceAggregateRef::Kind::Node && next.index == ref.index) {
-                    return 0;
-                }
+                if (next.kind == ReduceAggregateRef::Kind::Node && next.index == ref.index) { return 0; }
                 ref = next;
             }
             return 0;
         }
 
-        [[nodiscard]] TSOutputView reduce_resolve_aggregate_output(Node                            &node,
-                                                                   ReduceNodeRuntimeData           &runtime,
+        [[nodiscard]] TSOutputView reduce_resolve_aggregate_output(Node &node, ReduceNodeRuntimeData &runtime,
                                                                    const std::vector<ReduceAggregateRef> &internal_refs,
-                                                                   const ReduceAggregateRef        &ref,
-                                                                   engine_time_t                    evaluation_time);
-        void publish_reduce_aggregate_output(const TSOutputView &target_output,
-                                             const TSOutputView &source_output,
-                                             engine_time_t       evaluation_time);
+                                                                   const ReduceAggregateRef &ref, engine_time_t evaluation_time);
+        void publish_reduce_aggregate_output(const TSOutputView &target_output, const TSOutputView &source_output,
+                                             engine_time_t evaluation_time, bool force_sampled);
 
-        void bind_reduce_op_inputs(const ChildGraphTemplate &child_template,
-                                   Graph                    &child,
-                                   const TSOutputView       &lhs_output,
-                                   const TSOutputView       &rhs_output,
-                                   engine_time_t             evaluation_time)
-        {
+        void bind_reduce_op_inputs(const ChildGraphTemplate &child_template, Graph &child, const TSOutputView &lhs_output,
+                                   const TSOutputView &rhs_output, engine_time_t evaluation_time) {
             for (const auto &spec : child_template.boundary_plan.inputs) {
                 if (spec.child_node_index < 0) { continue; }
-                auto &child_node = child.node_at(static_cast<size_t>(spec.child_node_index));
+                auto       &child_node  = child.node_at(static_cast<size_t>(spec.child_node_index));
                 TSInputView child_input = navigate_input(child_node.input_view(evaluation_time), spec.child_input_path);
 
                 if (child_input.active()) { child_input.make_passive(); }
@@ -2553,14 +2497,13 @@ namespace hgraph
                 if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
                     const TSViewContext source_resolved = source_output.context_ref().resolved();
                     std::fprintf(stderr,
-                                 "bind_reduce_op_inputs arg=%.*s child_node=%lld source_schema_kind=%d source_state=%p resolved_state=%p owning_output=%p\n",
-                                 static_cast<int>(spec.arg_name.size()),
-                                 spec.arg_name.data(),
+                                 "bind_reduce_op_inputs arg=%.*s child_node=%lld source_schema_kind=%d source_state=%p "
+                                 "resolved_state=%p owning_output=%p\n",
+                                 static_cast<int>(spec.arg_name.size()), spec.arg_name.data(),
                                  static_cast<long long>(spec.child_node_index),
                                  source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
                                  static_cast<void *>(source_output.context_ref().ts_state),
-                                 static_cast<void *>(source_resolved.ts_state),
-                                 static_cast<void *>(source_output.owning_output()));
+                                 static_cast<void *>(source_resolved.ts_state), static_cast<void *>(source_output.owning_output()));
                 }
 
                 switch (spec.mode) {
@@ -2579,20 +2522,15 @@ namespace hgraph
             }
         }
 
-        void propagate_reduce_op_input_updates(const ChildGraphTemplate &child_template,
-                                               Graph                    &child,
-                                               bool                      lhs_changed,
-                                               bool                      rhs_changed,
-                                               engine_time_t             evaluation_time)
-        {
+        void propagate_reduce_op_input_updates(const ChildGraphTemplate &child_template, Graph &child, bool lhs_changed,
+                                               bool rhs_changed, engine_time_t evaluation_time) {
             for (const auto &spec : child_template.boundary_plan.inputs) {
                 if (spec.child_node_index < 0) { continue; }
 
-                const bool changed =
-                    spec.arg_name == "lhs" ? lhs_changed : (spec.arg_name == "rhs" ? rhs_changed : false);
+                const bool changed = spec.arg_name == "lhs" ? lhs_changed : (spec.arg_name == "rhs" ? rhs_changed : false);
                 if (!changed) { continue; }
 
-                auto &child_node = child.node_at(static_cast<size_t>(spec.child_node_index));
+                auto       &child_node  = child.node_at(static_cast<size_t>(spec.child_node_index));
                 TSInputView child_input = navigate_input(child_node.input_view(evaluation_time), spec.child_input_path);
                 if (BaseState *state = child_input.context_mutable().ts_state; state != nullptr) {
                     state->mark_modified(evaluation_time);
@@ -2601,13 +2539,10 @@ namespace hgraph
             }
         }
 
-        [[nodiscard]] TSOutputView reduce_resolve_op_output_source(Node                                  &node,
-                                                                   ReduceNodeRuntimeData                 &runtime,
+        [[nodiscard]] TSOutputView reduce_resolve_op_output_source(Node &node, ReduceNodeRuntimeData &runtime,
                                                                    const std::vector<ReduceAggregateRef> &internal_refs,
-                                                                   ReduceOpRuntime                       &op,
-                                                                   const OutputBindingSpec               &spec,
-                                                                   engine_time_t                          evaluation_time)
-        {
+                                                                   ReduceOpRuntime &op, const OutputBindingSpec &spec,
+                                                                   engine_time_t evaluation_time) {
             switch (spec.mode) {
                 case OutputBindingMode::ALIAS_CHILD_OUTPUT:
                     {
@@ -2619,24 +2554,19 @@ namespace hgraph
                     }
                 case OutputBindingMode::ALIAS_PARENT_INPUT:
                     {
-                        const ReduceAggregateRef source_ref =
-                            spec.parent_arg_name == "lhs" ? op.left_source : op.right_source;
-                        TSOutputView source = reduce_resolve_aggregate_output(node, runtime, internal_refs, source_ref, evaluation_time);
+                        const ReduceAggregateRef source_ref = spec.parent_arg_name == "lhs" ? op.left_source : op.right_source;
+                        TSOutputView             source =
+                            reduce_resolve_aggregate_output(node, runtime, internal_refs, source_ref, evaluation_time);
                         return source.ts_schema() != nullptr ? navigate_output(source, spec.child_output_path)
                                                              : detail::invalid_output_view(evaluation_time);
                     }
-                default:
-                    return detail::invalid_output_view(evaluation_time);
+                default: return detail::invalid_output_view(evaluation_time);
             }
         }
 
-        [[nodiscard]] TSOutputView ensure_reduce_op_published_output(ReduceNodeRuntimeData &runtime,
-                                                                     ReduceOpRuntime       &op,
-                                                                     engine_time_t          evaluation_time)
-        {
-            if (runtime.output_builder == nullptr) {
-                throw std::logic_error("reduce published output requires an output builder");
-            }
+        [[nodiscard]] TSOutputView ensure_reduce_op_published_output(ReduceNodeRuntimeData &runtime, ReduceOpRuntime &op,
+                                                                     engine_time_t evaluation_time) {
+            if (runtime.output_builder == nullptr) { throw std::logic_error("reduce published output requires an output builder"); }
             if (!op.published_output.has_value()) {
                 op.published_output.emplace();
                 runtime.output_builder->construct_output(*op.published_output);
@@ -2644,13 +2574,9 @@ namespace hgraph
             return op.published_output->view(evaluation_time);
         }
 
-        void publish_reduce_op_output(Node                                  &node,
-                                      ReduceNodeRuntimeData                 &runtime,
-                                      const std::vector<ReduceAggregateRef> &internal_refs,
-                                      ReduceOpRuntime                       &op,
-                                      const TSOutputView                    &published_output,
-                                      engine_time_t                          evaluation_time)
-        {
+        void publish_reduce_op_output(Node &node, ReduceNodeRuntimeData &runtime,
+                                      const std::vector<ReduceAggregateRef> &internal_refs, ReduceOpRuntime &op,
+                                      const TSOutputView &published_output, engine_time_t evaluation_time) {
             const auto &plan = runtime.child_template->boundary_plan;
             if (plan.outputs.empty()) {
                 clear_output_link(published_output);
@@ -2664,26 +2590,22 @@ namespace hgraph
                 TSOutputView target_output = navigate_output(published_output, spec.parent_output_path);
                 if (std::getenv("HGRAPH_DEBUG_REDUCE_VALUES") != nullptr) {
                     nb::gil_scoped_acquire guard;
-                    std::string source_repr = "<invalid>";
+                    std::string            source_repr = "<invalid>";
                     if (source_output.ts_schema() != nullptr && source_output.valid()) {
                         source_repr = nb::cast<std::string>(nb::str(source_output.to_python()));
                     }
                     std::fprintf(stderr,
                                  "reduce_publish_spec mode=%d parent_path_size=%zu source_schema=%d source_valid=%d value=%s\n",
-                                 static_cast<int>(spec.mode),
-                                 spec.parent_output_path.size(),
+                                 static_cast<int>(spec.mode), spec.parent_output_path.size(),
                                  source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
-                                 source_output.valid(),
-                                 source_repr.c_str());
+                                 source_output.valid(), source_repr.c_str());
                 }
                 publish_reduce_aggregate_output(target_output, source_output, evaluation_time);
             }
         }
 
-        void publish_reduce_aggregate_output(const TSOutputView &target_output,
-                                             const TSOutputView &source_output,
-                                             engine_time_t       evaluation_time)
-        {
+        void publish_reduce_aggregate_output(const TSOutputView &target_output, const TSOutputView &source_output,
+                                             engine_time_t evaluation_time, bool force_sampled) {
             if (!source_output.ts_schema()) {
                 if (evaluation_time != MIN_DT) { clear_output_value(target_output); }
                 clear_output_link(target_output);
@@ -2697,8 +2619,8 @@ namespace hgraph
             }
 
             if (const auto *output_schema = target_output.ts_schema();
-                output_schema != nullptr && output_schema->kind == TSKind::TSB &&
-                source_output.ts_schema() != nullptr && source_output.ts_schema()->kind == TSKind::TSB) {
+                output_schema != nullptr && output_schema->kind == TSKind::TSB && source_output.ts_schema() != nullptr &&
+                source_output.ts_schema()->kind == TSKind::TSB) {
                 const bool target_was_valid = target_output.valid();
                 if (!target_was_valid) { target_output.clear(); }
                 bool root_changed = !target_was_valid || output_changed(source_output);
@@ -2726,20 +2648,20 @@ namespace hgraph
             }
 
             if (const auto *output_schema = target_output.ts_schema();
-                output_schema != nullptr && output_schema->kind == TSKind::TSD &&
-                source_output.ts_schema() != nullptr && source_output.ts_schema()->kind == TSKind::TSD) {
+                output_schema != nullptr && output_schema->kind == TSKind::TSD && source_output.ts_schema() != nullptr &&
+                source_output.ts_schema()->kind == TSKind::TSD) {
                 const bool target_was_valid = target_output.valid();
                 if (!target_was_valid) { target_output.clear(); }
-                bool root_changed = !target_was_valid || output_changed(source_output);
-                auto source_map = source_output.value().as_map();
-                const bool source_sampled = sampled_this_tick(source_output.context_ref(), evaluation_time);
+                bool       root_changed   = !target_was_valid || output_changed(source_output);
+                auto       source_map     = source_output.value().as_map();
+                const bool source_sampled = force_sampled || sampled_this_tick(source_output.context_ref(), evaluation_time);
 
                 std::vector<Value> target_keys_to_remove;
-                constexpr size_t no_slot = static_cast<size_t>(-1);
-                auto target_map = target_output.value().as_map();
-                auto target_mutation = target_map.begin_mutation(evaluation_time);
+                constexpr size_t   no_slot         = static_cast<size_t>(-1);
+                auto               target_map      = target_output.value().as_map();
+                auto               target_mutation = target_map.begin_mutation(evaluation_time);
                 for (size_t slot = target_map.first_live_slot(); slot != no_slot; slot = target_map.next_live_slot(slot)) {
-                    Value key = target_map.delta().key_at_slot(slot).clone();
+                    Value        key         = target_map.delta().key_at_slot(slot).clone();
                     const size_t source_slot = source_map.find_slot(key.view());
                     if (source_slot == no_slot || source_map.delta().slot_removed(source_slot)) {
                         target_keys_to_remove.push_back(std::move(key));
@@ -2757,7 +2679,7 @@ namespace hgraph
                 }
 
                 for (size_t slot = source_map.first_live_slot(); slot != no_slot; slot = source_map.next_live_slot(slot)) {
-                    Value key = source_map.delta().key_at_slot(slot).clone();
+                    Value        key          = source_map.delta().key_at_slot(slot).clone();
                     TSOutputView source_child = detail::ensure_dict_child_output_view(source_output, key.view());
                     TSOutputView target_child = ensure_mapped_output_child(target_output, key.view(), evaluation_time);
 
@@ -2768,10 +2690,12 @@ namespace hgraph
                         source_child = source_child.owning_output()->bindable_view(source_child, target_child_schema);
                     }
 
-                    const bool rebound = bind_output_link(target_child, source_child);
+                    const bool target_child_was_valid = target_child.valid();
+                    const bool rebound                = bind_output_link(target_child, source_child);
                     const bool source_slot_changed =
                         source_sampled || source_map.delta().slot_added(slot) || source_map.delta().slot_updated(slot);
-                    if (evaluation_time != MIN_DT && (rebound || source_slot_changed || !target_child.valid())) {
+                    if (evaluation_time != MIN_DT &&
+                        (source_slot_changed || !target_child_was_valid || (rebound && output_changed(source_child)))) {
                         mark_output_view_modified(target_child, evaluation_time);
                         root_changed = true;
                     }
@@ -2781,15 +2705,15 @@ namespace hgraph
             }
 
             if (const auto *output_schema = target_output.ts_schema();
-                output_schema != nullptr && output_schema->kind == TSKind::TSS &&
-                source_output.ts_schema() != nullptr && source_output.ts_schema()->kind == TSKind::TSS) {
+                output_schema != nullptr && output_schema->kind == TSKind::TSS && source_output.ts_schema() != nullptr &&
+                source_output.ts_schema()->kind == TSKind::TSS) {
                 const bool target_was_valid = target_output.valid();
                 if (!target_was_valid) { target_output.clear(); }
                 bool root_changed = !target_was_valid || output_changed(source_output);
 
                 auto source_set = source_output.value().as_set();
                 auto target_set = target_output.value().as_set();
-                auto mutation = target_set.begin_mutation(evaluation_time);
+                auto mutation   = target_set.begin_mutation(evaluation_time);
 
                 std::vector<Value> values_to_remove;
                 for (const View &value : target_set.values()) {
@@ -2822,10 +2746,8 @@ namespace hgraph
             }
         }
 
-        [[nodiscard]] bool publish_reduce_reference_output(const TSOutputView       &target_output,
-                                                           const TimeSeriesReference &source_ref,
-                                                           engine_time_t             evaluation_time)
-        {
+        [[nodiscard]] bool publish_reduce_reference_output(const TSOutputView &target_output, const TimeSeriesReference &source_ref,
+                                                           engine_time_t evaluation_time) {
             if (source_ref.is_empty()) {
                 const bool changed = target_output.valid();
                 clear_output_link(target_output);
@@ -2851,12 +2773,14 @@ namespace hgraph
                         if (!target_was_valid) { target_output.clear(); }
                         bool root_changed = !target_was_valid;
                         for (size_t index = 0; index < target_schema->field_count(); ++index) {
-                            TSOutputView target_child = target_output.as_bundle()[index];
+                            TSOutputView               target_child = target_output.as_bundle()[index];
                             const TimeSeriesReference &item =
                                 index < source_ref.items().size() ? source_ref[index] : TimeSeriesReference::empty();
                             root_changed = publish_reduce_reference_output(target_child, item, evaluation_time) || root_changed;
                         }
-                        if (evaluation_time != MIN_DT && root_changed) { mark_output_view_modified(target_output, evaluation_time); }
+                        if (evaluation_time != MIN_DT && root_changed) {
+                            mark_output_view_modified(target_output, evaluation_time);
+                        }
                         return root_changed;
                     }
 
@@ -2864,30 +2788,28 @@ namespace hgraph
                     {
                         const bool target_was_valid = target_output.valid();
                         if (!target_was_valid) { target_output.clear(); }
-                        bool root_changed = !target_was_valid;
-                        const size_t count = target_schema->fixed_size();
+                        bool         root_changed = !target_was_valid;
+                        const size_t count        = target_schema->fixed_size();
                         for (size_t index = 0; index < count; ++index) {
-                            TSOutputView target_child = target_output.as_list()[index];
+                            TSOutputView               target_child = target_output.as_list()[index];
                             const TimeSeriesReference &item =
                                 index < source_ref.items().size() ? source_ref[index] : TimeSeriesReference::empty();
                             root_changed = publish_reduce_reference_output(target_child, item, evaluation_time) || root_changed;
                         }
-                        if (evaluation_time != MIN_DT && root_changed) { mark_output_view_modified(target_output, evaluation_time); }
+                        if (evaluation_time != MIN_DT && root_changed) {
+                            mark_output_view_modified(target_output, evaluation_time);
+                        }
                         return root_changed;
                     }
 
-                default:
-                    throw std::logic_error("publish_reduce_reference_output only supports collection references");
+                default: throw std::logic_error("publish_reduce_reference_output only supports collection references");
             }
         }
 
-        [[nodiscard]] TSOutputView reduce_resolve_leaf_output(Node                  &node,
-                                                              ReduceNodeRuntimeData &runtime,
-                                                              size_t                 source_slot,
-                                                              engine_time_t          evaluation_time)
-        {
-            ReduceSourceSlotStore &source_slots = reduce_source_slots(runtime);
-            const ReduceSourceSlotRuntime *payload = source_slots.try_slot(source_slot);
+        [[nodiscard]] TSOutputView reduce_resolve_leaf_output(Node &node, ReduceNodeRuntimeData &runtime, size_t source_slot,
+                                                              engine_time_t evaluation_time) {
+            ReduceSourceSlotStore         &source_slots = reduce_source_slots(runtime);
+            const ReduceSourceSlotRuntime *payload      = source_slots.try_slot(source_slot);
             if (payload == nullptr) { return detail::invalid_output_view(evaluation_time); }
 
             TSOutputView source_root = reduce_bound_source_output(node, "ts", evaluation_time);
@@ -2897,15 +2819,15 @@ namespace hgraph
             if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
                 const TSViewContext resolved = source_child.context_ref().resolved();
                 std::fprintf(stderr,
-                             "reduce_resolve_leaf_output slot=%zu key=%s child_schema_kind=%d child_state=%p resolved_state=%p owning_output=%p\n",
-                             source_slot,
-                             payload->key.view().to_string().c_str(),
+                             "reduce_resolve_leaf_output slot=%zu key=%s child_schema_kind=%d child_state=%p resolved_state=%p "
+                             "owning_output=%p\n",
+                             source_slot, payload->key.view().to_string().c_str(),
                              source_child.ts_schema() != nullptr ? static_cast<int>(source_child.ts_schema()->kind) : -1,
-                             static_cast<void *>(source_child.context_ref().ts_state),
-                             static_cast<void *>(resolved.ts_state),
+                             static_cast<void *>(source_child.context_ref().ts_state), static_cast<void *>(resolved.ts_state),
                              static_cast<void *>(source_child.owning_output()));
             }
-            if (const TSMeta *child_schema = source_child.ts_schema(); child_schema != nullptr && child_schema->kind == TSKind::REF) {
+            if (const TSMeta *child_schema = source_child.ts_schema();
+                child_schema != nullptr && child_schema->kind == TSKind::REF) {
                 const auto *ref = source_child.value().as_atomic().template try_as<TimeSeriesReference>();
                 if (ref != nullptr && ref->is_peered()) { return ref->target_view(evaluation_time); }
                 return detail::invalid_output_view(evaluation_time);
@@ -2913,29 +2835,20 @@ namespace hgraph
             return source_child;
         }
 
-        [[nodiscard]] TSOutputView reduce_resolve_aggregate_output(Node                            &node,
-                                                                   ReduceNodeRuntimeData           &runtime,
+        [[nodiscard]] TSOutputView reduce_resolve_aggregate_output(Node &node, ReduceNodeRuntimeData &runtime,
                                                                    const std::vector<ReduceAggregateRef> &internal_refs,
-                                                                   const ReduceAggregateRef        &ref,
-                                                                   engine_time_t                    evaluation_time)
-        {
+                                                                   const ReduceAggregateRef &ref, engine_time_t evaluation_time) {
             if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
-                std::fprintf(stderr,
-                             "reduce_resolve_aggregate_output kind=%d index=%zu\n",
-                             static_cast<int>(ref.kind),
-                             ref.index);
+                std::fprintf(stderr, "reduce_resolve_aggregate_output kind=%d index=%zu\n", static_cast<int>(ref.kind), ref.index);
             }
             switch (ref.kind) {
-                case ReduceAggregateRef::Kind::Empty:
-                    return detail::invalid_output_view(evaluation_time);
-                case ReduceAggregateRef::Kind::Zero:
-                    return reduce_bound_source_output(node, "zero", evaluation_time);
-                case ReduceAggregateRef::Kind::Leaf:
-                    return reduce_resolve_leaf_output(node, runtime, ref.index, evaluation_time);
+                case ReduceAggregateRef::Kind::Empty: return detail::invalid_output_view(evaluation_time);
+                case ReduceAggregateRef::Kind::Zero: return reduce_bound_source_output(node, "zero", evaluation_time);
+                case ReduceAggregateRef::Kind::Leaf: return reduce_resolve_leaf_output(node, runtime, ref.index, evaluation_time);
                 case ReduceAggregateRef::Kind::Node:
                     {
-                        ReduceOpStore &op_store = reduce_op_store(runtime);
-                        ReduceOpRuntime *op = op_store.try_slot(ref.index);
+                        ReduceOpStore   &op_store = reduce_op_store(runtime);
+                        ReduceOpRuntime *op       = op_store.try_slot(ref.index);
                         if (op == nullptr) { return detail::invalid_output_view(evaluation_time); }
                         if (!op->published_output.has_value()) { return detail::invalid_output_view(evaluation_time); }
                         return op->published_output->view(evaluation_time);
@@ -2945,23 +2858,20 @@ namespace hgraph
         }
 
         [[nodiscard]] ReduceAggregateRef reduce_root_ref(const ReduceNodeRuntimeData           &runtime,
-                                                         const std::vector<ReduceAggregateRef> &internal_refs) noexcept
-        {
+                                                         const std::vector<ReduceAggregateRef> &internal_refs) noexcept {
             if (runtime.live_leaf_count == 0) { return ReduceAggregateRef::zero(); }
             if (reduce_internal_node_count(runtime) == 0) {
-                return !runtime.dense_to_source_slot.empty()
-                           ? ReduceAggregateRef::leaf(runtime.dense_to_source_slot.front())
-                           : ReduceAggregateRef::empty();
+                return !runtime.dense_to_source_slot.empty() ? ReduceAggregateRef::leaf(runtime.dense_to_source_slot.front())
+                                                             : ReduceAggregateRef::empty();
             }
             return internal_refs.front();
         }
 
-        void reduce_refresh_source_slots(Node &node, ReduceNodeRuntimeData &runtime, engine_time_t evaluation_time)
-        {
-            runtime.structure_changed = false;
+        void reduce_refresh_source_slots(Node &node, ReduceNodeRuntimeData &runtime, engine_time_t evaluation_time) {
+            runtime.structure_changed           = false;
             ReduceSourceSlotStore &source_slots = reduce_source_slots(runtime);
-            TSOutputView source_root = reduce_bound_source_output(node, "ts", evaluation_time);
-            const TSMeta *schema = source_root.ts_schema();
+            TSOutputView           source_root  = reduce_bound_source_output(node, "ts", evaluation_time);
+            const TSMeta          *schema       = source_root.ts_schema();
             if (schema == nullptr || schema->kind != TSKind::TSD || !source_root.valid()) {
                 for (size_t slot = 0; slot < source_slots.constructed.size(); ++slot) {
                     if (!source_slots.has_slot(slot)) { continue; }
@@ -2969,7 +2879,7 @@ namespace hgraph
                     source_slots.destroy_at(slot);
                 }
                 runtime.dense_to_source_slot.clear();
-                runtime.live_leaf_count = 0;
+                runtime.live_leaf_count   = 0;
                 runtime.structure_changed = true;
                 return;
             }
@@ -2995,8 +2905,8 @@ namespace hgraph
                 bool slot_live = true;
                 if (schema->element_ts() != nullptr && schema->element_ts()->kind == TSKind::REF) {
                     TSOutputView source_child = detail::ensure_dict_child_output_view(source_root, delta.key_at_slot(slot));
-                    const auto *ref = source_child.value().as_atomic().template try_as<TimeSeriesReference>();
-                    slot_live = ref != nullptr && ref->is_peered();
+                    const auto  *ref          = source_child.value().as_atomic().template try_as<TimeSeriesReference>();
+                    slot_live                 = ref != nullptr && ref->is_peered();
                 }
 
                 if (!slot_live) {
@@ -3004,19 +2914,15 @@ namespace hgraph
                     continue;
                 }
 
-                if (!source_slots.has_slot(slot)) {
-                    source_slots.emplace_at(slot, delta.key_at_slot(slot).clone());
-                }
+                if (!source_slots.has_slot(slot)) { source_slots.emplace_at(slot, delta.key_at_slot(slot).clone()); }
 
                 ReduceSourceSlotRuntime *payload = source_slots.try_slot(slot);
                 if (payload == nullptr) { continue; }
-                if (!payload->live) {
-                    payload->key = delta.key_at_slot(slot).clone();
-                }
+                if (!payload->live) { payload->key = delta.key_at_slot(slot).clone(); }
                 if (payload->live) { continue; }
 
                 payload->dense_leaf = runtime.live_leaf_count;
-                payload->live = true;
+                payload->live       = true;
                 runtime.dense_to_source_slot.push_back(slot);
                 ++runtime.live_leaf_count;
                 runtime.structure_changed = true;
@@ -3025,8 +2931,8 @@ namespace hgraph
             ensure_reduce_leaf_capacity(runtime, runtime.live_leaf_count);
 
             if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
-                std::fprintf(stderr, "reduce_refresh_source_slots live=%zu capacity=%zu dense=[",
-                             runtime.live_leaf_count, runtime.leaf_capacity);
+                std::fprintf(stderr, "reduce_refresh_source_slots live=%zu capacity=%zu dense=[", runtime.live_leaf_count,
+                             runtime.leaf_capacity);
                 for (size_t i = 0; i < runtime.dense_to_source_slot.size(); ++i) {
                     std::fprintf(stderr, "%s%zu", i == 0 ? "" : ",", runtime.dense_to_source_slot[i]);
                 }
@@ -3034,13 +2940,10 @@ namespace hgraph
             }
         }
 
-        void reduce_evaluate_internal_nodes(Node                            &node,
-                                            ReduceNodeRuntimeData           &runtime,
-                                            std::vector<ReduceAggregateRef> &internal_refs,
-                                            engine_time_t                    evaluation_time)
-        {
-            const size_t internal_count = reduce_internal_node_count(runtime);
-            ReduceOpStore &op_store = reduce_op_store(runtime);
+        void reduce_evaluate_internal_nodes(Node &node, ReduceNodeRuntimeData &runtime,
+                                            std::vector<ReduceAggregateRef> &internal_refs, engine_time_t evaluation_time) {
+            const size_t   internal_count = reduce_internal_node_count(runtime);
+            ReduceOpStore &op_store       = reduce_op_store(runtime);
             for (size_t slot = internal_count; slot < op_store.constructed.size(); ++slot) {
                 if (ReduceOpRuntime *op = op_store.try_slot(slot); op != nullptr) {
                     recycle_reduce_op(*runtime.child_template, *op, evaluation_time);
@@ -3049,7 +2952,7 @@ namespace hgraph
             op_store.reserve_to(internal_count);
 
             for (size_t index = internal_count; index-- > 0;) {
-                const ReduceAggregateRef left_ref = reduce_tree_child_ref(runtime, internal_refs, 2 * index + 1);
+                const ReduceAggregateRef left_ref  = reduce_tree_child_ref(runtime, internal_refs, 2 * index + 1);
                 const ReduceAggregateRef right_ref = reduce_tree_child_ref(runtime, internal_refs, 2 * index + 2);
 
                 if (!left_ref.active() && !right_ref.active()) {
@@ -3068,10 +2971,11 @@ namespace hgraph
                     continue;
                 }
 
-                ReduceOpRuntime *op = op_store.try_slot(index);
+                ReduceOpRuntime *op      = op_store.try_slot(index);
                 TSOutputView left_output = reduce_resolve_aggregate_output(node, runtime, internal_refs, left_ref, evaluation_time);
-                TSOutputView right_output = reduce_resolve_aggregate_output(node, runtime, internal_refs, right_ref, evaluation_time);
-                const LinkedTSContext left_context = bound_output_context(left_output);
+                TSOutputView right_output =
+                    reduce_resolve_aggregate_output(node, runtime, internal_refs, right_ref, evaluation_time);
+                const LinkedTSContext left_context  = bound_output_context(left_output);
                 const LinkedTSContext right_context = bound_output_context(right_output);
                 // Pull each child's current generation. For a Kind::Node ref
                 // that goes through a pass-through chain we resolve to the
@@ -3079,43 +2983,33 @@ namespace hgraph
                 // can't see: when a leaf-parent rebinds, its published_output
                 // address stays the same but its data is fresh — the
                 // generation bump is the signal.
-                const uint64_t left_peer_generation = peer_generation_of(runtime, internal_refs, left_ref);
+                const uint64_t left_peer_generation  = peer_generation_of(runtime, internal_refs, left_ref);
                 const uint64_t right_peer_generation = peer_generation_of(runtime, internal_refs, right_ref);
-                const bool source_generation_changed =
+                const bool     source_generation_changed =
                     op != nullptr && op->bound &&
-                    (op->left_source_generation != left_peer_generation ||
-                     op->right_source_generation != right_peer_generation);
+                    (op->left_source_generation != left_peer_generation || op->right_source_generation != right_peer_generation);
                 const bool binding_changed =
                     op == nullptr || !op->bound || op->left_source != left_ref || op->right_source != right_ref ||
                     !detail::linked_context_equal(op->left_bound_context, left_context) ||
-                    !detail::linked_context_equal(op->right_bound_context, right_context) ||
-                    source_generation_changed;
-                const bool force_recompute = runtime.structure_changed;
+                    !detail::linked_context_equal(op->right_bound_context, right_context) || source_generation_changed;
+                const bool force_recompute           = runtime.structure_changed;
                 const bool effective_binding_changed = binding_changed || force_recompute;
                 if (op == nullptr) { op = &op_store.emplace_at(index); }
                 if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
                     std::fprintf(stderr,
-                                 "reduce_internal index=%zu left=(kind=%d,index=%zu) right=(kind=%d,index=%zu) binding_changed=%d started=%d bound=%d\n",
-                                 index,
-                                 static_cast<int>(left_ref.kind),
-                                 left_ref.index,
-                                 static_cast<int>(right_ref.kind),
-                                 right_ref.index,
-                                 binding_changed,
-                                 op->child_instance.is_started(),
-                                 op->bound);
+                                 "reduce_internal index=%zu left=(kind=%d,index=%zu) right=(kind=%d,index=%zu) binding_changed=%d "
+                                 "started=%d bound=%d\n",
+                                 index, static_cast<int>(left_ref.kind), left_ref.index, static_cast<int>(right_ref.kind),
+                                 right_ref.index, binding_changed, op->child_instance.is_started(), op->bound);
                 }
                 if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
                     std::fprintf(stderr,
-                                 "reduce_evaluate_internal_nodes index=%zu binding_changed=%d left=(kind=%d,index=%zu,state=%p,resolved=%p) right=(kind=%d,index=%zu,state=%p,resolved=%p)\n",
-                                 index,
-                                 binding_changed,
-                                 static_cast<int>(left_ref.kind),
-                                 left_ref.index,
+                                 "reduce_evaluate_internal_nodes index=%zu binding_changed=%d "
+                                 "left=(kind=%d,index=%zu,state=%p,resolved=%p) right=(kind=%d,index=%zu,state=%p,resolved=%p)\n",
+                                 index, binding_changed, static_cast<int>(left_ref.kind), left_ref.index,
                                  static_cast<void *>(left_output.context_ref().ts_state),
                                  static_cast<void *>(left_output.context_ref().resolved().ts_state),
-                                 static_cast<int>(right_ref.kind),
-                                 right_ref.index,
+                                 static_cast<int>(right_ref.kind), right_ref.index,
                                  static_cast<void *>(right_output.context_ref().ts_state),
                                  static_cast<void *>(right_output.context_ref().resolved().ts_state));
                 }
@@ -3127,26 +3021,23 @@ namespace hgraph
                     op->child_instance.initialise(*runtime.child_template, node, std::move(graph_id), "reduce");
                 }
                 if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
-                    std::fprintf(stderr,
-                                 "reduce_internal_prepare index=%zu initialised=%d started=%d bound=%d\n",
-                                 index,
-                                 op->child_instance.is_initialised(),
-                                 op->child_instance.is_started(),
-                                 op->bound);
+                    std::fprintf(stderr, "reduce_internal_prepare index=%zu initialised=%d started=%d bound=%d\n", index,
+                                 op->child_instance.is_initialised(), op->child_instance.is_started(), op->bound);
                 }
                 if (!op->child_instance.is_started()) { op->child_instance.start(evaluation_time); }
                 if (effective_binding_changed) {
                     if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
                         std::fprintf(stderr, "reduce_internal_bind index=%zu\n", index);
                     }
-                    bind_reduce_op_inputs(*runtime.child_template, *op->child_instance.graph(), left_output, right_output, evaluation_time);
-                    op->left_source = left_ref;
-                    op->right_source = right_ref;
-                    op->left_bound_context = left_context;
-                    op->right_bound_context = right_context;
-                    op->left_source_generation = left_peer_generation;
+                    bind_reduce_op_inputs(*runtime.child_template, *op->child_instance.graph(), left_output, right_output,
+                                          evaluation_time);
+                    op->left_source             = left_ref;
+                    op->right_source            = right_ref;
+                    op->left_bound_context      = left_context;
+                    op->right_bound_context     = right_context;
+                    op->left_source_generation  = left_peer_generation;
                     op->right_source_generation = right_peer_generation;
-                    op->bound = true;
+                    op->bound                   = true;
                     // Bump our generation so any parent that observes us as a
                     // source picks up the rebind on the next pass.
                     ++op->my_generation;
@@ -3157,19 +3048,14 @@ namespace hgraph
                     const bool rhs_changed = effective_binding_changed || output_changed(right_output);
                     if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
                         std::fprintf(stderr,
-                                     "reduce_internal_eval index=%zu left_modified=%d right_modified=%d scheduled_now=%d force_recompute=%d\n",
-                                     index,
-                                     output_changed(left_output),
-                                     output_changed(right_output),
-                                     scheduled_now,
+                                     "reduce_internal_eval index=%zu left_modified=%d right_modified=%d scheduled_now=%d "
+                                     "force_recompute=%d\n",
+                                     index, output_changed(left_output), output_changed(right_output), scheduled_now,
                                      force_recompute);
                     }
                     if (!effective_binding_changed) {
-                        propagate_reduce_op_input_updates(*runtime.child_template,
-                                                          *op->child_instance.graph(),
-                                                          lhs_changed,
-                                                          rhs_changed,
-                                                          evaluation_time);
+                        propagate_reduce_op_input_updates(*runtime.child_template, *op->child_instance.graph(), lhs_changed,
+                                                          rhs_changed, evaluation_time);
                     }
                     // Single evaluation. The earlier code did a second
                     // evaluate when binding changed; with the source-
@@ -3181,46 +3067,38 @@ namespace hgraph
                     publish_reduce_op_output(node, runtime, internal_refs, *op, published_output, evaluation_time);
                     if (std::getenv("HGRAPH_DEBUG_REDUCE_VALUES") != nullptr) {
                         nb::gil_scoped_acquire guard;
-                        TSOutputView op_output = published_output;
-                        std::string output_repr = "<invalid>";
+                        TSOutputView           op_output   = published_output;
+                        std::string            output_repr = "<invalid>";
                         if (op_output.ts_schema() != nullptr && op_output.valid()) {
                             output_repr = nb::cast<std::string>(nb::str(op_output.to_python()));
                         }
-                        std::fprintf(stderr,
-                                     "reduce_internal_value index=%zu value=%s\n",
-                                     index,
-                                     output_repr.c_str());
+                        std::fprintf(stderr, "reduce_internal_value index=%zu value=%s\n", index, output_repr.c_str());
                     }
                 }
-                op->next_scheduled = op->child_instance.next_scheduled_time();
+                op->next_scheduled   = op->child_instance.next_scheduled_time();
                 internal_refs[index] = ReduceAggregateRef::node(index);
             }
         }
 
-        void reduce_publish_output(Node                            &node,
-                                   ReduceNodeRuntimeData           &runtime,
-                                   const std::vector<ReduceAggregateRef> &internal_refs,
-                                    engine_time_t                    evaluation_time)
-        {
+        void reduce_publish_output(Node &node, ReduceNodeRuntimeData &runtime, const std::vector<ReduceAggregateRef> &internal_refs,
+                                   engine_time_t evaluation_time) {
             if (!node.has_output()) { return; }
 
-            TSOutputView output = node.output_view(evaluation_time);
+            TSOutputView             output   = node.output_view(evaluation_time);
             const ReduceAggregateRef root_ref = reduce_root_ref(runtime, internal_refs);
             TSOutputView source_output = reduce_resolve_aggregate_output(node, runtime, internal_refs, root_ref, evaluation_time);
-            const bool force_publish = runtime.structure_changed && evaluation_time != MIN_DT;
+            const bool   force_publish = runtime.structure_changed && evaluation_time != MIN_DT;
             if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
                 std::fprintf(stderr,
-                             "reduce_publish_output root_kind=%d root_index=%zu source_schema=%d source_valid=%d source_modified=%d source_last_modified=%lld output_valid=%d output_modified=%d\n",
-                             static_cast<int>(root_ref.kind),
-                             root_ref.index,
+                             "reduce_publish_output root_kind=%d root_index=%zu source_schema=%d source_valid=%d "
+                             "source_modified=%d source_last_modified=%lld output_valid=%d output_modified=%d\n",
+                             static_cast<int>(root_ref.kind), root_ref.index,
                              source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
-                             source_output.valid(),
-                             source_output.modified(),
+                             source_output.valid(), source_output.modified(),
                              source_output.last_modified_time() == MIN_DT
                                  ? -1LL
                                  : static_cast<long long>(source_output.last_modified_time().time_since_epoch().count()),
-                             output.valid(),
-                             output.modified());
+                             output.valid(), output.modified());
             }
 
             if (source_output.ts_schema() != nullptr && source_output.ts_schema()->kind == TSKind::REF) {
@@ -3235,6 +3113,13 @@ namespace hgraph
             }
 
             if (!source_output.ts_schema()) {
+                if (root_ref.kind == ReduceAggregateRef::Kind::Zero) {
+                    TSInputView zero_input = resolve_parent_input_arg(node, "zero", evaluation_time);
+                    if (zero_input.ts_schema() != nullptr) {
+                        output.copy_from_input(zero_input);
+                        return;
+                    }
+                }
                 clear_output_link(output);
                 if (evaluation_time != MIN_DT) { clear_output_value(output); }
                 return;
@@ -3248,31 +3133,26 @@ namespace hgraph
             }
         }
 
-        void reduce_schedule(Node &node, ReduceNodeRuntimeData &runtime)
-        {
+        void reduce_schedule(Node &node, ReduceNodeRuntimeData &runtime) {
             ReduceOpStore &op_store = reduce_op_store(runtime);
             node.scheduler().un_schedule("reduce");
             engine_time_t next_schedule = MAX_DT;
             for (size_t slot = 0; slot < op_store.constructed.size(); ++slot) {
                 const ReduceOpRuntime *op = op_store.try_slot(slot);
                 if (op == nullptr) { continue; }
-                if (op->next_scheduled != MAX_DT && op->next_scheduled < next_schedule) {
-                    next_schedule = op->next_scheduled;
-                }
+                if (op->next_scheduled != MAX_DT && op->next_scheduled < next_schedule) { next_schedule = op->next_scheduled; }
             }
             if (next_schedule != MAX_DT) { node.scheduler().schedule(next_schedule, std::string{"reduce"}); }
         }
 
-        void reduce_node_start(Node &node, engine_time_t evaluation_time)
-        {
+        void reduce_node_start(Node &node, engine_time_t evaluation_time) {
             auto &runtime = reduce_runtime(node);
             node.notify(evaluation_time);
             reduce_schedule(node, runtime);
         }
 
-        void reduce_node_stop(Node &node, engine_time_t evaluation_time)
-        {
-            auto &runtime = reduce_runtime(node);
+        void reduce_node_stop(Node &node, engine_time_t evaluation_time) {
+            auto          &runtime  = reduce_runtime(node);
             ReduceOpStore &op_store = reduce_op_store(runtime);
             for (size_t slot = 0; slot < op_store.constructed.size(); ++slot) {
                 if (ReduceOpRuntime *op = op_store.try_slot(slot); op != nullptr) {
@@ -3282,12 +3162,11 @@ namespace hgraph
             if (node.has_output()) { clear_output_link(node.output_view(evaluation_time)); }
         }
 
-        void destruct_reduce_node(Node &node) noexcept
-        {
-            const BuiltNodeSpec &spec = node.spec();
-            auto &runtime_data = detail::runtime_data<ReduceNodeRuntimeData>(node);
+        void destruct_reduce_node(Node &node) noexcept {
+            const BuiltNodeSpec   &spec         = node.spec();
+            auto                  &runtime_data = detail::runtime_data<ReduceNodeRuntimeData>(node);
             ReduceSourceSlotStore *source_slots = runtime_data.stores_initialized ? &reduce_source_slots(runtime_data) : nullptr;
-            ReduceOpStore *op_store = runtime_data.stores_initialized ? &reduce_op_store(runtime_data) : nullptr;
+            ReduceOpStore         *op_store     = runtime_data.stores_initialized ? &reduce_op_store(runtime_data) : nullptr;
 
             if (runtime_data.child_template != nullptr && op_store != nullptr) {
                 for (size_t slot = 0; slot < op_store->constructed.size(); ++slot) {
@@ -3315,8 +3194,7 @@ namespace hgraph
             std::destroy_at(&runtime_data);
         }
 
-        void reduce_node_eval(Node &node, engine_time_t evaluation_time)
-        {
+        void reduce_node_eval(Node &node, engine_time_t evaluation_time) {
             auto &runtime = reduce_runtime(node);
             reduce_refresh_source_slots(node, runtime, evaluation_time);
 
@@ -3343,31 +3221,27 @@ namespace hgraph
 
         void validate_reduce_contract(const NodeBuilder & /*builder*/) {}
 
-        [[nodiscard]] size_t reduce_builder_size(const NodeBuilder &builder,
-                                                 const std::vector<TSInputConstructionEdge> &inbound_edges)
-        {
+        [[nodiscard]] size_t reduce_builder_size(const NodeBuilder                          &builder,
+                                                 const std::vector<TSInputConstructionEdge> &inbound_edges) {
             const auto builders = resolve_builders(builder, inbound_edges);
             return describe_layout(builder, reduce_runtime_storage_size(), reduce_runtime_storage_alignment(), builders).total_size;
         }
 
-        [[nodiscard]] size_t reduce_builder_alignment(const NodeBuilder &builder,
-                                                      const std::vector<TSInputConstructionEdge> &inbound_edges)
-        {
+        [[nodiscard]] size_t reduce_builder_alignment(const NodeBuilder                          &builder,
+                                                      const std::vector<TSInputConstructionEdge> &inbound_edges) {
             const auto builders = resolve_builders(builder, inbound_edges);
             return describe_layout(builder, reduce_runtime_storage_size(), reduce_runtime_storage_alignment(), builders).alignment;
         }
 
         [[nodiscard]] Node *reduce_construct_at(const NodeBuilder &builder, void *memory, int64_t node_index,
-                                                const std::vector<TSInputConstructionEdge> &inbound_edges)
-        {
+                                                const std::vector<TSInputConstructionEdge> &inbound_edges) {
             const auto &state = detail::node_builder_type_state<ReduceNodeBuilderState>(builder);
 
             struct RuntimeLifecycle
             {
                 const ChildGraphTemplate *child_template;
 
-                void destroy(void *runtime_data) const
-                {
+                void destroy(void *runtime_data) const {
                     auto *runtime = static_cast<ReduceNodeRuntimeData *>(runtime_data);
                     if (runtime->stores_initialized) {
                         std::destroy_at(&reduce_op_store(*runtime));
@@ -3377,35 +3251,31 @@ namespace hgraph
                 }
 
                 void initialise(const NodeBuilder & /*builder*/, void *runtime_data_ptr, Node * /*node*/, TSInput * /*input*/,
-                                TSOutput * /*output*/, TSOutput * /*error_output*/, TSOutput * /*recordable_state*/) const
-                {
+                                TSOutput * /*output*/, TSOutput * /*error_output*/, TSOutput * /*recordable_state*/) const {
                     auto &runtime = *static_cast<ReduceNodeRuntimeData *>(runtime_data_ptr);
                     if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr && runtime.output != nullptr) {
                         TSOutputView output_view = runtime.output->view(MIN_DT);
-                        const auto &root_state = std::get<TSDState>(runtime.output->root_state_variant());
+                        const auto  &root_state  = std::get<TSDState>(runtime.output->root_state_variant());
                         std::fprintf(stderr,
-                                     "reduce_runtime.initialise before output_owner=%p output_state=%p variant_index=%zu root_state_addr=%p root_storage_kind=%d\n",
-                                     static_cast<void *>(runtime.output),
-                                     static_cast<void *>(output_view.context_ref().ts_state),
-                                     runtime.output->root_state_variant().index(),
-                                     static_cast<const void *>(&root_state),
+                                     "reduce_runtime.initialise before output_owner=%p output_state=%p variant_index=%zu "
+                                     "root_state_addr=%p root_storage_kind=%d\n",
+                                     static_cast<void *>(runtime.output), static_cast<void *>(output_view.context_ref().ts_state),
+                                     runtime.output->root_state_variant().index(), static_cast<const void *>(&root_state),
                                      static_cast<int>(root_state.storage_kind));
                     }
                     new (&reduce_source_slots(runtime)) ReduceSourceSlotStore{};
                     new (&reduce_op_store(runtime)) ReduceOpStore{};
                     runtime.stores_initialized = true;
-                    runtime.child_template = child_template;
+                    runtime.child_template     = child_template;
                     if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr && runtime.output != nullptr) {
                         TSOutputView output_view = runtime.output->view(MIN_DT);
-                        const auto &root_state = std::get<TSDState>(runtime.output->root_state_variant());
+                        const auto  &root_state  = std::get<TSDState>(runtime.output->root_state_variant());
                         std::fprintf(stderr,
-                                     "reduce_runtime.initialise after output_owner=%p output_state=%p variant_index=%zu root_state_addr=%p root_storage_kind=%d source_slots=%p op_store=%p\n",
-                                     static_cast<void *>(runtime.output),
-                                     static_cast<void *>(output_view.context_ref().ts_state),
-                                     runtime.output->root_state_variant().index(),
-                                     static_cast<const void *>(&root_state),
-                                     static_cast<int>(root_state.storage_kind),
-                                     static_cast<void *>(&reduce_source_slots(runtime)),
+                                     "reduce_runtime.initialise after output_owner=%p output_state=%p variant_index=%zu "
+                                     "root_state_addr=%p root_storage_kind=%d source_slots=%p op_store=%p\n",
+                                     static_cast<void *>(runtime.output), static_cast<void *>(output_view.context_ref().ts_state),
+                                     runtime.output->root_state_variant().index(), static_cast<const void *>(&root_state),
+                                     static_cast<int>(root_state.storage_kind), static_cast<void *>(&reduce_source_slots(runtime)),
                                      static_cast<void *>(&reduce_op_store(runtime)));
                     }
                 }
@@ -3413,125 +3283,105 @@ namespace hgraph
 
             Node *node = construct_node_chunk<ReduceNodeBuilderState>(
                 builder, memory, node_index, inbound_edges, &k_reduce_runtime_ops, nullptr, &destruct_reduce_node,
-                reduce_runtime_storage_size(),
-                reduce_runtime_storage_alignment(),
+                reduce_runtime_storage_size(), reduce_runtime_storage_alignment(),
                 [](void *storage, const ResolvedNodeBuilders &builders, TSInput *input, TSOutput *output, TSOutput *error_output,
                    void * /*state_memory*/, TSOutput *recordable_state) -> void * {
-                    return new (storage) ReduceNodeRuntimeData{
-                        input, output, error_output, recordable_state, nullptr, builders.output_builder};
+                    return new (storage)
+                        ReduceNodeRuntimeData{input, output, error_output, recordable_state, nullptr, builders.output_builder};
                 },
                 RuntimeLifecycle{state.child_template});
             if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr && node != nullptr && node->has_output()) {
-                auto &runtime = reduce_runtime(*node);
-                TSOutputView output = node->output_view(MIN_DT);
-                const auto &root_state = std::get<TSDState>(runtime.output->root_state_variant());
+                auto        &runtime    = reduce_runtime(*node);
+                TSOutputView output     = node->output_view(MIN_DT);
+                const auto  &root_state = std::get<TSDState>(runtime.output->root_state_variant());
                 std::fprintf(stderr,
-                             "reduce_construct_at node=%lld output_owner=%p output_state=%p variant_index=%zu root_state_addr=%p root_storage_kind=%d source_slots=%p op_store=%p runtime=%p runtime_storage_size=%zu\n",
-                             static_cast<long long>(node_index),
-                             static_cast<void *>(runtime.output),
-                             static_cast<void *>(output.context_ref().ts_state),
-                             runtime.output->root_state_variant().index(),
-                             static_cast<const void *>(&root_state),
-                             static_cast<int>(root_state.storage_kind),
-                             static_cast<void *>(&reduce_source_slots(runtime)),
-                             static_cast<void *>(&reduce_op_store(runtime)),
-                             static_cast<void *>(&runtime),
-                             reduce_runtime_storage_size());
+                             "reduce_construct_at node=%lld output_owner=%p output_state=%p variant_index=%zu root_state_addr=%p "
+                             "root_storage_kind=%d source_slots=%p op_store=%p runtime=%p runtime_storage_size=%zu\n",
+                             static_cast<long long>(node_index), static_cast<void *>(runtime.output),
+                             static_cast<void *>(output.context_ref().ts_state), runtime.output->root_state_variant().index(),
+                             static_cast<const void *>(&root_state), static_cast<int>(root_state.storage_kind),
+                             static_cast<void *>(&reduce_source_slots(runtime)), static_cast<void *>(&reduce_op_store(runtime)),
+                             static_cast<void *>(&runtime), reduce_runtime_storage_size());
             }
             return node;
         }
 
         struct NonAssociativeReduceNodeRuntimeData
         {
-            TSInput           *input{nullptr};
-            TSOutput          *output{nullptr};
-            TSOutput          *error_output{nullptr};
-            TSOutput          *recordable_state{nullptr};
+            TSInput                  *input{nullptr};
+            TSOutput                 *output{nullptr};
+            TSOutput                 *error_output{nullptr};
+            TSOutput                 *recordable_state{nullptr};
             const ChildGraphTemplate *child_template{nullptr};
-            int64_t            next_child_graph_id{1};
-            size_t             active_count{0};
-            bool               store_initialized{false};
+            int64_t                   next_child_graph_id{1};
+            size_t                    active_count{0};
+            bool                      store_initialized{false};
         };
 
         using NonAssociativeReduceOpStore = detail::StablePayloadStore<ReduceOpRuntime>;
 
-        [[nodiscard]] constexpr size_t non_associative_reduce_op_store_offset() noexcept
-        {
+        [[nodiscard]] constexpr size_t non_associative_reduce_op_store_offset() noexcept {
             return align_up(sizeof(NonAssociativeReduceNodeRuntimeData), alignof(NonAssociativeReduceOpStore));
         }
 
-        [[nodiscard]] constexpr size_t non_associative_reduce_runtime_storage_size() noexcept
-        {
+        [[nodiscard]] constexpr size_t non_associative_reduce_runtime_storage_size() noexcept {
             return non_associative_reduce_op_store_offset() + sizeof(NonAssociativeReduceOpStore);
         }
 
-        [[nodiscard]] constexpr size_t non_associative_reduce_runtime_storage_alignment() noexcept
-        {
+        [[nodiscard]] constexpr size_t non_associative_reduce_runtime_storage_alignment() noexcept {
             return std::max(alignof(NonAssociativeReduceNodeRuntimeData), alignof(NonAssociativeReduceOpStore));
         }
 
-        [[nodiscard]] NonAssociativeReduceNodeRuntimeData &non_associative_reduce_runtime(Node &node) noexcept
-        {
+        [[nodiscard]] NonAssociativeReduceNodeRuntimeData &non_associative_reduce_runtime(Node &node) noexcept {
             return detail::runtime_data<NonAssociativeReduceNodeRuntimeData>(node);
         }
 
-        [[nodiscard]] NonAssociativeReduceOpStore &non_associative_reduce_op_store(NonAssociativeReduceNodeRuntimeData &runtime) noexcept
-        {
+        [[nodiscard]] NonAssociativeReduceOpStore &
+        non_associative_reduce_op_store(NonAssociativeReduceNodeRuntimeData &runtime) noexcept {
             auto *storage = reinterpret_cast<std::byte *>(&runtime) + non_associative_reduce_op_store_offset();
             return *std::launder(reinterpret_cast<NonAssociativeReduceOpStore *>(storage));
         }
 
-        [[nodiscard]] int64_t next_non_associative_reduce_child_graph_id(NonAssociativeReduceNodeRuntimeData &runtime) noexcept
-        {
+        [[nodiscard]] int64_t next_non_associative_reduce_child_graph_id(NonAssociativeReduceNodeRuntimeData &runtime) noexcept {
             return -runtime.next_child_graph_id++;
         }
 
-        [[nodiscard]] bool non_associative_reduce_has_input(const Node &node) noexcept
-        {
+        [[nodiscard]] bool non_associative_reduce_has_input(const Node &node) noexcept {
             return node.data() != nullptr && non_associative_reduce_runtime(const_cast<Node &>(node)).input != nullptr;
         }
 
-        [[nodiscard]] bool non_associative_reduce_has_output(const Node &node) noexcept
-        {
+        [[nodiscard]] bool non_associative_reduce_has_output(const Node &node) noexcept {
             return node.data() != nullptr && non_associative_reduce_runtime(const_cast<Node &>(node)).output != nullptr;
         }
 
-        [[nodiscard]] bool non_associative_reduce_has_error_output(const Node &node) noexcept
-        {
+        [[nodiscard]] bool non_associative_reduce_has_error_output(const Node &node) noexcept {
             return node.data() != nullptr && non_associative_reduce_runtime(const_cast<Node &>(node)).error_output != nullptr;
         }
 
         [[nodiscard]] bool non_associative_reduce_has_recordable_state(const Node & /*node*/) noexcept { return false; }
 
-        [[nodiscard]] TSInputView non_associative_reduce_input_view(Node &node, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSInputView non_associative_reduce_input_view(Node &node, engine_time_t evaluation_time) {
             if (!non_associative_reduce_has_input(node)) { return detail::invalid_input_view(evaluation_time); }
             return non_associative_reduce_runtime(node).input->view(&node, evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView non_associative_reduce_output_view(Node &node, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView non_associative_reduce_output_view(Node &node, engine_time_t evaluation_time) {
             if (!non_associative_reduce_has_output(node)) { return detail::invalid_output_view(evaluation_time); }
             return non_associative_reduce_runtime(node).output->view(evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView non_associative_reduce_error_output_view(Node &node, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView non_associative_reduce_error_output_view(Node &node, engine_time_t evaluation_time) {
             if (!non_associative_reduce_has_error_output(node)) { return detail::invalid_output_view(evaluation_time); }
             return non_associative_reduce_runtime(node).error_output->view(evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView non_associative_reduce_recordable_state_view(Node & /*node*/, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView non_associative_reduce_recordable_state_view(Node & /*node*/, engine_time_t evaluation_time) {
             return detail::invalid_output_view(evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView non_associative_reduce_leaf_output(Node &node,
-                                                                      size_t index,
-                                                                      engine_time_t evaluation_time)
-        {
-            TSOutputView source_root = reduce_bound_source_output(node, "ts", evaluation_time);
-            const TSMeta *schema = source_root.ts_schema();
+        [[nodiscard]] TSOutputView non_associative_reduce_leaf_output(Node &node, size_t index, engine_time_t evaluation_time) {
+            TSOutputView  source_root = reduce_bound_source_output(node, "ts", evaluation_time);
+            const TSMeta *schema      = source_root.ts_schema();
             if (schema == nullptr || schema->kind != TSKind::TSD || !source_root.value().has_value()) {
                 return detail::invalid_output_view(evaluation_time);
             }
@@ -3541,7 +3391,8 @@ namespace hgraph
             key.view().set_scalar(static_cast<int64_t>(index));
 
             TSOutputView source_child = detail::ensure_dict_child_output_view(source_root, key.view());
-            if (const TSMeta *child_schema = source_child.ts_schema(); child_schema != nullptr && child_schema->kind == TSKind::REF) {
+            if (const TSMeta *child_schema = source_child.ts_schema();
+                child_schema != nullptr && child_schema->kind == TSKind::REF) {
                 if (!source_child.valid()) { return detail::invalid_output_view(evaluation_time); }
                 if (const auto *ref = source_child.value().as_atomic().template try_as<TimeSeriesReference>();
                     ref != nullptr && ref->is_peered()) {
@@ -3553,11 +3404,9 @@ namespace hgraph
         }
 
         [[nodiscard]] TSOutputView non_associative_reduce_op_output_source(const ChildGraphTemplate &child_template,
-                                                                           ReduceOpRuntime          &op,
-                                                                           const TSOutputView       &lhs_output,
-                                                                           const TSOutputView       &rhs_output,
-                                                                           engine_time_t             evaluation_time)
-        {
+                                                                           ReduceOpRuntime &op, const TSOutputView &lhs_output,
+                                                                           const TSOutputView &rhs_output,
+                                                                           engine_time_t       evaluation_time) {
             const auto &plan = child_template.boundary_plan;
             if (plan.outputs.empty()) { return detail::invalid_output_view(evaluation_time); }
 
@@ -3577,25 +3426,21 @@ namespace hgraph
                         return source.ts_schema() != nullptr ? navigate_output(source, spec.child_output_path)
                                                              : detail::invalid_output_view(evaluation_time);
                     }
-                default:
-                    return detail::invalid_output_view(evaluation_time);
+                default: return detail::invalid_output_view(evaluation_time);
             }
         }
 
-        [[nodiscard]] size_t non_associative_reduce_source_size(Node &node, engine_time_t evaluation_time) noexcept
-        {
-            TSOutputView source_root = reduce_bound_source_output(node, "ts", evaluation_time);
-            const TSMeta *schema = source_root.ts_schema();
+        [[nodiscard]] size_t non_associative_reduce_source_size(Node &node, engine_time_t evaluation_time) noexcept {
+            TSOutputView  source_root = reduce_bound_source_output(node, "ts", evaluation_time);
+            const TSMeta *schema      = source_root.ts_schema();
             if (schema == nullptr || schema->kind != TSKind::TSD || !source_root.value().has_value()) { return 0; }
             return source_root.value().as_map().size();
         }
 
-        void non_associative_reduce_resize_chain(Node &node,
-                                                 NonAssociativeReduceNodeRuntimeData &runtime,
-                                                 engine_time_t evaluation_time)
-        {
-            const size_t required_count = non_associative_reduce_source_size(node, evaluation_time);
-            NonAssociativeReduceOpStore &op_store = non_associative_reduce_op_store(runtime);
+        void non_associative_reduce_resize_chain(Node &node, NonAssociativeReduceNodeRuntimeData &runtime,
+                                                 engine_time_t evaluation_time) {
+            const size_t                 required_count = non_associative_reduce_source_size(node, evaluation_time);
+            NonAssociativeReduceOpStore &op_store       = non_associative_reduce_op_store(runtime);
 
             for (size_t index = runtime.active_count; index-- > required_count;) {
                 if (ReduceOpRuntime *op = op_store.try_slot(index); op != nullptr) {
@@ -3605,32 +3450,25 @@ namespace hgraph
             }
 
             op_store.reserve_to(required_count);
-            for (size_t index = runtime.active_count; index < required_count; ++index) {
-                op_store.emplace_at(index);
-            }
+            for (size_t index = runtime.active_count; index < required_count; ++index) { op_store.emplace_at(index); }
 
             runtime.active_count = required_count;
         }
 
-        [[nodiscard]] TSOutputView non_associative_reduce_resolve_output(Node &node,
-                                                                         NonAssociativeReduceNodeRuntimeData &runtime,
-                                                                         size_t index,
-                                                                         const TSOutputView &lhs_output,
+        [[nodiscard]] TSOutputView non_associative_reduce_resolve_output(Node &node, NonAssociativeReduceNodeRuntimeData &runtime,
+                                                                         size_t index, const TSOutputView &lhs_output,
                                                                          const TSOutputView &rhs_output,
-                                                                         engine_time_t evaluation_time)
-        {
+                                                                         engine_time_t       evaluation_time) {
             NonAssociativeReduceOpStore &op_store = non_associative_reduce_op_store(runtime);
-            ReduceOpRuntime *op = op_store.try_slot(index);
+            ReduceOpRuntime             *op       = op_store.try_slot(index);
             if (op == nullptr) { return detail::invalid_output_view(evaluation_time); }
             return non_associative_reduce_op_output_source(*runtime.child_template, *op, lhs_output, rhs_output, evaluation_time);
         }
 
-        void non_associative_reduce_evaluate_chain(Node &node,
-                                                   NonAssociativeReduceNodeRuntimeData &runtime,
-                                                   engine_time_t evaluation_time)
-        {
-            TSOutputView lhs_output = reduce_bound_source_output(node, "zero", evaluation_time);
-            NonAssociativeReduceOpStore &op_store = non_associative_reduce_op_store(runtime);
+        void non_associative_reduce_evaluate_chain(Node &node, NonAssociativeReduceNodeRuntimeData &runtime,
+                                                   engine_time_t evaluation_time) {
+            TSOutputView                 lhs_output = reduce_bound_source_output(node, "zero", evaluation_time);
+            NonAssociativeReduceOpStore &op_store   = non_associative_reduce_op_store(runtime);
 
             for (size_t index = 0; index < runtime.active_count; ++index) {
                 TSOutputView rhs_output = non_associative_reduce_leaf_output(node, index, evaluation_time);
@@ -3639,43 +3477,35 @@ namespace hgraph
                 }
 
                 ReduceOpRuntime *op = op_store.try_slot(index);
-                if (op == nullptr) {
-                    throw std::logic_error("non-associative reduce missing runtime op slot");
-                }
+                if (op == nullptr) { throw std::logic_error("non-associative reduce missing runtime op slot"); }
 
-                const bool scheduled_now = op->next_scheduled != MAX_DT && op->next_scheduled <= evaluation_time;
-                const LinkedTSContext lhs_context = bound_output_context(lhs_output);
-                const LinkedTSContext rhs_context = bound_output_context(rhs_output);
+                const bool            scheduled_now = op->next_scheduled != MAX_DT && op->next_scheduled <= evaluation_time;
+                const LinkedTSContext lhs_context   = bound_output_context(lhs_output);
+                const LinkedTSContext rhs_context   = bound_output_context(rhs_output);
                 if (!op->child_instance.is_initialised()) {
                     std::vector<int64_t> graph_id = node.node_id();
                     graph_id.push_back(next_non_associative_reduce_child_graph_id(runtime));
                     op->child_instance.initialise(*runtime.child_template, node, std::move(graph_id), "reduce");
                 }
-                const bool binding_changed =
-                    !op->bound ||
-                    !detail::linked_context_equal(op->left_bound_context, lhs_context) ||
-                    !detail::linked_context_equal(op->right_bound_context, rhs_context);
+                const bool binding_changed = !op->bound || !detail::linked_context_equal(op->left_bound_context, lhs_context) ||
+                                             !detail::linked_context_equal(op->right_bound_context, rhs_context);
                 if (!op->child_instance.is_started()) { op->child_instance.start(evaluation_time); }
                 if (binding_changed) {
-                    bind_reduce_op_inputs(*runtime.child_template, *op->child_instance.graph(), lhs_output, rhs_output, evaluation_time);
-                    op->left_bound_context = lhs_context;
+                    bind_reduce_op_inputs(*runtime.child_template, *op->child_instance.graph(), lhs_output, rhs_output,
+                                          evaluation_time);
+                    op->left_bound_context  = lhs_context;
                     op->right_bound_context = rhs_context;
-                    op->bound = true;
+                    op->bound               = true;
                 }
 
-                if (!lhs_output.ts_schema()) {
-                    throw std::runtime_error("non-associative reduce requires a bound zero input");
-                }
+                if (!lhs_output.ts_schema()) { throw std::runtime_error("non-associative reduce requires a bound zero input"); }
 
                 if (binding_changed || output_changed(lhs_output) || output_changed(rhs_output) || scheduled_now) {
                     const bool lhs_changed = binding_changed || output_changed(lhs_output);
                     const bool rhs_changed = binding_changed || output_changed(rhs_output);
                     if (!binding_changed) {
-                        propagate_reduce_op_input_updates(*runtime.child_template,
-                                                          *op->child_instance.graph(),
-                                                          lhs_changed,
-                                                          rhs_changed,
-                                                          evaluation_time);
+                        propagate_reduce_op_input_updates(*runtime.child_template, *op->child_instance.graph(), lhs_changed,
+                                                          rhs_changed, evaluation_time);
                     }
                     op->child_instance.evaluate(evaluation_time);
                 }
@@ -3684,13 +3514,11 @@ namespace hgraph
             }
         }
 
-        void non_associative_reduce_publish_output(Node &node,
-                                                   NonAssociativeReduceNodeRuntimeData &runtime,
-                                                   engine_time_t evaluation_time)
-        {
+        void non_associative_reduce_publish_output(Node &node, NonAssociativeReduceNodeRuntimeData &runtime,
+                                                   engine_time_t evaluation_time) {
             if (!node.has_output()) { return; }
 
-            TSOutputView output = node.output_view(evaluation_time);
+            TSOutputView output        = node.output_view(evaluation_time);
             TSOutputView source_output = reduce_bound_source_output(node, "zero", evaluation_time);
             if (runtime.active_count > 0) {
                 NonAssociativeReduceOpStore &op_store = non_associative_reduce_op_store(runtime);
@@ -3698,8 +3526,8 @@ namespace hgraph
                     ReduceOpRuntime *op = op_store.try_slot(index);
                     if (op == nullptr) { break; }
                     TSOutputView rhs_output = non_associative_reduce_leaf_output(node, index, evaluation_time);
-                    source_output = non_associative_reduce_op_output_source(
-                        *runtime.child_template, *op, source_output, rhs_output, evaluation_time);
+                    source_output = non_associative_reduce_op_output_source(*runtime.child_template, *op, source_output, rhs_output,
+                                                                            evaluation_time);
                 }
             }
 
@@ -3725,10 +3553,8 @@ namespace hgraph
                 parent_schema != nullptr && !binding_compatible_ts_schema(source_output.ts_schema(), parent_schema) &&
                 source_output.owning_output() != nullptr) {
                 if (std::getenv("HGRAPH_DEBUG_BINDABLE") != nullptr) {
-                    std::fprintf(stderr,
-                                 "bindable site=node_builder:2962 bound=%d valid=%d source_kind=%d target_kind=%d\n",
-                                 source_output.context_ref().is_bound(),
-                                 source_output.valid(),
+                    std::fprintf(stderr, "bindable site=node_builder:2962 bound=%d valid=%d source_kind=%d target_kind=%d\n",
+                                 source_output.context_ref().is_bound(), source_output.valid(),
                                  source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
                                  parent_schema != nullptr ? static_cast<int>(parent_schema->kind) : -1);
                 }
@@ -3736,43 +3562,37 @@ namespace hgraph
             }
 
             const bool rebound = bind_output_link(output, source_output);
-            output = node.output_view(evaluation_time);
+            output             = node.output_view(evaluation_time);
             if (evaluation_time != MIN_DT && (rebound || output_changed(source_output) || !output.valid())) {
                 mark_output_view_modified(output, evaluation_time);
             }
         }
 
-        void non_associative_reduce_schedule(Node &node, NonAssociativeReduceNodeRuntimeData &runtime)
-        {
+        void non_associative_reduce_schedule(Node &node, NonAssociativeReduceNodeRuntimeData &runtime) {
             NonAssociativeReduceOpStore &op_store = non_associative_reduce_op_store(runtime);
             node.scheduler().un_schedule("reduce");
             engine_time_t next_schedule = MAX_DT;
             for (size_t slot = 0; slot < op_store.constructed.size(); ++slot) {
                 const ReduceOpRuntime *op = op_store.try_slot(slot);
                 if (op == nullptr) { continue; }
-                if (op->next_scheduled != MAX_DT && op->next_scheduled < next_schedule) {
-                    next_schedule = op->next_scheduled;
-                }
+                if (op->next_scheduled != MAX_DT && op->next_scheduled < next_schedule) { next_schedule = op->next_scheduled; }
             }
             if (next_schedule != MAX_DT) { node.scheduler().schedule(next_schedule, std::string{"reduce"}); }
         }
 
-        void non_associative_reduce_node_start(Node &node, engine_time_t evaluation_time)
-        {
+        void non_associative_reduce_node_start(Node &node, engine_time_t evaluation_time) {
             auto &runtime = non_associative_reduce_runtime(node);
             if (node.has_output()) {
-                const TSMeta *schema = node.output_view(evaluation_time).ts_schema();
-                const bool publish_on_start =
-                    schema != nullptr && schema->kind != TSKind::TSB && schema->kind != TSKind::TSL &&
-                    schema->kind != TSKind::TSD && schema->kind != TSKind::TSS;
+                const TSMeta *schema           = node.output_view(evaluation_time).ts_schema();
+                const bool    publish_on_start = schema != nullptr && schema->kind != TSKind::TSB && schema->kind != TSKind::TSL &&
+                                                 schema->kind != TSKind::TSD && schema->kind != TSKind::TSS;
                 if (publish_on_start) { non_associative_reduce_publish_output(node, runtime, evaluation_time); }
             }
             non_associative_reduce_schedule(node, runtime);
         }
 
-        void non_associative_reduce_node_stop(Node &node, engine_time_t evaluation_time)
-        {
-            auto &runtime = non_associative_reduce_runtime(node);
+        void non_associative_reduce_node_stop(Node &node, engine_time_t evaluation_time) {
+            auto                        &runtime  = non_associative_reduce_runtime(node);
             NonAssociativeReduceOpStore &op_store = non_associative_reduce_op_store(runtime);
             for (size_t slot = 0; slot < op_store.constructed.size(); ++slot) {
                 if (ReduceOpRuntime *op = op_store.try_slot(slot); op != nullptr) {
@@ -3784,10 +3604,9 @@ namespace hgraph
             if (node.has_output()) { clear_output_link(node.output_view(evaluation_time)); }
         }
 
-        void destruct_non_associative_reduce_node(Node &node) noexcept
-        {
-            const BuiltNodeSpec &spec = node.spec();
-            auto &runtime_data = detail::runtime_data<NonAssociativeReduceNodeRuntimeData>(node);
+        void destruct_non_associative_reduce_node(Node &node) noexcept {
+            const BuiltNodeSpec         &spec         = node.spec();
+            auto                        &runtime_data = detail::runtime_data<NonAssociativeReduceNodeRuntimeData>(node);
             NonAssociativeReduceOpStore *op_store =
                 runtime_data.store_initialized ? &non_associative_reduce_op_store(runtime_data) : nullptr;
 
@@ -3811,8 +3630,7 @@ namespace hgraph
             std::destroy_at(&runtime_data);
         }
 
-        void non_associative_reduce_node_eval(Node &node, engine_time_t evaluation_time)
-        {
+        void non_associative_reduce_node_eval(Node &node, engine_time_t evaluation_time) {
             auto &runtime = non_associative_reduce_runtime(node);
             non_associative_reduce_resize_chain(node, runtime, evaluation_time);
             non_associative_reduce_evaluate_chain(node, runtime, evaluation_time);
@@ -3837,115 +3655,82 @@ namespace hgraph
 
         void validate_non_associative_reduce_contract(const NodeBuilder & /*builder*/) {}
 
-        [[nodiscard]] size_t non_associative_reduce_builder_size(const NodeBuilder &builder,
-                                                                 const std::vector<TSInputConstructionEdge> &inbound_edges)
-        {
+        [[nodiscard]] size_t non_associative_reduce_builder_size(const NodeBuilder                          &builder,
+                                                                 const std::vector<TSInputConstructionEdge> &inbound_edges) {
             const auto builders = resolve_builders(builder, inbound_edges);
-            return describe_layout(
-                       builder,
-                       non_associative_reduce_runtime_storage_size(),
-                       non_associative_reduce_runtime_storage_alignment(),
-                       builders)
+            return describe_layout(builder, non_associative_reduce_runtime_storage_size(),
+                                   non_associative_reduce_runtime_storage_alignment(), builders)
                 .total_size;
         }
 
-        [[nodiscard]] size_t non_associative_reduce_builder_alignment(
-            const NodeBuilder &builder,
-            const std::vector<TSInputConstructionEdge> &inbound_edges)
-        {
+        [[nodiscard]] size_t non_associative_reduce_builder_alignment(const NodeBuilder                          &builder,
+                                                                      const std::vector<TSInputConstructionEdge> &inbound_edges) {
             const auto builders = resolve_builders(builder, inbound_edges);
-            return describe_layout(
-                       builder,
-                       non_associative_reduce_runtime_storage_size(),
-                       non_associative_reduce_runtime_storage_alignment(),
-                       builders)
+            return describe_layout(builder, non_associative_reduce_runtime_storage_size(),
+                                   non_associative_reduce_runtime_storage_alignment(), builders)
                 .alignment;
         }
 
-        [[nodiscard]] Node *non_associative_reduce_construct_at(const NodeBuilder &builder,
-                                                                void *memory,
-                                                                int64_t node_index,
-                                                                const std::vector<TSInputConstructionEdge> &inbound_edges)
-        {
+        [[nodiscard]] Node *non_associative_reduce_construct_at(const NodeBuilder &builder, void *memory, int64_t node_index,
+                                                                const std::vector<TSInputConstructionEdge> &inbound_edges) {
             const auto &state = detail::node_builder_type_state<NonAssociativeReduceNodeBuilderState>(builder);
 
             struct RuntimeLifecycle
             {
                 const ChildGraphTemplate *child_template;
 
-                void destroy(void *runtime_data) const
-                {
+                void destroy(void *runtime_data) const {
                     auto *runtime = static_cast<NonAssociativeReduceNodeRuntimeData *>(runtime_data);
                     if (runtime->store_initialized) { std::destroy_at(&non_associative_reduce_op_store(*runtime)); }
                     std::destroy_at(runtime);
                 }
 
-                void initialise(const NodeBuilder & /*builder*/,
-                                void *runtime_data_ptr,
-                                Node * /*node*/,
-                                TSInput * /*input*/,
-                                TSOutput * /*output*/,
-                                TSOutput * /*error_output*/,
-                                TSOutput * /*recordable_state*/) const
-                {
+                void initialise(const NodeBuilder & /*builder*/, void *runtime_data_ptr, Node * /*node*/, TSInput * /*input*/,
+                                TSOutput * /*output*/, TSOutput * /*error_output*/, TSOutput * /*recordable_state*/) const {
                     auto &runtime = *static_cast<NonAssociativeReduceNodeRuntimeData *>(runtime_data_ptr);
                     new (&non_associative_reduce_op_store(runtime)) NonAssociativeReduceOpStore{};
                     runtime.store_initialized = true;
-                    runtime.child_template = child_template;
+                    runtime.child_template    = child_template;
                 }
             };
 
             return construct_node_chunk<NonAssociativeReduceNodeBuilderState>(
-                builder,
-                memory,
-                node_index,
-                inbound_edges,
-                &k_non_associative_reduce_runtime_ops,
-                nullptr,
-                &destruct_non_associative_reduce_node,
-                non_associative_reduce_runtime_storage_size(),
+                builder, memory, node_index, inbound_edges, &k_non_associative_reduce_runtime_ops, nullptr,
+                &destruct_non_associative_reduce_node, non_associative_reduce_runtime_storage_size(),
                 non_associative_reduce_runtime_storage_alignment(),
                 [](void *storage, const ResolvedNodeBuilders &, TSInput *input, TSOutput *output, TSOutput *error_output,
                    void * /*state_memory*/, TSOutput *recordable_state) -> void * {
-                    return new (storage) NonAssociativeReduceNodeRuntimeData{
-                        input, output, error_output, recordable_state};
+                    return new (storage) NonAssociativeReduceNodeRuntimeData{input, output, error_output, recordable_state};
                 },
                 RuntimeLifecycle{state.child_template});
         }
 
         struct MapSlotRuntime
         {
-            explicit MapSlotRuntime(Value key_arg)
-                : key(std::move(key_arg))
-            {
-            }
+            explicit MapSlotRuntime(Value key_arg) : key(std::move(key_arg)) {}
 
-            Value                    key;
-            ChildGraphInstance       child_instance;
-            std::optional<TSOutput>  key_output;
-            bool                     bound{false};
-            engine_time_t            next_scheduled{MAX_DT};
+            Value                   key;
+            ChildGraphInstance      child_instance;
+            std::optional<TSOutput> key_output;
+            bool                    bound{false};
+            engine_time_t           next_scheduled{MAX_DT};
         };
 
         using MapSlotStore = detail::KeyedPayloadStore<MapSlotRuntime>;
 
-        [[nodiscard]] constexpr size_t map_slot_store_offset() noexcept
-        {
+        [[nodiscard]] constexpr size_t map_slot_store_offset() noexcept {
             return align_up(sizeof(MapNodeRuntimeData), alignof(MapSlotStore));
         }
 
-        [[nodiscard]] constexpr size_t map_runtime_storage_size() noexcept
-        {
+        [[nodiscard]] constexpr size_t map_runtime_storage_size() noexcept {
             return map_slot_store_offset() + sizeof(MapSlotStore);
         }
 
-        [[nodiscard]] constexpr size_t map_runtime_storage_alignment() noexcept
-        {
+        [[nodiscard]] constexpr size_t map_runtime_storage_alignment() noexcept {
             return std::max(alignof(MapNodeRuntimeData), alignof(MapSlotStore));
         }
 
-        [[nodiscard]] int64_t next_map_child_graph_id(MapNodeRuntimeData &runtime) noexcept
-        {
+        [[nodiscard]] int64_t next_map_child_graph_id(MapNodeRuntimeData &runtime) noexcept {
             // Keyed child graphs append a negative monotonic instance id to the
             // parent graph path. The sign distinguishes keyed child-instance
             // path segments from ordinary non-negative node ids while still
@@ -3953,35 +3738,29 @@ namespace hgraph
             return -runtime.next_child_graph_id++;
         }
 
-        [[nodiscard]] MapSlotStore &map_slot_store(MapNodeRuntimeData &runtime) noexcept
-        {
+        [[nodiscard]] MapSlotStore &map_slot_store(MapNodeRuntimeData &runtime) noexcept {
             auto *storage = reinterpret_cast<std::byte *>(&runtime) + map_slot_store_offset();
             return *std::launder(reinterpret_cast<MapSlotStore *>(storage));
         }
 
-        [[nodiscard]] MapNodeRuntimeData &map_runtime(Node &node) noexcept
-        {
+        [[nodiscard]] MapNodeRuntimeData &map_runtime(Node &node) noexcept {
             return detail::runtime_data<MapNodeRuntimeData>(node);
         }
 
-        [[nodiscard]] bool is_multiplexed_arg(const MapNodeRuntimeData &state, std::string_view arg_name)
-        {
-            return std::find(state.multiplexed_args.begin(), state.multiplexed_args.end(), arg_name) != state.multiplexed_args.end();
+        [[nodiscard]] bool is_multiplexed_arg(const MapNodeRuntimeData &state, std::string_view arg_name) {
+            return std::find(state.multiplexed_args.begin(), state.multiplexed_args.end(), arg_name) !=
+                   state.multiplexed_args.end();
         }
 
-        [[nodiscard]] TSOutputView map_target_output(const TSOutputView &parent_output,
-                                                     const value::View  &key,
-                                                     PathView            path,
-                                                     engine_time_t       evaluation_time)
-        {
+        [[nodiscard]] TSOutputView map_target_output(const TSOutputView &parent_output, const value::View &key, PathView path,
+                                                     engine_time_t evaluation_time) {
             TSOutputView child_output = ensure_mapped_output_child(parent_output, key, evaluation_time);
             return navigate_output(child_output, path);
         }
 
         [[nodiscard]] TSOutputView ensure_key_output(MapSlotRuntime &slot, const TSMeta *ts_schema, engine_time_t evaluation_time);
 
-        void stop_map_slot(const ChildGraphTemplate &child_template, MapSlotRuntime &slot, engine_time_t evaluation_time) noexcept
-        {
+        void stop_map_slot(const ChildGraphTemplate &child_template, MapSlotRuntime &slot, engine_time_t evaluation_time) noexcept {
             try {
                 if (slot.bound && slot.child_instance.graph() != nullptr) {
                     BoundaryBindingRuntime::unbind(child_template.boundary_plan, *slot.child_instance.graph());
@@ -3994,18 +3773,16 @@ namespace hgraph
             slot.next_scheduled = MAX_DT;
         }
 
-        void dispose_map_slot(const ChildGraphTemplate &child_template, MapSlotRuntime &slot, engine_time_t evaluation_time) noexcept
-        {
+        void dispose_map_slot(const ChildGraphTemplate &child_template, MapSlotRuntime &slot,
+                              engine_time_t evaluation_time) noexcept {
             stop_map_slot(child_template, slot, evaluation_time);
             try {
                 slot.child_instance.dispose(evaluation_time);
             } catch (...) {}
         }
 
-        void clear_map_output_links(const ChildGraphTemplate &child_template,
-                                    const TSOutputView      &parent_output,
-                                    const value::View       &key)
-        {
+        void clear_map_output_links(const ChildGraphTemplate &child_template, const TSOutputView &parent_output,
+                                    const value::View &key) {
             if (!is_live_dict_key(parent_output, key)) { return; }
 
             TSOutputView key_output = parent_output.as_dict().at(key);
@@ -4014,8 +3791,7 @@ namespace hgraph
             }
         }
 
-        void ensure_map_slot_started(Node &node, MapNodeRuntimeData &runtime, MapSlotRuntime &slot, engine_time_t evaluation_time)
-        {
+        void ensure_map_slot_started(Node &node, MapNodeRuntimeData &runtime, MapSlotRuntime &slot, engine_time_t evaluation_time) {
             if (!slot.child_instance.is_initialised()) {
                 std::vector<int64_t> graph_id = node.node_id();
                 graph_id.push_back(next_map_child_graph_id(runtime));
@@ -4026,39 +3802,30 @@ namespace hgraph
             if (!slot.child_instance.is_started()) { slot.child_instance.start(evaluation_time); }
 
             if (!slot.bound && slot.child_instance.graph() != nullptr) {
-                BoundaryBindingRuntime::bind(slot.child_instance.boundary_plan(), *slot.child_instance.graph(), node, evaluation_time);
-                BoundaryBindingRuntime::bind_keyed(slot.child_instance.boundary_plan(),
-                                                   *slot.child_instance.graph(),
-                                                   node,
-                                                   ensure_key_output(slot, TSTypeRegistry::instance().ts(slot.key.schema()),
-                                                                     evaluation_time),
-                                                   slot.key.view(),
-                                                   evaluation_time);
+                BoundaryBindingRuntime::bind(slot.child_instance.boundary_plan(), *slot.child_instance.graph(), node,
+                                             evaluation_time);
+                BoundaryBindingRuntime::bind_keyed(
+                    slot.child_instance.boundary_plan(), *slot.child_instance.graph(), node,
+                    ensure_key_output(slot, TSTypeRegistry::instance().ts(slot.key.schema()), evaluation_time), slot.key.view(),
+                    evaluation_time);
                 slot.bound = true;
             }
         }
 
         [[nodiscard]] TSOutputView ensure_key_output(MapSlotRuntime &slot, const TSMeta *ts_schema, engine_time_t evaluation_time);
 
-        void clear_map_slot_target_output(const TSOutputView &parent_output,
-                                          const value::View  &key,
-                                          PathView            parent_output_path,
-                                          engine_time_t       evaluation_time)
-        {
+        void clear_map_slot_target_output(const TSOutputView &parent_output, const value::View &key, PathView parent_output_path,
+                                          engine_time_t evaluation_time) {
             if (!is_live_dict_key(parent_output, key)) { return; }
 
-            TSOutputView key_output = parent_output.as_dict().at(key);
+            TSOutputView key_output    = parent_output.as_dict().at(key);
             TSOutputView target_output = navigate_output(key_output, parent_output_path);
             clear_output_link(target_output);
             static_cast<void>(evaluation_time);
         }
 
-        void rebind_map_slot_inputs(Node                                   &node,
-                                    MapSlotRuntime                         &slot,
-                                    const std::unordered_set<std::string>  &modified_direct_args,
-                                    bool                                    rebind_keyed_inputs,
-                                    engine_time_t                           evaluation_time)
-        {
+        void rebind_map_slot_inputs(Node &node, MapSlotRuntime &slot, const std::unordered_set<std::string> &modified_direct_args,
+                                    bool rebind_keyed_inputs, engine_time_t evaluation_time) {
             if (!slot.bound || slot.child_instance.graph() == nullptr) { return; }
 
             for (const auto &arg_name : modified_direct_args) {
@@ -4066,18 +3833,14 @@ namespace hgraph
                                                evaluation_time);
             }
             if (rebind_keyed_inputs) {
-                BoundaryBindingRuntime::bind_keyed(slot.child_instance.boundary_plan(),
-                                                   *slot.child_instance.graph(),
-                                                   node,
-                                                   ensure_key_output(slot, TSTypeRegistry::instance().ts(slot.key.schema()),
-                                                                     evaluation_time),
-                                                   slot.key.view(),
-                                                   evaluation_time);
+                BoundaryBindingRuntime::bind_keyed(
+                    slot.child_instance.boundary_plan(), *slot.child_instance.graph(), node,
+                    ensure_key_output(slot, TSTypeRegistry::instance().ts(slot.key.schema()), evaluation_time), slot.key.view(),
+                    evaluation_time);
             }
         }
 
-        [[nodiscard]] TSOutputView ensure_key_output(MapSlotRuntime &slot, const TSMeta *ts_schema, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView ensure_key_output(MapSlotRuntime &slot, const TSMeta *ts_schema, engine_time_t evaluation_time) {
             if (ts_schema == nullptr) { throw std::logic_error("map key output requires a target schema"); }
 
             if (!slot.key_output.has_value()) {
@@ -4095,9 +3858,7 @@ namespace hgraph
             }
 
             TSOutputView key_source = slot.key_output->view(evaluation_time);
-            if (key_source.ts_schema() != ts_schema) {
-                throw std::logic_error("map key output time-series schema mismatch");
-            }
+            if (key_source.ts_schema() != ts_schema) { throw std::logic_error("map key output time-series schema mismatch"); }
             if (key_source.value().schema() != slot.key.view().schema()) {
                 throw std::logic_error(fmt::format("map key output schema mismatch: {} != {}",
                                                    schema_debug_label(key_source.value().schema()),
@@ -4107,13 +3868,10 @@ namespace hgraph
             return key_source;
         }
 
-        [[nodiscard]] bool forward_map_slot_outputs(Node &node,
-                                                    const MapNodeRuntimeData &runtime,
-                                                    const TSOutputView &parent_output,
-                                                    MapSlotRuntime &slot,
-                                                    engine_time_t evaluation_time)
-        {
-            const auto &plan = slot.child_instance.boundary_plan();
+        [[nodiscard]] bool forward_map_slot_outputs(Node &node, const MapNodeRuntimeData &runtime,
+                                                    const TSOutputView &parent_output, MapSlotRuntime &slot,
+                                                    engine_time_t evaluation_time) {
+            const auto &plan               = slot.child_instance.boundary_plan();
             bool        slot_value_changed = false;
             for (const auto &spec : plan.outputs) {
                 TSOutputView source_output;
@@ -4122,7 +3880,7 @@ namespace hgraph
                         {
                             if (spec.child_node_index < 0 || slot.child_instance.graph() == nullptr) { continue; }
                             auto &child_node = slot.child_instance.graph()->node_at(static_cast<size_t>(spec.child_node_index));
-                            source_output = navigate_output(child_node.output_view(evaluation_time), spec.child_output_path);
+                            source_output    = navigate_output(child_node.output_view(evaluation_time), spec.child_output_path);
                             break;
                         }
                     case OutputBindingMode::ALIAS_PARENT_INPUT:
@@ -4155,12 +3913,9 @@ namespace hgraph
 
                 if (source_output.ts_schema() == nullptr) {
                     if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
-                        std::fprintf(stderr,
-                                     "forward_map_slot_outputs key=%s source_schema=null mode=%d arg=%.*s\n",
-                                     slot.key.view().to_string().c_str(),
-                                     static_cast<int>(spec.mode),
-                                     static_cast<int>(spec.parent_arg_name.size()),
-                                     spec.parent_arg_name.data());
+                        std::fprintf(stderr, "forward_map_slot_outputs key=%s source_schema=null mode=%d arg=%.*s\n",
+                                     slot.key.view().to_string().c_str(), static_cast<int>(spec.mode),
+                                     static_cast<int>(spec.parent_arg_name.size()), spec.parent_arg_name.data());
                     }
                     clear_map_slot_target_output(parent_output, slot.key.view(), spec.parent_output_path, evaluation_time);
                     continue;
@@ -4169,15 +3924,15 @@ namespace hgraph
                 if (!source_output.valid()) {
                     if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
                         std::fprintf(stderr,
-                                     "forward_map_slot_outputs key=%s source_invalid schema_kind=%d source_modified=%d source_last_modified=%lld mode=%d arg=%.*s\n",
+                                     "forward_map_slot_outputs key=%s source_invalid schema_kind=%d source_modified=%d "
+                                     "source_last_modified=%lld mode=%d arg=%.*s\n",
                                      slot.key.view().to_string().c_str(),
                                      source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
                                      source_output.modified(),
                                      source_output.last_modified_time() == MIN_DT
                                          ? -1LL
                                          : static_cast<long long>(source_output.last_modified_time().time_since_epoch().count()),
-                                     static_cast<int>(spec.mode),
-                                     static_cast<int>(spec.parent_arg_name.size()),
+                                     static_cast<int>(spec.mode), static_cast<int>(spec.parent_arg_name.size()),
                                      spec.parent_arg_name.data());
                     }
                     clear_map_slot_target_output(parent_output, slot.key.view(), spec.parent_output_path, evaluation_time);
@@ -4191,20 +3946,16 @@ namespace hgraph
                     parent_schema != nullptr && !binding_compatible_ts_schema(source_output.ts_schema(), parent_schema) &&
                     source_output.owning_output() != nullptr) {
                     if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
-                        std::fprintf(stderr,
-                                     "forward_map_slot_outputs adapt key=%s source_kind=%d target_kind=%d mode=%d arg=%.*s\n",
-                                     slot.key.view().to_string().c_str(),
-                                     source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
-                                     parent_schema != nullptr ? static_cast<int>(parent_schema->kind) : -1,
-                                     static_cast<int>(spec.mode),
-                                     static_cast<int>(spec.parent_arg_name.size()),
-                                     spec.parent_arg_name.data());
+                        std::fprintf(
+                            stderr, "forward_map_slot_outputs adapt key=%s source_kind=%d target_kind=%d mode=%d arg=%.*s\n",
+                            slot.key.view().to_string().c_str(),
+                            source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
+                            parent_schema != nullptr ? static_cast<int>(parent_schema->kind) : -1, static_cast<int>(spec.mode),
+                            static_cast<int>(spec.parent_arg_name.size()), spec.parent_arg_name.data());
                     }
                     if (std::getenv("HGRAPH_DEBUG_BINDABLE") != nullptr) {
-                        std::fprintf(stderr,
-                                     "bindable site=node_builder:3427 bound=%d valid=%d source_kind=%d target_kind=%d\n",
-                                     source_output.context_ref().is_bound(),
-                                     source_output.valid(),
+                        std::fprintf(stderr, "bindable site=node_builder:3427 bound=%d valid=%d source_kind=%d target_kind=%d\n",
+                                     source_output.context_ref().is_bound(), source_output.valid(),
                                      source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
                                      parent_schema != nullptr ? static_cast<int>(parent_schema->kind) : -1);
                     }
@@ -4214,11 +3965,9 @@ namespace hgraph
                 const bool rebound = bind_output_link(target_output, source_output);
                 if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
                     std::fprintf(stderr,
-                                 "forward_map_slot_outputs key=%s rebound=%d source_valid=%d source_modified=%d source_last_modified=%lld target_valid=%d\n",
-                                 slot.key.view().to_string().c_str(),
-                                 rebound,
-                                 source_output.valid(),
-                                 source_output.modified(),
+                                 "forward_map_slot_outputs key=%s rebound=%d source_valid=%d source_modified=%d "
+                                 "source_last_modified=%lld target_valid=%d\n",
+                                 slot.key.view().to_string().c_str(), rebound, source_output.valid(), source_output.modified(),
                                  source_output.last_modified_time() == MIN_DT
                                      ? -1LL
                                      : static_cast<long long>(source_output.last_modified_time().time_since_epoch().count()),
@@ -4229,12 +3978,9 @@ namespace hgraph
             return slot_value_changed;
         }
 
-        void publish_map_slot_output_updates(const MapNodeRuntimeData  &runtime,
-                                             const TSOutputView       &parent_output,
-                                             const MapSlotStore       &slot_store,
-                                             const std::vector<size_t> &changed_slots,
-                                             engine_time_t             evaluation_time)
-        {
+        void publish_map_slot_output_updates(const MapNodeRuntimeData &runtime, const TSOutputView &parent_output,
+                                             const MapSlotStore &slot_store, const std::vector<size_t> &changed_slots,
+                                             engine_time_t evaluation_time) {
             if (evaluation_time == MIN_DT || changed_slots.empty()) { return; }
 
             bool parent_changed = false;
@@ -4252,8 +3998,7 @@ namespace hgraph
             if (parent_changed) { mark_output_view_modified(parent_output, evaluation_time); }
         }
 
-        [[nodiscard]] bool has_modified_multiplexed_input(Node &node, const MapSlotRuntime &slot, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] bool has_modified_multiplexed_input(Node &node, const MapSlotRuntime &slot, engine_time_t evaluation_time) {
             if (!node.has_input()) { return false; }
 
             const auto &plan = slot.child_instance.boundary_plan();
@@ -4261,7 +4006,7 @@ namespace hgraph
                 if (spec.mode != InputBindingMode::BIND_MULTIPLEXED_ELEMENT) { continue; }
 
                 TSInputView parent_field = resolve_parent_input_arg(node, spec.arg_name, evaluation_time);
-                TSInputView parent_item = select_multiplexed_parent_input(parent_field, slot.key.view());
+                TSInputView parent_item  = select_multiplexed_parent_input(parent_field, slot.key.view());
                 if (!spec.parent_input_path.empty()) { parent_item = navigate_input(parent_item, spec.parent_input_path); }
                 TSOutputView parent_output = bound_output_of(parent_item);
                 if (parent_output.ts_schema() != nullptr) {
@@ -4273,53 +4018,46 @@ namespace hgraph
             return false;
         }
 
-        [[nodiscard]] bool map_has_input(const Node &node) noexcept
-        {
+        [[nodiscard]] bool map_has_input(const Node &node) noexcept {
             return node.data() != nullptr && map_runtime(const_cast<Node &>(node)).input != nullptr;
         }
 
-        [[nodiscard]] bool map_has_output(const Node &node) noexcept
-        {
+        [[nodiscard]] bool map_has_output(const Node &node) noexcept {
             return node.data() != nullptr && map_runtime(const_cast<Node &>(node)).output != nullptr;
         }
 
-        [[nodiscard]] bool map_has_error_output(const Node &node) noexcept
-        {
+        [[nodiscard]] bool map_has_error_output(const Node &node) noexcept {
             return node.data() != nullptr && map_runtime(const_cast<Node &>(node)).error_output != nullptr;
         }
 
         [[nodiscard]] bool map_has_recordable_state(const Node & /*node*/) noexcept { return false; }
 
-        [[nodiscard]] TSInputView map_input_view(Node &node, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSInputView map_input_view(Node &node, engine_time_t evaluation_time) {
             if (!map_has_input(node)) { return detail::invalid_input_view(evaluation_time); }
             return map_runtime(node).input->view(&node, evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView map_output_view(Node &node, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView map_output_view(Node &node, engine_time_t evaluation_time) {
             if (!map_has_output(node)) { return detail::invalid_output_view(evaluation_time); }
             return map_runtime(node).output->view(evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView map_error_output_view(Node &node, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView map_error_output_view(Node &node, engine_time_t evaluation_time) {
             if (!map_has_error_output(node)) { return detail::invalid_output_view(evaluation_time); }
             return map_runtime(node).error_output->view(evaluation_time);
         }
 
-        [[nodiscard]] TSOutputView map_recordable_state_view(Node & /*node*/, engine_time_t evaluation_time)
-        {
+        [[nodiscard]] TSOutputView map_recordable_state_view(Node & /*node*/, engine_time_t evaluation_time) {
             return detail::invalid_output_view(evaluation_time);
         }
 
         void map_node_start(Node & /*node*/, engine_time_t /*evaluation_time*/) {}
 
-        void map_node_stop(Node &node, engine_time_t evaluation_time)
-        {
-            auto &runtime = map_runtime(node);
-            auto &slot_store = map_slot_store(runtime);
-            TSOutputView parent_output = node.has_output() ? node.output_view(evaluation_time) : detail::invalid_output_view(evaluation_time);
+        void map_node_stop(Node &node, engine_time_t evaluation_time) {
+            auto        &runtime    = map_runtime(node);
+            auto        &slot_store = map_slot_store(runtime);
+            TSOutputView parent_output =
+                node.has_output() ? node.output_view(evaluation_time) : detail::invalid_output_view(evaluation_time);
 
             for (size_t slot = 0; slot < slot_store.constructed.size(); ++slot) {
                 MapSlotRuntime *payload = slot_store.try_slot(slot);
@@ -4329,11 +4067,10 @@ namespace hgraph
             }
         }
 
-        void destruct_map_node(Node &node) noexcept
-        {
-            const BuiltNodeSpec &spec = node.spec();
-            auto &runtime_data = detail::runtime_data<MapNodeRuntimeData>(node);
-            MapSlotStore *slot_store = runtime_data.slot_store_initialized ? &map_slot_store(runtime_data) : nullptr;
+        void destruct_map_node(Node &node) noexcept {
+            const BuiltNodeSpec &spec         = node.spec();
+            auto                &runtime_data = detail::runtime_data<MapNodeRuntimeData>(node);
+            MapSlotStore        *slot_store   = runtime_data.slot_store_initialized ? &map_slot_store(runtime_data) : nullptr;
 
             if (runtime_data.child_template != nullptr && slot_store != nullptr) {
                 for (size_t slot = 0; slot < slot_store->constructed.size(); ++slot) {
@@ -4355,45 +4092,35 @@ namespace hgraph
             std::destroy_at(&runtime_data);
         }
 
-        void map_node_eval(Node &node, engine_time_t evaluation_time)
-        {
-            auto &runtime = map_runtime(node);
-            auto &slot_store = map_slot_store(runtime);
+        void map_node_eval(Node &node, engine_time_t evaluation_time) {
+            auto       &runtime    = map_runtime(node);
+            auto       &slot_store = map_slot_store(runtime);
             TSInputView keys_input = resolve_parent_input_arg(node, runtime.keys_arg, evaluation_time);
             if (std::getenv("HGRAPH_DEBUG_KEY_SET") != nullptr) {
                 const auto &graph_id = node.owning_graph_id();
                 std::fprintf(stderr,
-                             "map_node_eval graph_tail=%lld node=%lld label=%.*s keys_arg=%s schema_kind=%d valid=%d modified=%d linked_target=%p\n",
+                             "map_node_eval graph_tail=%lld node=%lld label=%.*s keys_arg=%s schema_kind=%d valid=%d modified=%d "
+                             "linked_target=%p\n",
                              static_cast<long long>(graph_id.empty() ? -1 : graph_id.back()),
-                             static_cast<long long>(node.public_node_index()),
-                             static_cast<int>(node.label().size()),
-                             node.label().data(),
-                             runtime.keys_arg.c_str(),
+                             static_cast<long long>(node.public_node_index()), static_cast<int>(node.label().size()),
+                             node.label().data(), runtime.keys_arg.c_str(),
                              keys_input.ts_schema() != nullptr ? static_cast<int>(keys_input.ts_schema()->kind) : -1,
-                             keys_input.valid(),
-                             keys_input.modified(),
-                             static_cast<const void *>(keys_input.linked_target()));
+                             keys_input.valid(), keys_input.modified(), static_cast<const void *>(keys_input.linked_target()));
                 TSInputView node_input = node.input_view(evaluation_time);
                 if (node_input.ts_schema() != nullptr && node_input.ts_schema()->kind == TSKind::TSB) {
                     auto input_bundle = node_input.as_bundle();
                     for (size_t field_index = 0; field_index < node.input_schema()->field_count(); ++field_index) {
                         TSInputView field = input_bundle[field_index];
-                        std::fprintf(stderr,
-                                     "  field[%zu] name=%s schema_kind=%d valid=%d modified=%d bound=%d active=%d\n",
-                                     field_index,
-                                     node.input_schema()->fields()[field_index].name,
-                                     field.ts_schema() != nullptr ? static_cast<int>(field.ts_schema()->kind) : -1,
-                                     field.valid(),
-                                     field.modified(),
-                                     field.linked_target() != nullptr && field.linked_target()->is_bound(),
+                        std::fprintf(stderr, "  field[%zu] name=%s schema_kind=%d valid=%d modified=%d bound=%d active=%d\n",
+                                     field_index, node.input_schema()->fields()[field_index].name,
+                                     field.ts_schema() != nullptr ? static_cast<int>(field.ts_schema()->kind) : -1, field.valid(),
+                                     field.modified(), field.linked_target() != nullptr && field.linked_target()->is_bound(),
                                      field.active());
                         if (field.ts_schema() != nullptr && field.ts_schema()->kind == TSKind::TSD && field.valid()) {
-                            auto key_set = field.as_dict().key_set();
+                            auto                     key_set = field.as_dict().key_set();
                             std::vector<std::string> field_keys;
                             if (key_set.view().value().has_value()) {
-                                for (const View &key : key_set.values()) {
-                                    field_keys.emplace_back(key.to_string());
-                                }
+                                for (const View &key : key_set.values()) { field_keys.emplace_back(key.to_string()); }
                             }
                             std::fprintf(stderr, "    field_keys=[%s]\n", fmt::format("{}", fmt::join(field_keys, ",")).c_str());
                         }
@@ -4401,24 +4128,20 @@ namespace hgraph
                 }
                 std::fflush(stderr);
             }
-            TSOutputView keys_output = live_bound_output_of(keys_input);
-            const View keys_value = keys_output.ts_schema() != nullptr ? keys_output.value() : keys_input.value();
-            const auto keys_delta = keys_value.as_set().delta();
-            const bool keys_modified = input_changed(keys_input);
+            TSOutputView keys_output   = live_bound_output_of(keys_input);
+            const View   keys_value    = keys_output.ts_schema() != nullptr ? keys_output.value() : keys_input.value();
+            const auto   keys_delta    = keys_value.as_set().delta();
+            const bool   keys_modified = input_changed(keys_input);
             if (std::getenv("HGRAPH_DEBUG_KEY_SET") != nullptr && keys_value.has_value()) {
                 std::vector<std::string> live_keys;
-                for (const View &key : keys_value.as_set().values()) {
-                    live_keys.emplace_back(key.to_string());
-                }
-                std::fprintf(stderr,
-                             "map_node_eval keys_live=[%s]\n",
-                             fmt::format("{}", fmt::join(live_keys, ",")).c_str());
+                for (const View &key : keys_value.as_set().values()) { live_keys.emplace_back(key.to_string()); }
+                std::fprintf(stderr, "map_node_eval keys_live=[%s]\n", fmt::format("{}", fmt::join(live_keys, ",")).c_str());
                 std::fflush(stderr);
             }
             if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
-                size_t occupied_slots = 0;
-                size_t live_slots = 0;
-                size_t added_slots_count = 0;
+                size_t occupied_slots      = 0;
+                size_t live_slots          = 0;
+                size_t added_slots_count   = 0;
                 size_t removed_slots_count = 0;
                 for (size_t slot = 0; slot < keys_delta.slot_capacity(); ++slot) {
                     if (!keys_delta.slot_occupied(slot)) { continue; }
@@ -4428,21 +4151,17 @@ namespace hgraph
                     if (keys_delta.slot_removed(slot)) { ++removed_slots_count; }
                 }
                 std::fprintf(stderr,
-                             "map_node_eval keys slot_capacity=%zu occupied=%zu live=%zu added=%zu removed=%zu keys_output_valid=%d keys_output_modified=%d keys_input_valid=%d keys_input_modified=%d\n",
-                             keys_delta.slot_capacity(),
-                             occupied_slots,
-                             live_slots,
-                             added_slots_count,
-                             removed_slots_count,
-                             keys_output.valid(),
-                             keys_output.ts_schema() != nullptr ? keys_output.modified() : 0,
-                             keys_input.valid(),
-                             keys_input.modified());
+                             "map_node_eval keys slot_capacity=%zu occupied=%zu live=%zu added=%zu removed=%zu "
+                             "keys_output_valid=%d keys_output_modified=%d keys_input_valid=%d keys_input_modified=%d\n",
+                             keys_delta.slot_capacity(), occupied_slots, live_slots, added_slots_count, removed_slots_count,
+                             keys_output.valid(), keys_output.ts_schema() != nullptr ? keys_output.modified() : 0,
+                             keys_input.valid(), keys_input.modified());
             }
 
             slot_store.reserve_to(keys_delta.slot_capacity());
 
-            TSOutputView parent_output = node.has_output() ? node.output_view(evaluation_time) : detail::invalid_output_view(evaluation_time);
+            TSOutputView parent_output =
+                node.has_output() ? node.output_view(evaluation_time) : detail::invalid_output_view(evaluation_time);
             std::optional<MapMutationView> parent_output_mutation;
             if (parent_output.ts_schema() != nullptr && parent_output.ts_schema()->kind == TSKind::TSD && parent_output.valid()) {
                 parent_output_mutation.emplace(parent_output.value().as_map().begin_mutation(evaluation_time));
@@ -4464,7 +4183,9 @@ namespace hgraph
             sul::dynamic_bitset<> added_slots(keys_delta.slot_capacity());
             if (keys_modified) {
                 for (size_t slot = 0; slot < keys_delta.slot_capacity(); ++slot) {
-                    if (!keys_delta.slot_occupied(slot) || !keys_delta.slot_added(slot) || keys_delta.slot_removed(slot)) { continue; }
+                    if (!keys_delta.slot_occupied(slot) || !keys_delta.slot_added(slot) || keys_delta.slot_removed(slot)) {
+                        continue;
+                    }
                     added_slots.set(slot);
                     if (slot_store.has_slot(slot)) {
                         MapSlotRuntime &payload = *slot_store.try_slot(slot);
@@ -4495,8 +4216,7 @@ namespace hgraph
                 // Sync stale slots: when the input was rebound (keys_modified but
                 // the underlying delta only has incremental changes), add live keys
                 // from the map that aren't yet in the slot_store.
-                if (keys_value.has_value() && keys_value.schema() != nullptr &&
-                    keys_value.schema()->kind == value::TypeKind::Map) {
+                if (keys_value.has_value() && keys_value.schema() != nullptr && keys_value.schema()->kind == value::TypeKind::Map) {
                     const auto map = keys_value.as_map();
                     for (const View &key : keys_value.as_set().values()) {
                         const size_t slot = map.find_slot(key);
@@ -4529,64 +4249,54 @@ namespace hgraph
             std::vector<size_t> changed_output_slots;
             for (size_t slot = 0; slot < keys_delta.slot_capacity(); ++slot) {
                 if (!keys_delta.slot_occupied(slot) || keys_delta.slot_removed(slot)) { continue; }
-	                MapSlotRuntime *payload = slot_store.try_slot(slot);
-	                if (payload == nullptr) { continue; }
+                MapSlotRuntime *payload = slot_store.try_slot(slot);
+                if (payload == nullptr) { continue; }
 
-	                const bool added = added_slots.test(slot);
-	                const bool scheduled_now =
-	                    payload->next_scheduled != MAX_DT && payload->next_scheduled <= evaluation_time;
-	                const bool multiplexed_modified = has_modified_multiplexed_input(node, *payload, evaluation_time);
-                    const bool keyed_rebind_required = !modified_keyed_args.empty();
-	                const bool should_eval =
-	                    added || scheduled_now || !modified_direct_args.empty() || keyed_rebind_required || multiplexed_modified;
+                const bool added                 = added_slots.test(slot);
+                const bool scheduled_now         = payload->next_scheduled != MAX_DT && payload->next_scheduled <= evaluation_time;
+                const bool multiplexed_modified  = has_modified_multiplexed_input(node, *payload, evaluation_time);
+                const bool keyed_rebind_required = !modified_keyed_args.empty();
+                const bool should_eval =
+                    added || scheduled_now || !modified_direct_args.empty() || keyed_rebind_required || multiplexed_modified;
 
                 if (!should_eval) { continue; }
 
-	                ensure_map_slot_started(node, runtime, *payload, evaluation_time);
-	                rebind_map_slot_inputs(node,
-                                           *payload,
-                                           modified_direct_args,
-                                           added || keyed_rebind_required || multiplexed_modified,
-                                           evaluation_time);
-	                payload->child_instance.evaluate(evaluation_time);
+                ensure_map_slot_started(node, runtime, *payload, evaluation_time);
+                rebind_map_slot_inputs(node, *payload, modified_direct_args, added || keyed_rebind_required || multiplexed_modified,
+                                       evaluation_time);
+                payload->child_instance.evaluate(evaluation_time);
                 if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr && payload->child_instance.graph() != nullptr) {
                     Graph &child_graph = *payload->child_instance.graph();
                     for (size_t child_index = 0; child_index < child_graph.entries().size(); ++child_index) {
                         Node &child_node = child_graph.node_at(child_index);
                         if (child_node.has_input() && child_node.input_schema() != nullptr &&
                             child_node.input_schema()->kind == TSKind::TSB) {
-                            TSInputView child_input = child_node.input_view(evaluation_time);
-                            auto input_bundle = child_input.as_bundle();
+                            TSInputView child_input  = child_node.input_view(evaluation_time);
+                            auto        input_bundle = child_input.as_bundle();
                             for (size_t input_slot = 0; input_slot < child_node.input_schema()->field_count(); ++input_slot) {
                                 TSInputView field = input_bundle[input_slot];
                                 std::fprintf(stderr,
-                                             "map_slot_child_input key=%s node=%zu slot=%zu label=%.*s schema_kind=%d valid=%d modified=%d last_modified=%lld active=%d bound=%d\n",
-                                             payload->key.view().to_string().c_str(),
-                                             child_index,
-                                             input_slot,
-                                             static_cast<int>(child_node.label().size()),
-                                             child_node.label().data(),
+                                             "map_slot_child_input key=%s node=%zu slot=%zu label=%.*s schema_kind=%d valid=%d "
+                                             "modified=%d last_modified=%lld active=%d bound=%d\n",
+                                             payload->key.view().to_string().c_str(), child_index, input_slot,
+                                             static_cast<int>(child_node.label().size()), child_node.label().data(),
                                              field.ts_schema() != nullptr ? static_cast<int>(field.ts_schema()->kind) : -1,
-                                             field.valid(),
-                                             field.modified(),
+                                             field.valid(), field.modified(),
                                              field.last_modified_time() == MIN_DT
                                                  ? -1LL
                                                  : static_cast<long long>(field.last_modified_time().time_since_epoch().count()),
-                                             field.active(),
-                                             field.linked_target() != nullptr && field.linked_target()->is_bound());
+                                             field.active(), field.linked_target() != nullptr && field.linked_target()->is_bound());
                             }
                         }
                         if (!child_node.has_output()) { continue; }
                         TSOutputView child_output = child_node.output_view(evaluation_time);
                         std::fprintf(stderr,
-                                     "map_slot_child_output key=%s node=%zu label=%.*s schema_kind=%d valid=%d modified=%d last_modified=%lld\n",
-                                     payload->key.view().to_string().c_str(),
-                                     child_index,
-                                     static_cast<int>(child_node.label().size()),
-                                     child_node.label().data(),
+                                     "map_slot_child_output key=%s node=%zu label=%.*s schema_kind=%d valid=%d modified=%d "
+                                     "last_modified=%lld\n",
+                                     payload->key.view().to_string().c_str(), child_index,
+                                     static_cast<int>(child_node.label().size()), child_node.label().data(),
                                      child_output.ts_schema() != nullptr ? static_cast<int>(child_output.ts_schema()->kind) : -1,
-                                     child_output.valid(),
-                                     child_output.modified(),
+                                     child_output.valid(), child_output.modified(),
                                      child_output.last_modified_time() == MIN_DT
                                          ? -1LL
                                          : static_cast<long long>(child_output.last_modified_time().time_since_epoch().count()));
@@ -4604,15 +4314,11 @@ namespace hgraph
                 publish_map_slot_output_updates(runtime, parent_output, slot_store, changed_output_slots, evaluation_time);
                 if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
                     std::fprintf(stderr,
-                                 "map_node_eval output_specs=%zu slot_capacity=%zu changed_output_slots=%zu keys_modified=%d modified_direct=%zu modified_keyed=%zu parent_valid=%d parent_modified=%d\n",
-                                 runtime.child_template->boundary_plan.outputs.size(),
-                                 keys_delta.slot_capacity(),
-                                 changed_output_slots.size(),
-                                 keys_modified,
-                                 modified_direct_args.size(),
-                                 modified_keyed_args.size(),
-                                 parent_output.valid(),
-                                 parent_output.modified());
+                                 "map_node_eval output_specs=%zu slot_capacity=%zu changed_output_slots=%zu keys_modified=%d "
+                                 "modified_direct=%zu modified_keyed=%zu parent_valid=%d parent_modified=%d\n",
+                                 runtime.child_template->boundary_plan.outputs.size(), keys_delta.slot_capacity(),
+                                 changed_output_slots.size(), keys_modified, modified_direct_args.size(),
+                                 modified_keyed_args.size(), parent_output.valid(), parent_output.modified());
                 }
                 if (keys_modified && !parent_output.modified()) {
                     if (!parent_output.valid()) {
@@ -4652,56 +4358,50 @@ namespace hgraph
 
         void validate_map_contract(const NodeBuilder & /*builder*/) {}
 
-        [[nodiscard]] size_t map_builder_size(const NodeBuilder &builder,
-                                              const std::vector<TSInputConstructionEdge> &inbound_edges)
-        {
+        [[nodiscard]] size_t map_builder_size(const NodeBuilder                          &builder,
+                                              const std::vector<TSInputConstructionEdge> &inbound_edges) {
             const auto builders = resolve_builders(builder, inbound_edges);
             return describe_layout(builder, map_runtime_storage_size(), map_runtime_storage_alignment(), builders).total_size;
         }
 
-        [[nodiscard]] size_t map_builder_alignment(const NodeBuilder &builder,
-                                                   const std::vector<TSInputConstructionEdge> &inbound_edges)
-        {
+        [[nodiscard]] size_t map_builder_alignment(const NodeBuilder                          &builder,
+                                                   const std::vector<TSInputConstructionEdge> &inbound_edges) {
             const auto builders = resolve_builders(builder, inbound_edges);
             return describe_layout(builder, map_runtime_storage_size(), map_runtime_storage_alignment(), builders).alignment;
         }
 
         [[nodiscard]] Node *map_construct_at(const NodeBuilder &builder, void *memory, int64_t node_index,
-                                             const std::vector<TSInputConstructionEdge> &inbound_edges)
-        {
+                                             const std::vector<TSInputConstructionEdge> &inbound_edges) {
             const auto &state = detail::node_builder_type_state<MapNodeBuilderState>(builder);
 
             struct RuntimeLifecycle
             {
                 const ChildGraphTemplate *child_template;
-                std::string key_arg;
-                std::string keys_arg;
-                std::vector<std::string> multiplexed_args;
+                std::string               key_arg;
+                std::string               keys_arg;
+                std::vector<std::string>  multiplexed_args;
 
-                void destroy(void *runtime_data) const
-                {
+                void destroy(void *runtime_data) const {
                     auto *runtime = static_cast<MapNodeRuntimeData *>(runtime_data);
                     if (runtime->slot_store_initialized) { std::destroy_at(&map_slot_store(*runtime)); }
                     std::destroy_at(runtime);
                 }
 
                 void initialise(const NodeBuilder & /*builder*/, void *runtime_data_ptr, Node * /*node*/, TSInput * /*input*/,
-                                TSOutput * /*output*/, TSOutput * /*error_output*/, TSOutput * /*recordable_state*/) const
-                {
+                                TSOutput * /*output*/, TSOutput * /*error_output*/, TSOutput * /*recordable_state*/) const {
                     auto &runtime = *static_cast<MapNodeRuntimeData *>(runtime_data_ptr);
                     new (&map_slot_store(runtime)) MapSlotStore{};
                     runtime.slot_store_initialized = true;
-                    runtime.child_template = child_template;
-                    runtime.key_arg = key_arg;
-                    runtime.keys_arg = keys_arg;
-                    runtime.multiplexed_args = multiplexed_args;
+                    runtime.child_template         = child_template;
+                    runtime.key_arg                = key_arg;
+                    runtime.keys_arg               = keys_arg;
+                    runtime.multiplexed_args       = multiplexed_args;
                 }
             };
 
             return construct_node_chunk<MapNodeBuilderState>(
                 builder, memory, node_index, inbound_edges, &k_map_runtime_ops, nullptr, &destruct_map_node,
-                map_runtime_storage_size(),
-                map_runtime_storage_alignment(),
+                map_runtime_storage_size(), map_runtime_storage_alignment(),
                 [](void *storage, const ResolvedNodeBuilders &, TSInput *input, TSOutput *output, TSOutput *error_output,
                    void * /*state_memory*/, TSOutput *recordable_state) -> void * {
                     return new (storage) MapNodeRuntimeData{input, output, error_output, recordable_state, nullptr, {}, {}, {}, 1};
@@ -4732,10 +4432,10 @@ namespace hgraph
           m_python_output_builder(other.m_python_output_builder), m_python_error_builder(other.m_python_error_builder),
           m_python_recordable_state_builder(other.m_python_recordable_state_builder),
           m_implementation_name(other.m_implementation_name), m_public_node_index(other.m_public_node_index),
-          m_requires_resolved_schemas(other.m_requires_resolved_schemas),
-          m_type_ops(other.m_type_ops), m_type_state(other.m_type_state != nullptr && other.m_type_ops != nullptr
-                                                         ? other.m_type_ops->clone_state(other.m_type_state)
-                                                         : nullptr) {}
+          m_requires_resolved_schemas(other.m_requires_resolved_schemas), m_type_ops(other.m_type_ops),
+          m_type_state(other.m_type_state != nullptr && other.m_type_ops != nullptr
+                           ? other.m_type_ops->clone_state(other.m_type_state)
+                           : nullptr) {}
 
     NodeBuilder::NodeBuilder(NodeBuilder &&other) noexcept
         : m_label(std::move(other.m_label)), m_node_type(other.m_node_type),
@@ -4744,9 +4444,8 @@ namespace hgraph
           m_has_state(other.m_has_state), m_state_schema(other.m_state_schema),
           m_has_recordable_state(other.m_has_recordable_state), m_recordable_state_schema(other.m_recordable_state_schema),
           m_uses_scheduler(other.m_uses_scheduler), m_has_explicit_scheduler(other.m_has_explicit_scheduler),
-          m_active_inputs(std::move(other.m_active_inputs)),
-          m_valid_inputs(std::move(other.m_valid_inputs)), m_all_valid_inputs(std::move(other.m_all_valid_inputs)),
-          m_has_explicit_active_inputs(other.m_has_explicit_active_inputs),
+          m_active_inputs(std::move(other.m_active_inputs)), m_valid_inputs(std::move(other.m_valid_inputs)),
+          m_all_valid_inputs(std::move(other.m_all_valid_inputs)), m_has_explicit_active_inputs(other.m_has_explicit_active_inputs),
           m_has_explicit_valid_inputs(other.m_has_explicit_valid_inputs),
           m_has_explicit_all_valid_inputs(other.m_has_explicit_all_valid_inputs),
           m_python_signature(std::move(other.m_python_signature)), m_python_scalars(std::move(other.m_python_scalars)),
@@ -4871,9 +4570,9 @@ namespace hgraph
             &destroy_builder_state<NestedNodeBuilderState>,
         };
         builder.reset_type_state();
-        builder.m_type_ops       = &nested_ops;
-        builder.m_type_state     = make_builder_state(NestedNodeBuilderState{child_template});
-        builder.m_uses_scheduler = true;
+        builder.m_type_ops               = &nested_ops;
+        builder.m_type_state             = make_builder_state(NestedNodeBuilderState{child_template});
+        builder.m_uses_scheduler         = true;
         builder.m_has_explicit_scheduler = true;
         return builder;
     }
@@ -4892,18 +4591,15 @@ namespace hgraph
             &destroy_builder_state<NestedNodeBuilderState>,
         };
         builder.reset_type_state();
-        builder.m_type_ops       = &try_except_ops;
-        builder.m_type_state     = make_builder_state(NestedNodeBuilderState{child_template});
-        builder.m_uses_scheduler = true;
+        builder.m_type_ops               = &try_except_ops;
+        builder.m_type_state             = make_builder_state(NestedNodeBuilderState{child_template});
+        builder.m_uses_scheduler         = true;
         builder.m_has_explicit_scheduler = true;
         return builder;
     }
 
-    NodeBuilder &map_graph_implementation(NodeBuilder &builder,
-                                          const ChildGraphTemplate *child_template,
-                                          std::string key_arg,
-                                          std::string keys_arg,
-                                          std::vector<std::string> multiplexed_args) {
+    NodeBuilder &map_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template, std::string key_arg,
+                                          std::string keys_arg, std::vector<std::string> multiplexed_args) {
         if (child_template == nullptr) {
             throw std::invalid_argument("map_graph_implementation requires a non-null child template");
         }
@@ -4917,16 +4613,15 @@ namespace hgraph
             &destroy_builder_state<MapNodeBuilderState>,
         };
         builder.reset_type_state();
-        builder.m_type_ops = &map_ops;
-        builder.m_type_state =
-            make_builder_state(MapNodeBuilderState{child_template, std::move(key_arg), std::move(keys_arg), std::move(multiplexed_args)});
-        builder.m_uses_scheduler = true;
+        builder.m_type_ops   = &map_ops;
+        builder.m_type_state = make_builder_state(
+            MapNodeBuilderState{child_template, std::move(key_arg), std::move(keys_arg), std::move(multiplexed_args)});
+        builder.m_uses_scheduler         = true;
         builder.m_has_explicit_scheduler = true;
         return builder;
     }
 
-    NodeBuilder &reduce_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template)
-    {
+    NodeBuilder &reduce_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template) {
         if (child_template == nullptr) {
             throw std::invalid_argument("reduce_graph_implementation requires a non-null child template");
         }
@@ -4940,15 +4635,14 @@ namespace hgraph
             &destroy_builder_state<ReduceNodeBuilderState>,
         };
         builder.reset_type_state();
-        builder.m_type_ops = &reduce_ops;
-        builder.m_type_state = make_builder_state(ReduceNodeBuilderState{child_template});
-        builder.m_uses_scheduler = true;
+        builder.m_type_ops               = &reduce_ops;
+        builder.m_type_state             = make_builder_state(ReduceNodeBuilderState{child_template});
+        builder.m_uses_scheduler         = true;
         builder.m_has_explicit_scheduler = true;
         return builder;
     }
 
-    NodeBuilder &non_associative_reduce_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template)
-    {
+    NodeBuilder &non_associative_reduce_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template) {
         if (child_template == nullptr) {
             throw std::invalid_argument("non_associative_reduce_graph_implementation requires a non-null child template");
         }
@@ -4962,20 +4656,16 @@ namespace hgraph
             &destroy_builder_state<NonAssociativeReduceNodeBuilderState>,
         };
         builder.reset_type_state();
-        builder.m_type_ops = &non_associative_reduce_ops;
-        builder.m_type_state = make_builder_state(NonAssociativeReduceNodeBuilderState{child_template});
-        builder.m_uses_scheduler = true;
+        builder.m_type_ops               = &non_associative_reduce_ops;
+        builder.m_type_state             = make_builder_state(NonAssociativeReduceNodeBuilderState{child_template});
+        builder.m_uses_scheduler         = true;
         builder.m_has_explicit_scheduler = true;
         return builder;
     }
 
-    NodeBuilder &switch_graph_implementation(NodeBuilder &builder,
-                                             std::vector<SwitchBranchTemplate> branches,
-                                             bool reload_on_ticked)
-    {
-        if (branches.empty()) {
-            throw std::invalid_argument("switch_graph_implementation requires at least one branch template");
-        }
+    NodeBuilder &switch_graph_implementation(NodeBuilder &builder, std::vector<SwitchBranchTemplate> branches,
+                                             bool reload_on_ticked) {
+        if (branches.empty()) { throw std::invalid_argument("switch_graph_implementation requires at least one branch template"); }
         for (const auto &branch : branches) {
             if (branch.child_template == nullptr) {
                 throw std::invalid_argument("switch_graph_implementation requires non-null branch templates");
@@ -4992,9 +4682,9 @@ namespace hgraph
             &destroy_builder_state<SwitchNodeBuilderState>,
         };
         builder.reset_type_state();
-        builder.m_type_ops = &switch_ops;
-        builder.m_type_state = make_builder_state(SwitchNodeBuilderState{std::move(branches), reload_on_ticked});
-        builder.m_uses_scheduler = true;
+        builder.m_type_ops               = &switch_ops;
+        builder.m_type_state             = make_builder_state(SwitchNodeBuilderState{std::move(branches), reload_on_ticked});
+        builder.m_uses_scheduler         = true;
         builder.m_has_explicit_scheduler = true;
         return builder;
     }
@@ -5147,7 +4837,7 @@ namespace hgraph
     }
 
     NodeBuilder &NodeBuilder::uses_scheduler(bool value) noexcept {
-        m_uses_scheduler = value;
+        m_uses_scheduler         = value;
         m_has_explicit_scheduler = true;
         return *this;
     }

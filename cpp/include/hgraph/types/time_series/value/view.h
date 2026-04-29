@@ -247,15 +247,16 @@ namespace hgraph
              * pointer.
              */
             [[nodiscard]] virtual MutationTracking      tracking() const noexcept                                         = 0;
-            [[nodiscard]] virtual size_t                hash(const void *data) const                                     = 0;
-            [[nodiscard]] virtual std::string           to_string(const void *data) const                                = 0;
-            [[nodiscard]] virtual std::partial_ordering compare(const void *lhs, const void *rhs) const                  = 0;
-            [[nodiscard]] virtual nb::object            to_python(const void *data, const value::TypeMeta *schema) const = 0;
-            virtual void from_python(void *dst, const nb::object &src, const value::TypeMeta *schema) const              = 0;
-            virtual void assign(void *dst, const void *src) const                                                        = 0;
-            virtual void copy_from(void *dst, const View &src) const                                                    = 0;
-            virtual void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const               = 0;
-            virtual void move_from_cpp(void *dst, void *src, const value::TypeMeta *src_schema) const                    = 0;
+            [[nodiscard]] virtual size_t                hash(const void *data) const                                      = 0;
+            [[nodiscard]] virtual std::string           to_string(const void *data) const                                 = 0;
+            [[nodiscard]] virtual std::partial_ordering compare(const void *lhs, const void *rhs) const                   = 0;
+            [[nodiscard]] virtual nb::object            to_python(const void *data, const value::TypeMeta *schema) const  = 0;
+            virtual void               from_python(void *dst, const nb::object &src, const value::TypeMeta *schema) const = 0;
+            virtual void               assign(void *dst, const void *src) const                                           = 0;
+            virtual void               copy_from(void *dst, const View &src) const                                        = 0;
+            [[nodiscard]] virtual bool try_copy_from(void *dst, const View &src) const;
+            virtual void               set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const = 0;
+            virtual void               move_from_cpp(void *dst, void *src, const value::TypeMeta *src_schema) const      = 0;
 
           protected:
             ~ViewDispatch() = default;
@@ -399,10 +400,9 @@ namespace hgraph
          * This preserves the represented schema and copies the current payload
          * when the view is valid.
          */
-        [[nodiscard]] Value clone(MutationTracking tracking) const;
-        [[nodiscard]] Value clone() const;
-        [[nodiscard]] MutationTracking tracking() const noexcept
-        {
+        [[nodiscard]] Value            clone(MutationTracking tracking) const;
+        [[nodiscard]] Value            clone() const;
+        [[nodiscard]] MutationTracking tracking() const noexcept {
             return context.dispatch != nullptr ? context.dispatch->tracking() : MutationTracking::Plain;
         }
 
@@ -413,6 +413,15 @@ namespace hgraph
          * copies payload state only; it does not rebind either view.
          */
         void copy_from(const View &other);
+
+        /**
+         * Try to copy a payload using value-layer native compatibility rules.
+         *
+         * Exact schema matches use the normal payload copy. Compatible schema
+         * conversions, such as numeric scalar widening, are owned by the value
+         * dispatch for this view's target schema.
+         */
+        [[nodiscard]] bool try_copy_from(const View &other);
 
         template <typename T> [[nodiscard]] T       *try_as() noexcept;
         template <typename T> [[nodiscard]] const T *try_as() const noexcept;
