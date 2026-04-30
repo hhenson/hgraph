@@ -239,7 +239,7 @@ jobs:
           echo "Collected distributions:" && ls -la to_upload || true
 
       - name: Publish to PyPI (trusted publishing)
-        uses: pypa/gh-action-pypi-publish@v1.13.0
+        uses: pypa/gh-action-pypi-publish@v1.14.0
         with:
           packages-dir: to_upload
           skip-existing: true
