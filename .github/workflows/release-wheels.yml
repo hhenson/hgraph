@@ -26,12 +26,12 @@ jobs:
           echo "publish_testpypi=${{ inputs.publish_testpypi }}"
 
       - name: Setup uv (Python 3.12 ABI3 baseline)
-        uses: astral-sh/setup-uv@v8.0.0
+        uses: astral-sh/setup-uv@v8.1.0
         with:
           python-version: '3.12'
 
       - name: Cache uv/pip
-        uses: actions/cache@v5.0.4
+        uses: actions/cache@v5.0.5
         with:
           path: |
             ~/.cache/uv
@@ -189,7 +189,7 @@ jobs:
           }
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: release-wheels-${{ runner.os }}
           path: wheelhouse/**
@@ -198,7 +198,7 @@ jobs:
 
       - name: Upload sdist (Linux only)
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: release-sdist
           path: dist/*.tar.gz
@@ -239,7 +239,7 @@ jobs:
           echo "Collected distributions:" && ls -la to_upload || true
 
       - name: Publish to PyPI (trusted publishing)
-        uses: pypa/gh-action-pypi-publish@v1.13.0
+        uses: pypa/gh-action-pypi-publish@v1.14.0
         with:
           packages-dir: to_upload
           skip-existing: true

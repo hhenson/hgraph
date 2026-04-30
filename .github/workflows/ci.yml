@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Restore uv/pip caches
-        uses: actions/cache@v5.0.4
+        uses: actions/cache@v5.0.5
         with:
           path: |
             ~/.cache/uv
@@ -29,7 +29,7 @@ jobs:
             ${{ runner.os }}-uvpip-
 
       # Build the ABI3 wheel against the 3.12 stable ABI baseline.
-      - uses: astral-sh/setup-uv@v8.0.0
+      - uses: astral-sh/setup-uv@v8.1.0
         with:
           python-version: '3.12'
 
@@ -70,7 +70,7 @@ jobs:
           ls -la dist || true
 
       - name: Upload built wheels (all OS)
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: wheels-${{ runner.os }}
           path: dist/**
@@ -99,7 +99,7 @@ jobs:
 
       - name: Upload repaired Linux wheels (manylinux)
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: wheels-linux-manylinux
           path: wheelhouse/**
@@ -243,7 +243,7 @@ jobs:
 
       - name: Upload core dumps (Linux only)
         if: failure() && runner.os == 'Linux'
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: linux-core-dumps
           path: |
