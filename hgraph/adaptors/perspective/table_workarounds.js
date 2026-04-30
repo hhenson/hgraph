@@ -1710,7 +1710,7 @@ function createButtonAction(td, action, metadata, model, viewer) {
             if (row) {
                 switch (action.action.type) {
                     case 'url':
-                        const url = action.action.url.replace(FORMAT_REGEX, (match, p1) => row[p1]);
+                        const url = action.action.url.replace(FORMAT_REGEX, (match, p1) => p1 === '$random' ? `${Math.round(Math.random() * 1_000_000_000)}` : row[p1]);
                         btn.disabled = true;
                         btn.style.cursor = "progress";
                         console.server(`Action: ${btn.innerText}, Fetching URL: ${url} at time ${new Date().toISOString()}`);

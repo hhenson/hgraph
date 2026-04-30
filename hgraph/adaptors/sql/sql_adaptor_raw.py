@@ -144,12 +144,12 @@ def sql_write_adaptor_raw_impl(
             # TODO - support Snowflake writing
             with connection.connection.connect() as query_connection:
                 autocommit_connection = query_connection.execution_options(autocommit=True)
-                logger.info(f"writing {data.height} rows to table {table} on {connection.connection.url}")
+                logger.info(f"query {id} writing {data.height} rows to table {table} on {connection.connection.url}")
 
                 start = time.perf_counter_ns()
                 rows = data.write_database(table, connection=autocommit_connection, if_table_exists=mode.value)
                 period = (time.perf_counter_ns() - start) / 1_000_000_000
-                logger.info(f"finished writing {rows} rows to table {table} in {period}s")
+                logger.info(f"query {id} finished writing {rows} rows to table {table} in {period}s")
                 tick = {
                     id: {
                         "status": StreamStatus.OK,
@@ -162,7 +162,7 @@ def sql_write_adaptor_raw_impl(
         except Exception as e:
             error = {id: {"status": StreamStatus.ERROR, "status_msg": str(e)}}
             period = ((time.perf_counter_ns() - start) / 1_000_000_000) if start else "0"
-            logger.exception(f"writing to table {table} failed after {period}s with {str(e)}")
+            logger.exception(f"query {id} writing to table {table} failed after {period}s with {str(e)}")
             queue(error)
 
     @sink_node
