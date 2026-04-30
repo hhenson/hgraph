@@ -15,10 +15,13 @@ namespace hgraph::detail
      */
     struct HGRAPH_EXPORT SlotObserver
     {
-        virtual ~SlotObserver() = default;
+        SlotObserver() = default;
+        SlotObserver(const SlotObserver &)            = delete;
+        SlotObserver &operator=(const SlotObserver &) = delete;
+        virtual ~SlotObserver()                       = default;
 
         virtual void on_capacity(size_t old_capacity, size_t new_capacity) = 0;
-        virtual void on_insert(size_t slot) = 0;
+        virtual void on_insert(size_t slot)                                = 0;
         /**
          * A previously live slot became logically removed.
          *
@@ -35,6 +38,6 @@ namespace hgraph::detail
          * payloads or per-slot state for @p slot still exist.
          */
         virtual void on_erase(size_t slot) = 0;
-        virtual void on_clear() = 0;
+        virtual void on_clear()            = 0;
     };
 }  // namespace hgraph::detail

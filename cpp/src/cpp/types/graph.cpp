@@ -220,7 +220,7 @@ namespace hgraph
     void Graph::stop_nodes(size_t nodes_end) {
         m_evaluation_engine.notify_before_stop_graph(*this);
         FirstExceptionRecorder exceptions;
-        for (size_t i = 0; i < nodes_end; ++i) {
+        for (size_t i = nodes_end; i-- > 0;) {
             auto      &node        = *entry_storage()[i].node;
             const bool was_started = node.started();
             exceptions.capture([&] {

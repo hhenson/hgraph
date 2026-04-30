@@ -37,6 +37,8 @@ namespace hgraph
     struct TSContext;
     struct TSViewContext;
     using LinkedTSContext = TSContext;
+    struct TargetLinkInvalidator;
+    struct StateInvalidator;
 
     namespace detail
     {
@@ -47,28 +49,25 @@ namespace hgraph
 
         struct LinkTransitionSnapshot
         {
-            const Value *previous_value{nullptr};
+            const Value  *previous_value{nullptr};
             engine_time_t modified_time{MIN_DT};
 
-            [[nodiscard]] bool active() const noexcept
-            {
-                return previous_value != nullptr && modified_time != MIN_DT;
-            }
+            [[nodiscard]] bool active() const noexcept { return previous_value != nullptr && modified_time != MIN_DT; }
         };
 
-        [[nodiscard]] HGRAPH_EXPORT bool has_local_reference_binding(const TSViewContext &context) noexcept;
-        [[nodiscard]] HGRAPH_EXPORT bool linked_context_valid(const LinkedTSContext &context) noexcept;
-        [[nodiscard]] HGRAPH_EXPORT bool linked_context_all_valid(const LinkedTSContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT bool            has_local_reference_binding(const TSViewContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT bool            linked_context_valid(const LinkedTSContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT bool            linked_context_all_valid(const LinkedTSContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT LinkedTSContext dereferenced_target_from_source(const LinkedTSContext &source) noexcept;
-        [[nodiscard]] HGRAPH_EXPORT const Value *materialized_target_link_value(const TSViewContext &context) noexcept;
-        [[nodiscard]] HGRAPH_EXPORT const Value *materialized_reference_value(const TSViewContext &context) noexcept;
-        [[nodiscard]] HGRAPH_EXPORT bool reference_all_valid(const TSViewContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT const Value    *materialized_target_link_value(const TSViewContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT const Value    *materialized_reference_value(const TSViewContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT bool            reference_all_valid(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT bool linked_context_equal(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept;
         [[nodiscard]] HGRAPH_EXPORT LinkTransitionSnapshot transition_snapshot(const TSViewContext &context) noexcept;
-        [[nodiscard]] HGRAPH_EXPORT TSViewContext refresh_native_context(const TSViewContext &context) noexcept;
-        [[nodiscard]] HGRAPH_EXPORT Value snapshot_target_value(const LinkedTSContext &target,
-                                                               engine_time_t modified_time = MIN_DT);
-        [[nodiscard]] HGRAPH_EXPORT Value empty_target_value(const LinkedTSContext &target);
+        [[nodiscard]] HGRAPH_EXPORT TSViewContext          refresh_native_context(const TSViewContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT Value                  snapshot_target_value(const LinkedTSContext &target,
+                                                                                 engine_time_t          modified_time = MIN_DT);
+        [[nodiscard]] HGRAPH_EXPORT Value                  empty_target_value(const LinkedTSContext &target);
     }  // namespace detail
 
     struct HGRAPH_EXPORT PendingDictChildContext
@@ -83,10 +82,8 @@ namespace hgraph
         BaseState                     *parent_notification_state{nullptr};
         Value                          key{};
 
-        [[nodiscard]] bool active() const noexcept
-        {
-            return parent_schema != nullptr && parent_value_dispatch != nullptr && parent_ts_dispatch != nullptr &&
-                   key.has_value();
+        [[nodiscard]] bool active() const noexcept {
+            return parent_schema != nullptr && parent_value_dispatch != nullptr && parent_ts_dispatch != nullptr && key.has_value();
         }
     };
 
@@ -94,9 +91,8 @@ namespace hgraph
      * Value variant covering the concrete time-series state structs currently
      * used in the struct model.
      */
-    using TimeSeriesStateV =
-        std::variant<TSState, TSLState, TSDState, TSBState, TSSState, TSWState, OutputLinkState, TargetLinkState, RefLinkState,
-                     SignalState>;
+    using TimeSeriesStateV = std::variant<TSState, TSLState, TSDState, TSBState, TSSState, TSWState, OutputLinkState,
+                                          TargetLinkState, RefLinkState, SignalState>;
 
     /**
      * Pointer variant covering all concrete time-series state types.
@@ -118,8 +114,7 @@ namespace hgraph
      * describes how that logical position is backed at runtime so views can
      * distinguish native storage from link-backed storage.
      */
-    enum class TSStorageKind : uint8_t
-    {
+    enum class TSStorageKind : uint8_t {
         Native,
         OutputLink,
         TargetLink,
@@ -137,6 +132,29 @@ namespace hgraph
     // invalidator is told to flip its owning ref to EMPTY so dangling
     // LinkedTSContexts can never be dereferenced.
     struct ReferenceInvalidator;
+
+    // Reverse-subscription token for target-linked inputs. A TargetLinkState
+    // stores a borrowed LinkedTSContext, so the target BaseState must clear
+    // that binding before its storage is reclaimed.
+    struct HGRAPH_EXPORT TargetLinkInvalidator
+    {
+        TargetLinkState *owner{nullptr};
+        bool             target_destroyed{false};
+    };
+
+    HGRAPH_EXPORT void invalidate_target_link(TargetLinkInvalidator &invalidator) noexcept;
+
+    // Generic reverse-lifetime callback for runtime structures that cache a
+    // borrowed BaseState pointer but are not themselves TimeSeriesReferences or
+    // target links.
+    struct HGRAPH_EXPORT StateInvalidator
+    {
+        void *owner{nullptr};
+        void (*invalidate)(void *owner) noexcept{nullptr};
+        bool state_destroyed{false};
+    };
+
+    HGRAPH_EXPORT void invalidate_state(StateInvalidator &invalidator) noexcept;
 
     struct HGRAPH_EXPORT BaseState
     {
@@ -158,11 +176,13 @@ namespace hgraph
         // invalidator here so this state can sever them on destruction. Kept
         // separate from `subscribers` because that set has subtler lifetime
         // contracts (forward notification only) that we don't want to disturb.
-        std::unordered_set<ReferenceInvalidator *> ref_invalidators;
-        std::unique_ptr<TimeSeriesFeatureRegistry> feature_registry;
+        std::unordered_set<ReferenceInvalidator *>  ref_invalidators;
+        std::unordered_set<TargetLinkInvalidator *> target_link_invalidators;
+        std::unordered_set<StateInvalidator *>      state_invalidators;
+        std::unique_ptr<TimeSeriesFeatureRegistry>  feature_registry;
 
-        BaseState() = default;
-        BaseState(const BaseState &) = delete;
+        BaseState()                             = default;
+        BaseState(const BaseState &)            = delete;
         BaseState &operator=(const BaseState &) = delete;
         BaseState(BaseState &&) noexcept;
         BaseState &operator=(BaseState &&) noexcept;
@@ -171,6 +191,10 @@ namespace hgraph
         // Reverse-subscription registration for peered TimeSeriesReferences.
         void register_ref_invalidator(ReferenceInvalidator *invalidator) noexcept;
         void unregister_ref_invalidator(ReferenceInvalidator *invalidator) noexcept;
+        void register_target_link_invalidator(TargetLinkInvalidator *invalidator) noexcept;
+        void unregister_target_link_invalidator(TargetLinkInvalidator *invalidator) noexcept;
+        void register_state_invalidator(StateInvalidator *invalidator) noexcept;
+        void unregister_state_invalidator(StateInvalidator *invalidator) noexcept;
 
         /**
          * Register a subscriber for direct modification notifications from
@@ -189,7 +213,7 @@ namespace hgraph
          *
          * Native storage positions return `nullptr`.
          */
-        [[nodiscard]] LinkedTSContext *linked_target() noexcept;
+        [[nodiscard]] LinkedTSContext       *linked_target() noexcept;
         [[nodiscard]] const LinkedTSContext *linked_target() const noexcept;
 
         /**
@@ -198,7 +222,7 @@ namespace hgraph
          * Native storage resolves to `this`. Link-backed storage resolves to
          * the currently bound target state when bound, otherwise `nullptr`.
          */
-        [[nodiscard]] BaseState *resolved_state() noexcept;
+        [[nodiscard]] BaseState       *resolved_state() noexcept;
         [[nodiscard]] const BaseState *resolved_state() const noexcept;
 
         /**
@@ -282,42 +306,29 @@ namespace hgraph
     {
         constexpr TSContext() noexcept = default;
 
-        constexpr TSContext(const TSMeta *schema_,
-                            const detail::ViewDispatch *value_dispatch_,
-                            const detail::TSDispatch *ts_dispatch_,
-                            void *value_data_,
-                            BaseState *ts_state_,
-                            TSOutput *owning_output_ = nullptr,
-                            const detail::TSOutputViewOps *output_view_ops_ = nullptr,
-                            BaseState *notification_state_ = nullptr,
-                            PendingDictChildContext pending_dict_child_ = {}) noexcept
-            : schema(schema_),
-              value_dispatch(value_dispatch_),
-              ts_dispatch(ts_dispatch_),
-              value_data(value_data_),
-              ts_state(ts_state_),
-              owning_output(owning_output_),
-              output_view_ops(output_view_ops_),
+        constexpr TSContext(const TSMeta *schema_, const detail::ViewDispatch *value_dispatch_,
+                            const detail::TSDispatch *ts_dispatch_, void *value_data_, BaseState *ts_state_,
+                            TSOutput *owning_output_ = nullptr, const detail::TSOutputViewOps *output_view_ops_ = nullptr,
+                            BaseState *notification_state_ = nullptr, PendingDictChildContext pending_dict_child_ = {}) noexcept
+            : schema(schema_), value_dispatch(value_dispatch_), ts_dispatch(ts_dispatch_), value_data(value_data_),
+              ts_state(ts_state_), owning_output(owning_output_), output_view_ops(output_view_ops_),
               notification_state(notification_state_ != nullptr ? notification_state_ : ts_state_),
-              pending_dict_child(std::move(pending_dict_child_))
-        {
-        }
+              pending_dict_child(std::move(pending_dict_child_)) {}
 
         [[nodiscard]] static constexpr TSContext none() noexcept { return {}; }
 
-        [[nodiscard]] bool is_bound() const noexcept
-        {
+        [[nodiscard]] bool is_bound() const noexcept {
             return schema != nullptr && value_dispatch != nullptr && ts_dispatch != nullptr && ts_state != nullptr;
         }
 
         void clear() noexcept { *this = {}; }
 
-        const TSMeta               *schema{nullptr};
-        const detail::ViewDispatch *value_dispatch{nullptr};
-        const detail::TSDispatch   *ts_dispatch{nullptr};
-        void                       *value_data{nullptr};
-        BaseState                  *ts_state{nullptr};
-        TSOutput                   *owning_output{nullptr};
+        const TSMeta                  *schema{nullptr};
+        const detail::ViewDispatch    *value_dispatch{nullptr};
+        const detail::TSDispatch      *ts_dispatch{nullptr};
+        void                          *value_data{nullptr};
+        BaseState                     *ts_state{nullptr};
+        TSOutput                      *owning_output{nullptr};
         const detail::TSOutputViewOps *output_view_ops{nullptr};
         /**
          * Runtime state used for direct notification/subscription wiring.
@@ -326,8 +337,8 @@ namespace hgraph
          * can override it when the navigable view is local but wakeups must
          * follow some upstream source/root instead.
          */
-        BaseState                  *notification_state{nullptr};
-        PendingDictChildContext     pending_dict_child{};
+        BaseState              *notification_state{nullptr};
+        PendingDictChildContext pending_dict_child{};
     };
 
     /**
@@ -346,7 +357,7 @@ namespace hgraph
         BaseCollectionState(BaseCollectionState &&other) noexcept;
         BaseCollectionState &operator=(BaseCollectionState &&other) noexcept;
 
-        BaseCollectionState(const BaseCollectionState &) = delete;
+        BaseCollectionState(const BaseCollectionState &)            = delete;
         BaseCollectionState &operator=(const BaseCollectionState &) = delete;
 
         /**
@@ -412,13 +423,11 @@ namespace hgraph
         TSDState() noexcept;
         TSDState(TSDState &&other) noexcept;
         TSDState &operator=(TSDState &&other) noexcept;
-        TSDState(const TSDState &) = delete;
+        TSDState(const TSDState &)            = delete;
         TSDState &operator=(const TSDState &) = delete;
         ~TSDState();
 
-        void bind_value_storage(const TSMeta &element_schema,
-                                const detail::MapViewDispatch &dispatch,
-                                void *value_data,
+        void bind_value_storage(const TSMeta &element_schema, const detail::MapViewDispatch &dispatch, void *value_data,
                                 bool current_storage_alive = true);
         void child_modified(size_t child_index, engine_time_t modified_time) noexcept;
         void unbind_value_storage() noexcept;
@@ -451,7 +460,7 @@ namespace hgraph
         const detail::MapViewDispatch *map_dispatch{nullptr};
         void                          *map_value_data{nullptr};
         bool                           slot_observer_registered{false};
-        SlotObserverAdapter            slot_observer;
+        SlotObserverAdapter            slot_observer{};
     };
 
     /**
@@ -524,15 +533,15 @@ namespace hgraph
         OutputLinkState(OutputLinkState &&other) noexcept;
         OutputLinkState &operator=(OutputLinkState &&other) noexcept;
 
-        OutputLinkState(const OutputLinkState &) = delete;
+        OutputLinkState(const OutputLinkState &)            = delete;
         OutputLinkState &operator=(const OutputLinkState &) = delete;
 
         void set_target(LinkedTSContext target_state, engine_time_t modified_time = MIN_DT) noexcept;
         void reset_target(engine_time_t modified_time = MIN_DT) noexcept;
 
-        LinkedTSContext target;
-        Value previous_target_value;
-        engine_time_t switch_modified_time{MIN_DT};
+        LinkedTSContext  target;
+        Value            previous_target_value;
+        engine_time_t    switch_modified_time{MIN_DT};
         TargetNotifiable target_notifiable;
 
       private:
@@ -582,7 +591,7 @@ namespace hgraph
         {
             SchedulingNotifier() = default;
 
-            void set_target(Notifiable *target_) noexcept { target = target_; }
+            void                      set_target(Notifiable *target_) noexcept { target = target_; }
             [[nodiscard]] Notifiable *get_target() const noexcept { return target; }
 
             void notify(engine_time_t modified_time) override;
@@ -597,7 +606,7 @@ namespace hgraph
         TargetLinkState(TargetLinkState &&other) noexcept;
         TargetLinkState &operator=(TargetLinkState &&other) noexcept;
 
-        TargetLinkState(const TargetLinkState &) = delete;
+        TargetLinkState(const TargetLinkState &)            = delete;
         TargetLinkState &operator=(const TargetLinkState &) = delete;
 
         /**
@@ -629,31 +638,31 @@ namespace hgraph
          * from the old collection view even after the binding itself has been
          * changed or removed.
          */
-        Value previous_target_value;
+        Value         previous_target_value;
         engine_time_t switch_modified_time{MIN_DT};
         /**
          * Notification identity used to keep the target link state and the
          * non-peered collections above it up to date.
          */
-        TargetLinkStateNotifiable target_notifiable;
+        TargetLinkStateNotifiable              target_notifiable;
+        std::unique_ptr<TargetLinkInvalidator> target_invalidator;
         /**
          * Notification identity used only to schedule the owning node for
          * input branches below this target link.
          */
-        SchedulingNotifier       scheduling_notifier;
+        SchedulingNotifier scheduling_notifier;
 
-        [[nodiscard]] bool is_bound() const noexcept;
+        [[nodiscard]] bool          is_bound() const noexcept;
         [[nodiscard]] engine_time_t last_target_modified_time() const noexcept;
-        [[nodiscard]] bool is_sampled() const noexcept;
+        [[nodiscard]] bool          is_sampled() const noexcept;
 
       private:
         void register_with_target() noexcept;
         void unregister_from_target() noexcept;
     };
 
-    HGRAPH_EXPORT std::unique_ptr<TimeSeriesStateV> make_time_series_state_node(const TSMeta &schema,
-                                                                                 TimeSeriesStateParentPtr parent,
-                                                                                 size_t index);
+    HGRAPH_EXPORT std::unique_ptr<TimeSeriesStateV> make_time_series_state_node(const TSMeta            &schema,
+                                                                                TimeSeriesStateParentPtr parent, size_t index);
 
     /**
      * Storage carried by a reference-linked logical time-series position.
@@ -688,7 +697,7 @@ namespace hgraph
              * reference retargets without needing to mirror the full input
              * path above the boundary.
              */
-            ActiveTrie                         active_trie;
+            ActiveTrie active_trie;
         };
 
         struct RefSourceNotifiable : Notifiable
@@ -715,18 +724,18 @@ namespace hgraph
         RefLinkState(RefLinkState &&other) noexcept;
         RefLinkState &operator=(RefLinkState &&other) noexcept;
 
-        RefLinkState(const RefLinkState &) = delete;
+        RefLinkState(const RefLinkState &)            = delete;
         RefLinkState &operator=(const RefLinkState &) = delete;
 
         void set_source(LinkedTSContext source_state) noexcept;
         void reset_source() noexcept;
 
-        [[nodiscard]] engine_time_t last_target_modified_time() const;
-        [[nodiscard]] bool          is_sampled() const;
-        LinkedTSContext             source;  // Bound REF source slot.
-        RefSourceNotifiable         source_notifiable;
+        [[nodiscard]] engine_time_t  last_target_modified_time() const;
+        [[nodiscard]] bool           is_sampled() const;
+        LinkedTSContext              source;  // Bound REF source slot.
+        RefSourceNotifiable          source_notifiable;
         DereferencedTargetNotifiable target_notifiable;
-        TargetLinkState             bound_link;  // Current dereferenced target.
+        TargetLinkState              bound_link;  // Current dereferenced target.
         /**
          * Whether ref-target switches should retain a previous-target snapshot.
          *
@@ -734,9 +743,9 @@ namespace hgraph
          * bridge-only ref links used by alternative replay can disable it when
          * they already resync structurally and never consume the snapshot.
          */
-        bool                        retain_transition_value{true};
-        Value                       previous_target_value;
-        engine_time_t               switch_modified_time{MIN_DT};
+        bool          retain_transition_value{true};
+        Value         previous_target_value;
+        engine_time_t switch_modified_time{MIN_DT};
         /**
          * Boundary-local attachment state keyed by the upstream notifier to
          * forward to.
@@ -744,7 +753,7 @@ namespace hgraph
         std::unordered_map<Notifiable *, BoundaryAttachment> boundary_attachments;
 
         [[nodiscard]] BoundaryAttachment &attachment_for(Notifiable *upstream_notifier) noexcept;
-        [[nodiscard]] BaseState *current_target_root_state() const noexcept;
+        [[nodiscard]] BaseState          *current_target_root_state() const noexcept;
 
       private:
         void register_with_source() noexcept;

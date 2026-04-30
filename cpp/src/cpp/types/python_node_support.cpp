@@ -448,6 +448,7 @@ namespace hgraph
             [[nodiscard]] bool modified() const {
                 if (has_live_bound_output()) {
                     TSOutputView view = output_view();
+                    if (is_list()) { return list_has_valid_modified_child(view) || sampled_this_tick(view.context_ref(), evaluation_time()); }
                     return view.modified() || sampled_this_tick(view.context_ref(), evaluation_time());
                 }
                 if (has_detached_bound_value()) {
@@ -458,10 +459,14 @@ namespace hgraph
                 const bool modified = [this]() {
                     if (m_input != nullptr) {
                         TSInputView view = input_view();
+                        if (is_list()) {
+                            return list_has_valid_modified_child(view) || sampled_this_tick(view.context_ref(), evaluation_time());
+                        }
                         return view.modified() || sampled_this_tick(view.context_ref(), evaluation_time());
                     }
 
                     TSOutputView view = output_view();
+                    if (is_list()) { return list_has_valid_modified_child(view) || sampled_this_tick(view.context_ref(), evaluation_time()); }
                     return view.modified() || sampled_this_tick(view.context_ref(), evaluation_time());
                 }();
                 return modified;
@@ -1335,6 +1340,13 @@ namespace hgraph
                     context.output_view_ops, context.notification_state, context.pending_dict_child,
                 };
                 return PythonTimeSeriesHandle{linked, evaluation_time()};
+            }
+
+            template <typename TView> [[nodiscard]] bool list_has_valid_modified_child(TView view) const {
+                for (auto child : view.as_list().modified_values()) {
+                    if (child.valid()) { return true; }
+                }
+                return false;
             }
 
             static void set_local_reference_value(const TSInputView &view, const TimeSeriesReference &value) {

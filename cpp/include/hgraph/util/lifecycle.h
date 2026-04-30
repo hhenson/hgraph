@@ -62,7 +62,7 @@ namespace hgraph {
      *   evaluation, and should also delegate the call to any components managed by this component.
      *
      * * The stop method is called once normal operation of the code is expected to cease. This can be used to stop threads
-     *   or perform any state clean-up required.
+     *   or perform any state clean-up required. In a graph context, node stop is called in reverse topological sort order.
      *
      * * The dispose method is called once the component is no longer required and in a graph context will be called in
      *   reverse topological sort order.

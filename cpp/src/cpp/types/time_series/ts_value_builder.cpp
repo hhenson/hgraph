@@ -147,6 +147,7 @@ namespace hgraph
             state.map_dispatch             = nullptr;
             state.map_value_data           = nullptr;
             state.slot_observer_registered = false;
+            state.slot_observer.owner      = &state;
         }
 
         void initialize_ref_state(RefLinkState &state, TimeSeriesStateParentPtr parent, size_t index,
@@ -255,6 +256,18 @@ namespace hgraph
             BaseState *local_state = state_address(slot);
             if (local_state != nullptr) {
                 if (const LinkedTSContext *target = local_state->linked_target(); target != nullptr) {
+                    if (schema.kind == TSKind::TSD && native_value_data != nullptr) {
+                        return TSViewContext{TSContext{
+                            &schema,
+                            &value_dispatch,
+                            &ts_dispatch,
+                            native_value_data,
+                            local_state,
+                            parent_context.owning_output,
+                            parent_context.output_view_ops,
+                            local_state,
+                        }};
+                    }
                     return linked_child_context(*target, local_state, schema, value_dispatch, ts_dispatch, parent_context);
                 }
             }
@@ -2277,7 +2290,7 @@ namespace hgraph
         other.map_dispatch             = nullptr;
         other.map_value_data           = nullptr;
         other.slot_observer_registered = false;
-        other.slot_observer.owner      = &other;
+        other.slot_observer.owner      = nullptr;
     }
 
     TSDState &TSDState::operator=(TSDState &&other) noexcept {
@@ -2302,7 +2315,7 @@ namespace hgraph
         other.map_dispatch             = nullptr;
         other.map_value_data           = nullptr;
         other.slot_observer_registered = false;
-        other.slot_observer.owner      = &other;
+        other.slot_observer.owner      = nullptr;
         return *this;
     }
 
@@ -2338,9 +2351,10 @@ namespace hgraph
         } else {
             detach_value_storage();
         }
-        element_schema = &element_schema_;
-        map_dispatch   = &dispatch;
-        map_value_data = value_data;
+        element_schema      = &element_schema_;
+        map_dispatch        = &dispatch;
+        map_value_data      = value_data;
+        slot_observer.owner = this;
         map_dispatch->add_slot_observer(map_value_data, &slot_observer);
         slot_observer_registered = true;
         sync_with_value_storage();
@@ -2359,6 +2373,7 @@ namespace hgraph
         element_schema           = nullptr;
         map_dispatch             = nullptr;
         map_value_data           = nullptr;
+        slot_observer.owner      = nullptr;
     }
 
     void TSDState::sync_with_value_storage() {

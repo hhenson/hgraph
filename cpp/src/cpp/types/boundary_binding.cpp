@@ -2,6 +2,7 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/path_constants.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/active_trie.h>
 
 #include <fmt/format.h>
 
@@ -169,16 +170,56 @@ namespace hgraph
             link_state.switch_modified_time  = MIN_DT;
         }
 
+        void clear_active_subtree(ActiveTrieNode &node) noexcept {
+            node.locally_active = false;
+            node.children.clear();
+            node.pending.clear();
+            node.slot_key.reset();
+        }
+
+        void unsubscribe_active_subtree(TSViewContext context, ActiveTrieNode *node, Notifiable *notifier) noexcept {
+            if (node == nullptr || notifier == nullptr) { return; }
+
+            TSViewContext resolved = context.resolved();
+            BaseState    *state    = context.ts_state != nullptr ? context.ts_state : resolved.ts_state;
+            if (node->locally_active && state != nullptr) { state->unsubscribe(notifier); }
+
+            const auto *collection = resolved.ts_dispatch != nullptr ? resolved.ts_dispatch->as_collection() : nullptr;
+            if (collection == nullptr) { return; }
+
+            if (collection->as_keys() != nullptr) {
+                BaseState *resolved_state = resolved.ts_state != nullptr ? resolved.ts_state->resolved_state() : nullptr;
+                if (resolved_state != nullptr && resolved_state->storage_kind == TSStorageKind::Native) {
+                    static_cast<TSDState *>(resolved_state)->active_tries.erase(notifier);
+                }
+            }
+
+            for (const auto &[slot, child_node] : node->children) {
+                if (!child_node) { continue; }
+
+                TSViewContext child = collection->child_at(resolved, slot);
+                if (!child.is_bound()) { child = collection->child_at(context, slot); }
+                if (!child.is_bound()) { continue; }
+
+                Notifiable *child_notifier = child.ts_state != nullptr ? child.ts_state->boundary_notifier(notifier) : notifier;
+                unsubscribe_active_subtree(child, child_node.get(), child_notifier);
+            }
+        }
+
         void detach_input_for_stop(TSInputView view) noexcept {
             TSViewContext &context = view.context_mutable();
             BaseState     *state   = context.ts_state;
 
+            ActiveTriePosition &active_pos = view.active_position_mutable();
+            ActiveTrieNode     *active_node =
+                active_pos.node != nullptr ? active_pos.node : (active_pos.trie != nullptr ? active_pos.trie->root_node() : nullptr);
+
+            unsubscribe_active_subtree(context, active_node, view.scheduling_notifier());
             if (state != nullptr && view.scheduling_notifier() != nullptr) { state->unsubscribe(view.scheduling_notifier()); }
 
-            ActiveTriePosition &active_pos = view.active_position_mutable();
-            if (active_pos.node != nullptr) {
-                active_pos.node->locally_active = false;
-                if (!active_pos.node->has_any_active() && active_pos.trie != nullptr) { active_pos.trie->try_prune_root(); }
+            if (active_node != nullptr) {
+                clear_active_subtree(*active_node);
+                if (active_pos.trie != nullptr) { active_pos.trie->try_prune_root(); }
                 active_pos.node = nullptr;
             }
 
@@ -212,6 +253,48 @@ namespace hgraph
             }
 
             state->last_modified_time = MIN_DT;
+        }
+
+        void restore_blank_input_without_transition(TSInputView view) {
+            if (!view.valid() && !input_is_bound(view) && !view.active()) { return; }
+
+            if (view.active()) { view.make_passive(); }
+
+            TSViewContext &context = view.context_mutable();
+            BaseState     *state   = context.ts_state;
+            if (state == nullptr) { return; }
+
+            clear_target_link_history(state);
+
+            if (context.schema != nullptr && context.schema->kind == TSKind::REF && context.schema->value_type != nullptr &&
+                context.value_dispatch != nullptr && context.value_data != nullptr) {
+                View local_value{context.value_dispatch, context.value_data, context.schema->value_type};
+                local_value.as_atomic().set(TimeSeriesReference::make());
+            }
+
+            state->last_modified_time = MIN_DT;
+        }
+
+        [[nodiscard]] bool removed_key_input_marks_modified(TSInputView view) noexcept {
+            const auto *dispatch = view.context_ref().ts_dispatch != nullptr ? view.context_ref().ts_dispatch
+                                                                             : view.context_ref().resolved().ts_dispatch;
+            return dispatch != nullptr && (dispatch->as_collection() != nullptr || dispatch->as_set() != nullptr);
+        }
+
+        void restore_removed_key_input(TSInputView view, engine_time_t eval_time) {
+            const bool had_endpoint = view.valid() || input_is_bound(view);
+            if (!had_endpoint) { return; }
+
+            const bool mark_modified = removed_key_input_marks_modified(view);
+            restore_blank_input_without_transition(view);
+            if (eval_time == MIN_DT) { return; }
+
+            view.make_active();
+            if (mark_modified) {
+                if (BaseState *state = view.context_mutable().ts_state; state != nullptr) { state->mark_modified(eval_time); }
+            } else if (Notifiable *notifier = view.scheduling_notifier(); notifier != nullptr) {
+                notifier->notify(eval_time);
+            }
         }
 
         void set_local_value(TSInputView view, const View &value, engine_time_t eval_time) {
@@ -401,7 +484,7 @@ namespace hgraph
                     {
                         TSInputView parent_source = resolve_parent_spec_arg(parent, spec, eval_time);
                         if (!parent_source.valid() && !input_is_bound(parent_source)) {
-                            restore_blank_input(child_input);
+                            restore_removed_key_input(child_input, eval_time);
                             break;
                         }
                         TSOutputView parent_output = bound_output_of(parent_source);
@@ -553,7 +636,7 @@ namespace hgraph
                                          parent_item.linked_target() != nullptr && parent_item.linked_target()->is_bound());
                         }
                         if (!parent_item.valid() && !input_is_bound(parent_item)) {
-                            restore_blank_input(child_input);
+                            restore_removed_key_input(child_input, eval_time);
                             break;
                         }
                         bind_cloned_reference(child_input, parent_item, eval_time);

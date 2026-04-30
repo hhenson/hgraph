@@ -78,6 +78,15 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
     void make_passive();
 
     /**
+     * Mark this input position and all active descendants as passive.
+     *
+     * Node teardown uses this to remove every output-side subscription under
+     * an active top-level input selector while preserving path-local
+     * make_passive() semantics for ordinary rebinding.
+     */
+    void make_passive_subtree();
+
+    /**
      * Return whether the input view is currently active.
      *
      * This is intended to report whether the represented input position is

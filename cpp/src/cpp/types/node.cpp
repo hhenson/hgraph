@@ -41,9 +41,9 @@ namespace hgraph
             auto   rollback_activation  = UnwindCleanupGuard([&] {
                 auto view = node.input_view(evaluation_time).as_bundle();
                 if (!input_slots.empty()) {
-                    for (size_t i = activated_inputs_end; i > 0; --i) { view[input_slots[i - 1]].make_passive(); }
+                    for (size_t i = activated_inputs_end; i > 0; --i) { view[input_slots[i - 1]].make_passive_subtree(); }
                 } else {
-                    for (size_t i = activated_inputs_end; i > 0; --i) { view[i - 1].make_passive(); }
+                    for (size_t i = activated_inputs_end; i > 0; --i) { view[i - 1].make_passive_subtree(); }
                 }
             });
 
@@ -78,10 +78,10 @@ namespace hgraph
             if (node.spec().has_explicit_active_inputs || !node.spec().active_inputs.empty()) {
                 for (const size_t slot : node.spec().active_inputs) {
                     if (slot >= schema->field_count()) { throw std::out_of_range("v2 input selector is out of range"); }
-                    view[slot].make_passive();
+                    view[slot].make_passive_subtree();
                 }
             } else {
-                for (size_t slot = 0; slot < schema->field_count(); ++slot) { view[slot].make_passive(); }
+                for (size_t slot = 0; slot < schema->field_count(); ++slot) { view[slot].make_passive_subtree(); }
             }
         }
 

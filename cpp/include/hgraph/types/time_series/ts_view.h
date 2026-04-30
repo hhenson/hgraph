@@ -755,7 +755,6 @@ namespace hgraph
     }
 
     template <typename TView> Range<TView> TSLView<TView>::modified_values() const noexcept {
-        const auto *dispatch = this->collection_dispatch();
         return Range<TView>{
             this, this->size(),
             [](const void *context, size_t index) {

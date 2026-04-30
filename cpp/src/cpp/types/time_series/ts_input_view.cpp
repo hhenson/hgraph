@@ -190,6 +190,61 @@ namespace hgraph
                 return slot;
             }
 
+            void unsubscribe_bound_active_subtree(TSViewContext context, ActiveTrieNode *node, Notifiable *notifier) noexcept
+            {
+                if (node == nullptr || notifier == nullptr) { return; }
+
+                TSViewContext resolved = context.resolved();
+                BaseState    *state    = resolved.ts_state;
+                if (node->locally_active && state != nullptr) { state->unsubscribe(notifier); }
+
+                const auto *collection = resolved.ts_dispatch != nullptr ? resolved.ts_dispatch->as_collection() : nullptr;
+                if (collection == nullptr) { return; }
+
+                if (collection->as_keys() != nullptr) {
+                    BaseState *resolved_state = resolved.ts_state != nullptr ? resolved.ts_state->resolved_state() : nullptr;
+                    if (resolved_state != nullptr && resolved_state->storage_kind == TSStorageKind::Native) {
+                        static_cast<TSDState *>(resolved_state)->active_tries.erase(notifier);
+                    }
+                }
+
+                for (const auto &[slot, child_node] : node->children) {
+                    if (!child_node) { continue; }
+
+                    TSViewContext child = collection->child_at(resolved, slot);
+                    if (!child.is_bound()) { continue; }
+
+                    Notifiable *child_notifier = child.ts_state != nullptr ? child.ts_state->boundary_notifier(notifier) : notifier;
+                    unsubscribe_bound_active_subtree(child, child_node.get(), child_notifier);
+                }
+            }
+
+            void clear_active_subtree(ActiveTrieNode &node) noexcept
+            {
+                node.locally_active = false;
+                node.children.clear();
+                node.pending.clear();
+                node.slot_key.reset();
+            }
+
+            void deactivate_active_subtree(TSInputView &view) noexcept
+            {
+                ActiveTriePosition &active_pos = view.active_position_mutable();
+                ActiveTrieNode     *active_node =
+                    active_pos.node != nullptr ? active_pos.node : (active_pos.trie != nullptr ? active_pos.trie->root_node()
+                                                                                                : nullptr);
+                if (active_node == nullptr) { return; }
+
+                unsubscribe_bound_active_subtree(view.context_ref(), active_node, view.scheduling_notifier());
+                if (view.context_ref().ts_state != nullptr && view.scheduling_notifier() != nullptr) {
+                    view.context_ref().ts_state->unsubscribe(view.scheduling_notifier());
+                }
+
+                clear_active_subtree(*active_node);
+                if (active_pos.trie != nullptr) { active_pos.trie->try_prune_root(); }
+                active_pos.node = nullptr;
+            }
+
             [[nodiscard]] TargetLinkState &ensure_target_link_state(TSInputView &view, BaseState *state)
             {
                 if (state == nullptr) {
@@ -209,6 +264,9 @@ namespace hgraph
                 const size_t index = state->index;
                 const engine_time_t last_modified_time = state->last_modified_time;
                 auto subscribers = std::move(state->subscribers);
+                auto ref_invalidators = std::move(state->ref_invalidators);
+                auto target_link_invalidators = std::move(state->target_link_invalidators);
+                auto state_invalidators = std::move(state->state_invalidators);
                 auto feature_registry = std::move(state->feature_registry);
 
                 auto &link_state = slot->emplace<TargetLinkState>();
@@ -217,6 +275,9 @@ namespace hgraph
                 link_state.last_modified_time = last_modified_time;
                 link_state.storage_kind = TSStorageKind::TargetLink;
                 link_state.subscribers = std::move(subscribers);
+                link_state.ref_invalidators = std::move(ref_invalidators);
+                link_state.target_link_invalidators = std::move(target_link_invalidators);
+                link_state.state_invalidators = std::move(state_invalidators);
                 link_state.feature_registry = std::move(feature_registry);
                 link_state.target.clear();
                 link_state.scheduling_notifier.set_target(nullptr);
@@ -321,6 +382,13 @@ namespace hgraph
                     const LinkedTSContext previous_target = link_state.target;
                     const bool was_valid = previous_target.is_bound() && detail::linked_context_valid(previous_target);
                     const engine_time_t evaluation_time = view.evaluation_time();
+                    ActiveTriePosition &active_pos = view.active_position_mutable();
+                    ActiveTrieNode     *active_node =
+                        active_pos.node != nullptr ? active_pos.node : (active_pos.trie != nullptr ? active_pos.trie->root_node()
+                                                                                                    : nullptr);
+                    if (previous_target.is_bound()) {
+                        unsubscribe_bound_active_subtree(TSViewContext{previous_target}, active_node, view.scheduling_notifier());
+                    }
                     if (evaluation_time != MIN_DT && previous_target.is_bound()) {
                         link_state.previous_target_value = detail::snapshot_target_value(previous_target, evaluation_time);
                         link_state.switch_modified_time = link_state.previous_target_value.has_value() ? evaluation_time : MIN_DT;
@@ -518,6 +586,11 @@ namespace hgraph
     void TSInputView::make_passive()
     {
         if (m_input_view_ops != nullptr) { m_input_view_ops->make_passive(*this); }
+    }
+
+    void TSInputView::make_passive_subtree()
+    {
+        detail::deactivate_active_subtree(*this);
     }
 
     bool TSInputView::active() const

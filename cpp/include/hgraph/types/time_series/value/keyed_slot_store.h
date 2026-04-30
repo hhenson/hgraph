@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
-#include <memory>
 #include <new>
 #include <utility>
 #include <vector>
@@ -41,39 +40,31 @@ namespace hgraph::detail
 
         [[nodiscard]] const void *value_memory(size_t slot) const noexcept { return value_storage.slot_data(slot); }
 
-        void reserve_to(size_t capacity, size_t stride, size_t alignment)
-        {
+        void reserve_to(size_t capacity, size_t stride, size_t alignment) {
             value_storage.reserve_to(capacity, stride, alignment);
             updated.resize(capacity);
         }
 
-        [[nodiscard]] bool slot_updated(size_t slot) const noexcept
-        {
-            return slot < updated.size() && updated.test(slot);
-        }
+        [[nodiscard]] bool slot_updated(size_t slot) const noexcept { return slot < updated.size() && updated.test(slot); }
 
-        void mark_updated(size_t slot) noexcept
-        {
+        void mark_updated(size_t slot) noexcept {
             if (slot < updated.size()) { updated.set(slot); }
         }
 
-        void clear_updated(size_t slot) noexcept
-        {
+        void clear_updated(size_t slot) noexcept {
             if (slot < updated.size()) { updated.reset(slot); }
         }
 
         void clear_all_updated() noexcept { updated.reset(); }
 
-        void add_slot_observer(SlotObserver *observer)
-        {
+        void add_slot_observer(SlotObserver *observer) {
             if (observer == nullptr) { return; }
             const auto it = std::find(observers.begin(), observers.end(), observer);
             assert(it == observers.end() && "slot observer registered twice");
             if (it == observers.end()) { observers.push_back(observer); }
         }
 
-        void remove_slot_observer(SlotObserver *observer)
-        {
+        void remove_slot_observer(SlotObserver *observer) {
             if (observer == nullptr) { return; }
             const auto it = std::find(observers.begin(), observers.end(), observer);
             if (it == observers.end()) { return; }
@@ -81,36 +72,31 @@ namespace hgraph::detail
             observers.pop_back();
         }
 
-        void notify_capacity(size_t old_capacity, size_t new_capacity) const
-        {
+        void notify_capacity(size_t old_capacity, size_t new_capacity) const {
             for (auto *observer : observers) {
                 if (observer != nullptr) { observer->on_capacity(old_capacity, new_capacity); }
             }
         }
 
-        void notify_insert(size_t slot) const
-        {
+        void notify_insert(size_t slot) const {
             for (auto *observer : observers) {
                 if (observer != nullptr) { observer->on_insert(slot); }
             }
         }
 
-        void notify_remove(size_t slot) const
-        {
+        void notify_remove(size_t slot) const {
             for (auto *observer : observers) {
                 if (observer != nullptr) { observer->on_remove(slot); }
             }
         }
 
-        void notify_erase(size_t slot) const
-        {
+        void notify_erase(size_t slot) const {
             for (auto *observer : observers) {
                 if (observer != nullptr) { observer->on_erase(slot); }
             }
         }
 
-        void notify_clear() const
-        {
+        void notify_clear() const {
             for (auto *observer : observers) {
                 if (observer != nullptr) { observer->on_clear(); }
             }
@@ -125,20 +111,17 @@ namespace hgraph::detail
      */
     template <typename T> struct StablePayloadStore
     {
-        StableSlotStorage      storage{};
-        sul::dynamic_bitset<>  constructed{};
+        StableSlotStorage     storage{};
+        sul::dynamic_bitset<> constructed{};
 
-        void reserve_to(size_t capacity)
-        {
+        void reserve_to(size_t capacity) {
             // When shrinking, destroy any constructed payloads that fall outside
             // the new capacity before truncating the bitset. Without this the
             // T's destructor is skipped, leaking internal state (e.g. TSOutput
             // subscribers) whose dangling pointers become use-after-free
             // hazards when the store later grows back over the same memory.
             for (size_t slot = capacity; slot < constructed.size(); ++slot) {
-                if (constructed.test(slot)) {
-                    std::destroy_at(std::launder(reinterpret_cast<T *>(storage.slot_data(slot))));
-                }
+                if (constructed.test(slot)) { std::destroy_at(std::launder(reinterpret_cast<T *>(storage.slot_data(slot)))); }
             }
             storage.reserve_to(capacity, sizeof(T), alignof(T));
             constructed.resize(capacity);
@@ -146,31 +129,24 @@ namespace hgraph::detail
 
         [[nodiscard]] size_t slot_capacity() const noexcept { return storage.slot_capacity(); }
 
-        [[nodiscard]] bool has_slot(size_t slot) const noexcept
-        {
-            return slot < constructed.size() && constructed.test(slot);
-        }
+        [[nodiscard]] bool has_slot(size_t slot) const noexcept { return slot < constructed.size() && constructed.test(slot); }
 
-        [[nodiscard]] T *try_slot(size_t slot) noexcept
-        {
+        [[nodiscard]] T *try_slot(size_t slot) noexcept {
             return has_slot(slot) ? std::launder(reinterpret_cast<T *>(storage.slot_data(slot))) : nullptr;
         }
 
-        [[nodiscard]] const T *try_slot(size_t slot) const noexcept
-        {
+        [[nodiscard]] const T *try_slot(size_t slot) const noexcept {
             return has_slot(slot) ? std::launder(reinterpret_cast<const T *>(storage.slot_data(slot))) : nullptr;
         }
 
-        template <typename... Args> T &emplace_at(size_t slot, Args &&...args)
-        {
+        template <typename... Args> T &emplace_at(size_t slot, Args &&...args) {
             T *value = std::launder(reinterpret_cast<T *>(storage.slot_data(slot)));
             new (value) T(std::forward<Args>(args)...);
             constructed.set(slot);
             return *value;
         }
 
-        void destroy_at(size_t slot) noexcept
-        {
+        void destroy_at(size_t slot) noexcept {
             if (!has_slot(slot)) { return; }
             std::destroy_at(std::launder(reinterpret_cast<T *>(storage.slot_data(slot))));
             constructed.reset(slot);
@@ -189,44 +165,34 @@ namespace hgraph::detail
         KeyedSlotStore        storage{};
         sul::dynamic_bitset<> constructed{};
 
-        void reserve_to(size_t capacity)
-        {
+        void reserve_to(size_t capacity) {
             // Destroy constructed payloads beyond the new capacity; see the
             // matching note on StablePayloadStore::reserve_to.
             for (size_t slot = capacity; slot < constructed.size(); ++slot) {
-                if (constructed.test(slot)) {
-                    std::destroy_at(std::launder(reinterpret_cast<T *>(storage.value_memory(slot))));
-                }
+                if (constructed.test(slot)) { std::destroy_at(std::launder(reinterpret_cast<T *>(storage.value_memory(slot)))); }
             }
             storage.reserve_to(capacity, sizeof(T), alignof(T));
             constructed.resize(capacity);
         }
 
-        [[nodiscard]] bool has_slot(size_t slot) const noexcept
-        {
-            return slot < constructed.size() && constructed.test(slot);
-        }
+        [[nodiscard]] bool has_slot(size_t slot) const noexcept { return slot < constructed.size() && constructed.test(slot); }
 
-        [[nodiscard]] T *try_slot(size_t slot) noexcept
-        {
+        [[nodiscard]] T *try_slot(size_t slot) noexcept {
             return has_slot(slot) ? std::launder(reinterpret_cast<T *>(storage.value_memory(slot))) : nullptr;
         }
 
-        [[nodiscard]] const T *try_slot(size_t slot) const noexcept
-        {
+        [[nodiscard]] const T *try_slot(size_t slot) const noexcept {
             return has_slot(slot) ? std::launder(reinterpret_cast<const T *>(storage.value_memory(slot))) : nullptr;
         }
 
-        template <typename... Args> T &emplace_at(size_t slot, Args &&...args)
-        {
+        template <typename... Args> T &emplace_at(size_t slot, Args &&...args) {
             T *value = std::launder(reinterpret_cast<T *>(storage.value_memory(slot)));
             new (value) T(std::forward<Args>(args)...);
             constructed.set(slot);
             return *value;
         }
 
-        void destroy_at(size_t slot) noexcept
-        {
+        void destroy_at(size_t slot) noexcept {
             if (!has_slot(slot)) { return; }
             std::destroy_at(std::launder(reinterpret_cast<T *>(storage.value_memory(slot))));
             constructed.reset(slot);

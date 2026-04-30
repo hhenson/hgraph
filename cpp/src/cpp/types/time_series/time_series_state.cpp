@@ -1,43 +1,53 @@
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/node.h>
+#include <hgraph/types/ref.h>
 #include <hgraph/types/time_series/time_series_state.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_value_builder.h>
 #include <hgraph/types/time_series/ts_view.h>
-#include <hgraph/types/time_series/ts_meta.h>
-#include <hgraph/types/node.h>
-#include <hgraph/types/ref.h>
 
 #include <algorithm>
-#include <cstdlib>
-#include <cstdio>
 #include <type_traits>
 
 namespace hgraph
 {
+    namespace
+    {
+        void move_base_state_fields(BaseState &target, BaseState &source) noexcept {
+            target.parent                   = source.parent;
+            target.index                    = source.index;
+            target.last_modified_time       = source.last_modified_time;
+            target.storage_kind             = source.storage_kind;
+            target.subscribers              = std::move(source.subscribers);
+            target.ref_invalidators         = std::move(source.ref_invalidators);
+            target.target_link_invalidators = std::move(source.target_link_invalidators);
+            target.state_invalidators       = std::move(source.state_invalidators);
+            target.feature_registry         = std::move(source.feature_registry);
+        }
+    }  // namespace
+
     TimeSeriesFeatureRegistry::~TimeSeriesFeatureRegistry() = default;
     void TimeSeriesFeatureRegistry::rebind_link_source(const LinkedTSContext *, engine_time_t) {}
 
     BaseState::BaseState(BaseState &&other) noexcept
-        : parent(other.parent),
-          index(other.index),
-          last_modified_time(other.last_modified_time),
-          storage_kind(other.storage_kind),
-          subscribers(std::move(other.subscribers)),
-          ref_invalidators(std::move(other.ref_invalidators)),
-          feature_registry(std::move(other.feature_registry))
-    {
+        : parent(other.parent), index(other.index), last_modified_time(other.last_modified_time), storage_kind(other.storage_kind),
+          subscribers(std::move(other.subscribers)), ref_invalidators(std::move(other.ref_invalidators)),
+          target_link_invalidators(std::move(other.target_link_invalidators)),
+          state_invalidators(std::move(other.state_invalidators)), feature_registry(std::move(other.feature_registry)) {
     }
 
-    BaseState &BaseState::operator=(BaseState &&other) noexcept
-    {
-        parent = other.parent;
-        index = other.index;
-        last_modified_time = other.last_modified_time;
-        storage_kind = other.storage_kind;
-        subscribers = std::move(other.subscribers);
-        ref_invalidators = std::move(other.ref_invalidators);
-        feature_registry = std::move(other.feature_registry);
+    BaseState &BaseState::operator=(BaseState &&other) noexcept {
+        parent                   = other.parent;
+        index                    = other.index;
+        last_modified_time       = other.last_modified_time;
+        storage_kind             = other.storage_kind;
+        subscribers              = std::move(other.subscribers);
+        ref_invalidators         = std::move(other.ref_invalidators);
+        target_link_invalidators = std::move(other.target_link_invalidators);
+        state_invalidators       = std::move(other.state_invalidators);
+        feature_registry         = std::move(other.feature_registry);
         return *this;
     }
 
@@ -46,8 +56,7 @@ namespace hgraph
     // best-effort (the memory may be reused before any reader notices), but
     // the invalidation sweep below is the authoritative fix: it switches
     // every dangling ref to EMPTY before this state's storage goes away.
-    BaseState::~BaseState() noexcept
-    {
+    BaseState::~BaseState() noexcept {
         // Snapshot first because invalidate_ref will, in the normal flow,
         // call back into unregister_ref_invalidator and mutate the set. By
         // detaching the storage we keep iteration safe while still letting
@@ -56,43 +65,64 @@ namespace hgraph
         for (ReferenceInvalidator *invalidator : snapshot) {
             if (invalidator != nullptr) { invalidate_ref(*invalidator); }
         }
+        auto target_link_snapshot = std::move(target_link_invalidators);
+        for (TargetLinkInvalidator *invalidator : target_link_snapshot) {
+            if (invalidator != nullptr) { invalidate_target_link(*invalidator); }
+        }
+        auto state_snapshot = std::move(state_invalidators);
+        for (StateInvalidator *invalidator : state_snapshot) {
+            if (invalidator != nullptr) { invalidate_state(*invalidator); }
+        }
         storage_kind = TSStorageKind::Destroyed;
     }
 
-    void BaseState::register_ref_invalidator(ReferenceInvalidator *invalidator) noexcept
-    {
+    void BaseState::register_ref_invalidator(ReferenceInvalidator *invalidator) noexcept {
         if (invalidator != nullptr) { ref_invalidators.insert(invalidator); }
     }
 
-    void BaseState::unregister_ref_invalidator(ReferenceInvalidator *invalidator) noexcept
-    {
+    void BaseState::unregister_ref_invalidator(ReferenceInvalidator *invalidator) noexcept {
         if (invalidator != nullptr) { ref_invalidators.erase(invalidator); }
+    }
+
+    void BaseState::register_target_link_invalidator(TargetLinkInvalidator *invalidator) noexcept {
+        if (invalidator != nullptr) { target_link_invalidators.insert(invalidator); }
+    }
+
+    void BaseState::unregister_target_link_invalidator(TargetLinkInvalidator *invalidator) noexcept {
+        if (invalidator != nullptr) { target_link_invalidators.erase(invalidator); }
+    }
+
+    void BaseState::register_state_invalidator(StateInvalidator *invalidator) noexcept {
+        if (invalidator != nullptr) { state_invalidators.insert(invalidator); }
+    }
+
+    void BaseState::unregister_state_invalidator(StateInvalidator *invalidator) noexcept {
+        if (invalidator != nullptr) { state_invalidators.erase(invalidator); }
+    }
+
+    void invalidate_state(StateInvalidator &invalidator) noexcept {
+        invalidator.state_destroyed = true;
+        if (invalidator.invalidate != nullptr) { invalidator.invalidate(invalidator.owner); }
     }
 
     namespace
     {
-        enum class RootNodePort : size_t
-        {
-            Input = 0,
-            Output = 1,
-            ErrorOutput = 2,
+        enum class RootNodePort : size_t {
+            Input           = 0,
+            Output          = 1,
+            ErrorOutput     = 2,
             RecordableState = 3,
         };
 
-        [[nodiscard]] BaseState *state_address(const std::unique_ptr<TimeSeriesStateV> &state) noexcept
-        {
-            return state != nullptr
-                       ? std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, *state)
-                       : nullptr;
+        [[nodiscard]] BaseState *state_address(const std::unique_ptr<TimeSeriesStateV> &state) noexcept {
+            return state != nullptr ? std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, *state) : nullptr;
         }
 
-        [[nodiscard]] bool has_any_child_state(const BaseCollectionState &state) noexcept
-        {
+        [[nodiscard]] bool has_any_child_state(const BaseCollectionState &state) noexcept {
             return std::ranges::any_of(state.child_states, [](const auto &child) { return child != nullptr; });
         }
 
-        [[nodiscard]] TimeSeriesStateV *owning_state_variant(BaseState *state) noexcept
-        {
+        [[nodiscard]] TimeSeriesStateV *owning_state_variant(BaseState *state) noexcept {
             if (state == nullptr) { return nullptr; }
 
             TimeSeriesStateV *slot = nullptr;
@@ -102,7 +132,8 @@ namespace hgraph
                     using T = std::remove_pointer_t<decltype(parent)>;
                     if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState> ||
                                   std::same_as<T, SignalState>) {
-                        if (parent != nullptr && state->index < parent->child_states.size() && parent->child_states[state->index] != nullptr &&
+                        if (parent != nullptr && state->index < parent->child_states.size() &&
+                            parent->child_states[state->index] != nullptr &&
                             state_address(parent->child_states[state->index]) == state) {
                             slot = parent->child_states[state->index].get();
                         }
@@ -112,8 +143,7 @@ namespace hgraph
             return slot;
         }
 
-        [[nodiscard]] TSViewContext view_context_from_target(const LinkedTSContext &target) noexcept
-        {
+        [[nodiscard]] TSViewContext view_context_from_target(const LinkedTSContext &target) noexcept {
             return TSViewContext{TSContext{
                 target.schema,
                 target.value_dispatch,
@@ -127,21 +157,18 @@ namespace hgraph
             }};
         }
 
-        [[nodiscard]] TSOutputView output_view_from_target(const LinkedTSContext &target) noexcept
-        {
+        [[nodiscard]] TSOutputView output_view_from_target(const LinkedTSContext &target) noexcept {
             return TSOutputView{
                 view_context_from_target(target),
                 TSViewContext::none(),
-                target.notification_state != nullptr
-                    ? target.notification_state->last_modified_time
-                    : (target.ts_state != nullptr ? target.ts_state->last_modified_time : MIN_DT),
+                target.notification_state != nullptr ? target.notification_state->last_modified_time
+                                                     : (target.ts_state != nullptr ? target.ts_state->last_modified_time : MIN_DT),
                 target.owning_output,
                 target.output_view_ops != nullptr ? target.output_view_ops : &detail::default_output_view_ops(),
             };
         }
 
-        [[nodiscard]] TSViewContext context_from_root_state(const TSViewContext &context) noexcept
-        {
+        [[nodiscard]] TSViewContext context_from_root_state(const TSViewContext &context) noexcept {
             BaseState *state = context.ts_state;
             if (state == nullptr) { return context; }
             // Detect states whose ~BaseState destructor has already run: their
@@ -160,11 +187,11 @@ namespace hgraph
             }
 
             std::vector<size_t> path;
-            const Node *root_node = nullptr;
-            RootNodePort root_port = RootNodePort::Input;
-            const TSInput *root_input = nullptr;
-            const TSOutput *root_output = nullptr;
-            BaseState *cursor = state;
+            const Node         *root_node   = nullptr;
+            RootNodePort        root_port   = RootNodePort::Input;
+            const TSInput      *root_input  = nullptr;
+            const TSOutput     *root_output = nullptr;
+            BaseState          *cursor      = state;
 
             while (cursor != nullptr) {
                 bool advanced = false;
@@ -172,39 +199,39 @@ namespace hgraph
                     cursor->parent,
                     [&](TSLState *parent) {
                         path.push_back(cursor->index);
-                        cursor = parent;
+                        cursor   = parent;
                         advanced = true;
                     },
                     [&](TSDState *parent) {
                         path.push_back(cursor->index);
-                        cursor = parent;
+                        cursor   = parent;
                         advanced = true;
                     },
                     [&](TSBState *parent) {
                         path.push_back(cursor->index);
-                        cursor = parent;
+                        cursor   = parent;
                         advanced = true;
                     },
                     [&](SignalState *parent) {
                         path.push_back(cursor->index);
-                        cursor = parent;
+                        cursor   = parent;
                         advanced = true;
                     },
                     [&](Node *parent) {
                         root_node = parent;
                         root_port = static_cast<RootNodePort>(cursor->index);
-                        cursor = nullptr;
-                        advanced = true;
+                        cursor    = nullptr;
+                        advanced  = true;
                     },
                     [&](TSInput *parent) {
                         root_input = parent;
-                        cursor = nullptr;
-                        advanced = true;
+                        cursor     = nullptr;
+                        advanced   = true;
                     },
                     [&](TSOutput *parent) {
                         root_output = parent;
-                        cursor = nullptr;
-                        advanced = true;
+                        cursor      = nullptr;
+                        advanced    = true;
                     },
                     [] {});
 
@@ -223,7 +250,7 @@ namespace hgraph
                 }
             } else if (root_output != nullptr) {
                 TSOutput *output_root = const_cast<TSOutput *>(root_output);
-                current = output_root->view(MIN_DT).context_ref();
+                current               = output_root->view(MIN_DT).context_ref();
             } else if (root_input != nullptr) {
                 current = const_cast<TSInput *>(root_input)->view(nullptr, MIN_DT).context_ref();
             } else {
@@ -237,19 +264,20 @@ namespace hgraph
             std::ranges::reverse(path);
             for (const size_t slot : path) {
                 const TSViewContext resolved_parent = current.resolved();
-                const auto *collection = resolved_parent.ts_dispatch != nullptr ? resolved_parent.ts_dispatch->as_collection() : nullptr;
+                const auto         *collection =
+                    resolved_parent.ts_dispatch != nullptr ? resolved_parent.ts_dispatch->as_collection() : nullptr;
                 if (collection == nullptr) { return refreshed; }
 
                 current = collection->child_at(current, slot);
                 if (!current.is_bound()) { return refreshed; }
             }
 
-            refreshed.schema = current.schema != nullptr ? current.schema : refreshed.schema;
-            refreshed.value_dispatch = current.value_dispatch != nullptr ? current.value_dispatch : refreshed.value_dispatch;
-            refreshed.ts_dispatch = current.ts_dispatch != nullptr ? current.ts_dispatch : refreshed.ts_dispatch;
-            refreshed.value_data = current.value_data;
-            refreshed.ts_state = current.ts_state != nullptr ? current.ts_state : refreshed.ts_state;
-            refreshed.owning_output = current.owning_output != nullptr ? current.owning_output : refreshed.owning_output;
+            refreshed.schema          = current.schema != nullptr ? current.schema : refreshed.schema;
+            refreshed.value_dispatch  = current.value_dispatch != nullptr ? current.value_dispatch : refreshed.value_dispatch;
+            refreshed.ts_dispatch     = current.ts_dispatch != nullptr ? current.ts_dispatch : refreshed.ts_dispatch;
+            refreshed.value_data      = current.value_data;
+            refreshed.ts_state        = current.ts_state != nullptr ? current.ts_state : refreshed.ts_state;
+            refreshed.owning_output   = current.owning_output != nullptr ? current.owning_output : refreshed.owning_output;
             refreshed.output_view_ops = current.output_view_ops != nullptr ? current.output_view_ops : refreshed.output_view_ops;
             refreshed.notification_state =
                 current.notification_state != nullptr ? current.notification_state : refreshed.notification_state;
@@ -257,14 +285,11 @@ namespace hgraph
             return refreshed;
         }
 
-        [[nodiscard]] bool reference_value_all_valid(const TimeSeriesReference &ref) noexcept
-        {
+        [[nodiscard]] bool reference_value_all_valid(const TimeSeriesReference &ref) noexcept {
             switch (ref.kind()) {
-                case TimeSeriesReference::Kind::EMPTY:
-                    return false;
+                case TimeSeriesReference::Kind::EMPTY: return false;
 
-                case TimeSeriesReference::Kind::PEERED:
-                    return ref.target().is_bound() && ref.target_view().all_valid();
+                case TimeSeriesReference::Kind::PEERED: return ref.target().is_bound() && ref.target_view().all_valid();
 
                 case TimeSeriesReference::Kind::NON_PEERED:
                     return !ref.items().empty() &&
@@ -274,8 +299,7 @@ namespace hgraph
             return false;
         }
 
-        [[nodiscard]] TimeSeriesReference materialize_local_reference(const TSMeta &schema, BaseState *state) noexcept
-        {
+        [[nodiscard]] TimeSeriesReference materialize_local_reference(const TSMeta &schema, BaseState *state) noexcept {
             if (state == nullptr) { return TimeSeriesReference::make(); }
 
             if (const LinkedTSContext *target = state->linked_target(); target != nullptr && target->is_bound()) {
@@ -285,12 +309,14 @@ namespace hgraph
             switch (schema.kind) {
                 case TSKind::TSB:
                     {
-                        const auto &bundle_state = *static_cast<TSBState *>(state);
+                        const auto                      &bundle_state = *static_cast<TSBState *>(state);
                         std::vector<TimeSeriesReference> items;
                         items.reserve(schema.field_count());
                         for (size_t index = 0; index < schema.field_count(); ++index) {
-                            const BaseState *child = index < bundle_state.child_states.size() ? state_address(bundle_state.child_states[index]) : nullptr;
-                            const TSMeta *child_schema = schema.fields()[index].ts_type;
+                            const BaseState *child        = index < bundle_state.child_states.size()
+                                                                ? state_address(bundle_state.child_states[index])
+                                                                : nullptr;
+                            const TSMeta    *child_schema = schema.fields()[index].ts_type;
                             if (child_schema == nullptr) {
                                 items.push_back(TimeSeriesReference::make());
                                 continue;
@@ -304,11 +330,12 @@ namespace hgraph
 
                 case TSKind::TSL:
                     {
-                        const auto &list_state = *static_cast<TSLState *>(state);
+                        const auto                      &list_state = *static_cast<TSLState *>(state);
                         std::vector<TimeSeriesReference> items;
                         items.reserve(schema.fixed_size());
                         for (size_t index = 0; index < schema.fixed_size(); ++index) {
-                            const BaseState *child = index < list_state.child_states.size() ? state_address(list_state.child_states[index]) : nullptr;
+                            const BaseState *child =
+                                index < list_state.child_states.size() ? state_address(list_state.child_states[index]) : nullptr;
                             const TSMeta *child_schema = schema.element_ts();
                             if (child_schema == nullptr) {
                                 items.push_back(TimeSeriesReference::make());
@@ -321,49 +348,40 @@ namespace hgraph
                         return TimeSeriesReference::make(std::move(items));
                     }
 
-                default:
-                    return TimeSeriesReference::make();
+                default: return TimeSeriesReference::make();
             }
         }
 
-        [[nodiscard]] BaseCollectionState *reference_collection_state(const TSMeta &schema, BaseState *state) noexcept
-        {
+        [[nodiscard]] BaseCollectionState *reference_collection_state(const TSMeta &schema, BaseState *state) noexcept {
             if (state == nullptr || schema.kind != TSKind::REF || schema.element_ts() == nullptr) { return nullptr; }
 
             TimeSeriesStateV *slot = owning_state_variant(state);
             if (slot == nullptr) { return nullptr; }
 
             switch (schema.element_ts()->kind) {
-                case TSKind::TSB:
-                    return std::holds_alternative<TSBState>(*slot) ? static_cast<TSBState *>(state) : nullptr;
+                case TSKind::TSB: return std::holds_alternative<TSBState>(*slot) ? static_cast<TSBState *>(state) : nullptr;
 
-                case TSKind::TSL:
-                    return std::holds_alternative<TSLState>(*slot) ? static_cast<TSLState *>(state) : nullptr;
+                case TSKind::TSL: return std::holds_alternative<TSLState>(*slot) ? static_cast<TSLState *>(state) : nullptr;
 
                 default: return nullptr;
             }
         }
 
-        template <typename TFn>
-        void with_target_state(const LinkedTSContext &target, TFn &&fn) noexcept
-        {
+        template <typename TFn> void with_target_state(const LinkedTSContext &target, TFn &&fn) noexcept {
             BaseState *state = target.notification_state != nullptr ? target.notification_state : target.ts_state;
             // Skip when the target state has already been torn down: ~BaseState
             // poisons storage_kind, which lets us bail before dereferencing
             // freed memory (e.g. unsubscribe-on-RefLinkState-dtor when the
             // target output was destroyed earlier in the teardown sequence).
-            if (state != nullptr && state->storage_kind != TSStorageKind::Destroyed) {
-                std::forward<TFn>(fn)(state);
-            }
+            if (state != nullptr && state->storage_kind != TSStorageKind::Destroyed) { std::forward<TFn>(fn)(state); }
         }
 
-    } // namespace
+    }  // namespace
 
     namespace
     {
         [[nodiscard]] LinkedTSContext anchored_dereferenced_context(const LinkedTSContext &source,
-                                                                    const LinkedTSContext &target) noexcept
-        {
+                                                                    const LinkedTSContext &target) noexcept {
             const bool preserve_source_output_identity =
                 source.output_view_ops != nullptr && source.output_view_ops != &detail::default_output_view_ops();
             return LinkedTSContext{
@@ -372,9 +390,8 @@ namespace hgraph
                 target.ts_dispatch,
                 target.value_data,
                 target.ts_state,
-                preserve_source_output_identity
-                    ? (source.owning_output != nullptr ? source.owning_output : target.owning_output)
-                    : (target.owning_output != nullptr ? target.owning_output : source.owning_output),
+                preserve_source_output_identity ? (source.owning_output != nullptr ? source.owning_output : target.owning_output)
+                                                : (target.owning_output != nullptr ? target.owning_output : source.owning_output),
                 preserve_source_output_identity
                     ? source.output_view_ops
                     : (target.output_view_ops != nullptr ? target.output_view_ops : source.output_view_ops),
@@ -383,16 +400,14 @@ namespace hgraph
             };
         }
 
-        [[nodiscard]] LinkedTSContext normalized_target_context(const LinkedTSContext &target) noexcept
-        {
+        [[nodiscard]] LinkedTSContext normalized_target_context(const LinkedTSContext &target) noexcept {
             if (!target.is_bound()) { return target; }
             LinkedTSContext normalized = output_view_from_target(target).linked_context();
             return normalized.is_bound() ? normalized : target;
         }
-    }
+    }  // namespace
 
-    LinkedTSContext detail::dereferenced_target_from_source(const LinkedTSContext &source) noexcept
-    {
+    LinkedTSContext detail::dereferenced_target_from_source(const LinkedTSContext &source) noexcept {
         if (!source.is_bound() || source.schema == nullptr || source.schema->kind != TSKind::REF) {
             return LinkedTSContext::none();
         }
@@ -426,12 +441,11 @@ namespace hgraph
 
     namespace
     {
-        [[nodiscard]] bool linked_context_equal_impl(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept
-        {
+        [[nodiscard]] bool linked_context_equal_impl(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept {
             return lhs.schema == rhs.schema && lhs.value_dispatch == rhs.value_dispatch && lhs.ts_dispatch == rhs.ts_dispatch &&
                    lhs.value_data == rhs.value_data && lhs.ts_state == rhs.ts_state &&
-                   lhs.notification_state == rhs.notification_state &&
-                   lhs.owning_output == rhs.owning_output && lhs.output_view_ops == rhs.output_view_ops &&
+                   lhs.notification_state == rhs.notification_state && lhs.owning_output == rhs.owning_output &&
+                   lhs.output_view_ops == rhs.output_view_ops &&
                    lhs.pending_dict_child.parent_schema == rhs.pending_dict_child.parent_schema &&
                    lhs.pending_dict_child.parent_value_dispatch == rhs.pending_dict_child.parent_value_dispatch &&
                    lhs.pending_dict_child.parent_ts_dispatch == rhs.pending_dict_child.parent_ts_dispatch &&
@@ -443,30 +457,28 @@ namespace hgraph
                    lhs.pending_dict_child.key.equals(rhs.pending_dict_child.key);
         }
 
-        [[nodiscard]] bool retains_previous_target_value(const LinkedTSContext &target) noexcept
-        {
+        [[nodiscard]] bool retains_previous_target_value(const LinkedTSContext &target) noexcept {
             return target.schema != nullptr && (target.schema->kind == TSKind::TSS || target.schema->kind == TSKind::TSD);
         }
 
-        [[nodiscard]] Value snapshot_target_value_impl(const LinkedTSContext &target, engine_time_t modified_time = MIN_DT)
-        {
+        [[nodiscard]] Value snapshot_target_value_impl(const LinkedTSContext &target, engine_time_t modified_time = MIN_DT) {
             if (!retains_previous_target_value(target) || !target.is_bound() || target.value_dispatch == nullptr ||
                 target.value_data == nullptr) {
                 return {};
             }
 
-            View current{target.value_dispatch, target.value_data, target.schema->value_type};
+            View  current{target.value_dispatch, target.value_data, target.schema->value_type};
             Value snapshot = current.clone(target.schema->kind == TSKind::TSD ? MutationTracking::Plain : MutationTracking::Delta);
 
             if (target.schema->kind == TSKind::TSS) {
-                auto current_set = current.as_set();
+                auto       current_set  = current.as_set();
                 BaseState *target_state = target.notification_state != nullptr ? target.notification_state : target.ts_state;
                 if (modified_time == MIN_DT || target_state == nullptr || target_state->last_modified_time != modified_time) {
                     return snapshot;
                 }
 
                 const auto current_delta = current_set.delta();
-                bool has_delta = false;
+                bool       has_delta     = false;
                 for (const View &item : current_delta.added()) {
                     static_cast<void>(item);
                     has_delta = true;
@@ -482,21 +494,21 @@ namespace hgraph
                 if (!has_delta) { return snapshot; }
 
                 auto snapshot_set = snapshot.view().as_set();
-                auto mutation = snapshot_set.begin_mutation(modified_time != MIN_DT ? modified_time : MIN_ST);
+                auto mutation     = snapshot_set.begin_mutation(modified_time != MIN_DT ? modified_time : MIN_ST);
                 for (const View &item : current_delta.added()) { static_cast<void>(mutation.remove(item)); }
                 for (const View &item : current_delta.removed()) { static_cast<void>(mutation.add(item)); }
                 snapshot_set.clear_delta_tracking();
             }
 
             if (target.schema->kind == TSKind::TSD) {
-                auto current_map = current.as_map();
+                auto       current_map  = current.as_map();
                 BaseState *target_state = target.notification_state != nullptr ? target.notification_state : target.ts_state;
                 if (modified_time == MIN_DT || target_state == nullptr || target_state->last_modified_time != modified_time) {
                     return snapshot;
                 }
 
                 const auto current_delta = current_map.delta();
-                bool has_delta = false;
+                bool       has_delta     = false;
                 for (size_t slot = 0; slot < current_delta.slot_capacity(); ++slot) {
                     if (!current_delta.slot_occupied(slot)) { continue; }
                     if (current_delta.slot_added(slot) || current_delta.slot_removed(slot) || current_delta.slot_updated(slot)) {
@@ -507,7 +519,7 @@ namespace hgraph
                 if (!has_delta) { return snapshot; }
 
                 auto snapshot_map = snapshot.view().as_map();
-                auto mutation = snapshot_map.begin_mutation(modified_time != MIN_DT ? modified_time : MIN_ST);
+                auto mutation     = snapshot_map.begin_mutation(modified_time != MIN_DT ? modified_time : MIN_ST);
 
                 for (size_t slot = 0; slot < current_delta.slot_capacity(); ++slot) {
                     if (!current_delta.slot_occupied(slot)) { continue; }
@@ -526,8 +538,7 @@ namespace hgraph
             return snapshot;
         }
 
-        [[nodiscard]] Value empty_target_value_impl(const LinkedTSContext &target)
-        {
+        [[nodiscard]] Value empty_target_value_impl(const LinkedTSContext &target) {
             if (!retains_previous_target_value(target) || !target.is_bound() || target.value_dispatch == nullptr ||
                 target.value_data == nullptr) {
                 return {};
@@ -542,8 +553,8 @@ namespace hgraph
                 case TSKind::TSS:
                     {
                         const auto current_delta = current.as_set().delta();
-                        auto set = snapshot.view().as_set();
-                        auto mutation = set.begin_mutation(MIN_ST);
+                        auto       set           = snapshot.view().as_set();
+                        auto       mutation      = set.begin_mutation(MIN_ST);
                         for (size_t slot = 0; slot < current_delta.slot_capacity(); ++slot) {
                             if (!current_delta.slot_occupied(slot) || current_delta.slot_removed(slot)) { continue; }
                             static_cast<void>(mutation.remove(current_delta.at_slot(slot)));
@@ -555,8 +566,8 @@ namespace hgraph
                 case TSKind::TSD:
                     {
                         const auto current_delta = current.as_map().delta();
-                        auto map = snapshot.view().as_map();
-                        auto mutation = map.begin_mutation(MIN_ST);
+                        auto       map           = snapshot.view().as_map();
+                        auto       mutation      = map.begin_mutation(MIN_ST);
                         for (size_t slot = 0; slot < current_delta.slot_capacity(); ++slot) {
                             if (!current_delta.slot_occupied(slot) || current_delta.slot_removed(slot)) { continue; }
                             static_cast<void>(mutation.remove(current_delta.key_at_slot(slot)));
@@ -565,16 +576,12 @@ namespace hgraph
                         return snapshot;
                     }
 
-                default:
-                    return {};
+                default: return {};
             }
         }
 
-        void replay_attachment_subtree(const LinkedTSContext &context,
-                                       ActiveTrieNode *trie_node,
-                                       Notifiable *notifier,
-                                       bool subscribe) noexcept
-        {
+        void replay_attachment_subtree(const LinkedTSContext &context, ActiveTrieNode *trie_node, Notifiable *notifier,
+                                       bool subscribe) noexcept {
             if (!context.is_bound() || context.ts_state == nullptr || trie_node == nullptr || notifier == nullptr) { return; }
 
             if (trie_node->locally_active) {
@@ -587,9 +594,10 @@ namespace hgraph
 
             if (trie_node->children.empty()) { return; }
 
-            TSViewContext view_context{context.schema, context.value_dispatch, context.ts_dispatch, context.value_data, context.ts_state};
-            const TSViewContext resolved = view_context.resolved();
-            const auto *collection = resolved.ts_dispatch != nullptr ? resolved.ts_dispatch->as_collection() : nullptr;
+            TSViewContext       view_context{context.schema, context.value_dispatch, context.ts_dispatch, context.value_data,
+                                             context.ts_state};
+            const TSViewContext resolved   = view_context.resolved();
+            const auto         *collection = resolved.ts_dispatch != nullptr ? resolved.ts_dispatch->as_collection() : nullptr;
             if (collection == nullptr) { return; }
 
             for (const auto &[slot, child_trie] : trie_node->children) {
@@ -600,22 +608,18 @@ namespace hgraph
 
                 replay_attachment_subtree(
                     LinkedTSContext{child.schema, child.value_dispatch, child.ts_dispatch, child.value_data, child.ts_state},
-                    child_trie.get(),
-                    notifier,
-                    subscribe);
+                    child_trie.get(), notifier, subscribe);
             }
         }
     }  // namespace
 
-    bool detail::linked_context_equal(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept
-    {
+    bool detail::linked_context_equal(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept {
         return linked_context_equal_impl(lhs, rhs);
     }
 
-    detail::LinkTransitionSnapshot detail::transition_snapshot(const TSViewContext &context) noexcept
-    {
+    detail::LinkTransitionSnapshot detail::transition_snapshot(const TSViewContext &context) noexcept {
         const BaseState *state = context.notification_state != nullptr ? context.notification_state : context.ts_state;
-        size_t steps = 0;
+        size_t           steps = 0;
         while (state != nullptr) {
             if (++steps > 256) { return {}; }
             switch (state->storage_kind) {
@@ -626,7 +630,7 @@ namespace hgraph
                             return {&link.previous_target_value, link.switch_modified_time};
                         }
                         const LinkedTSContext *target = link.linked_target();
-                        state = target != nullptr ? target->ts_state : nullptr;
+                        state                         = target != nullptr ? target->ts_state : nullptr;
                         break;
                     }
 
@@ -637,7 +641,7 @@ namespace hgraph
                             return {&link.previous_target_value, link.switch_modified_time};
                         }
                         const LinkedTSContext *target = link.linked_target();
-                        state = target != nullptr ? target->ts_state : nullptr;
+                        state                         = target != nullptr ? target->ts_state : nullptr;
                         break;
                     }
 
@@ -647,32 +651,23 @@ namespace hgraph
                         break;
                     }
 
-                case TSStorageKind::Native:
-                    state = nullptr;
-                    break;
+                case TSStorageKind::Native: state = nullptr; break;
             }
         }
 
         return {};
     }
 
-    TSViewContext detail::refresh_native_context(const TSViewContext &context) noexcept
-    {
+    TSViewContext detail::refresh_native_context(const TSViewContext &context) noexcept {
         // Only call through custom output_view_ops: the default ops would re-enter
         // context.resolved() → refresh_native_context (has_live_context is false when
         // ts_state is null), producing unbounded recursion with no new information.
         if (context.ts_state == nullptr && context.output_view_ops != nullptr &&
             context.output_view_ops != &detail::default_output_view_ops() && context.owning_output != nullptr) {
             LinkedTSContext current{
-                context.schema,
-                context.value_dispatch,
-                context.ts_dispatch,
-                context.value_data,
-                context.ts_state,
-                context.owning_output,
-                context.output_view_ops,
-                context.notification_state,
-                context.pending_dict_child,
+                context.schema,          context.value_dispatch,     context.ts_dispatch,
+                context.value_data,      context.ts_state,           context.owning_output,
+                context.output_view_ops, context.notification_state, context.pending_dict_child,
             };
 
             LinkedTSContext refreshed = output_view_from_target(current).linked_context();
@@ -682,15 +677,11 @@ namespace hgraph
         return context_from_root_state(context);
     }
 
-    Value detail::snapshot_target_value(const LinkedTSContext &target, engine_time_t modified_time)
-    {
+    Value detail::snapshot_target_value(const LinkedTSContext &target, engine_time_t modified_time) {
         return snapshot_target_value_impl(target, modified_time);
     }
 
-    Value detail::empty_target_value(const LinkedTSContext &target)
-    {
-        return empty_target_value_impl(target);
-    }
+    Value detail::empty_target_value(const LinkedTSContext &target) { return empty_target_value_impl(target); }
 
     void BaseState::subscribe(Notifiable *subscriber) noexcept {
         if (subscriber != nullptr) { subscribers.insert(subscriber); }
@@ -700,54 +691,42 @@ namespace hgraph
         if (subscriber != nullptr) { subscribers.erase(subscriber); }
     }
 
-    LinkedTSContext *BaseState::linked_target() noexcept
-    {
+    LinkedTSContext *BaseState::linked_target() noexcept {
         return const_cast<LinkedTSContext *>(const_cast<const BaseState *>(this)->linked_target());
     }
 
-    const LinkedTSContext *BaseState::linked_target() const noexcept
-    {
+    const LinkedTSContext *BaseState::linked_target() const noexcept {
         switch (storage_kind) {
-            case TSStorageKind::Native:
-                return nullptr;
+            case TSStorageKind::Native: return nullptr;
 
-            case TSStorageKind::OutputLink:
-                return &static_cast<const OutputLinkState *>(this)->target;
+            case TSStorageKind::OutputLink: return &static_cast<const OutputLinkState *>(this)->target;
 
-            case TSStorageKind::TargetLink:
-                return &static_cast<const TargetLinkState *>(this)->target;
+            case TSStorageKind::TargetLink: return &static_cast<const TargetLinkState *>(this)->target;
 
-            case TSStorageKind::RefLink:
-                return &static_cast<const RefLinkState *>(this)->bound_link.target;
+            case TSStorageKind::RefLink: return &static_cast<const RefLinkState *>(this)->bound_link.target;
         }
 
         return nullptr;
     }
 
-    BaseState *BaseState::resolved_state() noexcept
-    {
+    BaseState *BaseState::resolved_state() noexcept {
         return const_cast<BaseState *>(const_cast<const BaseState *>(this)->resolved_state());
     }
 
-    const BaseState *BaseState::resolved_state() const noexcept
-    {
+    const BaseState *BaseState::resolved_state() const noexcept {
         if (const LinkedTSContext *target = linked_target(); target != nullptr) {
             return target->ts_state != nullptr ? target->ts_state->resolved_state() : nullptr;
         }
         return this;
     }
 
-    Notifiable *BaseState::boundary_notifier(Notifiable *fallback) noexcept
-    {
+    Notifiable *BaseState::boundary_notifier(Notifiable *fallback) noexcept {
         switch (storage_kind) {
-            case TSStorageKind::Native:
-                return fallback;
+            case TSStorageKind::Native: return fallback;
 
-            case TSStorageKind::OutputLink:
-                return fallback;
+            case TSStorageKind::OutputLink: return fallback;
 
-            case TSStorageKind::TargetLink:
-                return &static_cast<TargetLinkState *>(this)->scheduling_notifier;
+            case TSStorageKind::TargetLink: return &static_cast<TargetLinkState *>(this)->scheduling_notifier;
 
             case TSStorageKind::RefLink:
                 {
@@ -774,8 +753,7 @@ namespace hgraph
         for (auto *subscriber : subscribers) { subscriber->notify(modified_time); }
     }
 
-    void BaseState::notify_parent_that_child_is_modified(engine_time_t modified_time) noexcept
-    {
+    void BaseState::notify_parent_that_child_is_modified(engine_time_t modified_time) noexcept {
         hgraph::visit(
             parent,
             [this, modified_time](auto *ptr) {
@@ -789,8 +767,7 @@ namespace hgraph
             [] {});
     }
 
-    bool detail::has_local_reference_binding(const TSViewContext &context) noexcept
-    {
+    bool detail::has_local_reference_binding(const TSViewContext &context) noexcept {
         if (context.schema == nullptr || context.schema->kind != TSKind::REF || context.schema->element_ts() == nullptr ||
             context.ts_state == nullptr) {
             return false;
@@ -800,26 +777,27 @@ namespace hgraph
         return collection_state != nullptr && has_any_child_state(*collection_state);
     }
 
-    bool detail::linked_context_valid(const LinkedTSContext &context) noexcept
-    {
+    bool detail::linked_context_valid(const LinkedTSContext &context) noexcept {
         if (context.schema == nullptr || context.value_dispatch == nullptr || context.ts_dispatch == nullptr) { return false; }
-        if (context.ts_state == nullptr && context.notification_state == nullptr && context.output_view_ops == nullptr) { return false; }
+        if (context.ts_state == nullptr && context.notification_state == nullptr && context.output_view_ops == nullptr) {
+            return false;
+        }
 
         const TSViewContext target_context = view_context_from_target(context);
         return target_context.ts_dispatch != nullptr && target_context.ts_dispatch->valid(target_context);
     }
 
-    bool detail::linked_context_all_valid(const LinkedTSContext &context) noexcept
-    {
+    bool detail::linked_context_all_valid(const LinkedTSContext &context) noexcept {
         if (context.schema == nullptr || context.value_dispatch == nullptr || context.ts_dispatch == nullptr) { return false; }
-        if (context.ts_state == nullptr && context.notification_state == nullptr && context.output_view_ops == nullptr) { return false; }
+        if (context.ts_state == nullptr && context.notification_state == nullptr && context.output_view_ops == nullptr) {
+            return false;
+        }
 
         const TSViewContext target_context = view_context_from_target(context);
         return target_context.ts_dispatch != nullptr && target_context.ts_dispatch->all_valid(target_context);
     }
 
-    const Value *detail::materialized_target_link_value(const TSViewContext &context) noexcept
-    {
+    const Value *detail::materialized_target_link_value(const TSViewContext &context) noexcept {
         if (context.ts_state == nullptr || context.ts_state->storage_kind != TSStorageKind::TargetLink) { return nullptr; }
 
         const auto *state = static_cast<const TargetLinkState *>(context.ts_state);
@@ -828,14 +806,15 @@ namespace hgraph
                    : nullptr;
     }
 
-    const Value *detail::materialized_reference_value(const TSViewContext &context) noexcept
-    {
+    const Value *detail::materialized_reference_value(const TSViewContext &context) noexcept {
         if (context.schema == nullptr || context.schema->kind != TSKind::REF || context.schema->element_ts() == nullptr ||
             context.ts_state == nullptr) {
             return nullptr;
         }
 
-        if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr && target->is_bound()) { return nullptr; }
+        if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr && target->is_bound()) {
+            return nullptr;
+        }
 
         BaseCollectionState *collection_state = reference_collection_state(*context.schema, context.ts_state);
         if (collection_state == nullptr || !has_any_child_state(*collection_state) || context.schema->value_type == nullptr) {
@@ -854,14 +833,11 @@ namespace hgraph
         return &*collection_state->materialized_reference_storage;
     }
 
-    bool detail::reference_all_valid(const TSViewContext &context) noexcept
-    {
+    bool detail::reference_all_valid(const TSViewContext &context) noexcept {
         if (context.schema == nullptr || context.schema->kind != TSKind::REF) { return false; }
 
         if (context.ts_state != nullptr) {
-            if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr) {
-                return target->is_bound();
-            }
+            if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr) { return target->is_bound(); }
         }
 
         if (const Value *materialized = materialized_reference_value(context); materialized != nullptr) {
@@ -897,8 +873,7 @@ namespace hgraph
         modified_children.insert(child_index);
     }
 
-    void TSDState::child_modified(size_t child_index, engine_time_t modified_time) noexcept
-    {
+    void TSDState::child_modified(size_t child_index, engine_time_t modified_time) noexcept {
         if (map_dispatch != nullptr && map_value_data != nullptr) {
             map_dispatch->mark_value_updated(map_value_data, child_index, modified_time);
         }
@@ -908,29 +883,21 @@ namespace hgraph
     BaseCollectionState::~BaseCollectionState() = default;
 
     BaseCollectionState::BaseCollectionState(BaseCollectionState &&other) noexcept
-        : BaseState(std::move(other)),
-          child_states(std::move(other.child_states)),
+        : BaseState(std::move(other)), child_states(std::move(other.child_states)),
           modified_children(std::move(other.modified_children)),
-          materialized_reference_storage(std::move(other.materialized_reference_storage))
-    {
+          materialized_reference_storage(std::move(other.materialized_reference_storage)) {
         other.child_states.clear();
         other.modified_children.clear();
         other.materialized_reference_storage.reset();
     }
 
-    BaseCollectionState &BaseCollectionState::operator=(BaseCollectionState &&other) noexcept
-    {
+    BaseCollectionState &BaseCollectionState::operator=(BaseCollectionState &&other) noexcept {
         if (this == &other) { return *this; }
 
         reset_child_states();
-        parent = other.parent;
-        index = other.index;
-        last_modified_time = other.last_modified_time;
-        storage_kind = other.storage_kind;
-        subscribers = std::move(other.subscribers);
-        feature_registry = std::move(other.feature_registry);
-        child_states = std::move(other.child_states);
-        modified_children = std::move(other.modified_children);
+        BaseState::operator=(std::move(other));
+        child_states                   = std::move(other.child_states);
+        modified_children              = std::move(other.modified_children);
         materialized_reference_storage = std::move(other.materialized_reference_storage);
 
         other.child_states.clear();
@@ -939,16 +906,12 @@ namespace hgraph
         return *this;
     }
 
-    void BaseCollectionState::reset_child_states() noexcept
-    {
+    void BaseCollectionState::reset_child_states() noexcept {
         child_states.clear();
         materialized_reference_storage.reset();
     }
 
-    TSDState::~TSDState()
-    {
-        unbind_value_storage();
-    }
+    TSDState::~TSDState() { unbind_value_storage(); }
 
     void TSSState::mark_added(size_t item_index, engine_time_t modified_time) noexcept {
         reset_change_sets_if_time_changed(modified_time);
@@ -971,12 +934,11 @@ namespace hgraph
 
     OutputLinkState::TargetNotifiable::TargetNotifiable(OutputLinkState *self_) noexcept : self(self_) {}
 
-    void OutputLinkState::TargetNotifiable::notify(engine_time_t modified_time)
-    {
+    void OutputLinkState::TargetNotifiable::notify(engine_time_t modified_time) {
         if (self != nullptr) {
             if (self->switch_modified_time != modified_time) {
                 self->previous_target_value = {};
-                self->switch_modified_time = MIN_DT;
+                self->switch_modified_time  = MIN_DT;
             }
             self->mark_modified(modified_time);
         }
@@ -984,22 +946,12 @@ namespace hgraph
 
     OutputLinkState::OutputLinkState() noexcept : target_notifiable(this) {}
 
-    OutputLinkState::~OutputLinkState()
-    {
-        reset_target();
-    }
+    OutputLinkState::~OutputLinkState() { reset_target(); }
 
-    OutputLinkState::OutputLinkState(OutputLinkState &&other) noexcept
-        : target_notifiable(this)
-    {
-        parent = other.parent;
-        index = other.index;
-        last_modified_time = other.last_modified_time;
-        storage_kind = other.storage_kind;
-        subscribers = std::move(other.subscribers);
-        feature_registry = std::move(other.feature_registry);
+    OutputLinkState::OutputLinkState(OutputLinkState &&other) noexcept : target_notifiable(this) {
+        move_base_state_fields(*this, other);
         previous_target_value = std::move(other.previous_target_value);
-        switch_modified_time = other.switch_modified_time;
+        switch_modified_time  = other.switch_modified_time;
 
         if (other.target.is_bound()) {
             const LinkedTSContext bound_target = other.target;
@@ -1010,22 +962,16 @@ namespace hgraph
         }
 
         other.previous_target_value = {};
-        other.switch_modified_time = MIN_DT;
+        other.switch_modified_time  = MIN_DT;
     }
 
-    OutputLinkState &OutputLinkState::operator=(OutputLinkState &&other) noexcept
-    {
+    OutputLinkState &OutputLinkState::operator=(OutputLinkState &&other) noexcept {
         if (this == &other) { return *this; }
 
         reset_target();
-        parent = other.parent;
-        index = other.index;
-        last_modified_time = other.last_modified_time;
-        storage_kind = other.storage_kind;
-        subscribers = std::move(other.subscribers);
-        feature_registry = std::move(other.feature_registry);
+        move_base_state_fields(*this, other);
         previous_target_value = std::move(other.previous_target_value);
-        switch_modified_time = other.switch_modified_time;
+        switch_modified_time  = other.switch_modified_time;
 
         if (other.target.is_bound()) {
             const LinkedTSContext bound_target = other.target;
@@ -1036,41 +982,37 @@ namespace hgraph
         }
 
         other.previous_target_value = {};
-        other.switch_modified_time = MIN_DT;
+        other.switch_modified_time  = MIN_DT;
 
         return *this;
     }
 
-    void OutputLinkState::set_target(LinkedTSContext target_state, engine_time_t modified_time) noexcept
-    {
+    void OutputLinkState::set_target(LinkedTSContext target_state, engine_time_t modified_time) noexcept {
         const bool target_changed = !linked_context_equal_impl(target, target_state);
-        Value transition_value =
+        Value      transition_value =
             target_changed && modified_time != MIN_DT ? snapshot_target_value_impl(target, modified_time) : Value{};
 
         unregister_from_target();
-        target = std::move(target_state);
-        last_modified_time = target.ts_state != nullptr ? target.ts_state->last_modified_time : MIN_DT;
+        target                = std::move(target_state);
+        last_modified_time    = target.ts_state != nullptr ? target.ts_state->last_modified_time : MIN_DT;
         previous_target_value = std::move(transition_value);
-        switch_modified_time = previous_target_value.has_value() ? modified_time : MIN_DT;
+        switch_modified_time  = previous_target_value.has_value() ? modified_time : MIN_DT;
         register_with_target();
     }
 
-    void OutputLinkState::reset_target(engine_time_t modified_time) noexcept
-    {
+    void OutputLinkState::reset_target(engine_time_t modified_time) noexcept {
         previous_target_value = modified_time != MIN_DT ? snapshot_target_value_impl(target, modified_time) : Value{};
-        switch_modified_time = previous_target_value.has_value() ? modified_time : MIN_DT;
+        switch_modified_time  = previous_target_value.has_value() ? modified_time : MIN_DT;
         unregister_from_target();
         target.clear();
         last_modified_time = switch_modified_time != MIN_DT ? switch_modified_time : MIN_DT;
     }
 
-    void OutputLinkState::register_with_target() noexcept
-    {
+    void OutputLinkState::register_with_target() noexcept {
         with_target_state(target, [this](BaseState *ptr) { ptr->subscribe(&target_notifiable); });
     }
 
-    void OutputLinkState::unregister_from_target() noexcept
-    {
+    void OutputLinkState::unregister_from_target() noexcept {
         with_target_state(target, [this](BaseState *ptr) { ptr->unsubscribe(&target_notifiable); });
     }
 
@@ -1080,7 +1022,7 @@ namespace hgraph
         if (self != nullptr) {
             if (self->switch_modified_time != modified_time) {
                 self->previous_target_value = {};
-                self->switch_modified_time = MIN_DT;
+                self->switch_modified_time  = MIN_DT;
             }
             self->mark_modified(modified_time);
         }
@@ -1092,22 +1034,12 @@ namespace hgraph
 
     TargetLinkState::TargetLinkState() noexcept : target_notifiable(this) {}
 
-    TargetLinkState::~TargetLinkState()
-    {
-        reset_target();
-    }
+    TargetLinkState::~TargetLinkState() { reset_target(); }
 
-    TargetLinkState::TargetLinkState(TargetLinkState &&other) noexcept
-        : target_notifiable(this)
-    {
-        parent = other.parent;
-        index = other.index;
-        last_modified_time = other.last_modified_time;
-        storage_kind = other.storage_kind;
-        subscribers = std::move(other.subscribers);
-        feature_registry = std::move(other.feature_registry);
+    TargetLinkState::TargetLinkState(TargetLinkState &&other) noexcept : target_notifiable(this) {
+        move_base_state_fields(*this, other);
         previous_target_value = std::move(other.previous_target_value);
-        switch_modified_time = other.switch_modified_time;
+        switch_modified_time  = other.switch_modified_time;
         scheduling_notifier.set_target(other.scheduling_notifier.get_target());
 
         if (other.target.schema != nullptr || other.target.ts_state != nullptr || other.target.output_view_ops != nullptr) {
@@ -1120,23 +1052,17 @@ namespace hgraph
 
         other.scheduling_notifier.set_target(nullptr);
         other.previous_target_value = {};
-        other.switch_modified_time = MIN_DT;
+        other.switch_modified_time  = MIN_DT;
     }
 
-    TargetLinkState &TargetLinkState::operator=(TargetLinkState &&other) noexcept
-    {
+    TargetLinkState &TargetLinkState::operator=(TargetLinkState &&other) noexcept {
         if (this == &other) { return *this; }
 
         reset_target();
 
-        parent = other.parent;
-        index = other.index;
-        last_modified_time = other.last_modified_time;
-        storage_kind = other.storage_kind;
-        subscribers = std::move(other.subscribers);
-        feature_registry = std::move(other.feature_registry);
+        move_base_state_fields(*this, other);
         previous_target_value = std::move(other.previous_target_value);
-        switch_modified_time = other.switch_modified_time;
+        switch_modified_time  = other.switch_modified_time;
         scheduling_notifier.set_target(other.scheduling_notifier.get_target());
 
         if (other.target.schema != nullptr || other.target.ts_state != nullptr || other.target.output_view_ops != nullptr) {
@@ -1149,7 +1075,7 @@ namespace hgraph
 
         other.scheduling_notifier.set_target(nullptr);
         other.previous_target_value = {};
-        other.switch_modified_time = MIN_DT;
+        other.switch_modified_time  = MIN_DT;
         return *this;
     }
 
@@ -1164,24 +1090,45 @@ namespace hgraph
         target.clear();
     }
 
-    bool TargetLinkState::is_bound() const noexcept {
-        return target.is_bound();
-    }
+    bool          TargetLinkState::is_bound() const noexcept { return target.is_bound(); }
     engine_time_t TargetLinkState::last_target_modified_time() const noexcept {
         BaseState *target_state = target.notification_state != nullptr ? target.notification_state : target.ts_state;
         return target_state != nullptr ? target_state->last_modified_time : MIN_DT;
     }
 
-    bool TargetLinkState::is_sampled() const noexcept {
-        return last_modified_time > last_target_modified_time();
-    }
+    bool TargetLinkState::is_sampled() const noexcept { return last_modified_time > last_target_modified_time(); }
 
     void TargetLinkState::register_with_target() noexcept {
-        with_target_state(target, [this](BaseState *ptr) { ptr->subscribe(&target_notifiable); });
+        if (!target.is_bound()) { return; }
+        if (!target_invalidator) { target_invalidator = std::make_unique<TargetLinkInvalidator>(); }
+        target_invalidator->owner            = this;
+        target_invalidator->target_destroyed = false;
+        with_target_state(target, [this](BaseState *ptr) {
+            ptr->subscribe(&target_notifiable);
+            ptr->register_target_link_invalidator(target_invalidator.get());
+        });
     }
 
     void TargetLinkState::unregister_from_target() noexcept {
-        with_target_state(target, [this](BaseState *ptr) { ptr->unsubscribe(&target_notifiable); });
+        if (target_invalidator && target_invalidator->target_destroyed) {
+            target_invalidator.reset();
+            return;
+        }
+        with_target_state(target, [this](BaseState *ptr) {
+            ptr->unsubscribe(&target_notifiable);
+            if (target_invalidator) { ptr->unregister_target_link_invalidator(target_invalidator.get()); }
+        });
+        target_invalidator.reset();
+    }
+
+    void invalidate_target_link(TargetLinkInvalidator &invalidator) noexcept {
+        invalidator.target_destroyed = true;
+        if (TargetLinkState *owner = invalidator.owner; owner != nullptr) {
+            owner->target.clear();
+            owner->previous_target_value = {};
+            owner->switch_modified_time  = MIN_DT;
+            owner->last_modified_time    = MIN_DT;
+        }
     }
 
     engine_time_t RefLinkState::last_target_modified_time() const { return bound_link.last_modified_time; }
@@ -1190,8 +1137,7 @@ namespace hgraph
 
     RefLinkState::RefSourceNotifiable::RefSourceNotifiable(RefLinkState *self_) noexcept : self(self_) {}
 
-    void RefLinkState::RefSourceNotifiable::notify(engine_time_t modified_time)
-    {
+    void RefLinkState::RefSourceNotifiable::notify(engine_time_t modified_time) {
         // A REF source tick means the reference may now point somewhere else.
         // Re-resolve the current target before propagating modification.
         if (self != nullptr) { self->refresh_target(modified_time, true); }
@@ -1199,14 +1145,13 @@ namespace hgraph
 
     RefLinkState::DereferencedTargetNotifiable::DereferencedTargetNotifiable(RefLinkState *self_) noexcept : self(self_) {}
 
-    void RefLinkState::DereferencedTargetNotifiable::notify(engine_time_t modified_time)
-    {
+    void RefLinkState::DereferencedTargetNotifiable::notify(engine_time_t modified_time) {
         if (self != nullptr) {
             // Target-side data changed without the REF itself rebinding. Keep
             // the dereferenced target time in sync and propagate normally.
             if (self->switch_modified_time != modified_time) {
                 self->previous_target_value = {};
-                self->switch_modified_time = MIN_DT;
+                self->switch_modified_time  = MIN_DT;
             }
             self->bound_link.last_modified_time = modified_time;
             self->mark_modified(modified_time);
@@ -1215,31 +1160,17 @@ namespace hgraph
 
     RefLinkState::RefLinkState() noexcept : source_notifiable(this), target_notifiable(this) {}
 
-    RefLinkState::~RefLinkState()
-    {
-        reset_source();
-    }
+    RefLinkState::~RefLinkState() { reset_source(); }
 
-    RefLinkState::RefLinkState(RefLinkState &&other) noexcept
-        : source_notifiable(this), target_notifiable(this)
-    {
-        parent = other.parent;
-        index = other.index;
-        last_modified_time = other.last_modified_time;
-        storage_kind = other.storage_kind;
-        subscribers = std::move(other.subscribers);
-        feature_registry = std::move(other.feature_registry);
+    RefLinkState::RefLinkState(RefLinkState &&other) noexcept : source_notifiable(this), target_notifiable(this) {
+        move_base_state_fields(*this, other);
 
-        bound_link.parent = other.bound_link.parent;
-        bound_link.index = other.bound_link.index;
-        bound_link.last_modified_time = other.bound_link.last_modified_time;
-        bound_link.storage_kind = other.bound_link.storage_kind;
-        bound_link.subscribers = std::move(other.bound_link.subscribers);
+        move_base_state_fields(bound_link, other.bound_link);
         bound_link.scheduling_notifier.set_target(other.bound_link.scheduling_notifier.get_target());
         retain_transition_value = other.retain_transition_value;
-        previous_target_value = std::move(other.previous_target_value);
-        switch_modified_time = other.switch_modified_time;
-        boundary_attachments = std::move(other.boundary_attachments);
+        previous_target_value   = std::move(other.previous_target_value);
+        switch_modified_time    = other.switch_modified_time;
+        boundary_attachments    = std::move(other.boundary_attachments);
 
         if (other.source.is_bound()) {
             const LinkedTSContext bound_source = other.source;
@@ -1259,33 +1190,23 @@ namespace hgraph
 
         other.bound_link.scheduling_notifier.set_target(nullptr);
         other.retain_transition_value = true;
-        other.previous_target_value = {};
-        other.switch_modified_time = MIN_DT;
+        other.previous_target_value   = {};
+        other.switch_modified_time    = MIN_DT;
     }
 
-    RefLinkState &RefLinkState::operator=(RefLinkState &&other) noexcept
-    {
+    RefLinkState &RefLinkState::operator=(RefLinkState &&other) noexcept {
         if (this == &other) { return *this; }
 
         reset_source();
 
-        parent = other.parent;
-        index = other.index;
-        last_modified_time = other.last_modified_time;
-        storage_kind = other.storage_kind;
-        subscribers = std::move(other.subscribers);
-        feature_registry = std::move(other.feature_registry);
+        move_base_state_fields(*this, other);
 
-        bound_link.parent = other.bound_link.parent;
-        bound_link.index = other.bound_link.index;
-        bound_link.last_modified_time = other.bound_link.last_modified_time;
-        bound_link.storage_kind = other.bound_link.storage_kind;
-        bound_link.subscribers = std::move(other.bound_link.subscribers);
+        move_base_state_fields(bound_link, other.bound_link);
         bound_link.scheduling_notifier.set_target(other.bound_link.scheduling_notifier.get_target());
         retain_transition_value = other.retain_transition_value;
-        previous_target_value = std::move(other.previous_target_value);
-        switch_modified_time = other.switch_modified_time;
-        boundary_attachments = std::move(other.boundary_attachments);
+        previous_target_value   = std::move(other.previous_target_value);
+        switch_modified_time    = other.switch_modified_time;
+        boundary_attachments    = std::move(other.boundary_attachments);
 
         if (other.source.is_bound()) {
             const LinkedTSContext bound_source = other.source;
@@ -1305,81 +1226,73 @@ namespace hgraph
 
         other.bound_link.scheduling_notifier.set_target(nullptr);
         other.retain_transition_value = true;
-        other.previous_target_value = {};
-        other.switch_modified_time = MIN_DT;
+        other.previous_target_value   = {};
+        other.switch_modified_time    = MIN_DT;
         return *this;
     }
 
-    void RefLinkState::set_source(LinkedTSContext source_state) noexcept
-    {
+    void RefLinkState::set_source(LinkedTSContext source_state) noexcept {
         reset_source();
         source = std::move(source_state);
         register_with_source();
         refresh_target(source.ts_state != nullptr ? source.ts_state->last_modified_time : MIN_DT, false);
     }
 
-    void RefLinkState::reset_source() noexcept
-    {
+    void RefLinkState::reset_source() noexcept {
         replay_boundary_attachments(false);
         unregister_from_source();
         unregister_from_target();
         source.clear();
         bound_link.target.clear();
         bound_link.last_modified_time = MIN_DT;
-        previous_target_value = {};
-        switch_modified_time = MIN_DT;
+        previous_target_value         = {};
+        switch_modified_time          = MIN_DT;
     }
 
-    void RefLinkState::register_with_source() noexcept
-    {
+    void RefLinkState::register_with_source() noexcept {
         with_target_state(source, [this](BaseState *ptr) { ptr->subscribe(&source_notifiable); });
     }
 
-    void RefLinkState::unregister_from_source() noexcept
-    {
+    void RefLinkState::unregister_from_source() noexcept {
         with_target_state(source, [this](BaseState *ptr) { ptr->unsubscribe(&source_notifiable); });
     }
 
-    void RefLinkState::register_with_target() noexcept
-    {
+    void RefLinkState::register_with_target() noexcept {
         with_target_state(bound_link.target, [this](BaseState *ptr) { ptr->subscribe(&target_notifiable); });
     }
 
-    void RefLinkState::unregister_from_target() noexcept
-    {
+    void RefLinkState::unregister_from_target() noexcept {
         with_target_state(bound_link.target, [this](BaseState *ptr) { ptr->unsubscribe(&target_notifiable); });
     }
 
-    RefLinkState::BoundaryAttachment &RefLinkState::attachment_for(Notifiable *upstream_notifier) noexcept
-    {
+    RefLinkState::BoundaryAttachment &RefLinkState::attachment_for(Notifiable *upstream_notifier) noexcept {
         auto [it, inserted] = boundary_attachments.try_emplace(upstream_notifier);
-        auto &attachment = it->second;
+        auto &attachment    = it->second;
         attachment.forwarding_notifier.set_target(upstream_notifier);
         return attachment;
     }
 
-    BaseState *RefLinkState::current_target_root_state() const noexcept
-    {
+    BaseState *RefLinkState::current_target_root_state() const noexcept {
         return bound_link.target.ts_state != nullptr ? bound_link.target.ts_state->resolved_state() : nullptr;
     }
 
-    void RefLinkState::replay_boundary_attachments(bool subscribe) noexcept
-    {
+    void RefLinkState::replay_boundary_attachments(bool subscribe) noexcept {
         if (!bound_link.target.is_bound()) { return; }
 
         for (auto &[upstream_notifier, attachment] : boundary_attachments) {
             attachment.forwarding_notifier.set_target(upstream_notifier);
-            replay_attachment_subtree(bound_link.target, attachment.active_trie.root_node(), &attachment.forwarding_notifier, subscribe);
+            replay_attachment_subtree(bound_link.target, attachment.active_trie.root_node(), &attachment.forwarding_notifier,
+                                      subscribe);
         }
     }
 
-    void RefLinkState::refresh_target(engine_time_t modified_time, bool propagate) noexcept
-    {
+    void RefLinkState::refresh_target(engine_time_t modified_time, bool propagate) noexcept {
         const LinkedTSContext previous_target = bound_link.target;
         replay_boundary_attachments(false);
         unregister_from_target();
         bound_link.target = detail::dereferenced_target_from_source(source);
-        bound_link.last_modified_time = bound_link.target.ts_state != nullptr ? bound_link.target.ts_state->last_modified_time : MIN_DT;
+        bound_link.last_modified_time =
+            bound_link.target.ts_state != nullptr ? bound_link.target.ts_state->last_modified_time : MIN_DT;
         register_with_target();
         replay_boundary_attachments(true);
 
@@ -1397,7 +1310,7 @@ namespace hgraph
                 // selector-driven REF views must still observe a modification
                 // this tick even though there is no transition delta.
                 previous_target_value = {};
-                switch_modified_time = MIN_DT;
+                switch_modified_time  = MIN_DT;
                 if (modified_time != MIN_DT) {
                     mark_modified(modified_time);
                 } else {
@@ -1408,8 +1321,8 @@ namespace hgraph
             // Initial binding should inherit the current target time without
             // manufacturing a sampled modification.
             previous_target_value = {};
-            switch_modified_time = MIN_DT;
-            last_modified_time = bound_link.last_modified_time;
+            switch_modified_time  = MIN_DT;
+            last_modified_time    = bound_link.last_modified_time;
         }
     }
 

@@ -3762,13 +3762,13 @@ namespace hgraph
 
         void stop_map_slot(const ChildGraphTemplate &child_template, MapSlotRuntime &slot, engine_time_t evaluation_time) noexcept {
             try {
+                if (slot.child_instance.is_started()) { slot.child_instance.stop(evaluation_time); }
+            } catch (...) {}
+            try {
                 if (slot.bound && slot.child_instance.graph() != nullptr) {
                     BoundaryBindingRuntime::unbind(child_template.boundary_plan, *slot.child_instance.graph());
                     slot.bound = false;
                 }
-            } catch (...) {}
-            try {
-                if (slot.child_instance.is_started()) { slot.child_instance.stop(evaluation_time); }
             } catch (...) {}
             slot.next_scheduled = MAX_DT;
         }
@@ -4006,6 +4006,33 @@ namespace hgraph
                 if (spec.mode != InputBindingMode::BIND_MULTIPLEXED_ELEMENT) { continue; }
 
                 TSInputView parent_field = resolve_parent_input_arg(node, spec.arg_name, evaluation_time);
+                const TSMeta *parent_schema = unwrap_navigation_schema(parent_field.ts_schema());
+                if (parent_schema != nullptr && parent_schema->kind == TSKind::TSD && input_changed(parent_field)) {
+                    const View parent_delta_value = parent_field.delta_value();
+                    if (parent_delta_value.has_value()) {
+                        const auto key_changed = [&](size_t changed_slot, auto next_slot) {
+                            for (size_t slot_index = changed_slot; slot_index != static_cast<size_t>(-1);
+                                 slot_index        = next_slot(slot_index)) {
+                                if (parent_delta_value.as_map().delta().key_at_slot(slot_index).equals(slot.key.view())) {
+                                    return true;
+                                }
+                            }
+                            return false;
+                        };
+                        const auto parent_delta = parent_delta_value.as_map().delta();
+                        if (key_changed(parent_delta.first_added_slot(), [&](size_t slot_index) {
+                                return parent_delta.next_added_slot(slot_index);
+                            }) ||
+                            key_changed(parent_delta.first_removed_slot(), [&](size_t slot_index) {
+                                return parent_delta.next_removed_slot(slot_index);
+                            }) ||
+                            key_changed(parent_delta.first_updated_slot(), [&](size_t slot_index) {
+                                return parent_delta.next_updated_slot(slot_index);
+                            })) {
+                            return true;
+                        }
+                    }
+                }
                 TSInputView parent_item  = select_multiplexed_parent_input(parent_field, slot.key.view());
                 if (!spec.parent_input_path.empty()) { parent_item = navigate_input(parent_item, spec.parent_input_path); }
                 TSOutputView parent_output = bound_output_of(parent_item);
@@ -4206,11 +4233,13 @@ namespace hgraph
                     if (payload == nullptr) { continue; }
                     if (node.has_output()) {
                         clear_map_output_links(*runtime.child_template, parent_output, payload->key.view());
+                    }
+                    stop_map_slot(*runtime.child_template, *payload, evaluation_time);
+                    if (node.has_output()) {
                         if (is_live_dict_key(parent_output, payload->key.view())) {
                             parent_output.as_dict().erase(payload->key.view());
                         }
                     }
-                    stop_map_slot(*runtime.child_template, *payload, evaluation_time);
                 }
 
                 // Sync stale slots: when the input was rebound (keys_modified but
