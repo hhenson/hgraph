@@ -154,6 +154,8 @@ namespace hgraph
             throw std::logic_error("v2 Python time-series dict schema is missing its value type");
         }
 
+        [[nodiscard]] nb::object python_node_handle_for(Node *node);
+
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSBState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
 
@@ -277,6 +279,18 @@ namespace hgraph
 
             void schedule_node(int64_t node_index, engine_time_t when, bool force_set = false) const {
                 graph_of(m_node).schedule_node(node_index, when, force_set);
+            }
+
+            [[nodiscard]] nb::list nodes() const {
+                nb::list out;
+                if (m_node == nullptr) { return out; }
+                Graph &graph = graph_of(m_node);
+                for (size_t i = 0; i < graph.entries().size(); ++i) {
+                    Node      &n      = graph.node_at(i);
+                    nb::object handle = python_node_handle_for(&n);
+                    out.append(std::move(handle));
+                }
+                return out;
             }
 
           private:
@@ -1185,8 +1199,9 @@ namespace hgraph
                 if (is_bundle()) {
                     const auto append_modified_items = [this, &result](const auto &bundle) {
                         for (const auto &[name, child] : bundle.modified_items()) {
-                            result.append(nb::make_tuple(nb::str(name.data(), name.size()),
-                                                         nb::cast(handle_from_context(child.context_ref()))));
+                            static_cast<void>(child);
+                            std::string field_name{name};
+                            result.append(nb::make_tuple(nb::str(field_name.c_str()), nb::cast(field(field_name))));
                         }
                     };
                     if (m_input != nullptr) {
@@ -1198,8 +1213,9 @@ namespace hgraph
                 }
                 if (is_list()) {
                     const auto append_modified_items = [this, &result](const auto &list) {
-                        for (const auto &[index, child] : list.modified_items()) {
-                            result.append(nb::make_tuple(nb::int_(index), nb::cast(handle_from_context(child.context_ref()))));
+                        for (const auto &[idx, child] : list.modified_items()) {
+                            static_cast<void>(child);
+                            result.append(nb::make_tuple(nb::int_(idx), nb::cast(index(idx))));
                         }
                     };
                     if (m_input != nullptr) {
@@ -1212,7 +1228,8 @@ namespace hgraph
                 if (is_dict()) {
                     const auto append_modified_items = [this, &result](const auto &dict) {
                         for (const auto &[key, value] : dict.modified_items()) {
-                            result.append(nb::make_tuple(key.to_python(), nb::cast(handle_from_context(value.context_ref()))));
+                            static_cast<void>(value);
+                            result.append(nb::make_tuple(key.to_python(), nb::cast(key_item(key))));
                         }
                     };
                     if (m_input != nullptr) {
@@ -2284,6 +2301,7 @@ namespace hgraph
                 .def_prop_ro("evaluation_clock", &PythonGraphHandle::evaluation_clock)
                 .def_prop_ro("evaluation_engine_api", &PythonGraphHandle::evaluation_engine_api)
                 .def_prop_ro("traits", &PythonGraphHandle::traits)
+                .def_prop_ro("nodes", &PythonGraphHandle::nodes)
                 .def("schedule_node", &PythonGraphHandle::schedule_node, "node_ndx"_a, "when"_a, "force_set"_a = false);
         m.attr("_PythonGraphHandle") = m.attr("Graph");
 

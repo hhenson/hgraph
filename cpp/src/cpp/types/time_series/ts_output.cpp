@@ -780,8 +780,11 @@ namespace hgraph
                 throw std::logic_error("TSOutputView bundle mutation requires a TSB schema");
             }
 
-            const nb::object python_type = bundle_python_class(schema);
-            if (python_type.is_valid() && !python_type.is_none() && nb::isinstance(value, python_type)) {
+            const nb::object python_type    = bundle_python_class(schema);
+            const bool       is_bundle_like = (python_type.is_valid() && !python_type.is_none() &&
+                                         nb::isinstance(value, python_type)) ||
+                                        nb::hasattr(value, "__dataclass_fields__");
+            if (is_bundle_like) {
                 for (size_t i = 0; i < schema->field_count(); ++i) {
                     const std::string_view field_name = schema->fields()[i].name;
                     nb::object             attr       = nb::getattr(value, field_name.data(), nb::none());
@@ -4361,6 +4364,7 @@ namespace hgraph
                         }
                         break;
                     }
+                case TSKind::TSW: restore_common(slot->emplace<TSWState>()); break;
                 default: throw std::logic_error("restore_native_output_link_state does not support this output schema");
             }
         }
