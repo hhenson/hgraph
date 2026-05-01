@@ -19,38 +19,12 @@ namespace hgraph
         }
 
         [[nodiscard]] TSOutputView bound_output_of(TSInputView view, const TSMeta *required_schema = nullptr) {
-            const TSViewContext &input_context = view.context_ref();
-            TSOutputView         source_output;
-            if (const LinkedTSContext *target = view.linked_target();
-                target != nullptr && target->is_bound() && target->schema != nullptr && target->value_dispatch != nullptr &&
-                target->ts_dispatch != nullptr && target->owning_output != nullptr) {
-                source_output = TSOutputView{
-                    TSViewContext{TSContext{
-                        target->schema,
-                        target->value_dispatch,
-                        target->ts_dispatch,
-                        target->value_data,
-                        target->ts_state,
-                        target->owning_output,
-                        target->output_view_ops,
-                        target->notification_state != nullptr ? target->notification_state : target->ts_state,
-                        target->pending_dict_child,
-                    }},
-                    TSViewContext::none(),
-                    view.evaluation_time(),
-                    target->owning_output,
-                    target->output_view_ops != nullptr ? target->output_view_ops : &hgraph::detail::default_output_view_ops(),
-                };
-            }
-
-            const TSViewContext source_context = input_context.resolved();
-            if (!source_output.valid()) {
+            const auto output_from_context = [&](const TSViewContext &source_context) {
                 if (source_context.schema == nullptr || source_context.value_dispatch == nullptr ||
                     source_context.ts_dispatch == nullptr || source_context.owning_output == nullptr) {
                     return TSOutputView{};
                 }
-
-                source_output = TSOutputView{
+                return TSOutputView{
                     TSViewContext{TSContext{
                         source_context.schema,
                         source_context.value_dispatch,
@@ -68,11 +42,33 @@ namespace hgraph
                     source_context.output_view_ops != nullptr ? source_context.output_view_ops
                                                               : &hgraph::detail::default_output_view_ops(),
                 };
+            };
+
+            TSOutputView source_output;
+            if (const LinkedTSContext *target = view.linked_target();
+                target != nullptr && target->is_bound() && target->schema != nullptr && target->value_dispatch != nullptr &&
+                target->ts_dispatch != nullptr && target->owning_output != nullptr) {
+                source_output = output_from_context(TSViewContext{TSContext{
+                    target->schema,
+                    target->value_dispatch,
+                    target->ts_dispatch,
+                    target->value_data,
+                    target->ts_state,
+                    target->owning_output,
+                    target->output_view_ops,
+                    target->notification_state != nullptr ? target->notification_state : target->ts_state,
+                    target->pending_dict_child,
+                }});
             }
 
-            if (required_schema != nullptr && !binding_compatible_ts_schema(source_output.ts_schema(), required_schema)) {
-                if (source_context.owning_output == nullptr || !source_output.context_ref().is_bound()) { return TSOutputView{}; }
-                source_output = source_context.owning_output->bindable_view(source_output, required_schema);
+            if (!source_output.valid()) { source_output = output_from_context(view.context_ref().resolved()); }
+
+            if (source_output.ts_schema() == nullptr || !source_output.context_ref().is_bound()) { return TSOutputView{}; }
+
+            if (required_schema != nullptr && !equivalent_ts_schema(source_output.ts_schema(), required_schema)) {
+                if (source_output.owning_output() == nullptr) { return TSOutputView{}; }
+                source_output = source_output.owning_output()->bindable_view(source_output, required_schema);
+                if (!binding_compatible_ts_schema(source_output.ts_schema(), required_schema)) { return TSOutputView{}; }
             }
 
             return source_output;
@@ -115,7 +111,16 @@ namespace hgraph
         [[nodiscard]] TSOutputView navigate_output(TSOutputView view, PathView path) {
             const TSMeta *schema = view.ts_schema();
             for (const int64_t slot : path) {
-                const TSMeta *collection_schema = unwrap_navigation_schema(schema);
+                const TSMeta *collection_schema = schema;
+                if (schema != nullptr && schema->kind == TSKind::REF) {
+                    const View  ref_value = view.value();
+                    const auto *ref =
+                        ref_value.has_value() ? ref_value.as_atomic().template try_as<TimeSeriesReference>() : nullptr;
+                    if (ref == nullptr || !ref->is_peered()) { return TSOutputView{}; }
+
+                    view              = ref->target_view(view.evaluation_time());
+                    collection_schema = view.ts_schema();
+                }
                 if (collection_schema == nullptr) {
                     throw std::invalid_argument("BoundaryBindingRuntime output navigation requires a schema");
                 }
@@ -177,10 +182,35 @@ namespace hgraph
             node.slot_key.reset();
         }
 
+        [[nodiscard]] TSViewContext stop_unbind_context(TSViewContext context) noexcept {
+            BaseState *state = context.ts_state;
+            if (state == nullptr) { return context; }
+
+            const LinkedTSContext *target = state->linked_target();
+            if (target == nullptr) { return context; }
+            if (!target->is_bound()) {
+                context.pending_dict_child = target->pending_dict_child;
+                context.value_data         = nullptr;
+                return context;
+            }
+
+            context.schema          = target->schema != nullptr ? target->schema : context.schema;
+            context.value_dispatch  = target->value_dispatch != nullptr ? target->value_dispatch : context.value_dispatch;
+            context.ts_dispatch     = target->ts_dispatch != nullptr ? target->ts_dispatch : context.ts_dispatch;
+            context.value_data      = target->value_data;
+            context.ts_state        = target->ts_state;
+            context.owning_output   = target->owning_output != nullptr ? target->owning_output : context.owning_output;
+            context.output_view_ops = target->output_view_ops != nullptr ? target->output_view_ops : context.output_view_ops;
+            context.notification_state =
+                target->notification_state != nullptr ? target->notification_state : context.notification_state;
+            context.pending_dict_child = target->pending_dict_child;
+            return context;
+        }
+
         void unsubscribe_active_subtree(TSViewContext context, ActiveTrieNode *node, Notifiable *notifier) noexcept {
             if (node == nullptr || notifier == nullptr) { return; }
 
-            TSViewContext resolved = context.resolved();
+            TSViewContext resolved = stop_unbind_context(context);
             BaseState    *state    = context.ts_state != nullptr ? context.ts_state : resolved.ts_state;
             if (node->locally_active && state != nullptr) { state->unsubscribe(notifier); }
 
@@ -210,9 +240,10 @@ namespace hgraph
             TSViewContext &context = view.context_mutable();
             BaseState     *state   = context.ts_state;
 
-            ActiveTriePosition &active_pos = view.active_position_mutable();
-            ActiveTrieNode     *active_node =
-                active_pos.node != nullptr ? active_pos.node : (active_pos.trie != nullptr ? active_pos.trie->root_node() : nullptr);
+            ActiveTriePosition &active_pos  = view.active_position_mutable();
+            ActiveTrieNode     *active_node = active_pos.node != nullptr
+                                                  ? active_pos.node
+                                                  : (active_pos.trie != nullptr ? active_pos.trie->root_node() : nullptr);
 
             unsubscribe_active_subtree(context, active_node, view.scheduling_notifier());
             if (state != nullptr && view.scheduling_notifier() != nullptr) { state->unsubscribe(view.scheduling_notifier()); }
@@ -255,30 +286,39 @@ namespace hgraph
             state->last_modified_time = MIN_DT;
         }
 
-        void restore_blank_input_without_transition(TSInputView view) {
-            if (!view.valid() && !input_is_bound(view) && !view.active()) { return; }
-
-            if (view.active()) { view.make_passive(); }
-
-            TSViewContext &context = view.context_mutable();
-            BaseState     *state   = context.ts_state;
-            if (state == nullptr) { return; }
-
-            clear_target_link_history(state);
-
-            if (context.schema != nullptr && context.schema->kind == TSKind::REF && context.schema->value_type != nullptr &&
-                context.value_dispatch != nullptr && context.value_data != nullptr) {
-                View local_value{context.value_dispatch, context.value_data, context.schema->value_type};
-                local_value.as_atomic().set(TimeSeriesReference::make());
-            }
-
-            state->last_modified_time = MIN_DT;
-        }
-
         [[nodiscard]] bool removed_key_input_marks_modified(TSInputView view) noexcept {
             const auto *dispatch = view.context_ref().ts_dispatch != nullptr ? view.context_ref().ts_dispatch
                                                                              : view.context_ref().resolved().ts_dispatch;
             return dispatch != nullptr && (dispatch->as_collection() != nullptr || dispatch->as_set() != nullptr);
+        }
+
+        [[nodiscard]] bool transition_removed_dict_key(const TSInputView &parent_source, const value::View &key,
+                                                       engine_time_t eval_time) noexcept {
+            const TSMeta *schema = unwrap_navigation_schema(parent_source.ts_schema());
+            if (schema == nullptr || schema->kind != TSKind::TSD) { return false; }
+
+            const auto snapshot = detail::transition_snapshot(parent_source.context_ref());
+            if (!snapshot.active() || snapshot.modified_time != eval_time || snapshot.previous_value == nullptr ||
+                !snapshot.previous_value->view().has_value()) {
+                return false;
+            }
+
+            const auto previous = snapshot.previous_value->view().as_map();
+            if (!previous.contains(key)) { return false; }
+
+            const LinkedTSContext *target =
+                parent_source.context_ref().ts_state != nullptr ? parent_source.context_ref().ts_state->linked_target() : nullptr;
+            if (target == nullptr || !target->is_bound()) { return true; }
+
+            TSViewContext current_context{
+                target->schema != nullptr ? target->schema : parent_source.context_ref().schema,
+                target->value_dispatch != nullptr ? target->value_dispatch : parent_source.context_ref().value_dispatch,
+                target->ts_dispatch != nullptr ? target->ts_dispatch : parent_source.context_ref().ts_dispatch,
+                target->value_data,
+                target->ts_state,
+            };
+            View current = current_context.value();
+            return !current.has_value() || !current.as_map().contains(key);
         }
 
         void restore_removed_key_input(TSInputView view, engine_time_t eval_time) {
@@ -286,7 +326,22 @@ namespace hgraph
             if (!had_endpoint) { return; }
 
             const bool mark_modified = removed_key_input_marks_modified(view);
-            restore_blank_input_without_transition(view);
+            if (view.active()) { view.make_passive(); }
+
+            TSViewContext &context = view.context_mutable();
+            BaseState     *state   = context.ts_state;
+            if (input_is_bound(view)) {
+                view.unbind_output();
+            } else {
+                clear_target_link_history(state);
+                if (state != nullptr) { state->last_modified_time = MIN_DT; }
+            }
+
+            if (context.schema != nullptr && context.schema->kind == TSKind::REF && context.schema->value_type != nullptr &&
+                context.value_dispatch != nullptr && context.value_data != nullptr) {
+                View local_value{context.value_dispatch, context.value_data, context.schema->value_type};
+                local_value.as_atomic().set(TimeSeriesReference::make());
+            }
             if (eval_time == MIN_DT) { return; }
 
             view.make_active();
@@ -334,17 +389,6 @@ namespace hgraph
         void bind_child_to_output(TSInputView child_input, const TSOutputView &upstream_output) {
             const LinkedTSContext previous_target =
                 child_input.linked_target() != nullptr ? *child_input.linked_target() : LinkedTSContext{};
-            if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
-                const LinkedTSContext source = upstream_output.linked_context();
-                std::fprintf(stderr,
-                             "bind_child_to_output child_kind=%d child_valid=%d child_bound=%d source_kind=%d source_valid=%d "
-                             "source_bound=%d source_ctx_bound=%d source_value_data=%p source_ts_state=%p\n",
-                             child_input.ts_schema() != nullptr ? static_cast<int>(child_input.ts_schema()->kind) : -1,
-                             child_input.valid(), child_input.context_ref().is_bound(),
-                             upstream_output.ts_schema() != nullptr ? static_cast<int>(upstream_output.ts_schema()->kind) : -1,
-                             upstream_output.valid(), detail::linked_context_valid(source), source.is_bound(), source.value_data,
-                             static_cast<void *>(source.ts_state));
-            }
             if (upstream_output.ts_schema() == nullptr) {
                 restore_blank_input(child_input);
                 return;
@@ -366,6 +410,7 @@ namespace hgraph
 
         [[nodiscard]] bool output_endpoint_available(const TSOutputView &view) noexcept {
             const LinkedTSContext context = view.linked_context();
+            if (context.pending_dict_child.active() && context.schema != nullptr) { return true; }
             return context.is_bound() && context.schema != nullptr && context.value_dispatch != nullptr &&
                    context.ts_dispatch != nullptr && detail::linked_context_valid(context);
         }
@@ -384,7 +429,9 @@ namespace hgraph
             const TimeSeriesReference reference = TimeSeriesReference::make(parent_field);
             if (child_schema->kind == TSKind::REF) {
                 TimeSeriesReference child_reference = TimeSeriesReference::make();
-                if (TSOutputView upstream_output = bound_output_of(parent_field); upstream_output.ts_schema() != nullptr) {
+                if (TSOutputView upstream_output = bound_output_of(parent_field);
+                    upstream_output.ts_schema() != nullptr &&
+                    (parent_schema == nullptr || parent_schema->kind != TSKind::REF || !reference.is_empty())) {
                     child_reference = TimeSeriesReference::make(upstream_output);
                 }
                 if (child_reference.is_empty()) { child_reference = reference; }
@@ -402,6 +449,11 @@ namespace hgraph
                     target_output = target_output.owning_output()->bindable_view(target_output, child_schema);
                 }
                 bind_child_to_output(child_input, target_output);
+                return;
+            }
+
+            if (parent_schema != nullptr && parent_schema->kind == TSKind::REF) {
+                restore_blank_input(child_input);
                 return;
             }
 
@@ -483,11 +535,31 @@ namespace hgraph
                 case InputBindingMode::BIND_MULTIPLEXED_ELEMENT:
                     {
                         TSInputView parent_source = resolve_parent_spec_arg(parent, spec, eval_time);
+                        if (transition_removed_dict_key(parent_source, key, eval_time)) {
+                            restore_removed_key_input(child_input, eval_time);
+                            break;
+                        }
                         if (!parent_source.valid() && !input_is_bound(parent_source)) {
                             restore_removed_key_input(child_input, eval_time);
                             break;
                         }
-                        TSOutputView parent_output = bound_output_of(parent_source);
+                        TSOutputView parent_output = bound_output_of(parent_source, parent_source.ts_schema());
+                        if (parent_output.owning_output() != nullptr) {
+                            const TSMeta *parent_schema = unwrap_navigation_schema(parent_source.ts_schema());
+                            const TSMeta *output_schema = unwrap_navigation_schema(parent_output.ts_schema());
+                            if (parent_schema != nullptr && output_schema != nullptr && parent_schema->kind == TSKind::TSD &&
+                                output_schema->kind == TSKind::TSD) {
+                                TSOutputView  root_output = parent_output.owning_output()->view(eval_time);
+                                const TSMeta *root_schema = unwrap_navigation_schema(root_output.ts_schema());
+                                if (root_schema != nullptr && root_schema->kind == TSKind::TSD &&
+                                    root_output.context_ref().ts_state == parent_output.context_ref().ts_state) {
+                                    if (!binding_compatible_ts_schema(root_output.ts_schema(), output_schema)) {
+                                        root_output = parent_output.owning_output()->bindable_view(root_output, output_schema);
+                                    }
+                                    if (root_output.ts_schema() != nullptr) { parent_output = root_output; }
+                                }
+                            }
+                        }
                         if (parent_output.ts_schema() != nullptr) {
                             const TSMeta *collection_schema = unwrap_navigation_schema(parent_output.ts_schema());
                             if (collection_schema != nullptr && parent_output.ts_schema() != collection_schema &&
@@ -511,15 +583,6 @@ namespace hgraph
                             }
 
                             if (output_endpoint_available(parent_item_output)) {
-                                if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
-                                    std::fprintf(stderr,
-                                                 "bind_keyed key=%s route=output pre_path schema_kind=%d valid=%d bound=%d\n",
-                                                 key.to_string().c_str(),
-                                                 parent_item_output.ts_schema() != nullptr
-                                                     ? static_cast<int>(parent_item_output.ts_schema()->kind)
-                                                     : -1,
-                                                 parent_item_output.valid(), parent_item_output.context_ref().is_bound());
-                                }
                                 if (!spec.parent_input_path.empty()) {
                                     parent_item_output = navigate_output(parent_item_output, spec.parent_input_path);
                                 }
@@ -539,42 +602,21 @@ namespace hgraph
                                     const TSMeta *parent_schema = parent_item_output.ts_schema();
                                     if (child_schema != nullptr && parent_schema != nullptr && parent_schema->kind == TSKind::REF &&
                                         child_schema->kind != TSKind::REF) {
-                                        const LinkedTSContext dereferenced_context =
-                                            detail::dereferenced_target_from_source(parent_item_output.linked_context());
-                                        if (dereferenced_context.is_bound()) {
-                                            TSOutputView target_output{
-                                                TSViewContext{TSContext{
-                                                    dereferenced_context.schema,
-                                                    dereferenced_context.value_dispatch,
-                                                    dereferenced_context.ts_dispatch,
-                                                    dereferenced_context.value_data,
-                                                    dereferenced_context.ts_state,
-                                                    dereferenced_context.owning_output != nullptr
-                                                        ? dereferenced_context.owning_output
-                                                        : parent_item_output.owning_output(),
-                                                    dereferenced_context.output_view_ops != nullptr
-                                                        ? dereferenced_context.output_view_ops
-                                                        : parent_item_output.output_view_ops(),
-                                                    dereferenced_context.notification_state != nullptr
-                                                        ? dereferenced_context.notification_state
-                                                        : dereferenced_context.ts_state,
-                                                    dereferenced_context.pending_dict_child,
-                                                }},
-                                                TSViewContext::none(),
-                                                eval_time,
-                                                dereferenced_context.owning_output != nullptr ? dereferenced_context.owning_output
-                                                                                              : parent_item_output.owning_output(),
-                                                dereferenced_context.output_view_ops != nullptr
-                                                    ? dereferenced_context.output_view_ops
-                                                    : &hgraph::detail::default_output_view_ops(),
-                                            };
+                                        const View  ref_value = parent_item_output.value();
+                                        const auto *ref =
+                                            ref_value.has_value() ? ref_value.as_atomic().try_as<TimeSeriesReference>() : nullptr;
+                                        if (ref != nullptr && ref->is_peered()) {
+                                            TSOutputView target_output = ref->target_view(eval_time);
                                             if (!binding_compatible_ts_schema(target_output.ts_schema(), child_schema) &&
                                                 target_output.owning_output() != nullptr) {
                                                 target_output =
                                                     target_output.owning_output()->bindable_view(target_output, child_schema);
                                             }
-                                            bind_child_to_output(child_input, target_output);
-                                            break;
+                                            if (target_output.valid() ||
+                                                detail::linked_context_valid(target_output.linked_context())) {
+                                                bind_child_to_output(child_input, target_output);
+                                                break;
+                                            }
                                         }
                                     }
                                     if (child_schema != nullptr &&
@@ -583,13 +625,18 @@ namespace hgraph
                                         parent_item_output =
                                             parent_item_output.owning_output()->bindable_view(parent_item_output, child_schema);
                                     }
-                                    bind_child_to_output(child_input, parent_item_output);
-                                    break;
+                                    if (output_endpoint_available(parent_item_output) &&
+                                        (parent_item_output.valid() ||
+                                         detail::linked_context_valid(parent_item_output.linked_context()))) {
+                                        bind_child_to_output(child_input, parent_item_output);
+                                        break;
+                                    }
                                 }
                             }
                         }
 
-                        if (TSOutputView fallback_output = bound_output_of(parent_source); fallback_output.ts_schema() != nullptr) {
+                        if (TSOutputView fallback_output = bound_output_of(parent_source, parent_source.ts_schema());
+                            fallback_output.ts_schema() != nullptr) {
                             const TSMeta *fallback_collection_schema = unwrap_navigation_schema(fallback_output.ts_schema());
                             if (fallback_collection_schema != nullptr && fallback_collection_schema->kind == TSKind::TSD) {
                                 if (fallback_output.ts_schema() != fallback_collection_schema &&
@@ -619,7 +666,9 @@ namespace hgraph
                                         pending_item_output.owning_output()->bindable_view(pending_item_output, child_schema);
                                 }
 
-                                if (output_endpoint_available(pending_item_output)) {
+                                if (output_endpoint_available(pending_item_output) &&
+                                    (pending_item_output.valid() ||
+                                     detail::linked_context_valid(pending_item_output.linked_context()))) {
                                     bind_child_to_output(child_input, pending_item_output);
                                     break;
                                 }
@@ -628,13 +677,6 @@ namespace hgraph
 
                         TSInputView parent_item = select_multiplexed_parent_input(parent_source, key);
                         if (!spec.parent_input_path.empty()) { parent_item = navigate_input(parent_item, spec.parent_input_path); }
-                        if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
-                            std::fprintf(stderr, "bind_keyed key=%s route=input schema_kind=%d valid=%d bound=%d linked=%d\n",
-                                         key.to_string().c_str(),
-                                         parent_item.ts_schema() != nullptr ? static_cast<int>(parent_item.ts_schema()->kind) : -1,
-                                         parent_item.valid(), parent_item.context_ref().is_bound(),
-                                         parent_item.linked_target() != nullptr && parent_item.linked_target()->is_bound());
-                        }
                         if (!parent_item.valid() && !input_is_bound(parent_item)) {
                             restore_removed_key_input(child_input, eval_time);
                             break;
@@ -702,6 +744,21 @@ namespace hgraph
 
                 if (source_output.ts_schema() == nullptr || !source_output.context_ref().is_bound()) {
                     restore_blank_input(child_input);
+                    return;
+                }
+
+                if (source_output.ts_schema()->kind == TSKind::REF) {
+                    const TimeSeriesReference reference = TimeSeriesReference::make(source_output);
+                    if (reference.is_peered()) {
+                        TSOutputView target_output = reference.target_view(eval_time);
+                        if (!binding_compatible_ts_schema(target_output.ts_schema(), child_schema) &&
+                            target_output.owning_output() != nullptr) {
+                            target_output = target_output.owning_output()->bindable_view(target_output, child_schema);
+                        }
+                        bind_child_to_output(child_input, target_output);
+                    } else {
+                        restore_blank_input(child_input);
+                    }
                     return;
                 }
 

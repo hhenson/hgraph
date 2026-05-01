@@ -24,6 +24,8 @@ namespace hgraph
         std::string key_arg;
         std::string keys_arg;
         std::vector<std::string> multiplexed_args;
+        bool mesh_mode{false};
+        std::string context_path;
     };
 
     struct ReduceNodeBuilderState
@@ -49,6 +51,8 @@ namespace hgraph
      * Contains the standard input/output pointers plus the child graph instance
      * and any nested-operator-specific state.
      */
+    struct ComponentNodeRuntimeState;
+
     struct NestedNodeRuntimeData
     {
         TSInput           *input{nullptr};
@@ -58,6 +62,7 @@ namespace hgraph
         const ChildGraphTemplate *child_template{nullptr};
         ChildGraphInstance child_instance;
         bool               bound{false};
+        ComponentNodeRuntimeState *component_state{nullptr};
     };
 
     struct MapNodeRuntimeData
@@ -70,6 +75,9 @@ namespace hgraph
         std::string        key_arg;
         std::string        keys_arg;
         std::vector<std::string> multiplexed_args;
+        bool               mesh_mode{false};
+        std::string        context_path;
+        size_t             max_rank{0};
         int64_t            next_child_graph_id{1};
         bool               slot_store_initialized{false};
     };
@@ -88,6 +96,8 @@ namespace hgraph
      * outlive the builder and all nodes built from it.
      */
     HGRAPH_EXPORT NodeBuilder &nested_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
+
+    HGRAPH_EXPORT NodeBuilder &component_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
 
     /**
      * Configure a NodeBuilder for a try_except nested graph operator.
@@ -108,6 +118,18 @@ namespace hgraph
                                                         std::string key_arg,
                                                         std::string keys_arg,
                                                         std::vector<std::string> multiplexed_args);
+
+    HGRAPH_EXPORT NodeBuilder &mesh_graph_implementation(NodeBuilder &builder,
+                                                         const ChildGraphTemplate *child_template,
+                                                         std::string key_arg,
+                                                         std::string keys_arg,
+                                                         std::vector<std::string> multiplexed_args,
+                                                         std::string context_path);
+
+    HGRAPH_EXPORT bool mesh_node_add_dependency(Node &mesh_node,
+                                                Node &requesting_node,
+                                                const value::View &depends_on,
+                                                engine_time_t evaluation_time);
 
     HGRAPH_EXPORT NodeBuilder &reduce_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
 

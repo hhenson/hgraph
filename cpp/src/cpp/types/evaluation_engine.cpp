@@ -1,42 +1,38 @@
 #include <hgraph/types/evaluation_engine.h>
 
-#include <hgraph/util/scope.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/graph_builder.h>
 #include <hgraph/types/node.h>
+#include <hgraph/util/scope.h>
 
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
+#include <map>
 #include <mutex>
+#include <set>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace hgraph
 {
     namespace
     {
-        [[nodiscard]] bool can_release_gil() noexcept
-        {
-            return Py_IsInitialized() != 0 && PyGILState_Check() != 0;
-        }
+        [[nodiscard]] bool can_release_gil() noexcept { return Py_IsInitialized() != 0 && PyGILState_Check() != 0; }
 
         struct BaseClockState
         {
             explicit BaseClockState(engine_time_t start_time)
-                : m_evaluation_time(start_time), m_next_scheduled_evaluation_time(MAX_DT)
-            {
-            }
+                : m_evaluation_time(start_time), m_next_scheduled_evaluation_time(MAX_DT) {}
 
             [[nodiscard]] engine_time_t evaluation_time() const noexcept { return m_evaluation_time; }
             [[nodiscard]] engine_time_t next_cycle_evaluation_time() const noexcept { return m_evaluation_time + MIN_TD; }
-            [[nodiscard]] engine_time_t next_scheduled_evaluation_time() const noexcept
-            {
-                return m_next_scheduled_evaluation_time;
-            }
+            [[nodiscard]] engine_time_t next_scheduled_evaluation_time() const noexcept { return m_next_scheduled_evaluation_time; }
 
-            void update_next_scheduled_evaluation_time(engine_time_t scheduled_time)
-            {
+            void update_next_scheduled_evaluation_time(engine_time_t scheduled_time) {
                 if (scheduled_time == m_evaluation_time) { return; }
                 m_next_scheduled_evaluation_time =
                     std::max(next_cycle_evaluation_time(), std::min(m_next_scheduled_evaluation_time, scheduled_time));
@@ -45,9 +41,8 @@ namespace hgraph
             [[nodiscard]] const engine_time_t *evaluation_time_ptr() const noexcept { return &m_evaluation_time; }
 
           protected:
-            void set_base_evaluation_time(engine_time_t evaluation_time)
-            {
-                m_evaluation_time = evaluation_time;
+            void set_base_evaluation_time(engine_time_t evaluation_time) {
+                m_evaluation_time                = evaluation_time;
                 m_next_scheduled_evaluation_time = MAX_DT;
             }
 
@@ -58,50 +53,34 @@ namespace hgraph
         struct SimulationClockState : BaseClockState
         {
             explicit SimulationClockState(engine_time_t start_time)
-                : BaseClockState(start_time),
-                  m_system_clock_at_start_of_evaluation(
-                      std::chrono::time_point_cast<std::chrono::microseconds>(engine_clock::now()))
-            {
-            }
+                : BaseClockState(start_time), m_system_clock_at_start_of_evaluation(
+                                                  std::chrono::time_point_cast<std::chrono::microseconds>(engine_clock::now())) {}
 
-            [[nodiscard]] engine_time_t now() const
-            {
-                return evaluation_time() + cycle_time();
-            }
+            [[nodiscard]] engine_time_t now() const { return evaluation_time() + cycle_time(); }
 
-            [[nodiscard]] engine_time_delta_t cycle_time() const
-            {
+            [[nodiscard]] engine_time_delta_t cycle_time() const {
                 return std::chrono::duration_cast<engine_time_delta_t>(
                     std::chrono::time_point_cast<std::chrono::microseconds>(engine_clock::now()) -
                     m_system_clock_at_start_of_evaluation);
             }
 
-            void set_evaluation_time(engine_time_t evaluation_time)
-            {
+            void set_evaluation_time(engine_time_t evaluation_time) {
                 set_base_evaluation_time(evaluation_time);
                 m_system_clock_at_start_of_evaluation =
                     std::chrono::time_point_cast<std::chrono::microseconds>(engine_clock::now());
             }
 
-            void advance_to_next_scheduled_time()
-            {
-                set_evaluation_time(next_scheduled_evaluation_time());
-            }
+            void advance_to_next_scheduled_time() { set_evaluation_time(next_scheduled_evaluation_time()); }
 
-            void mark_push_node_requires_scheduling()
-            {
-                throw std::runtime_error("Simulation mode does not support push nodes.");
-            }
+            void mark_push_node_requires_scheduling() { throw std::runtime_error("Simulation mode does not support push nodes."); }
 
-            [[nodiscard]] bool push_node_requires_scheduling() const noexcept
-            {
-                return false;
-            }
+            [[nodiscard]] bool push_node_requires_scheduling() const noexcept { return false; }
 
-            void reset_push_node_requires_scheduling()
-            {
-                throw std::runtime_error("Simulation mode does not support push nodes.");
-            }
+            void reset_push_node_requires_scheduling() { throw std::runtime_error("Simulation mode does not support push nodes."); }
+
+            [[nodiscard]] bool set_alarm(engine_time_t, std::string, std::function<void(engine_time_t)>) { return false; }
+
+            void cancel_alarm(std::string_view) {}
 
             engine_time_t m_system_clock_at_start_of_evaluation{MIN_DT};
         };
@@ -110,46 +89,38 @@ namespace hgraph
         {
             explicit RealTimeClockState(engine_time_t start_time) : BaseClockState(start_time) {}
 
-            [[nodiscard]] engine_time_t now() const
-            {
+            [[nodiscard]] engine_time_t now() const {
                 return std::chrono::time_point_cast<std::chrono::microseconds>(engine_clock::now());
             }
 
-            [[nodiscard]] engine_time_delta_t cycle_time() const
-            {
+            [[nodiscard]] engine_time_delta_t cycle_time() const {
                 return std::chrono::duration_cast<engine_time_delta_t>(now() - evaluation_time());
             }
 
-            void set_evaluation_time(engine_time_t evaluation_time)
-            {
-                set_base_evaluation_time(evaluation_time);
-            }
+            void set_evaluation_time(engine_time_t evaluation_time) { set_base_evaluation_time(evaluation_time); }
 
-            void mark_push_node_requires_scheduling()
-            {
+            void mark_push_node_requires_scheduling() {
                 std::unique_lock<std::mutex> lock(m_condition_mutex);
                 m_push_node_requires_scheduling = true;
                 m_push_node_requires_scheduling_condition.notify_all();
             }
 
-            [[nodiscard]] bool push_node_requires_scheduling() const noexcept
-            {
-                if (!m_ready_to_push) { return false; }
+            [[nodiscard]] bool push_node_requires_scheduling() const noexcept {
                 std::unique_lock<std::mutex> lock(m_condition_mutex);
                 return m_push_node_requires_scheduling;
             }
 
-            void advance_to_next_scheduled_time()
-            {
+            void advance_to_next_scheduled_time() {
                 engine_time_t next_scheduled_time = next_scheduled_evaluation_time();
-                engine_time_t current_time = now();
+                engine_time_t current_time        = now();
+                process_alarms_before_wait(current_time, next_scheduled_time);
 
                 m_ready_to_push = false;
                 if (next_scheduled_time > evaluation_time() + MIN_TD ||
                     current_time > m_last_time_allowed_push + std::chrono::seconds(15)) {
                     {
                         std::unique_lock<std::mutex> lock(m_condition_mutex);
-                        m_ready_to_push = true;
+                        m_ready_to_push          = true;
                         m_last_time_allowed_push = current_time;
                     }
 
@@ -159,10 +130,10 @@ namespace hgraph
                         current_time = now();
                         if (current_time >= next_scheduled_time) { break; }
 
-                        bool scheduled = false;
+                        bool       scheduled     = false;
                         const auto wake_deadline = std::min(next_scheduled_time, current_time + std::chrono::seconds(10));
                         if (can_release_gil()) {
-                            nb::gil_scoped_release gil;
+                            nb::gil_scoped_release       gil;
                             std::unique_lock<std::mutex> lock(m_condition_mutex);
                             scheduled = m_push_node_requires_scheduling;
                             if (!scheduled) {
@@ -183,94 +154,151 @@ namespace hgraph
                 }
 
                 set_evaluation_time(std::min(next_scheduled_time, std::max(next_cycle_evaluation_time(), current_time)));
+                process_due_alarms(current_time, evaluation_time());
             }
 
-            void reset_push_node_requires_scheduling()
-            {
+            void reset_push_node_requires_scheduling() {
                 std::unique_lock<std::mutex> lock(m_condition_mutex);
                 m_push_node_requires_scheduling = false;
             }
 
-            bool m_push_node_requires_scheduling{false};
-            bool m_ready_to_push{false};
-            engine_time_t m_last_time_allowed_push{MIN_DT};
-            mutable std::mutex m_condition_mutex;
-            std::condition_variable m_push_node_requires_scheduling_condition;
+            [[nodiscard]] bool set_alarm(engine_time_t time, std::string name, std::function<void(engine_time_t)> callback) {
+                if (time <= evaluation_time()) {
+                    throw std::runtime_error("v2 realtime clock cannot set an alarm in the engine past");
+                }
+
+                cancel_alarm(name);
+                m_alarms.emplace(time, name);
+                m_alarm_callbacks.emplace(std::make_pair(time, std::move(name)), std::move(callback));
+                std::unique_lock<std::mutex> lock(m_condition_mutex);
+                m_push_node_requires_scheduling_condition.notify_all();
+                return true;
+            }
+
+            void cancel_alarm(std::string_view name) {
+                for (auto it = m_alarms.begin(); it != m_alarms.end();) {
+                    if (it->second == name) {
+                        m_alarm_callbacks.erase(*it);
+                        it = m_alarms.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            }
+
+            bool                                            m_push_node_requires_scheduling{false};
+            bool                                            m_ready_to_push{false};
+            engine_time_t                                   m_last_time_allowed_push{MIN_DT};
+            mutable std::mutex                              m_condition_mutex;
+            std::condition_variable                         m_push_node_requires_scheduling_condition;
+            std::set<std::pair<engine_time_t, std::string>> m_alarms;
+            std::map<std::pair<engine_time_t, std::string>, std::function<void(engine_time_t)>> m_alarm_callbacks;
+
+          private:
+            void process_alarms_before_wait(engine_time_t current_time, engine_time_t &next_scheduled_time) {
+                while (!m_alarms.empty()) {
+                    const auto alarm = *m_alarms.begin();
+                    if (current_time >= alarm.first) {
+                        m_alarms.erase(m_alarms.begin());
+                        auto callback       = take_alarm_callback(alarm);
+                        next_scheduled_time = std::min(next_scheduled_time, std::max(current_time, evaluation_time() + MIN_TD));
+                        if (callback) { callback(next_scheduled_time); }
+                    } else if (next_scheduled_time > alarm.first) {
+                        next_scheduled_time = alarm.first;
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            void process_due_alarms(engine_time_t current_time, engine_time_t callback_time) {
+                while (!m_alarms.empty() && current_time >= m_alarms.begin()->first) {
+                    const auto alarm = *m_alarms.begin();
+                    m_alarms.erase(m_alarms.begin());
+                    auto callback = take_alarm_callback(alarm);
+                    if (callback) { callback(callback_time); }
+                }
+            }
+
+            [[nodiscard]] std::function<void(engine_time_t)>
+            take_alarm_callback(const std::pair<engine_time_t, std::string> &alarm) {
+                auto it = m_alarm_callbacks.find(alarm);
+                if (it == m_alarm_callbacks.end()) { return {}; }
+                auto callback = std::move(it->second);
+                m_alarm_callbacks.erase(it);
+                return callback;
+            }
         };
 
-        template <typename TClockState>
-        struct ClockDispatch
+        template <typename TClockState> struct ClockDispatch
         {
-            [[nodiscard]] static engine_time_t evaluation_time_impl(const void *impl) noexcept
-            {
+            [[nodiscard]] static engine_time_t evaluation_time_impl(const void *impl) noexcept {
                 return static_cast<const TClockState *>(impl)->evaluation_time();
             }
 
-            [[nodiscard]] static engine_time_t now_impl(const void *impl)
-            {
-                return static_cast<const TClockState *>(impl)->now();
-            }
+            [[nodiscard]] static engine_time_t now_impl(const void *impl) { return static_cast<const TClockState *>(impl)->now(); }
 
-            [[nodiscard]] static engine_time_delta_t cycle_time_impl(const void *impl)
-            {
+            [[nodiscard]] static engine_time_delta_t cycle_time_impl(const void *impl) {
                 return static_cast<const TClockState *>(impl)->cycle_time();
             }
 
-            [[nodiscard]] static engine_time_t next_cycle_evaluation_time_impl(const void *impl) noexcept
-            {
+            [[nodiscard]] static engine_time_t next_cycle_evaluation_time_impl(const void *impl) noexcept {
                 return static_cast<const TClockState *>(impl)->next_cycle_evaluation_time();
             }
 
-            static void set_evaluation_time_impl(void *impl, engine_time_t evaluation_time)
-            {
+            static void set_evaluation_time_impl(void *impl, engine_time_t evaluation_time) {
                 static_cast<TClockState *>(impl)->set_evaluation_time(evaluation_time);
             }
 
-            [[nodiscard]] static engine_time_t next_scheduled_evaluation_time_impl(const void *impl) noexcept
-            {
+            [[nodiscard]] static engine_time_t next_scheduled_evaluation_time_impl(const void *impl) noexcept {
                 return static_cast<const TClockState *>(impl)->next_scheduled_evaluation_time();
             }
 
-            static void update_next_scheduled_evaluation_time_impl(void *impl, engine_time_t evaluation_time)
-            {
+            static void update_next_scheduled_evaluation_time_impl(void *impl, engine_time_t evaluation_time) {
                 static_cast<TClockState *>(impl)->update_next_scheduled_evaluation_time(evaluation_time);
             }
 
-            static void advance_to_next_scheduled_time_impl(void *impl)
-            {
+            static void advance_to_next_scheduled_time_impl(void *impl) {
                 static_cast<TClockState *>(impl)->advance_to_next_scheduled_time();
             }
 
-            static void mark_push_node_requires_scheduling_impl(void *impl)
-            {
+            static void mark_push_node_requires_scheduling_impl(void *impl) {
                 static_cast<TClockState *>(impl)->mark_push_node_requires_scheduling();
             }
 
-            [[nodiscard]] static bool push_node_requires_scheduling_impl(const void *impl) noexcept
-            {
+            [[nodiscard]] static bool push_node_requires_scheduling_impl(const void *impl) noexcept {
                 return static_cast<const TClockState *>(impl)->push_node_requires_scheduling();
             }
 
-            static void reset_push_node_requires_scheduling_impl(void *impl)
-            {
+            static void reset_push_node_requires_scheduling_impl(void *impl) {
                 static_cast<TClockState *>(impl)->reset_push_node_requires_scheduling();
             }
 
-            [[nodiscard]] static const engine_time_t *evaluation_time_ptr_impl(const void *impl) noexcept
-            {
+            [[nodiscard]] static const engine_time_t *evaluation_time_ptr_impl(const void *impl) noexcept {
                 return static_cast<const TClockState *>(impl)->evaluation_time_ptr();
+            }
+
+            [[nodiscard]] static bool set_alarm_impl(void *impl, engine_time_t time, std::string name,
+                                                     std::function<void(engine_time_t)> callback) {
+                return static_cast<TClockState *>(impl)->set_alarm(time, std::move(name), std::move(callback));
+            }
+
+            static void cancel_alarm_impl(void *impl, std::string_view name) {
+                static_cast<TClockState *>(impl)->cancel_alarm(name);
             }
 
             static const EngineEvaluationClockOps value;
         };
 
         template <typename TClockState>
-        const EngineEvaluationClockOps ClockDispatch<TClockState>::value{{
-            &ClockDispatch<TClockState>::evaluation_time_impl,
-            &ClockDispatch<TClockState>::now_impl,
-            &ClockDispatch<TClockState>::cycle_time_impl,
-            &ClockDispatch<TClockState>::next_cycle_evaluation_time_impl,
-        },
+        const EngineEvaluationClockOps ClockDispatch<TClockState>::value{
+            {
+                &ClockDispatch<TClockState>::evaluation_time_impl,
+                &ClockDispatch<TClockState>::now_impl,
+                &ClockDispatch<TClockState>::cycle_time_impl,
+                &ClockDispatch<TClockState>::next_cycle_evaluation_time_impl,
+            },
             &ClockDispatch<TClockState>::set_evaluation_time_impl,
             &ClockDispatch<TClockState>::next_scheduled_evaluation_time_impl,
             &ClockDispatch<TClockState>::update_next_scheduled_evaluation_time_impl,
@@ -279,137 +307,99 @@ namespace hgraph
             &ClockDispatch<TClockState>::push_node_requires_scheduling_impl,
             &ClockDispatch<TClockState>::reset_push_node_requires_scheduling_impl,
             &ClockDispatch<TClockState>::evaluation_time_ptr_impl,
+            &ClockDispatch<TClockState>::set_alarm_impl,
+            &ClockDispatch<TClockState>::cancel_alarm_impl,
         };
 
-        template <EvaluationMode TMode>
-        struct PushMessageReceiverStorage
+        template <EvaluationMode TMode> struct PushMessageReceiverStorage
         {
-            void initialise(EngineEvaluationClock) noexcept {}
-            [[nodiscard]] SenderReceiverState *receiver() noexcept { return nullptr; }
+            void                                     initialise(EngineEvaluationClock) noexcept {}
+            [[nodiscard]] SenderReceiverState       *receiver() noexcept { return nullptr; }
             [[nodiscard]] const SenderReceiverState *receiver() const noexcept { return nullptr; }
         };
 
-        template <>
-        struct PushMessageReceiverStorage<EvaluationMode::REAL_TIME>
+        template <> struct PushMessageReceiverStorage<EvaluationMode::REAL_TIME>
         {
-            void initialise(EngineEvaluationClock clock) noexcept
-            {
-                receiver_state.set_evaluation_clock(clock);
-            }
+            void initialise(EngineEvaluationClock clock) noexcept { receiver_state.set_evaluation_clock(clock); }
 
-            [[nodiscard]] SenderReceiverState *receiver() noexcept { return &receiver_state; }
+            [[nodiscard]] SenderReceiverState       *receiver() noexcept { return &receiver_state; }
             [[nodiscard]] const SenderReceiverState *receiver() const noexcept { return &receiver_state; }
 
             SenderReceiverState receiver_state;
         };
 
-        template <typename TClockState, EvaluationMode TMode>
-        struct EvaluationEngineState
+        template <typename TClockState, EvaluationMode TMode> struct EvaluationEngineState
         {
-            TClockState clock;
-            engine_time_t start_time{MIN_DT};
-            engine_time_t end_time{MAX_DT};
-            bool cleanup_on_error{true};
-            bool stop_requested{false};
+            TClockState                                clock;
+            engine_time_t                              start_time{MIN_DT};
+            engine_time_t                              end_time{MAX_DT};
+            bool                                       cleanup_on_error{true};
+            bool                                       stop_requested{false};
             std::vector<EvaluationLifeCycleObserver *> life_cycle_observers;
-            std::vector<std::function<void()>> before_evaluation_notifications;
-            std::vector<std::function<void()>> after_evaluation_notifications;
-            PushMessageReceiverStorage<TMode> push_message_receiver_storage;
-            Graph graph;
+            std::vector<std::function<void()>>         before_evaluation_notifications;
+            std::vector<std::function<void()>>         after_evaluation_notifications;
+            PushMessageReceiverStorage<TMode>          push_message_receiver_storage;
+            Graph                                      graph;
 
-            EvaluationEngineState(
-                const GraphBuilder &graph_builder,
-                engine_time_t start_time,
-                engine_time_t end_time,
-                bool cleanup_on_error)
-                : clock(start_time),
-                  start_time(start_time),
-                  end_time(end_time),
-                  cleanup_on_error(cleanup_on_error),
-                  graph(graph_builder.make_graph({this, &k_engine_ops}))
-            {
+            EvaluationEngineState(const GraphBuilder &graph_builder, engine_time_t start_time, engine_time_t end_time,
+                                  bool cleanup_on_error)
+                : clock(start_time), start_time(start_time), end_time(end_time), cleanup_on_error(cleanup_on_error),
+                  graph(graph_builder.make_graph({this, &k_engine_ops})) {
                 push_message_receiver_storage.initialise({&clock, &ClockDispatch<TClockState>::value});
             }
 
-            [[nodiscard]] static EvaluationEngineState &state_from(void *impl)
-            {
+            [[nodiscard]] static EvaluationEngineState &state_from(void *impl) {
                 return *static_cast<EvaluationEngineState *>(impl);
             }
 
-            [[nodiscard]] static const EvaluationEngineState &state_from(const void *impl)
-            {
+            [[nodiscard]] static const EvaluationEngineState &state_from(const void *impl) {
                 return *static_cast<const EvaluationEngineState *>(impl);
             }
 
-            [[nodiscard]] static EvaluationMode evaluation_mode_impl(const void *impl) noexcept
-            {
+            [[nodiscard]] static EvaluationMode evaluation_mode_impl(const void *impl) noexcept {
                 static_cast<void>(impl);
                 return TMode;
             }
 
-            [[nodiscard]] static engine_time_t start_time_impl(const void *impl) noexcept
-            {
-                return state_from(impl).start_time;
-            }
+            [[nodiscard]] static engine_time_t start_time_impl(const void *impl) noexcept { return state_from(impl).start_time; }
 
-            [[nodiscard]] static engine_time_t end_time_impl(const void *impl) noexcept
-            {
-                return state_from(impl).end_time;
-            }
+            [[nodiscard]] static engine_time_t end_time_impl(const void *impl) noexcept { return state_from(impl).end_time; }
 
-            [[nodiscard]] static EvaluationClock evaluation_clock_impl(const void *impl)
-            {
+            [[nodiscard]] static EvaluationClock evaluation_clock_impl(const void *impl) {
                 return {&state_from(impl).clock, &ClockDispatch<TClockState>::value};
             }
 
-            [[nodiscard]] static EvaluationEngineApi evaluation_engine_api_impl(void *impl) noexcept
-            {
-                return {impl, &k_api_ops};
-            }
+            [[nodiscard]] static EvaluationEngineApi evaluation_engine_api_impl(void *impl) noexcept { return {impl, &k_api_ops}; }
 
-            [[nodiscard]] static EngineEvaluationClock engine_evaluation_clock_impl(void *impl)
-            {
+            [[nodiscard]] static EngineEvaluationClock engine_evaluation_clock_impl(void *impl) {
                 return {&state_from(impl).clock, &ClockDispatch<TClockState>::value};
             }
 
-            static void request_engine_stop_impl(void *impl)
-            {
-                state_from(impl).stop_requested = true;
-            }
+            static void request_engine_stop_impl(void *impl) { state_from(impl).stop_requested = true; }
 
-            [[nodiscard]] static bool is_stop_requested_impl(const void *impl) noexcept
-            {
-                return state_from(impl).stop_requested;
-            }
+            [[nodiscard]] static bool is_stop_requested_impl(const void *impl) noexcept { return state_from(impl).stop_requested; }
 
-            static void add_before_evaluation_notification_impl(void *impl, std::function<void()> fn)
-            {
+            static void add_before_evaluation_notification_impl(void *impl, std::function<void()> fn) {
                 state_from(impl).before_evaluation_notifications.emplace_back(std::move(fn));
             }
 
-            static void add_after_evaluation_notification_impl(void *impl, std::function<void()> fn)
-            {
+            static void add_after_evaluation_notification_impl(void *impl, std::function<void()> fn) {
                 state_from(impl).after_evaluation_notifications.emplace_back(std::move(fn));
             }
 
-            static void add_life_cycle_observer_impl(void *impl, EvaluationLifeCycleObserver *observer)
-            {
+            static void add_life_cycle_observer_impl(void *impl, EvaluationLifeCycleObserver *observer) {
                 if (observer == nullptr) { return; }
                 state_from(impl).life_cycle_observers.push_back(observer);
             }
 
-            static void remove_life_cycle_observer_impl(void *impl, EvaluationLifeCycleObserver *observer)
-            {
-                auto &observers = state_from(impl).life_cycle_observers;
-                const auto it = std::find(observers.begin(), observers.end(), observer);
-                if (it == observers.end()) {
-                    throw std::invalid_argument("EvaluationLifeCycleObserver was not registered");
-                }
+            static void remove_life_cycle_observer_impl(void *impl, EvaluationLifeCycleObserver *observer) {
+                auto      &observers = state_from(impl).life_cycle_observers;
+                const auto it        = std::find(observers.begin(), observers.end(), observer);
+                if (it == observers.end()) { throw std::invalid_argument("EvaluationLifeCycleObserver was not registered"); }
                 observers.erase(it);
             }
 
-            static void notify_before_evaluation_impl(void *impl)
-            {
+            static void notify_before_evaluation_impl(void *impl) {
                 auto &state = state_from(impl);
                 // Match the existing C++ engine semantics: callbacks queued while draining
                 // are processed in the same notification pass rather than deferred.
@@ -420,8 +410,7 @@ namespace hgraph
                 }
             }
 
-            static void notify_after_evaluation_impl(void *impl)
-            {
+            static void notify_after_evaluation_impl(void *impl) {
                 auto &state = state_from(impl);
                 // Match the existing C++ engine semantics: callbacks queued while draining
                 // are processed in the same notification pass rather than deferred.
@@ -432,8 +421,7 @@ namespace hgraph
                 }
             }
 
-            static void advance_engine_time_impl(void *impl)
-            {
+            static void advance_engine_time_impl(void *impl) {
                 auto &state = state_from(impl);
                 if (state.stop_requested) {
                     state.clock.set_evaluation_time(state.end_time + MIN_TD);
@@ -444,46 +432,43 @@ namespace hgraph
                 state.clock.advance_to_next_scheduled_time();
             }
 
-            static void notify_before_start_graph_impl(void *impl, Graph &graph)
-            {
-                notify_observers(state_from(impl), [&](EvaluationLifeCycleObserver &observer) { observer.on_before_start_graph(graph); });
+            static void notify_before_start_graph_impl(void *impl, Graph &graph) {
+                notify_observers(state_from(impl),
+                                 [&](EvaluationLifeCycleObserver &observer) { observer.on_before_start_graph(graph); });
             }
 
-            static void notify_after_start_graph_impl(void *impl, Graph &graph)
-            {
-                notify_observers(state_from(impl), [&](EvaluationLifeCycleObserver &observer) { observer.on_after_start_graph(graph); });
+            static void notify_after_start_graph_impl(void *impl, Graph &graph) {
+                notify_observers(state_from(impl),
+                                 [&](EvaluationLifeCycleObserver &observer) { observer.on_after_start_graph(graph); });
             }
 
-            static void notify_before_start_node_impl(void *impl, Node &node)
-            {
-                notify_observers(state_from(impl), [&](EvaluationLifeCycleObserver &observer) { observer.on_before_start_node(node); });
+            static void notify_before_start_node_impl(void *impl, Node &node) {
+                notify_observers(state_from(impl),
+                                 [&](EvaluationLifeCycleObserver &observer) { observer.on_before_start_node(node); });
             }
 
-            static void notify_after_start_node_impl(void *impl, Node &node)
-            {
-                notify_observers(state_from(impl), [&](EvaluationLifeCycleObserver &observer) { observer.on_after_start_node(node); });
+            static void notify_after_start_node_impl(void *impl, Node &node) {
+                notify_observers(state_from(impl),
+                                 [&](EvaluationLifeCycleObserver &observer) { observer.on_after_start_node(node); });
             }
 
-            static void notify_before_graph_evaluation_impl(void *impl, Graph &graph)
-            {
+            static void notify_before_graph_evaluation_impl(void *impl, Graph &graph) {
                 notify_observers(state_from(impl),
                                  [&](EvaluationLifeCycleObserver &observer) { observer.on_before_graph_evaluation(graph); });
             }
 
-            static void notify_after_graph_evaluation_impl(void *impl, Graph &graph)
-            {
+            static void notify_after_graph_evaluation_impl(void *impl, Graph &graph) {
                 notify_observers(state_from(impl),
                                  [&](EvaluationLifeCycleObserver &observer) { observer.on_after_graph_evaluation(graph); });
             }
 
-            static void notify_after_push_nodes_evaluation_impl(void *impl, Graph &graph)
-            {
-                notify_observers(state_from(impl),
-                                 [&](EvaluationLifeCycleObserver &observer) { observer.on_after_graph_push_nodes_evaluation(graph); });
+            static void notify_after_push_nodes_evaluation_impl(void *impl, Graph &graph) {
+                notify_observers(state_from(impl), [&](EvaluationLifeCycleObserver &observer) {
+                    observer.on_after_graph_push_nodes_evaluation(graph);
+                });
             }
 
-            static void evaluate_push_source_nodes_impl(void *impl, Graph &graph, engine_time_t when)
-            {
+            static void evaluate_push_source_nodes_impl(void *impl, Graph &graph, engine_time_t when) {
                 if constexpr (TMode != EvaluationMode::REAL_TIME) {
                     static_cast<void>(impl);
                     static_cast<void>(graph);
@@ -497,8 +482,8 @@ namespace hgraph
                     auto *receiver = state.push_message_receiver_storage.receiver();
 
                     while (auto value = receiver->dequeue()) {
-                        auto &message = *value;
-                        auto push_node = graph.push_source_node_at(static_cast<size_t>(message.target_node_index));
+                        auto &message   = *value;
+                        auto  push_node = graph.push_source_node_at(static_cast<size_t>(message.target_node_index));
                         notify_before_node_evaluation_impl(impl, push_node.node);
                         auto after_node_evaluation =
                             UnwindCleanupGuard([&] { notify_after_node_evaluation_impl(impl, push_node.node); });
@@ -515,58 +500,49 @@ namespace hgraph
                 }
             }
 
-            static void notify_before_node_evaluation_impl(void *impl, Node &node)
-            {
-                notify_observers(state_from(impl), [&](EvaluationLifeCycleObserver &observer) { observer.on_before_node_evaluation(node); });
+            static void notify_before_node_evaluation_impl(void *impl, Node &node) {
+                notify_observers(state_from(impl),
+                                 [&](EvaluationLifeCycleObserver &observer) { observer.on_before_node_evaluation(node); });
             }
 
-            static void notify_after_node_evaluation_impl(void *impl, Node &node)
-            {
-                notify_observers(state_from(impl), [&](EvaluationLifeCycleObserver &observer) { observer.on_after_node_evaluation(node); });
+            static void notify_after_node_evaluation_impl(void *impl, Node &node) {
+                notify_observers(state_from(impl),
+                                 [&](EvaluationLifeCycleObserver &observer) { observer.on_after_node_evaluation(node); });
             }
 
-            static void notify_before_stop_node_impl(void *impl, Node &node)
-            {
-                notify_observers(state_from(impl), [&](EvaluationLifeCycleObserver &observer) { observer.on_before_stop_node(node); });
+            static void notify_before_stop_node_impl(void *impl, Node &node) {
+                notify_observers(state_from(impl),
+                                 [&](EvaluationLifeCycleObserver &observer) { observer.on_before_stop_node(node); });
             }
 
-            static void notify_after_stop_node_impl(void *impl, Node &node)
-            {
-                notify_observers(state_from(impl), [&](EvaluationLifeCycleObserver &observer) { observer.on_after_stop_node(node); });
+            static void notify_after_stop_node_impl(void *impl, Node &node) {
+                notify_observers(state_from(impl),
+                                 [&](EvaluationLifeCycleObserver &observer) { observer.on_after_stop_node(node); });
             }
 
-            static void notify_before_stop_graph_impl(void *impl, Graph &graph)
-            {
-                notify_observers(state_from(impl), [&](EvaluationLifeCycleObserver &observer) { observer.on_before_stop_graph(graph); });
+            static void notify_before_stop_graph_impl(void *impl, Graph &graph) {
+                notify_observers(state_from(impl),
+                                 [&](EvaluationLifeCycleObserver &observer) { observer.on_before_stop_graph(graph); });
             }
 
-            static void notify_after_stop_graph_impl(void *impl, Graph &graph)
-            {
-                notify_observers(state_from(impl), [&](EvaluationLifeCycleObserver &observer) { observer.on_after_stop_graph(graph); });
+            static void notify_after_stop_graph_impl(void *impl, Graph &graph) {
+                notify_observers(state_from(impl),
+                                 [&](EvaluationLifeCycleObserver &observer) { observer.on_after_stop_graph(graph); });
             }
 
-            [[nodiscard]] static SenderReceiverState *push_message_receiver_impl(void *impl) noexcept
-            {
+            [[nodiscard]] static SenderReceiverState *push_message_receiver_impl(void *impl) noexcept {
                 return state_from(impl).push_message_receiver_storage.receiver();
             }
 
-            [[nodiscard]] static const SenderReceiverState *const_push_message_receiver_impl(const void *impl) noexcept
-            {
+            [[nodiscard]] static const SenderReceiverState *const_push_message_receiver_impl(const void *impl) noexcept {
                 return state_from(impl).push_message_receiver_storage.receiver();
             }
 
-            [[nodiscard]] static Graph &graph_impl(void *impl)
-            {
-                return state_from(impl).graph;
-            }
+            [[nodiscard]] static Graph &graph_impl(void *impl) { return state_from(impl).graph; }
 
-            [[nodiscard]] static const Graph &const_graph_impl(const void *impl)
-            {
-                return state_from(impl).graph;
-            }
+            [[nodiscard]] static const Graph &const_graph_impl(const void *impl) { return state_from(impl).graph; }
 
-            static void run_impl(void *impl)
-            {
+            static void run_impl(void *impl) {
                 auto &state = state_from(impl);
                 if (state.end_time <= state.start_time) {
                     if (state.end_time < state.start_time) {
@@ -588,8 +564,7 @@ namespace hgraph
                     if (state.cleanup_on_error) {
                         try {
                             state.graph.stop();
-                        } catch (...) {
-                        }
+                        } catch (...) {}
                     } else {
                         state.graph.abandon();
                     }
@@ -597,21 +572,16 @@ namespace hgraph
                 }
             }
 
-            static void destruct_impl(void *impl) noexcept
-            {
-                delete static_cast<EvaluationEngineState *>(impl);
-            }
+            static void destruct_impl(void *impl) noexcept { delete static_cast<EvaluationEngineState *>(impl); }
 
-            template <typename TNotify>
-            static void notify_observers(const EvaluationEngineState &state, TNotify &&notify)
-            {
+            template <typename TNotify> static void notify_observers(const EvaluationEngineState &state, TNotify &&notify) {
                 for (auto *observer : state.life_cycle_observers) {
                     if (observer != nullptr) { notify(*observer); }
                 }
             }
 
             static const EvaluationEngineApiOps k_api_ops;
-            static const EvaluationEngineOps k_engine_ops;
+            static const EvaluationEngineOps    k_engine_ops;
         };
 
         template <typename TClockState, EvaluationMode TMode>
@@ -661,37 +631,31 @@ namespace hgraph
         };
 
         using SimulationEvaluationEngineState = EvaluationEngineState<SimulationClockState, EvaluationMode::SIMULATION>;
-        using RealTimeEvaluationEngineState = EvaluationEngineState<RealTimeClockState, EvaluationMode::REAL_TIME>;
+        using RealTimeEvaluationEngineState   = EvaluationEngineState<RealTimeClockState, EvaluationMode::REAL_TIME>;
     }  // namespace
 
-    EvaluationEngine::~EvaluationEngine()
-    {
-        reset();
-    }
+    EvaluationEngine::~EvaluationEngine() { reset(); }
 
-    EvaluationEngine::EvaluationEngine(EvaluationEngine &&other) noexcept : m_impl(other.m_impl), m_ops(other.m_ops)
-    {
+    EvaluationEngine::EvaluationEngine(EvaluationEngine &&other) noexcept : m_impl(other.m_impl), m_ops(other.m_ops) {
         other.m_impl = nullptr;
-        other.m_ops = nullptr;
+        other.m_ops  = nullptr;
     }
 
-    EvaluationEngine &EvaluationEngine::operator=(EvaluationEngine &&other) noexcept
-    {
+    EvaluationEngine &EvaluationEngine::operator=(EvaluationEngine &&other) noexcept {
         if (this != &other) {
             reset();
-            m_impl = other.m_impl;
-            m_ops = other.m_ops;
+            m_impl       = other.m_impl;
+            m_ops        = other.m_ops;
             other.m_impl = nullptr;
-            other.m_ops = nullptr;
+            other.m_ops  = nullptr;
         }
         return *this;
     }
 
-    void EvaluationEngine::reset() noexcept
-    {
+    void EvaluationEngine::reset() noexcept {
         if (m_impl != nullptr && m_ops != nullptr) { m_ops->destruct(m_impl); }
         m_impl = nullptr;
-        m_ops = nullptr;
+        m_ops  = nullptr;
     }
 
     EvaluationEngineBuilder::EvaluationEngineBuilder() = default;
@@ -700,22 +664,16 @@ namespace hgraph
 
     EvaluationEngineBuilder::EvaluationEngineBuilder(const EvaluationEngineBuilder &other)
         : m_graph_builder(other.m_graph_builder ? std::make_unique<GraphBuilder>(*other.m_graph_builder) : nullptr),
-          m_evaluation_mode(other.m_evaluation_mode),
-          m_start_time(other.m_start_time),
-          m_end_time(other.m_end_time),
-          m_cleanup_on_error(other.m_cleanup_on_error),
-          m_life_cycle_observers(other.m_life_cycle_observers)
-    {
-    }
+          m_evaluation_mode(other.m_evaluation_mode), m_start_time(other.m_start_time), m_end_time(other.m_end_time),
+          m_cleanup_on_error(other.m_cleanup_on_error), m_life_cycle_observers(other.m_life_cycle_observers) {}
 
-    EvaluationEngineBuilder &EvaluationEngineBuilder::operator=(const EvaluationEngineBuilder &other)
-    {
+    EvaluationEngineBuilder &EvaluationEngineBuilder::operator=(const EvaluationEngineBuilder &other) {
         if (this != &other) {
-            m_graph_builder = other.m_graph_builder ? std::make_unique<GraphBuilder>(*other.m_graph_builder) : nullptr;
-            m_evaluation_mode = other.m_evaluation_mode;
-            m_start_time = other.m_start_time;
-            m_end_time = other.m_end_time;
-            m_cleanup_on_error = other.m_cleanup_on_error;
+            m_graph_builder        = other.m_graph_builder ? std::make_unique<GraphBuilder>(*other.m_graph_builder) : nullptr;
+            m_evaluation_mode      = other.m_evaluation_mode;
+            m_start_time           = other.m_start_time;
+            m_end_time             = other.m_end_time;
+            m_cleanup_on_error     = other.m_cleanup_on_error;
             m_life_cycle_observers = other.m_life_cycle_observers;
         }
         return *this;
@@ -725,66 +683,61 @@ namespace hgraph
 
     EvaluationEngineBuilder &EvaluationEngineBuilder::operator=(EvaluationEngineBuilder &&other) noexcept = default;
 
-    EvaluationEngineBuilder &EvaluationEngineBuilder::graph_builder(GraphBuilder graph_builder)
-    {
+    EvaluationEngineBuilder &EvaluationEngineBuilder::graph_builder(GraphBuilder graph_builder) {
         m_graph_builder = std::make_unique<GraphBuilder>(std::move(graph_builder));
         return *this;
     }
 
-    EvaluationEngineBuilder &EvaluationEngineBuilder::evaluation_mode(EvaluationMode evaluation_mode) noexcept
-    {
+    EvaluationEngineBuilder &EvaluationEngineBuilder::evaluation_mode(EvaluationMode evaluation_mode) noexcept {
         m_evaluation_mode = evaluation_mode;
         return *this;
     }
 
-    EvaluationEngineBuilder &EvaluationEngineBuilder::start_time(engine_time_t start_time) noexcept
-    {
+    EvaluationEngineBuilder &EvaluationEngineBuilder::start_time(engine_time_t start_time) noexcept {
         m_start_time = start_time;
         return *this;
     }
 
-    EvaluationEngineBuilder &EvaluationEngineBuilder::end_time(engine_time_t end_time) noexcept
-    {
+    EvaluationEngineBuilder &EvaluationEngineBuilder::end_time(engine_time_t end_time) noexcept {
         m_end_time = end_time;
         return *this;
     }
 
-    EvaluationEngineBuilder &EvaluationEngineBuilder::cleanup_on_error(bool cleanup_on_error) noexcept
-    {
+    EvaluationEngineBuilder &EvaluationEngineBuilder::cleanup_on_error(bool cleanup_on_error) noexcept {
         m_cleanup_on_error = cleanup_on_error;
         return *this;
     }
 
-    EvaluationEngineBuilder &EvaluationEngineBuilder::add_life_cycle_observer(EvaluationLifeCycleObserver *observer)
-    {
+    EvaluationEngineBuilder &EvaluationEngineBuilder::add_life_cycle_observer(EvaluationLifeCycleObserver *observer) {
         if (observer != nullptr) { m_life_cycle_observers.push_back(observer); }
         return *this;
     }
 
-    EvaluationEngine EvaluationEngineBuilder::build() const
-    {
+    EvaluationEngine EvaluationEngineBuilder::build() const {
         if (!m_graph_builder) { throw std::logic_error("v2 evaluation engine builder requires a graph builder"); }
 
         switch (m_evaluation_mode) {
-            case EvaluationMode::SIMULATION: {
-                // Hold the state under temporary ownership until the engine is attached and observer registration completes.
-                auto state =
-                    std::make_unique<SimulationEvaluationEngineState>(*m_graph_builder, m_start_time, m_end_time, m_cleanup_on_error);
-                for (auto *observer : m_life_cycle_observers) {
-                    SimulationEvaluationEngineState::add_life_cycle_observer_impl(state.get(), observer);
+            case EvaluationMode::SIMULATION:
+                {
+                    // Hold the state under temporary ownership until the engine is attached and observer registration completes.
+                    auto state = std::make_unique<SimulationEvaluationEngineState>(*m_graph_builder, m_start_time, m_end_time,
+                                                                                   m_cleanup_on_error);
+                    for (auto *observer : m_life_cycle_observers) {
+                        SimulationEvaluationEngineState::add_life_cycle_observer_impl(state.get(), observer);
+                    }
+                    return {state.release(), &SimulationEvaluationEngineState::k_engine_ops};
                 }
-                return {state.release(), &SimulationEvaluationEngineState::k_engine_ops};
-            }
 
-            case EvaluationMode::REAL_TIME: {
-                // Hold the state under temporary ownership until the engine is attached and observer registration completes.
-                auto state =
-                    std::make_unique<RealTimeEvaluationEngineState>(*m_graph_builder, m_start_time, m_end_time, m_cleanup_on_error);
-                for (auto *observer : m_life_cycle_observers) {
-                    RealTimeEvaluationEngineState::add_life_cycle_observer_impl(state.get(), observer);
+            case EvaluationMode::REAL_TIME:
+                {
+                    // Hold the state under temporary ownership until the engine is attached and observer registration completes.
+                    auto state = std::make_unique<RealTimeEvaluationEngineState>(*m_graph_builder, m_start_time, m_end_time,
+                                                                                 m_cleanup_on_error);
+                    for (auto *observer : m_life_cycle_observers) {
+                        RealTimeEvaluationEngineState::add_life_cycle_observer_impl(state.get(), observer);
+                    }
+                    return {state.release(), &RealTimeEvaluationEngineState::k_engine_ops};
                 }
-                return {state.release(), &RealTimeEvaluationEngineState::k_engine_ops};
-            }
         }
 
         throw std::runtime_error("Unknown v2 evaluation mode");

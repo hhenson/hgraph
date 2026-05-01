@@ -254,11 +254,13 @@ namespace hgraph
         for (size_t index = static_cast<size_t>(m_push_source_nodes_end); index < m_node_count; ++index) {
             auto &entry = entry_storage()[index];
             if (entry.scheduled == when) {
+                const bool force_eval = entry.force_eval;
+                entry.force_eval      = false;
                 m_evaluation_cursor = index;
                 m_evaluation_engine.notify_before_node_evaluation(*entry.node);
                 auto after_node_evaluation =
                     UnwindCleanupGuard([&] { m_evaluation_engine.notify_after_node_evaluation(*entry.node); });
-                entry.node->eval(when);
+                entry.node->eval(when, force_eval);
                 after_node_evaluation.complete();
             } else if (entry.scheduled > when) {
                 clock.update_next_scheduled_evaluation_time(entry.scheduled);
@@ -280,13 +282,31 @@ namespace hgraph
         }
 
         engine_time_t &scheduled_time = entry_storage()[node_index].scheduled;
-        if (force_set || scheduled_time <= current_time || when < scheduled_time) { scheduled_time = when; }
-
         const bool later_same_tick_in_current_pass =
             m_is_evaluating && current_time != MIN_DT && when == current_time &&
             m_evaluation_cursor != INVALID_EVALUATION_CURSOR && static_cast<size_t>(node_index) > m_evaluation_cursor;
-        if (!later_same_tick_in_current_pass) {
-            clock.update_next_scheduled_evaluation_time(when);
+        const bool missed_same_tick_in_current_pass =
+            m_is_evaluating && current_time != MIN_DT && when == current_time &&
+            m_evaluation_cursor != INVALID_EVALUATION_CURSOR && static_cast<size_t>(node_index) < m_evaluation_cursor;
+        const engine_time_t effective_when =
+            missed_same_tick_in_current_pass ? clock.next_cycle_evaluation_time() : when;
+        const bool preserve_future_schedule =
+            !force_set && missed_same_tick_in_current_pass && scheduled_time != MAX_DT && scheduled_time > current_time &&
+            scheduled_time <= effective_when;
+        if (!preserve_future_schedule &&
+            (force_set || scheduled_time <= current_time || effective_when < scheduled_time)) {
+            scheduled_time = effective_when;
         }
+
+        if (preserve_future_schedule) {
+            clock.update_next_scheduled_evaluation_time(scheduled_time);
+        } else if (!later_same_tick_in_current_pass) {
+            clock.update_next_scheduled_evaluation_time(effective_when);
+        }
+    }
+
+    void Graph::schedule_node_forced_eval(int64_t node_index, engine_time_t when) {
+        schedule_node(node_index, when, true);
+        entry_storage()[static_cast<size_t>(node_index)].force_eval = true;
     }
 }  // namespace hgraph

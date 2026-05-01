@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace hgraph
@@ -87,6 +88,11 @@ namespace hgraph
         }
     };
 
+    namespace detail
+    {
+        [[nodiscard]] HGRAPH_EXPORT LinkedTSContext resolve_pending_dict_child_context(const LinkedTSContext &context) noexcept;
+    }
+
     /**
      * Value variant covering the concrete time-series state structs currently
      * used in the struct model.
@@ -150,7 +156,8 @@ namespace hgraph
     struct HGRAPH_EXPORT StateInvalidator
     {
         void *owner{nullptr};
-        void (*invalidate)(void *owner) noexcept{nullptr};
+        void (*invalidate)(void *owner) noexcept {nullptr};
+        void (*rebind)(void *owner, BaseState *old_state, BaseState *new_state) noexcept {nullptr};
         bool state_destroyed{false};
     };
 
@@ -276,6 +283,8 @@ namespace hgraph
         void notify_parent_that_child_is_modified(engine_time_t modified_time) noexcept;
     };
 
+    HGRAPH_EXPORT void rebind_base_state_lifetime(BaseState &state, BaseState *old_state) noexcept;
+
     /**
      * Lazy per-state registry for derived runtime surfaces.
      *
@@ -389,6 +398,7 @@ namespace hgraph
         mutable std::optional<Value> materialized_reference_storage;
 
         void reset_child_states() noexcept;
+        void reparent_child_states(TimeSeriesStateParentPtr parent) noexcept;
 
         /**
          * Record the modified child and continue propagating the modification.
@@ -400,7 +410,13 @@ namespace hgraph
      * State carried by a time-series list.
      */
     struct HGRAPH_EXPORT TSLState : BaseCollectionState
-    {};
+    {
+        TSLState() = default;
+        TSLState(TSLState &&other) noexcept;
+        TSLState &operator=(TSLState &&other) noexcept;
+        TSLState(const TSLState &)            = delete;
+        TSLState &operator=(const TSLState &) = delete;
+    };
 
     /**
      * State carried by a time-series dictionary.
@@ -420,6 +436,14 @@ namespace hgraph
             TSDState *owner{nullptr};
         };
 
+        struct RemovedChildStateSnapshot
+        {
+            Value                                          parent_key{};
+            std::unordered_set<size_t>                     removed_valid_children{};
+            std::unordered_map<size_t, std::vector<Value>> removed_valid_child_keys{};
+            engine_time_t                                  removed_valid_children_modified_time{MIN_DT};
+        };
+
         TSDState() noexcept;
         TSDState(TSDState &&other) noexcept;
         TSDState &operator=(TSDState &&other) noexcept;
@@ -434,6 +458,9 @@ namespace hgraph
         void detach_value_storage() noexcept;
         void sync_with_value_storage();
         [[nodiscard]] bool publish_value_storage_delta(engine_time_t modified_time) noexcept;
+        void               record_removed_child(size_t slot, engine_time_t modified_time = MIN_DT);
+        void               record_removed_child_key(size_t slot, const View &key, engine_time_t modified_time = MIN_DT);
+        void               forget_removed_child(size_t slot) noexcept;
 
         void on_capacity(size_t old_capacity, size_t new_capacity);
         void on_insert(size_t slot);
@@ -455,6 +482,14 @@ namespace hgraph
          * resolved.
          */
         std::unordered_map<Notifiable *, ActiveTrieNode *> active_tries;
+        // Native TSD state consumes map delta tracking before Python delta serialization.
+        // Valid removals need to keep their slot/key pair until that serialization step.
+        std::unordered_set<size_t>                            added_valid_children;
+        engine_time_t                                         added_valid_children_modified_time{MIN_DT};
+        std::unordered_set<size_t>                            removed_valid_children;
+        std::unordered_map<size_t, std::vector<Value>>        removed_valid_child_keys;
+        engine_time_t                                         removed_valid_children_modified_time{MIN_DT};
+        std::unordered_map<size_t, RemovedChildStateSnapshot> removed_child_state_snapshots;
 
         const TSMeta                  *element_schema{nullptr};
         const detail::MapViewDispatch *map_dispatch{nullptr};
@@ -467,7 +502,13 @@ namespace hgraph
      * State carried by a time-series bundle.
      */
     struct HGRAPH_EXPORT TSBState : BaseCollectionState
-    {};
+    {
+        TSBState() = default;
+        TSBState(TSBState &&other) noexcept;
+        TSBState &operator=(TSBState &&other) noexcept;
+        TSBState(const TSBState &)            = delete;
+        TSBState &operator=(const TSBState &) = delete;
+    };
 
     /**
      * State carried by a time-series set.
@@ -539,10 +580,11 @@ namespace hgraph
         void set_target(LinkedTSContext target_state, engine_time_t modified_time = MIN_DT) noexcept;
         void reset_target(engine_time_t modified_time = MIN_DT) noexcept;
 
-        LinkedTSContext  target;
-        Value            previous_target_value;
-        engine_time_t    switch_modified_time{MIN_DT};
-        TargetNotifiable target_notifiable;
+        LinkedTSContext                   target;
+        Value                             previous_target_value;
+        engine_time_t                     switch_modified_time{MIN_DT};
+        TargetNotifiable                  target_notifiable;
+        std::unique_ptr<StateInvalidator> target_invalidator;
 
       private:
         void register_with_target() noexcept;
@@ -730,12 +772,14 @@ namespace hgraph
         void set_source(LinkedTSContext source_state) noexcept;
         void reset_source() noexcept;
 
-        [[nodiscard]] engine_time_t  last_target_modified_time() const;
-        [[nodiscard]] bool           is_sampled() const;
-        LinkedTSContext              source;  // Bound REF source slot.
-        RefSourceNotifiable          source_notifiable;
-        DereferencedTargetNotifiable target_notifiable;
-        TargetLinkState              bound_link;  // Current dereferenced target.
+        [[nodiscard]] engine_time_t       last_target_modified_time() const;
+        [[nodiscard]] bool                is_sampled() const;
+        LinkedTSContext                   source;  // Bound REF source slot.
+        RefSourceNotifiable               source_notifiable;
+        DereferencedTargetNotifiable      target_notifiable;
+        TargetLinkState                   bound_link;  // Current dereferenced target.
+        std::unique_ptr<StateInvalidator> source_invalidator;
+        std::unique_ptr<StateInvalidator> target_invalidator;
         /**
          * Whether ref-target switches should retain a previous-target snapshot.
          *
@@ -754,6 +798,8 @@ namespace hgraph
 
         [[nodiscard]] BoundaryAttachment &attachment_for(Notifiable *upstream_notifier) noexcept;
         [[nodiscard]] BaseState          *current_target_root_state() const noexcept;
+        void                              source_destroyed() noexcept;
+        void                              target_destroyed() noexcept;
 
       private:
         void register_with_source() noexcept;
@@ -774,6 +820,12 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT SignalState : BaseCollectionState
     {
+        SignalState() = default;
+        SignalState(SignalState &&other) noexcept;
+        SignalState &operator=(SignalState &&other) noexcept;
+        SignalState(const SignalState &)            = delete;
+        SignalState &operator=(const SignalState &) = delete;
+
         const TSMeta *bound_schema{nullptr};
     };
 

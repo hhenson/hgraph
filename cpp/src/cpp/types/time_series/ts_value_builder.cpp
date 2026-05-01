@@ -30,9 +30,10 @@ namespace hgraph
         [[nodiscard]] nb::object dict_to_python(const TSViewContext &context, engine_time_t evaluation_time);
         [[nodiscard]] nb::object dict_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time);
         [[nodiscard]] nb::object set_to_python(const TSViewContext &context);
-        [[nodiscard]] nb::object set_delta_to_python(const TSViewContext &context);
+        [[nodiscard]] nb::object set_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time);
         void                     bundle_from_python(const TSOutputView &view, nb::handle value);
         void                     list_from_python(const TSOutputView &view, nb::handle value);
+        [[nodiscard]] bool       dict_can_apply_result(const TSOutputView &view, nb::handle value);
         void                     dict_apply_result(const TSOutputView &view, nb::handle value);
         void                     dict_from_python(const TSOutputView &view, nb::handle value);
         void                     dict_child_from_python(const TSOutputView &view, const View &key, nb::handle value);
@@ -143,6 +144,12 @@ namespace hgraph
             state.child_states.clear();
             state.modified_children.clear();
             state.active_tries.clear();
+            state.added_valid_children.clear();
+            state.added_valid_children_modified_time = MIN_DT;
+            state.removed_valid_children.clear();
+            state.removed_valid_child_keys.clear();
+            state.removed_valid_children_modified_time = MIN_DT;
+            state.removed_child_state_snapshots.clear();
             state.element_schema           = nullptr;
             state.map_dispatch             = nullptr;
             state.map_value_data           = nullptr;
@@ -256,7 +263,7 @@ namespace hgraph
             BaseState *local_state = state_address(slot);
             if (local_state != nullptr) {
                 if (const LinkedTSContext *target = local_state->linked_target(); target != nullptr) {
-                    if (schema.kind == TSKind::TSD && native_value_data != nullptr) {
+                    if ((schema.kind == TSKind::TSD || schema.kind == TSKind::REF) && native_value_data != nullptr) {
                         return TSViewContext{TSContext{
                             &schema,
                             &value_dispatch,
@@ -408,6 +415,80 @@ namespace hgraph
                                            child_builder.ts_dispatch(), slot_value_data, TSViewContext::none());
         }
 
+        [[nodiscard]] bool dict_child_valid_for_removal(TSDState &state, size_t slot) {
+            if (slot >= state.child_states.size() || state.child_states[slot] == nullptr) { return false; }
+
+            const BaseState *child_state =
+                std::visit([](const auto &typed_state) -> const BaseState * { return &typed_state; }, *state.child_states[slot]);
+            if (child_state == nullptr || child_state->last_modified_time == MIN_DT) { return false; }
+
+            TSViewContext child = child_context_for_dict_slot(state, slot);
+            if (!child.is_bound() && !child.value().has_value()) { return false; }
+
+            const TSViewContext resolved = child.resolved();
+            const auto         *dispatch = resolved.ts_dispatch != nullptr ? resolved.ts_dispatch : child.ts_dispatch;
+            return dispatch != nullptr ? dispatch->valid(child) : child.value().has_value();
+        }
+
+        [[nodiscard]] View dict_slot_key(TSDState &state, size_t slot) noexcept {
+            if (state.map_dispatch == nullptr || state.map_value_data == nullptr ||
+                slot >= state.map_dispatch->slot_capacity(state.map_value_data) ||
+                !state.map_dispatch->slot_occupied(state.map_value_data, slot)) {
+                return View::invalid_for(state.map_dispatch != nullptr ? &state.map_dispatch->key_schema() : nullptr);
+            }
+            return View{&state.map_dispatch->key_dispatch(), state.map_dispatch->key_data(state.map_value_data, slot),
+                        &state.map_dispatch->key_schema()};
+        }
+
+        void snapshot_removed_child_state(TSDState &state, size_t slot) {
+            if (state.removed_valid_children.contains(slot) || slot >= state.child_states.size() ||
+                state.child_states[slot] == nullptr) {
+                return;
+            }
+
+            const auto *child_state = std::get_if<TSDState>(state.child_states[slot].get());
+            if (child_state == nullptr || child_state->removed_valid_children_modified_time == MIN_DT ||
+                (child_state->removed_valid_children.empty() && child_state->removed_valid_child_keys.empty())) {
+                state.removed_child_state_snapshots.erase(slot);
+                return;
+            }
+
+            const View key = dict_slot_key(state, slot);
+            if (!key.has_value()) {
+                state.removed_child_state_snapshots.erase(slot);
+                return;
+            }
+
+            auto &snapshot                                = state.removed_child_state_snapshots[slot];
+            snapshot.parent_key                           = key.clone();
+            snapshot.removed_valid_children               = child_state->removed_valid_children;
+            snapshot.removed_valid_child_keys             = child_state->removed_valid_child_keys;
+            snapshot.removed_valid_children_modified_time = child_state->removed_valid_children_modified_time;
+        }
+
+        void restore_removed_child_state_snapshot(TSDState &state, size_t slot, TimeSeriesStateV *child_state) {
+            auto snapshot_it = state.removed_child_state_snapshots.find(slot);
+            if (snapshot_it == state.removed_child_state_snapshots.end()) { return; }
+
+            auto *child_tsd = child_state != nullptr ? std::get_if<TSDState>(child_state) : nullptr;
+            if (child_tsd == nullptr) {
+                state.removed_child_state_snapshots.erase(snapshot_it);
+                return;
+            }
+
+            const View key = dict_slot_key(state, slot);
+            if (!key.has_value() || !snapshot_it->second.parent_key.view().has_value() ||
+                snapshot_it->second.parent_key.view() != key) {
+                state.removed_child_state_snapshots.erase(snapshot_it);
+                return;
+            }
+
+            child_tsd->removed_valid_children               = std::move(snapshot_it->second.removed_valid_children);
+            child_tsd->removed_valid_child_keys             = std::move(snapshot_it->second.removed_valid_child_keys);
+            child_tsd->removed_valid_children_modified_time = snapshot_it->second.removed_valid_children_modified_time;
+            state.removed_child_state_snapshots.erase(snapshot_it);
+        }
+
         void replay_active_subtree(const TSViewContext &context, ActiveTrieNode *trie_node, Notifiable *notifier, bool subscribe) {
             if (!context.is_bound() || context.ts_state == nullptr || trie_node == nullptr || notifier == nullptr) { return; }
 
@@ -530,9 +611,11 @@ namespace hgraph
                             }
                             const View child_value = bundle.at(index);
                             if (RawViewAccess::data_of(child_value) == nullptr) { continue; }
+                            const TSMeta &child_binding_schema =
+                                binding_schema_for_state(*child_schema, *typed_state.child_states[index]);
                             const auto &child_value_dispatch =
-                                ValueBuilderFactory::checked_builder_for(child_schema->value_type,
-                                                                         nested_ts_value_tracking(*child_schema->value_type))
+                                ValueBuilderFactory::checked_builder_for(child_binding_schema.value_type,
+                                                                         nested_ts_value_tracking(*child_binding_schema.value_type))
                                     .dispatch();
                             bind_dynamic_dict_states_recursive(*child_schema, *typed_state.child_states[index],
                                                                child_value_dispatch, RawViewAccess::data_of(child_value));
@@ -548,9 +631,11 @@ namespace hgraph
                             }
                             const View child_value = list.at(index);
                             if (RawViewAccess::data_of(child_value) == nullptr) { continue; }
+                            const TSMeta &child_binding_schema =
+                                binding_schema_for_state(*child_schema, *typed_state.child_states[index]);
                             const auto &child_value_dispatch =
-                                ValueBuilderFactory::checked_builder_for(child_schema->value_type,
-                                                                         nested_ts_value_tracking(*child_schema->value_type))
+                                ValueBuilderFactory::checked_builder_for(child_binding_schema.value_type,
+                                                                         nested_ts_value_tracking(*child_binding_schema.value_type))
                                     .dispatch();
                             bind_dynamic_dict_states_recursive(*child_schema, *typed_state.child_states[index],
                                                                child_value_dispatch, RawViewAccess::data_of(child_value));
@@ -615,7 +700,13 @@ namespace hgraph
                         const auto &src_state = std::get<TSDState>(src);
                         auto       &dst_state = dst.emplace<TSDState>();
                         initialize_collection_state(dst_state, parent, index, src_state.last_modified_time);
-                        dst_state.modified_children = src_state.modified_children;
+                        dst_state.modified_children                    = src_state.modified_children;
+                        dst_state.added_valid_children                 = src_state.added_valid_children;
+                        dst_state.added_valid_children_modified_time   = src_state.added_valid_children_modified_time;
+                        dst_state.removed_valid_children               = src_state.removed_valid_children;
+                        dst_state.removed_valid_child_keys             = src_state.removed_valid_child_keys;
+                        dst_state.removed_valid_children_modified_time = src_state.removed_valid_children_modified_time;
+                        dst_state.removed_child_state_snapshots        = src_state.removed_child_state_snapshots;
                         ensure_child_slot_capacity(dst_state, src_state.child_states.size());
 
                         if (schema.element_ts() != nullptr) {
@@ -737,7 +828,11 @@ namespace hgraph
         }
 
         [[nodiscard]] bool child_modified(const BaseCollectionState *state, size_t index) noexcept {
-            return state != nullptr && state->modified_children.contains(index);
+            if (state == nullptr || !state->modified_children.contains(index)) { return false; }
+            if (index >= state->child_states.size() || state->child_states[index] == nullptr) { return false; }
+            const BaseState *child_state =
+                std::visit([](const auto &typed_state) -> const BaseState * { return &typed_state; }, *state->child_states[index]);
+            return child_state != nullptr && child_state->last_modified_time == state->last_modified_time;
         }
 
         [[nodiscard]] bool contains_key_view(const std::vector<Value> &keys, const View &key) {
@@ -753,10 +848,16 @@ namespace hgraph
             return snapshot;
         }
 
-        [[nodiscard]] bool signal_has_children(const TSViewContext &context) noexcept {
-            const auto *state =
-                context.ts_state != nullptr ? static_cast<const SignalState *>(context.ts_state->resolved_state()) : nullptr;
-            return state != nullptr && std::ranges::any_of(state->child_states, [](const auto &child) { return child != nullptr; });
+        [[nodiscard]] const SignalState *local_signal_state(const TSViewContext &context) noexcept {
+            if (context.schema == nullptr || context.schema->kind != TSKind::SIGNAL || context.ts_state == nullptr ||
+                context.ts_state->storage_kind != TSStorageKind::Native) {
+                return nullptr;
+            }
+            return static_cast<const SignalState *>(context.ts_state);
+        }
+
+        [[nodiscard]] bool signal_has_children(const SignalState &state) noexcept {
+            return std::ranges::any_of(state.child_states, [](const auto &child) { return child != nullptr; });
         }
 
         struct SignalTSDispatch final : detail::TSDispatch
@@ -770,9 +871,9 @@ namespace hgraph
             }
 
             [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override {
-                if (!signal_has_children(context)) { return detail::TSDispatch::valid(context); }
+                const SignalState *state = local_signal_state(context);
+                if (state == nullptr || !signal_has_children(*state)) { return detail::TSDispatch::valid(context); }
 
-                const auto *state = static_cast<const SignalState *>(context.ts_state->resolved_state());
                 return std::ranges::any_of(state->child_states, [&](const auto &child) {
                     if (child == nullptr) { return false; }
                     const BaseState *child_state =
@@ -789,12 +890,35 @@ namespace hgraph
 
         struct ReferenceTSDispatch final : detail::TSDispatch
         {
+            [[nodiscard]] static bool reference_value_present(const TimeSeriesReference &ref, bool value_present,
+                                                              const TSViewContext &context) noexcept {
+                BaseState *state = context.notification_state != nullptr ? context.notification_state : context.ts_state;
+                return !ref.is_empty() || (value_present && (state == nullptr || state->last_modified_time != MIN_DT));
+            }
+
             [[nodiscard]] nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time) const override {
                 return detail::reference_to_python(context, evaluation_time);
             }
 
             [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) const override {
                 return detail::reference_to_python(context, evaluation_time);
+            }
+
+            void from_python(const TSOutputView &view, nb::handle value) const override {
+                if (!nb::isinstance<TimeSeriesReference>(value)) {
+                    detail::TSDispatch::from_python(view, value);
+                    return;
+                }
+
+                TimeSeriesReference next_value = nb::cast<TimeSeriesReference>(value);
+                View                target     = view.value();
+                if (const auto *current = target.as_atomic().try_as<TimeSeriesReference>();
+                    current != nullptr && *current == next_value) {
+                    return;
+                }
+
+                target.as_atomic().set(std::move(next_value));
+                mark_output_view_modified(view, view.evaluation_time());
             }
 
             [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override {
@@ -811,14 +935,16 @@ namespace hgraph
                 if (context.ts_state != nullptr) {
                     if (const Value *materialized = detail::materialized_reference_value(context); materialized != nullptr) {
                         if (const auto *ref = materialized->view().as_atomic().try_as<TimeSeriesReference>()) {
-                            return ref->is_valid();
+                            return reference_value_present(*ref, materialized->view().has_value(), context);
                         }
                         return false;
                     }
                 }
 
                 View value = context.value();
-                if (const auto *ref = value.as_atomic().try_as<TimeSeriesReference>()) { return ref->is_valid(); }
+                if (const auto *ref = value.as_atomic().try_as<TimeSeriesReference>()) {
+                    return reference_value_present(*ref, value.has_value(), context);
+                }
                 return value.has_value() && value.as_atomic().try_as<TimeSeriesReference>() != nullptr;
             }
 
@@ -892,7 +1018,10 @@ namespace hgraph
 
             [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override {
                 if (!detail::TSDispatch::valid(context)) {
-                    if (context.ts_state == nullptr || context.value().has_value()) { return false; }
+                    if (context.ts_state == nullptr ||
+                        (context.value().has_value() && m_element_schema.get().kind != TSKind::REF)) {
+                        return false;
+                    }
                 }
                 return collection_has_valid_child(context, *this, size(context));
             }
@@ -1116,7 +1245,9 @@ namespace hgraph
 
             [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override {
                 if (!detail::TSDispatch::valid(context)) {
-                    if (context.ts_state == nullptr || context.value().has_value()) { return false; }
+                    const bool has_reference_field = std::ranges::any_of(
+                        m_fields, [](const FieldLayout &field) { return field.schema.get().kind == TSKind::REF; });
+                    if (context.ts_state == nullptr || (context.value().has_value() && !has_reference_field)) { return false; }
                 }
                 return collection_has_valid_child(context, *this, m_fields.size());
             }
@@ -1353,6 +1484,10 @@ namespace hgraph
 
             void apply_result(const TSOutputView &view, nb::handle value) const override { detail::dict_from_python(view, value); }
 
+            [[nodiscard]] bool can_apply_result(const TSOutputView &view, nb::handle value) const override {
+                return detail::dict_can_apply_result(view, value);
+            }
+
             void copy_from_input(const TSOutputView &view, const TSInputView &source) const override {
                 const auto *source_dispatch   = source.context_ref().ts_dispatch != nullptr
                                                     ? source.context_ref().ts_dispatch
@@ -1477,8 +1612,10 @@ namespace hgraph
             [[nodiscard]] bool child_modified(const TSViewContext &context, size_t index) const noexcept override {
                 if (context.ts_state != nullptr && context.ts_state->storage_kind == TSStorageKind::Native) {
                     const auto *state = dict_state(context);
-                    if (hgraph::child_modified(state, index)) { return true; }
+                    return hgraph::child_modified(state, index);
                 }
+
+                if (!context.value().has_value()) { return false; }
 
                 const auto delta = context.value().as_map().delta();
                 return dict_slot_modified(delta, index);
@@ -1631,9 +1768,29 @@ namespace hgraph
                 auto map = view.value().as_map();
                 if (!map.contains(key)) { return false; }
 
-                clear_output_link(detail::ensure_dict_child_output_view(view, key));
-                auto mutation = map.begin_mutation(view.evaluation_time());
-                return mutation.remove(key);
+                const size_t slot            = map.find_slot(key);
+                TSOutputView child           = detail::ensure_dict_child_output_view(view, key);
+                const bool   child_was_valid = child.valid();
+                const auto   delta           = map.delta();
+                auto        *state =
+                    view.context_ref().ts_state != nullptr && view.context_ref().ts_state->storage_kind == TSStorageKind::Native
+                        ? static_cast<TSDState *>(view.context_ref().ts_state)
+                        : nullptr;
+                const bool added_this_tick =
+                    slot != static_cast<size_t>(-1) &&
+                    ((slot < delta.slot_capacity() && delta.slot_added(slot)) ||
+                     (state != nullptr && state->added_valid_children_modified_time == view.evaluation_time() &&
+                      state->added_valid_children.contains(slot)));
+                auto       mutation = map.begin_mutation(view.evaluation_time());
+                const bool removed  = mutation.remove(key);
+                if (removed) {
+                    if (child_was_valid && !added_this_tick && state != nullptr && slot != static_cast<size_t>(-1)) {
+                        state->record_removed_child_key(slot, key, view.evaluation_time());
+                    }
+                    clear_output_link(child);
+                    child.invalidate();
+                }
+                return removed;
             }
 
             [[nodiscard]] TSViewContext child_at_slot(const TSViewContext &context, const MapDeltaView &delta, size_t slot) const {
@@ -1700,8 +1857,8 @@ namespace hgraph
                 return detail::set_to_python(context);
             }
 
-            [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t) const override {
-                return detail::set_delta_to_python(context);
+            [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) const override {
+                return detail::set_delta_to_python(context, evaluation_time);
             }
 
             [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override {
@@ -2277,15 +2434,29 @@ namespace hgraph
     TSDState::TSDState() noexcept : slot_observer(this) {}
 
     TSDState::TSDState(TSDState &&other) noexcept
-        : BaseCollectionState(std::move(other)), active_tries(std::move(other.active_tries)), element_schema(other.element_schema),
+        : BaseCollectionState(std::move(other)), active_tries(std::move(other.active_tries)),
+          added_valid_children(std::move(other.added_valid_children)),
+          added_valid_children_modified_time(other.added_valid_children_modified_time),
+          removed_valid_children(std::move(other.removed_valid_children)),
+          removed_valid_child_keys(std::move(other.removed_valid_child_keys)),
+          removed_valid_children_modified_time(other.removed_valid_children_modified_time),
+          removed_child_state_snapshots(std::move(other.removed_child_state_snapshots)), element_schema(other.element_schema),
           map_dispatch(other.map_dispatch), map_value_data(other.map_value_data),
           slot_observer_registered(other.slot_observer_registered), slot_observer(this) {
+        reparent_child_states(this);
+
         if (slot_observer_registered && map_dispatch != nullptr && map_value_data != nullptr) {
             map_dispatch->remove_slot_observer(map_value_data, &other.slot_observer);
             map_dispatch->add_slot_observer(map_value_data, &slot_observer);
         }
 
         other.active_tries.clear();
+        other.added_valid_children.clear();
+        other.added_valid_children_modified_time = MIN_DT;
+        other.removed_valid_children.clear();
+        other.removed_valid_child_keys.clear();
+        other.removed_valid_children_modified_time = MIN_DT;
+        other.removed_child_state_snapshots.clear();
         other.element_schema           = nullptr;
         other.map_dispatch             = nullptr;
         other.map_value_data           = nullptr;
@@ -2298,12 +2469,19 @@ namespace hgraph
 
         unbind_value_storage();
         BaseCollectionState::operator=(std::move(other));
-        active_tries             = std::move(other.active_tries);
-        element_schema           = other.element_schema;
-        map_dispatch             = other.map_dispatch;
-        map_value_data           = other.map_value_data;
-        slot_observer_registered = other.slot_observer_registered;
-        slot_observer.owner      = this;
+        reparent_child_states(this);
+        active_tries                         = std::move(other.active_tries);
+        added_valid_children                 = std::move(other.added_valid_children);
+        added_valid_children_modified_time   = other.added_valid_children_modified_time;
+        removed_valid_children               = std::move(other.removed_valid_children);
+        removed_valid_child_keys             = std::move(other.removed_valid_child_keys);
+        removed_valid_children_modified_time = other.removed_valid_children_modified_time;
+        removed_child_state_snapshots        = std::move(other.removed_child_state_snapshots);
+        element_schema                       = other.element_schema;
+        map_dispatch                         = other.map_dispatch;
+        map_value_data                       = other.map_value_data;
+        slot_observer_registered             = other.slot_observer_registered;
+        slot_observer.owner                  = this;
 
         if (slot_observer_registered && map_dispatch != nullptr && map_value_data != nullptr) {
             map_dispatch->remove_slot_observer(map_value_data, &other.slot_observer);
@@ -2311,6 +2489,12 @@ namespace hgraph
         }
 
         other.active_tries.clear();
+        other.added_valid_children.clear();
+        other.added_valid_children_modified_time = MIN_DT;
+        other.removed_valid_children.clear();
+        other.removed_valid_child_keys.clear();
+        other.removed_valid_children_modified_time = MIN_DT;
+        other.removed_child_state_snapshots.clear();
         other.element_schema           = nullptr;
         other.map_dispatch             = nullptr;
         other.map_value_data           = nullptr;
@@ -2399,23 +2583,95 @@ namespace hgraph
 
         const size_t slot_capacity          = map_dispatch->slot_capacity(map_value_data);
         bool         published_child_change = false;
+        bool         consumed_map_delta     = false;
         for (size_t slot = 0; slot < slot_capacity; ++slot) {
             if (!map_dispatch->slot_occupied(map_value_data, slot)) { continue; }
             if (!map_dispatch->slot_added(map_value_data, slot) && !map_dispatch->slot_updated(map_value_data, slot) &&
                 !map_dispatch->slot_removed(map_value_data, slot)) {
                 continue;
             }
+            consumed_map_delta = true;
 
+            if (!map_dispatch->slot_removed(map_value_data, slot) &&
+                (slot >= child_states.size() || child_states[slot] == nullptr)) {
+                on_insert(slot);
+            }
             if (slot >= child_states.size() || child_states[slot] == nullptr) { continue; }
             if (BaseState *child_state =
                     std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, *child_states[slot]);
                 child_state != nullptr) {
-                child_state->mark_modified(modified_time);
+                if (map_dispatch->slot_removed(map_value_data, slot)) {
+                    if (child_state->last_modified_time != MIN_DT) { record_removed_child(slot, modified_time); }
+                    child_state->mark_modified_local(modified_time);
+                    child_state->last_modified_time = MIN_DT;
+                } else {
+                    if (map_dispatch->slot_added(map_value_data, slot)) {
+                        if (added_valid_children_modified_time != modified_time) {
+                            added_valid_children.clear();
+                            added_valid_children_modified_time = modified_time;
+                        }
+                        added_valid_children.insert(slot);
+                    }
+                    child_state->mark_modified(modified_time);
+                }
                 published_child_change = true;
             }
         }
 
+        if (consumed_map_delta) { map_dispatch->clear_delta_tracking(map_value_data); }
         return published_child_change;
+    }
+
+    void TSDState::record_removed_child(size_t slot, engine_time_t modified_time) {
+        if (modified_time != MIN_DT && removed_valid_children_modified_time != modified_time) {
+            removed_valid_children.clear();
+            removed_valid_child_keys.clear();
+            removed_valid_children_modified_time = modified_time;
+        } else if (removed_valid_children_modified_time == MIN_DT) {
+            removed_valid_children_modified_time = modified_time;
+        }
+
+        removed_valid_children.insert(slot);
+        if (map_dispatch == nullptr || map_value_data == nullptr || slot >= map_dispatch->slot_capacity(map_value_data) ||
+            !map_dispatch->slot_occupied(map_value_data, slot)) {
+            removed_valid_child_keys.erase(slot);
+            return;
+        }
+
+        const View key{&map_dispatch->key_dispatch(), map_dispatch->key_data(map_value_data, slot), &map_dispatch->key_schema()};
+        auto      &keys = removed_valid_child_keys[slot];
+        if (std::none_of(keys.begin(), keys.end(),
+                         [&](const Value &existing) { return existing.view().has_value() && existing.view() == key; })) {
+            keys.emplace_back(key.clone());
+        }
+    }
+
+    void TSDState::record_removed_child_key(size_t slot, const View &key, engine_time_t modified_time) {
+        if (modified_time != MIN_DT && removed_valid_children_modified_time != modified_time) {
+            removed_valid_children.clear();
+            removed_valid_child_keys.clear();
+            removed_valid_children_modified_time = modified_time;
+        } else if (removed_valid_children_modified_time == MIN_DT) {
+            removed_valid_children_modified_time = modified_time;
+        }
+
+        removed_valid_children.insert(slot);
+        if (!key.has_value()) {
+            removed_valid_child_keys.erase(slot);
+            return;
+        }
+
+        auto &keys = removed_valid_child_keys[slot];
+        if (std::none_of(keys.begin(), keys.end(),
+                         [&](const Value &existing) { return existing.view().has_value() && existing.view() == key; })) {
+            keys.emplace_back(key.clone());
+        }
+    }
+
+    void TSDState::forget_removed_child(size_t slot) noexcept {
+        removed_valid_children.erase(slot);
+        removed_valid_child_keys.erase(slot);
+        if (removed_valid_children.empty()) { removed_valid_children_modified_time = MIN_DT; }
     }
 
     void TSDState::on_capacity(size_t old_capacity, size_t new_capacity) {
@@ -2426,17 +2682,33 @@ namespace hgraph
     void TSDState::on_insert(size_t slot) {
         if (element_schema == nullptr || map_dispatch == nullptr || map_value_data == nullptr) { return; }
 
+        bool forget_prior_removal = true;
+        if (removed_valid_children.contains(slot) && map_dispatch != nullptr && map_value_data != nullptr &&
+            slot < map_dispatch->slot_capacity(map_value_data) && map_dispatch->slot_occupied(map_value_data, slot)) {
+            const View key{&map_dispatch->key_dispatch(), map_dispatch->key_data(map_value_data, slot),
+                           &map_dispatch->key_schema()};
+            if (const auto removed_it = removed_valid_child_keys.find(slot); removed_it != removed_valid_child_keys.end()) {
+                const bool same_key_reinserted =
+                    std::any_of(removed_it->second.begin(), removed_it->second.end(), [&](const Value &removed_key) {
+                        return removed_key.view().has_value() && removed_key.view() == key;
+                    });
+                forget_prior_removal = same_key_reinserted;
+            }
+        }
+        if (forget_prior_removal) { forget_removed_child(slot); }
         if (child_states.size() < slot + 1) { child_states.resize(slot + 1); }
-        if (child_states[slot] == nullptr) { child_states[slot] = make_time_series_state_node(*element_schema, this, slot); }
+        const bool created_child_state = child_states[slot] == nullptr;
+        if (created_child_state) { child_states[slot] = make_time_series_state_node(*element_schema, this, slot); }
 
         if (BaseState *child_state = state_address(child_states[slot]);
-            child_state != nullptr && child_state->last_modified_time == MIN_DT) {
+            created_child_state && child_state != nullptr && child_state->last_modified_time == MIN_DT) {
             const bool slot_modified =
                 map_dispatch->slot_added(map_value_data, slot) || map_dispatch->slot_updated(map_value_data, slot);
             child_state->last_modified_time = slot_modified && last_modified_time != MIN_DT ? last_modified_time : MIN_ST;
         }
 
         const TSViewContext child = child_context_for_dict_slot(*this, slot);
+        if (created_child_state) { restore_removed_child_state_snapshot(*this, slot, child_states[slot].get()); }
         if (!child.is_bound() || active_tries.empty()) { return; }
 
         const View key{&map_dispatch->key_dispatch(), map_dispatch->key_data(map_value_data, slot), &map_dispatch->key_schema()};
@@ -2448,6 +2720,19 @@ namespace hgraph
     }
 
     void TSDState::on_remove(size_t slot) {
+        const bool slot_added_in_value_delta = map_dispatch != nullptr && map_value_data != nullptr &&
+                                               slot < map_dispatch->slot_capacity(map_value_data) &&
+                                               map_dispatch->slot_added(map_value_data, slot);
+        const bool slot_added_in_state =
+            added_valid_children_modified_time == last_modified_time && added_valid_children.contains(slot);
+        const bool added_this_tick         = slot_added_in_value_delta || slot_added_in_state;
+        const bool removed_child_was_valid = !added_this_tick && dict_child_valid_for_removal(*this, slot);
+        if (removed_child_was_valid) {
+            record_removed_child(slot);
+        } else if (added_this_tick || !removed_valid_children.contains(slot)) {
+            forget_removed_child(slot);
+        }
+
         if (!active_tries.empty()) {
             for (auto &[notifier, trie_node] : active_tries) {
                 static_cast<void>(notifier);
@@ -2457,12 +2742,19 @@ namespace hgraph
     }
 
     void TSDState::on_erase(size_t slot) {
+        snapshot_removed_child_state(*this, slot);
         if (slot < child_states.size()) { child_states[slot].reset(); }
         modified_children.erase(slot);
+        added_valid_children.erase(slot);
+        if (added_valid_children.empty()) { added_valid_children_modified_time = MIN_DT; }
+        if (!removed_valid_children.contains(slot)) { forget_removed_child(slot); }
     }
 
     void TSDState::on_clear() {
         for (size_t slot = 0; slot < child_states.size(); ++slot) { on_erase(slot); }
+        added_valid_children.clear();
+        added_valid_children_modified_time = MIN_DT;
+        removed_child_state_snapshots.clear();
     }
 
     TSValueBuilder::TSValueBuilder(const TSMeta &schema, const ValueBuilder &value_builder, const detail::TSBuilderOps &builder_ops,

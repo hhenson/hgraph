@@ -189,6 +189,11 @@ namespace hgraph
 
             void copy_from(void *dst, const View &src) const override { assign(dst, detail::ViewAccess::data(src)); }
 
+            [[nodiscard]] bool try_copy_from(void *dst, const View &src) const override {
+                return try_box_from_any<bool, int8_t, int16_t, int32_t, int64_t, uint8_t, uint16_t, uint32_t, uint64_t, size_t,
+                                        float, double, std::string, engine_date_t, engine_time_t, engine_time_delta_t>(dst, src);
+            }
+
             void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override {
                 if (src_schema != value::scalar_type_meta<nb::object>()) {
                     throw std::invalid_argument("AtomicDispatch<nb::object>::set_from_cpp requires matching source schema");
@@ -210,6 +215,20 @@ namespace hgraph
 
             [[nodiscard]] static const AtomicState<nb::object> *state(const void *data) noexcept {
                 return std::launder(reinterpret_cast<const AtomicState<nb::object> *>(data));
+            }
+
+            template <typename TSource> [[nodiscard]] static const AtomicState<TSource> *source_state(const View &src) noexcept {
+                return std::launder(reinterpret_cast<const AtomicState<TSource> *>(detail::ViewAccess::data(src)));
+            }
+
+            template <typename TSource> [[nodiscard]] static bool try_box_from(void *dst, const View &src) {
+                if (src.schema() != value::scalar_type_meta<TSource>()) { return false; }
+                state(dst)->value = nb::cast(source_state<TSource>(src)->value);
+                return true;
+            }
+
+            template <typename... TSource> [[nodiscard]] static bool try_box_from_any(void *dst, const View &src) {
+                return (try_box_from<TSource>(dst, src) || ...);
             }
         };
 

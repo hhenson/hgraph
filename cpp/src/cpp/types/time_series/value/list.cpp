@@ -1,5 +1,6 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/value/list.h>
+#include <hgraph/types/time_series/value/record.h>
 #include <hgraph/types/time_series/value/builder.h>
 
 #include <algorithm>
@@ -218,6 +219,21 @@ namespace hgraph
                 }
             }
 
+            [[nodiscard]] bool try_copy_from(void *dst, const View &src) const override
+            {
+                if (!src.has_value() || src.schema() == nullptr) { return false; }
+
+                if (src.schema()->kind == value::TypeKind::List) {
+                    return try_copy_indexed(dst, src.as_list());
+                }
+
+                if (src.schema()->kind == value::TypeKind::Tuple && m_schema.get().is_variadic_tuple()) {
+                    return try_copy_indexed(dst, src.as_tuple());
+                }
+
+                return false;
+            }
+
             void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override
             {
                 if (src_schema == &m_schema.get()) {
@@ -238,6 +254,29 @@ namespace hgraph
             }
 
           protected:
+            template <typename TIndexedView> [[nodiscard]] bool try_copy_indexed(void *dst, const TIndexedView &source) const
+            {
+                const size_t count = source.size();
+                if (is_fixed()) {
+                    if (size(dst) != count) { return false; }
+                } else {
+                    resize(dst, count);
+                }
+
+                for (size_t i = 0; i < count; ++i) {
+                    const View source_element = source.at(i);
+                    if (!source_element.has_value()) {
+                        set_element_valid(dst, i, false);
+                        continue;
+                    }
+
+                    View destination_element{&element_dispatch(), element_data(dst, i), &element_schema()};
+                    if (!destination_element.try_copy_from(source_element)) { return false; }
+                    set_element_valid(dst, i, true);
+                }
+                return true;
+            }
+
             [[nodiscard]] size_t element_stride() const noexcept
             {
                 const size_t alignment = m_element_builder.get().alignment();

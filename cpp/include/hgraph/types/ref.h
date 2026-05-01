@@ -13,6 +13,7 @@
 
 namespace hgraph
 {
+    struct BaseState;
     struct TimeSeriesReference;
 
     // Reverse-subscription token: each PEERED TimeSeriesReference owns one
@@ -27,6 +28,7 @@ namespace hgraph
     struct HGRAPH_EXPORT ReferenceInvalidator
     {
         TimeSeriesReference *owner{nullptr};
+        BaseState           *target{nullptr};
         // Tracks whether the target state's destructor has fired. Once true
         // the owning ref must NOT call target_state->unregister_ref_invalidator
         // because the state's memory is gone.
@@ -84,12 +86,14 @@ namespace hgraph
         void unregister_invalidator() noexcept;
 
         friend HGRAPH_EXPORT void invalidate_ref(ReferenceInvalidator &) noexcept;
+        friend HGRAPH_EXPORT void rebind_ref_target(ReferenceInvalidator &, BaseState *, BaseState *) noexcept;
     };
 
     // Called by ~BaseState() on each registered ReferenceInvalidator. Flips
     // the owning ref to EMPTY in place so dangling LinkedTSContexts cannot
     // be dereferenced after the target state's memory is reclaimed.
     HGRAPH_EXPORT void invalidate_ref(ReferenceInvalidator &) noexcept;
+    HGRAPH_EXPORT void rebind_ref_target(ReferenceInvalidator &, BaseState *old_state, BaseState *new_state) noexcept;
 
     [[nodiscard]] HGRAPH_EXPORT size_t atomic_hash(const TimeSeriesReference &value);
     [[nodiscard]] HGRAPH_EXPORT TimeSeriesReference atomic_default_value(std::type_identity<TimeSeriesReference>);

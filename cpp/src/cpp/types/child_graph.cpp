@@ -49,11 +49,79 @@ namespace hgraph
             throw std::logic_error("nested engine state does not own a graph");
         }
 
-        EvaluationEngineApi nested_evaluation_engine_api(void * /*impl*/) noexcept {
-            // Nested graphs don't expose a full engine API.
-            // Returning an invalid facade is safe because nodes access the clock
-            // through Graph::evaluation_clock(), not through the API.
-            return {};
+        [[nodiscard]] EvaluationEngineApi parent_evaluation_engine_api(const NestedEvaluationEngineState *state) noexcept {
+            if (state == nullptr || state->clock_state == nullptr || state->clock_state->parent_node == nullptr ||
+                state->clock_state->parent_node->graph() == nullptr) {
+                return {};
+            }
+            return state->clock_state->parent_node->graph()->evaluation_engine_api();
+        }
+
+        [[nodiscard]] EvaluationMode nested_api_evaluation_mode(const void *impl) noexcept {
+            EvaluationEngineApi parent_api = parent_evaluation_engine_api(static_cast<const NestedEvaluationEngineState *>(impl));
+            return parent_api.valid() ? parent_api.evaluation_mode() : EvaluationMode::SIMULATION;
+        }
+
+        [[nodiscard]] engine_time_t nested_api_start_time(const void *impl) noexcept {
+            EvaluationEngineApi parent_api = parent_evaluation_engine_api(static_cast<const NestedEvaluationEngineState *>(impl));
+            return parent_api.valid() ? parent_api.start_time() : nested_start_time(impl);
+        }
+
+        [[nodiscard]] engine_time_t nested_api_end_time(const void *impl) noexcept {
+            EvaluationEngineApi parent_api = parent_evaluation_engine_api(static_cast<const NestedEvaluationEngineState *>(impl));
+            return parent_api.valid() ? parent_api.end_time() : MAX_DT;
+        }
+
+        [[nodiscard]] EvaluationClock nested_api_evaluation_clock(const void *impl) {
+            const auto *state = static_cast<const NestedEvaluationEngineState *>(impl);
+            return {state->clock_state, &nested_clock_ops()};
+        }
+
+        void nested_api_request_engine_stop(void *impl) {
+            EvaluationEngineApi parent_api = parent_evaluation_engine_api(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent_api.valid()) { parent_api.request_engine_stop(); }
+        }
+
+        [[nodiscard]] bool nested_api_is_stop_requested(const void *impl) noexcept {
+            EvaluationEngineApi parent_api = parent_evaluation_engine_api(static_cast<const NestedEvaluationEngineState *>(impl));
+            return parent_api.valid() && parent_api.is_stop_requested();
+        }
+
+        void nested_api_add_before_evaluation_notification(void *impl, std::function<void()> fn) {
+            EvaluationEngineApi parent_api = parent_evaluation_engine_api(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent_api.valid()) { parent_api.add_before_evaluation_notification(std::move(fn)); }
+        }
+
+        void nested_api_add_after_evaluation_notification(void *impl, std::function<void()> fn) {
+            EvaluationEngineApi parent_api = parent_evaluation_engine_api(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent_api.valid()) { parent_api.add_after_evaluation_notification(std::move(fn)); }
+        }
+
+        void nested_api_add_life_cycle_observer(void *impl, EvaluationLifeCycleObserver *observer) {
+            EvaluationEngineApi parent_api = parent_evaluation_engine_api(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent_api.valid()) { parent_api.add_life_cycle_observer(observer); }
+        }
+
+        void nested_api_remove_life_cycle_observer(void *impl, EvaluationLifeCycleObserver *observer) {
+            EvaluationEngineApi parent_api = parent_evaluation_engine_api(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent_api.valid()) { parent_api.remove_life_cycle_observer(observer); }
+        }
+
+        const EvaluationEngineApiOps s_nested_api_ops{
+            nested_api_evaluation_mode,
+            nested_api_start_time,
+            nested_api_end_time,
+            nested_api_evaluation_clock,
+            nested_api_request_engine_stop,
+            nested_api_is_stop_requested,
+            nested_api_add_before_evaluation_notification,
+            nested_api_add_after_evaluation_notification,
+            nested_api_add_life_cycle_observer,
+            nested_api_remove_life_cycle_observer,
+        };
+
+        EvaluationEngineApi nested_evaluation_engine_api(void *impl) noexcept {
+            return {impl, &s_nested_api_ops};
         }
 
         EngineEvaluationClock nested_engine_evaluation_clock(void *impl) {
@@ -225,6 +293,7 @@ namespace hgraph
         m_clock_state.parent_node           = &parent_node;
         m_clock_state.nested_next_scheduled = MAX_DT;
         m_clock_state.evaluation_time       = MIN_DT;
+        m_clock_state.last_evaluation_time  = MIN_DT;
         m_clock_state.is_stopping           = false;
 
         // Create the nested evaluation engine state (heap-allocated, owned by the engine ops destruct)
@@ -254,6 +323,7 @@ namespace hgraph
         m_clock_state.reset_next_scheduled();
         m_clock_state.is_stopping     = false;
         m_clock_state.evaluation_time = eval_time;
+        m_clock_state.last_evaluation_time = MIN_DT;
         m_graph->start();
         m_started = true;
     }
@@ -262,6 +332,7 @@ namespace hgraph
         if (!m_started) { throw std::logic_error("ChildGraphInstance::evaluate called on non-started instance"); }
 
         m_clock_state.reset_next_scheduled();
+        m_clock_state.last_evaluation_time = eval_time;
         m_graph->evaluate(eval_time);
     }
 

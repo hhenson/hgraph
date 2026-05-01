@@ -35,8 +35,10 @@ namespace hgraph::nodes
             auto &already_emitted = emitted.view().template checked_as<bool>();
             if (already_emitted) { return; }
 
-            out.value().from_python(value.object());
-            hgraph::detail::mark_ts_output_modified(out, evaluation_time);
+            static_cast<void>(evaluation_time);
+            //TODO: this patter of to-from python is not super great, this should allow the scalar value passed to be
+            //a value object (which can be converted when called from python) which can be set directly.
+            out.from_python(value.object());
             already_emitted = true;
         }
     };

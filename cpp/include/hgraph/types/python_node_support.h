@@ -12,6 +12,7 @@ namespace hgraph
 {
     struct TSMeta;
     struct TSInput;
+    struct TSInputView;
     struct TSOutput;
 }
 
@@ -40,6 +41,9 @@ namespace hgraph
     [[nodiscard]] nb::object call_python_callable_with_subset(nb::handle callable,
                                                               nb::handle kwargs,
                                                               nb::handle parameter_names);
+    [[nodiscard]] bool node_has_python_handle_layout(const Node &node) noexcept;
+    [[nodiscard]] bool last_value_node_copy_from_input(Node &node, const TSInputView &source);
+    [[nodiscard]] bool last_value_node_apply_value(Node &node, nb::handle value);
 
     void register_python_runtime_bindings(nb::module_ &m);
 }  // namespace hgraph

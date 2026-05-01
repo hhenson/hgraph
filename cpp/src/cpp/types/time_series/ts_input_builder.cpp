@@ -281,8 +281,16 @@ namespace hgraph
 
         struct LinkTerminalNodeOps final : InputStateNodeOps
         {
+            explicit LinkTerminalNodeOps(const TSMeta *schema) noexcept : m_schema(schema) {}
+
             void construct(TimeSeriesStateV &state, TimeSeriesStateParentPtr parent, size_t index) const override
             {
+                if (m_schema != nullptr && m_schema->kind == TSKind::REF) {
+                    auto &native_state = state.emplace<TSState>();
+                    initialize_base_state(native_state, parent, index);
+                    return;
+                }
+
                 auto &link_state = state.emplace<TargetLinkState>();
                 initialize_base_state(link_state, parent, index, MIN_DT, TSStorageKind::TargetLink);
                 link_state.target.clear();
@@ -294,6 +302,13 @@ namespace hgraph
                                 TimeSeriesStateParentPtr parent,
                                 size_t index) const override
             {
+                if (m_schema != nullptr && m_schema->kind == TSKind::REF && std::holds_alternative<TSState>(src)) {
+                    const auto &src_state = std::get<TSState>(src);
+                    auto       &dst_state = dst.emplace<TSState>();
+                    initialize_base_state(dst_state, parent, index, src_state.last_modified_time);
+                    return;
+                }
+
                 const auto &src_state = std::get<TargetLinkState>(src);
                 auto &dst_state = dst.emplace<TargetLinkState>();
                 initialize_base_state(dst_state, parent, index, src_state.last_modified_time, TSStorageKind::TargetLink);
@@ -306,6 +321,9 @@ namespace hgraph
                     dst_state.target.clear();
                 }
             }
+
+          private:
+            const TSMeta *m_schema{nullptr};
         };
 
         struct BundleNodeOps final : InputStateNodeOps
@@ -409,7 +427,7 @@ namespace hgraph
                     return {};
 
                 case TSInputSlotKind::LinkTerminal:
-                    return std::make_shared<LinkTerminalNodeOps>();
+                    return std::make_shared<LinkTerminalNodeOps>(slot.schema());
 
                 case TSInputSlotKind::NonPeeredCollection:
                     {

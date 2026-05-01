@@ -1,4 +1,5 @@
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/ref.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -194,8 +195,33 @@ namespace hgraph
             {
                 if (node == nullptr || notifier == nullptr) { return; }
 
-                TSViewContext resolved = context.resolved();
-                BaseState    *state    = resolved.ts_state;
+                TSViewContext resolved = context;
+                if (BaseState *link_state = context.ts_state; link_state != nullptr) {
+                    if (const LinkedTSContext *target = link_state->linked_target(); target != nullptr) {
+                        if (!target->is_bound()) {
+                            resolved.pending_dict_child = target->pending_dict_child;
+                            resolved.value_data         = nullptr;
+                        } else {
+                            resolved.schema = target->schema != nullptr ? target->schema : resolved.schema;
+                            resolved.value_dispatch =
+                                target->value_dispatch != nullptr ? target->value_dispatch : resolved.value_dispatch;
+                            resolved.ts_dispatch =
+                                target->ts_dispatch != nullptr ? target->ts_dispatch : resolved.ts_dispatch;
+                            resolved.value_data = target->value_data;
+                            resolved.ts_state   = target->ts_state;
+                            resolved.owning_output =
+                                target->owning_output != nullptr ? target->owning_output : resolved.owning_output;
+                            resolved.output_view_ops =
+                                target->output_view_ops != nullptr ? target->output_view_ops : resolved.output_view_ops;
+                            resolved.notification_state =
+                                target->notification_state != nullptr ? target->notification_state
+                                                                      : resolved.notification_state;
+                            resolved.pending_dict_child = target->pending_dict_child;
+                        }
+                    }
+                }
+
+                BaseState *state = context.ts_state != nullptr ? context.ts_state : resolved.ts_state;
                 if (node->locally_active && state != nullptr) { state->unsubscribe(notifier); }
 
                 const auto *collection = resolved.ts_dispatch != nullptr ? resolved.ts_dispatch->as_collection() : nullptr;
@@ -260,6 +286,7 @@ namespace hgraph
                     throw std::logic_error("TSInputView dynamic binding could not resolve the owning state slot");
                 }
 
+                BaseState *old_state = state;
                 const TimeSeriesStateParentPtr parent = state->parent;
                 const size_t index = state->index;
                 const engine_time_t last_modified_time = state->last_modified_time;
@@ -279,6 +306,7 @@ namespace hgraph
                 link_state.target_link_invalidators = std::move(target_link_invalidators);
                 link_state.state_invalidators = std::move(state_invalidators);
                 link_state.feature_registry = std::move(feature_registry);
+                rebind_base_state_lifetime(link_state, old_state);
                 link_state.target.clear();
                 link_state.scheduling_notifier.set_target(nullptr);
                 return link_state;
@@ -302,6 +330,50 @@ namespace hgraph
 
                     TSOutputView bindable_output = output;
                     LinkedTSContext output_context = bindable_output.linked_context();
+                    if (child_schema != nullptr && child_schema->kind == TSKind::REF && child_schema->element_ts() != nullptr &&
+                        output_context.schema != nullptr && output_context.schema->kind != TSKind::REF) {
+                        const TSMeta *target_schema = child_schema->element_ts();
+                        if (!binding_compatible_ts_schema(output_context.schema, target_schema) ||
+                            requires_bindable_output_cast(output_context.schema, target_schema)) {
+                            TSOutput *owning_output = output.owning_output();
+                            if (owning_output == nullptr) {
+                                throw std::logic_error("TSInputView::bind_output requires an owning output endpoint for REF casts");
+                            }
+                            bindable_output = owning_output->bindable_view(output, target_schema);
+                            output_context  = bindable_output.linked_context();
+                        }
+
+                        if (!binding_compatible_ts_schema(output_context.schema, target_schema)) {
+                            throw std::invalid_argument(
+                                fmt::format("TSInputView::bind_output requires a bindable output matching the REF target schema: "
+                                            "linked={} source_view={} bindable_view={} target={}",
+                                            schema_debug_name(output_context.schema),
+                                            schema_debug_name(output.ts_schema()),
+                                            schema_debug_name(bindable_output.ts_schema()),
+                                            schema_debug_name(target_schema)));
+                        }
+
+                        TSViewContext value_context = context;
+                        if (value_context.value_dispatch == nullptr || value_context.value_data == nullptr) {
+                            value_context = context.resolved();
+                        }
+                        if (value_context.value_dispatch == nullptr || value_context.value_data == nullptr ||
+                            child_schema->value_type == nullptr) {
+                            throw std::logic_error("TSInputView::bind_output REF wrapping requires local value storage");
+                        }
+                        if (state->storage_kind == TSStorageKind::TargetLink) { static_cast<TargetLinkState *>(state)->reset_target(); }
+
+                        View local_value{value_context.value_dispatch, value_context.value_data, child_schema->value_type};
+                        const auto *current_ref =
+                            local_value.has_value() ? local_value.as_atomic().try_as<TimeSeriesReference>() : nullptr;
+                        TimeSeriesReference next_ref = TimeSeriesReference::make(bindable_output);
+                        if (current_ref == nullptr || *current_ref != next_ref) {
+                            local_value.as_atomic().set(next_ref);
+                            const engine_time_t evaluation_time = view.evaluation_time();
+                            if (evaluation_time != MIN_DT) { state->mark_modified(evaluation_time); }
+                        }
+                        return;
+                    }
                     if (!binding_compatible_ts_schema(output_context.schema, child_schema) ||
                         requires_bindable_output_cast(output_context.schema, child_schema)) {
                         TSOutput *owning_output = output.owning_output();
@@ -344,12 +416,18 @@ namespace hgraph
                     link_state.set_target(output_context);
                     BaseState *output_state =
                         output_context.notification_state != nullptr ? output_context.notification_state : output_context.ts_state;
-                    link_state.last_modified_time = output_state != nullptr ? output_state->last_modified_time : MIN_DT;
-                    if (!detail::linked_context_equal(previous_target, link_state.target)) {
+                    const bool          target_changed = !detail::linked_context_equal(previous_target, link_state.target);
+                    const engine_time_t output_last_modified =
+                        output_state != nullptr ? output_state->last_modified_time : MIN_DT;
+                    if (target_changed) {
+                        link_state.last_modified_time = output_last_modified;
                         if (evaluation_time != MIN_DT) {
-                            link_state.previous_target_value = previous_target.is_bound()
-                                                                   ? detail::snapshot_target_value(previous_target, evaluation_time)
-                                                                   : detail::empty_target_value(link_state.target);
+                            link_state.previous_target_value =
+                                previous_target.is_bound()
+                                    ? detail::snapshot_target_value(previous_target, evaluation_time)
+                                    : (detail::linked_context_valid(link_state.target)
+                                           ? detail::empty_target_value(link_state.target)
+                                           : Value{});
                             link_state.switch_modified_time =
                                 link_state.previous_target_value.has_value() ? evaluation_time : MIN_DT;
                         } else {
@@ -357,14 +435,14 @@ namespace hgraph
                             link_state.switch_modified_time = MIN_DT;
                         }
                     } else {
+                        if (output_last_modified > link_state.last_modified_time) {
+                            link_state.last_modified_time = output_last_modified;
+                        }
                         link_state.previous_target_value = {};
                         link_state.switch_modified_time = MIN_DT;
                     }
 
-                    if (evaluation_time != MIN_DT &&
-                        !detail::linked_context_equal(previous_target, link_state.target)) {
-                        link_state.mark_modified(evaluation_time);
-                    }
+                    if (evaluation_time != MIN_DT && target_changed) { link_state.mark_modified(evaluation_time); }
 
                     if (link_state.feature_registry != nullptr) {
                         link_state.feature_registry->rebind_link_source(&output_context, evaluation_time);
@@ -428,7 +506,10 @@ namespace hgraph
                     }
 
                     active_pos.node->locally_active = true;
-                    if (context.ts_state != nullptr && view.scheduling_notifier() != nullptr) {
+                    const bool opaque_local_reference =
+                        context.schema != nullptr && context.schema->kind == TSKind::REF &&
+                        detail::has_local_reference_binding(context);
+                    if (!opaque_local_reference && context.ts_state != nullptr && view.scheduling_notifier() != nullptr) {
                         context.ts_state->subscribe(view.scheduling_notifier());
                     }
 

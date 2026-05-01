@@ -2,7 +2,10 @@
 
 #include <hgraph/hgraph_base.h>
 
+#include <functional>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 
 namespace hgraph
 {
@@ -26,6 +29,11 @@ namespace hgraph
         [[nodiscard]] bool (*push_node_requires_scheduling)(const void *impl) noexcept;
         void (*reset_push_node_requires_scheduling)(void *impl);
         [[nodiscard]] const engine_time_t *(*evaluation_time_ptr)(const void *impl) noexcept;
+        //TODO: This is not valid methods at this level, the evaluation engine clock does not support setting or
+        //      cancelling alarms, scheduling is a node level feature and the logic resides there, this is a code smell!
+        [[nodiscard]] bool (*set_alarm)(void *impl, engine_time_t time, std::string name,
+                                         std::function<void(engine_time_t)> callback);
+        void (*cancel_alarm)(void *impl, std::string_view name);
     };
 
     /**
@@ -242,6 +250,17 @@ namespace hgraph
         [[nodiscard]] const engine_time_t *evaluation_time_ptr() const noexcept
         {
             return engine_ops().evaluation_time_ptr(m_impl);
+        }
+
+        [[nodiscard]] bool set_alarm(engine_time_t time, std::string name,
+                                     std::function<void(engine_time_t)> callback) const
+        {
+            return engine_ops().set_alarm(const_cast<void *>(m_impl), time, std::move(name), std::move(callback));
+        }
+
+        void cancel_alarm(std::string_view name) const
+        {
+            engine_ops().cancel_alarm(const_cast<void *>(m_impl), name);
         }
 
       private:

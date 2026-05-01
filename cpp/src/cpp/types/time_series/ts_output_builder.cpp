@@ -165,10 +165,15 @@ namespace hgraph
 
     void TSOutputBuilder::destruct_output(TSOutput &output) const noexcept
     {
-        if (output.m_builder != this) { return; }
+        if (output.m_builder != this || output.storage_memory() == nullptr) { return; }
         output.m_alternatives.clear();
-        ts_value_builder().destruct_value(output);
+        void      *memory       = output.storage_memory();
+        const bool owns_storage = output.owns_storage();
+        ts_value_builder().destruct(memory);
+        if (owns_storage) { deallocate(memory); }
         output.m_builder = nullptr;
+        output.detach_storage();
+        output.reset_binding();
     }
 
     const TSOutputBuilder *TSOutputBuilderFactory::builder_for(const TSMeta &schema)

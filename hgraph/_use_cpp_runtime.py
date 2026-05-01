@@ -87,7 +87,37 @@ if is_feature_enabled("use_cpp"):
         hgraph.set_set_delta_factory(_create_set_delta)
 
         hgraph._wiring._wiring_node_class.PythonWiringNodeClass.BUILDER_CLASS = _hgraph.NodeBuilder
-        hgraph._wiring._wiring_node_class.PythonGeneratorWiringNodeClass.BUILDER_CLASS = _hgraph.NodeBuilder
+
+        def _create_python_generator_builder_factory(
+            signature,
+            scalars,
+            input_builder,
+            output_builder,
+            error_builder,
+            recordable_state_builder=None,
+            eval_fn=None,
+            start_fn=None,
+            stop_fn=None,
+        ):
+            return _hgraph.NodeBuilder.python(
+                signature,
+                scalars,
+                input_builder,
+                output_builder,
+                error_builder,
+                recordable_state_builder,
+                eval_fn,
+                start_fn,
+                stop_fn,
+                force_generator_eval=True,
+            )
+
+        _create_python_generator_builder_factory.NODE_SIGNATURE = _hgraph.NodeSignature
+        _create_python_generator_builder_factory.NODE_TYPE_ENUM = _hgraph.NodeTypeEnum
+        _create_python_generator_builder_factory.make_signature = _hgraph.NodeBuilder.make_signature
+        hgraph._wiring._wiring_node_class.PythonGeneratorWiringNodeClass.BUILDER_CLASS = (
+            _create_python_generator_builder_factory
+        )
         _pwc.PythonPushQueueWiringNodeClass.BUILDER_CLASS = _hgraph.NodeBuilder
 
         def _create_try_except_node_builder_factory(
@@ -156,9 +186,50 @@ if is_feature_enabled("use_cpp"):
             _create_try_except_node_builder_factory
         )
         _ng.NestedGraphWiringNodeClass.BUILDER_CLASS = _create_nested_graph_builder_factory
-        _pull_source.PythonLastValuePullWiringNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("last_value_source_node")
-        _context_wiring.ContextNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("context output nodes")
-        _component.ComponentNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("component nodes")
+
+        def _create_last_value_pull_builder_factory(
+            signature,
+            scalars,
+            input_builder,
+            output_builder,
+            error_builder,
+            recordable_state_builder=None,
+        ):
+            return _hgraph.build_last_value_pull_node(signature, scalars, output_builder, error_builder)
+
+        _pull_source.PythonLastValuePullWiringNodeClass.BUILDER_CLASS = _create_last_value_pull_builder_factory
+        def _create_component_builder_factory(
+            signature,
+            scalars,
+            input_builder,
+            output_builder,
+            error_builder,
+            recordable_state_builder=None,
+            nested_graph=None,
+            input_node_ids=None,
+            output_node_id=None,
+        ):
+            input_node_ids = dict(input_node_ids) if input_node_ids is not None else {}
+
+            if isinstance(nested_graph, _hgraph.GraphBuilder):
+                return _hgraph.build_component_node(
+                    signature,
+                    scalars,
+                    input_builder,
+                    output_builder,
+                    error_builder,
+                    nested_graph,
+                    input_node_ids,
+                    output_node_id,
+                )
+
+            raise NotImplementedError(
+                "component nodes require a nested graph builder in C++ mode. "
+                "Use HGRAPH_USE_CPP=0 for the Python runtime or implement the missing builder."
+            )
+
+        _component.ComponentNodeClass.BUILDER_CLASS = _create_component_builder_factory
+
         def _create_tsd_map_builder_factory(
             signature,
             scalars,
@@ -187,6 +258,7 @@ if is_feature_enabled("use_cpp"):
                     output_node_id,
                     multiplexed_args,
                     key_arg,
+                    key_tp,
                 )
 
             raise NotImplementedError(
@@ -260,6 +332,7 @@ if is_feature_enabled("use_cpp"):
             )
 
         _reduce.TsdReduceWiringNodeClass.BUILDER_CLASS = _create_reduce_builder_factory
+
         def _create_non_associative_reduce_builder_factory(
             signature,
             scalars,
@@ -285,9 +358,75 @@ if is_feature_enabled("use_cpp"):
             )
 
         _reduce.TsdNonAssociativeReduceWiringNodeClass.BUILDER_CLASS = _create_non_associative_reduce_builder_factory
-        _mesh.MeshWiringNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("mesh nodes")
+
+        def _create_mesh_builder_factory(
+            signature,
+            scalars,
+            input_builder,
+            output_builder,
+            error_builder,
+            recordable_state_builder=None,
+            nested_graph=None,
+            input_node_ids=None,
+            output_node_id=None,
+            multiplexed_args=None,
+            key_arg=None,
+            key_tp=None,
+            context_path=None,
+        ):
+            input_node_ids = dict(input_node_ids) if input_node_ids is not None else {}
+
+            if isinstance(nested_graph, _hgraph.GraphBuilder):
+                return _hgraph.build_mesh_node(
+                    signature,
+                    scalars,
+                    input_builder,
+                    output_builder,
+                    error_builder,
+                    nested_graph,
+                    input_node_ids,
+                    output_node_id,
+                    multiplexed_args,
+                    key_arg,
+                    key_tp,
+                    context_path,
+                )
+
+            raise NotImplementedError(
+                "mesh nodes require a nested graph builder in C++ mode. "
+                "Use HGRAPH_USE_CPP=0 for the Python runtime or implement the missing builder."
+            )
+
+        def _create_service_impl_builder_factory(
+            signature,
+            scalars,
+            input_builder,
+            output_builder,
+            error_builder,
+            recordable_state_builder=None,
+            nested_graph=None,
+        ):
+            if isinstance(nested_graph, _hgraph.GraphBuilder):
+                return _hgraph.build_nested_node(
+                    signature,
+                    scalars,
+                    input_builder,
+                    output_builder,
+                    error_builder,
+                    nested_graph,
+                    {},
+                    None,
+                    False,
+                )
+
+            raise NotImplementedError(
+                "service implementation nodes require a nested graph builder in C++ mode. "
+                "Use HGRAPH_USE_CPP=0 for the Python runtime or implement the missing builder."
+            )
+
+        _mesh.MeshWiringNodeClass.BUILDER_CLASS = _create_mesh_builder_factory
         _switch.SwitchWiringNodeClass.BUILDER_CLASS = _create_switch_builder_factory
-        _service_impl.ServiceImplNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("service implementation nodes")
+        _service_impl.ServiceImplNodeClass.BUILDER_CLASS = _create_service_impl_builder_factory
 
     except ImportError as e:
         warnings.warn(

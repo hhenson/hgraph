@@ -23,6 +23,7 @@ namespace hgraph
         Node *parent_node{nullptr};                 ///< Owning nested-operator node in the parent graph.
         engine_time_t nested_next_scheduled{MAX_DT};  ///< Earliest requested child evaluation time.
         engine_time_t evaluation_time{MIN_DT};      ///< Current nested cycle time.
+        engine_time_t last_evaluation_time{MIN_DT}; ///< Last parent tick at which the child graph evaluated.
         bool is_stopping{false};                    ///< Mirrors Python nested clock suppression during stop().
 
         void reset_next_scheduled() noexcept { nested_next_scheduled = MAX_DT; }

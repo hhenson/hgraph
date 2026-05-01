@@ -229,6 +229,30 @@ namespace hgraph
 
             const auto apply_target = [&resolved_context, state](LinkedTSContext target) noexcept {
                 if (!target.is_bound()) {
+                    if (target.pending_dict_child.active()) {
+                        const LinkedTSContext refreshed = detail::resolve_pending_dict_child_context(target);
+                        if (refreshed.is_bound()) {
+                            target = refreshed;
+                        } else {
+                            resolved_context.pending_dict_child = target.pending_dict_child;
+                            if (state->storage_kind == TSStorageKind::OutputLink) {
+                                resolved_context.schema = target.schema != nullptr ? target.schema : resolved_context.schema;
+                                resolved_context.value_dispatch =
+                                    target.value_dispatch != nullptr ? target.value_dispatch : resolved_context.value_dispatch;
+                                resolved_context.ts_dispatch =
+                                    target.ts_dispatch != nullptr ? target.ts_dispatch : resolved_context.ts_dispatch;
+                                resolved_context.ts_state           = const_cast<BaseState *>(state);
+                                resolved_context.notification_state = resolved_context.ts_state;
+                                return;
+                            }
+
+                            resolved_context.value_data = nullptr;
+                            return;
+                        }
+                    }
+                }
+
+                if (!target.is_bound()) {
                     resolved_context.pending_dict_child = target.pending_dict_child;
                     if (state->storage_kind == TSStorageKind::OutputLink) {
                         resolved_context.schema = target.schema != nullptr ? target.schema : resolved_context.schema;
@@ -684,7 +708,12 @@ namespace hgraph
 
     inline engine_time_t detail::TSDispatch::last_modified_time(const TSViewContext &context) const noexcept {
         BaseState *state = context.notification_state != nullptr ? context.notification_state : context.ts_state;
-        return state != nullptr ? state->last_modified_time : MIN_DT;
+        engine_time_t result = state != nullptr ? state->last_modified_time : MIN_DT;
+        if (context.ts_state != nullptr && context.ts_state->storage_kind == TSStorageKind::TargetLink) {
+            const auto *link_state = static_cast<const TargetLinkState *>(context.ts_state);
+            if (link_state->last_modified_time > result) { result = link_state->last_modified_time; }
+        }
+        return result;
     }
 
     inline bool detail::TSDispatch::valid(const TSViewContext &context) const noexcept {
@@ -701,7 +730,7 @@ namespace hgraph
 
         const View current_value = context.value();
         if (!current_value.has_value()) { return false; }
-        return context.ts_state == nullptr || last_modified_time(context) != MIN_DT;
+        return context.ts_state == nullptr || context.ts_state->last_modified_time != MIN_DT;
     }
 
     inline bool detail::TSDispatch::all_valid(const TSViewContext &context) const noexcept {
@@ -763,7 +792,8 @@ namespace hgraph
                     return self->at(index).valid();
                 }
                 const auto *dispatch = self->collection_dispatch();
-                return dispatch != nullptr && dispatch->child_modified(self->view_ref().context_ref(), index);
+                return (dispatch != nullptr && dispatch->child_modified(self->view_ref().context_ref(), index)) ||
+                       self->at(index).modified();
             },
             [](const void *context, size_t index) { return static_cast<const TSLView *>(context)->at(index); }};
     }
@@ -793,7 +823,8 @@ namespace hgraph
                     return self->at(index).valid();
                 }
                 const auto *dispatch = self->collection_dispatch();
-                return dispatch != nullptr && dispatch->child_modified(self->view_ref().context_ref(), index);
+                return (dispatch != nullptr && dispatch->child_modified(self->view_ref().context_ref(), index)) ||
+                       self->at(index).modified();
             },
             [](const void *context, size_t index) {
                 return std::pair<size_t, TView>{index, static_cast<const TSLView *>(context)->at(index)};
@@ -855,7 +886,8 @@ namespace hgraph
                     return self->at(index).valid();
                 }
                 const auto *dispatch = self->collection_dispatch();
-                return dispatch != nullptr && dispatch->child_modified(self->view_ref().context_ref(), index);
+                return (dispatch != nullptr && dispatch->child_modified(self->view_ref().context_ref(), index)) ||
+                       self->at(index).modified();
             },
             [](const void *context, size_t index) {
                 const auto            *self           = static_cast<const TSBView *>(context);
@@ -970,7 +1002,23 @@ namespace hgraph
                 if (sampled_transition_this_tick(self->view_ref().context_ref(), self->view_ref().evaluation_time())) {
                     return self->at(key).valid();
                 }
-                return self->at(key).modified();
+
+                const TSViewContext resolved = self->view_ref().context_ref().resolved();
+                if (dispatch->child_modified(resolved, slot)) { return true; }
+
+                const bool native_dict_state = resolved.schema != nullptr && resolved.schema->kind == TSKind::TSD &&
+                                               resolved.ts_state != nullptr &&
+                                               resolved.ts_state->storage_kind == TSStorageKind::Native;
+                if (native_dict_state) {
+                    View delta_value = self->view_ref().delta_value();
+                    if (!delta_value.has_value() || delta_value.schema() == nullptr ||
+                        delta_value.schema()->kind != value::TypeKind::Map) {
+                        return false;
+                    }
+                    const auto delta = delta_value.as_map().delta();
+                    return slot < delta.slot_capacity() && delta.slot_added(slot);
+                }
+                return !native_dict_state && self->at(key).modified();
             },
             [](const void *context, size_t slot) {
                 const auto *self = static_cast<const TSDView *>(context);

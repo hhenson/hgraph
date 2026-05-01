@@ -128,8 +128,13 @@ namespace hgraph
             }
 
             TSViewContext child_context;
-            child_context.schema = child_schema_at(schema, state, slot);
-            child_context.ts_state = child_state;
+            const auto   *dispatch   = view.context_ref().resolved().ts_dispatch;
+            const auto   *collection = dispatch != nullptr ? dispatch->as_collection() : nullptr;
+            if (collection != nullptr) {
+                child_context = collection->child_at(view.context_ref(), static_cast<size_t>(slot));
+            }
+            if (child_context.schema == nullptr) { child_context.schema = child_schema_at(schema, state, slot); }
+            if (child_context.ts_state == nullptr) { child_context.ts_state = child_state; }
             return view.make_child_view_impl(
                 child_context,
                 navigation_parent_context(view),
@@ -229,6 +234,13 @@ namespace hgraph
 
             if (!src_node.has_output()) { throw std::logic_error("v2 graph builder source node has no output"); }
             return {src_node.output_view(MIN_DT), src_node.output_schema()};
+        }
+
+        [[nodiscard]] bool should_bind_locally_as_reference(const TSOutputView &output, const TSMeta *input_schema) noexcept
+        {
+            const TSMeta *output_schema = output.ts_schema();
+            return input_schema != nullptr && input_schema->kind == TSKind::REF && output_schema != nullptr &&
+                   output_schema->kind != TSKind::REF;
         }
 
         [[nodiscard]] std::vector<std::vector<TSInputConstructionEdge>>
@@ -444,6 +456,7 @@ namespace hgraph
             TSInputView input = traverse_input(dst_node.input_view(MIN_DT), dst_node.input_schema(), edge.input_path);
             const TSMeta *input_schema = input.ts_schema();
             if (output.ts_schema() != nullptr && input_schema != nullptr &&
+                !should_bind_locally_as_reference(output, input_schema) &&
                 !binding_compatible_ts_schema(output.ts_schema(), input_schema) &&
                 output.owning_output() != nullptr) {
                 output = output.owning_output()->bindable_view(output, input_schema);
@@ -536,6 +549,7 @@ namespace hgraph
             TSInputView input = traverse_input(dst_node.input_view(MIN_DT), dst_node.input_schema(), edge.input_path);
             const TSMeta *input_schema = input.ts_schema();
             if (output.ts_schema() != nullptr && input_schema != nullptr &&
+                !should_bind_locally_as_reference(output, input_schema) &&
                 !binding_compatible_ts_schema(output.ts_schema(), input_schema) &&
                 output.owning_output() != nullptr) {
                 output = output.owning_output()->bindable_view(output, input_schema);

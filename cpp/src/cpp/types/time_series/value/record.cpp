@@ -1,5 +1,6 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/value/record.h>
+#include <hgraph/types/time_series/value/list.h>
 #include <hgraph/types/time_series/value/builder.h>
 #include <hgraph/types/value/type_meta_bindings.h>
 #include <hgraph/types/value/validity_bitmap.h>
@@ -317,6 +318,21 @@ namespace hgraph
                 }
             }
 
+            [[nodiscard]] bool try_copy_from(void *dst, const View &src) const override
+            {
+                if (!src.has_value() || src.schema() == nullptr) { return false; }
+
+                if (src.schema()->kind == value::TypeKind::Tuple) {
+                    return try_copy_tuple(dst, src.as_tuple());
+                }
+
+                if (src.schema()->kind == value::TypeKind::List && m_schema.get().kind == value::TypeKind::Tuple) {
+                    return try_copy_tuple(dst, src.as_list());
+                }
+
+                return false;
+            }
+
             void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override
             {
                 if (src_schema == &m_schema.get()) {
@@ -339,6 +355,24 @@ namespace hgraph
             }
 
           protected:
+            template <typename TIndexedView> [[nodiscard]] bool try_copy_tuple(void *dst, const TIndexedView &source) const
+            {
+                if (source.size() != m_fields.size()) { return false; }
+
+                for (size_t i = 0; i < m_fields.size(); ++i) {
+                    const View source_field = source.at(i);
+                    if (!source_field.has_value()) {
+                        set_field_valid(dst, i, false);
+                        continue;
+                    }
+
+                    View destination_field{&field_dispatch(i), field_data(dst, i), &field_schema(i)};
+                    if (!destination_field.try_copy_from(source_field)) { return false; }
+                    value::validity_bit_set(validity_memory(dst), i, true);
+                }
+                return true;
+            }
+
             [[nodiscard]] const RecordFieldLayout &field(size_t index) const
             {
                 return m_fields[checked_index(index)];

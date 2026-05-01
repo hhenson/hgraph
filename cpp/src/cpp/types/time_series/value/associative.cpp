@@ -1373,11 +1373,11 @@ namespace hgraph
                 if constexpr (tracks_deltas_v) {
                     const bool erased_immediately = state(data)->keys.added.test(slot);
                     notify_remove(*state(data), slot);
+                    if (erased_immediately) { notify_erase(*state(data), slot); }
                     if (erased_immediately) { destruct_value(value_memory(*state(data), slot)); }
                     state(data)->slot_store.clear_updated(slot);
                     m_keys.remove_slot(state(data)->keys, slot);
                     note_collection_modified(*state(data));
-                    if (erased_immediately) { notify_erase(*state(data), slot); }
                 } else {
                     remove_dense_slot(*state(data), slot);
                 }
@@ -1790,6 +1790,7 @@ namespace hgraph
             void release_removed(DeltaMapState &map) const noexcept {
                 for (size_t slot = 0; slot < map.keys.capacity; ++slot) {
                     if (!map.keys.removed.test(slot)) { continue; }
+                    notify_erase(map, slot);
                     map.keys.index->erase(slot);
                     m_keys.destruct_payload(m_keys.slot_data(map.keys, slot));
                     destruct_value(value_memory(map, slot));
@@ -1798,7 +1799,6 @@ namespace hgraph
                     map.keys.removed.reset(slot);
                     map.slot_store.clear_updated(slot);
                     map.keys.free_list.push_back(slot);
-                    notify_erase(map, slot);
                 }
                 map.keys.added.reset();
                 map.slot_store.clear_all_updated();
@@ -2423,11 +2423,13 @@ namespace hgraph
         if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
             throw std::runtime_error("MapView::contains requires a valid matching-schema key");
         }
-        if (key.tracking() == dispatch->key_dispatch().tracking()) {
-            return dispatch->find(data(), data_of(key)) != static_cast<size_t>(-1);
-        }
+        const auto slot_is_live = [this, dispatch](size_t slot) {
+            return slot != static_cast<size_t>(-1) && dispatch->slot_occupied(data(), slot) &&
+                   !dispatch->slot_removed(data(), slot);
+        };
+        if (key.tracking() == dispatch->key_dispatch().tracking()) { return slot_is_live(dispatch->find(data(), data_of(key))); }
         Value normalized{key, dispatch->key_dispatch().tracking()};
-        return dispatch->find(data(), data_of(normalized.view())) != static_cast<size_t>(-1);
+        return slot_is_live(dispatch->find(data(), data_of(normalized.view())));
     }
 
     void MapView::clear_delta_tracking() {

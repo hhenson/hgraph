@@ -5,8 +5,10 @@
 #include <hgraph/util/scope.h>
 
 #include <cassert>
+#include <cstdint>
 #include <new>
 #include <stdexcept>
+#include <string>
 
 namespace hgraph
 {
@@ -133,11 +135,11 @@ namespace hgraph
 
     bool NodeScheduler::requires_scheduling() const noexcept { return !m_scheduled_events.empty(); }
 
-    bool NodeScheduler::is_scheduled() const noexcept { return !m_scheduled_events.empty(); }
+    bool NodeScheduler::is_scheduled() const noexcept { return !m_scheduled_events.empty() || !m_alarm_tags.empty(); }
 
     bool NodeScheduler::is_scheduled_now() const noexcept {
         return m_node != nullptr && m_node->graph() != nullptr && !m_scheduled_events.empty() &&
-               m_scheduled_events.begin()->first == m_node->graph()->evaluation_time();
+               m_scheduled_events.begin()->first <= m_node->graph()->evaluation_time();
     }
 
     bool NodeScheduler::has_tag(std::string_view tag) const { return m_tags.contains(std::string{tag}); }
@@ -152,9 +154,22 @@ namespace hgraph
         return when;
     }
 
-    void NodeScheduler::schedule(engine_time_t when, std::optional<std::string> tag, bool on_wall_clock) {
-        if (on_wall_clock) { throw std::invalid_argument("v2 node schedulers do not yet support wall-clock alarms"); }
+    std::string NodeScheduler::wall_clock_alarm_tag(std::string_view tag) const {
+        return std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ":" + std::string{tag};
+    }
 
+    void NodeScheduler::on_wall_clock_alarm(engine_time_t when, std::string tag) {
+        const std::string alarm_tag = wall_clock_alarm_tag(tag);
+        if (m_alarm_tags.erase(alarm_tag) == 0) { return; }
+
+        m_tags[tag] = when;
+        m_scheduled_events.insert({when, tag});
+        if (m_node != nullptr && m_node->started() && m_node->graph() != nullptr) {
+            m_node->graph()->schedule_node(m_node->node_index(), when);
+        }
+    }
+
+    void NodeScheduler::schedule(engine_time_t when, std::optional<std::string> tag, bool on_wall_clock) {
         assert(m_node != nullptr);
         assert(m_node->graph() != nullptr);
 
@@ -165,6 +180,17 @@ namespace hgraph
             if (it != m_tags.end() && !m_scheduled_events.empty()) {
                 original_time = next_scheduled_time();
                 m_scheduled_events.erase({it->second, tag_value});
+            }
+        }
+
+        if (on_wall_clock) {
+            const std::string alarm_tag = wall_clock_alarm_tag(tag_value);
+            auto              clock     = m_node->graph()->engine_evaluation_clock();
+            if (m_alarm_tags.contains(alarm_tag)) { clock.cancel_alarm(alarm_tag); }
+            auto callback = [this, tag_value](engine_time_t alarm_time) { on_wall_clock_alarm(alarm_time, tag_value); };
+            if (clock.set_alarm(when, alarm_tag, std::move(callback))) {
+                m_alarm_tags[alarm_tag] = when;
+                return;
             }
         }
 
@@ -222,8 +248,16 @@ namespace hgraph
     }
 
     void NodeScheduler::reset() {
+        if (m_node != nullptr && m_node->graph() != nullptr) {
+            auto clock = m_node->graph()->engine_evaluation_clock();
+            for (const auto &[alarm_tag, when] : m_alarm_tags) {
+                static_cast<void>(when);
+                clock.cancel_alarm(alarm_tag);
+            }
+        }
         m_scheduled_events.clear();
         m_tags.clear();
+        m_alarm_tags.clear();
     }
 
     void NodeScheduler::advance() {
@@ -405,12 +439,17 @@ namespace hgraph
         deactivate_inputs.complete();
     }
 
-    void Node::eval(engine_time_t evaluation_time) {
+    void Node::eval(engine_time_t evaluation_time, bool force_eval) {
         const bool ready           = ready_to_eval(evaluation_time);
         const bool active_modified = has_input() && has_modified_active_input(*this, evaluation_time);
         if (!ready) { return; }
         const bool scheduled = uses_scheduler() && scheduler().is_scheduled_now();
-        if (uses_scheduler() && has_input() && !scheduled && !active_modified) { return; }
+        if (uses_scheduler() && has_input() && !force_eval && !scheduled && !active_modified) {
+            if (scheduler().requires_scheduling() && m_graph != nullptr) {
+                m_graph->schedule_node(m_node_index, scheduler().next_scheduled_time());
+            }
+            return;
+        }
         if (has_error_output()) {
             try {
                 spec().runtime_ops->eval(*this, evaluation_time);
@@ -428,7 +467,8 @@ namespace hgraph
         }
 
         if (!uses_scheduler()) { return; }
-        if (scheduled) {
+        if (scheduled ||
+            (scheduler().requires_scheduling() && scheduler().next_scheduled_time() <= evaluation_time)) {
             scheduler().advance();
         } else if (scheduler().requires_scheduling() && m_graph != nullptr) {
             m_graph->schedule_node(m_node_index, scheduler().next_scheduled_time());

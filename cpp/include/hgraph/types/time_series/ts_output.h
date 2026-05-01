@@ -122,5 +122,6 @@ HGRAPH_EXPORT void mark_output_view_modified(const TSOutputView &view, engine_ti
 HGRAPH_EXPORT void prepare_output_link(const TSOutputView &target);
 [[nodiscard]] HGRAPH_EXPORT bool bind_output_link(const TSOutputView &target, const TSOutputView &source);
 HGRAPH_EXPORT void clear_output_link(const TSOutputView &target);
+HGRAPH_EXPORT void clear_output_link_without_transition(const TSOutputView &target);
 
 }  // namespace hgraph

@@ -129,9 +129,13 @@ namespace hgraph
         void advance();
 
       private:
+        [[nodiscard]] std::string wall_clock_alarm_tag(std::string_view tag) const;
+        void                      on_wall_clock_alarm(engine_time_t when, std::string tag);
+
         Node                                           *m_node{nullptr};
         std::set<std::pair<engine_time_t, std::string>> m_scheduled_events;
         std::unordered_map<std::string, engine_time_t>  m_tags;
+        std::unordered_map<std::string, engine_time_t>  m_alarm_tags;
     };
 
     /**
@@ -201,7 +205,7 @@ namespace hgraph
         /** Apply generic stop semantics and then invoke the bespoke stop hook. */
         void stop(engine_time_t evaluation_time);
         /** Apply generic readiness gating and then invoke the bespoke eval hook. */
-        void eval(engine_time_t evaluation_time);
+        void eval(engine_time_t evaluation_time, bool force_eval = false);
         void notify(engine_time_t et) override;
 
       private:

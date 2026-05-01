@@ -88,7 +88,8 @@ namespace hgraph
         NodeBuilder &python_implementation(
             nb::object eval_fn,
             nb::object start_fn = nb::none(),
-            nb::object stop_fn = nb::none());
+            nb::object stop_fn = nb::none(),
+            bool force_generator_eval = false);
         NodeBuilder &implementation_name(std::string value);
         NodeBuilder &public_node_index(int64_t value) noexcept;
         NodeBuilder &uses_scheduler(bool value) noexcept;
@@ -180,18 +181,26 @@ namespace hgraph
       private:
         friend struct GraphBuilder;
         friend NodeBuilder &nested_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
+        friend NodeBuilder &component_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
         friend NodeBuilder &try_except_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
         friend NodeBuilder &map_graph_implementation(NodeBuilder &builder,
                                                      const ChildGraphTemplate *child_template,
                                                      std::string key_arg,
                                                      std::string keys_arg,
                                                      std::vector<std::string> multiplexed_args);
+        friend NodeBuilder &mesh_graph_implementation(NodeBuilder &builder,
+                                                      const ChildGraphTemplate *child_template,
+                                                      std::string key_arg,
+                                                      std::string keys_arg,
+                                                      std::vector<std::string> multiplexed_args,
+                                                      std::string context_path);
         friend NodeBuilder &reduce_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
         friend NodeBuilder &non_associative_reduce_graph_implementation(NodeBuilder &builder,
                                                                         const ChildGraphTemplate *child_template);
         friend NodeBuilder &switch_graph_implementation(NodeBuilder &builder,
                                                         std::vector<SwitchBranchTemplate> branches,
                                                         bool reload_on_ticked);
+        friend NodeBuilder &last_value_pull_source_implementation(NodeBuilder &builder);
         template <typename TState>
         friend const TState &detail::node_builder_type_state(const NodeBuilder &builder);
 
@@ -247,7 +256,7 @@ namespace hgraph
         void set_type_state(const NodeRuntimeOps &runtime_ops,
                             const PushSourceNodeRuntimeOps *push_source_runtime_ops,
                             bool has_push_message_hook);
-        void set_python_type_state(nb::object eval_fn, nb::object start_fn, nb::object stop_fn);
+        void set_python_type_state(nb::object eval_fn, nb::object start_fn, nb::object stop_fn, bool force_generator_eval);
         [[nodiscard]] static const TypeOps &static_type_ops();
         [[nodiscard]] static const TypeOps &python_type_ops();
         void reset_type_state() noexcept;
@@ -283,4 +292,6 @@ namespace hgraph
         const TypeOps *m_type_ops{nullptr};
         const void *m_type_state{nullptr};
     };
+
+    HGRAPH_EXPORT NodeBuilder &last_value_pull_source_implementation(NodeBuilder &builder);
 }  // namespace hgraph

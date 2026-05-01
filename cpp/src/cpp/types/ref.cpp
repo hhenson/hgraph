@@ -53,7 +53,7 @@ namespace hgraph
 
         [[nodiscard]] TSOutputView view_from_target(const LinkedTSContext &target, engine_time_t evaluation_time)
         {
-            TSViewContext context{TSContext{
+            TSOutputView view{TSViewContext{TSContext{
                 target.schema,
                 target.value_dispatch,
                 target.ts_dispatch,
@@ -63,14 +63,17 @@ namespace hgraph
                 target.output_view_ops,
                 target.notification_state != nullptr ? target.notification_state : target.ts_state,
                 target.pending_dict_child,
-            }};
-            return TSOutputView{
-                context,
+            }},
                 TSViewContext::none(),
                 evaluation_time,
                 target.owning_output,
                 target.output_view_ops != nullptr ? target.output_view_ops : &detail::default_output_view_ops(),
             };
+            if (target.pending_dict_child.active() && !target.is_bound()) {
+                const LinkedTSContext refreshed = view.linked_context();
+                if (refreshed.is_bound()) { return view_from_target(refreshed, evaluation_time); }
+            }
+            return view;
         }
 
         [[nodiscard]] LinkedTSContext linked_context_from_input(const TSInputView &input) noexcept
@@ -111,8 +114,13 @@ namespace hgraph
                 };
             }
 
+            if (context.pending_dict_child.active()) {
+                const LinkedTSContext linked = output.linked_context();
+                if (linked.is_bound() || linked.pending_dict_child.active()) { return linked; }
+            }
+
             const TSViewContext resolved = context.resolved();
-            if (!resolved.is_bound()) { return {}; }
+            if (!resolved.is_bound() && !resolved.pending_dict_child.active()) { return {}; }
 
             return LinkedTSContext{
                 resolved.schema,
@@ -125,6 +133,19 @@ namespace hgraph
                 resolved.notification_state != nullptr ? resolved.notification_state : resolved.ts_state,
                 resolved.pending_dict_child,
             };
+        }
+
+        void rebind_linked_context_state(LinkedTSContext &context, BaseState *old_state, BaseState *new_state) noexcept
+        {
+            if (old_state == nullptr || new_state == nullptr || old_state == new_state) { return; }
+            if (context.ts_state == old_state) { context.ts_state = new_state; }
+            if (context.notification_state == old_state) { context.notification_state = new_state; }
+            if (context.pending_dict_child.parent_ts_state == old_state) {
+                context.pending_dict_child.parent_ts_state = new_state;
+            }
+            if (context.pending_dict_child.parent_notification_state == old_state) {
+                context.pending_dict_child.parent_notification_state = new_state;
+            }
         }
 
     }  // namespace
@@ -229,28 +250,38 @@ namespace hgraph
     {
         if (m_kind != Kind::PEERED) { return; }
         const auto *bound = std::get_if<LinkedTSContext>(&m_storage);
-        if (bound == nullptr || bound->ts_state == nullptr) { return; }
+        BaseState  *target_state =
+            bound != nullptr && bound->ts_state != nullptr
+                ? bound->ts_state
+                : (bound != nullptr ? bound->pending_dict_child.parent_ts_state : nullptr);
+        if (target_state == nullptr) { return; }
         m_invalidator = std::make_unique<ReferenceInvalidator>();
-        m_invalidator->owner = this;
-        bound->ts_state->register_ref_invalidator(m_invalidator.get());
+        m_invalidator->owner            = this;
+        m_invalidator->target           = target_state;
+        m_invalidator->target_destroyed = false;
+        m_invalidator->target->register_ref_invalidator(m_invalidator.get());
     }
 
     void TimeSeriesReference::unregister_invalidator() noexcept
     {
         if (!m_invalidator) { return; }
-        // If the target has already been destroyed, skip the unregister call
-        // — the BaseState whose set we'd be touching is gone.
-        if (!m_invalidator->target_destroyed) {
-            if (auto *bound = std::get_if<LinkedTSContext>(&m_storage); bound != nullptr && bound->ts_state != nullptr) {
-                bound->ts_state->unregister_ref_invalidator(m_invalidator.get());
-            }
+        // Unregister against the exact state that accepted the registration.
+        // The ref payload may have been moved or invalidated independently of
+        // the reverse-subscription set, so m_storage is not authoritative for
+        // teardown.
+        if (!m_invalidator->target_destroyed && m_invalidator->target != nullptr) {
+            m_invalidator->target->unregister_ref_invalidator(m_invalidator.get());
         }
+        m_invalidator->owner            = nullptr;
+        m_invalidator->target           = nullptr;
+        m_invalidator->target_destroyed = true;
         m_invalidator.reset();
     }
 
     void invalidate_ref(ReferenceInvalidator &invalidator) noexcept
     {
         invalidator.target_destroyed = true;
+        invalidator.target           = nullptr;
         if (TimeSeriesReference *owner = invalidator.owner; owner != nullptr) {
             // Drop the LinkedTSContext (its ts_state is about to be freed) and
             // flip the ref to EMPTY. The owning ref's destructor will see
@@ -261,13 +292,29 @@ namespace hgraph
         }
     }
 
+    void rebind_ref_target(ReferenceInvalidator &invalidator, BaseState *old_state, BaseState *new_state) noexcept
+    {
+        if (old_state != nullptr && invalidator.target == old_state) { invalidator.target = new_state; }
+        invalidator.target_destroyed = false;
+        TimeSeriesReference *owner   = invalidator.owner;
+        if (owner == nullptr || owner->m_kind != TimeSeriesReference::Kind::PEERED) {
+            return;
+        }
+
+        auto *bound = std::get_if<LinkedTSContext>(&owner->m_storage);
+        if (bound == nullptr) {
+            return;
+        }
+        rebind_linked_context_state(*bound, old_state, new_state);
+    }
+
     bool TimeSeriesReference::is_valid() const
     {
         switch (m_kind) {
             case Kind::EMPTY: return false;
-            case Kind::PEERED: return target().is_bound() && target_view().valid();
+            case Kind::PEERED: return (target().is_bound() || target().pending_dict_child.active()) && target_view().valid();
             case Kind::NON_PEERED:
-                return std::any_of(items().begin(), items().end(), [](const auto &item) { return !item.is_empty(); });
+                return std::any_of(items().begin(), items().end(), [](const auto &item) { return item.is_valid(); });
         }
         return false;
     }
@@ -281,7 +328,9 @@ namespace hgraph
     TSOutputView TimeSeriesReference::target_view(engine_time_t evaluation_time) const
     {
         const LinkedTSContext &bound_target = target();
-        if (!bound_target.is_bound()) { return TSOutputView{TSViewContext::none(), TSViewContext::none(), evaluation_time, nullptr}; }
+        if (!bound_target.is_bound() && !bound_target.pending_dict_child.active()) {
+            return TSOutputView{TSViewContext::none(), TSViewContext::none(), evaluation_time, nullptr};
+        }
         return view_from_target(bound_target, evaluation_time);
     }
 
@@ -361,7 +410,7 @@ namespace hgraph
         }
 
         LinkedTSContext context = reference_context_from_output(output);
-        if (!context.is_bound()) { return make(); }
+        if (!context.is_bound() && !context.pending_dict_child.active()) { return make(); }
 
         TimeSeriesReference ref{std::move(context)};
         ref.m_observed_time = output.last_modified_time();

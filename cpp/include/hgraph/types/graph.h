@@ -19,6 +19,10 @@ namespace hgraph
     {
         engine_time_t scheduled{MIN_DT};
         Node         *node{nullptr};
+        //TODO: this is fine as a concept, but it would be more useful if we could somehow encode this
+        // into a more compact form, especially since this is only occationally used and once the node has started
+        // it is never used again. Perhaps we could encode another sentinel we can use with the scheduled time?
+        bool          force_eval{false};
     };
 
     /** Prevalidated push-source node reference used by the realtime push pass. */
@@ -71,6 +75,7 @@ namespace hgraph
         void abandon() noexcept;
         void evaluate(engine_time_t when);
         void schedule_node(int64_t node_index, engine_time_t when, bool force_set = false);
+        void schedule_node_forced_eval(int64_t node_index, engine_time_t when);
         void set_identity(std::vector<int64_t> graph_id, Node *parent_node = nullptr, std::string label = {});
 
       private:
