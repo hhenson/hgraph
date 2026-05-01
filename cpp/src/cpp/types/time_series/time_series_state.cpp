@@ -9,6 +9,8 @@
 #include <hgraph/types/time_series/ts_view.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <type_traits>
 
 namespace hgraph
@@ -941,6 +943,12 @@ namespace hgraph
     }
 
     void BaseCollectionState::child_modified(size_t child_index, engine_time_t modified_time) noexcept {
+        if (std::getenv("HGRAPH_DEBUG_TSD_CHILD_MOD") != nullptr) {
+            std::fprintf(stderr, "child_modified parent=%p idx=%zu old_time=%lld new_time=%lld had=%d child_count=%zu\n",
+                         static_cast<void *>(this), child_index, static_cast<long long>(last_modified_time.time_since_epoch().count()),
+                         static_cast<long long>(modified_time.time_since_epoch().count()),
+                         modified_children.contains(child_index), modified_children.size());
+        }
         if (suppress_repeated_child_notifications) {
             if (last_modified_time != modified_time) {
                 modified_children.clear();

@@ -20,6 +20,7 @@ namespace hgraph
 {
     struct Node;
     struct NodeScheduler;
+    struct View;
 
     [[nodiscard]] nb::object make_python_node_handle(nb::handle signature,
                                                      nb::handle scalars,
@@ -43,6 +44,9 @@ namespace hgraph
                                                               nb::handle parameter_names);
     [[nodiscard]] bool node_has_python_handle_layout(const Node &node) noexcept;
     [[nodiscard]] bool last_value_node_copy_from_input(Node &node, const TSInputView &source);
+    [[nodiscard]] bool last_value_node_apply_tsd_item(Node &node, const View &key, const View &value);
+    [[nodiscard]] bool last_value_node_remove_tsd_item(Node &node, const View &key);
+    [[nodiscard]] bool last_value_node_apply_tss_item(Node &node, const View &item, bool remove);
     [[nodiscard]] bool last_value_node_apply_value(Node &node, nb::handle value);
 
     void register_python_runtime_bindings(nb::module_ &m);

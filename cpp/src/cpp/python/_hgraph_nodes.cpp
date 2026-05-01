@@ -13,6 +13,11 @@
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/time_series/value/value.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <optional>
+#include <unordered_set>
+
 namespace
 {
     using hgraph::TSInputView;
@@ -260,6 +265,279 @@ namespace
             if (state != nullptr && state->last_modified_time == evaluation_time && !has_delta) {
                 state->last_modified_time = hgraph::MIN_DT;
             }
+        }
+
+        constexpr const char *shared_output_subscriber_capsule_name = "hgraph.cpp.SharedOutputSubscriber";
+        constexpr const char *subscription_tracker_capsule_name     = "hgraph.cpp.SubscriptionTracker";
+        constexpr const char *subscription_local_capsule_name       = "hgraph.cpp.SubscriptionKeyLocalState";
+        constexpr const char *captured_node_capsule_name            = "hgraph.cpp.CapturedNode";
+
+        struct SharedOutputSubscriber
+        {
+            std::unordered_map<Node *, size_t> counts;
+            std::vector<Node *>                subscribers;
+
+            void subscribe(Node &node) {
+                size_t &count = counts[&node];
+                ++count;
+                if (count == 1) { subscribers.push_back(&node); }
+            }
+
+            void unsubscribe(Node &node) noexcept {
+                auto it = counts.find(&node);
+                if (it == counts.end()) { return; }
+                if (it->second > 1) {
+                    --it->second;
+                    return;
+                }
+
+                counts.erase(it);
+                subscribers.erase(std::remove(subscribers.begin(), subscribers.end(), &node), subscribers.end());
+            }
+
+            void notify(engine_time_t modified_time) {
+                for (Node *subscriber : subscribers) {
+                    if (subscriber != nullptr) { subscriber->notify(modified_time); }
+                }
+            }
+        };
+
+        struct SubscriptionTracker
+        {
+            std::unordered_map<Value, std::unordered_set<uintptr_t>, ValueKeyHash, ValueKeyEqual> subscriptions;
+
+            [[nodiscard]] bool add(const View &key, uintptr_t subscription_id) {
+                auto &ids = subscriptions[Value{key}];
+                const bool was_empty = ids.empty();
+                ids.insert(subscription_id);
+                return was_empty;
+            }
+
+            [[nodiscard]] bool remove(const Value &key, uintptr_t subscription_id) noexcept {
+                auto it = subscriptions.find(key);
+                if (it == subscriptions.end()) { return false; }
+
+                it->second.erase(subscription_id);
+                if (!it->second.empty()) { return false; }
+
+                subscriptions.erase(it);
+                return true;
+            }
+        };
+
+        struct SubscriptionKeyLocalState
+        {
+            uintptr_t            subscription_id{0};
+            SubscriptionTracker *tracker{nullptr};
+            bool                 has_previous_key{false};
+            Value                previous_key;
+        };
+
+        template <typename T>
+        [[nodiscard]] T *capsule_ptr(nb::handle object, const char *name) noexcept {
+            if (!object.is_valid() || object.is_none() || !PyCapsule_CheckExact(object.ptr())) { return nullptr; }
+            void *ptr = PyCapsule_GetPointer(object.ptr(), name);
+            if (ptr == nullptr && PyErr_Occurred()) { PyErr_Clear(); }
+            return static_cast<T *>(ptr);
+        }
+
+        template <typename T>
+        [[nodiscard]] T *capsule_ptr_for_destructor(PyObject *capsule, const char *name) noexcept {
+            void *ptr = PyCapsule_GetPointer(capsule, name);
+            if (ptr == nullptr && PyErr_Occurred()) { PyErr_Clear(); }
+            return static_cast<T *>(ptr);
+        }
+
+        void shared_output_subscriber_capsule_destructor(PyObject *capsule) noexcept {
+            delete capsule_ptr_for_destructor<SharedOutputSubscriber>(capsule, shared_output_subscriber_capsule_name);
+        }
+
+        void subscription_tracker_capsule_destructor(PyObject *capsule) noexcept {
+            delete capsule_ptr_for_destructor<SubscriptionTracker>(capsule, subscription_tracker_capsule_name);
+        }
+
+        void subscription_local_capsule_destructor(PyObject *capsule) noexcept {
+            delete capsule_ptr_for_destructor<SubscriptionKeyLocalState>(capsule, subscription_local_capsule_name);
+        }
+
+        [[nodiscard]] nb::object make_capsule(void *ptr, const char *name, PyCapsule_Destructor destructor) {
+            PyObject *capsule = PyCapsule_New(ptr, name, destructor);
+            if (capsule == nullptr) { throw nb::python_error(); }
+            return nb::steal<nb::object>(capsule);
+        }
+
+        [[nodiscard]] nb::object make_captured_node_capsule(Node &node) {
+            return make_capsule(&node, captured_node_capsule_name, nullptr);
+        }
+
+        [[nodiscard]] nb::object state_object(State<nb::object> state) {
+            const auto *value = state.view().as_atomic().template try_as<nb::object>();
+            if (value == nullptr || !value->is_valid()) { return nb::none(); }
+            return nb::borrow(*value);
+        }
+
+        void set_state_object(State<nb::object> state, nb::object value) { state.view().set_scalar(std::move(value)); }
+
+        [[nodiscard]] nb::object ensure_shared_output_subscriber(const std::string &subscriber_key) {
+            nb::object current = GlobalState::get(subscriber_key, nb::none());
+            if (capsule_ptr<SharedOutputSubscriber>(current, shared_output_subscriber_capsule_name) != nullptr) {
+                return current;
+            }
+
+            nb::object subscriber = make_capsule(
+                new SharedOutputSubscriber{}, shared_output_subscriber_capsule_name,
+                &shared_output_subscriber_capsule_destructor);
+            GlobalState::set(subscriber_key, nb::borrow(subscriber));
+            return subscriber;
+        }
+
+        void notify_shared_output_subscriber(const std::string &subscriber_key, engine_time_t modified_time) {
+            nb::object subscriber = GlobalState::get(subscriber_key, nb::none());
+            if (auto *native = capsule_ptr<SharedOutputSubscriber>(subscriber, shared_output_subscriber_capsule_name);
+                native != nullptr) {
+                native->notify(modified_time);
+                return;
+            }
+
+            if (!subscriber.is_none()) {
+                throw std::runtime_error(fmt::format("Shared output subscriber is not native: {}", nb::str(subscriber.type()).c_str()));
+            }
+        }
+
+        void unsubscribe_shared_output(Node &node, State<nb::object> state) {
+            nb::object subscriber = state_object(state);
+            if (auto *native = capsule_ptr<SharedOutputSubscriber>(subscriber, shared_output_subscriber_capsule_name);
+                native != nullptr) {
+                native->unsubscribe(node);
+            }
+            set_state_object(state, nb::none());
+        }
+
+        [[nodiscard]] std::optional<TimeSeriesReference> shared_reference(const std::string &key) {
+            nb::object shared = GlobalState::get(key, nb::none());
+            if (shared.is_none()) { return std::nullopt; }
+            if (!nb::isinstance<TimeSeriesReference>(shared)) {
+                throw std::runtime_error(
+                    fmt::format("Shared output '{}' is not a TimeSeriesReference: {}", key, nb::str(shared.type()).c_str()));
+            }
+            return nb::cast<TimeSeriesReference>(shared);
+        }
+
+        [[nodiscard]] TSOutputView shared_output_target(const std::string &key, engine_time_t evaluation_time) {
+            nb::object shared = GlobalState::get(key, nb::none());
+            if (auto *node = capsule_ptr<Node>(shared, captured_node_capsule_name); node != nullptr) {
+                return node->output_view(evaluation_time);
+            }
+
+            std::optional<TimeSeriesReference> ref = shared_reference(key);
+            if (!ref.has_value() || !ref->is_peered()) { return TSOutputView{}; }
+            return ref->target_view(evaluation_time);
+        }
+
+        [[nodiscard]] Node *shared_output_node(const std::string &key) {
+            nb::object shared = GlobalState::get(key, nb::none());
+            if (auto *node = capsule_ptr<Node>(shared, captured_node_capsule_name); node != nullptr) { return node; }
+            if (shared.is_none() || !nb::isinstance<TimeSeriesReference>(shared)) { return nullptr; }
+
+            const auto ref = nb::cast<TimeSeriesReference>(shared);
+            return ref.is_peered() ? owner_node_from_linked_context(ref.target()) : nullptr;
+        }
+
+        [[nodiscard]] bool ensure_dict_child_slot_from_input(const TSOutputView &dict_view, const View &key,
+                                                             const TSInputView &source, engine_time_t evaluation_time) {
+            if (!dict_view.value().has_value() || !key.has_value()) { return false; }
+
+            MapView map = dict_view.value().as_map();
+            if (map.contains(key)) { return true; }
+            if (!source.valid() || !source.value().has_value()) { return false; }
+
+            Value initial{*map.value_schema()};
+            if (!initial.view().try_copy_from(source.value())) {
+                throw std::runtime_error("Unable to initialize TSD child from mismatched source value schema");
+            }
+
+            auto mutation = map.begin_mutation(evaluation_time);
+            mutation.set(key, initial.view());
+            mark_output_view_modified(dict_view, evaluation_time);
+            return true;
+        }
+
+        void copy_input_to_dict_child(const TSOutputView &dict_view, const View &key, const TSInputView &source,
+                                      engine_time_t evaluation_time) {
+            if (!ensure_dict_child_slot_from_input(dict_view, key, source, evaluation_time)) { return; }
+
+            TSOutputView child = detail::ensure_dict_child_output_view(dict_view, key);
+            child.copy_from_input(source);
+        }
+
+        [[nodiscard]] bool apply_input_to_last_value_tsd_child(Node *node, const View &key, const TSInputView &source) {
+            if (node == nullptr || !source.valid()) { return false; }
+
+            View source_delta = source.delta_value();
+            if (!source_delta.has_value()) { source_delta = source.value(); }
+            if (!source_delta.has_value()) { return false; }
+
+            return last_value_node_apply_tsd_item(*node, key, source_delta);
+        }
+
+        void set_dict_child_reference(const TSOutputView &dict_view, const View &key, const TimeSeriesReference &ref,
+                                      engine_time_t evaluation_time) {
+            if (!dict_view.value().has_value() || !key.has_value()) { return; }
+
+            MapView map = dict_view.value().as_map();
+            if (!map.contains(key)) {
+                Value initial{*map.value_schema()};
+                if (map.value_schema() == value::scalar_type_meta<TimeSeriesReference>()) {
+                    initial.view().as_atomic().set(ref);
+                } else {
+                    if (!ref.is_peered()) { return; }
+                    TSOutputView source = ref.target_view(evaluation_time);
+                    if (!source.value().has_value() || !initial.view().try_copy_from(source.value())) { return; }
+                }
+                auto mutation = map.begin_mutation(evaluation_time);
+                mutation.set(key, initial.view());
+                mark_output_view_modified(dict_view, evaluation_time);
+            }
+
+            TSOutputView child = detail::ensure_dict_child_output_view(dict_view, key);
+            if (const TSMeta *child_schema = child.ts_schema(); child_schema != nullptr && child_schema->kind != TSKind::REF) {
+                if (ref.is_peered()) { child.copy_from_output(ref.target_view(evaluation_time)); }
+                return;
+            }
+
+            if (!child.value().has_value()) { return; }
+            const auto *current = child.value().as_atomic().template try_as<TimeSeriesReference>();
+            if (current == nullptr || !(*current == ref)) {
+                child.value().as_atomic().set(ref);
+                mark_output_view_modified(child, evaluation_time);
+            }
+        }
+
+        [[nodiscard]] int64_t next_global_request_id(Node &node) {
+            const auto fallback = static_cast<int64_t>(reinterpret_cast<intptr_t>(&node));
+            nb::object current  = GlobalState::get("request_id", nb::int_(fallback));
+            int64_t    next     = nb::cast<int64_t>(current) + 1;
+            GlobalState::set("request_id", nb::int_(next));
+            return next;
+        }
+
+        [[nodiscard]] SubscriptionTracker *ensure_subscription_tracker(const std::string &path) {
+            const std::string tracker_path = path + "_tracker";
+            nb::object        current      = GlobalState::get(tracker_path, nb::none());
+            if (auto *tracker = capsule_ptr<SubscriptionTracker>(current, subscription_tracker_capsule_name);
+                tracker != nullptr) {
+                return tracker;
+            }
+
+            nb::object tracker = make_capsule(
+                new SubscriptionTracker{}, subscription_tracker_capsule_name, &subscription_tracker_capsule_destructor);
+            GlobalState::set(tracker_path, nb::borrow(tracker));
+            return capsule_ptr<SubscriptionTracker>(tracker, subscription_tracker_capsule_name);
+        }
+
+        [[nodiscard]] SubscriptionKeyLocalState *subscription_local_state(State<nb::object> state) {
+            nb::object object = state_object(state);
+            return capsule_ptr<SubscriptionKeyLocalState>(object, subscription_local_capsule_name);
         }
     }  // namespace
 
@@ -634,6 +912,363 @@ namespace
         static void stop(State<std::string> state) {
             if (const auto *key = state.view().as_atomic().template try_as<std::string>(); key != nullptr && !key->empty()) {
                 GlobalState::remove(*key);
+            }
+        }
+    };
+
+    struct StaticCaptureOutputToGlobalStateNode
+    {
+        StaticCaptureOutputToGlobalStateNode()  = delete;
+        ~StaticCaptureOutputToGlobalStateNode() = delete;
+
+        static constexpr auto name      = "capture_output_to_global_state";
+        static constexpr auto node_type = NodeTypeEnum::SINK_NODE;
+
+        using TargetTs = TsVar<"TIME_SERIES_TYPE">;
+
+        static void start(ScalarArg<"path", std::string> path, In<"ts", REF<TargetTs>> ts) {
+            const std::string output_key      = keys::output_key(path.value());
+            const std::string subscriber_key  = keys::output_subscriber_key(path.value());
+            const TimeSeriesReference ref     = refreshed_reference_from_input(ts.view());
+            static_cast<void>(ensure_shared_output_subscriber(subscriber_key));
+            GlobalState::set(output_key, nb::cast(ref));
+        }
+
+        static void eval(ScalarArg<"path", std::string> path, In<"ts", REF<TargetTs>> ts) {
+            const std::string output_key     = keys::output_key(path.value());
+            const std::string subscriber_key = keys::output_subscriber_key(path.value());
+            const TimeSeriesReference ref    = refreshed_reference_from_input(ts.view());
+            GlobalState::set(output_key, nb::cast(ref));
+            notify_shared_output_subscriber(subscriber_key, ts.view().last_modified_time());
+        }
+
+        static void stop(ScalarArg<"path", std::string> path) { GlobalState::remove(keys::output_key(path.value())); }
+    };
+
+    struct StaticCaptureOutputNodeToGlobalStateNode
+    {
+        StaticCaptureOutputNodeToGlobalStateNode()  = delete;
+        ~StaticCaptureOutputNodeToGlobalStateNode() = delete;
+
+        static constexpr auto name      = "capture_output_node_to_global_state";
+        static constexpr auto node_type = NodeTypeEnum::SINK_NODE;
+
+        using TargetTs = TsVar<"TIME_SERIES_TYPE">;
+
+        static void start(ScalarArg<"path", std::string> path, In<"ts", TargetTs> ts) {
+            TSOutputView target = output_view_from_input(ts.view());
+            if (Node *owner = owner_node_from_linked_context(target.linked_context()); owner != nullptr) {
+                GlobalState::set(path.value(), make_captured_node_capsule(*owner));
+            } else {
+                GlobalState::set(path.value(), nb::cast(TimeSeriesReference::make(target)));
+            }
+        }
+
+        static void eval(ScalarArg<"path", std::string> path, In<"ts", TargetTs> ts) {
+            static_cast<void>(path);
+            static_cast<void>(ts);
+        }
+
+        static void stop(ScalarArg<"path", std::string> path) { GlobalState::remove(path.value()); }
+    };
+
+    struct StaticGetSharedReferenceOutputNode
+    {
+        StaticGetSharedReferenceOutputNode()  = delete;
+        ~StaticGetSharedReferenceOutputNode() = delete;
+
+        static constexpr auto name      = "get_shared_reference_output";
+        static constexpr auto node_type = NodeTypeEnum::PULL_SOURCE_NODE;
+
+        using TargetTs = TsVar<"TIME_SERIES_TYPE">;
+
+        static void start(Node &node, engine_time_t evaluation_time, State<nb::object> state) {
+            set_state_object(state, nb::none());
+            node.notify(evaluation_time);
+        }
+
+        static void stop(Node &node, State<nb::object> state) { unsubscribe_shared_output(node, state); }
+
+        static void eval(Node &node, ScalarArg<"path", std::string> path, ScalarArg<"strict", bool> strict,
+                         State<nb::object> state, Out<REF<TargetTs>> out) {
+            const std::string output_key = keys::output_key(path.value());
+            if (!GlobalState::contains(output_key)) {
+                unsubscribe_shared_output(node, state);
+                if (strict.value()) { throw std::runtime_error(fmt::format("Missing shared output for path: {}", output_key)); }
+                return;
+            }
+
+            const std::string subscriber_key = keys::output_subscriber_key(path.value());
+            nb::object        subscriber     = ensure_shared_output_subscriber(subscriber_key);
+            nb::object        current        = state_object(state);
+            if (current.ptr() != subscriber.ptr()) {
+                unsubscribe_shared_output(node, state);
+                auto *native = capsule_ptr<SharedOutputSubscriber>(subscriber, shared_output_subscriber_capsule_name);
+                if (native == nullptr) {
+                    throw std::runtime_error(fmt::format("Shared output '{}' has a non-native subscriber", output_key));
+                }
+                native->subscribe(node);
+                set_state_object(state, nb::borrow(subscriber));
+            }
+
+            std::optional<TimeSeriesReference> ref = shared_reference(output_key);
+            if (ref.has_value()) { out.set(*ref); }
+        }
+    };
+
+    struct StaticWriteServiceRequestNode
+    {
+        StaticWriteServiceRequestNode()  = delete;
+        ~StaticWriteServiceRequestNode() = delete;
+
+        static constexpr auto name = "write_service_request";
+
+        using RequestTs = TsVar<"TIME_SERIES_TYPE">;
+
+        static void start(Node &node, ScalarArg<"path", std::string> path, State<int64_t> state) {
+            static_cast<void>(path);
+            state.view().set_scalar(next_global_request_id(node));
+        }
+
+        static void stop(ScalarArg<"path", std::string> path, In<"request", RequestTs> request, State<int64_t> state,
+                         engine_time_t evaluation_time) {
+            if (!request.valid()) { return; }
+
+            Value requestor_key{state.view().template checked_as<int64_t>()};
+            const TSMeta *schema = request.view().ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSB) { return; }
+
+            for (auto [arg, child] : request.view().as_bundle().items()) {
+                if (!child.valid()) { continue; }
+                const std::string target_key = fmt::format("{}/request_{}", path.value(), arg);
+                if (Node *target_node = shared_output_node(target_key);
+                    target_node != nullptr && last_value_node_remove_tsd_item(*target_node, requestor_key.view())) {
+                    continue;
+                }
+
+                TSOutputView target = shared_output_target(target_key, evaluation_time);
+                if (target.ts_schema() != nullptr && target.ts_schema()->kind == TSKind::TSD) {
+                    target.as_dict().erase(requestor_key.view());
+                }
+            }
+        }
+
+        static void eval(ScalarArg<"path", std::string> path, In<"request", RequestTs> request, State<int64_t> state,
+                         Out<TS<int64_t>> out, engine_time_t evaluation_time) {
+            const int64_t requestor_id = state.view().template checked_as<int64_t>();
+            Value         requestor_key{requestor_id};
+
+            const TSMeta *schema = request.view().ts_schema();
+            if (schema != nullptr && schema->kind == TSKind::TSB) {
+                for (auto [arg, child] : request.view().as_bundle().items()) {
+                    if (!child.modified()) { continue; }
+                    const std::string target_key = fmt::format("{}/request_{}", path.value(), arg);
+                    if (apply_input_to_last_value_tsd_child(shared_output_node(target_key), requestor_key.view(), child)) {
+                        continue;
+                    }
+
+                    TSOutputView target = shared_output_target(target_key, evaluation_time);
+                    if (target.ts_schema() == nullptr) {
+                        throw std::runtime_error(fmt::format("request stub '{}' not found for service {}", arg, path.value()));
+                    }
+                    copy_input_to_dict_child(target, requestor_key.view(), child, evaluation_time);
+                }
+            }
+
+            if (!out.view().valid()) { out.set(requestor_id); }
+        }
+    };
+
+    struct StaticWriteServiceRepliesNode
+    {
+        StaticWriteServiceRepliesNode()  = delete;
+        ~StaticWriteServiceRepliesNode() = delete;
+
+        static constexpr auto name      = "write_service_replies";
+        static constexpr auto node_type = NodeTypeEnum::SINK_NODE;
+
+        using ResponseTs = TsVar<"TIME_SERIES_TYPE">;
+
+        static void eval(ScalarArg<"path", std::string> path, In<"response", ResponseTs> response,
+                         engine_time_t evaluation_time) {
+            const std::string target_key = path.value() + "/replies_fb";
+            if (Node *target_node = shared_output_node(target_key);
+                target_node != nullptr && last_value_node_copy_from_input(*target_node, response.view())) {
+                return;
+            }
+
+            TSOutputView target = shared_output_target(target_key, evaluation_time);
+            if (target.ts_schema() == nullptr) {
+                throw std::runtime_error(fmt::format("reply stub not found for service {}", path.value()));
+            }
+            target.copy_from_input(response.view());
+        }
+    };
+
+    struct StaticRequestIdNode
+    {
+        StaticRequestIdNode()  = delete;
+        ~StaticRequestIdNode() = delete;
+
+        static constexpr auto name      = "request_id";
+        static constexpr auto node_type = NodeTypeEnum::PULL_SOURCE_NODE;
+
+        static void start(Node &node, Graph &graph, ScalarArg<"hash", int64_t> hash, State<int64_t> state,
+                          engine_time_t evaluation_time) {
+            static_cast<void>(hash);
+            state.view().set_scalar(next_global_request_id(node));
+            graph.schedule_node(node.node_index(), evaluation_time, true);
+        }
+
+        static void eval(State<int64_t> state, Out<TS<int64_t>> out) { out.set(state.view().template checked_as<int64_t>()); }
+    };
+
+    struct StaticWriteAdaptorRequestNode
+    {
+        StaticWriteAdaptorRequestNode()  = delete;
+        ~StaticWriteAdaptorRequestNode() = delete;
+
+        static constexpr auto name      = "write_adaptor_request";
+        static constexpr auto node_type = NodeTypeEnum::SINK_NODE;
+
+        using RequestTs = TsVar<"TIME_SERIES_TYPE">;
+
+        static void stop(ScalarArg<"path", std::string> path, ScalarArg<"arg", std::string> arg,
+                         In<"requestor_id", TS<int64_t>> requestor_id, engine_time_t evaluation_time) {
+            if (!requestor_id.valid()) { return; }
+            TSOutputView target = shared_output_target(fmt::format("{}/{}", path.value(), arg.value()), evaluation_time);
+            if (target.ts_schema() != nullptr && target.ts_schema()->kind == TSKind::TSD) {
+                target.as_dict().erase(requestor_id.view().value());
+            }
+        }
+
+        static void eval(ScalarArg<"path", std::string> path, ScalarArg<"arg", std::string> arg,
+                         In<"request", REF<RequestTs>> request, In<"requestor_id", TS<int64_t>> requestor_id,
+                         engine_time_t evaluation_time) {
+            TSOutputView target = shared_output_target(fmt::format("{}/{}", path.value(), arg.value()), evaluation_time);
+            if (target.ts_schema() == nullptr) {
+                throw std::runtime_error(fmt::format("request stub '{}' not found for {}", arg.value(), path.value()));
+            }
+            set_dict_child_reference(target, requestor_id.view().value(), refreshed_reference_from_input(request.view()),
+                                     evaluation_time);
+        }
+    };
+
+    struct StaticAdaptorRequestNode
+    {
+        StaticAdaptorRequestNode()  = delete;
+        ~StaticAdaptorRequestNode() = delete;
+
+        static constexpr auto name      = "adaptor_request";
+        static constexpr auto node_type = NodeTypeEnum::PULL_SOURCE_NODE;
+
+        using RequestTs = TsVar<"TIME_SERIES_TYPE">;
+
+        static void eval(ScalarArg<"path", std::string> path, ScalarArg<"arg", std::string> arg, Out<RequestTs> out) {
+            static_cast<void>(path);
+            static_cast<void>(arg);
+            static_cast<void>(out);
+        }
+    };
+
+    struct StaticWriteServiceRequestsNode
+    {
+        StaticWriteServiceRequestsNode()  = delete;
+        ~StaticWriteServiceRequestsNode() = delete;
+
+        static constexpr auto name      = "write_service_requests";
+        static constexpr auto node_type = NodeTypeEnum::SINK_NODE;
+
+        using RequestTs = TsVar<"TIME_SERIES_TYPE">;
+
+        static void eval(ScalarArg<"path", std::string> path, In<"request", RequestTs> request,
+                         engine_time_t evaluation_time) {
+            const TSMeta *schema = request.view().ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSB) { return; }
+
+            for (auto [arg, child] : request.view().as_bundle().items()) {
+                if (!child.modified()) { continue; }
+                const std::string target_key = fmt::format("{}/request_{}", path.value(), arg);
+                if (Node *target_node = shared_output_node(target_key);
+                    target_node != nullptr && last_value_node_copy_from_input(*target_node, child)) {
+                    continue;
+                }
+
+                TSOutputView target = shared_output_target(target_key, evaluation_time);
+                if (target.ts_schema() == nullptr) {
+                    throw std::runtime_error(fmt::format("request stub '{}' not found for service {}", arg, path.value()));
+                }
+                target.copy_from_input(child);
+            }
+        }
+    };
+
+    struct StaticWriteSubscriptionKeyNode
+    {
+        StaticWriteSubscriptionKeyNode()  = delete;
+        ~StaticWriteSubscriptionKeyNode() = delete;
+
+        static constexpr auto name      = "write_subscription_key";
+        static constexpr auto node_type = NodeTypeEnum::SINK_NODE;
+
+        using KeyTs = TsVar<"SCALAR">;
+
+        static void start(Node &node, ScalarArg<"path", std::string> path, State<nb::object> state) {
+            auto *local = new SubscriptionKeyLocalState{};
+            local->subscription_id = reinterpret_cast<uintptr_t>(&node);
+            local->tracker         = ensure_subscription_tracker(path.value());
+            set_state_object(state, make_capsule(local, subscription_local_capsule_name, &subscription_local_capsule_destructor));
+        }
+
+        static void stop(ScalarArg<"path", std::string> path, State<nb::object> state, engine_time_t evaluation_time) {
+            SubscriptionKeyLocalState *local = subscription_local_state(state);
+            if (local != nullptr && local->tracker != nullptr && local->has_previous_key) {
+                if (local->tracker->remove(local->previous_key, local->subscription_id)) {
+                    const std::string target_key = path.value() + "/subs";
+                    if (Node *target_node = shared_output_node(target_key);
+                        target_node != nullptr &&
+                        last_value_node_apply_tss_item(*target_node, local->previous_key.view(), true)) {
+                        set_state_object(state, nb::none());
+                        return;
+                    }
+
+                    TSOutputView subs = shared_output_target(target_key, evaluation_time);
+                    if (subs.ts_schema() != nullptr && subs.value().has_value()) {
+                        subs.as_mutable_set().remove(local->previous_key.view());
+                    }
+                }
+            }
+            set_state_object(state, nb::none());
+        }
+
+        static void eval(ScalarArg<"path", std::string> path, In<"key", KeyTs> key, State<nb::object> state,
+                         engine_time_t evaluation_time) {
+            SubscriptionKeyLocalState *local = subscription_local_state(state);
+            if (local == nullptr || local->tracker == nullptr || !key.valid()) { return; }
+
+            const View key_value = key.view().value();
+            if (local->has_previous_key && local->previous_key.equals(key_value)) { return; }
+
+            const std::string target_key = path.value() + "/subs";
+            Node             *target_node = shared_output_node(target_key);
+            TSOutputView      subs        = shared_output_target(target_key, evaluation_time);
+            if (subs.ts_schema() == nullptr) {
+                throw std::runtime_error(fmt::format("subscription stub not found for service {}", path.value()));
+            }
+
+            if (local->has_previous_key && local->tracker->remove(local->previous_key, local->subscription_id)) {
+                if (target_node == nullptr ||
+                    !last_value_node_apply_tss_item(*target_node, local->previous_key.view(), true)) {
+                    subs.as_mutable_set().remove(local->previous_key.view());
+                }
+            }
+
+            local->previous_key     = Value{key_value};
+            local->has_previous_key = true;
+            if (local->tracker->add(key_value, local->subscription_id)) {
+                if (target_node == nullptr || !last_value_node_apply_tss_item(*target_node, key_value, false)) {
+                    subs.as_mutable_set().add(key_value);
+                }
             }
         }
     };
@@ -1187,17 +1822,42 @@ namespace
         static constexpr auto name      = "static_sink";
         static constexpr auto node_type = NodeTypeEnum::SINK_NODE;
 
-        static inline int call_count{0};
-        static inline int last_value{0};
+        static constexpr const char *call_count_key = "hgraph.cpp.static_sink.call_count";
+        static constexpr const char *last_value_key = "hgraph.cpp.static_sink.last_value";
+        static constexpr const char *fallback_attr  = "_hgraph_cpp_static_sink_state";
+
+        [[nodiscard]] static nb::dict fallback_state() {
+            nb::object hgraph_module = nb::module_::import_("hgraph");
+            if (!nb::hasattr(hgraph_module, fallback_attr)) { hgraph_module.attr(fallback_attr) = nb::dict(); }
+            return nb::cast<nb::dict>(hgraph_module.attr(fallback_attr));
+        }
+
+        static void set_state_value(const char *key, nb::object value) {
+            fallback_state()[nb::str(key)] = nb::borrow(value);
+            if (GlobalState::has_instance()) { GlobalState::set(key, std::move(value)); }
+        }
+
+        [[nodiscard]] static nb::object get_state_value(const char *key, nb::object default_value) {
+            if (GlobalState::has_instance()) { return GlobalState::get(key, std::move(default_value)); }
+            return fallback_state().attr("get")(nb::str(key), std::move(default_value));
+        }
 
         static void reset() {
-            call_count = 0;
-            last_value = 0;
+            set_state_value(call_count_key, nb::int_(0));
+            set_state_value(last_value_key, nb::int_(0));
+        }
+
+        [[nodiscard]] static int call_count() {
+            return nb::cast<int>(get_state_value(call_count_key, nb::int_(0)));
+        }
+
+        [[nodiscard]] static int last_value() {
+            return nb::cast<int>(get_state_value(last_value_key, nb::int_(0)));
         }
 
         static void eval(In<"ts", TS<int>> ts) {
-            ++call_count;
-            last_value = ts.value();
+            set_state_value(call_count_key, nb::int_(call_count() + 1));
+            set_state_value(last_value_key, nb::int_(ts.value()));
         }
     };
 
@@ -2561,8 +3221,8 @@ void export_nodes(nb::module_ &m) {
     m.def("reset_static_sink_state", &StaticSinkNode::reset);
     m.def("reset_child_graph_template_registry", [] { ChildGraphTemplateRegistry::instance().reset(); });
     m.def("child_graph_template_registry_size", [] { return ChildGraphTemplateRegistry::instance().size(); });
-    m.def("static_sink_call_count", [] { return StaticSinkNode::call_count; });
-    m.def("static_sink_last_value", [] { return StaticSinkNode::last_value; });
+    m.def("static_sink_call_count", &StaticSinkNode::call_count);
+    m.def("static_sink_last_value", &StaticSinkNode::last_value);
     m.def("build_nested_node", &make_nested_graph_node_builder, "signature"_a, "scalars"_a, "input_builder"_a = nb::none(),
           "output_builder"_a = nb::none(), "error_builder"_a = nb::none(), "nested_graph"_a, "input_node_ids"_a,
           "output_node_id"_a = nb::none(), "try_except"_a = false, "component"_a = false);
@@ -2611,6 +3271,26 @@ void export_nodes(nb::module_ &m) {
                                                                            "capture_context");
     hgraph::export_compute_node_from_python_impl<StaticMeshSubscribeNode>(m, "hgraph.nodes._mesh_util", "mesh_subscribe_node",
                                                                           "mesh_subscribe_node");
+    hgraph::export_compute_node_from_python_impl<StaticCaptureOutputToGlobalStateNode>(
+        m, "hgraph.nodes._service_utils", "capture_output_to_global_state", "capture_output_to_global_state");
+    hgraph::export_compute_node_from_python_impl<StaticCaptureOutputNodeToGlobalStateNode>(
+        m, "hgraph.nodes._service_utils", "capture_output_node_to_global_state", "capture_output_node_to_global_state");
+    hgraph::export_compute_node_from_python_impl<StaticWriteSubscriptionKeyNode>(
+        m, "hgraph.nodes._service_utils", "write_subscription_key", "write_subscription_key");
+    hgraph::export_compute_node_from_python_impl<StaticWriteServiceRequestNode>(
+        m, "hgraph.nodes._service_utils", "write_service_request", "write_service_request");
+    hgraph::export_compute_node_from_python_impl<StaticWriteServiceRepliesNode>(
+        m, "hgraph.nodes._service_utils", "write_service_replies", "write_service_replies");
+    hgraph::export_compute_node_from_python_impl<StaticRequestIdNode>(m, "hgraph.nodes._service_utils", "request_id",
+                                                                      "request_id");
+    hgraph::export_compute_node_from_python_impl<StaticWriteAdaptorRequestNode>(
+        m, "hgraph.nodes._service_utils", "write_adaptor_request", "write_adaptor_request");
+    hgraph::export_compute_node_from_python_impl<StaticAdaptorRequestNode>(m, "hgraph.nodes._service_utils", "adaptor_request",
+                                                                           "adaptor_request");
+    hgraph::export_compute_node_from_python_impl<StaticWriteServiceRequestsNode>(
+        m, "hgraph.nodes._service_utils", "write_service_requests", "write_service_requests");
+    hgraph::export_compute_node_from_python_impl<StaticGetSharedReferenceOutputNode>(
+        m, "hgraph.nodes._service_utils", "get_shared_reference_output", "get_shared_reference_output");
     hgraph::export_compute_node<StaticSinkNode>(m);
     hgraph::export_compute_node_from_python_impl<ValidImplNode>(m, "hgraph._impl._operators._time_series_properties", "valid_impl",
                                                                 "valid_impl");

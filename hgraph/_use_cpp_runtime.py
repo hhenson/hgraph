@@ -11,7 +11,6 @@ if is_feature_enabled("use_cpp"):
     print("\n>>>>>>>>>>>>>>>>>>>\nC++ Runtime enabled\n<<<<<<<<<<<<<<<<<<<")
     try:
         import sys
-        import warnings
         from frozendict import frozendict
 
         hgraph = sys.modules["hgraph"]
@@ -429,8 +428,6 @@ if is_feature_enabled("use_cpp"):
         _service_impl.ServiceImplNodeClass.BUILDER_CLASS = _create_service_impl_builder_factory
 
     except ImportError as e:
-        warnings.warn(
-            f"C++ runtime feature 'use_cpp' is enabled but _hgraph module could not be imported: {e}. "
-            "Falling back to Python runtime.",
-            RuntimeWarning,
-        )
+        raise RuntimeError(
+            f"C++ runtime feature 'use_cpp' is enabled but _hgraph module could not be imported: {e}."
+        ) from e

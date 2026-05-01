@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -2589,6 +2591,13 @@ namespace hgraph
             if (!map_dispatch->slot_added(map_value_data, slot) && !map_dispatch->slot_updated(map_value_data, slot) &&
                 !map_dispatch->slot_removed(map_value_data, slot)) {
                 continue;
+            }
+            if (std::getenv("HGRAPH_DEBUG_TSD_CHILD_MOD") != nullptr) {
+                std::fprintf(stderr, "publish_delta state=%p slot=%zu add=%d upd=%d rem=%d old_time=%lld new_time=%lld\n",
+                             static_cast<void *>(this), slot, map_dispatch->slot_added(map_value_data, slot),
+                             map_dispatch->slot_updated(map_value_data, slot), map_dispatch->slot_removed(map_value_data, slot),
+                             static_cast<long long>(last_modified_time.time_since_epoch().count()),
+                             static_cast<long long>(modified_time.time_since_epoch().count()));
             }
             consumed_map_delta = true;
 

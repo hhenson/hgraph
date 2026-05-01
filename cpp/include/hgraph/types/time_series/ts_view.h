@@ -6,6 +6,8 @@
 #include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/time_series/value/view.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -751,6 +753,44 @@ namespace hgraph
         return snapshot.active() && snapshot.modified_time == evaluation_time;
     }
 
+    inline const Value *transition_previous_map_value(const TSViewContext &context,
+                                                      engine_time_t        evaluation_time) noexcept {
+        if (evaluation_time == MIN_DT) { return nullptr; }
+        const auto snapshot = detail::transition_snapshot(context);
+        if (!snapshot.active() || snapshot.modified_time != evaluation_time || snapshot.previous_value == nullptr ||
+            !snapshot.previous_value->has_value() || snapshot.previous_value->schema() == nullptr ||
+            snapshot.previous_value->schema()->kind != value::TypeKind::Map) {
+            return nullptr;
+        }
+        return snapshot.previous_value;
+    }
+
+    inline bool transition_map_schema_matches(const Value &previous_value, const TSViewContext &context) noexcept {
+        const View current_value = context.value();
+        if (!current_value.has_value() || current_value.schema() == nullptr ||
+            current_value.schema()->kind != value::TypeKind::Map) {
+            return false;
+        }
+
+        const auto previous = previous_value.view().as_map();
+        const auto current  = current_value.as_map();
+        return previous.key_schema() == current.key_schema() && previous.value_schema() == current.value_schema();
+    }
+
+    inline bool transition_map_slot_changed(const Value &previous_value, const TSViewContext &context, const View &key) {
+        const View current_value = context.value();
+        if (!current_value.has_value() || current_value.schema() == nullptr ||
+            current_value.schema()->kind != value::TypeKind::Map || !transition_map_schema_matches(previous_value, context)) {
+            return false;
+        }
+
+        const auto previous = previous_value.view().as_map();
+        if (!previous.contains(key)) { return true; }
+
+        const auto current = current_value.as_map();
+        return current.at(key) != previous.at(key);
+    }
+
     template <typename TView> size_t BaseCollectionView<TView>::size() const noexcept {
         const auto *dispatch = collection_dispatch();
         return dispatch != nullptr ? dispatch->size(this->view_ref().context_ref()) : 0;
@@ -1000,11 +1040,54 @@ namespace hgraph
                 if (dispatch == nullptr || !dispatch->slot_is_live(self->view_ref().context_ref(), slot)) { return false; }
                 const View key = dispatch->key_at_slot(self->view_ref().context_ref(), slot);
                 if (sampled_transition_this_tick(self->view_ref().context_ref(), self->view_ref().evaluation_time())) {
-                    return self->at(key).valid();
+                    if (!self->at(key).valid()) { return false; }
+                    const TSViewContext resolved = self->view_ref().context_ref().resolved();
+                    if (std::getenv("HGRAPH_DEBUG_TSD_MOD_ITEMS") != nullptr) {
+                        const Value *previous_map =
+                            transition_previous_map_value(self->view_ref().context_ref(), self->view_ref().evaluation_time());
+                        std::fprintf(stderr,
+                                     "tsd_modified_items sampled ctx_state=%p resolved_state=%p eval=%lld slot=%zu "
+                                     "child_mod=%d prev=%p prev_match=%d\n",
+                                     static_cast<void *>(self->view_ref().context_ref().ts_state),
+                                     static_cast<void *>(resolved.ts_state),
+                                     static_cast<long long>(self->view_ref().evaluation_time().time_since_epoch().count()), slot,
+                                     dispatch->child_modified(resolved, slot), static_cast<const void *>(previous_map),
+                                     previous_map != nullptr
+                                         ? transition_map_schema_matches(*previous_map, self->view_ref().context_ref())
+                                         : 0);
+                    }
+                    if (dispatch->child_modified(resolved, slot)) { return true; }
+                    const Value *previous_map =
+                        transition_previous_map_value(self->view_ref().context_ref(), self->view_ref().evaluation_time());
+                    if (previous_map == nullptr) {
+                        return true;
+                    }
+                    if (transition_map_schema_matches(*previous_map, self->view_ref().context_ref())) {
+                        return transition_map_slot_changed(*previous_map, self->view_ref().context_ref(), key);
+                    }
                 }
 
                 const TSViewContext resolved = self->view_ref().context_ref().resolved();
-                if (dispatch->child_modified(resolved, slot)) { return true; }
+                const bool child_mod = dispatch->child_modified(resolved, slot);
+                if (std::getenv("HGRAPH_DEBUG_TSD_MOD_ITEMS") != nullptr) {
+                    View       delta_value       = self->view_ref().delta_value();
+                    const bool native_dict_state = resolved.schema != nullptr && resolved.schema->kind == TSKind::TSD &&
+                                                   resolved.ts_state != nullptr &&
+                                                   resolved.ts_state->storage_kind == TSStorageKind::Native;
+                    bool       delta_added       = false;
+                    if (native_dict_state && delta_value.has_value() && delta_value.schema() != nullptr &&
+                        delta_value.schema()->kind == value::TypeKind::Map) {
+                        const auto delta = delta_value.as_map().delta();
+                        delta_added      = slot < delta.slot_capacity() && delta.slot_added(slot);
+                    }
+                    std::fprintf(stderr,
+                                 "tsd_modified_items normal ctx_state=%p resolved_state=%p eval=%lld slot=%zu child_mod=%d "
+                                 "native=%d delta_added=%d\n",
+                                 static_cast<void *>(self->view_ref().context_ref().ts_state), static_cast<void *>(resolved.ts_state),
+                                 static_cast<long long>(self->view_ref().evaluation_time().time_since_epoch().count()), slot,
+                                 child_mod, native_dict_state, delta_added);
+                }
+                if (child_mod) { return true; }
 
                 const bool native_dict_state = resolved.schema != nullptr && resolved.schema->kind == TSKind::TSD &&
                                                resolved.ts_state != nullptr &&

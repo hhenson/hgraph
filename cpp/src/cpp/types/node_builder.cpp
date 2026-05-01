@@ -1644,6 +1644,56 @@ namespace hgraph
             }
         }
 
+        void merge_last_value_tsd_input(LastValuePullRuntimeData &runtime_data, const TSMeta *output_schema,
+                                        const TSInputView &source) {
+            if (output_schema == nullptr || output_schema->kind != TSKind::TSD) {
+                throw std::logic_error("last-value TSD pending merge requires a TSD output schema");
+            }
+
+            bool saw_change = false;
+            if (View source_delta = source.delta_value();
+                source_delta.has_value() && source_delta.schema() != nullptr &&
+                source_delta.schema()->kind == value::TypeKind::Map) {
+                auto delta = source_delta.as_map().delta();
+                for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
+                    if (!delta.slot_occupied(slot) || !delta.slot_removed(slot)) { continue; }
+                    merge_last_value_tsd_remove(runtime_data, output_schema, delta.key_at_slot(slot));
+                    saw_change = true;
+                }
+            }
+
+            for (const auto &[key, child] : source.as_dict().modified_items()) {
+                if (!key.has_value() || !child.valid()) { continue; }
+
+                View child_delta = child.delta_value();
+                if (!child_delta.has_value()) { child_delta = child.value(); }
+                if (!child_delta.has_value()) { continue; }
+
+                merge_last_value_tsd_set(runtime_data, output_schema, key, child_delta);
+                saw_change = true;
+            }
+
+            if (saw_change) { return; }
+
+            bool copied_live_value = false;
+            for (const auto &[key, child] : source.as_dict().valid_items()) {
+                if (!key.has_value()) { continue; }
+                View child_value = child.value();
+                if (!child_value.has_value()) { continue; }
+
+                merge_last_value_tsd_set(runtime_data, output_schema, key, child_value);
+                copied_live_value = true;
+            }
+
+            if (!copied_live_value) {
+                const View source_value = source.value();
+                if (source_value.has_value() && source_value.schema() != nullptr &&
+                    source_value.schema()->kind == value::TypeKind::Map && source_value.as_map().empty()) {
+                    static_cast<void>(prepare_last_value_pending_batch(runtime_data, output_schema));
+                }
+            }
+        }
+
         void merge_last_value_tsd_python(LastValuePullRuntimeData &runtime_data, const TSMeta *output_schema, nb::handle value) {
             if (output_schema == nullptr || output_schema->kind != TSKind::TSD || output_schema->key_type() == nullptr ||
                 output_schema->element_ts() == nullptr || output_schema->element_ts()->value_type == nullptr) {
@@ -5565,48 +5615,10 @@ namespace hgraph
             auto       &runtime    = map_runtime(node);
             auto       &slot_store = map_slot_store(runtime);
             TSInputView keys_input = resolve_parent_input_arg(node, runtime.keys_arg, evaluation_time);
-            if (std::getenv("HGRAPH_DEBUG_KEY_SET") != nullptr) {
-                const auto &graph_id = node.owning_graph_id();
-                std::fprintf(stderr,
-                             "map_node_eval graph_tail=%lld node=%lld label=%.*s keys_arg=%s schema_kind=%d valid=%d modified=%d "
-                             "linked_target=%p\n",
-                             static_cast<long long>(graph_id.empty() ? -1 : graph_id.back()),
-                             static_cast<long long>(node.public_node_index()), static_cast<int>(node.label().size()),
-                             node.label().data(), runtime.keys_arg.c_str(),
-                             keys_input.ts_schema() != nullptr ? static_cast<int>(keys_input.ts_schema()->kind) : -1,
-                             keys_input.valid(), keys_input.modified(), static_cast<const void *>(keys_input.linked_target()));
-                TSInputView node_input = node.input_view(evaluation_time);
-                if (node_input.ts_schema() != nullptr && node_input.ts_schema()->kind == TSKind::TSB) {
-                    auto input_bundle = node_input.as_bundle();
-                    for (size_t field_index = 0; field_index < node.input_schema()->field_count(); ++field_index) {
-                        TSInputView field = input_bundle[field_index];
-                        std::fprintf(stderr, "  field[%zu] name=%s schema_kind=%d valid=%d modified=%d bound=%d active=%d\n",
-                                     field_index, node.input_schema()->fields()[field_index].name,
-                                     field.ts_schema() != nullptr ? static_cast<int>(field.ts_schema()->kind) : -1, field.valid(),
-                                     field.modified(), field.linked_target() != nullptr && field.linked_target()->is_bound(),
-                                     field.active());
-                        if (field.ts_schema() != nullptr && field.ts_schema()->kind == TSKind::TSD && field.valid()) {
-                            auto                     key_set = field.as_dict().key_set();
-                            std::vector<std::string> field_keys;
-                            if (key_set.view().value().has_value()) {
-                                for (const View &key : key_set.values()) { field_keys.emplace_back(key.to_string()); }
-                            }
-                            std::fprintf(stderr, "    field_keys=[%s]\n", fmt::format("{}", fmt::join(field_keys, ",")).c_str());
-                        }
-                    }
-                }
-                std::fflush(stderr);
-            }
             TSOutputView keys_output   = live_bound_output_of(keys_input);
             const View   keys_value    = keys_output.ts_schema() != nullptr ? keys_output.value() : keys_input.value();
             const auto   keys_delta    = keys_value.as_set().delta();
             bool         keys_modified = input_changed(keys_input);
-            if (std::getenv("HGRAPH_DEBUG_KEY_SET") != nullptr && keys_value.has_value()) {
-                std::vector<std::string> live_keys;
-                for (const View &key : keys_value.as_set().values()) { live_keys.emplace_back(key.to_string()); }
-                std::fprintf(stderr, "map_node_eval keys_live=[%s]\n", fmt::format("{}", fmt::join(live_keys, ",")).c_str());
-                std::fflush(stderr);
-            }
 
             slot_store.reserve_to(std::max(keys_delta.slot_capacity(), slot_store.constructed.size()));
             auto find_existing_slot_for_key = [&](const value::View &key) -> size_t {
@@ -6451,7 +6463,61 @@ namespace hgraph
 
         View source_delta = source.delta_value();
         if (!source_delta.has_value()) { source_delta = source.value(); }
+        if (const TSMeta *output_schema = node.output_schema(); output_schema != nullptr && output_schema->kind == TSKind::TSD) {
+            merge_last_value_tsd_input(runtime_data, output_schema, source);
+            schedule_last_value_next_cycle(node);
+            return true;
+        }
         set_last_value_pending_from_view(runtime_data, node.output_schema(), source_delta);
+        schedule_last_value_next_cycle(node);
+        return true;
+    }
+
+    bool last_value_node_apply_tsd_item(Node &node, const View &key, const View &value) {
+        if (node.spec().runtime_ops != &k_last_value_pull_runtime_ops) { return false; }
+        if (!key.has_value() || !value.has_value()) { return true; }
+
+        const TSMeta *output_schema = node.output_schema();
+        if (output_schema == nullptr || output_schema->kind != TSKind::TSD) {
+            throw std::logic_error("last-value TSD item apply requires a TSD output schema");
+        }
+
+        merge_last_value_tsd_set(last_value_runtime(node), output_schema, key, value);
+        schedule_last_value_next_cycle(node);
+        return true;
+    }
+
+    bool last_value_node_remove_tsd_item(Node &node, const View &key) {
+        if (node.spec().runtime_ops != &k_last_value_pull_runtime_ops) { return false; }
+        if (!key.has_value()) { return true; }
+
+        const TSMeta *output_schema = node.output_schema();
+        if (output_schema == nullptr || output_schema->kind != TSKind::TSD) {
+            throw std::logic_error("last-value TSD item remove requires a TSD output schema");
+        }
+
+        merge_last_value_tsd_remove(last_value_runtime(node), output_schema, key);
+        schedule_last_value_next_cycle(node);
+        return true;
+    }
+
+    bool last_value_node_apply_tss_item(Node &node, const View &item, bool remove) {
+        if (node.spec().runtime_ops != &k_last_value_pull_runtime_ops) { return false; }
+        if (!item.has_value()) { return true; }
+
+        const TSMeta *output_schema = node.output_schema();
+        if (output_schema == nullptr || output_schema->kind != TSKind::TSS) {
+            throw std::logic_error("last-value TSS item apply requires a TSS output schema");
+        }
+
+        Value &pending = prepare_last_value_pending_batch(last_value_runtime(node), output_schema);
+        auto   set     = pending.view().as_set();
+        auto   mutation = set.begin_mutation(MIN_ST);
+        if (remove) {
+            static_cast<void>(mutation.remove(item));
+        } else {
+            static_cast<void>(mutation.add(item));
+        }
         schedule_last_value_next_cycle(node);
         return true;
     }

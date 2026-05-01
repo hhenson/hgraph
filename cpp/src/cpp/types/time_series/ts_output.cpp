@@ -3676,6 +3676,10 @@ namespace hgraph
 
             const auto  source_delta = source_value.as_map().delta();
             const auto  source_map   = source_value.as_map();
+            const Value *sampled_previous_map =
+                sampled_root_tick ? transition_previous_map_value(source_root.context_ref(), modified_time) : nullptr;
+            const bool sampled_previous_map_matches =
+                sampled_previous_map != nullptr && transition_map_schema_matches(*sampled_previous_map, source_root.context_ref());
             const auto *source_native_state =
                 current_source_root_state != nullptr && current_source_root_state->storage_kind == TSStorageKind::Native
                     ? static_cast<const TSDState *>(current_source_root_state)
@@ -3876,8 +3880,12 @@ namespace hgraph
                 for (size_t slot = source_map.first_live_slot(); slot != no_slot; slot = source_map.next_live_slot(slot)) {
                     const View key                 = source_delta.key_at_slot(slot);
                     const bool target_has_live_key = target_map.contains(key);
+                    const bool sampled_slot_changed =
+                        sampled_root_tick &&
+                        (!sampled_previous_map_matches ||
+                         transition_map_slot_changed(*sampled_previous_map, source_root.context_ref(), key));
                     const bool force_live_refresh =
-                        source_rebound || source_value_changed || sampled_root_tick || (initializing && !target_was_valid);
+                        source_rebound || source_value_changed || sampled_slot_changed || (initializing && !target_was_valid);
                     const bool source_slot_changed =
                         source_delta.slot_added(slot) || source_delta.slot_updated(slot) || force_live_refresh;
                     replay_live_slot(slot, !target_has_live_key || source_slot_changed, !target_has_live_key || force_live_refresh);
