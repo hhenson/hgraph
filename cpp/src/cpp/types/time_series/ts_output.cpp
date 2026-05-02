@@ -3160,6 +3160,16 @@ namespace hgraph
             std::vector<size_t> changed_slots;
             changed_slots.reserve(slot_count);
 
+            // Track per-slot whether the desired value is a real publish.
+            // Replacing a fresh slot's structural placeholder with an
+            // `invalid_for(...)` view is not a tick event and must not bubble
+            // a modification up to downstream consumers — those rely on the
+            // child state's `last_modified_time` advancing only when an
+            // actual value is published. We still write the desired value to
+            // the bundle/list value-layer so reads observe the right data,
+            // but we suppress the per-slot child mark_modified.
+            std::vector<bool> slot_has_value;
+            slot_has_value.reserve(slot_count);
             if constexpr (std::same_as<TCollectionState, TSBState>) {
                 auto mutation = target_view.value().as_bundle().begin_mutation();
                 auto current  = target_view.value().as_bundle();
@@ -3176,6 +3186,7 @@ namespace hgraph
 
                     mutation.set(slot, desired);
                     changed_slots.push_back(slot);
+                    slot_has_value.push_back(desired.has_value());
                 }
             } else if constexpr (std::same_as<TCollectionState, TSLState>) {
                 auto mutation = target_view.value().as_list().begin_mutation();
@@ -3193,14 +3204,26 @@ namespace hgraph
 
                     mutation.set(slot, desired);
                     changed_slots.push_back(slot);
+                    slot_has_value.push_back(desired.has_value());
                 }
             }
 
             bool child_published = false;
-            for (const size_t slot : changed_slots) {
+            for (size_t i = 0; i < changed_slots.size(); ++i) {
+                const size_t slot           = changed_slots[i];
+                const bool   desired_valued = slot_has_value[i];
                 BaseState *child_state = slot < target_state.child_states.size() && target_state.child_states[slot] != nullptr
                                              ? base_state_of(*target_state.child_states[slot])
                                              : nullptr;
+
+                if (!desired_valued && (child_state == nullptr || child_state->last_modified_time == MIN_DT)) {
+                    // Fresh slot being initialised to "no value" (the source
+                    // has nothing to publish). The child state has never
+                    // ticked and we are not delivering a tick now — leave the
+                    // child state alone so downstream `modified` queries
+                    // correctly report False.
+                    continue;
+                }
 
                 if (child_state != nullptr && child_state->last_modified_time != modified_time) {
                     child_state->mark_modified(modified_time);
