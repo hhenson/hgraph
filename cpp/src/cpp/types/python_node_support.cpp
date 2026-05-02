@@ -2113,6 +2113,91 @@ namespace hgraph
             nb::object m_recordable_state;
             nb::object m_scheduler;
         };
+
+        class PythonLifeCycleObserverBridge : public EvaluationLifeCycleObserver
+        {
+          public:
+            explicit PythonLifeCycleObserverBridge(nb::object py_observer) : m_observer(std::move(py_observer)) {}
+
+            [[nodiscard]] PyObject *observer_ptr() const noexcept { return m_observer.ptr(); }
+
+          private:
+            void call(const char *method, nb::object arg) {
+                nb::gil_scoped_acquire guard;
+                if (!m_observer.is_valid() || m_observer.is_none()) { return; }
+                if (!nb::hasattr(m_observer, method)) { return; }
+                try {
+                    m_observer.attr(method)(std::move(arg));
+                } catch (const std::exception &) {
+                    PyErr_Clear();
+                }
+            }
+
+            void call_with_graph(const char *method, Graph &graph) {
+                Node *parent = graph.parent_node();
+                if (parent == nullptr) {
+                    for (size_t i = 0; i < graph.entries().size(); ++i) {
+                        parent = &graph.node_at(i);
+                        if (parent != nullptr) { break; }
+                    }
+                }
+                if (parent == nullptr) { return; }
+                call(method, nb::cast(PythonGraphHandle{parent}));
+            }
+
+            void call_with_node(const char *method, Node &node) {
+                nb::object handle = python_node_handle_for(&node);
+                if (handle.is_none()) { return; }
+                call(method, std::move(handle));
+            }
+
+          public:
+            void on_before_start_graph(Graph &graph) override { call_with_graph("on_before_start_graph", graph); }
+            void on_after_start_graph(Graph &graph) override { call_with_graph("on_after_start_graph", graph); }
+            void on_before_graph_evaluation(Graph &graph) override { call_with_graph("on_before_graph_evaluation", graph); }
+            void on_after_graph_evaluation(Graph &graph) override { call_with_graph("on_after_graph_evaluation", graph); }
+            void on_after_graph_push_nodes_evaluation(Graph &graph) override {
+                call_with_graph("on_after_graph_push_nodes_evaluation", graph);
+            }
+            void on_before_stop_graph(Graph &graph) override { call_with_graph("on_before_stop_graph", graph); }
+            void on_after_stop_graph(Graph &graph) override { call_with_graph("on_after_stop_graph", graph); }
+
+            void on_before_start_node(Node &node) override { call_with_node("on_before_start_node", node); }
+            void on_after_start_node(Node &node) override { call_with_node("on_after_start_node", node); }
+            void on_before_node_evaluation(Node &node) override { call_with_node("on_before_node_evaluation", node); }
+            void on_after_node_evaluation(Node &node) override { call_with_node("on_after_node_evaluation", node); }
+            void on_before_stop_node(Node &node) override { call_with_node("on_before_stop_node", node); }
+            void on_after_stop_node(Node &node) override { call_with_node("on_after_stop_node", node); }
+
+          private:
+            nb::object m_observer;
+        };
+
+        std::unordered_map<PyObject *, std::unique_ptr<PythonLifeCycleObserverBridge>> &life_cycle_bridge_registry() {
+            static std::unordered_map<PyObject *, std::unique_ptr<PythonLifeCycleObserverBridge>> registry;
+            return registry;
+        }
+
+        EvaluationLifeCycleObserver *get_or_create_life_cycle_bridge(nb::object py_observer) {
+            auto &registry = life_cycle_bridge_registry();
+            PyObject *key = py_observer.ptr();
+            auto it = registry.find(key);
+            if (it != registry.end()) { return it->second.get(); }
+            auto bridge = std::make_unique<PythonLifeCycleObserverBridge>(std::move(py_observer));
+            auto *raw = bridge.get();
+            registry.emplace(key, std::move(bridge));
+            return raw;
+        }
+
+        EvaluationLifeCycleObserver *take_life_cycle_bridge(nb::object py_observer) {
+            auto &registry = life_cycle_bridge_registry();
+            PyObject *key = py_observer.ptr();
+            auto it = registry.find(key);
+            if (it == registry.end()) { return nullptr; }
+            EvaluationLifeCycleObserver *raw = it->second.release();
+            registry.erase(it);
+            return raw;
+        }
     }  // namespace
 
     nb::object make_python_node_handle(nb::handle signature, nb::handle scalars, Node *node, TSInput *input, TSOutput *output,
@@ -2285,7 +2370,21 @@ namespace hgraph
                         fn();
                     });
                 },
-                "fn"_a);
+                "fn"_a)
+            .def(
+                "add_life_cycle_observer",
+                [](const EvaluationEngineApi &self, nb::object py_observer) {
+                    self.add_life_cycle_observer(get_or_create_life_cycle_bridge(std::move(py_observer)));
+                },
+                "observer"_a)
+            .def(
+                "remove_life_cycle_observer",
+                [](const EvaluationEngineApi &self, nb::object py_observer) {
+                    if (auto *bridge = take_life_cycle_bridge(py_observer)) {
+                        self.remove_life_cycle_observer(bridge);
+                    }
+                },
+                "observer"_a);
 
         nb::class_<PythonTraitsHandle>(m, "_PythonTraitsHandle")
             .def("set_traits", &PythonTraitsHandle::set_traits)
