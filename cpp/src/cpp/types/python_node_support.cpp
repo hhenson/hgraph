@@ -260,7 +260,7 @@ namespace hgraph
                 const auto &graph_id = graph_of(m_node).graph_id();
                 nb::tuple   out      = nb::steal<nb::tuple>(PyTuple_New(static_cast<Py_ssize_t>(graph_id.size())));
                 for (size_t i = 0; i < graph_id.size(); ++i) {
-                    PyTuple_SET_ITEM(out.ptr(), static_cast<Py_ssize_t>(i), nb::cast(graph_id[i]).release().ptr());
+                    PyTuple_SetItem(out.ptr(), static_cast<Py_ssize_t>(i), nb::cast(graph_id[i]).release().ptr());
                 }
                 return out;
             }
