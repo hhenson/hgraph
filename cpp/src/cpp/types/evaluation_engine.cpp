@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 
 namespace hgraph
@@ -131,29 +132,30 @@ namespace hgraph
                         m_last_time_allowed_push = current_time;
                     }
 
-                    // Match the legacy realtime engine: only release the GIL while
-                    // the engine is blocked waiting for the next wake-up condition.
+                    // Match the legacy realtime engine: release the GIL while the
+                    // engine is blocked waiting for the next wake-up condition so
+                    // Python threads (e.g. push-source producers, run_graph_on_thread
+                    // workers, tornado IO loops) can make progress.
+                    auto wait_for_wake = [&](engine_time_t wake_deadline) -> bool {
+                        std::unique_lock<std::mutex> lock(m_condition_mutex);
+                        bool                         scheduled = m_push_node_requires_scheduling;
+                        if (!scheduled) {
+                            m_push_node_requires_scheduling_condition.wait_until(lock, wake_deadline);
+                            scheduled = m_push_node_requires_scheduling;
+                        }
+                        return scheduled;
+                    };
                     while (true) {
                         current_time = now();
                         if (current_time >= next_scheduled_time) { break; }
 
-                        bool       scheduled     = false;
                         const auto wake_deadline = std::min(next_scheduled_time, current_time + std::chrono::seconds(10));
+                        bool       scheduled     = false;
                         if (can_release_gil()) {
-                            nb::gil_scoped_release       gil;
-                            std::unique_lock<std::mutex> lock(m_condition_mutex);
-                            scheduled = m_push_node_requires_scheduling;
-                            if (!scheduled) {
-                                m_push_node_requires_scheduling_condition.wait_until(lock, wake_deadline);
-                                scheduled = m_push_node_requires_scheduling;
-                            }
+                            nb::gil_scoped_release gil;
+                            scheduled = wait_for_wake(wake_deadline);
                         } else {
-                            std::unique_lock<std::mutex> lock(m_condition_mutex);
-                            scheduled = m_push_node_requires_scheduling;
-                            if (!scheduled) {
-                                m_push_node_requires_scheduling_condition.wait_until(lock, wake_deadline);
-                                scheduled = m_push_node_requires_scheduling;
-                            }
+                            scheduled = wait_for_wake(wake_deadline);
                         }
 
                         if (scheduled) { break; }
@@ -561,6 +563,14 @@ namespace hgraph
                 state.graph.start();
                 try {
                     while (state.clock.evaluation_time() < state.end_time) {
+                        // Briefly release the GIL between iterations so other Python
+                        // threads (e.g. those started by `run_graph_on_thread` or
+                        // tornado IO loops) can make progress when the engine evaluates
+                        // back-to-back ticks without entering a real-time wait.
+                        if (can_release_gil()) {
+                            nb::gil_scoped_release gil_yield;
+                            std::this_thread::yield();
+                        }
                         notify_before_evaluation_impl(impl);
                         state.graph.evaluate(state.clock.evaluation_time());
                         notify_after_evaluation_impl(impl);

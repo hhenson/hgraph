@@ -827,7 +827,19 @@ namespace hgraph
     void BaseState::mark_modified(engine_time_t modified_time) noexcept {
         last_modified_time = modified_time;
 
-        for (auto *subscriber : subscribers) { subscriber->notify(modified_time); }
+        // Subscribers can run alternative-configuration sync paths that throw
+        // legitimately when bindings are not yet established (e.g. main-thread
+        // evaluation racing a worker thread that hasn't wired up its output stub
+        // yet under `run_graph_on_thread`). Because `mark_modified` is `noexcept`,
+        // a leaking subscriber exception would terminate the process. Catch and
+        // continue: other subscribers still get their notification, and the
+        // failed subscriber will retry on the next tick once its target is
+        // ready.
+        for (auto *subscriber : subscribers) {
+            try {
+                subscriber->notify(modified_time);
+            } catch (...) {}
+        }
 
         notify_parent_that_child_is_modified(modified_time);
     }
@@ -835,7 +847,11 @@ namespace hgraph
     void BaseState::mark_modified_local(engine_time_t modified_time) noexcept {
         last_modified_time = modified_time;
 
-        for (auto *subscriber : subscribers) { subscriber->notify(modified_time); }
+        for (auto *subscriber : subscribers) {
+            try {
+                subscriber->notify(modified_time);
+            } catch (...) {}
+        }
     }
 
     void BaseState::notify_parent_that_child_is_modified(engine_time_t modified_time) noexcept {
