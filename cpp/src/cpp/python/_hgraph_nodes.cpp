@@ -3158,7 +3158,7 @@ void export_nodes(nb::module_ &m) {
                          nb::tuple out = nb::steal<nb::tuple>(PyTuple_New(static_cast<Py_ssize_t>(self.node_builder_count())));
                          for (size_t i = 0; i < self.node_builder_count(); ++i) {
                              nb::object item = nb::cast(self.node_builder_at(i));
-                             PyTuple_SET_ITEM(out.ptr(), static_cast<Py_ssize_t>(i), item.release().ptr());
+                             PyTuple_SetItem(out.ptr(), static_cast<Py_ssize_t>(i), item.release().ptr());
                          }
                          return out;
                      })

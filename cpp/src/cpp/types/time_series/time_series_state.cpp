@@ -680,7 +680,7 @@ namespace hgraph
             if (trie_node->children.empty()) { return; }
 
             TSViewContext       view_context{context.schema, context.value_dispatch, context.ts_dispatch, context.value_data,
-                                             context.ts_state};
+                                       context.ts_state};
             const TSViewContext resolved   = view_context.resolved();
             const auto         *collection = resolved.ts_dispatch != nullptr ? resolved.ts_dispatch->as_collection() : nullptr;
             if (collection == nullptr) { return; }
@@ -742,6 +742,8 @@ namespace hgraph
                     }
 
                 case TSStorageKind::Native: state = nullptr; break;
+
+                default: break;
             }
         }
 
@@ -787,16 +789,14 @@ namespace hgraph
 
     const LinkedTSContext *BaseState::linked_target() const noexcept {
         switch (storage_kind) {
-            case TSStorageKind::Native: return nullptr;
-
             case TSStorageKind::OutputLink: return &static_cast<const OutputLinkState *>(this)->target;
 
             case TSStorageKind::TargetLink: return &static_cast<const TargetLinkState *>(this)->target;
 
             case TSStorageKind::RefLink: return &static_cast<const RefLinkState *>(this)->bound_link.target;
-        }
 
-        return nullptr;
+            default: return nullptr;
+        }
     }
 
     BaseState *BaseState::resolved_state() noexcept {
@@ -812,10 +812,6 @@ namespace hgraph
 
     Notifiable *BaseState::boundary_notifier(Notifiable *fallback) noexcept {
         switch (storage_kind) {
-            case TSStorageKind::Native: return fallback;
-
-            case TSStorageKind::OutputLink: return fallback;
-
             case TSStorageKind::TargetLink: return &static_cast<TargetLinkState *>(this)->scheduling_notifier;
 
             case TSStorageKind::RefLink:
@@ -824,9 +820,8 @@ namespace hgraph
                     attachment.forwarding_notifier.set_target(fallback);
                     return &attachment.forwarding_notifier;
                 }
+            default: return fallback;
         }
-
-        return fallback;
     }
 
     void BaseState::mark_modified(engine_time_t modified_time) noexcept {
@@ -945,9 +940,10 @@ namespace hgraph
     void BaseCollectionState::child_modified(size_t child_index, engine_time_t modified_time) noexcept {
         if (std::getenv("HGRAPH_DEBUG_TSD_CHILD_MOD") != nullptr) {
             std::fprintf(stderr, "child_modified parent=%p idx=%zu old_time=%lld new_time=%lld had=%d child_count=%zu\n",
-                         static_cast<void *>(this), child_index, static_cast<long long>(last_modified_time.time_since_epoch().count()),
-                         static_cast<long long>(modified_time.time_since_epoch().count()),
-                         modified_children.contains(child_index), modified_children.size());
+                         static_cast<void *>(this), child_index,
+                         static_cast<long long>(last_modified_time.time_since_epoch().count()),
+                         static_cast<long long>(modified_time.time_since_epoch().count()), modified_children.contains(child_index),
+                         modified_children.size());
         }
         if (suppress_repeated_child_notifications) {
             if (last_modified_time != modified_time) {
