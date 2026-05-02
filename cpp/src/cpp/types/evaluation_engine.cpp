@@ -21,7 +21,14 @@ namespace hgraph
 {
     namespace
     {
-        [[nodiscard]] bool can_release_gil() noexcept { return Py_IsInitialized() != 0 && PyGILState_Check() != 0; }
+        [[nodiscard]] bool can_release_gil() noexcept {
+            if (Py_IsInitialized() == 0) { return false; }
+#if defined(Py_LIMITED_API)
+            return PyThreadState_Get() != nullptr;
+#else
+            return PyGILState_Check() != 0;
+#endif
+        }
 
         struct BaseClockState
         {
