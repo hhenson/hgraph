@@ -1194,13 +1194,12 @@ namespace hgraph
     TargetLinkState::TargetLinkStateNotifiable::TargetLinkStateNotifiable(TargetLinkState *self_) noexcept : self(self_) {}
 
     void TargetLinkState::TargetLinkStateNotifiable::notify(engine_time_t modified_time) {
-        if (self != nullptr) {
-            if (self->switch_modified_time != modified_time) {
-                self->previous_target_value = {};
-                self->switch_modified_time  = MIN_DT;
-            }
-            self->mark_modified(modified_time);
+        if (self == nullptr) { return; }
+        if (self->switch_modified_time != modified_time) {
+            self->previous_target_value = {};
+            self->switch_modified_time  = MIN_DT;
         }
+        self->mark_modified(modified_time);
     }
 
     void TargetLinkState::SchedulingNotifier::notify(engine_time_t modified_time) {
