@@ -1064,42 +1064,20 @@ namespace hgraph
                     replacement.emplace_back(std::move(key_value), nb::borrow<nb::object>(item[1]));
                 }
 
-                auto               map_view = view.value().as_map();
-                std::vector<Value> existing_keys;
-                const auto         current_delta = map_view.delta();
-                for (size_t slot = 0; slot < current_delta.slot_capacity(); ++slot) {
-                    if (!current_delta.slot_occupied(slot) || current_delta.slot_removed(slot)) { continue; }
-                    existing_keys.push_back(current_delta.key_at_slot(slot).clone());
-                }
-
-                struct RemovedChild
-                {
-                    Value        key;
-                    size_t       slot{static_cast<size_t>(-1)};
-                    TSOutputView child;
-                    bool         child_was_valid{false};
-                };
-                std::vector<RemovedChild> removed_children;
+                // Match Python's PythonTimeSeriesDictOutput.value setter: a
+                // dict result is applied as an incremental update. Existing
+                // keys absent from the result are kept untouched; only explicit
+                // REMOVE/REMOVE_IF_EXISTS sentinels (handled above) cause a
+                // key to be removed. The earlier replacement-style behaviour
+                // dropped previously-added keys whenever a per-tick delta
+                // result didn't repeat them, which broke operators like
+                // partition_tsd that emit only the keys that actually changed
+                // each tick.
+                auto map_view = view.value().as_map();
 
                 bool structural_changed = false;
                 {
                     auto mutation = map_view.begin_mutation(view.evaluation_time());
-
-                    for (const Value &existing_key : existing_keys) {
-                        const bool keep = std::any_of(replacement.begin(), replacement.end(), [&](const auto &candidate) {
-                            return existing_key.view() == candidate.first.view();
-                        });
-                        if (!keep) {
-                            const size_t slot    = map_view.find_slot(existing_key.view());
-                            TSOutputView child   = ensure_tsd_child_view(view, existing_key.view());
-                            const bool   removed = mutation.remove(existing_key.view());
-                            if (removed) {
-                                removed_children.push_back(RemovedChild{existing_key.view().clone(), slot, child, child.valid()});
-                                structural_changed = true;
-                            }
-                        }
-                    }
-
                     for (const auto &[key, mapped_value] : replacement) {
                         static_cast<void>(mapped_value);
                         const View key_view = key.view();
@@ -1109,14 +1087,6 @@ namespace hgraph
                             structural_changed = true;
                         }
                     }
-                }
-
-                for (const RemovedChild &removed_child : removed_children) {
-                    if (removed_child.child_was_valid) {
-                        record_tsd_removed_child(view, removed_child.slot, removed_child.key.view());
-                    }
-                    clear_output_link(removed_child.child);
-                    removed_child.child.invalidate();
                 }
 
                 for (const auto &[key, mapped_value] : replacement) {
@@ -2727,6 +2697,12 @@ namespace hgraph
             std::unique_ptr<TimeSeriesStateV> source_bridge_state{};
             tagged_ptr<const BaseState, 1>    m_last_source_snapshot{};
             engine_time_t                     pending_modified_time{MIN_DT};
+            // Tracks the modified_time of the most recent sync_dynamic_dict run
+            // for this binding. Distinct from `target_root_state->last_modified_time`
+            // because that field can be set eagerly by upstream child_modified
+            // notifications (which propagate before the sync's own body runs and
+            // would otherwise hide the tick transition from sync_dynamic_dict).
+            engine_time_t                     last_synced_time{MIN_DT};
             StateInvalidator                  target_invalidator{};
             SourceNotifier                    source_notifier{};
         };
@@ -3645,7 +3621,13 @@ namespace hgraph
             if (target_root_state == nullptr) {
                 throw std::logic_error("TSOutput alternative dynamic dict sync requires a live target TSD state");
             }
-            if (modified_time != MIN_DT && target_root_state->last_modified_time != modified_time) {
+            // Use the binding's own last_synced_time to detect a tick transition
+            // rather than target_root_state->last_modified_time. The latter can
+            // be advanced before this sync runs by an unrelated child_modified
+            // propagation, which would mask the transition and leak the
+            // previous tick's value-layer delta into downstream consumers.
+            const bool starting_new_tick = modified_time != MIN_DT && binding.last_synced_time != modified_time;
+            if (starting_new_tick && target_root_state->last_modified_time != modified_time) {
                 target_root_state->modified_children.clear();
             }
 
@@ -3655,6 +3637,21 @@ namespace hgraph
                     *target_root.ts_schema()->element_ts(),
                     static_cast<const detail::MapViewDispatch &>(*target_root_context.value_dispatch),
                     target_root_context.value_data);
+            }
+
+            // The target of a dynamic dict binding is itself a TSD output that
+            // downstream consumers (e.g. another sync_dynamic_dict, or a TSD
+            // input reading modified_items()) will inspect via its value-layer
+            // delta. Unlike Native TSD outputs, no publish_value_storage_delta
+            // call clears that delta after each tick — sync_dynamic_dict mutates
+            // the value layer directly and propagates child changes via
+            // child_modified instead. Without explicit clearing, stale added/
+            // updated/removed slot bits leak into the next tick, causing
+            // consumers to replay slots that were last touched several ticks
+            // ago. Clear the value-layer delta at the start of each new tick so
+            // it only carries the mutations performed within that tick.
+            if (starting_new_tick && target_root.valid()) {
+                target_root.value().as_map().clear_delta_tracking();
             }
 
             const View       source_value      = source_root.value();
@@ -3702,6 +3699,7 @@ namespace hgraph
 
                 binding.set_last_source_snapshot(current_source_root_state, false);
                 if (map_value_changed && modified_time != MIN_DT) { target_root_state->mark_modified(modified_time); }
+                binding.last_synced_time = modified_time;
                 finish_sync();
                 return;
             }
@@ -3756,16 +3754,36 @@ namespace hgraph
                 }
             }
 
+            // The source's value-layer delta accumulates structural changes
+            // (added/updated/removed slots) until something explicitly clears
+            // it. For a Native TSD source, publish_value_storage_delta clears
+            // it once per tick — but for a sync_dynamic_dict alternative source
+            // there is no equivalent global clearer, so the delta can contain
+            // entries from a prior tick. When the source is Native and its
+            // own last_modified_time is older than the current modified_time,
+            // its delta is from a prior tick and must not be replayed —
+            // doing so would resurface stale slot mutations and pollute
+            // downstream consumers' modified_children sets. For non-Native
+            // sources we have no alternate signal to consult, so we honor the
+            // value-layer delta directly.
+            const bool source_native_published_this_tick =
+                source_native_state != nullptr && source_native_state->last_modified_time == modified_time;
+            const auto source_slot_changed_this_tick = [&](size_t slot) {
+                static_cast<void>(slot);
+                return source_native_state == nullptr || source_native_published_this_tick;
+            };
             const bool has_added_slots          = source_delta.first_added_slot() != no_slot;
             const bool has_updated_slots        = source_delta.first_updated_slot() != no_slot;
             const bool has_native_removed_slots = source_native_state != nullptr &&
                                                   source_native_state->removed_valid_children_modified_time == modified_time &&
                                                   !source_native_state->removed_valid_child_keys.empty();
             const bool has_native_modified_slots =
-                source_native_state != nullptr && !source_native_state->modified_children.empty();
+                source_native_state != nullptr && source_native_state->last_modified_time == modified_time &&
+                !source_native_state->modified_children.empty();
             if (!full_resync && !map_value_changed && !has_added_slots && !has_updated_slots && !has_native_removed_slots &&
                 !has_native_modified_slots && !materialize_empty_dict) {
                 binding.set_last_source_snapshot(current_source_root_state, current_source_had_value);
+                binding.last_synced_time = modified_time;
                 finish_sync();
                 return;
             }
@@ -3909,6 +3927,20 @@ namespace hgraph
             };
 
             if (full_resync) {
+                // When the binding has been rebound (`source_rebound` /
+                // `source_value_changed`) we still need to walk every live slot to
+                // make sure newly-introduced keys get materialised on the target,
+                // but we must not unconditionally re-replay slots whose data has
+                // not actually changed. Doing so was causing spurious entries in
+                // the target's `modified_children` set whenever the upstream REF
+                // target was refreshed (a common occurrence when downstream of
+                // `partition`/`map_` chains where the source TSD object is rebound
+                // every tick), which in turn made `request.modified_items()` on
+                // the consumer side report previously-existing keys as modified.
+                // We rely on the existing `sampled_slot_changed` / source-delta /
+                // child-modified signals to identify the truly-changed slots, and
+                // only the `initializing && !target_was_valid` path force-refreshes
+                // a fresh binding to populate it from scratch.
                 for (size_t slot = source_map.first_live_slot(); slot != no_slot; slot = source_map.next_live_slot(slot)) {
                     const View key                 = source_delta.key_at_slot(slot);
                     const bool target_has_live_key = target_map.contains(key);
@@ -3917,20 +3949,24 @@ namespace hgraph
                         (!sampled_previous_map_matches ||
                          transition_map_slot_changed(*sampled_previous_map, source_root.context_ref(), key));
                     const bool force_live_refresh =
-                        source_rebound || source_value_changed || sampled_slot_changed || (initializing && !target_was_valid);
+                        sampled_slot_changed || (initializing && !target_was_valid);
                     const bool source_slot_changed =
                         source_delta.slot_added(slot) || source_delta.slot_updated(slot) || force_live_refresh;
-                    replay_live_slot(slot, !target_has_live_key || source_slot_changed, !target_has_live_key || force_live_refresh);
+                    replay_live_slot(slot, !target_has_live_key || source_slot_changed,
+                                     !target_has_live_key || force_live_refresh);
                 }
             } else {
                 std::unordered_set<size_t> replayed_slots;
-                for (size_t slot = source_delta.first_added_slot(); slot != no_slot; slot = source_delta.next_added_slot(slot)) {
+                for (size_t slot = source_delta.first_added_slot(); slot != no_slot;
+                     slot        = source_delta.next_added_slot(slot)) {
+                    if (!source_slot_changed_this_tick(slot)) { continue; }
                     replay_live_slot(slot, true, true);
                     replayed_slots.insert(slot);
                 }
                 for (size_t slot = source_delta.first_updated_slot(); slot != no_slot;
                      slot        = source_delta.next_updated_slot(slot)) {
                     if (source_delta.slot_added(slot)) { continue; }
+                    if (!source_slot_changed_this_tick(slot)) { continue; }
                     const View   key          = source_delta.key_at_slot(slot);
                     TSOutputView source_child = ensure_tsd_child_view(source_root, key);
                     TSOutputView target_child = target_dict.at(key);
@@ -3950,7 +3986,7 @@ namespace hgraph
                     replay_live_slot(slot, true, false);
                     replayed_slots.insert(slot);
                 }
-                if (source_native_state != nullptr) {
+                if (source_native_state != nullptr && source_native_state->last_modified_time == modified_time) {
                     const size_t slot_capacity = source_delta.slot_capacity();
                     for (const size_t slot : source_native_state->modified_children) {
                         if (replayed_slots.contains(slot) || slot >= slot_capacity || !source_delta.slot_occupied(slot) ||
@@ -3976,6 +4012,7 @@ namespace hgraph
                 // enclosing bundle alternative.
                 target_root_state->mark_modified(modified_time);
             }
+            binding.last_synced_time = modified_time;
             finish_sync();
         }
 
