@@ -953,6 +953,35 @@ namespace hgraph
             if (structural_changed) { mark_output_view_modified(view, view.evaluation_time()); }
         }
 
+        [[nodiscard]] bool bundle_can_apply_result(const TSOutputView &view, nb::handle value) {
+            // Mirror Python's `PythonTimeSeriesBundleOutput.can_apply_result`: a
+            // partial dict-shaped delta (the common shape produced by
+            // `combine[TSB[...]](...)` and pushed via push-queue) is acceptable as
+            // long as every named field can independently accept its slice. This
+            // lets a tick that has already written one bundle field still accept a
+            // write to a different field, which is essential for push-queue
+            // producers that emit a sequence of single-field updates (e.g.
+            // `run_graph_on_thread` emitting `started`, then `out`, then
+            // `finished`, then `status`). Whole-bundle replacement values
+            // (CompoundScalar instances, peer-bundle assignments) still require a
+            // clean slate.
+            if (value.is_none()) { return true; }
+            if (!nb::hasattr(value, "items")) { return !view.modified(); }
+            const TSMeta *schema = view.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSB) { return !view.modified(); }
+
+            const nb::object items_object = nb::getattr(value, "items")();
+            for (const auto &kv : items_object) {
+                nb::object field_value = nb::borrow<nb::object>(kv[1]);
+                if (field_value.is_none()) { continue; }
+                const std::string field_name = nb::cast<std::string>(nb::borrow<nb::object>(kv[0]));
+                TSOutputView      child      = view.as_bundle().field(field_name);
+                if (!child.context_ref().is_bound()) { continue; }
+                if (!child.can_apply_result(field_value)) { return false; }
+            }
+            return true;
+        }
+
         [[nodiscard]] bool dict_can_apply_result(const TSOutputView &view, nb::handle value) {
             if (value.is_none()) { return true; }
             if (!nb::cast<bool>(nb::bool_(value))) { return true; }

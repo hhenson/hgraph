@@ -34,6 +34,7 @@ namespace hgraph
         [[nodiscard]] nb::object set_to_python(const TSViewContext &context);
         [[nodiscard]] nb::object set_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time);
         void                     bundle_from_python(const TSOutputView &view, nb::handle value);
+        [[nodiscard]] bool       bundle_can_apply_result(const TSOutputView &view, nb::handle value);
         void                     list_from_python(const TSOutputView &view, nb::handle value);
         [[nodiscard]] bool       dict_can_apply_result(const TSOutputView &view, nb::handle value);
         void                     dict_apply_result(const TSOutputView &view, nb::handle value);
@@ -1365,6 +1366,10 @@ namespace hgraph
 
                 const auto delta = context.value().as_bundle().delta();
                 return bundle_slot_modified(delta, index);
+            }
+
+            [[nodiscard]] bool can_apply_result(const TSOutputView &view, nb::handle value) const override {
+                return detail::bundle_can_apply_result(view, value);
             }
 
             [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override {
