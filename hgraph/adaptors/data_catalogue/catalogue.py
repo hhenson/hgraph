@@ -144,5 +144,8 @@ class DataEnvironment:
     def add_entry(self, entry: DataEnvironmentEntry):
         self.environment[entry.source_path] = entry
 
+    def has_entry(self, source_path: str) -> bool:
+        return source_path in self.environment
+
     def get_entry(self, source_path: str) -> DataEnvironmentEntry:
         return self.environment[source_path]

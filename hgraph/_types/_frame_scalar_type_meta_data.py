@@ -20,7 +20,7 @@ try:
 
     class _FrameTypeclass(_SpecialGenericAlias, _root=True): ...
 
-    Frame = _FrameTypeclass(pl.DataFrame, 1, inst=False, name="Frame")
+    Frame : type = _FrameTypeclass(pl.DataFrame, 1, inst=False, name="Frame")
 
     class HgDataFrameScalarTypeMetaData(HgCollectionType):
         schema: HgCompoundScalarType  # The schema of the frame

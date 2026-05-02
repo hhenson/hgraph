@@ -2,7 +2,7 @@ import polars as pl
 from frozendict import frozendict
 
 from hgraph import Frame, TS, graph, compound_scalar, TSD
-from hgraph.adaptors.data_frame import schema_from_frame, join, filter_cs, ungroup
+from hgraph.adaptors.data_frame import schema_from_frame, join, filter_cs, ungroup, concat
 from hgraph.test import eval_node
 
 
@@ -68,3 +68,25 @@ def test_ungroup():
 
     result = eval_node(g, [frozendict({"a": df_1, "b": df_3})])
     assert len(result[0]) == 3
+
+
+def test_concat():
+    df_1 = pl.DataFrame({"a": [1], "b": [4]})
+    df_2 = pl.DataFrame({"a": [2], "b": [5]})
+    expected = pl.concat([df_1, df_2])
+
+    assert all(
+        r.equals(e)
+        for r, e in zip(
+            eval_node(
+                concat,
+                [df_1],
+                [df_2],
+                resolution_dict=dict(
+                    ts1=TS[Frame[schema_from_frame(df_1)]],
+                    ts2=TS[Frame[schema_from_frame(df_2)]],
+                ),
+            ),
+            [expected],
+        )
+    )

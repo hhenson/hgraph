@@ -19,6 +19,7 @@ from hgraph import (
     DivideByZero,
     ln,
 )
+from hgraph._operators._operators import sign
 from hgraph._types._scalar_types import NUMBER_2
 
 __all__ = tuple()
@@ -278,3 +279,19 @@ def eq_float_float(lhs: TS[float], rhs: TS[float], epsilon: TS[float] = EPSILON)
 @compute_node(overloads=ln)
 def ln_impl(ts: TS[float]) -> TS[float]:
     return math.log(ts.value)
+
+
+@compute_node(overloads=sign)
+def sign_impl(ts: TS[int]) -> TS[int]:
+    if ts.value < 0:
+        return -1
+    else:
+        return 1
+    
+    
+@compute_node(overloads=sign)
+def sign_float_impl(ts: TS[float]) -> TS[float]:
+    if ts.value < 0:
+        return -1.0
+    else:
+        return 1.0

@@ -516,7 +516,7 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                         tuple())
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
-            with WiringGraphContext(resolved_signature) as g:
+            with WiringGraphContext(resolved_signature, temporary=WiringGraphContext.is_temporary()) as g:
                 out: WiringPort = self.fn(**kwargs_)
                 WiringGraphContext.instance().label_nodes()
                 if output_type := resolved_signature.output_type:

@@ -52,18 +52,7 @@ class PythonOutputBuilder:
     
     def release_instance(self, item: "PythonTimeSeriesOutput"):
         if sys.exc_info()[0] is None:
-            if len(item._subscribers) != 0: 
-                try:
-                    logger.error(
-                        f"Output instance still has subscribers when released, this is a bug. \n"
-                        f"output belongs to node {item.owning_node}\n"
-                        f"subscriber nodes are {[i.owning_node if isinstance(i, TimeSeries) else i for i in item._subscribers]}\n\n"
-                        f"subscriber inputs are {[i for i in item._subscribers if isinstance(i, TimeSeries)]}\n\n"
-                        f"{item}"
-                    )
-                except Exception:
-                    ...
-            
+            item._subscribers.assert_empty(item)
             item._parent_or_node = None
 
 

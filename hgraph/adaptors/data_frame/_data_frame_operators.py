@@ -20,7 +20,7 @@ from hgraph._types import (
 )
 from hgraph._wiring import compute_node
 
-__all__ = ("join", "filter_frame", "filter_cs", "filter_exp", "filter_exp_seq", "group_by", "ungroup", "sorted_")
+__all__ = ("join", "filter_frame", "filter_cs", "filter_exp", "filter_exp_seq", "group_by", "ungroup", "sorted_", "concat")
 
 ON_TYPE = TypeVar("ON_TYPE", str, tuple[str, ...], pl.Expr)
 
@@ -187,3 +187,12 @@ def sorted_(ts: TS[Frame[COMPOUND_SCALAR]], by: str, descending: bool = False) -
         return ts
     else:
         return ts.sort(by, descending=descending)
+
+
+@operator
+def concat(ts1: TS[Frame[COMPOUND_SCALAR]], ts2: TS[Frame[COMPOUND_SCALAR]]) -> TS[Frame[COMPOUND_SCALAR]]: ...
+
+
+@compute_node(overloads=concat)
+def concat_frames(ts1: TS[Frame[COMPOUND_SCALAR]], ts2: TS[Frame[COMPOUND_SCALAR]]) -> TS[Frame[COMPOUND_SCALAR]]:
+    return pl.concat([ts1.value, ts2.value])

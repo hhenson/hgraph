@@ -94,6 +94,8 @@ def test_schema_base_generic():
     assert meta5.is_resolved is True
     assert meta5.type_vars == set()
 
+    assert meta4.matches(meta5)
+
     resolution_dict = {}
     meta4.build_resolution_dict(resolution_dict, meta5)
     assert resolution_dict == {COMPOUND_SCALAR_1: HgTypeMetaData.parse_type(SimpleCompoundScalar)}
@@ -101,6 +103,8 @@ def test_schema_base_generic():
     meta6 = meta4.resolve(resolution_dict)
     assert meta6 == meta5
     assert meta6.scalar_type() == meta5.scalar_type()
+    
+    assert meta4.matches(meta6)
 
 
 def test_deep_schema_base():

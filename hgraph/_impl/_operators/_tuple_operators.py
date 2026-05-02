@@ -140,6 +140,19 @@ def index_of_tuple(ts: TS[tuple[SCALAR, ...]], item: TS[SCALAR]) -> TS[int]:
         return -1
 
 
+@compute_node(overloads=add_, valid=lambda m, __strict__: ("lhs", "rhs") if __strict__ else tuple())
+def add_tuple_tuple(lhs: TS[Tuple[SCALAR, ...]], rhs: TS[Tuple[SCALAR, ...]], __strict__: bool = True) -> TS[Tuple[SCALAR, ...]]:
+    """Adds the tuples together."""
+    if lhs.valid:
+        if rhs.valid:
+            return lhs.value + rhs.value
+        else:
+            return lhs.value
+    elif rhs.valid:
+        # If lhs is not valid, rhs must be valid as we were activated by something ticking.
+        return rhs.value
+    
+
 @compute_node(overloads=add_, valid=tuple())
 def add_tuple_scalar(lhs: TS[Tuple[SCALAR, ...]], rhs: TS[SCALAR]) -> TS[Tuple[SCALAR, ...]]:
     """Adds the element to the tuple."""

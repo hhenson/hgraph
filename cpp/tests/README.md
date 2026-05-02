@@ -95,7 +95,7 @@ Or run specific tests using Catch2 filters:
 ### Dependencies
 
 - **Catch2 v3.5.0**: Testing framework (automatically fetched via FetchContent)
-- **fmt 10.1.0**: Formatting library (automatically fetched via FetchContent)
+- **fmt 12.1.0**: Formatting library (automatically fetched via FetchContent)
 - **C++23**: Required for `requires` clauses and other modern features
 
 ### Architecture Notes

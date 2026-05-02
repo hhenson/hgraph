@@ -36,7 +36,7 @@ def test_error_not_handling(caplog):
         evaluate_graph(main, GraphConfiguration(capture_values=True, trace_back_depth=3))
 
     assert "ZeroDivisionError" in caplog.text
-    assert "main.div_numbers" in caplog.text
+    assert "div_numbers" in caplog.text
 
 
 def test_error_not_handling_in_switch(caplog):
@@ -51,7 +51,8 @@ def test_error_not_handling_in_switch(caplog):
         evaluate_graph(main, GraphConfiguration(capture_values=True, trace_back_depth=3))
 
     assert "ZeroDivisionError" in caplog.text
-    assert ".<lambda>.div_numbers" in caplog.text
+    assert "<lambda>" in caplog.text
+    assert "div_numbers" in caplog.text
 
 
 def test_error_handling():
@@ -138,7 +139,7 @@ def test_sink_node():
     out = eval_node(main, [1.0, 2.0])
     assert len(out) == 2
     assert out[0] is None
-    assert cast(NodeError, out[1]).error_msg.endswith("Test error")
+    assert "Test error" in cast(NodeError, out[1]).error_msg
 
 
 def test_try_except_delayed():

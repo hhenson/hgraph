@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import logging
 
 from frozendict import frozendict
 
@@ -18,6 +19,7 @@ from hgraph import (
     if_then_else,
     combine,
     convert,
+    log_,
     service_adaptor,
     service_adaptor_impl,
     TSD,
@@ -68,7 +70,7 @@ def find_data_catalogue_entry(
             else:
                 scope_checks[dce.dataset] = checks
 
-    raise ValueError(f"Given options ({[o for o in opts]}) do not match any of the {len(dces)} "
+    raise ValueError(f"Given options ({[o for o in opts.items()]}) do not match any of the {len(dces)} "
                      f"data catalogue entries for {tp.__name__}, dataset '{dataset}'")
 
 
@@ -95,6 +97,7 @@ def subscribe_dict(
 ) -> TSB[Stream[Data[Frame[SCHEMA]]]]:
     dce_and_options = find_data_catalogue_entry(_tp, dataset, __options__)
     error = exception_time_series(dce_and_options)
+    log_("data catalogue error {}", error, level=logging.ERROR)
     dce = dce_and_options.dce
     options = dce_and_options.options
     data = subscribe_adaptor[_tp](dce, options)

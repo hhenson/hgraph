@@ -6,7 +6,7 @@ from hgraph._types._time_series_types import TIME_SERIES_TYPE, SIGNAL
 from hgraph._types._ts_type import TS
 from hgraph._wiring._decorators import operator
 
-__all__ = ("valid", "last_modified_date", "last_modified_time", "modified", "evaluation_time_in_range", "TIME_TYPE")
+__all__ = ("valid", "last_modified_date", "last_modified_time", "modified", "evaluation_time_in_range", "TIME_TYPE", "last_modified_wall_clock_time")
 
 
 @operator
@@ -18,6 +18,13 @@ def valid(ts: TIME_SERIES_TYPE, ts_value: TIME_SERIES_TYPE = None) -> TS[bool]:
 
 @operator
 def last_modified_time(ts: SIGNAL) -> TS[datetime]:
+    """
+    The datetime representing the last modified time of the time series.
+    """
+
+
+@operator
+def last_modified_wall_clock_time(ts: SIGNAL) -> TS[datetime]:
     """
     The datetime representing the last modified time of the time series.
     """

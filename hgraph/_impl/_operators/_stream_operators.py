@@ -118,6 +118,29 @@ def lag_timedelta_start(_state: STATE[LagState]):
     _state.buffer = deque[SCALAR]()
 
 
+@compute_node(overloads=lag)
+def lag_timedelta_ts(
+    ts: TIME_SERIES_TYPE,
+    period: TS[timedelta],
+    on_wall_clock: bool = False,
+    _scheduler: SCHEDULER = None,
+    _state: STATE[LagState] = None,
+) -> TIME_SERIES_TYPE:
+    # Uses the scheduler to keep track of when to deliver the values recorded in the buffer.
+    buffer: deque[SCALAR] = _state.buffer
+    if ts.modified:
+        buffer.append(ts.delta_value)
+        _scheduler.schedule(period.value, f"{ts.last_modified_time}", on_wall_clock=on_wall_clock)
+
+    if _scheduler.is_scheduled_now:
+        return buffer.popleft()
+
+
+@lag_timedelta_ts.start
+def lag_timedelta_ts_start(_state: STATE[LagState]):
+    _state.buffer = deque[SCALAR]()
+
+
 @generator(overloads=schedule)
 def schedule_scalar(delay: timedelta, initial_delay: bool = True, max_ticks: int = sys.maxsize) -> TS[bool]:
     initial_timedelta = delay if initial_delay else timedelta()

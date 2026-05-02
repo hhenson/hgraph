@@ -3,7 +3,7 @@
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no" />
 
-        <title>ACE{{ ' ' + env if (env := mgr.options.get('env')) else '' }}: {{url}}</title>
+        <title>{{mgr.options.get('app') or 'HGRAPH'}}{{ ' ' + env if (env := mgr.options.get('env')) else '' }}: {{url}}</title>
 
     	<script language='javascript'>
             const display_errors = false;

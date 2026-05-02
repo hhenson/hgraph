@@ -231,10 +231,11 @@ class AbstractSchema:
 
         for b in reversed(cls.mro()):
             if b == cls._root_cls():
+                root_suffix_map = b.__parameters_meta_data__
                 suffix_map = b.__parameters_meta_data__
             elif issubclass(b, cls._root_cls()):
                 arg_map = {k: cls._parse_type(v) for k, v in zip(suffix_map.keys(), b.__args__)}
-                suffix_map = {k: cls._parse_type(v).resolve(arg_map, weak=True).py_type for k, v in suffix_map.items()}
+                suffix_map = {k: cls._parse_type(v).resolve(arg_map, weak=True).py_type for k, v in root_suffix_map.items()}
 
         suffix_map = {k: cls._parse_type(v).resolve(resolution_dict, weak=True).py_type for k, v in suffix_map.items()}
         if all(k is v for k, v in suffix_map.items()):
@@ -359,9 +360,19 @@ class Base:
         self.item = item
 
     def __class_getitem__(cls, item):
+        if isinstance(item, tuple):
+            if len(item) != 1:
+                raise TypeError(f"Base accepts only a single type parameter, got {len(item)}: {item}")
+            item = item[0]
+            
         if cls is Base and isinstance(item, TypeVar):
             assert item.__bound__ is not None
             return cls(item)
+        elif isinstance(item, type) and item._root_cls() is not item and item.__args__:  # Base[C[int]] is a resolution of Base[C]
+            from hgraph._types._type_meta_data import HgTypeMetaData
+            return super().__class_getitem__(item._root_cls())._resolve(
+                {k: HgTypeMetaData.parse_type(v) for k, v in zip(item._root_cls().__parameters__, item.__args__)}
+            )    
         else:
             return super().__class_getitem__(item)
 

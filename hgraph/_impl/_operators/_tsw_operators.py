@@ -44,7 +44,8 @@ def min_tsw(
     ts: TSW[NUMBER, WINDOW_SIZE, WINDOW_SIZE_MIN], default_value: TS[NUMBER] = None, _tp: type[NUMBER] = AUTO_RESOLVE
 ) -> TS[NUMBER]:
     default = default_value.value if default_value.valid else None
-    value = min(ts.value, default=default)
+    values = ts.value if ts.value is not None else ()
+    value = min(values, default=default)
     return _tp(value) if value is not None else None
 
 
@@ -53,5 +54,6 @@ def max_tsw(
     ts: TSW[NUMBER, WINDOW_SIZE, WINDOW_SIZE_MIN], default_value: TS[NUMBER] = None, _tp: type[NUMBER] = AUTO_RESOLVE
 ) -> TS[NUMBER]:
     default = default_value.value if default_value.valid else None
-    value = max(ts.value, default=default)
+    values = ts.value if ts.value is not None else ()
+    value = max(values, default=default)
     return _tp(value) if value is not None else None

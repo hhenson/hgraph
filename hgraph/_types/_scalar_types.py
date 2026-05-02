@@ -467,6 +467,8 @@ class STATE(Generic[COMPOUND_SCALAR]):
     def __repr__(self) -> str:
         return (
             f"SCALAR[{self.__schema__.__name__}]({', '.join(k + '=' + repr(v) for k, v in asdict(self._value).items())})"
+            if self.__schema__
+            else f"SCALAR({', '.join(k + '=' + repr(v) for k, v in self._value.items())})"
         )
 
 

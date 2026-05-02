@@ -124,7 +124,10 @@ def http_client_adaptor_impl(
             final = response2.headers.get("WWW-Authenticate")
             if final is not None:
                 try:
-                    challenge = [v[len(scheme) + 1 :] for val in final.split(",") if scheme in (v := val.strip())]
+                    if scheme in final:
+                        challenge = [v[len(scheme) + 1 :] for val in final.split(",") if scheme in (v := val.strip())]
+                    else:
+                        challenge = [val.strip() for val in final.split(",")]
                     if len(challenge) > 1:
                         raise HTTPError(401, f"Received more than one {scheme} challenge from server")
 

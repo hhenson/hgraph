@@ -1,3 +1,4 @@
+import inspect
 from itertools import chain
 from typing import Callable, cast, TYPE_CHECKING, List
 
@@ -101,7 +102,7 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
             None,
         )
         if key_set is None:
-            raise CustomMessageWiringError("No multiplexed inputs found")
+            raise CustomMessageWiringError(f"No multiplexed inputs found when deducing the signature of the lambda {func} defined at {inspect.getfile(func)}:{inspect.getsourcelines(func)[1]} passed into map_")
 
     key_type = key_set.output_type.dereference().value_scalar_tp
 
@@ -458,7 +459,7 @@ def _split_inputs(
     _validate_multiplex_types(signature_types, kwargs_, multiplex_args, no_key_args)
 
     if not tsd_keys and (len(no_key_args) + len(multiplex_args) == 0):
-        raise CustomMessageWiringError("No multiplexed inputs found")
+        raise CustomMessageWiringError(f"No multiplexed inputs found for TSD map over {signature} with parameters {input_types}")
 
     if len(multiplex_args) + len(direct_args) + len(pass_through_args) + len(non_ts_inputs) != len(kwargs_):
         raise CustomMessageWiringError(f"Unable to determine how to split inputs with args:\n {kwargs_}")

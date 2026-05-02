@@ -4,7 +4,7 @@ Tooling to convert to a dataframe from variable time-series types.
 
 from dataclasses import asdict
 from datetime import date, datetime
-from typing import Dict, Type, Callable
+from typing import Dict, Tuple, Type, Callable
 
 import polars as pl
 from frozendict import frozendict
@@ -322,6 +322,15 @@ def _check_schema(scalar, bundle):
             return f"column {k} of type {t} does not accept {skt}"
 
     return True
+
+
+@compute_node(overloads=convert, requires=lambda m: m[OUT].py_type == TS[Frame] or m[OUT].matches_type(TS[Frame[m[COMPOUND_SCALAR].py_type]]))
+def convert_tuple_to_frame(
+    ts: TS[Tuple[COMPOUND_SCALAR]],
+    _tp: Type[TS[Frame[COMPOUND_SCALAR]]] = DEFAULT[OUT],
+    _cs: Type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+) -> TS[Frame[COMPOUND_SCALAR]]:
+    return pl.DataFrame(ts.value)
 
 
 @compute_node(

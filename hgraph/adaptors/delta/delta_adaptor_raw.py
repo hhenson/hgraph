@@ -209,6 +209,8 @@ def delta_query_adaptor_raw_impl(
                 qb.register(t, DeltaTable(path + t, storage_options=credentials or None))
 
             rbr = qb.execute(query)
+            if hasattr(rbr, "fetchall"):
+                rbr = rbr.fetchall()
             if rbr:
                 rdr = pa.RecordBatchReader.from_batches(rbr[0].schema, rbr)
                 r = pl.from_arrow(rdr.read_all())

@@ -16,7 +16,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 if (UNIX)
     set(CMAKE_CXX_FLAGS_RELEASE "-g -O3")
     set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-g -O3 -DNDEBUG")
-    set(CMAKE_CXX_FLAGS_DEBUG "-g -v")
+    set(CMAKE_CXX_FLAGS_DEBUG "-g")
     set(CMAKE_CXX_FLAGS "-Wall")
     # Sanitizers (Clang/GCC only)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
@@ -80,8 +80,9 @@ endif ()
 if (DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
     set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
 endif ()
-# Required: Python interpreter + development module
-find_package(Python 3.12 COMPONENTS Interpreter Development.Module REQUIRED)
+# Required: Python interpreter + development module. When scikit-build-core is
+# targeting the stable ABI, it exposes SKBUILD_SABI_COMPONENT=Development.SABIModule.
+find_package(Python 3.12 COMPONENTS Interpreter Development.Module ${SKBUILD_SABI_COMPONENT} REQUIRED)
 # Optional: NumPy headers for zero-copy array views
 find_package(Python 3.12 COMPONENTS NumPy QUIET)
 include_directories(${Python_INCLUDE_DIRS})
@@ -130,7 +131,7 @@ find_package(fmt CONFIG QUIET)
 if (NOT fmt_FOUND)
     message(STATUS "fmt not found via find_package, using FetchContent")
     include(FetchContent)
-    FetchContent_Declare(fmt GIT_REPOSITORY https://github.com/fmtlib/fmt.git GIT_TAG 10.1.0)
+    FetchContent_Declare(fmt GIT_REPOSITORY https://github.com/fmtlib/fmt.git GIT_TAG 12.1.0)
     FetchContent_MakeAvailable(fmt)
 else ()
     message(STATUS "Found fmt via Conan/system: ${fmt_DIR}")
@@ -263,8 +264,86 @@ configure_file(
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-file(GLOB_RECURSE HGRAPH_INCLUDES CONFIGURE_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/include/hgraph/*.h")
+set(HGRAPH_INCLUDES
+        include/hgraph/api/python/api_ptr.h
+        include/hgraph/api/python/py_evaluation_clock.h
+        include/hgraph/api/python/py_evaluation_engine.h
+        include/hgraph/api/python/py_graph.h
+        include/hgraph/api/python/py_node.h
+        include/hgraph/api/python/py_special_nodes.h
+        include/hgraph/api/python/py_time_series.h
+        include/hgraph/api/python/py_ref.h
+        include/hgraph/api/python/py_signal.h
+        include/hgraph/api/python/py_ts.h
+        include/hgraph/api/python/py_tsb.h
+        include/hgraph/api/python/py_tsd.h
+        include/hgraph/api/python/py_tsl.h
+        include/hgraph/api/python/py_tss.h
+        include/hgraph/api/python/py_tsw.h
+        include/hgraph/api/python/wrapper_factory.h
+        include/hgraph/hgraph_forward_declarations.h
+        include/hgraph/builders/builder.h
+        include/hgraph/builders/graph_builder.h
+        include/hgraph/builders/input_builder.h
+        include/hgraph/builders/node_builder.h
+        include/hgraph/builders/output_builder.h
+        include/hgraph/nodes/base_python_node.h
+        include/hgraph/nodes/component_node.h
+        include/hgraph/nodes/last_value_pull_node.h
+        include/hgraph/nodes/mesh_node.h
+        include/hgraph/nodes/nest_graph_node.h
+        include/hgraph/nodes/nested_evaluation_engine.h
+        include/hgraph/nodes/nested_node.h
+        include/hgraph/nodes/python_node.h
+        include/hgraph/nodes/non_associative_reduce_node.h
+        include/hgraph/nodes/python_generator_node.h
+        include/hgraph/nodes/push_queue_node.h
+        include/hgraph/nodes/reduce_node.h
+        include/hgraph/nodes/switch_node.h
+        include/hgraph/nodes/try_except_node.h
+        include/hgraph/nodes/tsd_map_node.h
+        include/hgraph/runtime/evaluation_context.h
+        include/hgraph/runtime/evaluation_engine.h
+        include/hgraph/runtime/graph_executor.h
+        include/hgraph/runtime/record_replay.h
+        include/hgraph/runtime/observers/evaluation_profiler.h
+        include/hgraph/runtime/observers/evaluation_trace.h
+        include/hgraph/runtime/observers/inspection_observer.h
+        include/hgraph/types/base_time_series.h
+        include/hgraph/types/constants.h
+        include/hgraph/types/error_type.h
+        include/hgraph/types/feature_extension.h
+        include/hgraph/types/graph.h
+        include/hgraph/types/node.h
+        include/hgraph/types/notifiable.h
+        include/hgraph/types/ref.h
+        include/hgraph/types/scalar_types.h
+        include/hgraph/types/schema_type.h
+        include/hgraph/types/time_series_type.h
+        include/hgraph/types/traits.h
+        include/hgraph/types/ts.h
+        include/hgraph/types/ts_signal.h
+        include/hgraph/types/tsd.h
+        include/hgraph/types/tss.h
+        include/hgraph/types/ts_indexed.h
+        include/hgraph/types/tsb.h
+        include/hgraph/types/tsl.h
+        include/hgraph/types/tsw.h
+        include/hgraph/python/chrono.h
+        include/hgraph/python/format.h
+        include/hgraph/python/global_state.h
+        include/hgraph/python/global_keys.h
+        include/hgraph/python/hashable.h
+        include/hgraph/python/nb_types_ext.h
+        include/hgraph/python/reference_wrapper.h
+        include/hgraph/util/date_time.h
+        include/hgraph/util/lifecycle.h
+        include/hgraph/util/sender_receiver_state.h
+        include/hgraph/util/stack_trace.h
+        include/hgraph/util/string_utils.h
+        include/hgraph/hgraph_export.h
+)
+list(TRANSFORM HGRAPH_INCLUDES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 
 # Expose includes var to src/cpp subdirectory
 set(HGRAPH_INCLUDES ${HGRAPH_INCLUDES} PARENT_SCOPE)

@@ -256,7 +256,7 @@ def get_shared_reference_output(
 
     global_state = GlobalState.instance()
     has_shared_output = path in global_state
-    if has_shared_output and _state.subscribed is False:
+    if has_shared_output and not _state.subscribed:
         global_state[f"{path}_subscriber"].subscribe(node)
         _state.subscribed = True
 
@@ -273,7 +273,7 @@ def get_shared_reference_output_start(path: str, node: NODE = None, _state: STAT
 
 
 @get_shared_reference_output.stop
-def get_shared_reference_output_start(path: str, node: NODE = None):
+def get_shared_reference_output_stop(path: str, node: NODE = None, _state: STATE = None):
     subscriber = GlobalState.instance().get(f"{path}_subscriber")
-    if subscriber:
+    if subscriber and _state.subscribed:
         subscriber.unsubscribe(node)

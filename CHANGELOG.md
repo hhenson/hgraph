@@ -1603,3 +1603,8 @@ Version 0.5.16
 --------------
 
 * Add min_/max_ support for TSW
+
+Version 0.5.20
+--------------
+
+* Add null handling in to/from json.
