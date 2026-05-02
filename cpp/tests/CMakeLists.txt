@@ -138,6 +138,8 @@ set(HGRAPH_TEST_TIME_SERIES_SOURCES
 )
 
 set(HGRAPH_TEST_V2_RUNTIME_SOURCES
+    ../src/cpp/python/global_state.cpp
+    ../src/cpp/python/global_keys.cpp
     ../src/cpp/types/boundary_binding.cpp
     ../src/cpp/types/child_graph.cpp
     ../src/cpp/types/evaluation_engine.cpp
