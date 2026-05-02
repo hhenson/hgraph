@@ -2116,7 +2116,17 @@ namespace hgraph
 
                 const TSMeta *schema = context.resolved().schema;
                 if (schema == nullptr || schema->kind != TSKind::TSW) { return false; }
-                if (schema->is_duration_based()) { return duration_window_ready(context, current_window_time(context)); }
+                // Match Python:
+                //   - PythonTimeSeriesFixedWindowOutput.all_valid: valid && length >= min_size
+                //   - PythonTimeSeriesTimeWindowOutput.all_valid: inherits the default `valid`
+                // i.e. duration-based windows are `all_valid` as soon as they have any
+                // value at all; readiness (`min_time_period` reached) is signalled to
+                // operators through `value` returning `None` until the window is full,
+                // not through `all_valid`. This lets compute nodes declared with
+                // `all_valid=("ts",)` (e.g. `min_tsw`/`max_tsw` with `default_value`)
+                // fire on the first tick, observe `ts.value is None`, and return the
+                // user-supplied default rather than waiting for the window to fill.
+                if (schema->is_duration_based()) { return true; }
                 return size(context, current_window_time(context)) >= schema->min_period();
             }
 
