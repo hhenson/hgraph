@@ -1145,12 +1145,16 @@ namespace
         static void eval(ScalarArg<"path", std::string> path, ScalarArg<"arg", std::string> arg,
                          In<"request", REF<RequestTs>> request, In<"requestor_id", TS<int64_t>> requestor_id,
                          engine_time_t evaluation_time) {
+            if (!requestor_id.valid() || !request.valid()) { return; }
+
+            const TimeSeriesReference ref = refreshed_reference_from_input(request.view());
+            if (ref.is_empty()) { return; }
+
             TSOutputView target = shared_output_target(fmt::format("{}/{}", path.value(), arg.value()), evaluation_time);
             if (target.ts_schema() == nullptr) {
                 throw std::runtime_error(fmt::format("request stub '{}' not found for {}", arg.value(), path.value()));
             }
-            set_dict_child_reference(target, requestor_id.view().value(), refreshed_reference_from_input(request.view()),
-                                     evaluation_time);
+            set_dict_child_reference(target, requestor_id.view().value(), ref, evaluation_time);
         }
     };
 
@@ -1553,6 +1557,7 @@ namespace
 
             auto emit_child = [&](const View &dict_key, auto child, bool child_modified) {
                 TimeSeriesReference result = TimeSeriesReference::make();
+                bool                selected_field_modified = false;
                 const bool          child_live =
                     child.valid() || (replay_all_live && (child.context_ref().is_bound() || child.value().has_value()));
                 if (child_live) {
@@ -1562,12 +1567,15 @@ namespace
                     if (!ref->is_empty()) {
                         if (ref->is_peered()) {
                             TSOutputView bundle_view = ref->target_view(out.evaluation_time());
-                            result                   = TimeSeriesReference::make(bundle_view.as_bundle().field(field_name));
+                            TSOutputView field_view  = bundle_view.as_bundle().field(field_name);
+                            result                   = TimeSeriesReference::make(field_view);
+                            selected_field_modified  = field_view.modified();
                         } else {
                             const TSMeta *bundle_schema = child.ts_schema() != nullptr ? child.ts_schema()->element_ts() : nullptr;
                             const size_t  field_index   = bundle_field_index_or_throw(bundle_schema, field_name);
                             const auto   &items         = ref->items();
                             result = field_index < items.size() ? items[field_index] : TimeSeriesReference::make();
+                            selected_field_modified = child_modified;
                         }
                     }
                 }
@@ -1577,7 +1585,7 @@ namespace
                                                  ? current_child.value().as_atomic().template try_as<TimeSeriesReference>()
                                                  : nullptr;
                 const bool   needs_emit    = !current_child.context_ref().is_bound() || current_ref == nullptr ||
-                                             !(*current_ref == result) || child_modified;
+                                             !(*current_ref == result) || selected_field_modified;
                 if (!needs_emit) { return; }
 
                 if (!current_child.context_ref().is_bound()) {

@@ -61,7 +61,9 @@ namespace hgraph
                 }});
             }
 
-            if (!source_output.valid()) { source_output = output_from_context(view.context_ref().resolved()); }
+            if (source_output.ts_schema() == nullptr || !source_output.context_ref().is_bound()) {
+                source_output = output_from_context(view.context_ref().resolved());
+            }
 
             if (source_output.ts_schema() == nullptr || !source_output.context_ref().is_bound()) { return TSOutputView{}; }
 

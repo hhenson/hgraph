@@ -71,6 +71,8 @@ namespace hgraph
 
     EvaluationEngineApi Graph::evaluation_engine_api() const noexcept { return m_evaluation_engine.evaluation_engine_api(); }
 
+    GraphEvaluationEngine Graph::graph_evaluation_engine() const noexcept { return m_evaluation_engine; }
+
     EvaluationClock Graph::evaluation_clock() const noexcept { return engine_evaluation_clock(); }
 
     Traits &Graph::traits() {

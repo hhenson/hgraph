@@ -57,6 +57,15 @@ namespace hgraph
             return state->clock_state->parent_node->graph()->evaluation_engine_api();
         }
 
+        [[nodiscard]] GraphEvaluationEngine parent_graph_evaluation_engine(
+            const NestedEvaluationEngineState *state) noexcept {
+            if (state == nullptr || state->clock_state == nullptr || state->clock_state->parent_node == nullptr ||
+                state->clock_state->parent_node->graph() == nullptr) {
+                return {};
+            }
+            return state->clock_state->parent_node->graph()->graph_evaluation_engine();
+        }
+
         [[nodiscard]] EvaluationMode nested_api_evaluation_mode(const void *impl) noexcept {
             EvaluationEngineApi parent_api = parent_evaluation_engine_api(static_cast<const NestedEvaluationEngineState *>(impl));
             return parent_api.valid() ? parent_api.evaluation_mode() : EvaluationMode::SIMULATION;
@@ -137,27 +146,74 @@ namespace hgraph
             state->clock_state->nested_next_scheduled = MAX_DT;
         }
 
-        // Lifecycle notifications are no-ops for now.
-        // When lifecycle observers need to see nested graph activity (profiling/tracing),
-        // these can be wired through to the parent engine's observer list.
-        void nested_notify_before_start_graph(void * /*impl*/, Graph & /*graph*/) {}
-        void nested_notify_after_start_graph(void * /*impl*/, Graph & /*graph*/) {}
-        void nested_notify_before_start_node(void * /*impl*/, Node & /*node*/) {}
-        void nested_notify_after_start_node(void * /*impl*/, Node & /*node*/) {}
-        void nested_notify_before_graph_evaluation(void * /*impl*/, Graph & /*graph*/) {}
-        void nested_notify_after_graph_evaluation(void * /*impl*/, Graph & /*graph*/) {}
-        void nested_notify_after_push_nodes_evaluation(void * /*impl*/, Graph & /*graph*/) {}
+        void nested_notify_before_start_graph(void *impl, Graph &graph) {
+            GraphEvaluationEngine parent = parent_graph_evaluation_engine(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent) { parent.notify_before_start_graph(graph); }
+        }
+
+        void nested_notify_after_start_graph(void *impl, Graph &graph) {
+            GraphEvaluationEngine parent = parent_graph_evaluation_engine(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent) { parent.notify_after_start_graph(graph); }
+        }
+
+        void nested_notify_before_start_node(void *impl, Node &node) {
+            GraphEvaluationEngine parent = parent_graph_evaluation_engine(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent) { parent.notify_before_start_node(node); }
+        }
+
+        void nested_notify_after_start_node(void *impl, Node &node) {
+            GraphEvaluationEngine parent = parent_graph_evaluation_engine(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent) { parent.notify_after_start_node(node); }
+        }
+
+        void nested_notify_before_graph_evaluation(void *impl, Graph &graph) {
+            GraphEvaluationEngine parent = parent_graph_evaluation_engine(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent) { parent.notify_before_graph_evaluation(graph); }
+        }
+
+        void nested_notify_after_graph_evaluation(void *impl, Graph &graph) {
+            GraphEvaluationEngine parent = parent_graph_evaluation_engine(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent) { parent.notify_after_graph_evaluation(graph); }
+        }
+
+        void nested_notify_after_push_nodes_evaluation(void *impl, Graph &graph) {
+            GraphEvaluationEngine parent = parent_graph_evaluation_engine(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent) { parent.notify_after_push_nodes_evaluation(graph); }
+        }
 
         void nested_evaluate_push_source_nodes(void * /*impl*/, Graph & /*graph*/, engine_time_t /*when*/) {
             // Nested graphs do not support push source nodes for now
         }
 
-        void nested_notify_before_node_evaluation(void * /*impl*/, Node & /*node*/) {}
-        void nested_notify_after_node_evaluation(void * /*impl*/, Node & /*node*/) {}
-        void nested_notify_before_stop_node(void * /*impl*/, Node & /*node*/) {}
-        void nested_notify_after_stop_node(void * /*impl*/, Node & /*node*/) {}
-        void nested_notify_before_stop_graph(void * /*impl*/, Graph & /*graph*/) {}
-        void nested_notify_after_stop_graph(void * /*impl*/, Graph & /*graph*/) {}
+        void nested_notify_before_node_evaluation(void *impl, Node &node) {
+            GraphEvaluationEngine parent = parent_graph_evaluation_engine(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent) { parent.notify_before_node_evaluation(node); }
+        }
+
+        void nested_notify_after_node_evaluation(void *impl, Node &node) {
+            GraphEvaluationEngine parent = parent_graph_evaluation_engine(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent) { parent.notify_after_node_evaluation(node); }
+        }
+
+        void nested_notify_before_stop_node(void *impl, Node &node) {
+            GraphEvaluationEngine parent = parent_graph_evaluation_engine(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent) { parent.notify_before_stop_node(node); }
+        }
+
+        void nested_notify_after_stop_node(void *impl, Node &node) {
+            GraphEvaluationEngine parent = parent_graph_evaluation_engine(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent) { parent.notify_after_stop_node(node); }
+        }
+
+        void nested_notify_before_stop_graph(void *impl, Graph &graph) {
+            GraphEvaluationEngine parent = parent_graph_evaluation_engine(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent) { parent.notify_before_stop_graph(graph); }
+        }
+
+        void nested_notify_after_stop_graph(void *impl, Graph &graph) {
+            GraphEvaluationEngine parent = parent_graph_evaluation_engine(static_cast<NestedEvaluationEngineState *>(impl));
+            if (parent) { parent.notify_after_stop_graph(graph); }
+        }
 
         SenderReceiverState *nested_push_message_receiver(void * /*impl*/) noexcept { return nullptr; }
 

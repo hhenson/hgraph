@@ -232,32 +232,32 @@ namespace hgraph
         class PythonTraitsHandle
         {
           public:
-            explicit PythonTraitsHandle(Node *node) noexcept : m_node(node) {}
+            explicit PythonTraitsHandle(Graph *graph) noexcept : m_graph(graph) {}
 
-            void set_traits(nb::kwargs values) const { graph_of(m_node).traits().set_traits(std::move(values)); }
+            void set_traits(nb::kwargs values) const { m_graph->traits().set_traits(std::move(values)); }
 
             void set_trait(const std::string &name, nb::object value) const {
-                graph_of(m_node).traits().set_trait(name, std::move(value));
+                m_graph->traits().set_trait(name, std::move(value));
             }
 
-            [[nodiscard]] nb::object get_trait(const std::string &name) const { return graph_of(m_node).traits().get_trait(name); }
+            [[nodiscard]] nb::object get_trait(const std::string &name) const { return m_graph->traits().get_trait(name); }
 
             [[nodiscard]] nb::object get_trait_or(const std::string &name, nb::object default_value = nb::none()) const {
-                return graph_of(m_node).traits().get_trait_or(name, std::move(default_value));
+                return m_graph->traits().get_trait_or(name, std::move(default_value));
             }
 
           private:
-            Node *m_node{nullptr};
+            Graph *m_graph{nullptr};
         };
 
         class PythonGraphHandle
         {
           public:
-            explicit PythonGraphHandle(Node *node) noexcept : m_node(node) {}
+            explicit PythonGraphHandle(Graph *graph) noexcept : m_graph(graph) {}
 
             [[nodiscard]] nb::tuple graph_id() const {
-                if (m_node == nullptr) { return nb::tuple(); }
-                const auto &graph_id = graph_of(m_node).graph_id();
+                if (m_graph == nullptr) { return nb::tuple(); }
+                const auto &graph_id = m_graph->graph_id();
                 nb::tuple   out      = nb::steal<nb::tuple>(PyTuple_New(static_cast<Py_ssize_t>(graph_id.size())));
                 for (size_t i = 0; i < graph_id.size(); ++i) {
                     PyTuple_SetItem(out.ptr(), static_cast<Py_ssize_t>(i), nb::cast(graph_id[i]).release().ptr());
@@ -265,28 +265,53 @@ namespace hgraph
                 return out;
             }
 
-            [[nodiscard]] nb::object parent_node() const { return nb::none(); }
-
-            [[nodiscard]] std::string label() const {
-                return m_node != nullptr ? std::string{graph_of(m_node).label()} : std::string{};
+            [[nodiscard]] nb::object parent_node() const {
+                return m_graph != nullptr ? python_node_handle_for(m_graph->parent_node()) : nb::none();
             }
 
-            [[nodiscard]] EvaluationClock evaluation_clock() const { return graph_of(m_node).evaluation_clock(); }
+            [[nodiscard]] std::string label() const {
+                return m_graph != nullptr ? std::string{m_graph->label()} : std::string{};
+            }
 
-            [[nodiscard]] EvaluationEngineApi evaluation_engine_api() const { return graph_of(m_node).evaluation_engine_api(); }
+            [[nodiscard]] EvaluationClock evaluation_clock() const { return m_graph->evaluation_clock(); }
 
-            [[nodiscard]] PythonTraitsHandle traits() const { return PythonTraitsHandle{m_node}; }
+            [[nodiscard]] EvaluationEngineApi evaluation_engine_api() const { return m_graph->evaluation_engine_api(); }
+
+            [[nodiscard]] engine_time_t last_evaluation_time() const noexcept {
+                return m_graph != nullptr ? m_graph->last_evaluation_time() : MIN_DT;
+            }
+
+            [[nodiscard]] int64_t push_source_nodes_end() const noexcept {
+                return m_graph != nullptr ? m_graph->push_source_nodes_end() : 0;
+            }
+
+            [[nodiscard]] PythonTraitsHandle traits() const { return PythonTraitsHandle{m_graph}; }
 
             void schedule_node(int64_t node_index, engine_time_t when, bool force_set = false) const {
-                graph_of(m_node).schedule_node(node_index, when, force_set);
+                m_graph->schedule_node(node_index, when, force_set);
+            }
+
+            [[nodiscard]] nb::tuple node_info(int64_t public_node_index) const {
+                if (m_graph == nullptr) { throw std::out_of_range("v2 graph node index is out of range"); }
+                for (size_t i = 0; i < m_graph->entries().size(); ++i) {
+                    Node &node = m_graph->node_at(i);
+                    if (node.public_node_index() == public_node_index) {
+                        return nb::make_tuple(python_node_handle_for(&node), m_graph->scheduled_time(i));
+                    }
+                }
+                if (public_node_index >= 0 && static_cast<size_t>(public_node_index) < m_graph->entries().size()) {
+                    Node &node = m_graph->node_at(static_cast<size_t>(public_node_index));
+                    return nb::make_tuple(python_node_handle_for(&node),
+                                          m_graph->scheduled_time(static_cast<size_t>(public_node_index)));
+                }
+                throw std::out_of_range("v2 graph node index is out of range");
             }
 
             [[nodiscard]] nb::list nodes() const {
                 nb::list out;
-                if (m_node == nullptr) { return out; }
-                Graph &graph = graph_of(m_node);
-                for (size_t i = 0; i < graph.entries().size(); ++i) {
-                    Node      &n      = graph.node_at(i);
+                if (m_graph == nullptr) { return out; }
+                for (size_t i = 0; i < m_graph->entries().size(); ++i) {
+                    Node      &n      = m_graph->node_at(i);
                     nb::object handle = python_node_handle_for(&n);
                     out.append(std::move(handle));
                 }
@@ -294,8 +319,19 @@ namespace hgraph
             }
 
           private:
-            Node *m_node{nullptr};
+            Graph *m_graph{nullptr};
         };
+
+        [[nodiscard]] nb::object python_graph_handle_for(Graph *graph) {
+            if (graph == nullptr) { return nb::none(); }
+
+            nb::object existing = graph->traits().get_trait_or("__hgraph_cpp_python_graph_handle", nb::none());
+            if (!existing.is_none()) { return existing; }
+
+            nb::object handle = nb::cast(PythonGraphHandle{graph});
+            graph->traits().set_trait("__hgraph_cpp_python_graph_handle", nb::borrow(handle));
+            return handle;
+        }
 
         class NodeSchedulerHandle
         {
@@ -379,13 +415,51 @@ namespace hgraph
 
         [[nodiscard]] nb::object python_node_handle_for(Node *node) {
             if (node == nullptr) { return nb::none(); }
-            if (!node_has_python_handle_layout(*node)) { return nb::none(); }
-            auto *runtime_data = static_cast<const PythonNodeRuntimeDataView *>(node->data());
-            if (runtime_data == nullptr || runtime_data->heap_state == nullptr ||
-                !runtime_data->heap_state->node_handle.is_valid()) {
-                return nb::none();
+            if (node_has_python_handle_layout(*node)) {
+                auto *runtime_data = static_cast<const PythonNodeRuntimeDataView *>(node->data());
+                if (runtime_data != nullptr && runtime_data->heap_state != nullptr &&
+                    runtime_data->heap_state->node_handle.is_valid()) {
+                    return nb::borrow(runtime_data->heap_state->node_handle);
+                }
             }
-            return nb::borrow(runtime_data->heap_state->node_handle);
+
+            const BuiltNodeSpec &spec = node->spec();
+            if (!spec.python_signature.is_valid() || spec.python_signature.is_none()) { return nb::none(); }
+
+            Graph *graph = node->graph();
+            if (graph != nullptr) {
+                nb::object registry_obj =
+                    graph->traits().get_trait_or("__hgraph_cpp_python_node_handles", nb::none());
+                nb::dict registry;
+                if (registry_obj.is_none()) {
+                    registry = nb::dict{};
+                    graph->traits().set_trait("__hgraph_cpp_python_node_handles", nb::borrow(registry));
+                } else {
+                    registry = nb::borrow<nb::dict>(registry_obj);
+                }
+
+                nb::object key = nb::int_(node->node_index());
+                if (registry.contains(key)) { return nb::borrow(registry[key]); }
+
+                nb::object scalars = spec.python_scalars.is_valid() && !spec.python_scalars.is_none()
+                                         ? nb::borrow(spec.python_scalars)
+                                         : nb::object{nb::dict{}};
+                nb::object handle = make_python_node_handle(spec.python_signature, scalars, node, node_input_ptr(*node),
+                                                            node_output_ptr(*node), node_error_output_ptr(*node),
+                                                            node_recordable_state_ptr(*node), node->input_schema(),
+                                                            node->output_schema(), node->error_output_schema(),
+                                                            node->recordable_state_schema(), node->scheduler_if_present());
+                registry[key] = nb::borrow(handle);
+                return handle;
+            }
+
+            nb::object scalars = spec.python_scalars.is_valid() && !spec.python_scalars.is_none()
+                                     ? nb::borrow(spec.python_scalars)
+                                     : nb::object{nb::dict{}};
+            return make_python_node_handle(spec.python_signature, scalars, node, node_input_ptr(*node), node_output_ptr(*node),
+                                           node_error_output_ptr(*node), node_recordable_state_ptr(*node), node->input_schema(),
+                                           node->output_schema(), node->error_output_schema(), node->recordable_state_schema(),
+                                           node->scheduler_if_present());
         }
 
         class PythonTimeSeriesHandle
@@ -534,12 +608,12 @@ namespace hgraph
             [[nodiscard]] nb::object owning_graph() const {
                 if (m_node == nullptr && m_bound_output.has_value()) {
                     if (Node *owner = owner_node_from_context(*m_bound_output); owner != nullptr) {
-                        return nb::cast(PythonGraphHandle{owner});
+                        return python_graph_handle_for(owner->graph());
                     }
                 }
                 nb::object node_handle = python_node_handle_for(m_node);
                 if (node_handle.is_valid() && !node_handle.is_none()) { return node_handle.attr("graph"); }
-                return m_node != nullptr ? nb::cast(PythonGraphHandle{m_node}) : nb::none();
+                return m_node != nullptr ? python_graph_handle_for(m_node->graph()) : nb::none();
             }
 
             [[nodiscard]] nb::object owning_node() const {
@@ -1940,6 +2014,106 @@ namespace hgraph
             friend struct V2PythonReferenceSupport;
         };
 
+        class PythonTimeSeriesValueInputHandle : public PythonTimeSeriesHandle
+        {
+          public:
+            using PythonTimeSeriesHandle::PythonTimeSeriesHandle;
+        };
+
+        class PythonTimeSeriesValueOutputHandle : public PythonTimeSeriesHandle
+        {
+          public:
+            using PythonTimeSeriesHandle::PythonTimeSeriesHandle;
+        };
+
+        class PythonTimeSeriesReferenceInputHandle : public PythonTimeSeriesHandle
+        {
+          public:
+            using PythonTimeSeriesHandle::PythonTimeSeriesHandle;
+        };
+
+        class PythonTimeSeriesReferenceOutputHandle : public PythonTimeSeriesHandle
+        {
+          public:
+            using PythonTimeSeriesHandle::PythonTimeSeriesHandle;
+        };
+
+        class PythonTimeSeriesListInputHandle : public PythonTimeSeriesHandle
+        {
+          public:
+            using PythonTimeSeriesHandle::PythonTimeSeriesHandle;
+        };
+
+        class PythonTimeSeriesListOutputHandle : public PythonTimeSeriesHandle
+        {
+          public:
+            using PythonTimeSeriesHandle::PythonTimeSeriesHandle;
+        };
+
+        class PythonTimeSeriesDictInputHandle : public PythonTimeSeriesHandle
+        {
+          public:
+            using PythonTimeSeriesHandle::PythonTimeSeriesHandle;
+        };
+
+        class PythonTimeSeriesDictOutputHandle : public PythonTimeSeriesHandle
+        {
+          public:
+            using PythonTimeSeriesHandle::PythonTimeSeriesHandle;
+        };
+
+        class PythonTimeSeriesBundleInputHandle : public PythonTimeSeriesHandle
+        {
+          public:
+            using PythonTimeSeriesHandle::PythonTimeSeriesHandle;
+        };
+
+        class PythonTimeSeriesBundleOutputHandle : public PythonTimeSeriesHandle
+        {
+          public:
+            using PythonTimeSeriesHandle::PythonTimeSeriesHandle;
+        };
+
+        class PythonTimeSeriesSetInputHandle : public PythonTimeSeriesHandle
+        {
+          public:
+            using PythonTimeSeriesHandle::PythonTimeSeriesHandle;
+        };
+
+        class PythonTimeSeriesSetOutputHandle : public PythonTimeSeriesHandle
+        {
+          public:
+            using PythonTimeSeriesHandle::PythonTimeSeriesHandle;
+        };
+
+        [[nodiscard]] nb::object make_time_series_handle(Node *node, TSInput *input, TSOutput *output, const TSMeta *schema) {
+            const bool is_input = input != nullptr;
+            if (schema == nullptr) { return nb::cast(PythonTimeSeriesHandle{node, input, output, schema}); }
+            switch (schema->kind) {
+                case TSKind::TSValue:
+                case TSKind::SIGNAL:
+                    return is_input ? nb::cast(PythonTimeSeriesValueInputHandle{node, input, output, schema})
+                                    : nb::cast(PythonTimeSeriesValueOutputHandle{node, input, output, schema});
+                case TSKind::REF:
+                    return is_input ? nb::cast(PythonTimeSeriesReferenceInputHandle{node, input, output, schema})
+                                    : nb::cast(PythonTimeSeriesReferenceOutputHandle{node, input, output, schema});
+                case TSKind::TSL:
+                case TSKind::TSW:
+                    return is_input ? nb::cast(PythonTimeSeriesListInputHandle{node, input, output, schema})
+                                    : nb::cast(PythonTimeSeriesListOutputHandle{node, input, output, schema});
+                case TSKind::TSD:
+                    return is_input ? nb::cast(PythonTimeSeriesDictInputHandle{node, input, output, schema})
+                                    : nb::cast(PythonTimeSeriesDictOutputHandle{node, input, output, schema});
+                case TSKind::TSB:
+                    return is_input ? nb::cast(PythonTimeSeriesBundleInputHandle{node, input, output, schema})
+                                    : nb::cast(PythonTimeSeriesBundleOutputHandle{node, input, output, schema});
+                case TSKind::TSS:
+                    return is_input ? nb::cast(PythonTimeSeriesSetInputHandle{node, input, output, schema})
+                                    : nb::cast(PythonTimeSeriesSetOutputHandle{node, input, output, schema});
+            }
+            return nb::cast(PythonTimeSeriesHandle{node, input, output, schema});
+        }
+
         struct V2PythonReferenceSupport
         {
             [[nodiscard]] static TimeSeriesReference make(nb::object ts, nb::object items) {
@@ -2003,7 +2177,10 @@ namespace hgraph
             [[nodiscard]] int64_t node_ndx() const noexcept { return m_node != nullptr ? m_node->public_node_index() : -1; }
 
             [[nodiscard]] nb::tuple owning_graph_id() const {
-                if (m_graph.is_valid() && !m_graph.is_none()) { return nb::cast<nb::tuple>(m_graph.attr("graph_id")); }
+                nb::object graph_handle = graph();
+                if (graph_handle.is_valid() && !graph_handle.is_none()) {
+                    return nb::cast<nb::tuple>(graph_handle.attr("graph_id"));
+                }
                 return nb::tuple();
             }
 
@@ -2018,7 +2195,10 @@ namespace hgraph
 
             [[nodiscard]] nb::object scalars() const { return nb::borrow(m_scalars); }
 
-            [[nodiscard]] nb::object graph() const { return nb::borrow(m_graph); }
+            [[nodiscard]] nb::object graph() const {
+                if (m_node != nullptr && m_node->graph() != nullptr) { return python_graph_handle_for(m_node->graph()); }
+                return m_graph.is_valid() ? nb::borrow(m_graph) : nb::none();
+            }
 
             [[nodiscard]] nb::object input() const { return m_input.is_valid() ? nb::borrow(m_input) : nb::none(); }
 
@@ -2057,6 +2237,25 @@ namespace hgraph
 
             [[nodiscard]] bool has_error_output() const noexcept { return m_error_output.is_valid() && !m_error_output.is_none(); }
 
+            [[nodiscard]] size_t messages_in_queue() const noexcept {
+                if (m_node == nullptr || !m_node->is_push_source_node() || m_node->graph() == nullptr) { return 0; }
+                const auto *receiver = m_node->graph()->push_message_receiver();
+                return receiver != nullptr ? receiver->queued_for(m_node->node_index()) : 0;
+            }
+
+            [[nodiscard]] engine_time_t last_evaluation_time() const noexcept {
+                return m_node != nullptr ? node_last_evaluation_time(*m_node) : MIN_DT;
+            }
+
+            [[nodiscard]] nb::dict nested_graphs() const {
+                nb::dict out;
+                if (m_node == nullptr || !node_is_nested_runtime(*m_node)) { return out; }
+                for (auto &entry : node_nested_graph_entries(*m_node)) {
+                    if (entry.graph != nullptr) { out[entry.key] = python_graph_handle_for(entry.graph); }
+                }
+                return out;
+            }
+
             void notify(nb::object modified_time = nb::none()) const {
                 assert(m_node != nullptr);
                 if (m_node->started()) {
@@ -2088,7 +2287,7 @@ namespace hgraph
 
             void apply_value(nb::handle value) const {
                 assert(m_node != nullptr);
-                if (!last_value_node_apply_value(*m_node, value)) {
+        if (!last_value_node_apply_value(*m_node, value)) {
                     throw std::logic_error("apply_value is only supported by last-value pull source nodes");
                 }
             }
@@ -2114,6 +2313,18 @@ namespace hgraph
             nb::object m_scheduler;
         };
 
+        class PythonNestedNodeHandle : public PythonNodeHandle
+        {
+          public:
+            using PythonNodeHandle::PythonNodeHandle;
+        };
+
+        class PythonPushQueueNodeHandle : public PythonNodeHandle
+        {
+          public:
+            using PythonNodeHandle::PythonNodeHandle;
+        };
+
         class PythonLifeCycleObserverBridge : public EvaluationLifeCycleObserver
         {
           public:
@@ -2134,15 +2345,7 @@ namespace hgraph
             }
 
             void call_with_graph(const char *method, Graph &graph) {
-                Node *parent = graph.parent_node();
-                if (parent == nullptr) {
-                    for (size_t i = 0; i < graph.entries().size(); ++i) {
-                        parent = &graph.node_at(i);
-                        if (parent != nullptr) { break; }
-                    }
-                }
-                if (parent == nullptr) { return; }
-                call(method, nb::cast(PythonGraphHandle{parent}));
+                call(method, python_graph_handle_for(&graph));
             }
 
             void call_with_node(const char *method, Node &node) {
@@ -2205,18 +2408,29 @@ namespace hgraph
                                        const TSMeta *output_schema, const TSMeta *error_output_schema,
                                        const TSMeta *recordable_state_schema, NodeScheduler *scheduler) {
         nb::gil_scoped_acquire guard;
-        nb::object             graph = nb::cast(PythonGraphHandle{node});
+        nb::object             graph = python_graph_handle_for(node != nullptr ? node->graph() : nullptr);
         nb::object             input_handle =
-            input != nullptr ? nb::cast(PythonTimeSeriesHandle{node, input, nullptr, input_schema}) : nb::none();
-        nb::object output_handle =
-            output != nullptr ? nb::cast(PythonTimeSeriesHandle{node, nullptr, output, output_schema}) : nb::none();
+            input != nullptr ? make_time_series_handle(node, input, nullptr, input_schema) : nb::none();
+        nb::object output_handle = output != nullptr ? make_time_series_handle(node, nullptr, output, output_schema) : nb::none();
         nb::object error_output_handle = error_output != nullptr
-                                             ? nb::cast(PythonTimeSeriesHandle{node, nullptr, error_output, error_output_schema})
+                                             ? make_time_series_handle(node, nullptr, error_output, error_output_schema)
                                              : nb::none();
         nb::object recordable_state_handle =
-            recordable_state != nullptr ? nb::cast(PythonTimeSeriesHandle{node, nullptr, recordable_state, recordable_state_schema})
+            recordable_state != nullptr ? make_time_series_handle(node, nullptr, recordable_state, recordable_state_schema)
                                         : nb::none();
         nb::object scheduler_handle = scheduler != nullptr ? nb::cast(NodeSchedulerHandle{scheduler}) : nb::none();
+        if (node != nullptr && node->is_push_source_node()) {
+            return nb::cast(PythonPushQueueNodeHandle{node, nb::borrow(signature), nb::borrow(scalars), std::move(graph),
+                                                      std::move(input_handle), std::move(output_handle),
+                                                      std::move(error_output_handle), std::move(recordable_state_handle),
+                                                      std::move(scheduler_handle)});
+        }
+        if (node != nullptr && node_is_nested_runtime(*node)) {
+            return nb::cast(PythonNestedNodeHandle{node, nb::borrow(signature), nb::borrow(scalars), std::move(graph),
+                                                   std::move(input_handle), std::move(output_handle),
+                                                   std::move(error_output_handle), std::move(recordable_state_handle),
+                                                   std::move(scheduler_handle)});
+        }
         return nb::cast(PythonNodeHandle{node, nb::borrow(signature), nb::borrow(scalars), std::move(graph),
                                          std::move(input_handle), std::move(output_handle), std::move(error_output_handle),
                                          std::move(recordable_state_handle), std::move(scheduler_handle)});
@@ -2399,8 +2613,11 @@ namespace hgraph
                 .def_prop_ro("label", &PythonGraphHandle::label)
                 .def_prop_ro("evaluation_clock", &PythonGraphHandle::evaluation_clock)
                 .def_prop_ro("evaluation_engine_api", &PythonGraphHandle::evaluation_engine_api)
+                .def_prop_ro("last_evaluation_time", &PythonGraphHandle::last_evaluation_time)
+                .def_prop_ro("push_source_nodes_end", &PythonGraphHandle::push_source_nodes_end)
                 .def_prop_ro("traits", &PythonGraphHandle::traits)
                 .def_prop_ro("nodes", &PythonGraphHandle::nodes)
+                .def("node_info", &PythonGraphHandle::node_info, "index"_a)
                 .def("schedule_node", &PythonGraphHandle::schedule_node, "node_ndx"_a, "when"_a, "force_set"_a = false);
         m.attr("_PythonGraphHandle") = m.attr("Graph");
 
@@ -2536,18 +2753,18 @@ namespace hgraph
         m.attr("_PythonTimeSeriesHandle")   = m.attr("TimeSeriesHandle");
         m.attr("TimeSeriesInput")           = m.attr("TimeSeriesHandle");
         m.attr("TimeSeriesOutput")          = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesValueInput")      = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesValueOutput")     = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesReferenceInput")  = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesReferenceOutput") = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesListInput")       = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesListOutput")      = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesDictInput")       = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesDictOutput")      = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesBundleInput")     = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesBundleOutput")    = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesSetInput")        = m.attr("TimeSeriesHandle");
-        m.attr("TimeSeriesSetOutput")       = m.attr("TimeSeriesHandle");
+        nb::class_<PythonTimeSeriesValueInputHandle, PythonTimeSeriesHandle>(m, "TimeSeriesValueInput");
+        nb::class_<PythonTimeSeriesValueOutputHandle, PythonTimeSeriesHandle>(m, "TimeSeriesValueOutput");
+        nb::class_<PythonTimeSeriesReferenceInputHandle, PythonTimeSeriesHandle>(m, "TimeSeriesReferenceInput");
+        nb::class_<PythonTimeSeriesReferenceOutputHandle, PythonTimeSeriesHandle>(m, "TimeSeriesReferenceOutput");
+        nb::class_<PythonTimeSeriesListInputHandle, PythonTimeSeriesHandle>(m, "TimeSeriesListInput");
+        nb::class_<PythonTimeSeriesListOutputHandle, PythonTimeSeriesHandle>(m, "TimeSeriesListOutput");
+        nb::class_<PythonTimeSeriesDictInputHandle, PythonTimeSeriesHandle>(m, "TimeSeriesDictInput");
+        nb::class_<PythonTimeSeriesDictOutputHandle, PythonTimeSeriesHandle>(m, "TimeSeriesDictOutput");
+        nb::class_<PythonTimeSeriesBundleInputHandle, PythonTimeSeriesHandle>(m, "TimeSeriesBundleInput");
+        nb::class_<PythonTimeSeriesBundleOutputHandle, PythonTimeSeriesHandle>(m, "TimeSeriesBundleOutput");
+        nb::class_<PythonTimeSeriesSetInputHandle, PythonTimeSeriesHandle>(m, "TimeSeriesSetInput");
+        nb::class_<PythonTimeSeriesSetOutputHandle, PythonTimeSeriesHandle>(m, "TimeSeriesSetOutput");
 
         auto node_cls               = nb::class_<PythonNodeHandle>(m, "Node")
                                           .def_prop_ro("node_ndx", &PythonNodeHandle::node_ndx)
@@ -2566,6 +2783,9 @@ namespace hgraph
                                           .def_prop_ro("has_input", &PythonNodeHandle::has_input)
                                           .def_prop_ro("has_output", &PythonNodeHandle::has_output)
                                           .def_prop_ro("has_error_output", &PythonNodeHandle::has_error_output)
+                                          .def_prop_ro("messages_in_queue", &PythonNodeHandle::messages_in_queue)
+                                          .def_prop_ro("last_evaluation_time", &PythonNodeHandle::last_evaluation_time)
+                                          .def_prop_ro("nested_graphs", &PythonNodeHandle::nested_graphs)
                                           .def("notify", &PythonNodeHandle::notify, "modified_time"_a = nb::none())
                                           .def("notify_next_cycle", &PythonNodeHandle::notify_next_cycle)
                                           .def("copy_from_input", &PythonNodeHandle::copy_from_input, "input"_a)
@@ -2573,7 +2793,7 @@ namespace hgraph
                                           .def("__repr__", &PythonNodeHandle::repr)
                                           .def("__str__", &PythonNodeHandle::repr);
         m.attr("_PythonNodeHandle") = m.attr("Node");
-        m.attr("NestedNode")        = m.attr("Node");
-        m.attr("PushQueueNode")     = m.attr("Node");
+        nb::class_<PythonNestedNodeHandle, PythonNodeHandle>(m, "NestedNode");
+        nb::class_<PythonPushQueueNodeHandle, PythonNodeHandle>(m, "PushQueueNode");
     }
 }  // namespace hgraph

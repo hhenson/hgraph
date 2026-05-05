@@ -917,6 +917,10 @@ namespace hgraph
                 View                target     = view.value();
                 if (const auto *current = target.as_atomic().try_as<TimeSeriesReference>();
                     current != nullptr && *current == next_value) {
+                    if (next_value.observed_time() == view.evaluation_time() && next_value.observed_time() != MIN_DT) {
+                        target.as_atomic().set(std::move(next_value));
+                        mark_output_view_modified(view, view.evaluation_time());
+                    }
                     return;
                 }
 
@@ -1489,7 +1493,7 @@ namespace hgraph
                 detail::dict_from_python(view, value);
             }
 
-            void apply_result(const TSOutputView &view, nb::handle value) const override { detail::dict_from_python(view, value); }
+            void apply_result(const TSOutputView &view, nb::handle value) const override { detail::dict_apply_result(view, value); }
 
             [[nodiscard]] bool can_apply_result(const TSOutputView &view, nb::handle value) const override {
                 return detail::dict_can_apply_result(view, value);

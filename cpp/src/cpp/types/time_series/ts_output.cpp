@@ -1186,7 +1186,7 @@ namespace hgraph
                     mutation.set(key, mapped_value.view());
                     inserted = true;
                 }
-                static_cast<void>(inserted);
+                if (inserted) { mark_output_view_modified(view, view.evaluation_time()); }
             }
 
             TSOutputView child_view = ensure_tsd_child_view(view, key);
@@ -2858,10 +2858,16 @@ namespace hgraph
             TimeSeriesReference next_value   = TimeSeriesReference::make(source_view);
             const View          target_value = target_view.value();
             const auto *current_value = target_value.has_value() ? target_value.as_atomic().try_as<TimeSeriesReference>() : nullptr;
-            if (current_value != nullptr && *current_value == next_value) { return; }
+            if (current_value != nullptr && *current_value == next_value) {
+                if (next_value.observed_time() == modified_time && next_value.observed_time() != MIN_DT) {
+                    target_value.as_atomic().set(next_value);
+                    target_state->mark_modified(modified_time);
+                }
+                return;
+            }
 
             target_value.as_atomic().set(next_value);
-            if (target_state->last_modified_time != modified_time) { target_state->mark_modified(modified_time); }
+            target_state->mark_modified(modified_time);
         }
 
         void add_dynamic_dict_binding(std::unique_ptr<DynamicDictBinding> binding, engine_time_t initial_modified_time) {
@@ -3650,9 +3656,7 @@ namespace hgraph
             // propagation, which would mask the transition and leak the
             // previous tick's value-layer delta into downstream consumers.
             const bool starting_new_tick = modified_time != MIN_DT && binding.last_synced_time != modified_time;
-            if (starting_new_tick && target_root_state->last_modified_time != modified_time) {
-                target_root_state->modified_children.clear();
-            }
+            if (starting_new_tick) { target_root_state->modified_children.clear(); }
 
             const TSViewContext target_root_context = target_root.context_ref();
             if (target_root_context.value_dispatch != nullptr && target_root_context.value_data != nullptr) {
@@ -3792,8 +3796,18 @@ namespace hgraph
             const bool source_native_published_this_tick =
                 source_native_state != nullptr && source_native_state->last_modified_time == modified_time;
             const auto source_slot_changed_this_tick = [&](size_t slot) {
-                static_cast<void>(slot);
-                return source_native_state == nullptr || source_native_published_this_tick;
+                if (source_native_state == nullptr) { return true; }
+                if (!source_native_published_this_tick) { return false; }
+                if (source_native_state->modified_children.contains(slot)) { return true; }
+                if (source_native_state->added_valid_children_modified_time == modified_time &&
+                    source_native_state->added_valid_children.contains(slot)) {
+                    return true;
+                }
+                if (source_native_state->removed_valid_children_modified_time == modified_time &&
+                    source_native_state->removed_valid_children.contains(slot)) {
+                    return true;
+                }
+                return false;
             };
             const bool has_added_slots          = source_delta.first_added_slot() != no_slot;
             const bool has_updated_slots        = source_delta.first_updated_slot() != no_slot;
@@ -3863,6 +3877,17 @@ namespace hgraph
                         child_ref_dereference_is_current =
                             (source_child_context.is_bound() || source_child_context.pending_dict_child.active()) &&
                             detail::linked_context_equal(ref_link.source, source_child_context);
+                    } else if (target_child_state != nullptr) {
+                        const LinkedTSContext source_child_context = detail::stable_output_context(source_child);
+                        if (source_child_context.is_bound() || source_child_context.pending_dict_child.active()) {
+                            for (const auto &binding : m_collection_ref_bindings) {
+                                if (binding != nullptr && binding->target_context.ts_state == target_child_state &&
+                                    detail::linked_context_equal(binding->source_context, source_child_context)) {
+                                    child_ref_dereference_is_current = true;
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
                 if (rebuild_child && (child_ref_wrapper_is_current || child_ref_dereference_is_current)) { rebuild_child = false; }
@@ -4215,7 +4240,8 @@ namespace hgraph
                     target_state->last_modified_time = source_modified_time;
                 }
                 auto       notifier = std::make_unique<WrappedRefNotifier>(this, target_view.context_ref(), source_context);
-                BaseState *source_notification_state = notification_state_of(source_context);
+                BaseState *source_notification_state =
+                    source_context.ts_state != nullptr ? source_context.ts_state : notification_state_of(source_context);
                 notifier->subscribe_source(source_notification_state);
                 m_wrapped_ref_subscriptions.push_back(WrappedRefSubscription{.notifier = std::move(notifier)});
                 return;

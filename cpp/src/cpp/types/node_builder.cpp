@@ -1256,6 +1256,8 @@ namespace hgraph
                 builder.has_explicit_active_inputs(),
                 builder.has_explicit_valid_inputs(),
                 builder.has_explicit_all_valid_inputs(),
+                builder.signature().is_valid() ? nb::borrow(builder.signature()) : nb::object{},
+                builder.scalars().is_valid() ? nb::borrow(builder.scalars()) : nb::object{},
                 materialized_active_inputs,
                 materialized_valid_inputs,
                 materialized_all_valid_inputs,
@@ -6448,6 +6450,108 @@ namespace hgraph
 
     bool node_has_python_handle_layout(const Node &node) noexcept {
         return node.spec().runtime_ops == &k_python_node_runtime_ops || node.spec().runtime_ops == &k_last_value_pull_runtime_ops;
+    }
+
+    bool node_is_nested_runtime(const Node &node) noexcept {
+        const NodeRuntimeOps *ops = node.spec().runtime_ops;
+        return ops == &k_nested_runtime_ops || ops == &k_component_runtime_ops || ops == &k_try_except_runtime_ops ||
+               ops == &k_switch_runtime_ops || ops == &k_reduce_runtime_ops ||
+               ops == &k_non_associative_reduce_runtime_ops || ops == &k_map_runtime_ops;
+    }
+
+    TSInput *node_input_ptr(Node &node) noexcept {
+        const NodeRuntimeOps *ops = node.spec().runtime_ops;
+        if (ops == &k_python_node_runtime_ops) { return detail::runtime_data<PythonNodeRuntimeData>(node).input; }
+        if (ops == &k_last_value_pull_runtime_ops) { return last_value_runtime(node).input; }
+        if (ops == &k_nested_runtime_ops || ops == &k_component_runtime_ops || ops == &k_try_except_runtime_ops) {
+            return nested_runtime(node).input;
+        }
+        if (ops == &k_switch_runtime_ops) { return switch_runtime(node).input; }
+        if (ops == &k_reduce_runtime_ops) { return reduce_runtime(node).input; }
+        if (ops == &k_non_associative_reduce_runtime_ops) { return non_associative_reduce_runtime(node).input; }
+        if (ops == &k_map_runtime_ops) { return map_runtime(node).input; }
+        return detail::runtime_data<detail::StaticNodeRuntimeData>(node).input;
+    }
+
+    TSOutput *node_output_ptr(Node &node) noexcept {
+        const NodeRuntimeOps *ops = node.spec().runtime_ops;
+        if (ops == &k_python_node_runtime_ops) { return detail::runtime_data<PythonNodeRuntimeData>(node).output; }
+        if (ops == &k_last_value_pull_runtime_ops) { return last_value_runtime(node).output; }
+        if (ops == &k_nested_runtime_ops || ops == &k_component_runtime_ops || ops == &k_try_except_runtime_ops) {
+            return nested_runtime(node).output;
+        }
+        if (ops == &k_switch_runtime_ops) { return switch_runtime(node).output; }
+        if (ops == &k_reduce_runtime_ops) { return reduce_runtime(node).output; }
+        if (ops == &k_non_associative_reduce_runtime_ops) { return non_associative_reduce_runtime(node).output; }
+        if (ops == &k_map_runtime_ops) { return map_runtime(node).output; }
+        return detail::runtime_data<detail::StaticNodeRuntimeData>(node).output;
+    }
+
+    TSOutput *node_error_output_ptr(Node &node) noexcept {
+        const NodeRuntimeOps *ops = node.spec().runtime_ops;
+        if (ops == &k_python_node_runtime_ops) { return detail::runtime_data<PythonNodeRuntimeData>(node).error_output; }
+        if (ops == &k_last_value_pull_runtime_ops) { return last_value_runtime(node).error_output; }
+        if (ops == &k_nested_runtime_ops || ops == &k_component_runtime_ops || ops == &k_try_except_runtime_ops) {
+            return nested_runtime(node).error_output;
+        }
+        if (ops == &k_switch_runtime_ops) { return switch_runtime(node).error_output; }
+        if (ops == &k_reduce_runtime_ops) { return reduce_runtime(node).error_output; }
+        if (ops == &k_non_associative_reduce_runtime_ops) { return non_associative_reduce_runtime(node).error_output; }
+        if (ops == &k_map_runtime_ops) { return map_runtime(node).error_output; }
+        return detail::runtime_data<detail::StaticNodeRuntimeData>(node).error_output;
+    }
+
+    TSOutput *node_recordable_state_ptr(Node &node) noexcept {
+        const NodeRuntimeOps *ops = node.spec().runtime_ops;
+        if (ops == &k_python_node_runtime_ops) { return detail::runtime_data<PythonNodeRuntimeData>(node).recordable_state; }
+        if (ops == &k_last_value_pull_runtime_ops) { return last_value_runtime(node).recordable_state; }
+        if (ops == &k_nested_runtime_ops || ops == &k_component_runtime_ops || ops == &k_try_except_runtime_ops) {
+            return nested_runtime(node).recordable_state;
+        }
+        if (ops == &k_switch_runtime_ops) { return switch_runtime(node).recordable_state; }
+        if (ops == &k_reduce_runtime_ops) { return reduce_runtime(node).recordable_state; }
+        if (ops == &k_non_associative_reduce_runtime_ops) {
+            return non_associative_reduce_runtime(node).recordable_state;
+        }
+        if (ops == &k_map_runtime_ops) { return map_runtime(node).recordable_state; }
+        return detail::runtime_data<detail::StaticNodeRuntimeData>(node).recordable_state;
+    }
+
+    engine_time_t node_last_evaluation_time(Node &node) noexcept {
+        const NodeRuntimeOps *ops = node.spec().runtime_ops;
+        if (ops == &k_nested_runtime_ops || ops == &k_component_runtime_ops || ops == &k_try_except_runtime_ops) {
+            return nested_runtime(node).child_instance.clock_state().last_evaluation_time;
+        }
+        if (ops == &k_switch_runtime_ops) { return switch_runtime(node).child_instance.clock_state().last_evaluation_time; }
+        if (node.graph() != nullptr) { return node.graph()->last_evaluation_time(); }
+        return MIN_DT;
+    }
+
+    std::vector<NestedGraphEntry> node_nested_graph_entries(Node &node) {
+        std::vector<NestedGraphEntry> entries;
+        const NodeRuntimeOps         *ops = node.spec().runtime_ops;
+
+        const auto append_child = [&entries](nb::object key, ChildGraphInstance &child) {
+            if (Graph *graph = child.graph(); graph != nullptr) {
+                entries.push_back(NestedGraphEntry{std::move(key), graph});
+            }
+        };
+
+        if (ops == &k_nested_runtime_ops || ops == &k_component_runtime_ops || ops == &k_try_except_runtime_ops) {
+            append_child(nb::int_(0), nested_runtime(node).child_instance);
+        } else if (ops == &k_switch_runtime_ops) {
+            append_child(nb::int_(0), switch_runtime(node).child_instance);
+        } else if (ops == &k_map_runtime_ops) {
+            auto &runtime    = map_runtime(node);
+            auto &slot_store = map_slot_store(runtime);
+            for (size_t slot = 0; slot < slot_store.constructed.size(); ++slot) {
+                MapSlotRuntime *payload = slot_store.try_slot(slot);
+                if (payload == nullptr) { continue; }
+                append_child(payload->key.view().to_python(), payload->child_instance);
+            }
+        }
+
+        return entries;
     }
 
     bool last_value_node_copy_from_input(Node &node, const TSInputView &source) {

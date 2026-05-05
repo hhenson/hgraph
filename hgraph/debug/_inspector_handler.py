@@ -82,10 +82,12 @@ def graph_type_from_id(state: InspectorState, item_id: InspectorItemId):
 def item_iterator(item_id, value):
     if isinstance(value, Node):
         items = []
-        if value.input:
-            items.append(("INPUTS", value.input, item_id.sub_item("INPUTS", NodeValueType.Inputs)))
-        if value.output:
-            items.append(("OUTPUT", value.output, item_id.sub_item("OUTPUT", NodeValueType.Output)))
+        node_input = value.input
+        if node_input is not None:
+            items.append(("INPUTS", node_input, item_id.sub_item("INPUTS", NodeValueType.Inputs)))
+        node_output = value.output
+        if node_output is not None:
+            items.append(("OUTPUT", node_output, item_id.sub_item("OUTPUT", NodeValueType.Output)))
         if isinstance(value, NestedNode):
             items.append(("GRAPHS", value.nested_graphs, item_id.sub_item("GRAPHS", NodeValueType.Graphs)))
         if value.scalars:

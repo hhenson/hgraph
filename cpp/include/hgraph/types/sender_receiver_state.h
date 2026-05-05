@@ -115,6 +115,15 @@ namespace hgraph
             return m_stopped;
         }
 
+        [[nodiscard]] size_t queued_for(int64_t target_node_index) const {
+            LockGuard guard(m_lock);
+            size_t    count = 0;
+            for (const auto &item : m_queue) {
+                if (item.target_node_index == target_node_index) { ++count; }
+            }
+            return count;
+        }
+
         void mark_stopped() {
             LockGuard guard(m_lock);
             m_stopped = true;

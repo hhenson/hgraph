@@ -53,6 +53,7 @@ namespace hgraph
             return {reinterpret_cast<const NodeEntry *>(m_storage), m_node_count};
         }
         [[nodiscard]] EvaluationEngineApi         evaluation_engine_api() const noexcept;
+        [[nodiscard]] GraphEvaluationEngine       graph_evaluation_engine() const noexcept;
         [[nodiscard]] EvaluationClock             evaluation_clock() const noexcept;
         [[nodiscard]] EngineEvaluationClock       engine_evaluation_clock() const noexcept;
         [[nodiscard]] Traits                     &traits();

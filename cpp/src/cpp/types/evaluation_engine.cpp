@@ -31,6 +31,19 @@ namespace hgraph
 #endif
         }
 
+        void yield_to_python_threads(std::chrono::microseconds sleep_time = std::chrono::microseconds{0}) {
+            if (can_release_gil()) {
+                nb::gil_scoped_release gil;
+                if (sleep_time > std::chrono::microseconds{0}) {
+                    std::this_thread::sleep_for(sleep_time);
+                } else {
+                    std::this_thread::yield();
+                }
+            } else {
+                std::this_thread::yield();
+            }
+        }
+
         struct BaseClockState
         {
             explicit BaseClockState(engine_time_t start_time)
@@ -114,6 +127,7 @@ namespace hgraph
             }
 
             [[nodiscard]] bool push_node_requires_scheduling() const noexcept {
+                if (!m_ready_to_push) { return false; }
                 std::unique_lock<std::mutex> lock(m_condition_mutex);
                 return m_push_node_requires_scheduling;
             }
@@ -503,6 +517,7 @@ namespace hgraph
                             state.clock.mark_push_node_requires_scheduling();
                             break;
                         }
+                        yield_to_python_threads(std::chrono::microseconds{100});
                     }
 
                     notify_after_push_nodes_evaluation_impl(impl, graph);
@@ -563,14 +578,13 @@ namespace hgraph
                 state.graph.start();
                 try {
                     while (state.clock.evaluation_time() < state.end_time) {
-                        // Briefly release the GIL between iterations so other Python
-                        // threads (e.g. those started by `run_graph_on_thread` or
-                        // tornado IO loops) can make progress when the engine evaluates
-                        // back-to-back ticks without entering a real-time wait.
-                        if (can_release_gil()) {
-                            nb::gil_scoped_release gil_yield;
-                            std::this_thread::yield();
-                        }
+                        // Briefly release the GIL between iterations. In realtime push
+                        // graphs a dense chain of same-time scheduled work can avoid the
+                        // clock wait path, so give Python IO threads a real scheduling
+                        // window rather than just yielding and immediately reacquiring.
+                        yield_to_python_threads(TMode == EvaluationMode::REAL_TIME && state.graph.push_source_nodes_end() > 0
+                                                    ? std::chrono::milliseconds{1}
+                                                    : std::chrono::microseconds{0});
                         notify_before_evaluation_impl(impl);
                         state.graph.evaluate(state.clock.evaluation_time());
                         notify_after_evaluation_impl(impl);

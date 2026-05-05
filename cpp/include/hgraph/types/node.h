@@ -74,6 +74,18 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT BuiltNodeSpec
     {
+        ~BuiltNodeSpec() noexcept {
+            if (!python_signature.is_valid() && !python_scalars.is_valid()) { return; }
+            if (Py_IsInitialized()) {
+                nb::gil_scoped_acquire gil;
+                python_signature = nb::object{};
+                python_scalars   = nb::object{};
+            } else {
+                static_cast<void>(python_signature.release());
+                static_cast<void>(python_scalars.release());
+            }
+        }
+
         const NodeRuntimeOps           *runtime_ops{nullptr};
         const PushSourceNodeRuntimeOps *push_source_runtime_ops{nullptr};
         void (*destruct)(Node &node) noexcept {nullptr};
@@ -91,6 +103,8 @@ namespace hgraph
         bool             has_explicit_active_inputs{false};
         bool             has_explicit_valid_inputs{false};
         bool             has_explicit_all_valid_inputs{false};
+        nb::object       python_signature;
+        nb::object       python_scalars;
 
         std::span<const size_t> active_inputs{};
         std::span<const size_t> valid_inputs{};
