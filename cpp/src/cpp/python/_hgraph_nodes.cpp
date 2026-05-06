@@ -507,10 +507,29 @@ namespace
 
             if (!child.value().has_value()) { return; }
             const auto *current = child.value().as_atomic().template try_as<TimeSeriesReference>();
-            if (current == nullptr || !(*current == ref)) {
-                child.value().as_atomic().set(ref);
-                mark_output_view_modified(child, evaluation_time);
+            if (current != nullptr && *current == ref) {
+                if (ref.observed_time() == evaluation_time && ref.observed_time() != MIN_DT) {
+                    child.value().as_atomic().set(ref);
+                    mark_output_view_modified(child, evaluation_time);
+                }
+                return;
             }
+
+            child.value().as_atomic().set(ref);
+            mark_output_view_modified(child, evaluation_time);
+        }
+
+        [[nodiscard]] bool remove_dict_child_natively(const TSOutputView &dict_view, const View &key,
+                                                      engine_time_t evaluation_time) {
+            if (!dict_view.value().has_value() || !key.has_value()) { return false; }
+
+            MapView map = dict_view.value().as_map();
+            auto    mutation = map.begin_mutation(evaluation_time);
+            const bool removed = mutation.remove(key);
+            if (removed) {
+                mark_output_view_modified(dict_view, evaluation_time);
+            }
+            return removed;
         }
 
         [[nodiscard]] int64_t next_global_request_id(Node &node) {
@@ -1459,16 +1478,18 @@ namespace
             auto                out_dict        = out.view();
             std::vector<Value>  tracked_keys;
             for (const View &tracked : out_dict.keys()) { tracked_keys.emplace_back(tracked); }
-            nb::dict delta;
+
+            const auto remove_tracked_keys = [&] {
+                bool removed = false;
+                for (const Value &tracked_key : tracked_keys) {
+                    removed = remove_dict_child_natively(out_dict.view(), tracked_key.view(), evaluation_time) || removed;
+                }
+                return removed;
+            };
 
             TSOutputView source_root = output_view_from_input(ts.view().view());
             if (!(ts.valid() && key.valid() && source_root.context_ref().is_bound())) {
-                for (const Value &tracked_key : tracked_keys) {
-                    delta[tracked_key.view().to_python()] = remove_if_exists_sentinel();
-                }
-                if (!delta.empty()) {
-                    out_dict.view().apply_result(delta);
-                } else if (tracked_keys.empty()) {
+                if (!remove_tracked_keys() && tracked_keys.empty()) {
                     suppress_spurious_empty_dict_tick(out_dict, evaluation_time);
                 }
                 return;
@@ -1488,18 +1509,19 @@ namespace
                     const auto *outer_ref = source_child.valid() ? try_view_ref(source_child.value()) : nullptr;
                     result                = outer_ref != nullptr ? *outer_ref : TimeSeriesReference::make();
                 }
-                delta[selected.to_python()] = nb::cast(result);
+                set_dict_child_reference(out_dict.view(), selected, result, evaluation_time);
             }
 
+            bool removed = false;
             for (const Value &tracked_key : tracked_keys) {
                 const bool still_selected = std::any_of(desired_keys.begin(), desired_keys.end(),
                                                         [&](const Value &desired) { return desired.view() == tracked_key.view(); });
-                if (!still_selected) { delta[tracked_key.view().to_python()] = remove_if_exists_sentinel(); }
+                if (!still_selected) {
+                    removed = remove_dict_child_natively(out_dict.view(), tracked_key.view(), evaluation_time) || removed;
+                }
             }
 
-            if (!delta.empty()) {
-                out_dict.view().apply_result(delta);
-            } else if (tracked_keys.empty() && (!out_dict.view().valid() || key.modified())) {
+            if (!removed && tracked_keys.empty() && (!out_dict.view().valid() || key.modified())) {
                 mark_output_view_modified(out_dict.view(), evaluation_time);
             }
         }
