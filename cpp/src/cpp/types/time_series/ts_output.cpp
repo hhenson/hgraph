@@ -4353,6 +4353,48 @@ namespace hgraph
         LinkedTSContext                                    m_root_source_context{};
     };
 
+    TSOutput::RefTargetSubscription::RefTargetSubscription(BaseState *state_, std::unique_ptr<Notifiable> notifier_) noexcept
+        : state(state_), notifier(std::move(notifier_)) {
+        invalidator.owner      = this;
+        invalidator.invalidate = &RefTargetSubscription::invalidate_state;
+        invalidator.rebind     = &RefTargetSubscription::rebind_state;
+
+        if (state != nullptr && notifier != nullptr) {
+            state->register_state_invalidator(&invalidator);
+            state->subscribe(notifier.get());
+        }
+    }
+
+    TSOutput::RefTargetSubscription::~RefTargetSubscription() noexcept { release(); }
+
+    void TSOutput::RefTargetSubscription::release() noexcept {
+        if (state != nullptr && !invalidator.state_destroyed) {
+            if (notifier != nullptr) { state->unsubscribe(notifier.get()); }
+            state->unregister_state_invalidator(&invalidator);
+        }
+        state                       = nullptr;
+        notifier                    = nullptr;
+        invalidator.owner           = nullptr;
+        invalidator.invalidate      = nullptr;
+        invalidator.rebind          = nullptr;
+        invalidator.state_destroyed = false;
+    }
+
+    void TSOutput::RefTargetSubscription::invalidate_state(void *owner) noexcept {
+        auto *subscription = static_cast<RefTargetSubscription *>(owner);
+        if (subscription == nullptr) { return; }
+        subscription->state = nullptr;
+        subscription->notifier.reset();
+    }
+
+    void TSOutput::RefTargetSubscription::rebind_state(void *owner, BaseState *old_state, BaseState *new_state) noexcept {
+        auto *subscription = static_cast<RefTargetSubscription *>(owner);
+        if (subscription != nullptr && subscription->state == old_state) {
+            subscription->state                       = new_state;
+            subscription->invalidator.state_destroyed = false;
+        }
+    }
+
     TSOutput::TSOutput() noexcept = default;
 
     TSOutput::TSOutput(const TSOutputBuilder &builder) { builder.construct_output(*this); }
@@ -5035,21 +5077,7 @@ namespace hgraph
         builder().destruct_output(*this);
     }
 
-    void TSOutput::clear_ref_target_subscriptions() noexcept {
-        for (auto &subscription : m_ref_target_subscriptions) {
-            if (subscription.state != nullptr && subscription.notifier) {
-                // Skip the unsubscribe call when the target state has already
-                // been torn down: ~BaseState() poisons `storage_kind` so we
-                // can detect that case and avoid dereferencing freed memory.
-                // The subscriber list inside the (gone) state no longer
-                // matters anyway.
-                if (subscription.state->storage_kind != TSStorageKind::Destroyed) {
-                    subscription.state->unsubscribe(subscription.notifier.get());
-                }
-            }
-        }
-        m_ref_target_subscriptions.clear();
-    }
+    void TSOutput::clear_ref_target_subscriptions() noexcept { m_ref_target_subscriptions.clear(); }
 
     void TSOutput::sync_ref_target_subscriptions(engine_time_t evaluation_time) {
         clear_ref_target_subscriptions();
@@ -5063,8 +5091,7 @@ namespace hgraph
         for (const auto &[target_state, ref_state] : subscriptions) {
             if (target_state == nullptr || ref_state == nullptr) { continue; }
             auto notifier = std::make_unique<RefValueNotifier>(ref_state);
-            target_state->subscribe(notifier.get());
-            m_ref_target_subscriptions.push_back(RefTargetSubscription{.state = target_state, .notifier = std::move(notifier)});
+            m_ref_target_subscriptions.emplace_back(target_state, std::move(notifier));
         }
     }
 

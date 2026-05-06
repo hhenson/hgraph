@@ -6,6 +6,7 @@
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/time_series/ts_value.h>
 
+#include <deque>
 #include <memory>
 #include <vector>
 #include <unordered_map>
@@ -73,6 +74,20 @@ private:
     {
         BaseState *state{nullptr};
         std::unique_ptr<Notifiable> notifier;
+        StateInvalidator invalidator{};
+
+        RefTargetSubscription() noexcept = default;
+        RefTargetSubscription(BaseState *state, std::unique_ptr<Notifiable> notifier) noexcept;
+        RefTargetSubscription(const RefTargetSubscription &)            = delete;
+        RefTargetSubscription &operator=(const RefTargetSubscription &) = delete;
+        RefTargetSubscription(RefTargetSubscription &&)                 = delete;
+        RefTargetSubscription &operator=(RefTargetSubscription &&)      = delete;
+        ~RefTargetSubscription() noexcept;
+
+        void release() noexcept;
+
+        static void invalidate_state(void *owner) noexcept;
+        static void rebind_state(void *owner, BaseState *old_state, BaseState *new_state) noexcept;
     };
     struct AlternativeOutputDeleter
     {
@@ -113,7 +128,7 @@ private:
     const TSOutputBuilder *m_builder{nullptr};
     AlternativeMap m_alternatives;
     DetachedAlternativeMap m_detached_alternatives;
-    std::vector<RefTargetSubscription> m_ref_target_subscriptions;
+    std::deque<RefTargetSubscription> m_ref_target_subscriptions;
 };
 
 /**
