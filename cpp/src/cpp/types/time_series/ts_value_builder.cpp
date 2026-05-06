@@ -1792,14 +1792,16 @@ namespace hgraph
                     ((slot < delta.slot_capacity() && delta.slot_added(slot)) ||
                      (state != nullptr && state->added_valid_children_modified_time == view.evaluation_time() &&
                       state->added_valid_children.contains(slot)));
+                if (child_was_valid) {
+                    clear_output_link(child);
+                    child.invalidate();
+                }
                 auto       mutation = map.begin_mutation(view.evaluation_time());
                 const bool removed  = mutation.remove(key);
                 if (removed) {
                     if (child_was_valid && !added_this_tick && state != nullptr && slot != static_cast<size_t>(-1)) {
                         state->record_removed_child_key(slot, key, view.evaluation_time());
                     }
-                    clear_output_link(child);
-                    child.invalidate();
                 }
                 return removed;
             }
