@@ -80,6 +80,46 @@ endif ()
 if (DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
     set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
 endif ()
+if (DEFINED Python_EXECUTABLE)
+    set(Python_FIND_VIRTUALENV FIRST)
+    set(_hgraph_python_include_script [=[
+import sysconfig
+
+print(sysconfig.get_config_var('INCLUDEPY') or '', end='')
+]=])
+    set(_hgraph_python_library_script [=[
+import os
+import sys
+import sysconfig
+
+candidates = []
+framework = sysconfig.get_config_var('PYTHONFRAMEWORK')
+framework_prefix = sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX')
+version = sysconfig.get_config_var('VERSION') or f'{sys.version_info.major}.{sys.version_info.minor}'
+if framework and framework_prefix:
+    candidates.append(os.path.join(framework_prefix, f'{framework}.framework', 'Versions', version, framework))
+    candidates.append(os.path.join(framework_prefix, f'{framework}.framework', framework))
+libdir = sysconfig.get_config_var('LIBDIR')
+for name in (sysconfig.get_config_var('LDLIBRARY'), sysconfig.get_config_var('LIBRARY')):
+    if libdir and name:
+        candidates.append(os.path.join(libdir, name))
+print(next((path for path in candidates if path and os.path.exists(path)), ''), end='')
+]=])
+    execute_process(
+            COMMAND "${Python_EXECUTABLE}" -c "${_hgraph_python_include_script}"
+            OUTPUT_VARIABLE HGRAPH_PYTHON_INCLUDE_DIR
+            RESULT_VARIABLE _hgraph_python_include_result)
+    if (_hgraph_python_include_result EQUAL 0 AND IS_DIRECTORY "${HGRAPH_PYTHON_INCLUDE_DIR}")
+        set(Python_INCLUDE_DIR "${HGRAPH_PYTHON_INCLUDE_DIR}" CACHE PATH "Python include directory" FORCE)
+    endif ()
+    execute_process(
+            COMMAND "${Python_EXECUTABLE}" -c "${_hgraph_python_library_script}"
+            OUTPUT_VARIABLE HGRAPH_PYTHON_LIBRARY
+            RESULT_VARIABLE _hgraph_python_library_result)
+    if (_hgraph_python_library_result EQUAL 0 AND EXISTS "${HGRAPH_PYTHON_LIBRARY}")
+        set(Python_LIBRARY "${HGRAPH_PYTHON_LIBRARY}" CACHE FILEPATH "Python library" FORCE)
+    endif ()
+endif ()
 # Required: Python interpreter + development module. When scikit-build-core is
 # targeting the stable ABI, it exposes SKBUILD_SABI_COMPONENT=Development.SABIModule.
 find_package(Python 3.12 COMPONENTS Interpreter Development.Module ${SKBUILD_SABI_COMPONENT} REQUIRED)
@@ -343,8 +383,10 @@ set(HGRAPH_INCLUDES
 )
 list(TRANSFORM HGRAPH_INCLUDES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 
-# Expose includes var to src/cpp subdirectory
-set(HGRAPH_INCLUDES ${HGRAPH_INCLUDES} PARENT_SCOPE)
+# Expose includes var to a parent project without warning when cpp/ is the root source dir.
+if (NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(HGRAPH_INCLUDES ${HGRAPH_INCLUDES} PARENT_SCOPE)
+endif ()
 
 add_subdirectory(src/cpp)
 

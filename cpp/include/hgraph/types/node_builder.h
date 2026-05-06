@@ -229,16 +229,14 @@ namespace hgraph
         struct TypeOps
         {
             void (*validate_contract)(const NodeBuilder &builder);
-            [[nodiscard]] size_t (*size)(const NodeBuilder &builder,
-                                         const std::vector<TSInputConstructionEdge> &inbound_edges);
-            [[nodiscard]] size_t (*alignment)(const NodeBuilder &builder,
-                                              const std::vector<TSInputConstructionEdge> &inbound_edges);
-            [[nodiscard]] Node *(*construct_at)(const NodeBuilder &builder,
-                                                void *memory,
-                                                int64_t node_index,
-                                                const std::vector<TSInputConstructionEdge> &inbound_edges);
+            size_t (*size)(const NodeBuilder &builder, const std::vector<TSInputConstructionEdge> &inbound_edges);
+            size_t (*alignment)(const NodeBuilder &builder, const std::vector<TSInputConstructionEdge> &inbound_edges);
+            Node *(*construct_at)(const NodeBuilder &builder,
+                                  void *memory,
+                                  int64_t node_index,
+                                  const std::vector<TSInputConstructionEdge> &inbound_edges);
             void (*destruct_at)(const NodeBuilder &builder, Node &node) noexcept;
-            [[nodiscard]] const void *(*clone_state)(const void *state);
+            const void *(*clone_state)(const void *state);
             void (*destroy_state)(const void *state) noexcept;
         };
 

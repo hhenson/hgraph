@@ -661,6 +661,7 @@ namespace hgraph
                     }
                 case TypeKind::CyclicBuffer:
                 case TypeKind::Queue: return 1;
+                default: return 1;
             }
         }
 

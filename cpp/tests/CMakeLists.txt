@@ -237,8 +237,9 @@ elseif (TARGET tpack::tpack)
 endif ()
 
 target_compile_features(hgraph_time_series_value_tests PRIVATE cxx_std_23)
-if (WIN32)
-    target_compile_definitions(hgraph_time_series_value_tests PRIVATE HGRAPH_STATIC_DEFINE)
+target_compile_definitions(hgraph_time_series_value_tests PRIVATE HGRAPH_STATIC_DEFINE)
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(hgraph_time_series_value_tests PRIVATE -fvisibility=hidden)
 endif ()
 
 add_executable(hgraph_v2_tests
@@ -312,8 +313,9 @@ elseif (TARGET tpack::tpack)
 endif ()
 
 target_compile_features(hgraph_v2_tests PRIVATE cxx_std_23)
-if (WIN32)
-    target_compile_definitions(hgraph_v2_tests PRIVATE HGRAPH_STATIC_DEFINE)
+target_compile_definitions(hgraph_v2_tests PRIVATE HGRAPH_STATIC_DEFINE)
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(hgraph_v2_tests PRIVATE -fvisibility=hidden)
 endif ()
 execute_process(
     COMMAND "${Python_EXECUTABLE}" -c "import sys; print(sys.base_prefix)"
