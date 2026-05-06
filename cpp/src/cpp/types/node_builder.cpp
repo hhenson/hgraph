@@ -1789,8 +1789,16 @@ namespace hgraph
             Graph *graph = node.graph();
             if (graph == nullptr) { return; }
 
-            const engine_time_t when =
+            engine_time_t when =
                 node.started() ? graph->evaluation_clock().next_cycle_evaluation_time() : graph->evaluation_time();
+            if (node.started()) {
+                if (Node *parent_node = graph->parent_node(); parent_node != nullptr && parent_node->graph() != nullptr) {
+                    const engine_time_t parent_time = parent_node->graph()->evaluation_time();
+                    if (parent_time != MIN_DT && graph->evaluation_time() < parent_time) {
+                        when = std::max(when, parent_time + MIN_TD);
+                    }
+                }
+            }
             graph->schedule_node(node.node_index(), when);
         }
 
@@ -2482,7 +2490,7 @@ namespace hgraph
                 return;
             }
 
-            if (runtime.child_instance.boundary_plan().inputs.empty()) { node.notify(evaluation_time); }
+            node.notify(evaluation_time);
         }
 
         void component_node_eval(Node &node, engine_time_t evaluation_time) {
@@ -3073,7 +3081,8 @@ namespace hgraph
             child_graph.schedule_node_forced_eval(static_cast<int64_t>(child_index), evaluation_time);
         }
 
-        void schedule_due_child_graph_nodes(Graph &child_graph, engine_time_t evaluation_time) {
+        bool schedule_due_child_graph_nodes(Graph &child_graph, engine_time_t evaluation_time) {
+            bool scheduled_any = false;
             for (size_t child_index = 0; child_index < child_graph.entries().size(); ++child_index) {
                 Node &child_node = child_graph.node_at(child_index);
                 if (!child_node.has_scheduler() || !child_node.scheduler().requires_scheduling() ||
@@ -3087,7 +3096,9 @@ namespace hgraph
                     child_node.scheduler().schedule(evaluation_time, std::string{"child-graph-due"});
                 }
                 child_graph.schedule_node(static_cast<int64_t>(child_index), evaluation_time, true);
+                scheduled_any = true;
             }
+            return scheduled_any;
         }
 
         void activate_switch_branch(Node &node, SwitchNodeRuntimeData &runtime, size_t branch_index, const value::View &selector,
@@ -3156,9 +3167,8 @@ namespace hgraph
         void switch_node_start(Node & /*node*/, engine_time_t /*evaluation_time*/) {}
 
         void switch_node_stop(Node &node, engine_time_t evaluation_time) {
-            static_cast<void>(evaluation_time);
             auto &runtime = switch_runtime(node);
-            stop_switch_child(node, runtime, MIN_DT);
+            stop_switch_child(node, runtime, evaluation_time);
         }
 
         void switch_node_eval(Node &node, engine_time_t evaluation_time) {
@@ -5147,8 +5157,22 @@ namespace hgraph
 
             Graph &child_graph = *slot.child_instance.graph();
             for (size_t child_index = 0; child_index < child_graph.entries().size(); ++child_index) {
-                child_graph.schedule_node(static_cast<int64_t>(child_index), evaluation_time, true);
+                child_graph.schedule_node_forced_eval(static_cast<int64_t>(child_index), evaluation_time);
             }
+        }
+
+        [[nodiscard]] bool child_graph_has_pull_source(const Graph &child_graph) noexcept {
+            for (size_t child_index = 0; child_index < child_graph.entries().size(); ++child_index) {
+                if (child_graph.node_at(child_index).is_pull_source_node()) { return true; }
+            }
+            return false;
+        }
+
+        [[nodiscard]] bool child_graph_has_scheduled_entry(const Graph &child_graph, engine_time_t evaluation_time) noexcept {
+            for (const NodeEntry &entry : child_graph.entries()) {
+                if (entry.scheduled == evaluation_time) { return true; }
+            }
+            return false;
         }
 
         void schedule_map_slot_child_input_nodes(MapSlotRuntime &slot, bool added,
@@ -5442,6 +5466,62 @@ namespace hgraph
                                [&](size_t slot_index) { return parent_delta.next_updated_slot(slot_index); });
         }
 
+        [[nodiscard]] bool native_tsd_key_changed_this_tick(const TSViewContext &context, const View &key,
+                                                            engine_time_t evaluation_time) {
+            const TSViewContext resolved = context.resolved();
+            if (resolved.schema == nullptr || resolved.schema->kind != TSKind::TSD || resolved.ts_state == nullptr ||
+                resolved.ts_state->storage_kind != TSStorageKind::Native) {
+                return false;
+            }
+
+            const auto *state = static_cast<const TSDState *>(resolved.ts_state);
+            if (state->removed_valid_children_modified_time == evaluation_time) {
+                for (const auto &[slot, removed_keys] : state->removed_valid_child_keys) {
+                    static_cast<void>(slot);
+                    if (std::any_of(removed_keys.begin(), removed_keys.end(), [&](const Value &removed_key) {
+                            return removed_key.view().has_value() && removed_key.view().equals(key);
+                        })) {
+                        return true;
+                    }
+                }
+            }
+
+            if (state->map_dispatch == nullptr || state->map_value_data == nullptr) { return false; }
+
+            bool has_value_delta = false;
+            const size_t capacity = state->map_dispatch->slot_capacity(state->map_value_data);
+            for (size_t candidate = 0; candidate < capacity; ++candidate) {
+                if (!state->map_dispatch->slot_occupied(state->map_value_data, candidate)) { continue; }
+                if (state->map_dispatch->slot_added(state->map_value_data, candidate) ||
+                    state->map_dispatch->slot_updated(state->map_value_data, candidate) ||
+                    state->map_dispatch->slot_removed(state->map_value_data, candidate)) {
+                    has_value_delta = true;
+                    break;
+                }
+            }
+
+            const size_t slot = state->map_dispatch->find(state->map_value_data, detail::ViewAccess::data(key));
+            if (slot == static_cast<size_t>(-1) || slot >= capacity ||
+                !state->map_dispatch->slot_occupied(state->map_value_data, slot) ||
+                state->map_dispatch->slot_removed(state->map_value_data, slot)) {
+                return false;
+            }
+
+            const bool value_delta_for_key = state->map_dispatch->slot_added(state->map_value_data, slot) ||
+                                             state->map_dispatch->slot_updated(state->map_value_data, slot);
+            if (value_delta_for_key) { return true; }
+
+            const auto *dispatch = resolved.ts_dispatch != nullptr ? resolved.ts_dispatch->as_collection() : nullptr;
+            const auto *keys     = dispatch != nullptr ? dispatch->as_keys() : nullptr;
+            const bool child_modified = keys != nullptr && keys->child_modified(resolved, slot);
+            const bool added =
+                state->added_valid_children_modified_time == evaluation_time && state->added_valid_children.contains(slot);
+            if (has_value_delta) { return false; }
+            if (child_modified) { return true; }
+
+            return added;
+        }
+
         [[nodiscard]] bool tsd_child_marked_modified(const TSViewContext &context, const View &key) {
             const TSViewContext resolved = context.resolved();
             const auto         *dispatch = resolved.ts_dispatch != nullptr ? resolved.ts_dispatch->as_collection() : nullptr;
@@ -5459,16 +5539,22 @@ namespace hgraph
         }
 
         [[nodiscard]] std::optional<bool> multiplexed_tsd_key_changed(TSInputView parent_field, const TSOutputView &parent_output,
-                                                                      const View &key, bool parent_changed) {
+                                                                      const View &key, bool parent_changed,
+                                                                      engine_time_t evaluation_time) {
             const TSMeta *parent_schema = unwrap_navigation_schema(parent_field.ts_schema());
             if (parent_schema == nullptr || parent_schema->kind != TSKind::TSD || !parent_changed) { return std::nullopt; }
+
+            const TSViewContext &parent_context =
+                parent_output.ts_schema() != nullptr ? parent_output.context_ref() : parent_field.context_ref();
+            const TSViewContext resolved_parent = parent_context.resolved();
+            if (resolved_parent.ts_state != nullptr && resolved_parent.ts_state->storage_kind == TSStorageKind::Native) {
+                return native_tsd_key_changed_this_tick(parent_context, key, evaluation_time);
+            }
 
             const View parent_delta_value =
                 parent_output.ts_schema() != nullptr ? parent_output.delta_value() : parent_field.delta_value();
             if (map_delta_contains_key_change(parent_delta_value, key)) { return true; }
 
-            const TSViewContext &parent_context =
-                parent_output.ts_schema() != nullptr ? parent_output.context_ref() : parent_field.context_ref();
             return tsd_child_marked_modified(parent_context, key);
         }
 
@@ -5484,7 +5570,7 @@ namespace hgraph
                 const bool   parent_changed =
                     input_changed(parent_field) || (parent_output.ts_schema() != nullptr && output_changed(parent_output));
                 if (const auto key_changed =
-                        multiplexed_tsd_key_changed(parent_field, parent_output, slot.key.view(), parent_changed);
+                        multiplexed_tsd_key_changed(parent_field, parent_output, slot.key.view(), parent_changed, evaluation_time);
                     key_changed.has_value()) {
                     if (*key_changed) { return true; }
                     continue;
@@ -5515,7 +5601,7 @@ namespace hgraph
                 const bool   parent_changed =
                     input_changed(parent_field) || (parent_output.ts_schema() != nullptr && output_changed(parent_output));
                 if (const auto key_changed =
-                        multiplexed_tsd_key_changed(parent_field, parent_output, slot.key.view(), parent_changed);
+                        multiplexed_tsd_key_changed(parent_field, parent_output, slot.key.view(), parent_changed, evaluation_time);
                     key_changed.has_value()) {
                     if (*key_changed) { return true; }
                     continue;
@@ -5669,6 +5755,25 @@ namespace hgraph
                 parent_output.as_dict().erase(key);
                 mark_output_view_modified(parent_output, evaluation_time);
             };
+            auto prune_orphan_mesh_slots = [&]() {
+                if (!runtime.mesh_mode) { return; }
+
+                bool pruned = true;
+                while (pruned) {
+                    pruned = false;
+                    for (size_t orphan_slot = 0; orphan_slot < slot_store.constructed.size(); ++orphan_slot) {
+                        MapSlotRuntime *orphan = slot_store.try_slot(orphan_slot);
+                        if (orphan == nullptr || orphan->external_key || !orphan->dependents.empty()) { continue; }
+
+                        static_cast<void>(erase_map_slot_output(*orphan));
+                        output_structure_changed = true;
+                        dispose_map_slot(*runtime.child_template, *orphan, evaluation_time);
+                        unlink_mesh_dependent_slot(orphan_slot);
+                        slot_store.destroy_at(orphan_slot);
+                        pruned = true;
+                    }
+                }
+            };
 
             if (keys_modified) {
                 if (!runtime.mesh_mode) {
@@ -5692,10 +5797,17 @@ namespace hgraph
             };
             if (keys_modified) {
                 for (size_t slot = 0; slot < keys_delta.slot_capacity(); ++slot) {
-                    if (!keys_delta.slot_occupied(slot) || !keys_delta.slot_added(slot) || keys_delta.slot_removed(slot)) {
+                    if (!keys_delta.slot_occupied(slot) || keys_delta.slot_removed(slot)) { continue; }
+                    const value::View key = keys_delta.at_slot(slot);
+                    MapSlotRuntime  *existing_payload = slot_store.try_slot(slot);
+                    const bool       slot_added       = keys_delta.slot_added(slot);
+                    const bool       key_replaced =
+                        existing_payload != nullptr && !existing_payload->key.view().equals(key);
+                    if (!slot_added && !key_replaced) { continue; }
+                    if (slot_added && existing_payload != nullptr && existing_payload->key.view().equals(key)) {
+                        mark_added_slot(slot);
                         continue;
                     }
-                    const value::View key = keys_delta.at_slot(slot);
                     if (runtime.mesh_mode) {
                         const size_t existing_slot = find_existing_slot_for_key(key);
                         if (existing_slot != static_cast<size_t>(-1)) {
@@ -5751,6 +5863,7 @@ namespace hgraph
                     dispose_map_slot(*runtime.child_template, *payload, evaluation_time);
                     unlink_mesh_dependent_slot(payload_slot);
                     slot_store.destroy_at(payload_slot);
+                    prune_orphan_mesh_slots();
                 }
 
                 // Sync stale slots: when the input was rebound (keys_modified but
@@ -5795,16 +5908,37 @@ namespace hgraph
                     modified_keyed_args.insert(spec.arg_name);
                 }
             }
+            bool unplanned_direct_input_modified = false;
+            if (node.has_input()) {
+                for (const auto &[arg_name, arg] : node.input_view(evaluation_time).as_bundle().modified_items()) {
+                    if (arg_name == runtime.keys_arg || arg_name == runtime.key_arg || is_multiplexed_arg(runtime, arg_name)) {
+                        continue;
+                    }
+                    const bool planned_child_arg = std::ranges::any_of(
+                        runtime.child_template->boundary_plan.inputs,
+                        [&](const InputBindingSpec &spec) { return spec.arg_name == arg_name; });
+                    if (planned_child_arg) { continue; }
+                    unplanned_direct_input_modified = true;
+                    break;
+                }
+            }
 
             std::vector<ChangedMapOutput> changed_outputs;
             size_t                        current_rank         = 0;
             bool                          output_value_changed = false;
+            const auto child_schedule_due = [&](const ChildGraphInstance &child) {
+                return node.has_scheduler() && node.scheduler().tag_is_scheduled_now(child.clock_state().schedule_tag);
+            };
             do {
-                const size_t eval_capacity = runtime.mesh_mode ? slot_store.constructed.size() : keys_delta.slot_capacity();
+                const size_t eval_capacity =
+                    runtime.mesh_mode ? slot_store.constructed.size()
+                                      : std::max(slot_store.constructed.size(), keys_delta.slot_capacity());
                 for (size_t slot = 0; slot < eval_capacity; ++slot) {
-                    if (!runtime.mesh_mode && (!keys_delta.slot_occupied(slot) || keys_delta.slot_removed(slot))) { continue; }
                     MapSlotRuntime *payload = slot_store.try_slot(slot);
                     if (payload == nullptr) { continue; }
+                    if (!runtime.mesh_mode && keys_value.has_value() && !keys_value.as_set().contains(payload->key.view())) {
+                        continue;
+                    }
                     if (runtime.mesh_mode && payload->external_key && keys_value.has_value() &&
                         !keys_value.as_set().contains(payload->key.view())) {
                         continue;
@@ -5812,14 +5946,32 @@ namespace hgraph
                     if (runtime.mesh_mode && payload->rank != current_rank) { continue; }
                     if (runtime.mesh_mode && payload->blocked_evaluation_time == evaluation_time) { continue; }
 
-                    const bool added         = slot < added_slots.size() && added_slots.test(slot);
-                    payload->next_scheduled  = payload->child_instance.next_scheduled_time();
-                    const bool scheduled_now = payload->next_scheduled != MAX_DT && payload->next_scheduled <= evaluation_time;
+                    const bool          added          = slot < added_slots.size() && added_slots.test(slot);
+                    const engine_time_t child_requested = payload->child_instance.next_scheduled_time();
+                    if (child_requested != MAX_DT &&
+                        (payload->next_scheduled == MAX_DT || child_requested < payload->next_scheduled)) {
+                        payload->next_scheduled = child_requested;
+                    }
+                    const bool child_instance_due =
+                        payload->next_scheduled != MAX_DT && payload->next_scheduled <= evaluation_time;
+                    bool scheduled_now = false;
+                    const bool scheduled_child_due = child_schedule_due(payload->child_instance);
+                    if ((scheduled_child_due || child_instance_due) && payload->child_instance.graph() != nullptr) {
+                        Graph &child_graph = *payload->child_instance.graph();
+                        scheduled_now      = child_graph_has_scheduled_entry(child_graph, evaluation_time);
+                        scheduled_now      = schedule_due_child_graph_nodes(child_graph, evaluation_time) || scheduled_now;
+                        if (child_graph_has_scheduled_entry(child_graph, evaluation_time)) { scheduled_now = true; }
+                        if (!scheduled_now && ((child_instance_due && !payload->evaluated_once) ||
+                                               child_graph_has_pull_source(child_graph))) {
+                            schedule_map_slot_child_graph(*payload, evaluation_time);
+                            scheduled_now = true;
+                        }
+                    }
                     const bool multiplexed_modified = has_modified_multiplexed_input(node, *payload, evaluation_time);
                     const bool multiplexed_output_modified =
                         has_modified_multiplexed_output_alias(node, runtime, *payload, evaluation_time);
                     const bool should_eval = added || scheduled_now || !modified_direct_args.empty() || multiplexed_modified ||
-                                             multiplexed_output_modified;
+                                             multiplexed_output_modified || unplanned_direct_input_modified;
 
                     if (std::getenv("HGRAPH_DEBUG_MESH") != nullptr && runtime.mesh_mode) {
                         std::fprintf(stderr,
@@ -5838,11 +5990,12 @@ namespace hgraph
 
                     ensure_map_slot_started(node, runtime, *payload, evaluation_time);
                     rebind_map_slot_inputs(node, *payload, modified_direct_args, added || multiplexed_modified, evaluation_time);
+                    if (unplanned_direct_input_modified) { schedule_map_slot_child_graph(*payload, evaluation_time); }
                     if (added || !modified_direct_args.empty() || multiplexed_modified) {
                         schedule_map_slot_child_input_nodes(*payload, added, modified_direct_args, modified_keyed_args,
                                                             multiplexed_modified, evaluation_time);
                     }
-                    if (scheduled_now && payload->child_instance.graph() != nullptr) {
+                    if (scheduled_now && !scheduled_child_due && payload->child_instance.graph() != nullptr) {
                         schedule_due_child_graph_nodes(*payload->child_instance.graph(), evaluation_time);
                     }
                     if (!evaluate_map_slot_child(node, *payload, evaluation_time)) {
@@ -5902,7 +6055,11 @@ namespace hgraph
             for (size_t slot = 0; slot < slot_store.constructed.size(); ++slot) {
                 MapSlotRuntime *payload = slot_store.try_slot(slot);
                 if (payload == nullptr) { continue; }
-                payload->next_scheduled = payload->child_instance.next_scheduled_time();
+                const engine_time_t child_requested = payload->child_instance.next_scheduled_time();
+                if (child_requested != MAX_DT &&
+                    (payload->next_scheduled == MAX_DT || child_requested < payload->next_scheduled)) {
+                    payload->next_scheduled = child_requested;
+                }
                 if (payload->next_scheduled != MAX_DT && payload->next_scheduled < next_schedule) {
                     next_schedule = payload->next_scheduled;
                 }
@@ -6293,8 +6450,9 @@ namespace hgraph
         builder.reset_type_state();
         builder.m_type_ops               = &component_ops;
         builder.m_type_state             = make_builder_state(NestedNodeBuilderState{child_template});
-        builder.m_uses_scheduler         = true;
+        builder.m_uses_scheduler         = false;
         builder.m_has_explicit_scheduler = true;
+        builder.set_valid_inputs({});
         return builder;
     }
 

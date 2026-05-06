@@ -248,10 +248,12 @@ namespace hgraph
             m_is_evaluating     = false;
             m_evaluation_cursor = INVALID_EVALUATION_CURSOR;
         });
-        m_evaluation_engine.notify_before_graph_evaluation(*this);
-        auto after_graph_evaluation = UnwindCleanupGuard([&] { m_evaluation_engine.notify_after_graph_evaluation(*this); });
+        if (m_evaluation_engine) { m_evaluation_engine.notify_before_graph_evaluation(*this); }
+        auto after_graph_evaluation = UnwindCleanupGuard([&] {
+            if (m_evaluation_engine) { m_evaluation_engine.notify_after_graph_evaluation(*this); }
+        });
 
-        m_evaluation_engine.evaluate_push_source_nodes(*this, when);
+        if (m_evaluation_engine) { m_evaluation_engine.evaluate_push_source_nodes(*this, when); }
 
         for (size_t index = static_cast<size_t>(m_push_source_nodes_end); index < m_node_count; ++index) {
             auto &entry = entry_storage()[index];
@@ -259,10 +261,13 @@ namespace hgraph
                 const bool force_eval = entry.force_eval;
                 entry.force_eval      = false;
                 m_evaluation_cursor = index;
-                m_evaluation_engine.notify_before_node_evaluation(*entry.node);
+                if (m_evaluation_engine) { m_evaluation_engine.notify_before_node_evaluation(*entry.node); }
                 auto after_node_evaluation =
-                    UnwindCleanupGuard([&] { m_evaluation_engine.notify_after_node_evaluation(*entry.node); });
+                    UnwindCleanupGuard([&] {
+                        if (m_evaluation_engine) { m_evaluation_engine.notify_after_node_evaluation(*entry.node); }
+                    });
                 entry.node->eval(when, force_eval);
+                if (!m_evaluation_engine) { return; }
                 after_node_evaluation.complete();
             } else if (entry.scheduled > when) {
                 clock.update_next_scheduled_evaluation_time(entry.scheduled);

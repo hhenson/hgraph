@@ -32,6 +32,14 @@ namespace hgraph
             }
         };
 
+        void destroy_nested_engine_state(void *state) noexcept {
+            delete static_cast<NestedEvaluationEngineState *>(state);
+        }
+
+        void rebind_nested_engine_state(void *state, NestedClockState &clock_state) noexcept {
+            if (state != nullptr) { static_cast<NestedEvaluationEngineState *>(state)->clock_state = &clock_state; }
+        }
+
         // EvaluationEngineOps dispatch for NestedEvaluationEngineState.
         // Most operations delegate to the parent engine. The clock is the
         // only thing that differs.
@@ -302,15 +310,20 @@ namespace hgraph
                 m_graph->stop();
             } catch (...) {}
         }
+        m_graph.reset();
+        destroy_nested_engine_state(m_engine_state);
+        m_engine_state = nullptr;
     }
 
     ChildGraphInstance::ChildGraphInstance(ChildGraphInstance &&other) noexcept
         : m_template(other.m_template), m_graph(std::move(other.m_graph)), m_clock_state(other.m_clock_state),
-          m_graph_id(std::move(other.m_graph_id)), m_label(std::move(other.m_label)), m_started(other.m_started),
-          m_disposed(other.m_disposed) {
-        other.m_template = nullptr;
-        other.m_started  = false;
-        other.m_disposed = false;
+          m_engine_state(other.m_engine_state), m_graph_id(std::move(other.m_graph_id)), m_label(std::move(other.m_label)),
+          m_started(other.m_started), m_disposed(other.m_disposed) {
+        rebind_nested_engine_state(m_engine_state, m_clock_state);
+        other.m_template     = nullptr;
+        other.m_engine_state = nullptr;
+        other.m_started      = false;
+        other.m_disposed     = false;
     }
 
     ChildGraphInstance &ChildGraphInstance::operator=(ChildGraphInstance &&other) noexcept {
@@ -320,14 +333,19 @@ namespace hgraph
                     m_graph->stop();
                 } catch (...) {}
             }
+            m_graph.reset();
+            destroy_nested_engine_state(m_engine_state);
             m_template       = other.m_template;
             m_graph          = std::move(other.m_graph);
             m_clock_state    = other.m_clock_state;
+            m_engine_state   = other.m_engine_state;
             m_graph_id       = std::move(other.m_graph_id);
             m_label          = std::move(other.m_label);
             m_started        = other.m_started;
             m_disposed       = other.m_disposed;
+            rebind_nested_engine_state(m_engine_state, m_clock_state);
             other.m_template = nullptr;
+            other.m_engine_state = nullptr;
             other.m_started  = false;
             other.m_disposed = false;
         }
@@ -351,11 +369,17 @@ namespace hgraph
         m_clock_state.nested_next_scheduled = MAX_DT;
         m_clock_state.evaluation_time       = MIN_DT;
         m_clock_state.last_evaluation_time  = MIN_DT;
+        m_clock_state.schedule_tag          = std::string{kNestedScheduleTag};
+        for (const int64_t id : m_graph_id) {
+            m_clock_state.schedule_tag += ':';
+            m_clock_state.schedule_tag += std::to_string(id);
+        }
         m_clock_state.is_stopping           = false;
 
         // Create the nested evaluation engine state (heap-allocated, owned by the engine ops destruct)
         auto *engine_state        = new NestedEvaluationEngineState{};
         engine_state->clock_state = &m_clock_state;
+        m_engine_state            = engine_state;
 
         // Start the child clock from the parent graph's current evaluation time
         // so the nested graph begins on the same engine tick as its owner.
@@ -394,13 +418,15 @@ namespace hgraph
         m_graph->evaluate(eval_time);
     }
 
-    void ChildGraphInstance::stop(engine_time_t /*eval_time*/) {
+    void ChildGraphInstance::stop(engine_time_t eval_time) {
         if (!m_started) { return; }
 
         m_clock_state.is_stopping = true;
+        m_clock_state.evaluation_time = eval_time;
         m_graph->stop();
         if (m_clock_state.parent_node != nullptr && m_clock_state.parent_node->has_scheduler()) {
-            m_clock_state.parent_node->scheduler().un_schedule(std::string{kNestedScheduleTag});
+            m_clock_state.parent_node->scheduler().un_schedule(
+                m_clock_state.schedule_tag.empty() ? std::string{kNestedScheduleTag} : m_clock_state.schedule_tag);
         }
         m_clock_state.reset_next_scheduled();
         m_clock_state.is_stopping = false;

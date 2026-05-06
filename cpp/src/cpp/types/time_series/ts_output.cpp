@@ -656,17 +656,27 @@ namespace hgraph
                     if (state->removed_valid_children.contains(slot)) { out[key.to_python()] = remove_sentinel(); }
                 }
 
-                for (const size_t slot : state->modified_children) {
-                    if (!dispatch->child_modified(effective, slot)) { continue; }
+                std::unordered_set<size_t> serialized_slots;
+                const auto serialize_live_slot = [&](size_t slot) {
                     if (slot >= slot_capacity || !current_delta.slot_occupied(slot) || current_delta.slot_removed(slot)) {
-                        continue;
+                        return;
                     }
 
-                    const View                key         = current_delta.key_at_slot(slot);
-                    std::optional<nb::object> child_value = current_delta.slot_added(slot)
-                                                                ? serialize_valid_current_full_value(slot, key)
-                                                                : serialize_valid_current_value(slot, key);
-                    if (child_value.has_value()) { out[key.to_python()] = std::move(*child_value); }
+                    const View key = current_delta.key_at_slot(slot);
+                    std::optional<nb::object> child_value = serialize_valid_current_value(slot, key);
+                    if (child_value.has_value()) {
+                        out[key.to_python()] = std::move(*child_value);
+                        serialized_slots.insert(slot);
+                    }
+                };
+
+                if (state->added_valid_children_modified_time == evaluation_time) {
+                    for (const size_t slot : state->added_valid_children) { serialize_live_slot(slot); }
+                }
+
+                for (const size_t slot : state->modified_children) {
+                    if (serialized_slots.contains(slot) || !dispatch->child_modified(effective, slot)) { continue; }
+                    serialize_live_slot(slot);
                 }
 
                 if (out.empty() && last_modified_time == evaluation_time && context_valid(context) && current.empty()) {
@@ -1092,6 +1102,8 @@ namespace hgraph
                     }
                 }
 
+                if (structural_changed) { mark_output_view_modified(view, view.evaluation_time()); }
+
                 for (const auto &[key, mapped_value] : replacement) {
                     const View   key_view   = key.view();
                     TSOutputView child_view = ensure_tsd_child_view(view, key_view);
@@ -1105,7 +1117,7 @@ namespace hgraph
                     }
                 }
 
-                if (structural_changed || (!view.valid() && replacement.empty())) {
+                if (!structural_changed && !view.valid() && replacement.empty()) {
                     mark_output_view_modified(view, view.evaluation_time());
                 }
 
@@ -2279,8 +2291,10 @@ namespace hgraph
             }
 
             if (slot == static_cast<size_t>(-1)) {
-                const bool custom_output_ops = source_context.output_view_ops != nullptr &&
-                                               source_context.output_view_ops != &detail::default_output_view_ops();
+                const auto *effective_output_ops =
+                    source_context.output_view_ops != nullptr ? source_context.output_view_ops : view.output_view_ops();
+                const bool custom_output_ops =
+                    effective_output_ops != nullptr && effective_output_ops != &detail::default_output_view_ops();
                 if (source_context.ts_state != nullptr && custom_output_ops) {
                     return make_missing_dict_child_output_view(view, key);
                 }
@@ -4104,8 +4118,10 @@ namespace hgraph
                          transition_map_slot_changed(*sampled_previous_map, source_root.context_ref(), key));
                     const bool force_live_refresh =
                         sampled_slot_changed || (initializing && !target_was_valid);
-                    const bool source_slot_changed =
-                        source_delta.slot_added(slot) || source_delta.slot_updated(slot) || force_live_refresh;
+                    const bool native_child_changed =
+                        source_native_state != nullptr && source_slot_changed_this_tick(slot);
+                    const bool source_slot_changed = source_delta.slot_added(slot) || source_delta.slot_updated(slot) ||
+                                                     native_child_changed || force_live_refresh;
                     replay_live_slot(slot, !target_has_live_key || source_slot_changed,
                                      !target_has_live_key || force_live_refresh);
                 }

@@ -71,10 +71,12 @@ namespace hgraph
                     Graph *parent_graph = state->parent_node->graph();
                     if (state->parent_node->has_scheduler()) {
                         const engine_time_t parent_time = parent_graph != nullptr ? parent_graph->evaluation_time() : MIN_DT;
+                        const std::string schedule_tag =
+                            state->schedule_tag.empty() ? std::string{kNestedScheduleTag} : state->schedule_tag;
                         if (parent_time != MIN_DT && proposed == parent_time && state->parent_node->started()) {
-                            state->parent_node->scheduler().schedule_immediate(std::string{kNestedScheduleTag});
+                            state->parent_node->scheduler().schedule_immediate(schedule_tag);
                         } else {
-                            state->parent_node->scheduler().schedule(proposed, std::string{kNestedScheduleTag});
+                            state->parent_node->scheduler().schedule(proposed, schedule_tag);
                         }
                     } else if (state->parent_node->started() && parent_graph != nullptr) {
                         parent_graph->schedule_node(state->parent_node->node_index(), proposed);

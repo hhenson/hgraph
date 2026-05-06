@@ -144,6 +144,15 @@ namespace hgraph
 
     bool NodeScheduler::has_tag(std::string_view tag) const { return m_tags.contains(std::string{tag}); }
 
+    engine_time_t NodeScheduler::tag_time(std::string_view tag, engine_time_t default_time) const {
+        auto it = m_tags.find(std::string{tag});
+        return it != m_tags.end() ? it->second : default_time;
+    }
+
+    bool NodeScheduler::tag_is_scheduled_now(std::string_view tag) const {
+        return m_node != nullptr && m_node->graph() != nullptr && tag_time(tag, MAX_DT) <= m_node->graph()->evaluation_time();
+    }
+
     engine_time_t NodeScheduler::pop_tag(std::string_view tag, engine_time_t default_time) {
         auto it = m_tags.find(std::string{tag});
         if (it == m_tags.end()) { return default_time; }
@@ -211,6 +220,10 @@ namespace hgraph
     void NodeScheduler::schedule(engine_time_delta_t when, std::optional<std::string> tag, bool on_wall_clock) {
         assert(m_node != nullptr);
         assert(m_node->graph() != nullptr);
+        if (!m_node->started() && !on_wall_clock) {
+            schedule(MIN_DT + when, std::move(tag), false);
+            return;
+        }
         const engine_time_t base = on_wall_clock ? m_node->graph()->evaluation_clock().now() : m_node->graph()->evaluation_time();
         schedule(base + when, std::move(tag), on_wall_clock);
     }
@@ -409,6 +422,8 @@ namespace hgraph
         if (m_started) { return; }
         activate_active_inputs(*this, evaluation_time);
         auto rollback_start = UnwindCleanupGuard([&] { deactivate_active_inputs(*this, evaluation_time); });
+        m_starting          = true;
+        auto clear_starting = hgraph::make_scope_exit([&] { m_starting = false; });
         spec().runtime_ops->start(*this, evaluation_time);
         m_started             = true;
         auto rollback_started = hgraph::make_scope_exit([&] {
@@ -440,6 +455,8 @@ namespace hgraph
     }
 
     void Node::eval(engine_time_t evaluation_time, bool force_eval) {
+        if (!m_started) { return; }
+
         const bool ready           = ready_to_eval(evaluation_time);
         const bool active_modified = has_input() && has_modified_active_input(*this, evaluation_time);
         if (!ready) { return; }
@@ -477,7 +494,7 @@ namespace hgraph
 
     void Node::notify(engine_time_t et) {
         if (m_graph == nullptr) { return; }
-        if (m_started) {
+        if (m_started || m_starting) {
             const engine_time_t when = std::max(et, m_graph->evaluation_time());
             m_graph->schedule_node(m_node_index, when);
         } else if (uses_scheduler()) {

@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -1182,19 +1183,49 @@ namespace
 
         using RequestTs = TsVar<"TIME_SERIES_TYPE">;
 
-        static void stop(ScalarArg<"path", std::string> path, ScalarArg<"arg", std::string> arg,
-                         In<"requestor_id", TS<int64_t>> requestor_id, engine_time_t evaluation_time) {
-            if (!requestor_id.valid()) { return; }
-            TSOutputView target = shared_output_target(fmt::format("{}/{}", path.value(), arg.value()), evaluation_time);
-            if (target.ts_schema() != nullptr && target.ts_schema()->kind == TSKind::TSD) {
-                target.as_dict().erase(requestor_id.view().value());
+        static constexpr int64_t no_requestor_id = std::numeric_limits<int64_t>::min();
+
+        static void start(State<int64_t> state) { state.view().set_scalar(no_requestor_id); }
+
+        static void remove_request(ScalarArg<"path", std::string> path, ScalarArg<"arg", std::string> arg, int64_t request_id,
+                                   engine_time_t evaluation_time) {
+            if (request_id == no_requestor_id) { return; }
+
+            const std::string target_key = fmt::format("{}/{}", path.value(), arg.value());
+            Value             requestor_key{request_id};
+            if (Node *target_node = shared_output_node(target_key);
+                target_node != nullptr && last_value_node_remove_tsd_item(*target_node, requestor_key.view())) {
+                return;
             }
+
+            TSOutputView target = shared_output_target(target_key, evaluation_time);
+            if (target.ts_schema() != nullptr && target.ts_schema()->kind == TSKind::TSD) {
+                target.as_dict().erase(requestor_key.view());
+            }
+        }
+
+        static void stop(ScalarArg<"path", std::string> path, ScalarArg<"arg", std::string> arg,
+                         In<"requestor_id", TS<int64_t>> requestor_id, State<int64_t> state,
+                         engine_time_t evaluation_time) {
+            int64_t request_id = state.view().template checked_as<int64_t>();
+            if (request_id == no_requestor_id && requestor_id.valid()) {
+                request_id = requestor_id.view().value().template checked_as<int64_t>();
+            }
+            remove_request(path, arg, request_id, evaluation_time);
+            state.view().set_scalar(no_requestor_id);
         }
 
         static void eval(ScalarArg<"path", std::string> path, ScalarArg<"arg", std::string> arg,
                          In<"request", REF<RequestTs>> request, In<"requestor_id", TS<int64_t>> requestor_id,
-                         engine_time_t evaluation_time) {
+                         State<int64_t> state, engine_time_t evaluation_time) {
             if (!requestor_id.valid() || !request.valid()) { return; }
+
+            const int64_t current_request_id = requestor_id.view().value().template checked_as<int64_t>();
+            const int64_t previous_request_id = state.view().template checked_as<int64_t>();
+            if (previous_request_id != no_requestor_id && previous_request_id != current_request_id) {
+                remove_request(path, arg, previous_request_id, evaluation_time);
+            }
+            state.view().set_scalar(current_request_id);
 
             const TimeSeriesReference ref = refreshed_reference_from_input(request.view());
             if (ref.is_empty()) { return; }
@@ -1460,7 +1491,8 @@ namespace
             if (ref.modified() || subscribed_state(state) != nullptr) {
                 TSInputView ref_ref_view = ref_ref.view();
                 disconnect_input(ref_ref_view);
-                if (ref.valid() && view_is_ref_output(ref.value())) {
+                TSInputView ref_view = ref.view();
+                if (input_has_binding(ref_view) && ref.valid() && view_is_ref_output(ref.value())) {
                     bind_reference_to_input(ref.value(), ref_ref_view, ref_ref_view.evaluation_time());
                     ref_ref_view.make_active();
                 }
@@ -1472,7 +1504,7 @@ namespace
             if (ts.valid() && !ts.value().is_empty()) {
                 if (input_has_binding(ref_ref_view) && ref_ref_view.valid()) {
                     result = refreshed_reference_from_input(ref_ref_view);
-                } else if (ref_view.valid()) {
+                } else if (input_has_binding(ref_view) && ref_view.valid()) {
                     result = refreshed_reference_from_input(ref_view);
                 }
             }
@@ -1489,7 +1521,9 @@ namespace
                 const auto *current = out.try_value();
                 return current == nullptr || !(*current == result);
             }();
-            if (out_changed) { out.set(result); }
+            const bool referent_modified =
+                result.observed_time() == out.evaluation_time() && result.observed_time() != MIN_DT;
+            if (out_changed || referent_modified) { out.set(result); }
         }
     };
 
@@ -1912,6 +1946,7 @@ namespace
 
             const bool available_now =
                 hgraph::mesh_node_add_dependency(*mesh_node, node, item.view().value(), out.evaluation_time());
+            if (!node.started()) { return; }
             if (debug) {
                 std::fprintf(stderr, "mesh_subscribe node=%lld scheduled=%d item_modified=%d available_now=%d item=%s\n",
                              static_cast<long long>(node.public_node_index()), scheduler.is_scheduled(), item.modified(),

@@ -134,6 +134,8 @@ namespace hgraph
         [[nodiscard]] bool          is_scheduled() const noexcept;
         [[nodiscard]] bool          is_scheduled_now() const noexcept;
         [[nodiscard]] bool          has_tag(std::string_view tag) const;
+        [[nodiscard]] engine_time_t tag_time(std::string_view tag, engine_time_t default_time = MIN_DT) const;
+        [[nodiscard]] bool          tag_is_scheduled_now(std::string_view tag) const;
         [[nodiscard]] engine_time_t pop_tag(std::string_view tag, engine_time_t default_time = MIN_DT);
         void schedule(engine_time_t when, std::optional<std::string> tag = std::nullopt, bool on_wall_clock = false);
         void schedule(engine_time_delta_t when, std::optional<std::string> tag = std::nullopt, bool on_wall_clock = false);
@@ -236,6 +238,7 @@ namespace hgraph
         int64_t              m_node_index{-1};
         int64_t              m_public_node_index{-1};
         bool                 m_started{false};
+        bool                 m_starting{false};
     };
 
 }  // namespace hgraph

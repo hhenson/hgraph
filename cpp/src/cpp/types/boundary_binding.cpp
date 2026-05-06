@@ -417,8 +417,27 @@ namespace hgraph
                    context.ts_dispatch != nullptr && detail::linked_context_valid(context);
         }
 
-        void bind_direct_input(TSInputView child_input, TSInputView parent_field) {
-            bind_child_to_output(child_input, bound_output_of(parent_field, child_input.context_ref().schema));
+        void bind_direct_input(TSInputView child_input, TSInputView parent_field, engine_time_t eval_time) {
+            if (TSOutputView source_output = bound_output_of(parent_field, child_input.context_ref().schema);
+                source_output.ts_schema() != nullptr) {
+                bind_child_to_output(child_input, source_output);
+                return;
+            }
+
+            const TSMeta *child_schema = child_input.context_ref().schema;
+            if (!parent_field.valid() || child_schema == nullptr) {
+                restore_blank_input(child_input);
+                return;
+            }
+
+            if (child_schema->kind == TSKind::REF) {
+                set_local_reference_value(child_input, TimeSeriesReference::make(parent_field), eval_time);
+                child_input.make_active();
+                return;
+            }
+
+            set_local_value(child_input, parent_field.value(), eval_time);
+            child_input.make_active();
         }
 
         void bind_cloned_reference(TSInputView child_input, TSInputView parent_field, engine_time_t eval_time) {
@@ -511,7 +530,7 @@ namespace hgraph
                 case InputBindingMode::BIND_DIRECT:
                     {
                         bind_direct_input(resolve_child_input(child, spec, eval_time),
-                                          resolve_parent_source(parent, spec, eval_time));
+                                          resolve_parent_source(parent, spec, eval_time), eval_time);
                         break;
                     }
                 case InputBindingMode::CLONE_REF_BINDING:
@@ -688,8 +707,12 @@ namespace hgraph
                     }
                 case InputBindingMode::BIND_KEY_VALUE:
                     {
-                        static_cast<void>(key_source);
-                        set_local_value(child_input, key, eval_time);
+                        const TSMeta *child_schema = child_input.context_ref().schema;
+                        if (child_schema != nullptr && child_schema->kind == TSKind::REF) {
+                            set_local_reference_value(child_input, TimeSeriesReference::make(key_source), eval_time);
+                        } else {
+                            set_local_value(child_input, key, eval_time);
+                        }
                         child_input.make_active();
                         break;
                     }
@@ -792,7 +815,7 @@ namespace hgraph
             TSInputView child_input = resolve_child_input(child, spec, eval_time);
             switch (spec.mode) {
                 case InputBindingMode::BIND_DIRECT:
-                    bind_direct_input(child_input, resolve_parent_source(parent, spec, eval_time));
+                    bind_direct_input(child_input, resolve_parent_source(parent, spec, eval_time), eval_time);
                     break;
                 case InputBindingMode::CLONE_REF_BINDING:
                     bind_cloned_reference(child_input, resolve_parent_source(parent, spec, eval_time), eval_time);

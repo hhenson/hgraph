@@ -173,6 +173,7 @@ namespace hgraph
         const ChildGraphTemplate *m_template{nullptr};
         std::optional<Graph>      m_graph;
         NestedClockState          m_clock_state;
+        void                     *m_engine_state{nullptr};
         std::vector<int64_t>      m_graph_id;
         std::string               m_label;
         bool                      m_started{false};
