@@ -332,47 +332,13 @@ namespace hgraph
                     LinkedTSContext output_context = bindable_output.linked_context();
                     if (child_schema != nullptr && child_schema->kind == TSKind::REF && child_schema->element_ts() != nullptr &&
                         output_context.schema != nullptr && output_context.schema->kind != TSKind::REF) {
-                        const TSMeta *target_schema = child_schema->element_ts();
-                        if (!binding_compatible_ts_schema(output_context.schema, target_schema) ||
-                            requires_bindable_output_cast(output_context.schema, target_schema)) {
-                            TSOutput *owning_output = output.owning_output();
-                            if (owning_output == nullptr) {
-                                throw std::logic_error("TSInputView::bind_output requires an owning output endpoint for REF casts");
-                            }
-                            bindable_output = owning_output->bindable_view(output, target_schema);
-                            output_context  = bindable_output.linked_context();
+                        TSOutput *owning_output =
+                            output.owning_output() != nullptr ? output.owning_output() : output_context.owning_output;
+                        if (owning_output == nullptr) {
+                            throw std::logic_error("TSInputView::bind_output requires an owning output endpoint for REF casts");
                         }
-
-                        if (!binding_compatible_ts_schema(output_context.schema, target_schema)) {
-                            throw std::invalid_argument(
-                                fmt::format("TSInputView::bind_output requires a bindable output matching the REF target schema: "
-                                            "linked={} source_view={} bindable_view={} target={}",
-                                            schema_debug_name(output_context.schema),
-                                            schema_debug_name(output.ts_schema()),
-                                            schema_debug_name(bindable_output.ts_schema()),
-                                            schema_debug_name(target_schema)));
-                        }
-
-                        TSViewContext value_context = context;
-                        if (value_context.value_dispatch == nullptr || value_context.value_data == nullptr) {
-                            value_context = context.resolved();
-                        }
-                        if (value_context.value_dispatch == nullptr || value_context.value_data == nullptr ||
-                            child_schema->value_type == nullptr) {
-                            throw std::logic_error("TSInputView::bind_output REF wrapping requires local value storage");
-                        }
-                        if (state->storage_kind == TSStorageKind::TargetLink) { static_cast<TargetLinkState *>(state)->reset_target(); }
-
-                        View local_value{value_context.value_dispatch, value_context.value_data, child_schema->value_type};
-                        const auto *current_ref =
-                            local_value.has_value() ? local_value.as_atomic().try_as<TimeSeriesReference>() : nullptr;
-                        TimeSeriesReference next_ref = TimeSeriesReference::make(bindable_output);
-                        if (current_ref == nullptr || *current_ref != next_ref) {
-                            local_value.as_atomic().set(next_ref);
-                            const engine_time_t evaluation_time = view.evaluation_time();
-                            if (evaluation_time != MIN_DT) { state->mark_modified(evaluation_time); }
-                        }
-                        return;
+                        bindable_output = owning_output->bindable_view(output, child_schema);
+                        output_context  = bindable_output.linked_context();
                     }
                     if (!binding_compatible_ts_schema(output_context.schema, child_schema) ||
                         requires_bindable_output_cast(output_context.schema, child_schema)) {

@@ -1,4 +1,5 @@
 #include <hgraph/types/child_graph.h>
+#include <hgraph/util/scope.h>
 
 #include <cassert>
 #include <stdexcept>
@@ -389,6 +390,7 @@ namespace hgraph
 
         m_clock_state.reset_next_scheduled();
         m_clock_state.last_evaluation_time = eval_time;
+        auto reset_nested_schedule = hgraph::make_scope_exit([&] { m_clock_state.reset_next_scheduled(); });
         m_graph->evaluate(eval_time);
     }
 

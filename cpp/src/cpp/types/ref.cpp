@@ -456,7 +456,7 @@ namespace hgraph
                     }
 
                 case TSKind::TSB:
-                    if (resolved_context.is_bound()) { return make_peered(resolved_context); }
+                    if (target != nullptr && target->is_bound()) { return make_peered(*target); }
                     {
                         std::vector<TimeSeriesReference> refs;
                         auto bundle = input.as_bundle();
@@ -469,7 +469,7 @@ namespace hgraph
                     }
 
                 case TSKind::TSL:
-                    if (resolved_context.is_bound()) { return make_peered(resolved_context); }
+                    if (target != nullptr && target->is_bound()) { return make_peered(*target); }
                     {
                         std::vector<TimeSeriesReference> refs;
                         auto list = input.as_list();
@@ -486,7 +486,7 @@ namespace hgraph
                 case TSKind::TSW:
                 case TSKind::TSValue:
                 case TSKind::SIGNAL:
-                    if (resolved_context.is_bound()) { return make_peered(resolved_context); }
+                    if (target != nullptr && target->is_bound()) { return make_peered(*target); }
                     break;
             }
         }

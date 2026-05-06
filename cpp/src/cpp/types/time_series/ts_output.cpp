@@ -3757,7 +3757,9 @@ namespace hgraph
             // propagation, which would mask the transition and leak the
             // previous tick's value-layer delta into downstream consumers.
             const bool starting_new_tick = modified_time != MIN_DT && binding.last_synced_time != modified_time;
-            if (starting_new_tick) { target_root_state->modified_children.clear(); }
+            if (starting_new_tick && target_root_state->last_modified_time != modified_time) {
+                target_root_state->modified_children.clear();
+            }
 
             const TSViewContext target_root_context = target_root.context_ref();
             if (target_root_context.value_dispatch != nullptr && target_root_context.value_data != nullptr) {
@@ -4034,10 +4036,13 @@ namespace hgraph
 
                 if (source_updated) {
                     if (BaseState *target_child_state = target_child.context_ref().ts_state; target_child_state != nullptr) {
+                        const bool already_bubbled =
+                            target_root_state->last_modified_time == modified_time &&
+                            target_root_state->modified_children.contains(target_child_state->index);
                         if (target_child_state->last_modified_time != modified_time) {
                             target_child_state->mark_modified_local(modified_time);
                         }
-                        target_root_state->child_modified(target_child_state->index, modified_time);
+                        if (!already_bubbled) { target_root_state->child_modified(target_child_state->index, modified_time); }
                     }
                 }
 
@@ -4108,7 +4113,9 @@ namespace hgraph
                 std::unordered_set<size_t> replayed_slots;
                 for (size_t slot = source_delta.first_added_slot(); slot != no_slot;
                      slot        = source_delta.next_added_slot(slot)) {
-                    if (!source_slot_changed_this_tick(slot)) { continue; }
+                    const View   key          = source_delta.key_at_slot(slot);
+                    TSOutputView target_child = target_dict.at(key);
+                    if (!source_slot_changed_this_tick(slot) && target_child.context_ref().is_bound()) { continue; }
                     replay_live_slot(slot, true, true);
                     replayed_slots.insert(slot);
                 }
@@ -4159,7 +4166,7 @@ namespace hgraph
                 // Mark the target TSD state itself so nested projections such
                 // as `.true` observe the modification before it bubbles to any
                 // enclosing bundle alternative.
-                target_root_state->mark_modified(modified_time);
+                if (target_root_state->last_modified_time != modified_time) { target_root_state->mark_modified(modified_time); }
             }
             binding.last_synced_time = modified_time;
             finish_sync();
@@ -4795,7 +4802,8 @@ namespace hgraph
     }  // namespace
 
     void detail::TSDispatch::from_python(const TSOutputView &view, nb::handle value) const {
-        if (nb::isinstance<TimeSeriesReference>(value)) {
+        const TSMeta *schema = view.ts_schema();
+        if (schema != nullptr && schema->kind == TSKind::REF && nb::isinstance<TimeSeriesReference>(value)) {
             const TimeSeriesReference reference = nb::cast<TimeSeriesReference>(value);
             if (reference.is_peered() && copy_from_reference(view, reference, view.evaluation_time())) { return; }
         }

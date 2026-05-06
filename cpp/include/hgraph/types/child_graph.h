@@ -133,8 +133,8 @@ namespace hgraph
          * 1. Set child clock evaluation_time
          * 2. Evaluate child graph
          * 3. Update last_evaluation_time
-         * 4. Preserve nested_next_scheduled so the owning operator can
-         *    propagate child wake-ups to the parent scheduler.
+         * 4. Reset nested_next_scheduled; accepted wake-ups are delegated to
+         *    the parent scheduler as they are requested.
          */
         void evaluate(engine_time_t eval_time);
 

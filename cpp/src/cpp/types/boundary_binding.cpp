@@ -688,19 +688,9 @@ namespace hgraph
                     }
                 case InputBindingMode::BIND_KEY_VALUE:
                     {
-                        if (key_source.ts_schema() != nullptr) {
-                            TSOutputView source_output = key_source;
-                            if (child_input.context_ref().schema != nullptr &&
-                                !binding_compatible_ts_schema(source_output.ts_schema(), child_input.context_ref().schema) &&
-                                source_output.owning_output() != nullptr) {
-                                source_output =
-                                    source_output.owning_output()->bindable_view(source_output, child_input.context_ref().schema);
-                            }
-                            bind_child_to_output(child_input, source_output);
-                        } else {
-                            set_local_value(child_input, key, eval_time);
-                            child_input.make_active();
-                        }
+                        static_cast<void>(key_source);
+                        set_local_value(child_input, key, eval_time);
+                        child_input.make_active();
                         break;
                     }
                 case InputBindingMode::DETACH_RESTORE_BLANK: break;

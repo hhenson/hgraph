@@ -236,13 +236,6 @@ namespace hgraph
             return {src_node.output_view(MIN_DT), src_node.output_schema()};
         }
 
-        [[nodiscard]] bool should_bind_locally_as_reference(const TSOutputView &output, const TSMeta *input_schema) noexcept
-        {
-            const TSMeta *output_schema = output.ts_schema();
-            return input_schema != nullptr && input_schema->kind == TSKind::REF && output_schema != nullptr &&
-                   output_schema->kind != TSKind::REF;
-        }
-
         [[nodiscard]] std::vector<std::vector<TSInputConstructionEdge>>
         compile_inbound_edges(const GraphBuilder &graph_builder, const std::vector<Edge> &edges)
         {
@@ -456,7 +449,6 @@ namespace hgraph
             TSInputView input = traverse_input(dst_node.input_view(MIN_DT), dst_node.input_schema(), edge.input_path);
             const TSMeta *input_schema = input.ts_schema();
             if (output.ts_schema() != nullptr && input_schema != nullptr &&
-                !should_bind_locally_as_reference(output, input_schema) &&
                 !binding_compatible_ts_schema(output.ts_schema(), input_schema) &&
                 output.owning_output() != nullptr) {
                 output = output.owning_output()->bindable_view(output, input_schema);
@@ -549,7 +541,6 @@ namespace hgraph
             TSInputView input = traverse_input(dst_node.input_view(MIN_DT), dst_node.input_schema(), edge.input_path);
             const TSMeta *input_schema = input.ts_schema();
             if (output.ts_schema() != nullptr && input_schema != nullptr &&
-                !should_bind_locally_as_reference(output, input_schema) &&
                 !binding_compatible_ts_schema(output.ts_schema(), input_schema) &&
                 output.owning_output() != nullptr) {
                 output = output.owning_output()->bindable_view(output, input_schema);

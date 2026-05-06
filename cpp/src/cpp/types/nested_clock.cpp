@@ -23,8 +23,7 @@ namespace hgraph
 
         engine_time_t evaluation_time_impl(const void *impl) noexcept {
             auto *state = static_cast<const NestedClockState *>(impl);
-            auto  clock = parent_engine_clock(state);
-            return clock ? clock.evaluation_time() : state->evaluation_time;
+            return state->evaluation_time;
         }
 
         engine_time_t now_impl(const void *impl) {
@@ -41,8 +40,7 @@ namespace hgraph
 
         engine_time_t next_cycle_evaluation_time_impl(const void *impl) noexcept {
             auto *state = static_cast<const NestedClockState *>(impl);
-            auto  clock = parent_engine_clock(state);
-            return clock ? clock.next_cycle_evaluation_time() : state->evaluation_time + MIN_TD;
+            return state->evaluation_time + MIN_TD;
         }
 
         void set_evaluation_time_impl(void *impl, engine_time_t et) { static_cast<NestedClockState *>(impl)->evaluation_time = et; }
@@ -59,7 +57,8 @@ namespace hgraph
             // Match Python NestedEngineEvaluationClock: stale requests are
             // compared against the parent nested node's last evaluation, not a
             // child-local clock value that may be stale between parent ticks.
-            const engine_time_t last_eval = state->last_evaluation_time;
+            const engine_time_t last_eval =
+                state->last_evaluation_time != MIN_DT ? state->last_evaluation_time : state->evaluation_time;
             if (last_eval != MIN_DT && last_eval >= next_time) { return; }
 
             const engine_time_t floor    = (last_eval != MIN_DT ? last_eval : MIN_DT) + MIN_TD;

@@ -160,13 +160,18 @@ namespace hgraph
                     const auto active_input_names = signature::active_input_names();
                     if (signature::has_explicit_activity_policy() && active_input_names.empty()) {
                         set_active_inputs({});
-                    } else for (const auto &name : active_input_names) {
-                        m_active_inputs.push_back(slot_for_input_name(name));
+                    } else {
+                        if (signature::has_explicit_activity_policy()) { m_has_explicit_active_inputs = true; }
+                        for (const auto &name : active_input_names) {
+                            m_active_inputs.push_back(slot_for_input_name(name));
+                        }
                     }
                 }
 
                 if (!m_has_explicit_valid_inputs && m_valid_inputs.empty()) {
-                    for (const auto &name : signature::valid_input_names()) {
+                    const auto valid_input_names = signature::valid_input_names();
+                    if (signature::has_explicit_valid_input_policy()) { m_has_explicit_valid_inputs = true; }
+                    for (const auto &name : valid_input_names) {
                         m_valid_inputs.push_back(slot_for_input_name(name));
                     }
                 }
