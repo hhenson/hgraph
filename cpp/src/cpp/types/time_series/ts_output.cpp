@@ -918,6 +918,12 @@ namespace hgraph
                 }
             }
 
+            for (const RemovedChild &removed_child : removed_children) {
+                if (!removed_child.child_was_valid) { continue; }
+                clear_output_link(removed_child.child);
+                removed_child.child.invalidate();
+            }
+
             {
                 auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
                 for (const auto &[key_value, entry_value] : entries) {
@@ -940,9 +946,6 @@ namespace hgraph
 
             for (const RemovedChild &removed_child : removed_children) {
                 if (removed_child.child_was_valid) { record_tsd_removed_child(view, removed_child.slot, removed_child.key.view()); }
-                const TSOutputView &child_view = removed_child.child;
-                clear_output_link(child_view);
-                child_view.invalidate();
             }
 
             for (const auto &[key_value, entry_value] : entries) {
@@ -1162,6 +1165,10 @@ namespace hgraph
                     slot          = map_view.find_slot(key);
                     child_view.emplace(ensure_tsd_child_view(view, key));
                     child_was_valid = child_view->valid();
+                    if (child_was_valid) {
+                        clear_output_link(*child_view);
+                        child_view->invalidate();
+                    }
                 }
                 {
                     auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
@@ -1169,8 +1176,6 @@ namespace hgraph
                 }
                 if (removed && child_view.has_value()) {
                     if (child_was_valid) { record_tsd_removed_child(view, slot, key); }
-                    clear_output_link(*child_view);
-                    child_view->invalidate();
                 }
                 if (!removed && entry_value.is(remove_sentinel())) { throw nb::key_error("TSD key not found for REMOVE"); }
                 if (removed) { mark_output_view_modified(view, view.evaluation_time()); }
