@@ -456,8 +456,10 @@ namespace
                 throw std::runtime_error("Unable to initialize TSD child from mismatched source value schema");
             }
 
-            auto mutation = map.begin_mutation(evaluation_time);
-            mutation.set(key, initial.view());
+            {
+                auto mutation = map.begin_mutation(evaluation_time);
+                mutation.set(key, initial.view());
+            }
             mark_output_view_modified(dict_view, evaluation_time);
             return true;
         }
@@ -494,8 +496,10 @@ namespace
                     TSOutputView source = ref.target_view(evaluation_time);
                     if (!source.value().has_value() || !initial.view().try_copy_from(source.value())) { return; }
                 }
-                auto mutation = map.begin_mutation(evaluation_time);
-                mutation.set(key, initial.view());
+                {
+                    auto mutation = map.begin_mutation(evaluation_time);
+                    mutation.set(key, initial.view());
+                }
                 mark_output_view_modified(dict_view, evaluation_time);
             }
 
@@ -524,11 +528,12 @@ namespace
             if (!dict_view.value().has_value() || !key.has_value()) { return false; }
 
             MapView map = dict_view.value().as_map();
-            auto    mutation = map.begin_mutation(evaluation_time);
-            const bool removed = mutation.remove(key);
-            if (removed) {
-                mark_output_view_modified(dict_view, evaluation_time);
+            bool    removed = false;
+            {
+                auto mutation = map.begin_mutation(evaluation_time);
+                removed       = mutation.remove(key);
             }
+            if (removed) { mark_output_view_modified(dict_view, evaluation_time); }
             return removed;
         }
 
@@ -1561,21 +1566,15 @@ namespace
             if (!(tsd.valid() && source_root.context_ref().is_bound() && source_root.value().has_value()) ||
                 emptied_without_delta) {
                 if (!tracked_keys.empty()) {
-                    auto mutation = out_dict.value().as_map().begin_mutation(out.evaluation_time());
-                    bool removed  = false;
-                    for (const Value &tracked_key : tracked_keys) { removed = mutation.remove(tracked_key.view()) || removed; }
-                    if (removed) { mark_output_view_modified(out_dict.view(), out.evaluation_time()); }
+                    for (const Value &tracked_key : tracked_keys) {
+                        remove_dict_child_natively(out_dict.view(), tracked_key.view(), out.evaluation_time());
+                    }
                 }
                 return;
             }
 
-            bool        structural_changed = false;
             const bool  sampled_root_tick  = sampled_transition_this_tick(source_root.context_ref(), out.evaluation_time());
             const bool  replay_all_live = sampled_root_tick || (tracked_keys.empty() && source_root.modified() && live_count != 0);
-            const auto *out_schema      = out_dict.view().ts_schema();
-            const auto *ref_value_type =
-                out_schema != nullptr && out_schema->element_ts() != nullptr ? out_schema->element_ts()->value_type : nullptr;
-            auto map_mutation = out_dict.value().as_map().begin_mutation(out.evaluation_time());
 
             auto emit_child = [&](const View &dict_key, auto child, bool child_modified) {
                 TimeSeriesReference result = TimeSeriesReference::make();
@@ -1610,26 +1609,7 @@ namespace
                                              !(*current_ref == result) || selected_field_modified;
                 if (!needs_emit) { return; }
 
-                if (!current_child.context_ref().is_bound()) {
-                    if (ref_value_type == nullptr) {
-                        throw std::logic_error("tsd_get_bundle_item requires a REF-valued output schema");
-                    }
-                    Value inserted{*ref_value_type, MutationTracking::Plain};
-                    inserted.view().as_atomic().set(result);
-                    map_mutation.set(dict_key, inserted.view());
-                    structural_changed = true;
-                    return;
-                }
-
-                TSOutputView target_child = materialize_dict_child_output(out_dict.view(), dict_key);
-                if (!target_child.context_ref().is_bound() && target_child.context_ref().ts_state == nullptr) {
-                    throw std::logic_error("tsd_get_bundle_item failed to materialize target REF child");
-                }
-                target_child.value().as_atomic().set(result);
-                if (BaseState *state = target_child.context_ref().ts_state;
-                    state != nullptr && state->last_modified_time != out.evaluation_time()) {
-                    state->mark_modified(out.evaluation_time());
-                }
+                set_dict_child_reference(out_dict.view(), dict_key, result, out.evaluation_time());
             };
 
             if (replay_all_live) {
@@ -1641,10 +1621,8 @@ namespace
             }
 
             for (const View &removed_key : source_root.value().as_map().delta().removed_keys()) {
-                structural_changed = map_mutation.remove(removed_key) || structural_changed;
+                remove_dict_child_natively(out_dict.view(), removed_key, out.evaluation_time());
             }
-
-            if (structural_changed) { mark_output_view_modified(out_dict.view(), out.evaluation_time()); }
         }
     };
 
