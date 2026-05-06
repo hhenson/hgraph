@@ -4384,7 +4384,6 @@ namespace hgraph
         auto *subscription = static_cast<RefTargetSubscription *>(owner);
         if (subscription == nullptr) { return; }
         subscription->state = nullptr;
-        subscription->notifier.reset();
     }
 
     void TSOutput::RefTargetSubscription::rebind_state(void *owner, BaseState *old_state, BaseState *new_state) noexcept {
