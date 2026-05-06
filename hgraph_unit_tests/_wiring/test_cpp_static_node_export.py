@@ -1,8 +1,14 @@
 from contextlib import contextmanager
 from datetime import timedelta
 
-import hgraph._hgraph as _hgraph
 import pytest
+
+from hgraph._feature_switch import is_feature_enabled
+
+if not is_feature_enabled("use_cpp"):
+    pytest.skip("C++ wiring tests require C++ runtime", allow_module_level=True)
+
+import hgraph._hgraph as _hgraph
 
 from hgraph import REF, TS, TSD, TSS, GraphConfiguration, const, evaluate_graph, generator, graph, sink_node
 from hgraph._impl._operators import _tsd_operators as tsd_operators

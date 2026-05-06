@@ -106,6 +106,7 @@ namespace hgraph
         nb::object       python_signature;
         nb::object       python_scalars;
 
+        // Non-owning views into builder/slab-owned selector storage; the backing arrays outlive this spec.
         std::span<const size_t> active_inputs{};
         std::span<const size_t> valid_inputs{};
         std::span<const size_t> all_valid_inputs{};

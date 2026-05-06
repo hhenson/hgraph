@@ -1,5 +1,12 @@
 from datetime import timedelta
 
+import pytest
+
+from hgraph._feature_switch import is_feature_enabled
+
+if not is_feature_enabled("use_cpp"):
+    pytest.skip("C++ wiring tests require C++ runtime", allow_module_level=True)
+
 import hgraph._hgraph as _hgraph
 
 from hgraph import GraphConfiguration, TS, evaluate_graph, graph, sink_node

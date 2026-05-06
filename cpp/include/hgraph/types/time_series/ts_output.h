@@ -12,6 +12,8 @@
 
 namespace hgraph {
 
+HGRAPH_EXPORT void mark_output_view_modified(const TSOutputView &view, engine_time_t evaluation_time);
+
 /**
  * Owning output-side time-series endpoint.
  *
@@ -118,7 +120,6 @@ private:
  * Publish a modification on an output view and keep any direct dynamic dict
  * children synchronized with the same engine tick.
  */
-HGRAPH_EXPORT void mark_output_view_modified(const TSOutputView &view, engine_time_t evaluation_time);
 HGRAPH_EXPORT void prepare_output_link(const TSOutputView &target);
 [[nodiscard]] HGRAPH_EXPORT bool bind_output_link(const TSOutputView &target, const TSOutputView &source);
 HGRAPH_EXPORT void clear_output_link(const TSOutputView &target);

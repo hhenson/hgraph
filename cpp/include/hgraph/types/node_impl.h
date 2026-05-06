@@ -6,6 +6,7 @@
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/value/value.h>
 
+#include <cassert>
 #include <sstream>
 #include <stdexcept>
 #include <tuple>
@@ -59,6 +60,7 @@ namespace hgraph
             const ValueBuilder *state_builder{nullptr};
             void *state_memory{nullptr};
             TSOutput *recordable_state{nullptr};
+            // Python-backed scalar metadata is only safe to touch while the GIL is held.
             nb::object python_scalars;
         };
 
@@ -374,12 +376,14 @@ namespace hgraph
         template <typename T>
         [[nodiscard]] inline T &runtime_data(Node &node)
         {
+            assert(node.data() != nullptr && "runtime_data<T> requires node runtime payload");
             return *static_cast<T *>(node.data());
         }
 
         template <typename T>
         [[nodiscard]] inline const T &runtime_data(const Node &node)
         {
+            assert(node.data() != nullptr && "runtime_data<T> requires node runtime payload");
             return *static_cast<const T *>(node.data());
         }
 

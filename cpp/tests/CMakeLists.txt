@@ -9,7 +9,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
     set(CMAKE_CXX_EXTENSIONS OFF)
 
-    find_package(Python 3.12 COMPONENTS Interpreter Development Development.Module REQUIRED)
+    find_package(Python 3.12 COMPONENTS Interpreter Development.Module Development.Embed REQUIRED)
     include_directories(${Python_INCLUDE_DIRS})
 
     execute_process(
@@ -73,9 +73,13 @@ endif ()
 find_package(tpack CONFIG QUIET)
 
 if (NOT TARGET Python::Python AND DEFINED Python_EXECUTABLE)
+    find_package(Python 3.12 COMPONENTS Development.Embed QUIET)
+endif ()
+
+if (NOT TARGET Python::Python AND DEFINED Python_EXECUTABLE)
     execute_process(
         COMMAND "${Python_EXECUTABLE}" -c
-                "import os, sysconfig; print(os.path.join(sysconfig.get_config_var('LIBDIR') or '', sysconfig.get_config_var('LDLIBRARY') or ''))"
+                "import os, sys, sysconfig; candidates = []; framework = sysconfig.get_config_var('PYTHONFRAMEWORK'); framework_prefix = sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX'); version = sysconfig.get_config_var('VERSION') or f'{sys.version_info.major}.{sys.version_info.minor}';\nif framework and framework_prefix:\n    candidates.append(os.path.join(framework_prefix, f'{framework}.framework', 'Versions', version, framework));\n    candidates.append(os.path.join(framework_prefix, f'{framework}.framework', framework));\nlibdir = sysconfig.get_config_var('LIBDIR');\nfor name in (sysconfig.get_config_var('LDLIBRARY'), sysconfig.get_config_var('LIBRARY')):\n    if libdir and name:\n        candidates.append(os.path.join(libdir, name));\nprint(next((path for path in candidates if path and os.path.exists(path)), ''))"
         OUTPUT_STRIP_TRAILING_WHITESPACE
         OUTPUT_VARIABLE HGRAPH_TEST_PYTHON_LIBRARY
     )
@@ -208,8 +212,6 @@ target_link_libraries(hgraph_time_series_value_tests PRIVATE
 
 if (TARGET Python::Python)
     target_link_libraries(hgraph_time_series_value_tests PRIVATE Python::Python)
-elseif (TARGET Python::Module)
-    target_link_libraries(hgraph_time_series_value_tests PRIVATE Python::Module)
 endif ()
 
 if (TARGET nanobind::headers)
@@ -286,8 +288,6 @@ target_link_libraries(hgraph_v2_tests PRIVATE
 
 if (TARGET Python::Python)
     target_link_libraries(hgraph_v2_tests PRIVATE Python::Python)
-elseif (TARGET Python::Module)
-    target_link_libraries(hgraph_v2_tests PRIVATE Python::Module)
 endif ()
 
 if (TARGET nanobind::headers)

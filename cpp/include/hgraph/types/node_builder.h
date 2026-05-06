@@ -20,6 +20,28 @@ namespace hgraph
     struct ChildGraphTemplate;
     struct SwitchBranchTemplate;
 
+    HGRAPH_EXPORT NodeBuilder &nested_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
+    HGRAPH_EXPORT NodeBuilder &component_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
+    HGRAPH_EXPORT NodeBuilder &try_except_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
+    HGRAPH_EXPORT NodeBuilder &map_graph_implementation(NodeBuilder &builder,
+                                                        const ChildGraphTemplate *child_template,
+                                                        std::string key_arg,
+                                                        std::string keys_arg,
+                                                        std::vector<std::string> multiplexed_args);
+    HGRAPH_EXPORT NodeBuilder &mesh_graph_implementation(NodeBuilder &builder,
+                                                         const ChildGraphTemplate *child_template,
+                                                         std::string key_arg,
+                                                         std::string keys_arg,
+                                                         std::vector<std::string> multiplexed_args,
+                                                         std::string context_path);
+    HGRAPH_EXPORT NodeBuilder &reduce_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
+    HGRAPH_EXPORT NodeBuilder &non_associative_reduce_graph_implementation(NodeBuilder &builder,
+                                                                           const ChildGraphTemplate *child_template);
+    HGRAPH_EXPORT NodeBuilder &switch_graph_implementation(NodeBuilder &builder,
+                                                           std::vector<SwitchBranchTemplate> branches,
+                                                           bool reload_on_ticked);
+    HGRAPH_EXPORT NodeBuilder &last_value_pull_source_implementation(NodeBuilder &builder);
+
     namespace detail
     {
         template <typename TState>

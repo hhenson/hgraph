@@ -315,10 +315,10 @@ namespace hgraph
     {
         constexpr TSContext() noexcept = default;
 
-        constexpr TSContext(const TSMeta *schema_, const detail::ViewDispatch *value_dispatch_,
-                            const detail::TSDispatch *ts_dispatch_, void *value_data_, BaseState *ts_state_,
-                            TSOutput *owning_output_ = nullptr, const detail::TSOutputViewOps *output_view_ops_ = nullptr,
-                            BaseState *notification_state_ = nullptr, PendingDictChildContext pending_dict_child_ = {}) noexcept
+        TSContext(const TSMeta *schema_, const detail::ViewDispatch *value_dispatch_,
+                  const detail::TSDispatch *ts_dispatch_, void *value_data_, BaseState *ts_state_,
+                  TSOutput *owning_output_ = nullptr, const detail::TSOutputViewOps *output_view_ops_ = nullptr,
+                  BaseState *notification_state_ = nullptr, PendingDictChildContext pending_dict_child_ = {}) noexcept
             : schema(schema_), value_dispatch(value_dispatch_), ts_dispatch(ts_dispatch_), value_data(value_data_),
               ts_state(ts_state_), owning_output(owning_output_), output_view_ops(output_view_ops_),
               notification_state(notification_state_ != nullptr ? notification_state_ : ts_state_),

@@ -156,8 +156,8 @@ namespace hgraph
     {
       public:
         EngineEvaluationClock() = default;
-        EngineEvaluationClock(const void *impl, const EngineEvaluationClockOps *ops) noexcept
-            : EvaluationClock(impl, ops)
+        EngineEvaluationClock(void *impl, const EngineEvaluationClockOps *ops) noexcept
+            : EvaluationClock(impl, ops), m_mutable_impl(impl)
         {
         }
 
@@ -169,7 +169,7 @@ namespace hgraph
          */
         void set_evaluation_time(engine_time_t evaluation_time) const
         {
-            engine_ops().set_evaluation_time(const_cast<void *>(m_impl), evaluation_time);
+            engine_ops().set_evaluation_time(mutable_impl(), evaluation_time);
         }
 
         /**
@@ -194,7 +194,7 @@ namespace hgraph
          */
         void update_next_scheduled_evaluation_time(engine_time_t evaluation_time) const
         {
-            engine_ops().update_next_scheduled_evaluation_time(const_cast<void *>(m_impl), evaluation_time);
+            engine_ops().update_next_scheduled_evaluation_time(mutable_impl(), evaluation_time);
         }
 
         /**
@@ -206,7 +206,7 @@ namespace hgraph
          */
         void advance_to_next_scheduled_time() const
         {
-            engine_ops().advance_to_next_scheduled_time(const_cast<void *>(m_impl));
+            engine_ops().advance_to_next_scheduled_time(mutable_impl());
         }
 
         /**
@@ -217,7 +217,7 @@ namespace hgraph
          */
         void mark_push_node_requires_scheduling() const
         {
-            engine_ops().mark_push_node_requires_scheduling(const_cast<void *>(m_impl));
+            engine_ops().mark_push_node_requires_scheduling(mutable_impl());
         }
 
         /**
@@ -237,7 +237,7 @@ namespace hgraph
         /** Clear the pending push-node scheduling flag. */
         void reset_push_node_requires_scheduling() const
         {
-            engine_ops().reset_push_node_requires_scheduling(const_cast<void *>(m_impl));
+            engine_ops().reset_push_node_requires_scheduling(mutable_impl());
         }
 
         /**
@@ -255,18 +255,28 @@ namespace hgraph
         [[nodiscard]] bool set_alarm(engine_time_t time, std::string name,
                                      std::function<void(engine_time_t)> callback) const
         {
-            return engine_ops().set_alarm(const_cast<void *>(m_impl), time, std::move(name), std::move(callback));
+            return engine_ops().set_alarm(mutable_impl(), time, std::move(name), std::move(callback));
         }
 
         void cancel_alarm(std::string_view name) const
         {
-            engine_ops().cancel_alarm(const_cast<void *>(m_impl), name);
+            engine_ops().cancel_alarm(mutable_impl(), name);
         }
 
       private:
+        [[nodiscard]] void *mutable_impl() const
+        {
+            if (m_mutable_impl == nullptr || m_ops == nullptr) {
+                throw std::logic_error("v2 EngineEvaluationClock is not bound to mutable runtime state");
+            }
+            return m_mutable_impl;
+        }
+
         [[nodiscard]] const EngineEvaluationClockOps &engine_ops() const
         {
             return static_cast<const EngineEvaluationClockOps &>(ops());
         }
+
+        void *m_mutable_impl{nullptr};
     };
 }  // namespace hgraph

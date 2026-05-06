@@ -51,3 +51,6 @@ docs/build/*
 /cmake-build-relwithdebinfo/
 /cmake-build-release-stable/
 /cpp/tests/build/
+/cpp/tests/asan-build/
+/hgraph_unit_tests/ts_tests/state_trace*.json
+/hgraph_unit_tests/ts_tests/state_trace_analysis.md

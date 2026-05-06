@@ -48,7 +48,7 @@ namespace hgraph
 
             [[nodiscard]] bool operator!=(const iterator &other) const { return index != other.index || context != other.context; }
 
-            [[nodiscard]] bool operator==(const iterator &other) const { return index == other.index && context != other.context; }
+            [[nodiscard]] bool operator==(const iterator &other) const { return index == other.index && context == other.context; }
 
           private:
             friend struct Range<T>;
@@ -123,7 +123,7 @@ namespace hgraph
 
             [[nodiscard]] bool operator!=(const iterator &other) const { return index != other.index || context != other.context; }
 
-            [[nodiscard]] bool operator==(const iterator &other) const { return index == other.index && context != other.context; }
+            [[nodiscard]] bool operator==(const iterator &other) const { return index == other.index && context == other.context; }
 
           private:
             friend struct KeyValueRange<K, V>;
