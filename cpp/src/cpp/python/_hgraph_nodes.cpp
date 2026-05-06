@@ -529,13 +529,11 @@ namespace
             if (!dict_view.value().has_value() || !key.has_value()) { return false; }
 
             MapView map = dict_view.value().as_map();
-            bool    removed = false;
-            {
-                auto mutation = map.begin_mutation(evaluation_time);
-                removed       = mutation.remove(key);
-            }
-            if (removed) { mark_output_view_modified(dict_view, evaluation_time); }
-            return removed;
+            if (!map.contains(key)) { return false; }
+
+            static_cast<void>(evaluation_time);
+            dict_view.as_dict().erase(key);
+            return true;
         }
 
         [[nodiscard]] bool ensure_dict_child_slot_natively(const TSOutputView &dict_view, const View &key,
