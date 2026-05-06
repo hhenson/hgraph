@@ -48,21 +48,21 @@ namespace hgraph
         void (*stop)(Node &node, engine_time_t evaluation_time);
         void (*eval)(Node &node, engine_time_t evaluation_time);
 
-        [[nodiscard]] bool (*has_input)(const Node &node) noexcept;
-        [[nodiscard]] bool (*has_output)(const Node &node) noexcept;
-        [[nodiscard]] bool (*has_error_output)(const Node &node) noexcept;
-        [[nodiscard]] bool (*has_recordable_state)(const Node &node) noexcept;
-        [[nodiscard]] TSInputView (*input_view)(Node &node, engine_time_t evaluation_time);
-        [[nodiscard]] TSOutputView (*output_view)(Node &node, engine_time_t evaluation_time);
-        [[nodiscard]] TSOutputView (*error_output_view)(Node &node, engine_time_t evaluation_time);
-        [[nodiscard]] TSOutputView (*recordable_state_view)(Node &node, engine_time_t evaluation_time);
-        [[nodiscard]] std::string (*runtime_label)(const Node &node);
+        bool (*has_input)(const Node &node) noexcept;
+        bool (*has_output)(const Node &node) noexcept;
+        bool (*has_error_output)(const Node &node) noexcept;
+        bool (*has_recordable_state)(const Node &node) noexcept;
+        TSInputView (*input_view)(Node &node, engine_time_t evaluation_time);
+        TSOutputView (*output_view)(Node &node, engine_time_t evaluation_time);
+        TSOutputView (*error_output_view)(Node &node, engine_time_t evaluation_time);
+        TSOutputView (*recordable_state_view)(Node &node, engine_time_t evaluation_time);
+        std::string (*runtime_label)(const Node &node);
     };
 
     /** Runtime behavior used only by push-source node families. */
     struct HGRAPH_EXPORT PushSourceNodeRuntimeOps
     {
-        [[nodiscard]] bool (*apply_message)(Node &node, const value::Value &message, engine_time_t evaluation_time);
+        bool (*apply_message)(Node &node, const value::Value &message, engine_time_t evaluation_time);
     };
 
     /**

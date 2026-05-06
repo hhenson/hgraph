@@ -718,11 +718,13 @@ namespace hgraph
             static const TSMeta *ts_meta()
             {
                 static_assert(schema_always_false_v<TSchema>, "Unsupported static time-series schema");
+                return nullptr;
             }
 
             static nb::object py_type(PythonTypeVarContext &)
             {
                 static_assert(schema_always_false_v<TSchema>, "Unsupported static time-series schema");
+                return nb::none();
             }
 
             static nb::object py_type()

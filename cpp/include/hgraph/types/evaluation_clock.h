@@ -12,27 +12,26 @@ namespace hgraph
     /** Type-erased read-only clock surface injected into nodes. */
     struct HGRAPH_EXPORT EvaluationClockOps
     {
-        [[nodiscard]] engine_time_t (*evaluation_time)(const void *impl) noexcept;
-        [[nodiscard]] engine_time_t (*now)(const void *impl);
-        [[nodiscard]] engine_time_delta_t (*cycle_time)(const void *impl);
-        [[nodiscard]] engine_time_t (*next_cycle_evaluation_time)(const void *impl) noexcept;
+        engine_time_t (*evaluation_time)(const void *impl) noexcept;
+        engine_time_t (*now)(const void *impl);
+        engine_time_delta_t (*cycle_time)(const void *impl);
+        engine_time_t (*next_cycle_evaluation_time)(const void *impl) noexcept;
     };
 
     /** Internal mutable clock surface used by Graph and EvaluationEngine. */
     struct HGRAPH_EXPORT EngineEvaluationClockOps : EvaluationClockOps
     {
         void (*set_evaluation_time)(void *impl, engine_time_t evaluation_time);
-        [[nodiscard]] engine_time_t (*next_scheduled_evaluation_time)(const void *impl) noexcept;
+        engine_time_t (*next_scheduled_evaluation_time)(const void *impl) noexcept;
         void (*update_next_scheduled_evaluation_time)(void *impl, engine_time_t evaluation_time);
         void (*advance_to_next_scheduled_time)(void *impl);
         void (*mark_push_node_requires_scheduling)(void *impl);
-        [[nodiscard]] bool (*push_node_requires_scheduling)(const void *impl) noexcept;
+        bool (*push_node_requires_scheduling)(const void *impl) noexcept;
         void (*reset_push_node_requires_scheduling)(void *impl);
-        [[nodiscard]] const engine_time_t *(*evaluation_time_ptr)(const void *impl) noexcept;
+        const engine_time_t *(*evaluation_time_ptr)(const void *impl) noexcept;
         //TODO: This is not valid methods at this level, the evaluation engine clock does not support setting or
         //      cancelling alarms, scheduling is a node level feature and the logic resides there, this is a code smell!
-        [[nodiscard]] bool (*set_alarm)(void *impl, engine_time_t time, std::string name,
-                                         std::function<void(engine_time_t)> callback);
+        bool (*set_alarm)(void *impl, engine_time_t time, std::string name, std::function<void(engine_time_t)> callback);
         void (*cancel_alarm)(void *impl, std::string_view name);
     };
 

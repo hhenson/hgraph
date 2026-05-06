@@ -75,12 +75,12 @@ namespace hgraph
     /** Type-erased API exposed to nodes and graphs during evaluation. */
     struct HGRAPH_EXPORT EvaluationEngineApiOps
     {
-        [[nodiscard]] EvaluationMode (*evaluation_mode)(const void *impl) noexcept;
-        [[nodiscard]] engine_time_t (*start_time)(const void *impl) noexcept;
-        [[nodiscard]] engine_time_t (*end_time)(const void *impl) noexcept;
-        [[nodiscard]] EvaluationClock (*evaluation_clock)(const void *impl);
+        EvaluationMode (*evaluation_mode)(const void *impl) noexcept;
+        engine_time_t (*start_time)(const void *impl) noexcept;
+        engine_time_t (*end_time)(const void *impl) noexcept;
+        EvaluationClock (*evaluation_clock)(const void *impl);
         void (*request_engine_stop)(void *impl);
-        [[nodiscard]] bool (*is_stop_requested)(const void *impl) noexcept;
+        bool (*is_stop_requested)(const void *impl) noexcept;
         void (*add_before_evaluation_notification)(void *impl, std::function<void()> fn);
         void (*add_after_evaluation_notification)(void *impl, std::function<void()> fn);
         void (*add_life_cycle_observer)(void *impl, EvaluationLifeCycleObserver *observer);
@@ -211,13 +211,13 @@ namespace hgraph
     /** Public runner surface returned by EvaluationEngineBuilder::build(). */
     struct HGRAPH_EXPORT EvaluationEngineOps
     {
-        [[nodiscard]] EvaluationMode (*evaluation_mode)(const void *impl) noexcept;
-        [[nodiscard]] engine_time_t (*start_time)(const void *impl) noexcept;
-        [[nodiscard]] engine_time_t (*end_time)(const void *impl) noexcept;
-        [[nodiscard]] Graph &(*graph)(void *impl);
-        [[nodiscard]] const Graph &(*const_graph)(const void *impl);
-        [[nodiscard]] EvaluationEngineApi (*evaluation_engine_api)(void *impl) noexcept;
-        [[nodiscard]] EngineEvaluationClock (*engine_evaluation_clock)(void *impl);
+        EvaluationMode (*evaluation_mode)(const void *impl) noexcept;
+        engine_time_t (*start_time)(const void *impl) noexcept;
+        engine_time_t (*end_time)(const void *impl) noexcept;
+        Graph &(*graph)(void *impl);
+        const Graph &(*const_graph)(const void *impl);
+        EvaluationEngineApi (*evaluation_engine_api)(void *impl) noexcept;
+        EngineEvaluationClock (*engine_evaluation_clock)(void *impl);
         void (*notify_before_evaluation)(void *impl);
         void (*notify_after_evaluation)(void *impl);
         void (*advance_engine_time)(void *impl);
@@ -235,8 +235,8 @@ namespace hgraph
         void (*notify_after_stop_node)(void *impl, Node &node);
         void (*notify_before_stop_graph)(void *impl, Graph &graph);
         void (*notify_after_stop_graph)(void *impl, Graph &graph);
-        [[nodiscard]] SenderReceiverState *(*push_message_receiver)(void *impl) noexcept;
-        [[nodiscard]] const SenderReceiverState *(*const_push_message_receiver)(const void *impl) noexcept;
+        SenderReceiverState *(*push_message_receiver)(void *impl) noexcept;
+        const SenderReceiverState *(*const_push_message_receiver)(const void *impl) noexcept;
         void (*run)(void *impl);
         void (*destruct)(void *impl) noexcept;
     };

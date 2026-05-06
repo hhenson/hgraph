@@ -590,7 +590,8 @@ namespace hgraph
                     }
                 case TypeKind::Set:
                     {
-                        for (View element : current.as_set().values()) {
+                        SetView set = current.as_set();
+                        for (View element : set.values()) {
                             path.push_back(element.to_python());
                             deep_visit_impl(element, path, callback);
                             path.pop_back();
@@ -645,7 +646,8 @@ namespace hgraph
                 case TypeKind::Set:
                     {
                         size_t count = 0;
-                        for (View element : current.as_set().values()) { count += count_leaves_impl(element); }
+                        SetView set = current.as_set();
+                        for (View element : set.values()) { count += count_leaves_impl(element); }
                         return count;
                     }
                 case TypeKind::Map:
@@ -662,6 +664,7 @@ namespace hgraph
                 case TypeKind::CyclicBuffer:
                 case TypeKind::Queue: return 1;
             }
+            return 0;
         }
 
         /**
@@ -709,7 +712,8 @@ namespace hgraph
                     }
                 case TypeKind::Set:
                     {
-                        for (View element : current.as_set().values()) {
+                        SetView set = current.as_set();
+                        for (View element : set.values()) {
                             path.push_back(element.to_python());
                             collect_leaf_paths_impl(element, path, result);
                             path.pop_back();

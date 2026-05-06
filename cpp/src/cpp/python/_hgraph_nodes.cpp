@@ -176,11 +176,6 @@ namespace
             return TimeSeriesReference::make(view);
         }
 
-        [[nodiscard]] nb::object remove_if_exists_sentinel() {
-            static nb::object value = nb::module_::import_("hgraph").attr("REMOVE_IF_EXISTS");
-            return nb::borrow(value);
-        }
-
         [[nodiscard]] size_t bundle_field_index_or_throw(const TSMeta *schema, std::string_view field_name) {
             if (schema == nullptr || schema->kind != TSKind::TSB) {
                 throw std::logic_error("tsd_get_bundle_item requires a bundle schema");
@@ -1090,7 +1085,8 @@ namespace
             const TSMeta *schema = request.view().ts_schema();
             if (schema == nullptr || schema->kind != TSKind::TSB) { return; }
 
-            for (auto [arg, child] : request.view().as_bundle().items()) {
+            auto request_bundle = request.view().as_bundle();
+            for (auto [arg, child] : request_bundle.items()) {
                 if (!child.valid()) { continue; }
                 const std::string target_key = fmt::format("{}/request_{}", path.value(), arg);
                 if (Node *target_node = shared_output_node(target_key);
@@ -1112,7 +1108,8 @@ namespace
 
             const TSMeta *schema = request.view().ts_schema();
             if (schema != nullptr && schema->kind == TSKind::TSB) {
-                for (auto [arg, child] : request.view().as_bundle().items()) {
+                auto request_bundle = request.view().as_bundle();
+                for (auto [arg, child] : request_bundle.items()) {
                     if (!child.modified()) { continue; }
                     const std::string target_key = fmt::format("{}/request_{}", path.value(), arg);
                     if (apply_input_to_last_value_tsd_child(shared_output_node(target_key), requestor_key.view(), child)) {
@@ -1242,7 +1239,8 @@ namespace
             const TSMeta *schema = request.view().ts_schema();
             if (schema == nullptr || schema->kind != TSKind::TSB) { return; }
 
-            for (auto [arg, child] : request.view().as_bundle().items()) {
+            auto request_bundle = request.view().as_bundle();
+            for (auto [arg, child] : request_bundle.items()) {
                 if (!child.modified()) { continue; }
                 const std::string target_key = fmt::format("{}/request_{}", path.value(), arg);
                 if (Node *target_node = shared_output_node(target_key);
@@ -1641,14 +1639,19 @@ namespace
             };
 
             if (replay_all_live) {
-                for (const auto &[dict_key, child] : source_root.as_dict().items()) { emit_child(dict_key, child, true); }
+                auto source_dict = source_root.as_dict();
+                for (const auto &[dict_key, child] : source_dict.items()) { emit_child(dict_key, child, true); }
             } else {
-                for (const auto &[dict_key, child] : source_root.as_dict().modified_items()) {
+                auto source_dict = source_root.as_dict();
+                for (const auto &[dict_key, child] : source_dict.modified_items()) {
                     emit_child(dict_key, child, child.modified());
                 }
             }
 
-            for (const View &removed_key : source_root.value().as_map().delta().removed_keys()) {
+            auto source_value = source_root.value();
+            auto source_map   = source_value.as_map();
+            auto source_delta = source_map.delta();
+            for (const View &removed_key : source_delta.removed_keys()) {
                 static_cast<void>(remove_dict_child_natively(out_dict.view(), removed_key, out.evaluation_time()));
             }
         }
@@ -1678,10 +1681,12 @@ namespace
 
             TSOutputView source_root = output_view_from_input(ts.view().view());
             if (ts.valid() && source_root.context_ref().is_bound() && source_root.value().has_value()) {
-                for (const auto &[source_outer_key, source_inner] : source_root.as_dict().items()) {
+                auto source_dict = source_root.as_dict();
+                for (const auto &[source_outer_key, source_inner] : source_dict.items()) {
                     if (!source_inner.value().has_value()) { continue; }
 
-                    for (const auto &[target_outer_key, source_ref_child] : source_inner.as_dict().items()) {
+                    auto source_inner_dict = source_inner.as_dict();
+                    for (const auto &[target_outer_key, source_ref_child] : source_inner_dict.items()) {
                         if (!source_ref_child.value().has_value()) { continue; }
 
                         const auto *ref = try_view_ref(source_ref_child.value());
@@ -1709,7 +1714,8 @@ namespace
                 }
 
                 std::vector<Value> previous_inner_keys;
-                for (const View &key : target_inner.as_dict().keys()) { previous_inner_keys.emplace_back(key.clone()); }
+                auto target_inner_dict = target_inner.as_dict();
+                for (const View &key : target_inner_dict.keys()) { previous_inner_keys.emplace_back(key.clone()); }
 
                 for (const Value &previous_inner_key : previous_inner_keys) {
                     const bool still_present = std::any_of(
@@ -1853,7 +1859,8 @@ namespace
                 auto item = input_list[i];
                 if (!item.valid()) { continue; }
 
-                for (const View &value : item.as_set().values()) { desired.emplace(value.clone()); }
+                auto set = item.as_set();
+                for (const View &value : set.values()) { desired.emplace(value.clone()); }
             }
 
             auto output_view    = out.view();
