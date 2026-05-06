@@ -2734,13 +2734,6 @@ namespace hgraph
         const bool created_child_state = child_states[slot] == nullptr;
         if (created_child_state) { child_states[slot] = make_time_series_state_node(*element_schema, this, slot); }
 
-        if (BaseState *child_state = state_address(child_states[slot]);
-            created_child_state && child_state != nullptr && child_state->last_modified_time == MIN_DT) {
-            const bool slot_modified =
-                map_dispatch->slot_added(map_value_data, slot) || map_dispatch->slot_updated(map_value_data, slot);
-            child_state->last_modified_time = slot_modified && last_modified_time != MIN_DT ? last_modified_time : MIN_ST;
-        }
-
         const TSViewContext child = child_context_for_dict_slot(*this, slot);
         if (created_child_state) { restore_removed_child_state_snapshot(*this, slot, child_states[slot].get()); }
         if (!child.is_bound() || active_tries.empty()) { return; }
