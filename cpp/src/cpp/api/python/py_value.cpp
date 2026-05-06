@@ -590,7 +590,8 @@ namespace hgraph
                     }
                 case TypeKind::Set:
                     {
-                        for (View element : current.as_set().values()) {
+                        auto set_view = current.as_set();
+                        for (View element : set_view.values()) {
                             path.push_back(element.to_python());
                             deep_visit_impl(element, path, callback);
                             path.pop_back();
@@ -645,7 +646,8 @@ namespace hgraph
                 case TypeKind::Set:
                     {
                         size_t count = 0;
-                        for (View element : current.as_set().values()) { count += count_leaves_impl(element); }
+                        auto set_view = current.as_set();
+                        for (View element : set_view.values()) { count += count_leaves_impl(element); }
                         return count;
                     }
                 case TypeKind::Map:
@@ -710,7 +712,8 @@ namespace hgraph
                     }
                 case TypeKind::Set:
                     {
-                        for (View element : current.as_set().values()) {
+                        auto set_view = current.as_set();
+                        for (View element : set_view.values()) {
                             path.push_back(element.to_python());
                             collect_leaf_paths_impl(element, path, result);
                             path.pop_back();

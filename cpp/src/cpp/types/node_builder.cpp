@@ -1664,7 +1664,8 @@ namespace hgraph
                 }
             }
 
-            for (const auto &[key, child] : source.as_dict().modified_items()) {
+            auto source_dict = source.as_dict();
+            for (const auto &[key, child] : source_dict.modified_items()) {
                 if (!key.has_value() || !child.valid()) { continue; }
 
                 View child_delta = child.delta_value();
@@ -1678,7 +1679,7 @@ namespace hgraph
             if (saw_change) { return; }
 
             bool copied_live_value = false;
-            for (const auto &[key, child] : source.as_dict().valid_items()) {
+            for (const auto &[key, child] : source_dict.valid_items()) {
                 if (!key.has_value()) { continue; }
                 View child_value = child.value();
                 if (!child_value.has_value()) { continue; }
@@ -5757,7 +5758,8 @@ namespace hgraph
                 // from the map that aren't yet in the slot_store.
                 if (keys_value.has_value() && keys_value.schema() != nullptr && keys_value.schema()->kind == value::TypeKind::Map) {
                     const auto map = keys_value.as_map();
-                    for (const View &key : keys_value.as_set().values()) {
+                    const auto key_set = keys_value.as_set();
+                    for (const View &key : key_set.values()) {
                         const size_t slot = map.find_slot(key);
                         if (slot == static_cast<size_t>(-1)) { continue; }
                         if (runtime.mesh_mode && find_existing_slot_for_key(key) != static_cast<size_t>(-1)) { continue; }
