@@ -665,6 +665,7 @@ namespace hgraph
                 case TypeKind::Queue: return 1;
                 default: return 1;
             }
+            return 0;
         }
 
         /**

@@ -1640,13 +1640,14 @@ namespace
 
             auto source_dict = source_root.as_dict();
             if (replay_all_live) {
+                auto source_dict = source_root.as_dict();
                 for (const auto &[dict_key, child] : source_dict.items()) { emit_child(dict_key, child, true); }
             } else {
+                auto source_dict = source_root.as_dict();
                 for (const auto &[dict_key, child] : source_dict.modified_items()) {
                     emit_child(dict_key, child, child.modified());
                 }
             }
-
             auto source_map_delta = source_root.value().as_map().delta();
             for (const View &removed_key : source_map_delta.removed_keys()) {
                 static_cast<void>(remove_dict_child_natively(out_dict.view(), removed_key, out.evaluation_time()));
@@ -1855,7 +1856,6 @@ namespace
             for (size_t i = 0; i < input_list.size(); ++i) {
                 auto item = input_list[i];
                 if (!item.valid()) { continue; }
-
                 auto item_set = item.as_set();
                 for (const View &value : item_set.values()) { desired.emplace(value.clone()); }
             }

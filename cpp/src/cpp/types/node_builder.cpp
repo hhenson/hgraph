@@ -5758,17 +5758,19 @@ namespace hgraph
                 // from the map that aren't yet in the slot_store.
                 if (keys_value.has_value() && keys_value.schema() != nullptr && keys_value.schema()->kind == value::TypeKind::Map) {
                     const auto map = keys_value.as_map();
-                    const auto key_set = keys_value.as_set();
-                    for (const View &key : key_set.values()) {
-                        const size_t slot = map.find_slot(key);
-                        if (slot == static_cast<size_t>(-1)) { continue; }
+                    const auto delta = map.delta();
+                    for (size_t map_slot = map.first_live_slot(); map_slot != static_cast<size_t>(-1);
+                         map_slot = map.next_live_slot(map_slot)) {
+                        const View   key          = delta.key_at_slot(map_slot);
+                        const size_t payload_slot = map.find_slot(key);
+                        if (payload_slot == static_cast<size_t>(-1)) { continue; }
                         if (runtime.mesh_mode && find_existing_slot_for_key(key) != static_cast<size_t>(-1)) { continue; }
-                        if (slot_store.has_slot(slot)) { continue; }
-                        if (added_slots.size() > slot && added_slots.test(slot)) { continue; }
-                        mark_added_slot(slot);
-                        slot_store.reserve_to(slot + 1);
-                        slot_store.emplace_at(slot, key.clone());
-                        MapSlotRuntime &payload = *slot_store.try_slot(slot);
+                        if (slot_store.has_slot(payload_slot)) { continue; }
+                        if (added_slots.size() > payload_slot && added_slots.test(payload_slot)) { continue; }
+                        mark_added_slot(payload_slot);
+                        slot_store.reserve_to(payload_slot + 1);
+                        slot_store.emplace_at(payload_slot, key.clone());
+                        MapSlotRuntime &payload = *slot_store.try_slot(payload_slot);
                         payload.external_key    = true;
                         payload.rank            = runtime.mesh_mode ? runtime.max_rank : 0;
                         ensure_map_slot_started(node, runtime, payload, evaluation_time);
