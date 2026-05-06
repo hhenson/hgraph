@@ -45,8 +45,8 @@ namespace hgraph
         ~Graph();
         Graph(const Graph &)            = delete;
         Graph &operator=(const Graph &) = delete;
-        Graph(Graph &&other) noexcept;
-        Graph &operator=(Graph &&other) noexcept;
+        Graph(Graph &&other);
+        Graph &operator=(Graph &&other);
 
         [[nodiscard]] const std::byte           *node_layout() const noexcept { return static_cast<const std::byte *>(m_storage); }
         [[nodiscard]] std::span<const NodeEntry> entries() const noexcept {
@@ -84,10 +84,11 @@ namespace hgraph
 
         explicit Graph(GraphEvaluationEngine evaluation_engine) noexcept;
         void adopt_storage(void *storage, size_t storage_alignment, size_t node_count, int64_t push_source_nodes_end,
-                           bool owns_storage) noexcept;
-        void clear_storage() noexcept;
+                           bool owns_storage);
+        void clear_storage();
         void attach_nodes() noexcept;
         void stop_nodes(size_t nodes_end);
+        void require_engine_removal_allowed() const;
         [[nodiscard]] NodeEntry       *entry_storage() noexcept;
         [[nodiscard]] const NodeEntry *entry_storage() const noexcept;
 

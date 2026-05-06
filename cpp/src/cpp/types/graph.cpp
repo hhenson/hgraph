@@ -8,17 +8,34 @@
 
 namespace hgraph
 {
-    Graph::~Graph() { clear_storage(); }
+    Graph::~Graph() {
+        try {
+            clear_storage();
+        } catch (...) {
+            std::terminate();
+        }
+    }
 
     Graph::Graph(GraphEvaluationEngine evaluation_engine) noexcept : m_evaluation_engine(evaluation_engine) {}
 
-    Graph::Graph(Graph &&other) noexcept
-        : m_node_count(other.m_node_count), m_push_source_nodes_end(other.m_push_source_nodes_end), m_started(other.m_started),
-          m_owns_storage(other.m_owns_storage), m_storage_alignment(other.m_storage_alignment),
-          m_last_evaluation_time(other.m_last_evaluation_time),
-          m_evaluation_engine(other.m_evaluation_engine), m_traits(std::move(other.m_traits)),
-          m_graph_id(std::move(other.m_graph_id)), m_parent_node(other.m_parent_node), m_label(std::move(other.m_label)),
-          m_storage(other.m_storage) {
+    Graph::Graph(Graph &&other) {
+        other.require_engine_removal_allowed();
+
+        m_node_count            = other.m_node_count;
+        m_push_source_nodes_end = other.m_push_source_nodes_end;
+        m_started               = other.m_started;
+        m_is_evaluating         = false;
+        m_owns_storage          = other.m_owns_storage;
+        m_storage_alignment     = other.m_storage_alignment;
+        m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
+        m_last_evaluation_time  = other.m_last_evaluation_time;
+        m_evaluation_engine     = other.m_evaluation_engine;
+        m_traits                = std::move(other.m_traits);
+        m_graph_id              = std::move(other.m_graph_id);
+        m_parent_node           = other.m_parent_node;
+        m_label                 = std::move(other.m_label);
+        m_storage               = other.m_storage;
+
         other.m_node_count            = 0;
         other.m_push_source_nodes_end = 0;
         other.m_started               = false;
@@ -33,8 +50,9 @@ namespace hgraph
         attach_nodes();
     }
 
-    Graph &Graph::operator=(Graph &&other) noexcept {
+    Graph &Graph::operator=(Graph &&other) {
         if (this != &other) {
+            other.require_engine_removal_allowed();
             clear_storage();
 
             m_node_count            = other.m_node_count;
@@ -116,7 +134,7 @@ namespace hgraph
     }
 
     void Graph::adopt_storage(void *storage, size_t storage_alignment, size_t node_count, int64_t push_source_nodes_end,
-                              bool owns_storage) noexcept {
+                              bool owns_storage) {
         clear_storage();
         m_node_count            = node_count;
         m_push_source_nodes_end = push_source_nodes_end;
@@ -130,8 +148,9 @@ namespace hgraph
         attach_nodes();
     }
 
-    void Graph::clear_storage() noexcept {
+    void Graph::clear_storage() {
         if (m_storage == nullptr) { return; }
+        require_engine_removal_allowed();
 
         if (m_started) {
             try {
@@ -160,6 +179,12 @@ namespace hgraph
         m_label.clear();
         m_traits.reset();
         m_storage = nullptr;
+    }
+
+    void Graph::require_engine_removal_allowed() const {
+        if (m_started || m_is_evaluating) {
+            throw std::logic_error("v2 Graph cannot remove its evaluation engine while the graph is started");
+        }
     }
 
     void Graph::attach_nodes() noexcept {
@@ -194,6 +219,7 @@ namespace hgraph
 
     void Graph::start() {
         if (m_started) { return; }
+        if (!m_evaluation_engine) { throw std::logic_error("v2 Graph cannot start without an evaluation engine"); }
 
         m_evaluation_engine.notify_before_start_graph(*this);
         size_t rollback_nodes_end     = 0;
@@ -248,12 +274,12 @@ namespace hgraph
             m_is_evaluating     = false;
             m_evaluation_cursor = INVALID_EVALUATION_CURSOR;
         });
-        if (m_evaluation_engine) { m_evaluation_engine.notify_before_graph_evaluation(*this); }
+        m_evaluation_engine.notify_before_graph_evaluation(*this);
         auto after_graph_evaluation = UnwindCleanupGuard([&] {
-            if (m_evaluation_engine) { m_evaluation_engine.notify_after_graph_evaluation(*this); }
+            m_evaluation_engine.notify_after_graph_evaluation(*this);
         });
 
-        if (m_evaluation_engine) { m_evaluation_engine.evaluate_push_source_nodes(*this, when); }
+        m_evaluation_engine.evaluate_push_source_nodes(*this, when);
 
         for (size_t index = static_cast<size_t>(m_push_source_nodes_end); index < m_node_count; ++index) {
             auto &entry = entry_storage()[index];
@@ -261,13 +287,10 @@ namespace hgraph
                 const bool force_eval = entry.force_eval;
                 entry.force_eval      = false;
                 m_evaluation_cursor = index;
-                if (m_evaluation_engine) { m_evaluation_engine.notify_before_node_evaluation(*entry.node); }
+                m_evaluation_engine.notify_before_node_evaluation(*entry.node);
                 auto after_node_evaluation =
-                    UnwindCleanupGuard([&] {
-                        if (m_evaluation_engine) { m_evaluation_engine.notify_after_node_evaluation(*entry.node); }
-                    });
+                    UnwindCleanupGuard([&] { m_evaluation_engine.notify_after_node_evaluation(*entry.node); });
                 entry.node->eval(when, force_eval);
-                if (!m_evaluation_engine) { return; }
                 after_node_evaluation.complete();
             } else if (entry.scheduled > when) {
                 clock.update_next_scheduled_evaluation_time(entry.scheduled);
