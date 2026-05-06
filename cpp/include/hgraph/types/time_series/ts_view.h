@@ -183,6 +183,10 @@ namespace hgraph
         {
             virtual ~TSOutputViewOps()                                                                    = default;
             [[nodiscard]] virtual LinkedTSContext linked_context(const TSOutputView &view) const noexcept = 0;
+            virtual void before_dict_key_erased(const TSOutputView &view, size_t slot) const noexcept {
+                static_cast<void>(view);
+                static_cast<void>(slot);
+            }
             virtual bool                          from_python(const TSOutputView &view, nb::handle value) const {
                 static_cast<void>(view);
                 static_cast<void>(value);

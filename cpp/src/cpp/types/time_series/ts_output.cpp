@@ -1115,6 +1115,49 @@ namespace hgraph
             dict_from_python(view, value);
         }
 
+        bool erase_dict_key_impl(const TSOutputView &view, const View &key, bool throw_if_missing) {
+            const TSMeta *schema = view.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSD) {
+                throw std::logic_error("TSOutputView dict child mutation requires a TSD schema");
+            }
+            if (schema->element_ts() == nullptr || schema->element_ts()->value_type == nullptr) {
+                throw std::logic_error("TSOutputView dict child mutation requires a mapped value schema");
+            }
+            if (!view.value().has_value() || !key.has_value()) {
+                if (throw_if_missing) { throw nb::key_error("TSD key not found for REMOVE"); }
+                return false;
+            }
+
+            bool                        removed = false;
+            std::optional<TSOutputView> child_view;
+            size_t                      slot            = static_cast<size_t>(-1);
+            bool                        child_was_valid = false;
+            if (tsd_key_is_live(view, key)) {
+                auto map_view = view.value().as_map();
+                slot          = map_view.find_slot(key);
+                if (slot != static_cast<size_t>(-1) && view.output_view_ops() != nullptr) {
+                    view.output_view_ops()->before_dict_key_erased(view, slot);
+                }
+                child_view.emplace(ensure_tsd_child_view(view, key));
+                child_was_valid = child_view->valid();
+                if (child_was_valid) {
+                    clear_output_link(*child_view);
+                    child_view->invalidate();
+                }
+            }
+            {
+                auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
+                removed       = mutation.remove(key);
+            }
+            if (removed && child_view.has_value() && child_was_valid) { record_tsd_removed_child(view, slot, key); }
+            if (!removed) {
+                if (throw_if_missing) { throw nb::key_error("TSD key not found for REMOVE"); }
+                return false;
+            }
+            mark_output_view_modified(view, view.evaluation_time());
+            return true;
+        }
+
         void dict_child_from_python(const TSOutputView &view, const View &key, nb::handle value) {
             const TSMeta *schema = view.ts_schema();
             if (schema == nullptr || schema->kind != TSKind::TSD) {
@@ -1156,29 +1199,7 @@ namespace hgraph
 
             nb::object entry_value = nb::borrow<nb::object>(value);
             if (entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) {
-                bool                        removed = false;
-                std::optional<TSOutputView> child_view;
-                size_t                      slot            = static_cast<size_t>(-1);
-                bool                        child_was_valid = false;
-                if (tsd_key_is_live(view, key)) {
-                    auto map_view = view.value().as_map();
-                    slot          = map_view.find_slot(key);
-                    child_view.emplace(ensure_tsd_child_view(view, key));
-                    child_was_valid = child_view->valid();
-                    if (child_was_valid) {
-                        clear_output_link(*child_view);
-                        child_view->invalidate();
-                    }
-                }
-                {
-                    auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
-                    removed       = mutation.remove(key);
-                }
-                if (removed && child_view.has_value()) {
-                    if (child_was_valid) { record_tsd_removed_child(view, slot, key); }
-                }
-                if (!removed && entry_value.is(remove_sentinel())) { throw nb::key_error("TSD key not found for REMOVE"); }
-                if (removed) { mark_output_view_modified(view, view.evaluation_time()); }
+                erase_dict_key_impl(view, key, entry_value.is(remove_sentinel()));
                 return;
             }
 
@@ -1202,7 +1223,9 @@ namespace hgraph
             child_view.from_python(entry_value);
         }
 
-        void erase_dict_key(const TSOutputView &view, const View &key) { dict_child_from_python(view, key, remove_sentinel()); }
+        void erase_dict_key(const TSOutputView &view, const View &key) {
+            static_cast<void>(erase_dict_key_impl(view, key, true));
+        }
 
         void set_from_python(const TSOutputView &view, nb::handle value) {
             const TSMeta *schema = view.ts_schema();
@@ -1921,6 +1944,17 @@ namespace hgraph
             return false;
         }
 
+        template <typename TContext>
+        [[nodiscard]] bool context_references_subtree(const TContext &context, const BaseState *subtree_root) noexcept {
+            if (subtree_root == nullptr) { return false; }
+            return (context.ts_state != nullptr && is_descendant_state(context.ts_state, subtree_root)) ||
+                   (context.notification_state != nullptr && is_descendant_state(context.notification_state, subtree_root)) ||
+                   (context.pending_dict_child.parent_ts_state != nullptr &&
+                    is_descendant_state(context.pending_dict_child.parent_ts_state, subtree_root)) ||
+                   (context.pending_dict_child.parent_notification_state != nullptr &&
+                    is_descendant_state(context.pending_dict_child.parent_notification_state, subtree_root));
+        }
+
         [[nodiscard]] bool find_state_path(const BaseState *state, const TSMeta *schema, const BaseState *target, TSPath &path) {
             if (state == nullptr || schema == nullptr) { return false; }
             if (state == target) { return true; }
@@ -2355,6 +2389,16 @@ namespace hgraph
                 };
             }
 
+            void before_dict_key_erased(const TSOutputView &view, size_t slot) const noexcept override {
+                if (owner == nullptr) { return; }
+                const TSViewContext &context = view.context_ref();
+                if (context.schema == nullptr || context.schema->kind != TSKind::TSD || context.ts_state == nullptr ||
+                    context.ts_state->storage_kind != TSStorageKind::Native) {
+                    return;
+                }
+                owner->release_dynamic_child_slot_bindings(*static_cast<TSDState *>(context.ts_state), slot);
+            }
+
             AlternativeOutput *owner{nullptr};
         };
 
@@ -2645,7 +2689,10 @@ namespace hgraph
                                          false);
             }
 
-            ~DynamicDictBinding() { unregister_target_invalidator(); }
+            ~DynamicDictBinding() {
+                unsubscribe_source();
+                unregister_target_invalidator();
+            }
 
             DynamicDictBinding(const DynamicDictBinding &)            = delete;
             DynamicDictBinding &operator=(const DynamicDictBinding &) = delete;
@@ -2659,9 +2706,10 @@ namespace hgraph
             }
 
             void register_target_invalidator() noexcept {
-                target_invalidator.owner      = this;
-                target_invalidator.invalidate = &DynamicDictBinding::invalidate_target_context;
-                target_invalidator.rebind     = &DynamicDictBinding::rebind_target_context;
+                target_invalidator.owner           = this;
+                target_invalidator.invalidate      = &DynamicDictBinding::invalidate_target_context;
+                target_invalidator.rebind          = &DynamicDictBinding::rebind_contexts;
+                target_invalidator.state_destroyed = false;
                 if (target_context.ts_state != nullptr && target_context.ts_state->storage_kind != TSStorageKind::Destroyed) {
                     target_context.ts_state->register_state_invalidator(&target_invalidator);
                 }
@@ -2677,18 +2725,72 @@ namespace hgraph
                 target_invalidator.rebind     = nullptr;
             }
 
+            void subscribe_source() noexcept {
+                unsubscribe_source();
+                source_state = notification_state_of(source_context);
+                if (source_state == nullptr || source_state->storage_kind == TSStorageKind::Destroyed) {
+                    source_state = nullptr;
+                    return;
+                }
+
+                source_invalidator.owner           = this;
+                source_invalidator.invalidate      = &DynamicDictBinding::invalidate_source_context;
+                source_invalidator.rebind          = &DynamicDictBinding::rebind_contexts;
+                source_invalidator.state_destroyed = false;
+                source_state->register_state_invalidator(&source_invalidator);
+                source_state->subscribe(&source_notifier);
+                source_notifier.binding = this;
+            }
+
+            void unsubscribe_source() noexcept {
+                if (!source_invalidator.state_destroyed && source_state != nullptr &&
+                    source_state->storage_kind != TSStorageKind::Destroyed) {
+                    source_state->unsubscribe(&source_notifier);
+                    source_state->unregister_state_invalidator(&source_invalidator);
+                }
+                source_state                        = nullptr;
+                source_invalidator.owner           = nullptr;
+                source_invalidator.invalidate      = nullptr;
+                source_invalidator.rebind          = nullptr;
+                source_invalidator.state_destroyed = false;
+            }
+
+            void deactivate() noexcept {
+                unsubscribe_source();
+                source_context             = {};
+                source_notifier.binding    = nullptr;
+                owner                      = nullptr;
+                pending_modified_time      = MIN_DT;
+                last_synced_time           = MIN_DT;
+                set_last_source_snapshot(nullptr, false);
+            }
+
             static void invalidate_target_context(void *owner_) noexcept {
                 auto *binding = static_cast<DynamicDictBinding *>(owner_);
                 if (binding == nullptr) { return; }
+                binding->unsubscribe_source();
                 binding->target_context.clear();
                 binding->pending_modified_time   = MIN_DT;
                 binding->source_notifier.binding = nullptr;
                 binding->owner                   = nullptr;
             }
 
-            static void rebind_target_context(void *owner_, BaseState *old_state, BaseState *new_state) noexcept {
+            static void invalidate_source_context(void *owner_) noexcept {
                 auto *binding = static_cast<DynamicDictBinding *>(owner_);
                 if (binding == nullptr) { return; }
+                binding->source_state             = nullptr;
+                binding->source_context           = {};
+                binding->pending_modified_time    = MIN_DT;
+                binding->source_notifier.binding  = nullptr;
+                binding->owner                    = nullptr;
+                binding->last_synced_time         = MIN_DT;
+                binding->set_last_source_snapshot(nullptr, false);
+            }
+
+            static void rebind_contexts(void *owner_, BaseState *old_state, BaseState *new_state) noexcept {
+                auto *binding = static_cast<DynamicDictBinding *>(owner_);
+                if (binding == nullptr) { return; }
+                if (binding->source_state == old_state) { binding->source_state = new_state; }
                 rebind_context_state(binding->target_context, old_state, new_state);
                 rebind_context_state(binding->source_context, old_state, new_state);
                 if (binding->last_source_root_state() == old_state) {
@@ -2700,6 +2802,7 @@ namespace hgraph
             LinkedTSContext                   target_context{};
             LinkedTSContext                   source_context{};
             std::unique_ptr<TimeSeriesStateV> source_bridge_state{};
+            BaseState                        *source_state{nullptr};
             tagged_ptr<const BaseState, 1>    m_last_source_snapshot{};
             engine_time_t                     pending_modified_time{MIN_DT};
             // Tracks the modified_time of the most recent sync_dynamic_dict run
@@ -2709,6 +2812,7 @@ namespace hgraph
             // would otherwise hide the tick transition from sync_dynamic_dict).
             engine_time_t                     last_synced_time{MIN_DT};
             StateInvalidator                  target_invalidator{};
+            StateInvalidator                  source_invalidator{};
             SourceNotifier                    source_notifier{};
         };
 
@@ -2880,28 +2984,16 @@ namespace hgraph
             if (DynamicDictBinding *existing = find_dynamic_dict_binding_for_target(binding_ref.target_context.ts_state);
                 existing != nullptr) {
                 if (!detail::linked_context_equal(existing->source_context, binding_ref.source_context)) {
-                    if (BaseState *old_source_state = notification_state_of(existing->source_context);
-                        old_source_state != nullptr) {
-                        old_source_state->unsubscribe(&existing->source_notifier);
-                    }
+                    existing->unsubscribe_source();
                     existing->source_context = binding_ref.source_context;
-                    if (BaseState *new_source_state = notification_state_of(existing->source_context);
-                        new_source_state != nullptr) {
-                        new_source_state->subscribe(&existing->source_notifier);
-                    }
+                    existing->subscribe_source();
                 }
                 sync_dynamic_dict(*existing, initial_modified_time, false);
                 return;
             }
 
-            auto unsubscribe_on_failure = make_scope_exit([&] {
-                if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
-                    source_state->unsubscribe(&binding_ref.source_notifier);
-                }
-            });
-            if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
-                source_state->subscribe(&binding_ref.source_notifier);
-            }
+            auto unsubscribe_on_failure = make_scope_exit([&] { binding_ref.unsubscribe_source(); });
+            binding_ref.subscribe_source();
             sync_dynamic_dict(binding_ref, initial_modified_time, true);
             unsubscribe_on_failure.release();
             m_dynamic_dict_bindings.push_back(std::move(binding));
@@ -2935,13 +3027,9 @@ namespace hgraph
 
             LinkedTSContext next_source_context = detail::stable_output_context(source_child);
             if (!detail::linked_context_equal(binding->source_context, next_source_context)) {
-                if (BaseState *old_source_state = notification_state_of(binding->source_context); old_source_state != nullptr) {
-                    old_source_state->unsubscribe(&binding->source_notifier);
-                }
+                binding->unsubscribe_source();
                 binding->source_context = std::move(next_source_context);
-                if (BaseState *new_source_state = notification_state_of(binding->source_context); new_source_state != nullptr) {
-                    new_source_state->subscribe(&binding->source_notifier);
-                }
+                binding->subscribe_source();
             }
 
             sync_dynamic_dict(*binding, modified_time, false);
@@ -2949,12 +3037,7 @@ namespace hgraph
         }
 
         void unsubscribe_dynamic_dict_binding(DynamicDictBinding &binding) {
-            if (BaseState *source_state = notification_state_of(binding.source_context); source_state != nullptr) {
-                source_state->unsubscribe(&binding.source_notifier);
-            }
-            binding.source_notifier.binding = nullptr;
-            binding.owner                   = nullptr;
-            binding.pending_modified_time   = MIN_DT;
+            binding.deactivate();
         }
 
         void remove_invalid_dynamic_dict_bindings() {
@@ -3034,7 +3117,10 @@ namespace hgraph
             while (it != m_wrapped_ref_subscriptions.end()) {
                 WrappedRefNotifier *notifier = it->notifier.get();
                 if (notifier == nullptr || notifier->target_state == nullptr ||
-                    is_descendant_state(notifier->target_state, subtree_root)) {
+                    is_descendant_state(notifier->target_state, subtree_root) ||
+                    is_descendant_state(notifier->source_state, subtree_root) ||
+                    context_references_subtree(notifier->target_context, subtree_root) ||
+                    context_references_subtree(notifier->source_context, subtree_root)) {
                     if (notifier != nullptr) { notifier->unsubscribe_source(); }
                     it = m_wrapped_ref_subscriptions.erase(it);
                 } else {
@@ -3047,8 +3133,8 @@ namespace hgraph
             if (subtree_root == nullptr) { return; }
 
             for (auto it = m_scalar_value_bindings.begin(); it != m_scalar_value_bindings.end();) {
-                if ((*it)->target_context.ts_state != nullptr &&
-                    is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
+                if (context_references_subtree((*it)->target_context, subtree_root) ||
+                    context_references_subtree((*it)->source_context, subtree_root)) {
                     if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
                         source_state->unsubscribe(&(*it)->source_notifier);
                     }
@@ -3071,7 +3157,8 @@ namespace hgraph
                     (*it)->owner == nullptr) {
                     unsubscribe_dynamic_dict_binding(**it);
                     it = m_dynamic_dict_bindings.erase(it);
-                } else if (is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
+                } else if (context_references_subtree((*it)->target_context, subtree_root) ||
+                           context_references_subtree((*it)->source_context, subtree_root)) {
                     unsubscribe_dynamic_dict_binding(**it);
                     it = m_dynamic_dict_bindings.erase(it);
                 } else {
@@ -3084,8 +3171,8 @@ namespace hgraph
             if (subtree_root == nullptr) { return; }
 
             for (auto it = m_dynamic_key_set_bindings.begin(); it != m_dynamic_key_set_bindings.end();) {
-                if ((*it)->target_context.ts_state != nullptr &&
-                    is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
+                if (context_references_subtree((*it)->target_context, subtree_root) ||
+                    context_references_subtree((*it)->source_context, subtree_root)) {
                     if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
                         source_state->unsubscribe(&(*it)->source_notifier);
                     }
@@ -3100,8 +3187,17 @@ namespace hgraph
             if (subtree_root == nullptr) { return; }
 
             for (auto it = m_collection_ref_bindings.begin(); it != m_collection_ref_bindings.end();) {
-                if ((*it)->target_context.ts_state != nullptr &&
-                    is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
+                bool release_binding = context_references_subtree((*it)->target_context, subtree_root) ||
+                                       context_references_subtree((*it)->source_context, subtree_root);
+                if (!release_binding) {
+                    for (BaseState *target_state : (*it)->target_subscription_states) {
+                        if (is_descendant_state(target_state, subtree_root)) {
+                            release_binding = true;
+                            break;
+                        }
+                    }
+                }
+                if (release_binding) {
                     if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
                         source_state->unsubscribe(&(*it)->source_notifier);
                     }

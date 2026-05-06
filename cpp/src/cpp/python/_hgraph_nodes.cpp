@@ -532,7 +532,7 @@ namespace
             if (!map.contains(key)) { return false; }
 
             static_cast<void>(evaluation_time);
-            dict_view.as_dict().erase(key);
+            detail::erase_dict_key(dict_view, key);
             return true;
         }
 
