@@ -10,6 +10,7 @@
 #include <nanobind/nanobind.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 
 namespace hgraph::nested_test
@@ -76,9 +77,18 @@ namespace hgraph::nested_test
         }
     };
 
+    void set_env_var(const char *name, const char *value)
+    {
+#ifdef _WIN32
+        _putenv_s(name, value);
+#else
+        setenv(name, value, 1);
+#endif
+    }
+
     void ensure_python_hgraph_importable()
     {
-        setenv("HGRAPH_USE_CPP", "0", 1);
+        set_env_var("HGRAPH_USE_CPP", "0");
 
         if (!Py_IsInitialized()) {
             PyConfig config;

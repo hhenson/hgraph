@@ -36,6 +36,15 @@ namespace hgraph::test_detail
     static_assert(
         In<"lhs", TS<int>, InputValidity::Unchecked, InputActivity::Passive>::validity == InputValidity::Unchecked);
 
+    void set_env_var(const char *name, const char *value)
+    {
+#ifdef _WIN32
+        _putenv_s(name, value);
+#else
+        setenv(name, value, 1);
+#endif
+    }
+
     struct NoopNode
     {
         NoopNode() = delete;
@@ -748,7 +757,7 @@ namespace hgraph::test_detail
 
     void ensure_python_hgraph_importable()
     {
-        setenv("HGRAPH_USE_CPP", "0", 1);
+        set_env_var("HGRAPH_USE_CPP", "0");
 
         if (!Py_IsInitialized()) {
             PyConfig config;

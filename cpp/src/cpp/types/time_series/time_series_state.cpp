@@ -264,7 +264,12 @@ namespace hgraph
             const TSOutput     *root_output = nullptr;
             BaseState          *cursor      = state;
 
+            size_t depth = 0;
             while (cursor != nullptr) {
+                if (++depth > 256) { return context; }
+                if (cursor->storage_kind == TSStorageKind::Destroyed) { return context; }
+                if (cursor->parent && cursor->parent.tag() >= TimeSeriesStateParentPtr::alternative_count) { return context; }
+
                 bool advanced = false;
                 hgraph::visit(
                     cursor->parent,
@@ -985,7 +990,10 @@ namespace hgraph
         BaseCollectionState::child_modified(child_index, modified_time);
     }
 
-    BaseCollectionState::~BaseCollectionState() = default;
+    BaseCollectionState::~BaseCollectionState() {
+        invalidate_lifetime_registrations(*this);
+        storage_kind = TSStorageKind::Destroyed;
+    }
 
     BaseCollectionState::BaseCollectionState(BaseCollectionState &&other) noexcept
         : BaseState(std::move(other)), child_states(std::move(other.child_states)),
