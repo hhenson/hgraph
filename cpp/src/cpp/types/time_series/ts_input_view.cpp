@@ -552,17 +552,6 @@ namespace hgraph
                             view.scheduling_notifier()->notify(view.evaluation_time());
                             return;
                         }
-                        if (context.ts_state->last_modified_time != view.evaluation_time() &&
-                            (resolved == nullptr || resolved->last_modified_time != view.evaluation_time()) &&
-                            view.valid()) {
-                            // A newly active input bound to an already-live upstream value
-                            // also needs one activation-time evaluation so the consuming
-                            // node observes the current sample immediately rather than
-                            // waiting for the next upstream tick.
-                            context.ts_state->last_modified_time = view.evaluation_time();
-                            view.scheduling_notifier()->notify(view.evaluation_time());
-                            return;
-                        }
                         if (context.ts_state->last_modified_time == view.evaluation_time()) {
                             view.scheduling_notifier()->notify(view.evaluation_time());
                             return;
