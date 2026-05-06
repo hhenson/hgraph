@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace
@@ -535,6 +536,35 @@ namespace
             }
             if (removed) { mark_output_view_modified(dict_view, evaluation_time); }
             return removed;
+        }
+
+        [[nodiscard]] bool ensure_dict_child_slot_natively(const TSOutputView &dict_view, const View &key,
+                                                           engine_time_t evaluation_time) {
+            if (!dict_view.value().has_value() || !key.has_value()) { return false; }
+
+            MapView map = dict_view.value().as_map();
+            if (map.contains(key)) { return true; }
+
+            const TSMeta          *dict_schema     = dict_view.ts_schema();
+            const TSMeta          *element_schema  = dict_schema != nullptr ? dict_schema->element_ts() : nullptr;
+            const value::TypeMeta *mapped_schema   = map.value_schema();
+            if (element_schema == nullptr || mapped_schema == nullptr) {
+                throw std::logic_error("TSD child insertion requires mapped value schema");
+            }
+
+            Value mapped_value{*mapped_schema, MutationTracking::Plain};
+            if (element_schema->kind == TSKind::REF) {
+                mapped_value.view().as_atomic().set(TimeSeriesReference::make());
+            } else {
+                mapped_value.reset();
+            }
+
+            {
+                auto mutation = map.begin_mutation(evaluation_time);
+                mutation.set(key, mapped_value.view());
+            }
+            mark_output_view_modified(dict_view, evaluation_time);
+            return true;
         }
 
         [[nodiscard]] int64_t next_global_request_id(Node &node) {
@@ -1567,7 +1597,7 @@ namespace
                 emptied_without_delta) {
                 if (!tracked_keys.empty()) {
                     for (const Value &tracked_key : tracked_keys) {
-                        remove_dict_child_natively(out_dict.view(), tracked_key.view(), out.evaluation_time());
+                        static_cast<void>(remove_dict_child_natively(out_dict.view(), tracked_key.view(), out.evaluation_time()));
                     }
                 }
                 return;
@@ -1621,7 +1651,80 @@ namespace
             }
 
             for (const View &removed_key : source_root.value().as_map().delta().removed_keys()) {
-                remove_dict_child_natively(out_dict.view(), removed_key, out.evaluation_time());
+                static_cast<void>(remove_dict_child_natively(out_dict.view(), removed_key, out.evaluation_time()));
+            }
+        }
+    };
+
+    struct FlipKeysTsdNode
+    {
+        FlipKeysTsdNode()  = delete;
+        ~FlipKeysTsdNode() = delete;
+
+        static constexpr auto name = "flip_keys_tsd";
+
+        using K   = ScalarVar<"K">;
+        using K_1 = ScalarVar<"K_1">;
+        using V   = TsVar<"TIME_SERIES_TYPE">;
+
+        static void eval(In<"ts", TSD<K, TSD<K_1, REF<V>>>, InputValidity::Unchecked> ts,
+                         Out<TSD<K_1, TSD<K, REF<V>>>> out) {
+            const engine_time_t evaluation_time = out.evaluation_time();
+            auto                out_dict        = out.view();
+
+            std::vector<Value> previous_outer_keys;
+            for (const View &key : out_dict.keys()) { previous_outer_keys.emplace_back(key.clone()); }
+
+            using InnerRefs = std::vector<std::pair<Value, TimeSeriesReference>>;
+            std::unordered_map<Value, InnerRefs, ValueKeyHash, ValueKeyEqual> desired;
+
+            TSOutputView source_root = output_view_from_input(ts.view().view());
+            if (ts.valid() && source_root.context_ref().is_bound() && source_root.value().has_value()) {
+                for (const auto &[source_outer_key, source_inner] : source_root.as_dict().items()) {
+                    if (!source_inner.value().has_value()) { continue; }
+
+                    for (const auto &[target_outer_key, source_ref_child] : source_inner.as_dict().items()) {
+                        if (!source_ref_child.value().has_value()) { continue; }
+
+                        const auto *ref = try_view_ref(source_ref_child.value());
+                        if (ref == nullptr) { throw std::logic_error("flip_keys_tsd requires REF-valued inner TSD values"); }
+
+                        auto [desired_it, inserted] = desired.try_emplace(target_outer_key.clone());
+                        static_cast<void>(inserted);
+                        desired_it->second.emplace_back(source_outer_key.clone(), *ref);
+                    }
+                }
+            }
+
+            for (const Value &previous_outer_key : previous_outer_keys) {
+                if (desired.find(previous_outer_key) == desired.end()) {
+                    static_cast<void>(remove_dict_child_natively(out_dict.view(), previous_outer_key.view(), evaluation_time));
+                }
+            }
+
+            for (const auto &[target_outer_key, inner_refs] : desired) {
+                if (!ensure_dict_child_slot_natively(out_dict.view(), target_outer_key.view(), evaluation_time)) { continue; }
+
+                TSOutputView target_inner = materialize_dict_child_output(out_dict.view(), target_outer_key.view());
+                if (!target_inner.context_ref().is_bound() && target_inner.context_ref().ts_state == nullptr) {
+                    throw std::logic_error("flip_keys_tsd failed to materialize target inner TSD");
+                }
+
+                std::vector<Value> previous_inner_keys;
+                for (const View &key : target_inner.as_dict().keys()) { previous_inner_keys.emplace_back(key.clone()); }
+
+                for (const Value &previous_inner_key : previous_inner_keys) {
+                    const bool still_present = std::any_of(
+                        inner_refs.begin(), inner_refs.end(),
+                        [&](const auto &entry) { return entry.first.view() == previous_inner_key.view(); });
+                    if (!still_present) {
+                        static_cast<void>(remove_dict_child_natively(target_inner, previous_inner_key.view(), evaluation_time));
+                    }
+                }
+
+                for (const auto &[target_inner_key, ref] : inner_refs) {
+                    set_dict_child_reference(target_inner, target_inner_key.view(), ref, evaluation_time);
+                }
             }
         }
     };
@@ -3309,6 +3412,8 @@ void export_nodes(nb::module_ &m) {
         hgraph::StaticNodeSignature<TsdGetItemsNode>::wiring_signature("tsd_get_items"));
     hgraph::export_compute_node_from_python_impl<TsdGetBundleItemNode>(m, "hgraph._impl._operators._tsd_operators",
                                                                        "tsd_get_bundle_item", "tsd_get_bundle_item");
+    hgraph::export_compute_node_from_python_impl<FlipKeysTsdNode>(m, "hgraph._impl._operators._tsd_operators",
+                                                                  "flip_keys_tsd", "flip_keys_tsd");
     hgraph::export_compute_node_from_python_impl<KeysTsdAsTssNode>(m, "hgraph._impl._operators._tsd_operators", "keys_tsd_as_tss",
                                                                    "keys_tsd_as_tss");
     hgraph::export_compute_node_from_python_impl<DefaultRefNode>(m, "hgraph._impl._operators._graph_operators", "_default",
