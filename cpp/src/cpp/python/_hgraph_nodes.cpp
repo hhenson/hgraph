@@ -1638,6 +1638,7 @@ namespace
                 set_dict_child_reference(out_dict.view(), dict_key, result, out.evaluation_time());
             };
 
+            auto source_dict = source_root.as_dict();
             if (replay_all_live) {
                 auto source_dict = source_root.as_dict();
                 for (const auto &[dict_key, child] : source_dict.items()) { emit_child(dict_key, child, true); }
@@ -1647,11 +1648,8 @@ namespace
                     emit_child(dict_key, child, child.modified());
                 }
             }
-
-            auto source_value = source_root.value();
-            auto source_map   = source_value.as_map();
-            auto source_delta = source_map.delta();
-            for (const View &removed_key : source_delta.removed_keys()) {
+            auto source_map_delta = source_root.value().as_map().delta();
+            for (const View &removed_key : source_map_delta.removed_keys()) {
                 static_cast<void>(remove_dict_child_natively(out_dict.view(), removed_key, out.evaluation_time()));
             }
         }
@@ -1858,9 +1856,8 @@ namespace
             for (size_t i = 0; i < input_list.size(); ++i) {
                 auto item = input_list[i];
                 if (!item.valid()) { continue; }
-
-                auto set = item.as_set();
-                for (const View &value : set.values()) { desired.emplace(value.clone()); }
+                auto item_set = item.as_set();
+                for (const View &value : item_set.values()) { desired.emplace(value.clone()); }
             }
 
             auto output_view    = out.view();

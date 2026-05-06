@@ -882,8 +882,8 @@ namespace hgraph
                 }
 
                 hard_clear(dst);
-                SetView set = src.as_set();
-                for (const View source_element : set.values()) {
+                auto src_set = src.as_set();
+                for (const View source_element : src_set.values()) {
                     Value normalized_element{element_schema(), element_dispatch().tracking()};
                     normalized_element.view().copy_from(source_element);
                     static_cast<void>(add(dst, detail::ViewAccess::data(normalized_element.view())));
@@ -912,10 +912,10 @@ namespace hgraph
                 {
                     SetView normalized_set_view{normalized_view};
                     auto    mutation = normalized_set_view.begin_mutation(MIN_DT);
-                    SetView source_set = src.as_set();
-                    mutation.reserve(source_set.size());
+                    auto    src_set  = src.as_set();
+                    mutation.reserve(src_set.size());
 
-                    for (const View source_element : source_set.values()) {
+                    for (const View source_element : src_set.values()) {
                         Value normalized_element{element_schema(), element_dispatch().tracking()};
                         if (!normalized_element.view().try_copy_from(source_element)) { return false; }
                         static_cast<void>(mutation.add(normalized_element.view()));

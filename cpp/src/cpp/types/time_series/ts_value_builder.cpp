@@ -1608,8 +1608,8 @@ namespace hgraph
                 bool               structural_changed = false;
                 std::vector<Value> target_keys_to_remove;
                 if (view.value().has_value()) {
-                    auto dict = view.as_dict();
-                    for (const View &key : dict.keys()) { target_keys_to_remove.emplace_back(key.clone()); }
+                    auto dict_view = view.as_dict();
+                    for (const View &key : dict_view.keys()) { target_keys_to_remove.emplace_back(key.clone()); }
                 }
                 for (const Value &key : target_keys_to_remove) {
                     structural_changed = remove_child_slot(view, key.view()) || structural_changed;
@@ -1905,8 +1905,8 @@ namespace hgraph
                 }
 
                 std::vector<Value> source_values;
-                auto set = source.as_set();
-                for (const View &item : set.values()) { source_values.emplace_back(item.clone()); }
+                auto source_set_view = source.as_set();
+                for (const View &item : source_set_view.values()) { source_values.emplace_back(item.clone()); }
                 copy_values(view, source_values, true, source.valid());
             }
 
@@ -1921,8 +1921,8 @@ namespace hgraph
                 }
 
                 std::vector<Value> source_values;
-                auto set = source.as_set();
-                for (const View &item : set.values()) { source_values.emplace_back(item.clone()); }
+                auto source_set_view = source.as_set();
+                for (const View &item : source_set_view.values()) { source_values.emplace_back(item.clone()); }
                 copy_values(view, source_values, true, source.valid());
             }
 
@@ -1937,8 +1937,8 @@ namespace hgraph
                 }
 
                 std::vector<Value> source_values;
-                auto set = source.as_set();
-                for (const View &item : set.values()) { source_values.emplace_back(item.clone()); }
+                auto source_set_view = source.as_set();
+                for (const View &item : source_set_view.values()) { source_values.emplace_back(item.clone()); }
                 copy_values(view, source_values, false, source.valid());
             }
 

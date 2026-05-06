@@ -876,14 +876,15 @@ namespace hgraph
                 nb::set result;
                 if (m_input != nullptr) {
                     const TSInputView view = input_view();
-                    auto set = view.as_set();
-                    for (const View &item : set.added_values()) { result.add(item.to_python()); }
+                    auto set_view = view.as_set();
+                    for (const View &item : set_view.added_values()) { result.add(item.to_python()); }
                     if (result.empty() && sampled_this_tick(view.context_ref(), view.evaluation_time()) && view.valid()) {
-                        for (const View &item : set.values()) { result.add(item.to_python()); }
+                        for (const View &item : set_view.values()) { result.add(item.to_python()); }
                     }
                 } else {
-                    auto set = output_view().as_set();
-                    for (const View &item : set.added_values()) { result.add(item.to_python()); }
+                    const TSOutputView view     = output_view();
+                    auto               set_view = view.as_set();
+                    for (const View &item : set_view.added_values()) { result.add(item.to_python()); }
                 }
                 return result;
             }
@@ -894,11 +895,12 @@ namespace hgraph
                 nb::set result;
                 if (m_input != nullptr) {
                     const TSInputView view = input_view();
-                    auto set = view.as_set();
-                    for (const View &item : set.removed_values()) { result.add(item.to_python()); }
+                    auto set_view = view.as_set();
+                    for (const View &item : set_view.removed_values()) { result.add(item.to_python()); }
                 } else {
-                    auto set = output_view().as_set();
-                    for (const View &item : set.removed_values()) { result.add(item.to_python()); }
+                    const TSOutputView view     = output_view();
+                    auto               set_view = view.as_set();
+                    for (const View &item : set_view.removed_values()) { result.add(item.to_python()); }
                 }
                 return result;
             }
@@ -1606,8 +1608,8 @@ namespace hgraph
             }
 
             template <typename TView> [[nodiscard]] bool list_has_valid_modified_child(TView view) const {
-                auto list = view.as_list();
-                for (auto child : list.modified_values()) {
+                auto list_view = view.as_list();
+                for (auto child : list_view.modified_values()) {
                     if (child.valid()) { return true; }
                 }
                 return false;

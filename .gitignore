@@ -50,6 +50,10 @@ docs/build/*
 /.tmp/
 /cmake-build-relwithdebinfo/
 /cmake-build-release-stable/
+/cmake-build-linux-x86/
+/cmake-build-asan/
+/cmake-build-gcc15/
+/build_cpp/
 /cpp/tests/build/
 /cpp/tests/asan-build/
 /hgraph_unit_tests/ts_tests/state_trace*.json
