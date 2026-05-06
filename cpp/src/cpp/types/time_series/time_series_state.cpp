@@ -1194,11 +1194,13 @@ namespace hgraph
     }
 
     void OutputLinkState::unregister_from_target() noexcept {
-        with_target_state(target, [this](BaseState *ptr) { ptr->unsubscribe(&target_notifiable); });
-        BaseState *lifetime_state = target_lifetime_state(target);
-        if (target_invalidator && !target_invalidator->state_destroyed && lifetime_state != nullptr &&
-            lifetime_state->storage_kind != TSStorageKind::Destroyed) {
-            lifetime_state->unregister_state_invalidator(target_invalidator.get());
+        const bool target_destroyed = target_invalidator && target_invalidator->state_destroyed;
+        if (!target_destroyed) {
+            with_target_state(target, [this](BaseState *ptr) { ptr->unsubscribe(&target_notifiable); });
+            BaseState *lifetime_state = target_lifetime_state(target);
+            if (target_invalidator && lifetime_state != nullptr && lifetime_state->storage_kind != TSStorageKind::Destroyed) {
+                lifetime_state->unregister_state_invalidator(target_invalidator.get());
+            }
         }
         target_invalidator.reset();
     }
@@ -1300,14 +1302,16 @@ namespace hgraph
     }
 
     void TargetLinkState::unregister_from_target() noexcept {
-        BaseState *notification_state = target_notification_state(target);
-        if (notification_state != nullptr && notification_state->storage_kind != TSStorageKind::Destroyed) {
-            notification_state->unsubscribe(&target_notifiable);
-        }
-        BaseState *lifetime_state = target_lifetime_state(target);
-        if (target_invalidator && !target_invalidator->target_destroyed && lifetime_state != nullptr &&
-            lifetime_state->storage_kind != TSStorageKind::Destroyed) {
-            lifetime_state->unregister_target_link_invalidator(target_invalidator.get());
+        const bool target_destroyed = target_invalidator && target_invalidator->target_destroyed;
+        if (!target_destroyed) {
+            BaseState *notification_state = target_notification_state(target);
+            if (notification_state != nullptr && notification_state->storage_kind != TSStorageKind::Destroyed) {
+                notification_state->unsubscribe(&target_notifiable);
+            }
+            BaseState *lifetime_state = target_lifetime_state(target);
+            if (target_invalidator && lifetime_state != nullptr && lifetime_state->storage_kind != TSStorageKind::Destroyed) {
+                lifetime_state->unregister_target_link_invalidator(target_invalidator.get());
+            }
         }
         target_invalidator.reset();
     }
@@ -1494,11 +1498,13 @@ namespace hgraph
     }
 
     void RefLinkState::unregister_from_source() noexcept {
-        with_target_state(source, [this](BaseState *ptr) { ptr->unsubscribe(&source_notifiable); });
-        BaseState *lifetime_state = target_lifetime_state(source);
-        if (source_invalidator && !source_invalidator->state_destroyed && lifetime_state != nullptr &&
-            lifetime_state->storage_kind != TSStorageKind::Destroyed) {
-            lifetime_state->unregister_state_invalidator(source_invalidator.get());
+        const bool source_destroyed = source_invalidator && source_invalidator->state_destroyed;
+        if (!source_destroyed) {
+            with_target_state(source, [this](BaseState *ptr) { ptr->unsubscribe(&source_notifiable); });
+            BaseState *lifetime_state = target_lifetime_state(source);
+            if (source_invalidator && lifetime_state != nullptr && lifetime_state->storage_kind != TSStorageKind::Destroyed) {
+                lifetime_state->unregister_state_invalidator(source_invalidator.get());
+            }
         }
         source_invalidator.reset();
     }
@@ -1520,11 +1526,13 @@ namespace hgraph
     }
 
     void RefLinkState::unregister_from_target() noexcept {
-        with_target_state(bound_link.target, [this](BaseState *ptr) { ptr->unsubscribe(&target_notifiable); });
-        BaseState *lifetime_state = target_lifetime_state(bound_link.target);
-        if (target_invalidator && !target_invalidator->state_destroyed && lifetime_state != nullptr &&
-            lifetime_state->storage_kind != TSStorageKind::Destroyed) {
-            lifetime_state->unregister_state_invalidator(target_invalidator.get());
+        const bool target_destroyed = target_invalidator && target_invalidator->state_destroyed;
+        if (!target_destroyed) {
+            with_target_state(bound_link.target, [this](BaseState *ptr) { ptr->unsubscribe(&target_notifiable); });
+            BaseState *lifetime_state = target_lifetime_state(bound_link.target);
+            if (target_invalidator && lifetime_state != nullptr && lifetime_state->storage_kind != TSStorageKind::Destroyed) {
+                lifetime_state->unregister_state_invalidator(target_invalidator.get());
+            }
         }
         target_invalidator.reset();
     }
