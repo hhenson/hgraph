@@ -176,11 +176,6 @@ namespace
             return TimeSeriesReference::make(view);
         }
 
-        [[nodiscard]] nb::object remove_if_exists_sentinel() {
-            static nb::object value = nb::module_::import_("hgraph").attr("REMOVE_IF_EXISTS");
-            return nb::borrow(value);
-        }
-
         [[nodiscard]] size_t bundle_field_index_or_throw(const TSMeta *schema, std::string_view field_name) {
             if (schema == nullptr || schema->kind != TSKind::TSB) {
                 throw std::logic_error("tsd_get_bundle_item requires a bundle schema");
