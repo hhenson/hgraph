@@ -5910,7 +5910,9 @@ namespace hgraph
             }
             bool unplanned_direct_input_modified = false;
             if (node.has_input()) {
-                for (const auto &[arg_name, arg] : node.input_view(evaluation_time).as_bundle().modified_items()) {
+                auto input_bundle = node.input_view(evaluation_time).as_bundle();
+                auto modified_items = input_bundle.modified_items();
+                for (const auto &[arg_name, arg] : modified_items) {
                     if (arg_name == runtime.keys_arg || arg_name == runtime.key_arg || is_multiplexed_arg(runtime, arg_name)) {
                         continue;
                     }
