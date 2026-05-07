@@ -339,6 +339,14 @@ def test_drop_dups_tsd():
     assert eval_node(g, [{1: 1, 2: 2}, {1: 1, 2: 3}, {1: REMOVE, 2: 3}]) == [{1: 1, 2: 2}, {2: 3}, {1: REMOVE}]
 
 
+def test_drop_dups_tsd_str():
+    @graph
+    def g(ts: TSD[int, TS[str]]) -> TSD[int, TS[str]]:
+        return dedup(ts)
+
+    assert eval_node(g, [{1: "1", 2: "2"}, {1: "1", 2: "3"}, {1: REMOVE, 2: "3"}]) == [{1: "1", 2: "2"}, {2: "3"}, {1: REMOVE}]
+
+
 def test_drop_dups_tsl():
     @graph
     def g(ts: TSL[TS[int], Size[2]]) -> TSL[TS[int], Size[2]]:
