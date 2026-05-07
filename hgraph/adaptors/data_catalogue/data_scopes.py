@@ -41,6 +41,20 @@ class Scope:
         return None
 
 
+class OptionalScope(Scope):
+    def __init__(self, scope: Scope):
+        self._scope = scope
+
+    def in_scope(self, value: object) -> bool:
+        return value is None or self._scope.in_scope(value)
+
+    def adjust(self, value: object) -> object:
+        return self._scope.adjust(value) if value is not None else None
+
+    def default(self) -> object:
+        return None
+    
+
 class StringScope(Scope):
     def in_scope(self, value: object) -> bool:
         return value.__class__ is str
