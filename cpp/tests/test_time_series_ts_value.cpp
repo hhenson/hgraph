@@ -1633,6 +1633,67 @@ TEST_CASE("TSOutput dereferenced REF TSD roots can dereference child REF values"
     CHECK_FALSE(dict_view.at(key_two.view()).valid());
 }
 
+TEST_CASE("TSOutput fixed collection REF alternatives preserve child links on target updates", "[ts_output][ref][tsb]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto *pair_ts = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "StableRefPair");
+    const auto *ref_pair_ts = ts_registry.ref(pair_ts);
+
+    hgraph::test_detail::ExposedTSOutput pair_output{hgraph::test_detail::output_builder_for(pair_ts)};
+    hgraph::test_detail::ExposedTSOutput ref_output{hgraph::test_detail::output_builder_for(ref_pair_ts)};
+
+    {
+        auto mutation = pair_output.bundle_value().begin_mutation();
+        mutation.setting_field("lhs", hgraph::Value{1}.view());
+        mutation.setting_field("rhs", hgraph::Value{2}.view());
+    }
+    hgraph::test_detail::mark_output_view_modified(pair_output.view(hgraph::test_detail::tick(250)), hgraph::test_detail::tick(250));
+
+    ref_output.atomic_value().set(hgraph::TimeSeriesReference::make(pair_output.view(hgraph::test_detail::tick(250))));
+    hgraph::test_detail::mark_output_view_modified(ref_output.view(hgraph::test_detail::tick(250)), hgraph::test_detail::tick(250));
+
+    auto alternative = ref_output.bindable_view(ref_output.view(hgraph::test_detail::tick(250)), pair_ts);
+    auto lhs_before = alternative.as_bundle()[0];
+    auto rhs_before = alternative.as_bundle()[1];
+    REQUIRE(lhs_before.context_ref().ts_state != nullptr);
+    REQUIRE(rhs_before.context_ref().ts_state != nullptr);
+
+    auto *alternative_root = static_cast<hgraph::TSBState *>(alternative.context_ref().ts_state);
+    REQUIRE(alternative_root != nullptr);
+    hgraph::BaseState *lhs_state_before = hgraph::test_detail::child_state(*alternative_root, 0);
+    hgraph::BaseState *rhs_state_before = hgraph::test_detail::child_state(*alternative_root, 1);
+    REQUIRE(lhs_state_before != nullptr);
+    REQUIRE(rhs_state_before != nullptr);
+
+    hgraph::test_detail::RecordingNotifiable recorder;
+    lhs_state_before->subscribe(&recorder);
+
+    pair_output.view(hgraph::test_detail::tick(251)).as_bundle()[0].value().as_atomic().set(10);
+    hgraph::test_detail::mark_output_view_modified(pair_output.view(hgraph::test_detail::tick(251)).as_bundle()[0],
+                                                   hgraph::test_detail::tick(251));
+
+    auto updated = ref_output.bindable_view(ref_output.view(hgraph::test_detail::tick(251)), pair_ts);
+    auto lhs_after = updated.as_bundle()[0];
+    auto rhs_after = updated.as_bundle()[1];
+    auto *updated_root = static_cast<hgraph::TSBState *>(updated.context_ref().ts_state);
+    REQUIRE(updated_root != nullptr);
+    CHECK(hgraph::test_detail::child_state(*updated_root, 0) == lhs_state_before);
+    CHECK(hgraph::test_detail::child_state(*updated_root, 1) == rhs_state_before);
+    CHECK(lhs_after.value().as_atomic().as<int>() == 10);
+    CHECK(rhs_after.value().as_atomic().as<int>() == 2);
+    CHECK(recorder.notifications == std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(251)});
+
+    pair_output.view(hgraph::test_detail::tick(252)).as_bundle()[0].value().as_atomic().set(11);
+    hgraph::test_detail::mark_output_view_modified(pair_output.view(hgraph::test_detail::tick(252)).as_bundle()[0],
+                                                   hgraph::test_detail::tick(252));
+    CHECK(recorder.notifications == std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(251),
+                                                                       hgraph::test_detail::tick(252)});
+}
+
 TEST_CASE("TSInput active dereferenced bundle child rehomes subscriptions when the REF retargets", "[ts_input][active][ref]")
 {
     auto &value_registry = hgraph::value::TypeRegistry::instance();
