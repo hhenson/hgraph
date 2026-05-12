@@ -3,7 +3,9 @@ from typing import Callable, TypeVar
 from frozendict import frozendict
 
 from hgraph import TS
+from hgraph._types._scalar_type_meta_data import HgAtomicType
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
+from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsd_type import TSD
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._wiring._wiring_context import WiringContext
@@ -116,6 +118,24 @@ class ServiceAdaptorNodeClass(ServiceInterfaceNodeClass):
                     out = get_shared_reference_output[TSD[int, resolved_signature.output_type]](to_graph_typed_path)
                     g.register_service_client(self, to_graph_full_path, resolution_dict, out.node_instance)
                     return out[id]
+
+    def impl_signature(self, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None):
+        resolution_dict = self.signature.try_build_resolution_dict(__pre_resolved_types__)
+        requestor_id_tp = HgAtomicType.parse_type(int)
+        return self.signature.copy_with(
+            input_types=frozendict(
+                {
+                    k: HgTSDTypeMetaData(requestor_id_tp, v.resolve(resolution_dict, weak=True))
+                    for k, v in self.signature.time_series_inputs.items()
+                }
+                | self.signature.scalar_inputs
+            ),
+            output_type=(
+                HgTSDTypeMetaData(requestor_id_tp, self.signature.output_type.resolve(resolution_dict, weak=True))
+                if self.signature.output_type
+                else None
+            ),
+        )
 
     def wire_impl_inputs_stub(
         self, path, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **scalars

@@ -2,6 +2,8 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import timedelta
 from itertools import chain
+import threading
+import time
 from typing import Callable
 
 import pytest
@@ -31,7 +33,9 @@ from hgraph import (
     CompoundScalar,
     const,
     TSS,
+    reference_service,
     subscription_service,
+    request_reply_service,
     service_impl,
     collect,
     GraphConfiguration,
@@ -329,7 +333,95 @@ def test_adaptor_and_service():
     assert [x[1] for x in result if x[1]] == [{x: x} for x in list(range(1, 11))]
 
 
-@pytest.mark.skip("not implemented yet")
+def test_request_reply_service_via_adaptor():
+    @request_reply_service
+    def my_service(path: str, ts: TS[int]) -> TS[int]: ...
+
+    @adaptor_impl(interfaces=my_service)
+    def my_service_impl(path: str, ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        tsd_queue_sink(path, map_(lambda x: x + 1, ts))
+        return tsd_queue_source(path)
+
+    @graph
+    def main() -> TS[int]:
+        register_service("default_path", my_service_impl)
+        result = my_service("default_path", count(schedule(timedelta(milliseconds=10), max_ticks=1)))
+        stop_on_value(result, 2)
+        return result
+
+    result = evaluate_graph(main, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1)))
+
+    assert [x[1] for x in result] == [2]
+
+
+def test_request_reply_service_via_adaptor_returns_next_cycle():
+    @request_reply_service
+    def my_service(path: str, ts: TS[int]) -> TS[int]: ...
+
+    @adaptor_impl(interfaces=my_service)
+    def my_service_impl(path: str, ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return map_(lambda x: x + 1, ts)
+
+    @graph
+    def main(x: TS[int]) -> TS[int]:
+        register_service("default_path", my_service_impl)
+        return my_service("default_path", x)
+
+    assert eval_node(main, [1]) == [None, 2]
+
+
+def test_reference_service_via_adaptor():
+    def send_values(sender: Callable[[int], None], values: tuple[int, ...]):
+        time.sleep(0.01)
+        for value in values:
+            sender(value)
+            time.sleep(0.01)
+
+    @reference_service
+    def my_service(path: str) -> TS[int]: ...
+
+    @adaptor_impl(interfaces=my_service)
+    def my_service_impl(path: str, values: tuple[int, ...]) -> TS[int]:
+        @push_queue(TS[int])
+        def queue(sender: Callable[[int], None], values: tuple[int, ...]) -> TS[int]:
+            threading.Thread(target=send_values, args=(sender, values), daemon=True).start()
+
+        return queue(values)
+
+    @graph
+    def main() -> TS[int]:
+        register_service("default_path", my_service_impl, values=(1, 2, 3))
+        result = my_service("default_path")
+        stop_on_value(result, 3)
+        return result
+
+    result = evaluate_graph(main, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1)))
+
+    assert [x[1] for x in result] == [1, 2, 3]
+
+
+def test_subscription_service_via_adaptor():
+    @subscription_service
+    def my_service(path: str, ts: TS[int]) -> TS[int]: ...
+
+    @adaptor_impl(interfaces=my_service)
+    def my_service_impl(path: str, ts: TSS[int]) -> TSD[int, TS[int]]:
+        tss_queue_sink(path, ts)
+        return tsd_queue_source(path)
+
+    @graph
+    def main() -> TSD[int, TS[int]]:
+        register_service("default_path", my_service_impl)
+        requests = collect[TSS](count(schedule(timedelta(milliseconds=10), max_ticks=3)))
+        result = map_(lambda key: my_service("default_path", key), __keys__=requests)
+        stop_on_tsd_value(result, 3, 3)
+        return result
+
+    result = evaluate_graph(main, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1)))
+
+    assert [x[1] for x in result if x[1]] == [{1: 1}, {2: 2}, {3: 3}]
+
+
 def test_service_impl_via_adaptor():
     @service_adaptor
     def my_adaptor(path: str, ts: TS[int]) -> TS[int]: ...
@@ -343,9 +435,11 @@ def test_service_impl_via_adaptor():
         return map_(lambda x: x + 1, ts)
 
     @graph
-    def g() -> TS[int]:
+    def g(x: TS[int]) -> TS[int]:
         register_adaptor("test", my_adaptor_impl, service_impl=my_service_impl)
-        return my_adaptor("test", count(schedule(timedelta(milliseconds=10), max_ticks=10)))
+        return my_adaptor("test", x)
+
+    assert eval_node(g, [1]) == [None, 2]
 
 
 def test_write_adaptor_request():

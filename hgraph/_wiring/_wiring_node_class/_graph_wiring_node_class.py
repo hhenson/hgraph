@@ -341,10 +341,52 @@ class WiringGraphContext:
 
             impl(**kwargs)
 
+    @staticmethod
+    def _expand_service_binding_map(service, type_map):
+        relevant_keys = set(service.signature.type_vars) | set(service.signature.scalar_inputs)
+        binding_map = {k: v for k, v in dict(type_map or {}).items() if k in relevant_keys}
+        binding_map.update(service.signature.try_build_resolution_dict(type_map))
+        return frozendict(binding_map)
+
+    @staticmethod
+    def _user_service_path(service, path):
+        return service.path_from_full_path(path) if service.is_full_path(path) else path
+
+    def _wire_outside_stubs_for_service_build(self, service, impl, path, type_map, service_clients):
+        normalized_path = self._user_service_path(service, path)
+        wire_outputs = not getattr(impl, "wire_service_outputs_directly", False)
+        interfaces = getattr(impl, "interfaces", ())
+        if len(interfaces) > 1:
+            for interface in interfaces:
+                if isinstance(interface, PreResolvedWiringNodeWrapper):
+                    interface = interface.underlying_node
+
+                matching_type_maps = {
+                    self._expand_service_binding_map(client_service, client_type_map)
+                    for client_service, client_path, client_type_map in service_clients
+                    if client_service == interface
+                    and self._user_service_path(client_service, client_path) == normalized_path
+                } or {self._expand_service_binding_map(interface, type_map)}
+
+                for interface_type_map in matching_type_maps:
+                    interface_typed_path = interface.typed_full_path(normalized_path, interface_type_map)
+                    if interface_typed_path not in self._built_services:
+                        interface.wire_outside_stubs(
+                            normalized_path, __pre_resolved_types__=interface_type_map, wire_outputs=wire_outputs
+                        )
+        else:
+            service_type_map = self._expand_service_binding_map(service, type_map)
+            service_typed_path = service.typed_full_path(normalized_path, service_type_map)
+            if service_typed_path not in self._built_services:
+                service.wire_outside_stubs(
+                    normalized_path, __pre_resolved_types__=service_type_map, wire_outputs=wire_outputs
+                )
+
     def build_services(self):
         """
         Build the service implementations for the graph
         """
+
         service_clients = [(service, path, type_map) for service, path, type_map, _, _ in self._service_clients]
         service_full_paths = {}
         catch_all_services_processed = set()
@@ -362,12 +404,13 @@ class WiringGraphContext:
                 # Now build 'normal' services
                 services_to_build = dict()
                 for service, path, type_map in set(service_clients):
-                    typed_path = service.typed_full_path(path, type_map)
+                    normalized_type_map = self._expand_service_binding_map(service, type_map)
+                    typed_path = service.typed_full_path(path, normalized_type_map)
                     if typed_path in self._built_services:
                         service_full_paths[(service, path, type_map)] = typed_path
                         continue
 
-                    if item := self.find_service_impl(path, service, type_map, quiet=True):
+                    if item := self.find_service_impl(path, service, normalized_type_map, quiet=True):
                         interface, impl, kwargs = item
                     else:
                         clients = [
@@ -390,12 +433,13 @@ class WiringGraphContext:
                             f"expecting {service.signature.signature}"
                         )
 
-                    services_to_build[typed_path] = (service, path, impl, kwargs, type_map)
+                    services_to_build[typed_path] = (service, path, impl, kwargs, normalized_type_map)
                     service_full_paths[(service, path, type_map)] = typed_path
 
                 for typed_path in services_to_build:
                     if typed_path not in self._built_services:
                         service, path, impl, kwargs, type_map = services_to_build[typed_path]
+                        self._wire_outside_stubs_for_service_build(service, impl, path, type_map, service_clients)
                         self._build_service(
                             impl, path=path, __interface__=service, __pre_resolved_types__=type_map, **kwargs
                         )

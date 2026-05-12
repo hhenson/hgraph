@@ -746,19 +746,34 @@ def request_reply_service(
     return _node_decorator(WiringNodeType.REQ_REP_SVC, fn, resolvers=resolvers)
 
 
+@overload
+def service_impl(fn: GRAPH_SIGNATURE) -> GRAPH_SIGNATURE: ...
+
+@overload
 def service_impl(
+    *,
+    interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = ...,
+    resolvers: Mapping["TypeVar", Callable] = ...,
+    deprecated: bool | str = ...,
+) -> Callable[[GRAPH_SIGNATURE], GRAPH_SIGNATURE]: ...
+
+def service_impl(
+    fn: GRAPH_SIGNATURE = None,
     *,
     interfaces: Sequence[SERVICE_DEFINITION] | SERVICE_DEFINITION = None,
     resolvers: Mapping["TypeVar", Callable] = None,
     deprecated: bool | str = False,
 ):
     """
-    Wraps a service implementation. The service is defined to implement the declared interface.
+    Wrap a service implementation.
+
+    Bare ``@service_impl`` defines the reusable inner graph.
+    ``@service_impl(interfaces=...)`` binds that graph to one or more service interfaces.
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
     return _node_decorator(
-        WiringNodeType.SVC_IMPL, None, interfaces=interfaces, resolvers=resolvers, deprecated=deprecated
+        WiringNodeType.SVC_IMPL, fn, interfaces=interfaces, resolvers=resolvers, deprecated=deprecated
     )
 
 
@@ -1079,11 +1094,14 @@ def _node_decorator(
             kwargs["node_class"] = RequestReplyServiceNodeClass
             _assert_no_node_configs("Request Reply Services", kwargs)
         case WiringNodeType.SVC_IMPL:
-            from hgraph._wiring._wiring_node_class._service_impl_node_class import ServiceImplNodeClass
+            from hgraph._wiring._wiring_node_class._service_impl_node_class import (
+                RawServiceImplNodeClass,
+                ServiceImplNodeClass,
+            )
 
-            kwargs["node_class"] = ServiceImplNodeClass
+            kwargs["node_class"] = ServiceImplNodeClass if interfaces is not None else RawServiceImplNodeClass
             kwargs["interfaces"] = interfaces
-            kwargs["wrap_with_graph"] = True
+            kwargs["wrap_with_graph"] = interfaces is not None
             _assert_no_node_configs("Service Impl", kwargs)
         case WiringNodeType.ADAPTOR:
             from hgraph._wiring._wiring_node_class._adaptor_node_class import AdaptorNodeClass
