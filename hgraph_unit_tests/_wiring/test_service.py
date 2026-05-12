@@ -16,6 +16,9 @@ from hgraph import (
     map_,
     TSL,
     SIZE,
+    TSB,
+    TimeSeriesSchema,
+    combine,
     request_reply_service,
     contains_,
     NUMBER,
@@ -132,6 +135,31 @@ def test_request_reply_service2():
         return add_service(default_path, x, y)
 
     assert eval_node(main, [1], [2]) == [None, None, 3]
+
+
+def test_request_reply_service_tsb_reply_updates_child_field():
+    class Data(TimeSeriesSchema):
+        instrument: TS[str]
+
+    @request_reply_service
+    def load(path: str, symbol: TS[str]) -> TSB[Data]: ...
+
+    @graph
+    def load_one(symbol: TS[str]) -> TSB[Data]:
+        return combine[TSB[Data]](instrument=symbol)
+
+    @service_impl(interfaces=load)
+    def load_impl(symbol: TSD[int, TS[str]]) -> TSD[int, TSB[Data]]:
+        return map_(load_one, symbol)
+
+    @graph
+    def main(tick: TS[int]) -> TS[str]:
+        register_service("svc", load_impl)
+        return load("svc", sample(tick, "a")).instrument
+
+    result = eval_node(main, [1, 2, 3])
+    assert result is not None
+    assert result[-1] == "a"
 
 
 def test_recursive_request_reply_service():
