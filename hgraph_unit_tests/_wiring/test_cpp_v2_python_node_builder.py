@@ -11,7 +11,7 @@ if not is_feature_enabled("use_cpp"):
 
 import hgraph._hgraph as _hgraph
 
-from hgraph import GraphConfiguration, TS, compute_node, evaluate_graph, graph, sink_node
+from hgraph import EvaluationLifeCycleObserver, GraphConfiguration, TS, compute_node, evaluate_graph, graph, sink_node
 from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._runtime._evaluation_engine import EvaluationEngineApi
 from hgraph._runtime._node import Node, SCHEDULER
@@ -202,3 +202,66 @@ def test_v2_python_recordable_state_is_available():
         evaluate_graph(g, GraphConfiguration(end_time=timedelta(milliseconds=1)))
 
     assert seen == [15, 15]
+
+
+def test_v2_graph_executor_registers_constructor_life_cycle_observers():
+    graph_events = []
+    node_events = []
+    sink_values = []
+
+    class Recorder(EvaluationLifeCycleObserver):
+
+        def on_before_start_graph(self, graph):
+            graph_events.append(("before_start_graph", graph.graph_id))
+
+        def on_after_graph_evaluation(self, graph):
+            graph_events.append(("after_graph_evaluation", graph.graph_id))
+
+        def on_after_stop_graph(self, graph):
+            graph_events.append(("after_stop_graph", graph.graph_id))
+
+        def on_before_start_node(self, node):
+            node_events.append(("before_start_node", node.node_ndx, node.signature.name))
+
+        def on_after_node_evaluation(self, node):
+            node_events.append(("after_node_evaluation", node.node_ndx, node.signature.name))
+
+    @sink_node
+    def py_sink(ts: TS[int]):
+        sink_values.append(ts.value)
+
+    @graph
+    def g():
+        py_sink(v2_const(1))
+
+    with use_v2_python_node_builder(), WiringNodeInstanceContext():
+        graph_builder = wire_graph(g)
+
+    if not isinstance(graph_builder, _hgraph.GraphBuilder):
+        return
+
+    with use_v2_python_node_builder():
+        evaluate_graph(
+            g,
+            GraphConfiguration(
+                end_time=timedelta(milliseconds=1),
+                life_cycle_observers=(Recorder(),),
+            ),
+        )
+
+    assert sink_values == [1]
+    assert graph_events == [
+        ("before_start_graph", ()),
+        ("after_graph_evaluation", ()),
+        ("after_stop_graph", ()),
+    ]
+    assert [(event_name, node_ndx) for event_name, node_ndx, _ in node_events] == [
+        ("before_start_node", 0),
+        ("before_start_node", 1),
+        ("after_node_evaluation", 0),
+        ("after_node_evaluation", 1),
+    ]
+    assert node_events[0][2].startswith("const")
+    assert node_events[1][2] == "py_sink"
+    assert node_events[2][2].startswith("const")
+    assert node_events[3][2] == "py_sink"

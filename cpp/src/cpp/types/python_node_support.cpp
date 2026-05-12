@@ -2443,6 +2443,11 @@ namespace hgraph
                                          std::move(recordable_state_handle), std::move(scheduler_handle)});
     }
 
+    std::unique_ptr<EvaluationLifeCycleObserver> make_owned_python_life_cycle_observer(nb::object observer) {
+        if (!observer.is_valid() || observer.is_none()) { return {}; }
+        return std::make_unique<PythonLifeCycleObserverBridge>(std::move(observer));
+    }
+
     nb::dict make_python_node_kwargs(nb::handle signature, nb::handle scalars, nb::handle node_handle) {
         nb::gil_scoped_acquire guard;
         nb::dict               values;

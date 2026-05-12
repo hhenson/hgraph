@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -3119,8 +3120,18 @@ namespace
         V2GraphExecutor(GraphBuilder graph_builder, nb::object run_mode, std::vector<nb::object> observers, bool cleanup_on_error)
             : m_graph_builder(std::move(graph_builder)), m_run_mode(normalize_evaluation_mode(run_mode)),
               m_cleanup_on_error(cleanup_on_error) {
-            static_cast<void>(observers);
+            m_life_cycle_observers.reserve(observers.size());
+            for (auto &observer : observers) {
+                if (auto bridge = hgraph::make_owned_python_life_cycle_observer(std::move(observer))) {
+                    m_life_cycle_observers.push_back(std::move(bridge));
+                }
+            }
         }
+
+        V2GraphExecutor(const V2GraphExecutor &) = delete;
+        V2GraphExecutor &operator=(const V2GraphExecutor &) = delete;
+        V2GraphExecutor(V2GraphExecutor &&) noexcept = default;
+        V2GraphExecutor &operator=(V2GraphExecutor &&) noexcept = default;
 
         [[nodiscard]] EvaluationMode run_mode() const noexcept { return m_run_mode; }
 
@@ -3130,13 +3141,16 @@ namespace
 
         void run(engine_time_t start_time, engine_time_t end_time) {
             try {
-                auto engine = EvaluationEngineBuilder{}
-                                  .graph_builder(m_graph_builder)
-                                  .evaluation_mode(m_run_mode)
-                                  .start_time(start_time)
-                                  .end_time(end_time)
-                                  .cleanup_on_error(m_cleanup_on_error)
-                                  .build();
+                auto engine_builder = EvaluationEngineBuilder{}
+                                          .graph_builder(m_graph_builder)
+                                          .evaluation_mode(m_run_mode)
+                                          .start_time(start_time)
+                                          .end_time(end_time)
+                                          .cleanup_on_error(m_cleanup_on_error);
+                for (const auto &observer : m_life_cycle_observers) {
+                    engine_builder.add_life_cycle_observer(observer.get());
+                }
+                auto engine = engine_builder.build();
                 engine.run();
             } catch (const NodeException &e) {
                 try {
@@ -3160,6 +3174,7 @@ namespace
         GraphBuilder   m_graph_builder;
         EvaluationMode m_run_mode{EvaluationMode::SIMULATION};
         bool           m_cleanup_on_error{true};
+        std::vector<std::unique_ptr<EvaluationLifeCycleObserver>> m_life_cycle_observers;
     };
 
 }  // namespace
