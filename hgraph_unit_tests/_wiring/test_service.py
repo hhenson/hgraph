@@ -39,6 +39,12 @@ from hgraph import (
     set_service_output,
     get_service_inputs,
     MIN_ST,
+    MIN_TD,
+    convert,
+    dedup,
+    rekey,
+    switch_,
+    compute_node,
 )
 from hgraph import pass_through_node
 from hgraph.test import eval_node
@@ -182,6 +188,62 @@ def test_recursive_request_reply_service():
         return add_one_service("default_path", x)
 
     assert eval_node(main, [3])[-1] == 4
+
+
+def test_recursive_request_reply_service_mesh_invalid_tsb_reply_quiesces():
+    class Data(TimeSeriesSchema):
+        instrument: TS[str]
+        error: TS[str]
+
+    @request_reply_service
+    def load(path: str, symbol: TS[str]) -> TSB[Data]: ...
+
+    @compute_node
+    def collect_components(datas: TSD[str, TSB[Data]], keys: TS[tuple[str, ...]]) -> TSB[Data]:
+        found = []
+        for key in keys.value:
+            instrument = datas.get(key).instrument.value
+            if instrument is not None:
+                found.append(instrument)
+        if len(found) != len(keys.value):
+            return {"error": f"waiting {len(keys.value) - len(found)}"}
+        return {"instrument": ",".join(found), "error": ""}
+
+    @graph
+    def create_basket(symbol: TS[str]) -> TSB[Data]:
+        component_keys = const(("a", "b"), TS[tuple[str, ...]])
+        component_key_set = convert[TSS[str]](component_keys)
+        component_datas = map_(lambda symbol: load("svc", symbol), __keys__=component_key_set, __key_arg__="symbol")
+        return collect_components(component_datas, component_keys)
+
+    @graph
+    def create_component(symbol: TS[str]) -> TSB[Data]:
+        return combine[TSB[Data]](instrument=symbol, error="")
+
+    @graph
+    def create_item(symbol: TS[str], request: TS[str]) -> TSB[Data]:
+        return switch_(
+            symbol == "basket",
+            {True: create_basket, False: create_component},
+            symbol=symbol,
+        )
+
+    @service_impl(interfaces=load)
+    def load_impl(symbol: TSD[int, TS[str]]) -> TSD[int, TSB[Data]]:
+        symbols_by_request_key = map_(lambda value: value, symbol)
+        requests_by_symbol = dedup(rekey(symbol, symbols_by_request_key))
+        mesh = mesh_(create_item, requests_by_symbol, __key_arg__="symbol", __name__="items")
+        return rekey(mesh, flip(symbols_by_request_key, unique=False))
+
+    @graph
+    def main(symbol: TS[str]) -> TSB[Data]:
+        register_service("svc", load_impl)
+        return load("svc", symbol)
+
+    assert eval_node(main, ["basket"], __elide__=True, __end_time__=MIN_ST + 10 * MIN_TD) == [
+        {"error": "waiting 2"},
+        {"instrument": "a,b", "error": ""},
+    ]
 
 
 def test_two_services():
