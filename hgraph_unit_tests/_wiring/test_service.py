@@ -16,6 +16,10 @@ from hgraph import (
     map_,
     TSL,
     SIZE,
+    TSB,
+    TimeSeriesSchema,
+    WiringGraphContext,
+    combine,
     request_reply_service,
     contains_,
     NUMBER,
@@ -24,9 +28,13 @@ from hgraph import (
     SCALAR,
     SCALAR_1,
     TIME_SERIES_TYPE,
+    DEFAULT,
     flip,
     format_,
     const,
+    collect,
+    default,
+    feedback,
     null_sink,
     merge,
     sample,
@@ -36,6 +44,12 @@ from hgraph import (
     set_service_output,
     get_service_inputs,
     MIN_ST,
+    MIN_TD,
+    convert,
+    dedup,
+    rekey,
+    switch_,
+    compute_node,
 )
 from hgraph import pass_through_node
 from hgraph.test import eval_node
@@ -134,6 +148,31 @@ def test_request_reply_service2():
     assert eval_node(main, [1], [2]) == [None, None, 3]
 
 
+def test_request_reply_service_tsb_reply_updates_child_field():
+    class Data(TimeSeriesSchema):
+        instrument: TS[str]
+
+    @request_reply_service
+    def load(path: str, symbol: TS[str]) -> TSB[Data]: ...
+
+    @graph
+    def load_one(symbol: TS[str]) -> TSB[Data]:
+        return combine[TSB[Data]](instrument=symbol)
+
+    @service_impl(interfaces=load)
+    def load_impl(symbol: TSD[int, TS[str]]) -> TSD[int, TSB[Data]]:
+        return map_(load_one, symbol)
+
+    @graph
+    def main(tick: TS[int]) -> TS[str]:
+        register_service("svc", load_impl)
+        return load("svc", sample(tick, "a")).instrument
+
+    result = eval_node(main, [1, 2, 3])
+    assert result is not None
+    assert result[-1] == "a"
+
+
 def test_recursive_request_reply_service():
     @request_reply_service
     def add_one_service(path: str, ts: TS[int]) -> TS[int]:
@@ -154,6 +193,160 @@ def test_recursive_request_reply_service():
         return add_one_service("default_path", x)
 
     assert eval_node(main, [3])[-1] == 4
+
+
+def test_recursive_request_reply_service_mesh_invalid_tsb_reply_quiesces():
+    class Data(TimeSeriesSchema):
+        instrument: TS[str]
+        error: TS[str]
+
+    @request_reply_service
+    def load(path: str, symbol: TS[str]) -> TSB[Data]: ...
+
+    @compute_node
+    def collect_components(datas: TSD[str, TSB[Data]], keys: TS[tuple[str, ...]]) -> TSB[Data]:
+        found = []
+        for key in keys.value:
+            instrument = datas.get(key).instrument.value
+            if instrument is not None:
+                found.append(instrument)
+        if len(found) != len(keys.value):
+            return {"error": f"waiting {len(keys.value) - len(found)}"}
+        return {"instrument": ",".join(found), "error": ""}
+
+    @graph
+    def create_basket(symbol: TS[str]) -> TSB[Data]:
+        component_keys = const(("a", "b"), TS[tuple[str, ...]])
+        component_key_set = convert[TSS[str]](component_keys)
+        component_datas = map_(lambda symbol: load("svc", symbol), __keys__=component_key_set, __key_arg__="symbol")
+        return collect_components(component_datas, component_keys)
+
+    @graph
+    def create_component(symbol: TS[str]) -> TSB[Data]:
+        return combine[TSB[Data]](instrument=symbol, error="")
+
+    @graph
+    def create_item(symbol: TS[str], request: TS[str]) -> TSB[Data]:
+        return switch_(
+            symbol == "basket",
+            {True: create_basket, False: create_component},
+            symbol=symbol,
+        )
+
+    @service_impl(interfaces=load)
+    def load_impl(symbol: TSD[int, TS[str]]) -> TSD[int, TSB[Data]]:
+        symbols_by_request_key = map_(lambda value: value, symbol)
+        requests_by_symbol = dedup(rekey(symbol, symbols_by_request_key))
+        mesh = mesh_(create_item, requests_by_symbol, __key_arg__="symbol", __name__="items")
+        return rekey(mesh, flip(symbols_by_request_key, unique=False))
+
+    @graph
+    def main(symbol: TS[str]) -> TSB[Data]:
+        register_service("svc", load_impl)
+        return load("svc", symbol)
+
+    assert eval_node(main, ["basket"], __elide__=True, __end_time__=MIN_ST + 10 * MIN_TD) == [
+        {"error": "waiting 2"},
+        {"instrument": "a,b", "error": ""},
+    ]
+
+
+def test_subscription_recursive_service_mesh_partial_tsb_quiesces():
+    class Data(TimeSeriesSchema):
+        instrument: TS[str]
+        series: TS[str]
+        error: TS[str]
+
+    @request_reply_service
+    def load(path: str, symbol: TS[str]) -> TSB[Data]: ...
+
+    @subscription_service
+    def by_name(path: str, key: TS[str]) -> TSB[Data]: ...
+
+    @compute_node
+    def collect_components(datas: TSD[str, TSB[Data]], keys: TS[tuple[str, ...]]) -> TSB[Data]:
+        found = []
+        for key in keys.value:
+            instrument = datas.get(key).instrument.value
+            if instrument is not None:
+                found.append(instrument)
+        if len(found) != len(keys.value):
+            return {"error": f"waiting {len(keys.value) - len(found)}"}
+        return {"instrument": ",".join(found), "error": ""}
+
+    @graph
+    def create_basket(symbol: TS[str]) -> TSB[Data]:
+        component_keys = const(("a21", "b21"), TS[tuple[str, ...]])
+        component_key_set = convert[TSS[str]](component_keys)
+        component_datas = map_(lambda symbol: load("svc", symbol), __keys__=component_key_set, __key_arg__="symbol")
+        return collect_components(component_datas, component_keys)
+
+    @graph
+    def create_component(symbol: TS[str]) -> TSB[Data]:
+        return combine[TSB[Data]](instrument=symbol, error="")
+
+    @compute_node
+    def derive_from_data(data: TSB[Data]) -> TSB[Data]:
+        if data.series.valid and data.series.value is not None:
+            return {"instrument": data.series.value + "!", "error": data.error.value or ""}
+        if data.instrument.value is not None:
+            return {"series": data.instrument.value, "error": data.error.value or ""}
+        return {"error": data.error.value or ""}
+
+    @compute_node
+    def base_name(symbol: TS[str]) -> TS[str]:
+        return symbol.value[:-1]
+
+    @graph
+    def create_derived(symbol: TS[str]) -> TSB[Data]:
+        return derive_from_data(load("svc", base_name(symbol)))
+
+    @graph
+    def create_item(symbol: TS[str], request: TS[str]) -> TSB[Data]:
+        return switch_(
+            symbol,
+            {
+                "basket": create_basket,
+                "a21": create_derived,
+                "b21": create_derived,
+                "a2": create_derived,
+                "b2": create_derived,
+                DEFAULT: create_component,
+            },
+            symbol=symbol,
+        )
+
+    @service_impl(interfaces=(load, by_name))
+    def load_impl(path: str):
+        symbol = load.wire_impl_inputs_stub(path).symbol
+        by_name_requests = by_name.wire_impl_inputs_stub(path).key
+
+        symbols_by_request_key = map_(lambda value: value, symbol)
+        requests_by_symbol = dedup(rekey(symbol, symbols_by_request_key))
+
+        missing_items = feedback(TSD[str, TS[str]])
+        all_requests = merge(requests_by_symbol, missing_items(), disjoint=True)
+        collected_requests = collect[TSD](all_requests)
+        mesh = mesh_(create_item, collected_requests, __key_arg__="symbol", __name__="items")
+
+        missing_keys = by_name_requests - default(mesh.key_set, const(frozenset(), TSS[str]))
+        by_name_adds = map_(lambda key: key, __keys__=collect[TSS](missing_keys))
+        missing_items(by_name_adds)
+
+        by_name.wire_impl_out_stub(path, map_(lambda value: value, mesh, __keys__=by_name_requests & mesh.key_set))
+        load.wire_impl_out_stub(path, rekey(mesh, flip(symbols_by_request_key, unique=False)))
+
+    @graph
+    def main(symbol: TS[str]) -> TSB[Data]:
+        register_service("svc", load_impl)
+        out = by_name("svc", symbol)
+        WiringGraphContext.instance().build_services()
+        return out
+
+    assert eval_node(main, ["basket"], __elide__=True, __end_time__=MIN_ST + 15 * MIN_TD) == [
+        {"error": "waiting 2"},
+        {"instrument": "a!,b!", "error": ""},
+    ]
 
 
 def test_two_services():

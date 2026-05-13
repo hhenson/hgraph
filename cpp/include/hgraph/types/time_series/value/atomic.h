@@ -177,7 +177,8 @@ namespace hgraph
 
             [[nodiscard]] nb::object to_python(const void *data, const value::TypeMeta *schema) const override {
                 static_cast<void>(schema);
-                return state(data)->value;
+                const auto &obj = state(data)->value;
+                return obj.is_valid() ? obj : nb::none();
             }
 
             void from_python(void *dst, const nb::object &src, const value::TypeMeta *schema) const override {

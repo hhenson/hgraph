@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -16,6 +17,7 @@ namespace hgraph
     struct TSInput;
     struct TSInputView;
     struct TSOutput;
+    struct EvaluationLifeCycleObserver;
 }
 
 namespace hgraph
@@ -63,6 +65,7 @@ namespace hgraph
     [[nodiscard]] bool last_value_node_remove_tsd_item(Node &node, const View &key);
     [[nodiscard]] bool last_value_node_apply_tss_item(Node &node, const View &item, bool remove);
     [[nodiscard]] bool last_value_node_apply_value(Node &node, nb::handle value);
+    [[nodiscard]] std::unique_ptr<EvaluationLifeCycleObserver> make_owned_python_life_cycle_observer(nb::object observer);
 
     void register_python_runtime_bindings(nb::module_ &m);
 }  // namespace hgraph
