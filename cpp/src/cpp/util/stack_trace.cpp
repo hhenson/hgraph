@@ -1,4 +1,5 @@
 #include <hgraph/util/stack_trace.h>
+#include <cstdlib>
 #include <sstream>
 #include <iostream>
 
@@ -6,6 +7,14 @@
 #include <backward.hpp>
 
 namespace hgraph {
+    namespace {
+        [[nodiscard]] bool crash_handlers_enabled() noexcept
+        {
+            const char *value = std::getenv("HGRAPH_INSTALL_CRASH_HANDLERS");
+            return value == nullptr || value[0] != '0' || value[1] != '\0';
+        }
+    }
+
     std::string get_stack_trace() {
         backward::StackTrace st;
         st.load_here(32); // Capture up to 32 frames
@@ -31,6 +40,7 @@ namespace hgraph {
     }
 
     void install_crash_handlers() {
+        if (!crash_handlers_enabled()) { return; }
         static backward::SignalHandling sh;
     }
 } // namespace hgraph

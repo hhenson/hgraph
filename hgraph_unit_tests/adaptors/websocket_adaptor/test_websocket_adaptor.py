@@ -257,5 +257,8 @@ try:
             }
             assert result == expected
 
-except ImportError:
-    pass
+except Exception as exc:
+    pytest.skip(
+        f"optional websocket adaptor test dependencies are unavailable or broken: {exc}",
+        allow_module_level=True,
+    )

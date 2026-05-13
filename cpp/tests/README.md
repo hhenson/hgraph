@@ -136,7 +136,7 @@ The tests can optionally be built as part of the main hgraph build:
 
 ```bash
 cd /Users/hhenson/CLionProjects/hgraph/cpp
-cmake -B build -DHGRAPH_BUILD_TESTS=ON
+cmake -B build
 cmake --build build
 ```
 

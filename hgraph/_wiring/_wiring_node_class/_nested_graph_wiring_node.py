@@ -30,6 +30,12 @@ class NestedGraphWiringNodeClass(BaseWiringNodeClass):
         self._nested_graph = nested_graph
         self._resolved_signature_inner = resolved_signature_inner
 
+    def _identity_eq_key(self) -> tuple:
+        return (self._nested_graph, self._resolved_signature_inner)
+
+    def _identity_hash_key(self) -> tuple:
+        return (id(self._nested_graph), self._resolved_signature_inner)
+
     def create_node_builder_instance(
         self, resolved_wiring_signature, node_signature: "NodeSignature", scalars: Mapping[str, Any]
     ) -> ("NodeBuilder", tuple):

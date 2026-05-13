@@ -11,8 +11,8 @@ from hgraph import (
     graph,
     TS,
     convert,
-    sink_node,
     combine,
+    sink_node,
     TIME_SERIES_TYPE,
     EvaluationMode,
     compute_node,
@@ -156,6 +156,38 @@ def port() -> int:
     return randrange(3300, 32000)
 
 
+@dataclass(frozen=True)
+class _HttpTestResponse:
+    status_code: int
+    body: bytes
+
+    @property
+    def text(self) -> str:
+        return self.body.decode()
+
+
+def _request_with_retry(method: str, url: str, *, timeout: float = 0.2, total_timeout: float = 2.5, delay: float = 0.05):
+    import socket
+    import time
+    import urllib.error
+    import urllib.request
+
+    last_error = None
+    deadline = time.monotonic() + total_timeout
+    while True:
+        try:
+            request = urllib.request.Request(url, method=method)
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return _HttpTestResponse(status_code=response.status, body=response.read())
+        except urllib.error.HTTPError as exc:
+            return _HttpTestResponse(status_code=exc.code, body=exc.read())
+        except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+            last_error = exc
+            if time.monotonic() + delay >= deadline:
+                raise
+            time.sleep(delay)
+
+
 @pytest.mark.serial
 def test_single_rest_request_graph(port):
     @rest_handler(url="/test_rest", data_type=MyCS)
@@ -179,22 +211,18 @@ def test_single_rest_request_graph(port):
     response1 = None
 
     def make_query():
-        import requests
         import time
 
         nonlocal response1
 
-        time.sleep(0.1)
-
-        response1 = requests.request("DELETE", f"http://localhost:{port}/test_rest/abc", timeout=1)
+        response1 = _request_with_retry("DELETE", f"http://localhost:{port}/test_rest/abc")
         time.sleep(0.05)
         try:
-            requests.request("GET", f"http://localhost:{port}/stop_rest", timeout=1)
-        except requests.exceptions.ReadTimeout:
+            _request_with_retry("GET", f"http://localhost:{port}/stop_rest", total_timeout=0.5)
+        except Exception:
             pass  # Server may shutdown before responding
 
-    evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME,
-                                         end_time=utc_now() + timedelta(seconds=3)))
+    evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=utc_now() + timedelta(seconds=3)))
 
     assert response1 is not None
     assert response1.status_code == 404
@@ -239,25 +267,21 @@ def test_multiple_request_graph(port):
     response2 = None
 
     def make_query():
-        import requests
         import time
 
         nonlocal response1
         nonlocal response2
 
-        time.sleep(0.1)
-
-        response1 = requests.request("DELETE", f"http://localhost:{port}/test_multi/1", timeout=1)
+        response1 = _request_with_retry("DELETE", f"http://localhost:{port}/test_multi/1")
         time.sleep(0.05)
-        response2 = requests.request("DELETE", f"http://localhost:{port}/test_multi/1", timeout=1)
+        response2 = _request_with_retry("DELETE", f"http://localhost:{port}/test_multi/1")
         time.sleep(0.05)
         try:
-            requests.request("GET", f"http://localhost:{port}/stop_multi", timeout=1)
-        except requests.exceptions.ReadTimeout:
+            _request_with_retry("GET", f"http://localhost:{port}/stop_multi", total_timeout=0.5)
+        except Exception:
             pass  # Server may shutdown before responding
 
-    evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME,
-                                         end_time=utc_now() + timedelta(seconds=3)))
+    evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=utc_now() + timedelta(seconds=3)))
 
     assert response1 is not None
     assert response1.status_code == 404

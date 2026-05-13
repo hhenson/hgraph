@@ -1,0 +1,5223 @@
+#include <hgraph/hgraph_base.h>
+#include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_input_view.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/value/type_meta_bindings.h>
+#include <hgraph/util/scope.h>
+#include <hgraph/util/stack_trace.h>
+#include <hgraph/util/tagged_ptr.h>
+
+#include <algorithm>
+#include <memory>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string_view>
+#include <type_traits>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+namespace hgraph
+{
+    namespace
+    {
+        using TSPath = std::vector<size_t>;
+
+        [[nodiscard]] const char *safe_type_name(const value::TypeMeta *schema) noexcept {
+            return schema != nullptr && schema->name != nullptr ? schema->name : "?";
+        }
+
+        [[nodiscard]] std::string schema_debug_name(const TSMeta *schema) {
+            if (schema == nullptr) { return "<null>"; }
+
+            switch (schema->kind) {
+                case TSKind::TSValue: return fmt::format("TS[{}]", safe_type_name(schema->value_type));
+                case TSKind::TSS:
+                    return fmt::format("TSS[{}]",
+                                       schema->value_type != nullptr ? safe_type_name(schema->value_type->element_type) : "?");
+                case TSKind::TSD:
+                    return fmt::format("TSD[{}, {}]", safe_type_name(schema->key_type()),
+                                       schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                case TSKind::TSL:
+                    return fmt::format("TSL[{}]", schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                case TSKind::TSW:
+                    return fmt::format("TSW[{}]", schema->value_type != nullptr && schema->value_type->field_count > 1 &&
+                                                          schema->value_type->fields != nullptr &&
+                                                          schema->value_type->fields[1].type != nullptr &&
+                                                          schema->value_type->fields[1].type->element_type != nullptr
+                                                      ? safe_type_name(schema->value_type->fields[1].type->element_type)
+                                                      : "?");
+                case TSKind::TSB:
+                    return fmt::format("TSB[{}]", schema->data.tsb.bundle_name != nullptr ? schema->data.tsb.bundle_name : "?");
+                case TSKind::REF:
+                    return fmt::format("REF[{}]", schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                case TSKind::SIGNAL: return "SIGNAL";
+            }
+
+            return "<?>";
+        }
+
+        [[nodiscard]] nb::object bundle_python_class(const TSMeta *schema) {
+            if (schema == nullptr || schema->kind != TSKind::TSB || schema->value_type == nullptr) { return nb::none(); }
+            return value::get_compound_scalar_class(schema->value_type);
+        }
+
+        [[nodiscard]] bool callable_python_type(const nb::object &type) noexcept {
+            return type.is_valid() && !type.is_none() && PyCallable_Check(type.ptr());
+        }
+
+        [[nodiscard]] const TSMeta *ts_bool_schema() {
+            static const TSMeta *schema = TSTypeRegistry::instance().ts(value::scalar_type_meta<bool>());
+            return schema;
+        }
+
+        [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSBState &state) noexcept { return &state; }
+        [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
+        [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSDState &state) noexcept { return &state; }
+        [[nodiscard]] BaseState               *notification_state_of(const LinkedTSContext &context) noexcept {
+            return context.notification_state != nullptr ? context.notification_state : context.ts_state;
+        }
+
+        [[nodiscard]] TSOutputView output_view_from_context(const LinkedTSContext &context, engine_time_t evaluation_time) {
+            TSViewContext view_context{TSContext{
+                context.schema,
+                context.value_dispatch,
+                context.ts_dispatch,
+                context.value_data,
+                context.ts_state,
+                context.owning_output,
+                context.output_view_ops,
+                context.notification_state,
+                context.pending_dict_child,
+            }};
+            return TSOutputView{
+                view_context,
+                TSViewContext::none(),
+                evaluation_time,
+                context.owning_output,
+                context.output_view_ops != nullptr ? context.output_view_ops : &detail::default_output_view_ops(),
+            };
+        }
+
+        [[nodiscard]] TSOutputView output_view_from_context(const TSViewContext &context, engine_time_t evaluation_time) {
+            return TSOutputView{
+                context,
+                TSViewContext::none(),
+                evaluation_time,
+                context.owning_output,
+                context.output_view_ops != nullptr ? context.output_view_ops : &detail::default_output_view_ops(),
+            };
+        }
+
+        [[nodiscard]] TSOutputView pending_dict_parent_output_view(const PendingDictChildContext &context,
+                                                                   engine_time_t                  evaluation_time) {
+            TSViewContext view_context{TSContext{
+                context.parent_schema,
+                context.parent_value_dispatch,
+                context.parent_ts_dispatch,
+                context.parent_value_data,
+                context.parent_ts_state,
+                context.parent_owning_output,
+                context.parent_output_view_ops,
+                context.parent_notification_state != nullptr ? context.parent_notification_state : context.parent_ts_state,
+            }};
+            return TSOutputView{
+                view_context,
+                TSViewContext::none(),
+                evaluation_time,
+                context.parent_owning_output,
+                context.parent_output_view_ops != nullptr ? context.parent_output_view_ops : &detail::default_output_view_ops(),
+            };
+        }
+
+        [[nodiscard]] nb::object removed_type() {
+            static nb::object type = nb::module_::import_("hgraph").attr("Removed");
+            return nb::borrow(type);
+        }
+
+        [[nodiscard]] nb::object remove_sentinel() {
+            static nb::object value = nb::module_::import_("hgraph").attr("REMOVE");
+            return nb::borrow(value);
+        }
+
+        [[nodiscard]] nb::object remove_if_exists_sentinel() {
+            static nb::object value = nb::module_::import_("hgraph").attr("REMOVE_IF_EXISTS");
+            return nb::borrow(value);
+        }
+
+        [[nodiscard]] nb::object set_delta_builder() {
+            static nb::object fn = nb::module_::import_("hgraph").attr("set_delta");
+            return nb::borrow(fn);
+        }
+
+        [[nodiscard]] Value ts_nested_value_from_python(const value::TypeMeta &schema, const nb::handle &value) {
+            Value nested_value(schema, MutationTracking::Plain);
+            nested_value.reset();
+            nested_value.from_python(nb::borrow<nb::object>(value));
+            return nested_value;
+        }
+
+        [[nodiscard]] Value ts_nested_clone(const View &value) { return value.clone(MutationTracking::Plain); }
+
+        [[nodiscard]] bool tsd_key_is_live(const TSOutputView &view, const View &key) {
+            const MapView map_view = view.value().as_map();
+            if (key.schema() != map_view.key_schema()) { return false; }
+
+            const size_t slot = map_view.find_slot(key);
+            if (slot == static_cast<size_t>(-1)) { return false; }
+
+            const MapDeltaView delta = map_view.delta();
+            return slot < delta.slot_capacity() && delta.slot_occupied(slot) && !delta.slot_removed(slot);
+        }
+
+        [[nodiscard]] bool context_valid(const TSViewContext &context) noexcept {
+            if (context.ts_state == nullptr) { return context.value().has_value(); }
+            const auto *dispatch = context.resolved().ts_dispatch;
+            return dispatch != nullptr ? dispatch->valid(context) : false;
+        }
+
+        [[nodiscard]] const TSDState *native_tsd_state(const TSViewContext &context) noexcept {
+            const TSViewContext resolved = context.resolved();
+            const TSMeta       *schema   = context.schema != nullptr ? context.schema : resolved.schema;
+            BaseState          *state    = resolved.ts_state != nullptr ? resolved.ts_state : context.ts_state;
+            if (schema == nullptr || schema->kind != TSKind::TSD || state == nullptr ||
+                state->storage_kind != TSStorageKind::Native) {
+                return nullptr;
+            }
+            return static_cast<const TSDState *>(state);
+        }
+
+        [[nodiscard]] bool removed_dict_child_was_valid(const TSViewContext &context, size_t slot) noexcept {
+            const TSDState *state = native_tsd_state(context);
+            if (state == nullptr) { return true; }
+            if (state->removed_valid_children.contains(slot)) { return true; }
+            if (slot >= state->child_states.size() || state->child_states[slot] == nullptr) { return true; }
+            if (context.notification_state == nullptr || context.notification_state == state) { return false; }
+            // Slot ids are local to a value map. Across linked/notified states,
+            // the local input state may not carry the source child's history.
+            return true;
+        }
+
+        void record_tsd_removed_child(const TSOutputView &view, size_t slot, const View &key) {
+            if (slot == static_cast<size_t>(-1)) { return; }
+            const TSViewContext resolved = view.context_ref().resolved();
+            auto               *state    = resolved.ts_state != nullptr && resolved.ts_state->storage_kind == TSStorageKind::Native
+                                               ? static_cast<TSDState *>(resolved.ts_state)
+                                               : nullptr;
+            if (state == nullptr) { return; }
+
+            const bool added_this_tick =
+                state->added_valid_children_modified_time == view.evaluation_time() && state->added_valid_children.contains(slot);
+            if (!added_this_tick) { state->record_removed_child_key(slot, key, view.evaluation_time()); }
+        }
+
+        [[nodiscard]] bool dict_key_removed_this_tick(const TSOutputView &view, const View &key) {
+            if (!key.has_value()) { return false; }
+
+            const View value = view.value();
+            if (value.has_value() && value.schema() != nullptr && value.schema()->kind == value::TypeKind::Map) {
+                const auto   map  = value.as_map();
+                const size_t slot = map.find_slot(key);
+                if (slot != static_cast<size_t>(-1)) {
+                    const auto delta = map.delta();
+                    if (slot < delta.slot_capacity() && delta.slot_removed(slot)) { return true; }
+                }
+            }
+
+            const TSDState *state = native_tsd_state(view.context_ref());
+            if (state == nullptr) { state = native_tsd_state(view.context_ref().resolved()); }
+            if (state == nullptr || state->removed_valid_children_modified_time != view.evaluation_time()) { return false; }
+
+            for (const auto &[slot, keys] : state->removed_valid_child_keys) {
+                static_cast<void>(slot);
+                if (std::any_of(keys.begin(), keys.end(), [&](const Value &removed_key) {
+                        return removed_key.view().has_value() && removed_key.view() == key;
+                    })) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        [[nodiscard]] bool context_modified(const TSViewContext &context, engine_time_t evaluation_time) noexcept {
+            if (evaluation_time == MIN_DT) { return false; }
+
+            const TSViewContext resolved = context.resolved();
+            const auto         *dispatch = resolved.ts_dispatch;
+            const engine_time_t last_modified =
+                dispatch != nullptr ? dispatch->last_modified_time(resolved)
+                                    : (resolved.ts_state != nullptr ? resolved.ts_state->last_modified_time : MIN_DT);
+            return last_modified == evaluation_time;
+        }
+
+        [[nodiscard]] TSViewContext detached_context(const TSViewContext &context) noexcept {
+            TSViewContext detached = context.resolved();
+            detached.ts_state      = nullptr;
+            return detached;
+        }
+
+        [[nodiscard]] TSViewContext dict_slot_context(const TSViewContext &context, size_t slot) {
+            const auto *collection =
+                context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
+            const auto *dispatch = collection != nullptr ? collection->as_keys() : nullptr;
+            if (dispatch == nullptr) { return TSViewContext::none(); }
+
+            TSViewContext child = dispatch->child_at(context, slot);
+            if (child.ts_state != nullptr || child.value().has_value()) { return child; }
+            return dispatch->child_at(detached_context(context), slot);
+        }
+
+        [[nodiscard]] TSOutputView ensure_tsd_child_view(const TSOutputView &view, const View &key) {
+            TSOutputView child_view = view.as_dict().at(key);
+            if (child_view.context_ref().ts_state != nullptr || child_view.context_ref().is_bound()) { return child_view; }
+
+            BaseState *state = view.context_ref().ts_state != nullptr ? view.context_ref().ts_state->resolved_state() : nullptr;
+            if (state == nullptr || state->storage_kind != TSStorageKind::Native) { return child_view; }
+
+            auto        *dict_state = static_cast<TSDState *>(state);
+            const size_t slot       = view.value().as_map().find_slot(key);
+            if (slot == static_cast<size_t>(-1)) { return child_view; }
+
+            dict_state->on_insert(slot);
+            child_view = view.as_dict().at(key);
+            return child_view;
+        }
+
+        [[nodiscard]] bool child_view_materialized(const TSOutputView &view) noexcept {
+            return view.context_ref().ts_state != nullptr || view.context_ref().is_bound() || view.value().has_value();
+        }
+
+        [[nodiscard]] TimeSeriesStateV *owning_state_variant(BaseState *state, TSOutput *root_output) noexcept {
+            if (state == nullptr) { return nullptr; }
+            if (root_output != nullptr) {
+                auto &root_state = root_output->root_state_variant();
+                if (std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, root_state) == state) {
+                    return &root_state;
+                }
+            }
+
+            TimeSeriesStateV *slot = nullptr;
+            hgraph::visit(
+                state->parent,
+                [&](auto *parent) {
+                    using T = std::remove_pointer_t<decltype(parent)>;
+                    if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState> ||
+                                  std::same_as<T, SignalState>) {
+                        if (parent != nullptr && state->index < parent->child_states.size() &&
+                            parent->child_states[state->index] != nullptr &&
+                            std::visit([](auto &typed_state) -> BaseState * { return &typed_state; },
+                                       *parent->child_states[state->index]) == state) {
+                            slot = parent->child_states[state->index].get();
+                        }
+                    }
+                },
+                [] {});
+            return slot;
+        }
+
+    }  // namespace
+
+    namespace detail
+    {
+        [[nodiscard]] nb::object to_python_impl(const TSViewContext &context, engine_time_t evaluation_time);
+        [[nodiscard]] nb::object delta_to_python_impl(const TSViewContext &context, engine_time_t evaluation_time);
+
+        [[nodiscard]] nb::object reference_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
+            BaseState *state = context.ts_state;
+            if (state != nullptr) {
+                if (const LinkedTSContext *target = state->linked_target(); target != nullptr && target->is_bound()) {
+                    TSOutputView target_view  = output_view_from_context(*target, evaluation_time);
+                    const View   target_value = target_view.value();
+                    if (target_value.has_value()) {
+                        if (const auto *ref = target_value.as_atomic().try_as<TimeSeriesReference>()) { return nb::cast(*ref); }
+                    }
+                    return nb::cast(TimeSeriesReference::make(target_view));
+                }
+            }
+
+            const View value = context.value();
+            if (value.has_value()) {
+                if (const auto *ref = value.as_atomic().try_as<TimeSeriesReference>()) { return nb::cast(*ref); }
+            }
+
+            return nb::cast(TimeSeriesReference::make());
+        }
+
+        [[nodiscard]] nb::object bundle_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
+            const TSMeta *schema = context.resolved().schema;
+            if (schema == nullptr || schema->kind != TSKind::TSB) { return nb::none(); }
+
+            nb::object python_type  = bundle_python_class(schema);
+            const bool debug_bundle = std::getenv("HGRAPH_DEBUG_BUNDLE_TO_PY") != nullptr;
+            if (!context_valid(context)) {
+                if (callable_python_type(python_type)) {
+                    nb::dict kwargs;
+                    for (size_t i = 0; i < schema->field_count(); ++i) { kwargs[nb::str(schema->fields()[i].name)] = nb::none(); }
+                    return python_type(**kwargs);
+                }
+                return nb::dict();
+            }
+
+            if (callable_python_type(python_type)) {
+                nb::dict kwargs;
+                for (size_t i = 0; i < schema->field_count(); ++i) {
+                    const auto &field_info = schema->fields()[i];
+                    const auto *dispatch =
+                        context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
+                    const auto         *field_dispatch = dispatch != nullptr ? dispatch->as_fields() : nullptr;
+                    const TSViewContext child =
+                        field_dispatch != nullptr ? field_dispatch->child_at(context, i) : TSViewContext::none();
+                    kwargs[nb::str(field_info.name)] = context_valid(child) ? to_python_impl(child, evaluation_time) : nb::none();
+                    if (debug_bundle && !context.value().has_value()) {
+                        std::fprintf(stderr,
+                                     "bundle_to_python schema=%s field=%s child_schema_kind=%d child_valid=%d child_bound=%d "
+                                     "child_has_value=%d\n",
+                                     schema_debug_name(schema).c_str(), field_info.name,
+                                     child.resolved().schema != nullptr ? static_cast<int>(child.resolved().schema->kind) : -1,
+                                     context_valid(child), child.is_bound(), child.value().has_value());
+                    }
+                }
+                if (debug_bundle && !context.value().has_value()) {
+                    std::fprintf(stderr, "bundle_to_python schema=%s root_valid=%d root_bound=%d root_has_value=%d\n",
+                                 schema_debug_name(schema).c_str(), context_valid(context), context.is_bound(),
+                                 context.value().has_value());
+                }
+                return python_type(**kwargs);
+            }
+
+            nb::dict    out;
+            const auto *dispatch =
+                context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
+            const auto *field_dispatch = dispatch != nullptr ? dispatch->as_fields() : nullptr;
+            if (field_dispatch == nullptr) { return out; }
+
+            for (size_t i = 0; i < schema->field_count(); ++i) {
+                const TSViewContext child = field_dispatch->child_at(context, i);
+                if (!context_valid(child)) { continue; }
+                const auto &field_info        = schema->fields()[i];
+                out[nb::str(field_info.name)] = to_python_impl(child, evaluation_time);
+            }
+            return out;
+        }
+
+        [[nodiscard]] nb::object bundle_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
+            const TSViewContext resolved_context = context.resolved();
+            const TSMeta       *schema           = resolved_context.schema;
+            const auto         *dispatch =
+                resolved_context.ts_dispatch != nullptr ? resolved_context.ts_dispatch->as_collection() : nullptr;
+            const auto *field_dispatch = dispatch != nullptr ? dispatch->as_fields() : nullptr;
+            nb::dict    out;
+            if (schema == nullptr || schema->kind != TSKind::TSB || field_dispatch == nullptr) { return out; }
+
+            const bool replay_current_value  = sampled_transition_this_tick(context, evaluation_time);
+            const bool source_reference_tick = resolved_context.notification_state != nullptr &&
+                                               resolved_context.notification_state != resolved_context.ts_state &&
+                                               resolved_context.notification_state->last_modified_time == evaluation_time;
+            bool       source_reference_retargeted_child = false;
+            if (source_reference_tick) {
+                for (size_t i = 0; i < schema->field_count(); ++i) {
+                    if (field_dispatch->child_modified(context, i)) {
+                        source_reference_retargeted_child = true;
+                        break;
+                    }
+                }
+            }
+            for (size_t i = 0; i < schema->field_count(); ++i) {
+                const TSViewContext child                    = field_dispatch->child_at(context, i);
+                const bool          child_context_modified   = context_modified(child, evaluation_time);
+                const bool          child_marked_modified    = field_dispatch->child_modified(context, i);
+                const bool          child_sampled_transition = sampled_transition_this_tick(child, evaluation_time);
+                if (source_reference_retargeted_child && child_context_modified && !child_marked_modified &&
+                    !child_sampled_transition) {
+                    continue;
+                }
+                const bool replay_child_value =
+                    replay_current_value || child_sampled_transition || (child_marked_modified && !child_context_modified);
+                if (replay_child_value) {
+                    if (!context_valid(child)) { continue; }
+                    const auto &field_info        = schema->fields()[i];
+                    out[nb::str(field_info.name)] = to_python_impl(child, evaluation_time);
+                    continue;
+                }
+                if (!child_context_modified && !child_marked_modified) { continue; }
+                if (!context_valid(child)) { continue; }
+                const auto &field_info        = schema->fields()[i];
+                out[nb::str(field_info.name)] = delta_to_python_impl(child, evaluation_time);
+            }
+            if (out.empty()) { return nb::none(); }
+            return std::move(out);
+        }
+
+        [[nodiscard]] nb::object list_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
+            const TSMeta *schema = context.resolved().schema;
+            const auto   *dispatch =
+                context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
+            const size_t size = dispatch != nullptr ? dispatch->size(context) : (schema != nullptr ? schema->fixed_size() : 0);
+
+            nb::list out;
+            if (dispatch == nullptr || !context_valid(context)) {
+                for (size_t i = 0; i < size; ++i) { out.append(nb::none()); }
+                return nb::tuple(out);
+            }
+
+            for (size_t i = 0; i < size; ++i) {
+                const TSViewContext child = dispatch->child_at(context, i);
+                out.append(context_valid(child) ? to_python_impl(child, evaluation_time) : nb::none());
+            }
+            return nb::tuple(out);
+        }
+
+        [[nodiscard]] nb::object list_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
+            if (!context.value().has_value()) { return nb::dict(); }
+
+            if (const BaseState *state = context.ts_state; state != nullptr && state->storage_kind != TSStorageKind::Native) {
+                if (const LinkedTSContext *target = state->linked_target();
+                    target != nullptr && target->ts_state != nullptr && target->ts_state->resolved_state() != nullptr &&
+                    target->ts_state->resolved_state()->storage_kind == TSStorageKind::Native) {
+                    nb::dict    out;
+                    const auto *target_state = static_cast<const TSLState *>(target->ts_state->resolved_state());
+                    const auto *dispatch =
+                        context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
+                    if (dispatch == nullptr) { return out; }
+
+                    for (const size_t slot : target_state->modified_children) {
+                        const TSViewContext child = dispatch->child_at(context, slot);
+                        if (!context_valid(child)) { continue; }
+                        out[nb::int_(slot)] = delta_to_python_impl(child, evaluation_time);
+                    }
+                    if (out.empty()) { return nb::none(); }
+                    return std::move(out);
+                }
+            }
+
+            nb::dict    out;
+            const auto *dispatch =
+                context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
+            if (dispatch == nullptr) { return out; }
+
+            for (size_t i = 0, size = dispatch->size(context); i < size; ++i) {
+                if (!dispatch->child_modified(context, i)) { continue; }
+                const TSViewContext child = dispatch->child_at(context, i);
+                if (!context_valid(child)) { continue; }
+                out[nb::int_(i)] = delta_to_python_impl(child, evaluation_time);
+            }
+            if (out.empty()) { return nb::none(); }
+            return std::move(out);
+        }
+
+        [[nodiscard]] nb::object dict_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
+            nb::dict             out;
+            const TSViewContext  resolved     = context.resolved();
+            const TSViewContext &effective    = resolved.is_bound() ? resolved : context;
+            const auto          *dispatch     = effective.ts_dispatch != nullptr ? effective.ts_dispatch->as_collection() : nullptr;
+            const auto          *key_dispatch = dispatch != nullptr ? dispatch->as_keys() : nullptr;
+            if (key_dispatch == nullptr || !context_valid(context)) { return out; }
+            const bool debug_dict                      = std::getenv("HGRAPH_DEBUG_DICT_TO_PY") != nullptr;
+            const bool can_materialize_output_children = effective.owning_output != nullptr || effective.output_view_ops != nullptr;
+            const TSOutputView output_view =
+                can_materialize_output_children ? output_view_from_context(effective, evaluation_time) : TSOutputView{};
+
+            const size_t limit = key_dispatch->iteration_limit(effective);
+            for (size_t slot = 0; slot < limit; ++slot) {
+                if (!key_dispatch->slot_is_live(effective, slot)) { continue; }
+                const View    key = key_dispatch->key_at_slot(effective, slot);
+                TSOutputView  child_view;
+                TSViewContext child;
+                nb::object    child_value;
+                if (can_materialize_output_children) {
+                    child_view = ensure_tsd_child_view(output_view, key);
+                    child      = child_view.context_ref();
+                    if (!child_view.valid()) { continue; }
+                    child_value = child_view.to_python();
+                } else {
+                    child = dict_slot_context(effective, slot);
+                    if (!context_valid(child)) { continue; }
+                    child_value = to_python_impl(child, evaluation_time);
+                }
+                if (debug_dict) {
+                    const TSViewContext resolved_child = child.resolved();
+                    std::fprintf(stderr,
+                                 "dict_to_python key=%s child_schema_kind=%d child_valid=%d child_bound=%d child_has_value=%d "
+                                 "child_py_none=%d\n",
+                                 nb::str(key.to_python()).c_str(),
+                                 resolved_child.schema != nullptr ? static_cast<int>(resolved_child.schema->kind) : -1,
+                                 can_materialize_output_children ? child_view.valid() : context_valid(child), child.is_bound(),
+                                 child.value().has_value(), child_value.is_none());
+                }
+                out[key.to_python()] = std::move(child_value);
+            }
+            return out;
+        }
+
+        [[nodiscard]] nb::object dict_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
+            nb::dict             out;
+            const TSViewContext  resolved     = context.resolved();
+            const TSViewContext &effective    = resolved.is_bound() ? resolved : context;
+            const auto          *dispatch     = effective.ts_dispatch != nullptr ? effective.ts_dispatch->as_collection() : nullptr;
+            const auto          *key_dispatch = dispatch != nullptr ? dispatch->as_keys() : nullptr;
+            if (key_dispatch == nullptr) { return nb::none(); }
+            const bool can_materialize_output_children = effective.owning_output != nullptr || effective.output_view_ops != nullptr;
+            const TSOutputView output_view =
+                can_materialize_output_children ? output_view_from_context(effective, evaluation_time) : TSOutputView{};
+
+            const auto         *ts_dispatch        = effective.ts_dispatch;
+            const engine_time_t last_modified_time = ts_dispatch != nullptr ? ts_dispatch->last_modified_time(effective) : MIN_DT;
+            View                current_view       = effective.value();
+            if (!current_view.has_value()) {
+                if (TSDState *state = resolved.ts_state != nullptr && resolved.ts_state->storage_kind == TSStorageKind::Native
+                                          ? static_cast<TSDState *>(resolved.ts_state)
+                                          : nullptr;
+                    state != nullptr && state->map_dispatch != nullptr && state->map_value_data != nullptr) {
+                    current_view = View{state->map_dispatch, state->map_value_data,
+                                        resolved.schema != nullptr ? resolved.schema->value_type : nullptr};
+                }
+            }
+            const auto serialize_child_delta = [&](const TSViewContext &child) -> nb::object {
+                return delta_to_python_impl(child, evaluation_time);
+            };
+            if (!current_view.has_value()) {
+                const engine_time_t resolved_last_modified =
+                    resolved.ts_state != nullptr ? resolved.ts_state->last_modified_time : MIN_DT;
+                return (resolved_last_modified == evaluation_time && context_valid(context)) ? nb::object{std::move(out)}
+                                                                                             : nb::none();
+            }
+            const auto current                            = current_view.as_map();
+            const auto serialize_valid_current_full_value = [&](size_t slot, const View &key) -> std::optional<nb::object> {
+                if (can_materialize_output_children) {
+                    TSOutputView child_view = ensure_tsd_child_view(output_view, key);
+                    if (!child_view.valid()) { return std::nullopt; }
+                    return child_view.to_python();
+                }
+
+                TSViewContext child = dict_slot_context(effective, slot);
+                if (!context_valid(child)) { return std::nullopt; }
+                return to_python_impl(child, evaluation_time);
+            };
+            const auto serialize_valid_current_value = [&](size_t slot, const View &key) -> std::optional<nb::object> {
+                if (can_materialize_output_children) {
+                    TSOutputView child_view = ensure_tsd_child_view(output_view, key);
+                    if (!child_view.valid()) { return std::nullopt; }
+                    return child_view.delta_to_python();
+                }
+
+                TSViewContext child = dict_slot_context(effective, slot);
+                if (!context_valid(child)) { return std::nullopt; }
+                return delta_to_python_impl(child, evaluation_time);
+            };
+            if (const auto snapshot = detail::transition_snapshot(context);
+                snapshot.active() && snapshot.modified_time == evaluation_time && snapshot.previous_value->schema() != nullptr &&
+                snapshot.previous_value->schema()->kind == value::TypeKind::Map) {
+                const auto       previous = snapshot.previous_value->view().as_map();
+                constexpr size_t no_slot  = static_cast<size_t>(-1);
+
+                for (size_t slot = current.first_live_slot(); slot != no_slot; slot = current.next_live_slot(slot)) {
+                    const View key           = current.delta().key_at_slot(slot);
+                    const View current_value = current.at(key);
+                    if (!previous.contains(key) || previous.at(key) != current_value) {
+                        std::optional<nb::object> child_value = !previous.contains(key)
+                                                                    ? serialize_valid_current_full_value(slot, key)
+                                                                    : serialize_valid_current_value(slot, key);
+                        if (!child_value.has_value()) { continue; }
+                        out[key.to_python()] = std::move(*child_value);
+                    }
+                }
+
+                for (size_t slot = previous.first_live_slot(); slot != no_slot; slot = previous.next_live_slot(slot)) {
+                    const View key = previous.delta().key_at_slot(slot);
+                    if (!current.contains(key)) { out[key.to_python()] = remove_sentinel(); }
+                }
+
+                if (out.empty() && last_modified_time == evaluation_time && context_valid(context)) {
+                    return nb::object{std::move(out)};
+                }
+                return out.empty() ? nb::none() : nb::object{std::move(out)};
+            }
+
+            if (const TSDState *state = native_tsd_state(effective); state != nullptr) {
+                if (state->removed_valid_children_modified_time == evaluation_time) {
+                    for (const auto &[slot, key_values] : state->removed_valid_child_keys) {
+                        static_cast<void>(slot);
+                        for (const Value &key_value : key_values) {
+                            if (!key_value.view().has_value()) { continue; }
+                            out[key_value.view().to_python()] = remove_sentinel();
+                        }
+                    }
+                }
+
+                const auto       current_delta = current.delta();
+                const size_t     slot_capacity = current_delta.slot_capacity();
+                constexpr size_t no_slot       = static_cast<size_t>(-1);
+                for (size_t slot = current_delta.first_removed_slot(); slot != no_slot;
+                     slot        = current_delta.next_removed_slot(slot)) {
+                    const View key = current_delta.key_at_slot(slot);
+                    if (state->removed_valid_children.contains(slot)) { out[key.to_python()] = remove_sentinel(); }
+                }
+
+                std::unordered_set<size_t> serialized_slots;
+                const auto serialize_live_slot = [&](size_t slot) {
+                    if (slot >= slot_capacity || !current_delta.slot_occupied(slot) || current_delta.slot_removed(slot)) {
+                        return;
+                    }
+
+                    const View key = current_delta.key_at_slot(slot);
+                    std::optional<nb::object> child_value = serialize_valid_current_value(slot, key);
+                    if (child_value.has_value()) {
+                        out[key.to_python()] = std::move(*child_value);
+                        serialized_slots.insert(slot);
+                    }
+                };
+
+                if (state->added_valid_children_modified_time == evaluation_time) {
+                    for (const size_t slot : state->added_valid_children) { serialize_live_slot(slot); }
+                }
+
+                for (const size_t slot : state->modified_children) {
+                    if (serialized_slots.contains(slot) || !dispatch->child_modified(effective, slot)) { continue; }
+                    serialize_live_slot(slot);
+                }
+
+                if (out.empty() && last_modified_time == evaluation_time && context_valid(context) && current.empty()) {
+                    return nb::object{std::move(out)};
+                }
+                return out.empty() ? nb::none() : nb::object{std::move(out)};
+            }
+
+            const View   delta_view = ts_dispatch != nullptr
+                                          ? ts_dispatch->delta_value(effective)
+                                          : View::invalid_for(effective.schema != nullptr ? effective.schema->value_type : nullptr);
+            MapDeltaView delta      = delta_view.as_map().delta();
+            for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
+                if (!delta.slot_occupied(slot)) { continue; }
+
+                const View key = delta.key_at_slot(slot);
+                if (delta.slot_removed(slot)) {
+                    if (removed_dict_child_was_valid(effective, slot)) { out[key.to_python()] = remove_sentinel(); }
+                    continue;
+                }
+
+                if (!dispatch->child_modified(effective, slot)) { continue; }
+
+                if (delta.slot_added(slot)) {
+                    std::optional<nb::object> child_value = serialize_valid_current_full_value(slot, key);
+                    if (child_value.has_value()) { out[key.to_python()] = std::move(*child_value); }
+                    continue;
+                }
+
+                TSOutputView  child_view;
+                TSViewContext child;
+                if (can_materialize_output_children) {
+                    child_view = ensure_tsd_child_view(output_view, key);
+                    child      = child_view.context_ref();
+                } else {
+                    child = dict_slot_context(effective, slot);
+                }
+                if (can_materialize_output_children ? child_view.valid() : context_valid(child)) {
+                    out[key.to_python()] =
+                        can_materialize_output_children ? child_view.delta_to_python() : serialize_child_delta(child);
+                }
+            }
+
+            if (out.empty() && last_modified_time == evaluation_time && context_valid(context)) {
+                return nb::object{std::move(out)};
+            }
+            return out.empty() ? nb::none() : nb::object{std::move(out)};
+        }
+
+        [[nodiscard]] nb::object set_to_python(const TSViewContext &context) {
+            const View value = context.value();
+            return value.has_value() ? value.to_python() : nb::set();
+        }
+
+        [[nodiscard]] nb::object set_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
+            nb::list added_values;
+            nb::list removed_values;
+            if (const auto snapshot = detail::transition_snapshot(context);
+                snapshot.active() && snapshot.modified_time == evaluation_time && snapshot.previous_value != nullptr &&
+                snapshot.previous_value->view().has_value() && snapshot.previous_value->schema() != nullptr &&
+                snapshot.previous_value->schema()->kind == value::TypeKind::Set) {
+                const View current_view = context.value();
+                const auto previous     = snapshot.previous_value->view().as_set();
+                if (current_view.has_value()) {
+                    const auto current = current_view.as_set();
+                    for (const View &item : current.values()) {
+                        if (!previous.contains(item)) { added_values.append(item.to_python()); }
+                    }
+                    for (const View &item : previous.values()) {
+                        if (!current.contains(item)) { removed_values.append(item.to_python()); }
+                    }
+                } else {
+                    for (const View &item : previous.values()) { removed_values.append(item.to_python()); }
+                }
+                return set_delta_builder()(added_values, removed_values);
+            }
+
+            const auto *dispatch = context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_set() : nullptr;
+            if (dispatch != nullptr) {
+                for (const View &item : dispatch->added_values(context)) { added_values.append(item.to_python()); }
+                for (const View &item : dispatch->removed_values(context)) { removed_values.append(item.to_python()); }
+            }
+            return set_delta_builder()(added_values, removed_values);
+        }
+
+        [[nodiscard]] nb::object leaf_to_python(const TSViewContext &context) {
+            const View value = context.value();
+            return value.has_value() ? value.to_python() : nb::none();
+        }
+
+        [[nodiscard]] nb::object leaf_delta_to_python(const TSViewContext &context) {
+            const auto *dispatch     = context.resolved().ts_dispatch;
+            const auto *value_schema = context.resolved().schema != nullptr ? context.resolved().schema->value_type : nullptr;
+            const View  value        = dispatch != nullptr ? dispatch->delta_value(context) : View::invalid_for(value_schema);
+            return value.has_value() ? value.to_python() : nb::none();
+        }
+
+        [[nodiscard]] nb::object to_python_impl(const TSViewContext &context, engine_time_t evaluation_time) {
+            const auto *dispatch = context.resolved().ts_dispatch;
+            return dispatch != nullptr ? dispatch->to_python(context, evaluation_time) : leaf_to_python(context);
+        }
+
+        [[nodiscard]] nb::object delta_to_python_impl(const TSViewContext &context, engine_time_t evaluation_time) {
+            const auto *dispatch = context.resolved().ts_dispatch;
+            return dispatch != nullptr ? dispatch->delta_to_python(context, evaluation_time) : leaf_delta_to_python(context);
+        }
+
+        void bundle_from_python(const TSOutputView &view, nb::handle value) {
+            const TSMeta *schema = view.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSB) {
+                throw std::logic_error("TSOutputView bundle mutation requires a TSB schema");
+            }
+
+            const nb::object python_type    = bundle_python_class(schema);
+            const bool       is_bundle_like = (python_type.is_valid() && !python_type.is_none() &&
+                                         nb::isinstance(value, python_type)) ||
+                                        nb::hasattr(value, "__dataclass_fields__");
+            if (is_bundle_like) {
+                for (size_t i = 0; i < schema->field_count(); ++i) {
+                    const std::string_view field_name = schema->fields()[i].name;
+                    nb::object             attr       = nb::getattr(value, field_name.data(), nb::none());
+                    if (!attr.is_none()) { view.as_bundle().field(field_name).from_python(attr); }
+                }
+                return;
+            }
+
+            const nb::object items = nb::hasattr(value, "items") ? nb::getattr(value, "items")() : nb::borrow<nb::object>(value);
+            for (auto pair : nb::iter(items)) {
+                nb::object field_value = nb::borrow<nb::object>(pair[1]);
+                if (!field_value.is_none()) { view.as_bundle().field(nb::cast<std::string>(pair[0])).from_python(field_value); }
+            }
+        }
+
+        void list_from_python(const TSOutputView &view, nb::handle value) {
+            const TSMeta *schema = view.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSL) {
+                throw std::logic_error("TSOutputView list mutation requires a TSL schema");
+            }
+
+            const auto list_view = view.as_list();
+            if (nb::isinstance<nb::tuple>(value) || nb::isinstance<nb::list>(value)) {
+                const size_t size = nb::len(value);
+                if (schema->fixed_size() != 0 && size != schema->fixed_size()) {
+                    throw nb::value_error(fmt::format("Expected {} elements, got {}", schema->fixed_size(), size).c_str());
+                }
+                for (size_t i = 0; i < size; ++i) {
+                    nb::object item = nb::borrow<nb::object>(value[i]);
+                    if (!item.is_none()) { list_view.at(i).from_python(item); }
+                }
+                return;
+            }
+
+            if (nb::isinstance<nb::dict>(value)) {
+                for (auto [key, item] : nb::cast<nb::dict>(value)) {
+                    nb::object item_object = nb::borrow<nb::object>(item);
+                    if (!item_object.is_none()) { list_view.at(nb::cast<size_t>(key)).from_python(item_object); }
+                }
+                return;
+            }
+
+            throw std::runtime_error("Invalid value type for TSOutputView list mutation");
+        }
+
+        void dict_from_python(const TSOutputView &view, nb::handle value) {
+            const TSMeta *schema = view.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSD) {
+                throw std::logic_error("TSOutputView dict mutation requires a TSD schema");
+            }
+
+            const value::TypeMeta *key_schema      = schema->key_type();
+            const TSMeta          *value_ts_schema = schema->element_ts();
+            const value::TypeMeta *mapped_schema   = value_ts_schema != nullptr ? value_ts_schema->value_type : nullptr;
+            if (key_schema == nullptr || mapped_schema == nullptr) {
+                throw std::logic_error("TSOutputView dict mutation requires key and value schemas");
+            }
+
+            const auto make_mapped_placeholder = [&]() {
+                Value mapped_value(*mapped_schema, MutationTracking::Plain);
+                if (value_ts_schema != nullptr && value_ts_schema->kind == TSKind::REF) {
+                    mapped_value.view().as_atomic().set(TimeSeriesReference::make());
+                } else {
+                    mapped_value.reset();
+                }
+                return mapped_value;
+            };
+
+            const auto ensure_live_child = [&](const View &key) {
+                if (tsd_key_is_live(view, key)) { return; }
+
+                Value mapped_value = make_mapped_placeholder();
+
+                {
+                    auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
+                    mutation.set(key, mapped_value.view());
+                }
+            };
+
+            const auto apply_child_value = [&](const View &key, nb::handle entry_value, bool apply_result) {
+                ensure_live_child(key);
+
+                TSOutputView child_view = ensure_tsd_child_view(view, key);
+                if (!child_view_materialized(child_view)) {
+                    throw std::logic_error("TSD child mutation failed to materialize a bound child view");
+                }
+
+                if (apply_result && !entry_value.is_none()) {
+                    child_view.apply_result(entry_value);
+                } else {
+                    child_view.from_python(entry_value);
+                }
+            };
+
+            if (!view.valid() && !nb::cast<bool>(nb::bool_(value))) {
+                mark_output_view_modified(view, view.evaluation_time());
+                return;
+            }
+
+            const nb::object                          item_attr = nb::getattr(value, "items", nb::none());
+            nb::iterator                              items     = item_attr.is_none() ? nb::iter(value) : nb::iter(item_attr());
+            std::vector<std::pair<Value, nb::object>> entries;
+
+            for (const auto &kv : items) {
+                nb::object entry_value = nb::borrow<nb::object>(kv[1]);
+                if (entry_value.is_none()) { continue; }
+                entries.emplace_back(ts_nested_value_from_python(*key_schema, nb::borrow<nb::object>(kv[0])),
+                                     std::move(entry_value));
+            }
+
+            bool structural_changed = false;
+            struct RemovedChild
+            {
+                Value        key;
+                size_t       slot{static_cast<size_t>(-1)};
+                TSOutputView child;
+                bool         child_was_valid{false};
+            };
+            std::vector<RemovedChild> removed_children;
+            for (const auto &[key_value, entry_value] : entries) {
+                if ((entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) &&
+                    tsd_key_is_live(view, key_value.view())) {
+                    auto         map_view = view.value().as_map();
+                    TSOutputView child    = ensure_tsd_child_view(view, key_value.view());
+                    removed_children.push_back(RemovedChild{
+                        key_value.view().clone(),
+                        map_view.find_slot(key_value.view()),
+                        child,
+                        child.valid(),
+                    });
+                }
+            }
+
+            for (const RemovedChild &removed_child : removed_children) {
+                if (!removed_child.child_was_valid) { continue; }
+                clear_output_link(removed_child.child);
+                removed_child.child.invalidate();
+            }
+
+            {
+                auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
+                for (const auto &[key_value, entry_value] : entries) {
+                    const View key = key_value.view();
+
+                    if (entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) {
+                        const bool removed = mutation.remove(key);
+                        if (!removed && entry_value.is(remove_sentinel())) { throw nb::key_error("TSD key not found for REMOVE"); }
+                        structural_changed = structural_changed || removed;
+                        continue;
+                    }
+
+                    if (!tsd_key_is_live(view, key)) {
+                        Value mapped_value = make_mapped_placeholder();
+                        mutation.set(key, mapped_value.view());
+                        structural_changed = true;
+                    }
+                }
+            }
+
+            for (const RemovedChild &removed_child : removed_children) {
+                if (removed_child.child_was_valid) { record_tsd_removed_child(view, removed_child.slot, removed_child.key.view()); }
+            }
+
+            for (const auto &[key_value, entry_value] : entries) {
+                if (entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) { continue; }
+                apply_child_value(key_value.view(), entry_value, false);
+            }
+
+            if (structural_changed) { mark_output_view_modified(view, view.evaluation_time()); }
+        }
+
+        [[nodiscard]] bool bundle_can_apply_result(const TSOutputView &view, nb::handle value) {
+            // Mirror Python's `PythonTimeSeriesBundleOutput.can_apply_result`: a
+            // partial dict-shaped delta (the common shape produced by
+            // `combine[TSB[...]](...)` and pushed via push-queue) is acceptable as
+            // long as every named field can independently accept its slice. This
+            // lets a tick that has already written one bundle field still accept a
+            // write to a different field, which is essential for push-queue
+            // producers that emit a sequence of single-field updates (e.g.
+            // `run_graph_on_thread` emitting `started`, then `out`, then
+            // `finished`, then `status`). Whole-bundle replacement values
+            // (CompoundScalar instances, peer-bundle assignments) still require a
+            // clean slate.
+            if (value.is_none()) { return true; }
+            if (!nb::hasattr(value, "items")) { return !view.modified(); }
+            const TSMeta *schema = view.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSB) { return !view.modified(); }
+
+            const nb::object items_object = nb::getattr(value, "items")();
+            for (const auto &kv : items_object) {
+                nb::object field_value = nb::borrow<nb::object>(kv[1]);
+                if (field_value.is_none()) { continue; }
+                const std::string field_name = nb::cast<std::string>(nb::borrow<nb::object>(kv[0]));
+                TSOutputView      child      = view.as_bundle().field(field_name);
+                if (!child.context_ref().is_bound()) { continue; }
+                if (!child.can_apply_result(field_value)) { return false; }
+            }
+            return true;
+        }
+
+        [[nodiscard]] bool dict_can_apply_result(const TSOutputView &view, nb::handle value) {
+            if (value.is_none()) { return true; }
+            if (!nb::cast<bool>(nb::bool_(value))) { return true; }
+
+            const TSMeta *schema = view.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSD || schema->key_type() == nullptr) { return false; }
+
+            const auto *collection = view.context_ref().resolved().ts_dispatch != nullptr
+                                         ? view.context_ref().resolved().ts_dispatch->as_collection()
+                                         : nullptr;
+            const auto *dispatch   = collection != nullptr ? collection->as_keys() : nullptr;
+            if (dispatch == nullptr) { return !view.modified(); }
+
+            const nb::object item_attr        = nb::getattr(value, "items", nb::none());
+            nb::iterator     items            = item_attr.is_none() ? nb::iter(value) : nb::iter(item_attr());
+            const nb::object remove           = remove_sentinel();
+            const nb::object remove_if_exists = remove_if_exists_sentinel();
+
+            for (const auto &kv : items) {
+                const nb::object entry_value = nb::borrow<nb::object>(kv[1]);
+                if (entry_value.is_none()) { continue; }
+
+                Value key = ts_nested_value_from_python(*schema->key_type(), nb::borrow<nb::object>(kv[0]));
+                if (entry_value.is(remove) || entry_value.is(remove_if_exists)) {
+                    const TSViewContext child = dispatch->child_key(view.context_ref(), key.view());
+                    if (entry_value.is(remove_if_exists) && !child.is_bound()) { continue; }
+                    if (child.is_bound() && view.make_child_view(child).modified()) { return false; }
+                    continue;
+                }
+
+                if (dict_key_removed_this_tick(view, key.view())) { return false; }
+
+                const TSViewContext child = dispatch->child_key(view.context_ref(), key.view());
+                if (child.is_bound() && !view.make_child_view(child).can_apply_result(entry_value)) { return false; }
+            }
+            return true;
+        }
+
+        void dict_apply_result(const TSOutputView &view, nb::handle value) {
+            if (nb::hasattr(value, "items")) {
+                const nb::object items_object        = nb::getattr(value, "items")();
+                bool             has_remove_sentinel = false;
+                for (auto item : nb::iter(items_object)) {
+                    nb::object entry_value = nb::borrow<nb::object>(item[1]);
+                    if (entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) {
+                        has_remove_sentinel = true;
+                        break;
+                    }
+                }
+                if (has_remove_sentinel) {
+                    dict_from_python(view, value);
+                    return;
+                }
+
+                const TSMeta *schema = view.ts_schema();
+                if (schema == nullptr || schema->kind != TSKind::TSD) {
+                    throw std::logic_error("TSOutputView dict result application requires a TSD schema");
+                }
+
+                const value::TypeMeta *key_schema      = schema->key_type();
+                const TSMeta          *value_ts_schema = schema->element_ts();
+                const value::TypeMeta *mapped_schema   = value_ts_schema != nullptr ? value_ts_schema->value_type : nullptr;
+                if (key_schema == nullptr || mapped_schema == nullptr) {
+                    throw std::logic_error("TSOutputView dict result application requires key and value schemas");
+                }
+
+                const auto make_mapped_placeholder = [&]() {
+                    Value mapped_value(*mapped_schema, MutationTracking::Plain);
+                    if (value_ts_schema != nullptr && value_ts_schema->kind == TSKind::REF) {
+                        mapped_value.view().as_atomic().set(TimeSeriesReference::make());
+                    } else {
+                        mapped_value.reset();
+                    }
+                    return mapped_value;
+                };
+
+                std::vector<std::pair<Value, nb::object>> replacement;
+                for (auto item : nb::iter(items_object)) {
+                    Value key_value = ts_nested_value_from_python(*key_schema, nb::borrow<nb::object>(item[0]));
+                    replacement.emplace_back(std::move(key_value), nb::borrow<nb::object>(item[1]));
+                }
+
+                // Match Python's PythonTimeSeriesDictOutput.value setter: a
+                // dict result is applied as an incremental update. Existing
+                // keys absent from the result are kept untouched; only explicit
+                // REMOVE/REMOVE_IF_EXISTS sentinels (handled above) cause a
+                // key to be removed. The earlier replacement-style behaviour
+                // dropped previously-added keys whenever a per-tick delta
+                // result didn't repeat them, which broke operators like
+                // partition_tsd that emit only the keys that actually changed
+                // each tick.
+                auto map_view = view.value().as_map();
+
+                bool structural_changed = false;
+                {
+                    auto mutation = map_view.begin_mutation(view.evaluation_time());
+                    for (const auto &[key, mapped_value] : replacement) {
+                        static_cast<void>(mapped_value);
+                        const View key_view = key.view();
+                        if (!tsd_key_is_live(view, key_view)) {
+                            Value invalid_value = make_mapped_placeholder();
+                            mutation.set(key_view, invalid_value.view());
+                            structural_changed = true;
+                        }
+                    }
+                }
+
+                if (structural_changed) { mark_output_view_modified(view, view.evaluation_time()); }
+
+                for (const auto &[key, mapped_value] : replacement) {
+                    const View   key_view   = key.view();
+                    TSOutputView child_view = ensure_tsd_child_view(view, key_view);
+                    if (!child_view_materialized(child_view)) {
+                        throw std::logic_error("TSD child result application failed to materialize a bound child view");
+                    }
+                    if (mapped_value.is_none()) {
+                        child_view.from_python(mapped_value);
+                    } else {
+                        child_view.apply_result(mapped_value);
+                    }
+                }
+
+                if (!structural_changed && !view.valid() && replacement.empty()) {
+                    mark_output_view_modified(view, view.evaluation_time());
+                }
+
+                return;
+            }
+
+            dict_from_python(view, value);
+        }
+
+        bool erase_dict_key_impl(const TSOutputView &view, const View &key, bool throw_if_missing) {
+            const TSMeta *schema = view.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSD) {
+                throw std::logic_error("TSOutputView dict child mutation requires a TSD schema");
+            }
+            if (schema->element_ts() == nullptr || schema->element_ts()->value_type == nullptr) {
+                throw std::logic_error("TSOutputView dict child mutation requires a mapped value schema");
+            }
+            if (!view.value().has_value() || !key.has_value()) {
+                if (throw_if_missing) { throw nb::key_error("TSD key not found for REMOVE"); }
+                return false;
+            }
+
+            bool                        removed = false;
+            std::optional<TSOutputView> child_view;
+            size_t                      slot            = static_cast<size_t>(-1);
+            bool                        child_was_valid = false;
+            if (tsd_key_is_live(view, key)) {
+                auto map_view = view.value().as_map();
+                slot          = map_view.find_slot(key);
+                if (slot != static_cast<size_t>(-1) && view.output_view_ops() != nullptr) {
+                    view.output_view_ops()->before_dict_key_erased(view, slot);
+                }
+                child_view.emplace(ensure_tsd_child_view(view, key));
+                child_was_valid = child_view->valid();
+                if (child_was_valid) {
+                    clear_output_link(*child_view);
+                    child_view->invalidate();
+                }
+            }
+            {
+                auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
+                removed       = mutation.remove(key);
+            }
+            if (removed && child_view.has_value() && child_was_valid) { record_tsd_removed_child(view, slot, key); }
+            if (!removed) {
+                if (throw_if_missing) { throw nb::key_error("TSD key not found for REMOVE"); }
+                return false;
+            }
+            mark_output_view_modified(view, view.evaluation_time());
+            return true;
+        }
+
+        void dict_child_from_python(const TSOutputView &view, const View &key, nb::handle value) {
+            const TSMeta *schema = view.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSD) {
+                throw std::logic_error("TSOutputView dict child mutation requires a TSD schema");
+            }
+            if (schema->element_ts() == nullptr || schema->element_ts()->value_type == nullptr) {
+                throw std::logic_error("TSOutputView dict child mutation requires a mapped value schema");
+            }
+
+            const auto make_mapped_placeholder = [&]() {
+                Value mapped_value(*schema->element_ts()->value_type, MutationTracking::Plain);
+                if (schema->element_ts()->kind == TSKind::REF) {
+                    mapped_value.view().as_atomic().set(TimeSeriesReference::make());
+                } else {
+                    mapped_value.reset();
+                }
+                return mapped_value;
+            };
+
+            if (value.is_none()) {
+                Value mapped_value = make_mapped_placeholder();
+                bool  inserted     = false;
+
+                {
+                    auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
+                    mutation.set(key, mapped_value.view());
+                    inserted = true;
+                }
+
+                TSOutputView child_view = ensure_tsd_child_view(view, key);
+                if (!child_view_materialized(child_view)) {
+                    throw std::logic_error("TSD child mutation failed to materialize a bound child view");
+                }
+
+                child_view.from_python(value);
+                if (inserted) { mark_output_view_modified(view, view.evaluation_time()); }
+                return;
+            }
+
+            nb::object entry_value = nb::borrow<nb::object>(value);
+            if (entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) {
+                erase_dict_key_impl(view, key, entry_value.is(remove_sentinel()));
+                return;
+            }
+
+            if (!tsd_key_is_live(view, key)) {
+                Value mapped_value = make_mapped_placeholder();
+                bool  inserted     = false;
+
+                {
+                    auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
+                    mutation.set(key, mapped_value.view());
+                    inserted = true;
+                }
+                if (inserted) { mark_output_view_modified(view, view.evaluation_time()); }
+            }
+
+            TSOutputView child_view = ensure_tsd_child_view(view, key);
+            if (!child_view_materialized(child_view)) {
+                throw std::logic_error("TSD child mutation failed to materialize a bound child view");
+            }
+
+            child_view.from_python(entry_value);
+        }
+
+        void erase_dict_key(const TSOutputView &view, const View &key) {
+            static_cast<void>(erase_dict_key_impl(view, key, true));
+        }
+
+        void set_from_python(const TSOutputView &view, nb::handle value) {
+            const TSMeta *schema = view.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSS) {
+                throw std::logic_error("TSOutputView set mutation requires a TSS schema");
+            }
+
+            auto                   set_view       = view.value().as_set();
+            const value::TypeMeta *element_schema = set_view.element_schema();
+            if (element_schema == nullptr) { throw std::logic_error("TSOutputView set mutation requires an element schema"); }
+
+            auto mutation = set_view.begin_mutation(view.evaluation_time());
+            bool changed  = false;
+
+            const auto convert_value = [element_schema](const nb::handle &item) {
+                return ts_nested_value_from_python(*element_schema, nb::borrow<nb::object>(item));
+            };
+
+            const auto apply_added = [&](const nb::handle &item) {
+                Value element = convert_value(item);
+                changed       = mutation.add(element.view()) || changed;
+            };
+
+            const auto apply_removed = [&](const nb::handle &item) {
+                Value element = convert_value(item);
+                changed       = mutation.remove(element.view()) || changed;
+            };
+
+            if (nb::hasattr(value, "added") && nb::hasattr(value, "removed")) {
+                for (auto item : nb::iter(nb::getattr(value, "added"))) { apply_added(nb::borrow<nb::object>(item)); }
+                for (auto item : nb::iter(nb::getattr(value, "removed"))) { apply_removed(nb::borrow<nb::object>(item)); }
+            } else if (nb::isinstance<nb::frozenset>(value)) {
+                std::vector<Value> replacement;
+                replacement.reserve(nb::len(value));
+                for (auto item : nb::iter(value)) { replacement.push_back(convert_value(nb::borrow<nb::object>(item))); }
+
+                std::vector<Value> existing_items;
+                for (const View &existing : set_view.values()) { existing_items.push_back(existing.clone()); }
+
+                for (const Value &existing : existing_items) {
+                    const bool keep = std::any_of(replacement.begin(), replacement.end(),
+                                                  [&](const Value &candidate) { return existing.view() == candidate.view(); });
+                    if (!keep) { changed = mutation.remove(existing.view()) || changed; }
+                }
+
+                for (const Value &item : replacement) {
+                    if (!set_view.contains(item.view())) { changed = mutation.add(item.view()) || changed; }
+                }
+            } else if (nb::isinstance<nb::set>(value) || nb::isinstance<nb::frozenset>(value) || nb::isinstance<nb::list>(value) ||
+                       nb::isinstance<nb::tuple>(value) || nb::isinstance<nb::dict>(value)) {
+                for (auto item : nb::iter(value)) {
+                    nb::object item_object = nb::borrow<nb::object>(item);
+                    if (nb::isinstance(item_object, removed_type())) {
+                        apply_removed(nb::getattr(item_object, "item"));
+                    } else {
+                        apply_added(item_object);
+                    }
+                }
+            } else if (nb::isinstance(value, removed_type())) {
+                apply_removed(nb::getattr(value, "item"));
+            } else {
+                apply_added(value);
+            }
+
+            if (changed || !view.valid()) { mark_output_view_modified(view, view.evaluation_time()); }
+        }
+
+        void set_apply_result(const TSOutputView &view, nb::handle value) {
+            if (nb::hasattr(value, "added") && nb::hasattr(value, "removed")) {
+                set_from_python(view, value);
+                return;
+            }
+
+            if (nb::isinstance<nb::set>(value) || nb::isinstance<nb::list>(value) || nb::isinstance<nb::tuple>(value) ||
+                nb::isinstance<nb::dict>(value)) {
+                set_from_python(view, value);
+                return;
+            }
+
+            if (!nb::isinstance<nb::frozenset>(value)) {
+                set_from_python(view, value);
+                return;
+            }
+
+            const TSMeta *schema = view.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSS) {
+                throw std::logic_error("TSOutputView set result application requires a TSS schema");
+            }
+
+            auto                   set_view       = view.value().as_set();
+            const value::TypeMeta *element_schema = set_view.element_schema();
+            if (element_schema == nullptr) {
+                throw std::logic_error("TSOutputView set result application requires an element schema");
+            }
+
+            std::vector<Value> replacement;
+            replacement.reserve(nb::len(value));
+            for (auto item : nb::iter(value)) {
+                replacement.push_back(ts_nested_value_from_python(*element_schema, nb::borrow<nb::object>(item)));
+            }
+
+            std::vector<Value> existing_items;
+            for (const View &existing : set_view.values()) { existing_items.push_back(existing.clone()); }
+
+            bool changed = false;
+            {
+                auto mutation = set_view.begin_mutation(view.evaluation_time());
+
+                for (const Value &existing : existing_items) {
+                    const bool keep = std::any_of(replacement.begin(), replacement.end(),
+                                                  [&](const Value &candidate) { return existing.view() == candidate.view(); });
+                    if (!keep) { changed = mutation.remove(existing.view()) || changed; }
+                }
+
+                for (const Value &item : replacement) {
+                    const bool exists = std::any_of(existing_items.begin(), existing_items.end(),
+                                                    [&](const Value &existing) { return existing.view() == item.view(); });
+                    if (!exists) { changed = mutation.add(item.view()) || changed; }
+                }
+            }
+
+            if (changed || (!view.valid() && replacement.empty())) { mark_output_view_modified(view, view.evaluation_time()); }
+        }
+
+        void add_set_item(const TSOutputView &view, const View &item) {
+            bool changed = false;
+            {
+                auto set_view = view.value().as_set();
+                auto mutation = set_view.begin_mutation(view.evaluation_time());
+                changed       = mutation.add(item);
+            }
+            if (changed) { mark_output_view_modified(view, view.evaluation_time()); }
+        }
+
+        void remove_set_item(const TSOutputView &view, const View &item) {
+            bool changed = false;
+            {
+                auto set_view = view.value().as_set();
+                auto mutation = set_view.begin_mutation(view.evaluation_time());
+                changed       = mutation.remove(item);
+            }
+            if (changed) { mark_output_view_modified(view, view.evaluation_time()); }
+        }
+
+        void clear_set_items(const TSOutputView &view) {
+            bool had_live_values = false;
+            {
+                auto set_view   = view.value().as_set();
+                had_live_values = set_view.size() != 0;
+                auto mutation   = set_view.begin_mutation(view.evaluation_time());
+                mutation.clear();
+            }
+            if (had_live_values) { mark_output_view_modified(view, view.evaluation_time()); }
+        }
+
+    }  // namespace detail
+
+    namespace
+    {
+        void collect_ref_target_states(const TimeSeriesReference &ref, std::unordered_set<BaseState *> &states) noexcept;
+
+        template <typename TContext>
+        void rebind_context_state(TContext &context, BaseState *old_state, BaseState *new_state) noexcept {
+            if (old_state == nullptr || new_state == nullptr || old_state == new_state) { return; }
+            if (context.ts_state == old_state) { context.ts_state = new_state; }
+            if (context.notification_state == old_state) { context.notification_state = new_state; }
+            if (context.pending_dict_child.parent_ts_state == old_state) { context.pending_dict_child.parent_ts_state = new_state; }
+            if (context.pending_dict_child.parent_notification_state == old_state) {
+                context.pending_dict_child.parent_notification_state = new_state;
+            }
+        }
+
+        struct RefValueNotifier final : Notifiable
+        {
+            explicit RefValueNotifier(BaseState *owner_state_) noexcept : owner_state(owner_state_) {
+                owner_invalidator.owner      = this;
+                owner_invalidator.invalidate = &RefValueNotifier::invalidate_owner;
+                owner_invalidator.rebind     = &RefValueNotifier::rebind_owner;
+                if (owner_state != nullptr) { owner_state->register_state_invalidator(&owner_invalidator); }
+            }
+
+            ~RefValueNotifier() override {
+                if (owner_state != nullptr && !owner_invalidator.state_destroyed) {
+                    owner_state->unregister_state_invalidator(&owner_invalidator);
+                }
+            }
+
+            void notify(engine_time_t modified_time) override {
+                if (owner_state != nullptr) { owner_state->mark_modified(modified_time); }
+            }
+
+            static void invalidate_owner(void *owner) noexcept {
+                if (owner != nullptr) { static_cast<RefValueNotifier *>(owner)->owner_state = nullptr; }
+            }
+
+            static void rebind_owner(void *owner, BaseState *old_state, BaseState *new_state) noexcept {
+                auto *notifier = static_cast<RefValueNotifier *>(owner);
+                if (notifier != nullptr && notifier->owner_state == old_state) { notifier->owner_state = new_state; }
+            }
+
+            BaseState       *owner_state{nullptr};
+            StateInvalidator owner_invalidator{};
+        };
+
+        void collect_ref_target_subscriptions(const TSViewContext                              &context,
+                                              std::vector<std::pair<BaseState *, BaseState *>> &subscriptions) {
+            const TSViewContext resolved = context.resolved();
+            const auto         *dispatch = resolved.ts_dispatch;
+            if (dispatch == nullptr) { return; }
+
+            if (dispatch->stores_reference_value()) {
+                BaseState *ref_state = context.ts_state != nullptr ? context.ts_state : resolved.ts_state;
+                View       value     = context.value();
+                if (ref_state == nullptr || !value.has_value()) { return; }
+
+                const auto *ref = value.as_atomic().try_as<TimeSeriesReference>();
+                if (ref == nullptr) { return; }
+
+                std::unordered_set<BaseState *> target_states;
+                collect_ref_target_states(*ref, target_states);
+                for (BaseState *target_state : target_states) {
+                    if (target_state != nullptr) { subscriptions.emplace_back(target_state, ref_state); }
+                }
+                return;
+            }
+
+            const auto *collection = dispatch->as_collection();
+            if (collection == nullptr) { return; }
+
+            if (const auto *keys = collection->as_keys(); keys != nullptr) {
+                const size_t limit = keys->iteration_limit(resolved);
+                for (size_t slot = 0; slot < limit; ++slot) {
+                    if (!keys->slot_is_live(resolved, slot)) { continue; }
+                    collect_ref_target_subscriptions(keys->child_at(resolved, slot), subscriptions);
+                }
+                return;
+            }
+
+            const size_t size = collection->size(resolved);
+            for (size_t index = 0; index < size; ++index) {
+                collect_ref_target_subscriptions(collection->child_at(resolved, index), subscriptions);
+            }
+        }
+
+        struct DerivedSetFeatureOutput final : Notifiable
+        {
+            explicit DerivedSetFeatureOutput(const LinkedTSContext &source_context_, engine_time_t initial_time,
+                                             std::optional<Value> item_ = std::nullopt)
+                : output(TSOutputBuilderFactory::checked_builder_for(ts_bool_schema())), source_context(source_context_),
+                  item(std::move(item_)) {
+                if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->subscribe(this); }
+                refresh(initial_time != MIN_DT ? initial_time : MIN_ST, true);
+            }
+
+            ~DerivedSetFeatureOutput() override {
+                if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->unsubscribe(this); }
+            }
+
+            void rebind(const LinkedTSContext &new_source_context, engine_time_t evaluation_time) {
+                if (detail::linked_context_equal(source_context, new_source_context)) {
+                    refresh(evaluation_time != MIN_DT ? evaluation_time : MIN_ST, false);
+                    return;
+                }
+                if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->unsubscribe(this); }
+                source_context = new_source_context;
+                if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->subscribe(this); }
+                initialised = false;
+                refresh(evaluation_time != MIN_DT ? evaluation_time : MIN_ST, true);
+            }
+
+            void notify(engine_time_t modified_time) override { refresh(modified_time, false); }
+
+            void refresh(engine_time_t evaluation_time, bool initialise) {
+                bool next_value = !item.has_value();
+
+                try {
+                    TSOutputView source_view = output_view_from_context(source_context, evaluation_time);
+                    if (source_view.valid()) {
+                        next_value =
+                            item.has_value() ? source_view.value().as_set().contains(item->view()) : source_view.as_set().empty();
+                    }
+                } catch (...) { next_value = !item.has_value(); }
+
+                if (initialised && next_value == current_value) { return; }
+
+                TSOutputView output_view = output.view(evaluation_time);
+                output_view.value().as_atomic().set(next_value);
+                current_value = next_value;
+                initialised   = true;
+                if (evaluation_time != MIN_DT || initialise) { mark_output_view_modified(output_view, evaluation_time); }
+            }
+
+            TSOutput             output;
+            LinkedTSContext      source_context;
+            std::optional<Value> item;
+            bool                 current_value{false};
+            bool                 initialised{false};
+        };
+
+        struct DerivedKeySetOutput final : Notifiable
+        {
+            explicit DerivedKeySetOutput(const LinkedTSContext &source_context_, engine_time_t initial_time)
+                : output([&]() -> TSOutput {
+                      if (source_context_.schema == nullptr || source_context_.schema->kind != TSKind::TSD ||
+                          source_context_.schema->key_type() == nullptr) {
+                          throw std::logic_error(fmt::format("DerivedKeySetOutput requires a rooted TSD source schema, got {}",
+                                                             schema_debug_name(source_context_.schema)));
+                      }
+                      return TSOutputBuilderFactory::checked_builder_for(
+                                 TSTypeRegistry::instance().tss(source_context_.schema->key_type()))
+                          .make_output();
+                  }()),
+                  source_context(source_context_) {
+                if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->subscribe(this); }
+                refresh(initial_time != MIN_DT ? initial_time : MIN_ST, true);
+            }
+
+            ~DerivedKeySetOutput() override {
+                if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->unsubscribe(this); }
+            }
+
+            void rebind(const LinkedTSContext &new_source_context, engine_time_t evaluation_time) {
+                if (detail::linked_context_equal(source_context, new_source_context)) {
+                    refresh(evaluation_time != MIN_DT ? evaluation_time : MIN_ST, false);
+                    return;
+                }
+                if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->unsubscribe(this); }
+                source_context = new_source_context;
+                if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->subscribe(this); }
+                last_source_root_state = nullptr;
+                last_source_had_value  = false;
+                refresh(evaluation_time != MIN_DT ? evaluation_time : MIN_ST, true);
+            }
+
+            void notify(engine_time_t modified_time) override { refresh(modified_time, false); }
+
+            void refresh(engine_time_t evaluation_time, bool initialise) {
+                TSOutputView target_root = output.view(evaluation_time);
+                TSOutputView source_root = output_view_from_context(source_context, evaluation_time);
+
+                auto *target_root_state = target_root.context_ref().ts_state;
+                if (target_root_state == nullptr) {
+                    throw std::logic_error("TSOutput key-set feature requires a live target TSS state");
+                }
+
+                auto             target_set  = target_root.value().as_set();
+                bool             set_changed = false;
+                constexpr size_t no_slot     = static_cast<size_t>(-1);
+
+                const BaseState *current_source_root_state =
+                    source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr;
+                TSOutputView source_view              = output_view_from_context(source_context, evaluation_time);
+                const bool   current_source_had_value = source_view.valid() && source_view.value().has_value();
+                const bool   source_rebound           = !initialise && current_source_root_state != last_source_root_state;
+                const bool   source_value_changed     = !initialise && current_source_had_value != last_source_had_value;
+                const bool   full_resync = initialise || source_rebound || source_value_changed || source_view.modified();
+
+                const View source_value = source_view.value();
+                if (!current_source_had_value) {
+                    auto mutation          = target_set.begin_mutation(evaluation_time);
+                    auto remove_target_key = [&](const View &key) { set_changed = mutation.remove(key) || set_changed; };
+                    if (full_resync) {
+                        std::vector<Value> stale_keys;
+                        for (const View &key : target_set.values()) { stale_keys.emplace_back(key.clone()); }
+                        for (const auto &key : stale_keys) { remove_target_key(key.view()); }
+                    }
+
+                    last_source_root_state = current_source_root_state;
+                    last_source_had_value  = false;
+                    if (set_changed) { mark_output_view_modified(target_root, evaluation_time); }
+                    return;
+                }
+
+                const auto source_map   = source_value.as_map();
+                const auto source_delta = source_map.delta();
+                if (initialise) {
+                    std::vector<Value> removed_keys;
+                    for (size_t slot = source_delta.first_removed_slot(); slot != no_slot;
+                         slot        = source_delta.next_removed_slot(slot)) {
+                        removed_keys.emplace_back(source_delta.key_at_slot(slot).clone());
+                    }
+                    if (!removed_keys.empty()) {
+                        {
+                            auto seed_mutation = target_set.begin_mutation(evaluation_time);
+                            for (const auto &key : removed_keys) { static_cast<void>(seed_mutation.add(key.view())); }
+                        }
+                        target_set.clear_delta_tracking();
+                    }
+                }
+
+                auto mutation          = target_set.begin_mutation(evaluation_time);
+                auto remove_target_key = [&](const View &key) { set_changed = mutation.remove(key) || set_changed; };
+
+                if (full_resync) {
+                    std::vector<Value> stale_keys;
+                    for (const View &key : target_set.values()) {
+                        if (!source_map.contains(key)) { stale_keys.emplace_back(key.clone()); }
+                    }
+                    for (const auto &key : stale_keys) { remove_target_key(key.view()); }
+
+                    for (size_t slot = source_map.first_live_slot(); slot != no_slot; slot = source_map.next_live_slot(slot)) {
+                        set_changed = mutation.add(source_map.delta().key_at_slot(slot)) || set_changed;
+                    }
+                } else {
+                    for (size_t slot = source_delta.first_removed_slot(); slot != no_slot;
+                         slot        = source_delta.next_removed_slot(slot)) {
+                        remove_target_key(source_delta.key_at_slot(slot));
+                    }
+                    for (size_t slot = source_delta.first_added_slot(); slot != no_slot;
+                         slot        = source_delta.next_added_slot(slot)) {
+                        set_changed = mutation.add(source_delta.key_at_slot(slot)) || set_changed;
+                    }
+                }
+
+                last_source_root_state = current_source_root_state;
+                last_source_had_value  = true;
+                if (initialise || set_changed) { mark_output_view_modified(target_root, evaluation_time); }
+            }
+
+            TSOutput         output;
+            LinkedTSContext  source_context;
+            const BaseState *last_source_root_state{nullptr};
+            bool             last_source_had_value{false};
+        };
+
+        struct ValueKeyHash
+        {
+            using is_transparent = void;
+
+            [[nodiscard]] size_t operator()(const Value &value) const noexcept { return value.hash(); }
+            [[nodiscard]] size_t operator()(const View &value) const noexcept { return value.hash(); }
+        };
+
+        struct ValueKeyEqual
+        {
+            using is_transparent = void;
+
+            [[nodiscard]] bool operator()(const Value &lhs, const Value &rhs) const noexcept { return lhs.equals(rhs); }
+            [[nodiscard]] bool operator()(const Value &lhs, const View &rhs) const noexcept { return lhs.equals(rhs); }
+            [[nodiscard]] bool operator()(const View &lhs, const Value &rhs) const noexcept { return rhs.equals(lhs); }
+            [[nodiscard]] bool operator()(const View &lhs, const View &rhs) const noexcept { return lhs.equals(rhs); }
+        };
+
+        [[nodiscard]] LinkedTSContext feature_source_context(const TSOutputView &view) {
+            const TSViewContext &context = view.context_ref();
+            if (context.is_bound()) {
+                LinkedTSContext source_context{
+                    context.schema,
+                    context.value_dispatch,
+                    context.ts_dispatch,
+                    context.value_data,
+                    context.ts_state,
+                    context.owning_output != nullptr ? context.owning_output : view.owning_output(),
+                    context.output_view_ops != nullptr ? context.output_view_ops : view.output_view_ops(),
+                    context.notification_state != nullptr ? context.notification_state : context.ts_state,
+                    context.pending_dict_child,
+                };
+                if (!source_context.is_bound()) {
+                    throw std::invalid_argument("TSOutputView feature registration requires a resolved output position");
+                }
+                return source_context;
+            }
+
+            const TSViewContext  resolved = context.resolved();
+            const TSViewContext &source   = resolved;
+            LinkedTSContext      source_context{
+                source.schema,
+                source.value_dispatch,
+                source.ts_dispatch,
+                source.value_data,
+                source.ts_state,
+                source.owning_output != nullptr
+                    ? source.owning_output
+                    : (resolved.owning_output != nullptr ? resolved.owning_output : view.owning_output()),
+                source.output_view_ops != nullptr
+                    ? source.output_view_ops
+                    : (resolved.output_view_ops != nullptr ? resolved.output_view_ops : view.output_view_ops()),
+                source.notification_state != nullptr
+                    ? source.notification_state
+                    : (resolved.notification_state != nullptr ? resolved.notification_state : context.notification_state),
+                source.pending_dict_child,
+            };
+            if (!source_context.is_bound()) {
+                throw std::invalid_argument("TSOutputView feature registration requires a resolved output position");
+            }
+            return source_context;
+        }
+
+        struct CollectionFeatureRegistry final : TimeSeriesFeatureRegistry
+        {
+            void rebind_link_source(const LinkedTSContext *source_context, engine_time_t evaluation_time) override {
+                const LinkedTSContext next_source = source_context != nullptr ? *source_context : LinkedTSContext{};
+                if (key_set_output != nullptr) { key_set_output->rebind(next_source, evaluation_time); }
+                if (is_empty_output != nullptr) { is_empty_output->rebind(next_source, evaluation_time); }
+                for (auto &[item, output] : contains_outputs) {
+                    static_cast<void>(item);
+                    if (output != nullptr) { output->rebind(next_source, evaluation_time); }
+                }
+            }
+
+            [[nodiscard]] TSOutputView register_key_set_output(const LinkedTSContext &source_context,
+                                                               engine_time_t          evaluation_time) {
+                if (key_set_output == nullptr) {
+                    key_set_output = std::make_unique<DerivedKeySetOutput>(source_context, evaluation_time);
+                } else {
+                    key_set_output->rebind(source_context, evaluation_time);
+                }
+                return key_set_output->output.view(evaluation_time);
+            }
+
+            [[nodiscard]] TSOutputView register_contains_output(const LinkedTSContext &source_context,
+                                                                engine_time_t evaluation_time, const View &item) {
+                auto it = contains_outputs.find(item);
+                if (it == contains_outputs.end()) {
+                    Value key                = ts_nested_clone(item);
+                    auto [inserted, success] = contains_outputs.emplace(
+                        std::move(key),
+                        std::make_unique<DerivedSetFeatureOutput>(source_context, evaluation_time, ts_nested_clone(item)));
+                    static_cast<void>(success);
+                    it = inserted;
+                } else {
+                    it->second->rebind(source_context, evaluation_time);
+                }
+                return it->second->output.view(evaluation_time);
+            }
+
+            void unregister_contains_output(const View &) const noexcept {}
+
+            [[nodiscard]] TSOutputView register_is_empty_output(const LinkedTSContext &source_context,
+                                                                engine_time_t          evaluation_time) {
+                if (is_empty_output == nullptr) {
+                    is_empty_output = std::make_unique<DerivedSetFeatureOutput>(source_context, evaluation_time);
+                } else {
+                    is_empty_output->rebind(source_context, evaluation_time);
+                }
+                return is_empty_output->output.view(evaluation_time);
+            }
+
+            void unregister_is_empty_output() const noexcept {}
+
+            std::unordered_map<Value, std::unique_ptr<DerivedSetFeatureOutput>, ValueKeyHash, ValueKeyEqual> contains_outputs;
+            std::unique_ptr<DerivedSetFeatureOutput>                                                         is_empty_output;
+            std::unique_ptr<DerivedKeySetOutput>                                                             key_set_output;
+        };
+
+        [[nodiscard]] CollectionFeatureRegistry &ensure_collection_feature_registry(BaseState &state) {
+            if (state.feature_registry == nullptr) { state.feature_registry = std::make_unique<CollectionFeatureRegistry>(); }
+            auto *registry = dynamic_cast<CollectionFeatureRegistry *>(state.feature_registry.get());
+            if (registry == nullptr) { throw std::logic_error("TSOutputView state feature registry has an unexpected type"); }
+            return *registry;
+        }
+
+        void collect_ref_target_states(const TimeSeriesReference &ref, std::unordered_set<BaseState *> &states) noexcept {
+            switch (ref.kind()) {
+                case TimeSeriesReference::Kind::EMPTY: return;
+
+                case TimeSeriesReference::Kind::PEERED:
+                    if (BaseState *state = notification_state_of(ref.target()); state != nullptr) { states.insert(state); }
+                    return;
+
+                case TimeSeriesReference::Kind::NON_PEERED:
+                    for (const auto &item : ref.items()) { collect_ref_target_states(item, states); }
+                    return;
+            }
+        }
+
+        template <typename TState>
+        void initialize_base_state(TState &state, TimeSeriesStateParentPtr parent, size_t index,
+                                   engine_time_t modified_time = MIN_DT,
+                                   TSStorageKind storage_kind  = TSStorageKind::Native) noexcept {
+            state.parent             = parent;
+            state.index              = index;
+            state.last_modified_time = modified_time;
+            state.storage_kind       = storage_kind;
+            state.subscribers.clear();
+        }
+
+        template <typename TCollectionState>
+        void install_target_link(TCollectionState &parent_state, size_t slot, LinkedTSContext target,
+                                 const char *origin = "unknown") {
+            if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
+                std::fprintf(stderr, "install_target_link origin=%s slot=%zu target_schema_kind=%d target_state=%p\n", origin, slot,
+                             target.schema != nullptr ? static_cast<int>(target.schema->kind) : -1,
+                             static_cast<void *>(target.ts_state));
+            }
+            auto  link_state  = std::make_unique<TimeSeriesStateV>();
+            auto &typed_state = link_state->template emplace<TargetLinkState>();
+            initialize_base_state(typed_state, parent_ptr(parent_state), slot,
+                                  target.ts_state != nullptr ? target.ts_state->last_modified_time : MIN_DT,
+                                  TSStorageKind::TargetLink);
+            typed_state.target.clear();
+            typed_state.scheduling_notifier.set_target(nullptr);
+            typed_state.set_target(std::move(target));
+            parent_state.child_states[slot] = std::move(link_state);
+        }
+
+        void initialize_ref_link_state(RefLinkState &state, TimeSeriesStateParentPtr parent, size_t index,
+                                       engine_time_t modified_time = MIN_DT) noexcept {
+            initialize_base_state(state, parent, index, modified_time, TSStorageKind::RefLink);
+            state.source.clear();
+            initialize_base_state(state.bound_link, static_cast<TSOutput *>(nullptr), 0, MIN_DT, TSStorageKind::TargetLink);
+            state.bound_link.target.clear();
+            state.bound_link.scheduling_notifier.set_target(nullptr);
+            state.retain_transition_value = true;
+        }
+
+        template <typename TCollectionState>
+        void install_ref_link(TCollectionState &parent_state, size_t slot, LinkedTSContext ref_source) {
+            auto  link_state  = std::make_unique<TimeSeriesStateV>();
+            auto &typed_state = link_state->template emplace<RefLinkState>();
+            initialize_ref_link_state(typed_state, parent_ptr(parent_state), slot);
+            typed_state.set_source(std::move(ref_source));
+            parent_state.child_states[slot] = std::move(link_state);
+        }
+
+        [[nodiscard]] bool supports_alternative_cast(const TSMeta &source_schema, const TSMeta &target_schema) {
+            if (&source_schema == &target_schema) { return true; }
+
+            // The two schema-changing cases supported so far are:
+            // - TS  -> REF : wrap as a TimeSeriesReference value
+            // - REF -> TS  : dereference through RefLinkState
+            if (target_schema.kind == TSKind::REF) {
+                const TSMeta *target_element = target_schema.element_ts();
+                return target_element != nullptr && supports_alternative_cast(source_schema, *target_element);
+            }
+            if (target_schema.kind == TSKind::SIGNAL) { return source_schema.kind != TSKind::SIGNAL; }
+            if (source_schema.kind == TSKind::TSD && target_schema.kind == TSKind::TSS) {
+                return TSTypeRegistry::instance().tss(source_schema.key_type()) == &target_schema;
+            }
+            if (source_schema.kind == TSKind::REF) {
+                return source_schema.element_ts() == &target_schema ||
+                       supports_alternative_cast(*source_schema.element_ts(), target_schema);
+            }
+
+            if (source_schema.kind == TSKind::TSValue && target_schema.kind == TSKind::TSValue) { return true; }
+
+            if (source_schema.kind != target_schema.kind) { return false; }
+
+            switch (source_schema.kind) {
+                case TSKind::TSB:
+                    if (source_schema.field_count() != target_schema.field_count()) { return false; }
+                    for (size_t i = 0; i < source_schema.field_count(); ++i) {
+                        const auto &source_field = source_schema.fields()[i];
+                        const auto &target_field = target_schema.fields()[i];
+                        if (std::string_view{source_field.name} != std::string_view{target_field.name}) { return false; }
+                        if (!supports_alternative_cast(*source_field.ts_type, *target_field.ts_type)) { return false; }
+                    }
+                    return true;
+
+                case TSKind::TSL:
+                    if (source_schema.fixed_size() == 0 || source_schema.fixed_size() != target_schema.fixed_size()) {
+                        return false;
+                    }
+                    return supports_alternative_cast(*source_schema.element_ts(), *target_schema.element_ts());
+
+                case TSKind::TSD:
+                    return source_schema.key_type() == target_schema.key_type() &&
+                           supports_alternative_cast(*source_schema.element_ts(), *target_schema.element_ts());
+
+                default: return false;
+            }
+        }
+
+        [[nodiscard]] const TSMeta *child_schema_at(const TSMeta &schema, size_t slot) {
+            switch (schema.kind) {
+                case TSKind::TSB:
+                    if (slot >= schema.field_count()) {
+                        throw std::out_of_range("TSOutput alternative child slot is out of range for TSB");
+                    }
+                    return schema.fields()[slot].ts_type;
+
+                case TSKind::TSL:
+                    if (schema.fixed_size() == 0) {
+                        throw std::invalid_argument("TSOutput alternatives do not yet support dynamic TSL path prefixes");
+                    }
+                    if (slot >= schema.fixed_size()) {
+                        throw std::out_of_range("TSOutput alternative child slot is out of range for TSL");
+                    }
+                    return schema.element_ts();
+
+                case TSKind::TSD: return schema.element_ts();
+
+                default:
+                    throw std::invalid_argument("TSOutput alternative child navigation only supports TSB, fixed-size TSL, and TSD");
+            }
+        }
+
+        [[nodiscard]] BaseState *base_state_of(TimeSeriesStateV &state) noexcept {
+            return std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, state);
+        }
+
+        [[nodiscard]] const BaseState *parent_collection_of(const BaseState *state) noexcept {
+            if (state == nullptr) { return nullptr; }
+            if (state->storage_kind == TSStorageKind::Destroyed) { return nullptr; }
+            if (state->parent && state->parent.tag() >= TimeSeriesStateParentPtr::alternative_count) { return nullptr; }
+
+            const BaseState *parent_state = nullptr;
+            hgraph::visit(
+                state->parent,
+                [&](const auto *parent) {
+                    using T = std::remove_pointer_t<decltype(parent)>;
+                    if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState>) {
+                        parent_state = parent;
+                    }
+                },
+                [] {});
+            return parent_state;
+        }
+
+        [[nodiscard]] bool is_descendant_state(const BaseState *state, const BaseState *ancestor) noexcept {
+            for (auto *current = state; current != nullptr; current = parent_collection_of(current)) {
+                if (current == ancestor) { return true; }
+                if (current->storage_kind == TSStorageKind::Destroyed) { return true; }
+                if (current->parent && current->parent.tag() >= TimeSeriesStateParentPtr::alternative_count) { return true; }
+            }
+            return false;
+        }
+
+        template <typename TContext>
+        [[nodiscard]] bool context_references_subtree(const TContext &context, const BaseState *subtree_root) noexcept {
+            if (subtree_root == nullptr) { return false; }
+            return (context.ts_state != nullptr && is_descendant_state(context.ts_state, subtree_root)) ||
+                   (context.notification_state != nullptr && is_descendant_state(context.notification_state, subtree_root)) ||
+                   (context.pending_dict_child.parent_ts_state != nullptr &&
+                    is_descendant_state(context.pending_dict_child.parent_ts_state, subtree_root)) ||
+                   (context.pending_dict_child.parent_notification_state != nullptr &&
+                    is_descendant_state(context.pending_dict_child.parent_notification_state, subtree_root));
+        }
+
+        [[nodiscard]] bool find_state_path(const BaseState *state, const TSMeta *schema, const BaseState *target, TSPath &path) {
+            if (state == nullptr || schema == nullptr) { return false; }
+            if (state == target) { return true; }
+
+            switch (schema->kind) {
+                case TSKind::TSB:
+                    {
+                        if (state->storage_kind != TSStorageKind::Native) { return false; }
+                        const auto &bundle_state = *static_cast<const TSBState *>(state);
+                        for (size_t i = 0; i < bundle_state.child_states.size(); ++i) {
+                            const auto &child = bundle_state.child_states[i];
+                            if (!child) { continue; }
+                            path.push_back(i);
+                            if (find_state_path(base_state_of(*child), child_schema_at(*schema, i), target, path)) { return true; }
+                            path.pop_back();
+                        }
+                        return false;
+                    }
+
+                case TSKind::TSL:
+                    {
+                        if (state->storage_kind != TSStorageKind::Native) { return false; }
+                        const auto &list_state = *static_cast<const TSLState *>(state);
+                        for (size_t i = 0; i < list_state.child_states.size(); ++i) {
+                            const auto &child = list_state.child_states[i];
+                            if (!child) { continue; }
+                            path.push_back(i);
+                            if (find_state_path(base_state_of(*child), child_schema_at(*schema, i), target, path)) { return true; }
+                            path.pop_back();
+                        }
+                        return false;
+                    }
+
+                case TSKind::TSD:
+                    {
+                        if (state->storage_kind != TSStorageKind::Native) { return false; }
+                        const auto &dict_state = *static_cast<const TSDState *>(state);
+                        for (size_t i = 0; i < dict_state.child_states.size(); ++i) {
+                            const auto &child = dict_state.child_states[i];
+                            if (!child) { continue; }
+                            path.push_back(i);
+                            if (find_state_path(base_state_of(*child), child_schema_at(*schema, i), target, path)) { return true; }
+                            path.pop_back();
+                        }
+                        return false;
+                    }
+
+                default: return false;
+            }
+        }
+
+        [[nodiscard]] const TSMeta *replace_schema_at_path(const TSMeta &source_schema, const TSPath &path, size_t depth,
+                                                           const TSMeta &replacement_schema) {
+            if (depth == path.size()) { return &replacement_schema; }
+
+            const size_t slot     = path[depth];
+            auto        &registry = TSTypeRegistry::instance();
+
+            switch (source_schema.kind) {
+                case TSKind::TSB:
+                    {
+                        if (slot >= source_schema.field_count()) {
+                            throw std::out_of_range("TSOutput alternative replacement path is out of range for TSB");
+                        }
+
+                        const TSMeta *updated_child =
+                            replace_schema_at_path(*source_schema.fields()[slot].ts_type, path, depth + 1, replacement_schema);
+                        if (updated_child == source_schema.fields()[slot].ts_type) { return &source_schema; }
+
+                        std::vector<std::pair<std::string, const TSMeta *>> fields;
+                        fields.reserve(source_schema.field_count());
+                        for (size_t i = 0; i < source_schema.field_count(); ++i) {
+                            fields.emplace_back(source_schema.fields()[i].name,
+                                                i == slot ? updated_child : source_schema.fields()[i].ts_type);
+                        }
+
+                        return registry.tsb(fields, source_schema.bundle_name() != nullptr ? source_schema.bundle_name() : "",
+                                            source_schema.python_type());
+                    }
+
+                case TSKind::TSL:
+                    {
+                        if (source_schema.fixed_size() == 0) {
+                            throw std::invalid_argument("TSOutput alternatives do not yet support dynamic TSL path prefixes");
+                        }
+                        if (slot >= source_schema.fixed_size()) {
+                            throw std::out_of_range("TSOutput alternative replacement path is out of range for TSL");
+                        }
+
+                        const TSMeta *updated_child =
+                            replace_schema_at_path(*source_schema.element_ts(), path, depth + 1, replacement_schema);
+                        return updated_child == source_schema.element_ts()
+                                   ? &source_schema
+                                   : registry.tsl(updated_child, source_schema.fixed_size());
+                    }
+
+                case TSKind::TSD:
+                    {
+                        const TSMeta *updated_child =
+                            replace_schema_at_path(*source_schema.element_ts(), path, depth + 1, replacement_schema);
+                        return updated_child == source_schema.element_ts() ? &source_schema
+                                                                           : registry.tsd(source_schema.key_type(), updated_child);
+                    }
+
+                default:
+                    throw std::invalid_argument("TSOutput alternative replacement paths only support TSB, fixed-size TSL, and TSD");
+            }
+        }
+
+        [[nodiscard]] std::vector<Value> capture_dict_traversal_keys(const TSOutputView &view, const TSMeta *schema,
+                                                                     const TSPath &path) {
+            std::vector<Value> dict_keys;
+            dict_keys.reserve(path.size());
+
+            TSOutputView  current_view   = view;
+            const TSMeta *current_schema = schema;
+            for (const size_t slot : path) {
+                dict_keys.emplace_back();
+                if (current_schema == nullptr) { throw std::invalid_argument("TSOutput alternative traversal requires a schema"); }
+
+                switch (current_schema->kind) {
+                    case TSKind::TSB: current_view = current_view.as_bundle()[slot]; break;
+
+                    case TSKind::TSL: current_view = current_view.as_list()[slot]; break;
+
+                    case TSKind::TSD:
+                        {
+                            const auto delta = current_view.value().as_map().delta();
+                            if (slot >= delta.slot_capacity() || !delta.slot_occupied(slot) || delta.slot_removed(slot)) {
+                                throw std::out_of_range("TSOutput alternative traversal slot is not live for TSD");
+                            }
+                            dict_keys.back() = delta.key_at_slot(slot).clone();
+                            current_view     = detail::ensure_dict_child_output_view(current_view, dict_keys.back().view());
+                            break;
+                        }
+
+                    default:
+                        throw std::invalid_argument("TSOutput alternative traversal only supports TSB, fixed-size TSL, and TSD");
+                }
+
+                current_schema = child_schema_at(*current_schema, slot);
+            }
+
+            return dict_keys;
+        }
+
+        [[nodiscard]] TSOutputView traverse_output_path(TSOutputView view, const TSMeta *schema, const TSPath &path,
+                                                        std::span<const Value> dict_keys = {}) {
+            const TSMeta *current_schema = schema;
+            for (size_t depth = 0; depth < path.size(); ++depth) {
+                const size_t slot = path[depth];
+                if (current_schema == nullptr) { throw std::invalid_argument("TSOutput alternative traversal requires a schema"); }
+
+                switch (current_schema->kind) {
+                    case TSKind::TSB: view = view.as_bundle()[slot]; break;
+
+                    case TSKind::TSL: view = view.as_list()[slot]; break;
+
+                    case TSKind::TSD:
+                        {
+                            if (depth >= dict_keys.size() || !dict_keys[depth].has_value()) {
+                                throw std::out_of_range("TSOutput alternative traversal key is missing for TSD");
+                            }
+                            view = detail::ensure_dict_child_output_view(view, dict_keys[depth].view());
+                            break;
+                        }
+
+                    default:
+                        throw std::invalid_argument("TSOutput alternative traversal only supports TSB, fixed-size TSL, and TSD");
+                }
+
+                current_schema = child_schema_at(*current_schema, slot);
+            }
+
+            return view;
+        }
+
+    }  // namespace
+
+    namespace detail
+    {
+        namespace
+        {
+            [[nodiscard]] LinkedTSContext stable_output_context(const TSOutputView &view) noexcept {
+                const TSViewContext &context = view.context_ref();
+                if (context.is_bound()) {
+                    return LinkedTSContext{
+                        context.schema,
+                        context.value_dispatch,
+                        context.ts_dispatch,
+                        context.value_data,
+                        context.ts_state,
+                        context.owning_output != nullptr ? context.owning_output : view.owning_output(),
+                        context.output_view_ops != nullptr ? context.output_view_ops : view.output_view_ops(),
+                        context.notification_state != nullptr ? context.notification_state : context.ts_state,
+                        context.pending_dict_child,
+                    };
+                }
+
+                const TSViewContext resolved = context.resolved();
+                if (!resolved.is_bound()) { return {}; }
+
+                return LinkedTSContext{
+                    resolved.schema,
+                    resolved.value_dispatch,
+                    resolved.ts_dispatch,
+                    resolved.value_data,
+                    resolved.ts_state,
+                    resolved.owning_output != nullptr ? resolved.owning_output : view.owning_output(),
+                    resolved.output_view_ops != nullptr ? resolved.output_view_ops : view.output_view_ops(),
+                    resolved.notification_state != nullptr ? resolved.notification_state : resolved.ts_state,
+                    resolved.pending_dict_child,
+                };
+            }
+
+            struct DefaultTSOutputViewOps final : TSOutputViewOps
+            {
+                [[nodiscard]] LinkedTSContext linked_context(const TSOutputView &view) const noexcept override {
+                    const TSViewContext &context          = view.context_ref();
+                    const bool           has_live_context = context.is_bound() && context.schema != nullptr &&
+                                                            context.value_dispatch != nullptr && context.ts_dispatch != nullptr;
+                    const TSViewContext  resolved         = has_live_context ? TSViewContext{} : context.resolved();
+                    const TSViewContext &source           = has_live_context ? context : resolved;
+                    return LinkedTSContext{
+                        source.schema,
+                        source.value_dispatch,
+                        source.ts_dispatch,
+                        source.value_data,
+                        source.ts_state,
+                        source.owning_output != nullptr ? source.owning_output : view.owning_output(),
+                        source.output_view_ops != nullptr ? source.output_view_ops : view.output_view_ops(),
+                        source.notification_state != nullptr ? source.notification_state : source.ts_state,
+                        source.pending_dict_child,
+                    };
+                }
+            };
+
+        }  // namespace
+
+        TSOutputView output_view_from_pending_dict_child(const PendingDictChildContext &context, engine_time_t evaluation_time) {
+            return pending_dict_parent_output_view(context, evaluation_time);
+        }
+
+        LinkedTSContext resolve_pending_dict_child_context(const LinkedTSContext &context) noexcept {
+            if (!context.pending_dict_child.active()) { return context; }
+
+            TSOutputView          parent   = output_view_from_pending_dict_child(context.pending_dict_child, MIN_DT);
+            TSOutputView          child    = ensure_dict_child_output_view(parent, context.pending_dict_child.key.view());
+            const LinkedTSContext resolved = child.linked_context();
+            return resolved.is_bound() ? resolved : context;
+        }
+
+        const TSOutputViewOps &default_output_view_ops() noexcept {
+            static DefaultTSOutputViewOps ops;
+            return ops;
+        }
+
+        TSOutputView make_missing_dict_child_output_view(const TSOutputView &view, const View &key) {
+            const TSMeta *schema       = view.ts_schema();
+            const TSMeta *child_schema = schema != nullptr ? schema->element_ts() : nullptr;
+            if (child_schema == nullptr) {
+                return view.make_child_view_impl(TSViewContext::none(), view.context_ref(), view.evaluation_time());
+            }
+
+            TSViewContext child_context;
+            child_context.schema             = child_schema;
+            child_context.pending_dict_child = PendingDictChildContext{
+                view.context_ref().schema,
+                view.context_ref().value_dispatch,
+                view.context_ref().ts_dispatch,
+                view.context_ref().value_data,
+                view.context_ref().ts_state,
+                view.context_ref().owning_output != nullptr ? view.context_ref().owning_output : view.owning_output(),
+                view.context_ref().output_view_ops != nullptr ? view.context_ref().output_view_ops : view.output_view_ops(),
+                view.context_ref().notification_state != nullptr ? view.context_ref().notification_state
+                                                                 : view.context_ref().ts_state,
+                key.clone(),
+            };
+            return view.make_child_view_impl(child_context, view.context_ref(), view.evaluation_time());
+        }
+
+        TSOutputView ensure_dict_child_output_view(const TSOutputView &view, const View &key) {
+            const TSViewContext &context           = view.context_ref();
+            const auto           has_child_context = [](const TSViewContext &child) noexcept {
+                return child.schema != nullptr && child.value_dispatch != nullptr && child.ts_dispatch != nullptr &&
+                       child.value_data != nullptr;
+            };
+            if (!key.has_value()) { return view.make_child_view_impl(TSViewContext::none(), context, view.evaluation_time()); }
+
+            const bool has_live_context   = context.is_bound() && context.schema != nullptr && context.value_dispatch != nullptr &&
+                                            context.ts_dispatch != nullptr;
+            const TSViewContext  resolved = has_live_context ? TSViewContext{} : context.resolved();
+            const TSViewContext &source_context = has_live_context ? context : resolved;
+            const auto *collection = source_context.ts_dispatch != nullptr ? source_context.ts_dispatch->as_collection() : nullptr;
+            const auto *key_dispatch = collection != nullptr ? collection->as_keys() : nullptr;
+            if (key_dispatch == nullptr) {
+                return view.make_child_view_impl(TSViewContext::none(), context, view.evaluation_time());
+            }
+
+            TSDState *state = nullptr;
+            if (source_context.ts_state != nullptr && source_context.schema != nullptr &&
+                source_context.schema->kind == TSKind::TSD) {
+                BaseState *resolved_state = source_context.ts_state->resolved_state();
+                if (resolved_state != nullptr && resolved_state->storage_kind == TSStorageKind::Native) {
+                    state = static_cast<TSDState *>(resolved_state);
+                    if (source_context.value_dispatch != nullptr && source_context.value_data != nullptr &&
+                        source_context.schema->element_ts() != nullptr) {
+                        state->bind_value_storage(*source_context.schema->element_ts(),
+                                                  static_cast<const detail::MapViewDispatch &>(*source_context.value_dispatch),
+                                                  source_context.value_data);
+                    }
+                }
+            }
+
+            size_t slot = static_cast<size_t>(-1);
+            if (state != nullptr && state->map_dispatch != nullptr && state->map_value_data != nullptr) {
+                slot = state->map_dispatch->find(state->map_value_data, detail::ViewAccess::data(key));
+                if (slot != static_cast<size_t>(-1) && (!state->map_dispatch->slot_occupied(state->map_value_data, slot) ||
+                                                        state->map_dispatch->slot_removed(state->map_value_data, slot))) {
+                    slot = static_cast<size_t>(-1);
+                }
+            }
+
+            if (slot == static_cast<size_t>(-1)) {
+                const auto *effective_output_ops =
+                    source_context.output_view_ops != nullptr ? source_context.output_view_ops : view.output_view_ops();
+                const bool custom_output_ops =
+                    effective_output_ops != nullptr && effective_output_ops != &detail::default_output_view_ops();
+                if (source_context.ts_state != nullptr && custom_output_ops) {
+                    return make_missing_dict_child_output_view(view, key);
+                }
+
+                if (!view.value().has_value()) {
+                    return view.make_child_view_impl(TSViewContext::none(), context, view.evaluation_time());
+                }
+
+                const MapView map = view.value().as_map();
+                if (key.schema() != map.key_schema()) {
+                    return view.make_child_view_impl(TSViewContext::none(), context, view.evaluation_time());
+                }
+                slot = map.find_slot(key);
+                if (slot == static_cast<size_t>(-1)) {
+                    return view.make_child_view_impl(TSViewContext::none(), context, view.evaluation_time());
+                }
+            }
+
+            TSViewContext lookup_context = source_context;
+            if (state != nullptr) {
+                lookup_context.value_dispatch = nullptr;
+                lookup_context.value_data     = nullptr;
+            }
+
+            TSViewContext child = key_dispatch->child_at(lookup_context, slot);
+            if (child.ts_state != nullptr || child.is_bound()) {
+                return view.make_child_view_impl(child, lookup_context, view.evaluation_time());
+            }
+
+            if (state != nullptr) {
+                state->on_insert(slot);
+                child = key_dispatch->child_at(lookup_context, slot);
+                if (child.ts_state != nullptr || child.is_bound()) {
+                    return view.make_child_view_impl(child, lookup_context, view.evaluation_time());
+                }
+            }
+
+            if (has_child_context(child)) { return view.make_child_view_impl(child, lookup_context, view.evaluation_time()); }
+
+            return make_missing_dict_child_output_view(view, key);
+        }
+    }  // namespace detail
+
+    struct TSOutput::AlternativeOutput final : TSValue, Notifiable
+    {
+        struct ViewOps final : detail::TSOutputViewOps
+        {
+            explicit ViewOps(AlternativeOutput *owner_) noexcept : owner(owner_) {}
+
+            [[nodiscard]] LinkedTSContext linked_context(const TSOutputView &view) const noexcept override {
+                const TSViewContext &context = view.context_ref();
+                if (owner != nullptr) {
+                    for (const auto &binding : owner->m_dynamic_dict_bindings) {
+                        if (binding != nullptr && binding->target_context.ts_state == context.ts_state &&
+                            binding->source_context.ts_state != nullptr) {
+                            return LinkedTSContext{
+                                context.schema,
+                                context.value_dispatch,
+                                context.ts_dispatch,
+                                context.value_data,
+                                context.ts_state,
+                                view.owning_output(),
+                                view.output_view_ops(),
+                                notification_state_of(binding->source_context),
+                                context.pending_dict_child,
+                            };
+                        }
+                    }
+                    for (const auto &binding : owner->m_dynamic_key_set_bindings) {
+                        if (binding != nullptr && binding->target_context.ts_state == context.ts_state &&
+                            binding->source_context.ts_state != nullptr) {
+                            return LinkedTSContext{
+                                context.schema,
+                                context.value_dispatch,
+                                context.ts_dispatch,
+                                context.value_data,
+                                context.ts_state,
+                                view.owning_output(),
+                                view.output_view_ops(),
+                                notification_state_of(binding->source_context),
+                                context.pending_dict_child,
+                            };
+                        }
+                    }
+                    for (const auto &binding : owner->m_collection_ref_bindings) {
+                        if (binding != nullptr && binding->target_context.ts_state == context.ts_state &&
+                            binding->source_context.ts_state != nullptr) {
+                            return LinkedTSContext{
+                                context.schema,
+                                context.value_dispatch,
+                                context.ts_dispatch,
+                                context.value_data,
+                                context.ts_state,
+                                view.owning_output(),
+                                view.output_view_ops(),
+                                notification_state_of(binding->source_context),
+                                context.pending_dict_child,
+                            };
+                        }
+                    }
+                }
+                return LinkedTSContext{
+                    context.schema,         context.value_dispatch,     context.ts_dispatch,
+                    context.value_data,     context.ts_state,           view.owning_output(),
+                    view.output_view_ops(), context.notification_state, context.pending_dict_child,
+                };
+            }
+
+            void before_dict_key_erased(const TSOutputView &view, size_t slot) const noexcept override {
+                if (owner == nullptr) { return; }
+                const TSViewContext &context = view.context_ref();
+                if (context.schema == nullptr || context.schema->kind != TSKind::TSD || context.ts_state == nullptr ||
+                    context.ts_state->storage_kind != TSStorageKind::Native) {
+                    return;
+                }
+                owner->release_dynamic_child_slot_bindings(*static_cast<TSDState *>(context.ts_state), slot);
+            }
+
+            AlternativeOutput *owner{nullptr};
+        };
+
+        struct WrappedRefNotifier final : Notifiable
+        {
+            explicit WrappedRefNotifier(BaseState *target_state_) noexcept : target_state(target_state_) {
+                register_target_invalidator();
+            }
+
+            WrappedRefNotifier(AlternativeOutput *owner_, TSViewContext target_context_, LinkedTSContext source_context_) noexcept
+                : owner(owner_), target_state(target_context_.ts_state), target_context(std::move(target_context_)),
+                  source_context(std::move(source_context_)), refresh_wrapped_ref(true) {
+                register_target_invalidator();
+            }
+
+            ~WrappedRefNotifier() override {
+                unsubscribe_source();
+                unregister_target_invalidator();
+            }
+
+            WrappedRefNotifier(const WrappedRefNotifier &)            = delete;
+            WrappedRefNotifier &operator=(const WrappedRefNotifier &) = delete;
+            WrappedRefNotifier(WrappedRefNotifier &&)                 = delete;
+            WrappedRefNotifier &operator=(WrappedRefNotifier &&)      = delete;
+
+            void notify(engine_time_t modified_time) override {
+                if (refresh_wrapped_ref && owner != nullptr && target_context.ts_state != nullptr && source_context.is_bound()) {
+                    owner->refresh_wrapped_ref(target_context, source_context, modified_time);
+                    return;
+                }
+
+                if (target_state != nullptr) { target_state->mark_modified(modified_time); }
+            }
+
+            void subscribe_source(BaseState *state) noexcept {
+                unsubscribe_source();
+                source_state = state;
+                if (source_state == nullptr || source_state->storage_kind == TSStorageKind::Destroyed) {
+                    source_state = nullptr;
+                    return;
+                }
+
+                source_invalidator.owner      = this;
+                source_invalidator.invalidate = &WrappedRefNotifier::invalidate_source_context;
+                source_invalidator.rebind     = &WrappedRefNotifier::rebind_contexts;
+                source_state->register_state_invalidator(&source_invalidator);
+                source_state->subscribe(this);
+            }
+
+            void unsubscribe_source() noexcept {
+                if (!source_invalidator.state_destroyed && source_state != nullptr &&
+                    source_state->storage_kind != TSStorageKind::Destroyed) {
+                    source_state->unsubscribe(this);
+                    source_state->unregister_state_invalidator(&source_invalidator);
+                }
+                source_state                  = nullptr;
+                source_invalidator.owner      = nullptr;
+                source_invalidator.invalidate = nullptr;
+                source_invalidator.rebind     = nullptr;
+            }
+
+            void register_target_invalidator() noexcept {
+                target_invalidator.owner      = this;
+                target_invalidator.invalidate = &WrappedRefNotifier::invalidate_target_context;
+                target_invalidator.rebind     = &WrappedRefNotifier::rebind_contexts;
+                if (target_state != nullptr && target_state->storage_kind != TSStorageKind::Destroyed) {
+                    target_state->register_state_invalidator(&target_invalidator);
+                }
+            }
+
+            void unregister_target_invalidator() noexcept {
+                if (!target_invalidator.state_destroyed && target_state != nullptr &&
+                    target_state->storage_kind != TSStorageKind::Destroyed) {
+                    target_state->unregister_state_invalidator(&target_invalidator);
+                }
+                target_invalidator.owner      = nullptr;
+                target_invalidator.invalidate = nullptr;
+                target_invalidator.rebind     = nullptr;
+            }
+
+            static void invalidate_target_context(void *owner_) noexcept {
+                auto *notifier = static_cast<WrappedRefNotifier *>(owner_);
+                if (notifier == nullptr) { return; }
+                notifier->target_state = nullptr;
+                notifier->target_context.clear();
+                notifier->source_context      = {};
+                notifier->owner               = nullptr;
+                notifier->refresh_wrapped_ref = false;
+            }
+
+            static void invalidate_source_context(void *owner_) noexcept {
+                auto *notifier = static_cast<WrappedRefNotifier *>(owner_);
+                if (notifier == nullptr) { return; }
+                notifier->source_state        = nullptr;
+                notifier->source_context      = {};
+                notifier->owner               = nullptr;
+                notifier->refresh_wrapped_ref = false;
+            }
+
+            static void rebind_contexts(void *owner_, BaseState *old_state, BaseState *new_state) noexcept {
+                auto *notifier = static_cast<WrappedRefNotifier *>(owner_);
+                if (notifier == nullptr) { return; }
+                if (notifier->target_state == old_state) { notifier->target_state = new_state; }
+                if (notifier->source_state == old_state) { notifier->source_state = new_state; }
+                rebind_context_state(notifier->target_context, old_state, new_state);
+                rebind_context_state(notifier->source_context, old_state, new_state);
+            }
+
+            AlternativeOutput *owner{nullptr};
+            BaseState         *target_state{nullptr};
+            BaseState         *source_state{nullptr};
+            TSViewContext      target_context{TSViewContext::none()};
+            LinkedTSContext    source_context{};
+            StateInvalidator   target_invalidator{};
+            StateInvalidator   source_invalidator{};
+            bool               refresh_wrapped_ref{false};
+        };
+
+        AlternativeOutput(const TSOutputView &source, const TSMeta &schema)
+            : TSValue(schema), m_root_source_context(detail::stable_output_context(source)) {
+            const TSMeta *source_schema = source.ts_schema();
+            if (source_schema == nullptr || !supports_alternative_cast(*source_schema, schema)) {
+                throw std::invalid_argument("TSOutput alternative does not support the requested wrap cast");
+            }
+
+            configure_branch(view(nullptr), source);
+        }
+
+        ~AlternativeOutput() override {
+            for (auto &binding : m_dynamic_dict_bindings) {
+                if (binding != nullptr) { unsubscribe_dynamic_dict_binding(*binding); }
+            }
+            for (auto &binding : m_scalar_value_bindings) {
+                if (binding != nullptr) {
+                    if (BaseState *source_state = notification_state_of(binding->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&binding->source_notifier);
+                    }
+                }
+            }
+            for (auto &binding : m_dynamic_key_set_bindings) {
+                if (binding != nullptr) {
+                    if (BaseState *source_state = notification_state_of(binding->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&binding->source_notifier);
+                    }
+                }
+            }
+            for (auto &binding : m_collection_ref_bindings) {
+                if (binding != nullptr) {
+                    if (BaseState *source_state = notification_state_of(binding->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&binding->source_notifier);
+                    }
+                    for (BaseState *target_state : binding->target_subscription_states) {
+                        if (target_state != nullptr) { target_state->unsubscribe(&binding->target_notifier); }
+                    }
+                    binding->target_subscription_states.clear();
+                }
+            }
+            for (auto &subscription : m_wrapped_ref_subscriptions) {
+                if (subscription.notifier) { subscription.notifier->unsubscribe_source(); }
+            }
+        }
+
+        AlternativeOutput(const AlternativeOutput &)            = delete;
+        AlternativeOutput &operator=(const AlternativeOutput &) = delete;
+        AlternativeOutput(AlternativeOutput &&)                 = delete;
+        AlternativeOutput &operator=(AlternativeOutput &&)      = delete;
+
+        [[nodiscard]] TSOutputView view(TSOutput *owning_output, engine_time_t evaluation_time = MIN_DT) {
+            TSViewContext context = view_context();
+            return TSOutputView{context, TSViewContext::none(), evaluation_time, owning_output, &m_view_ops};
+        }
+
+        [[nodiscard]] const LinkedTSContext &root_source_context() const noexcept { return m_root_source_context; }
+
+        [[nodiscard]] TSOutputView bindable_view(TSOutput *owning_output, const TSOutputView &source, const TSMeta *schema) {
+            TSOutputView        root_source = view(owning_output, source.evaluation_time());
+            TSPath              source_path;
+            const TSViewContext source_resolved = source.context_ref().resolved();
+            BaseState          *target_state =
+                source_resolved.ts_state != nullptr ? source_resolved.ts_state : source.context_ref().ts_state;
+            if (target_state != nullptr &&
+                !find_state_path(root_source.context_ref().ts_state, root_source.ts_schema(), target_state, source_path)) {
+                if (std::getenv("HGRAPH_DEBUG_BINDABLE") != nullptr) {
+                    std::fprintf(stderr,
+                                 "bindable reachability fail scope=alternative owner=%p source_schema=%s target_schema=%s "
+                                 "root_state=%p source_state=%p resolved_state=%p bound=%d pending=%d\n",
+                                 static_cast<void *>(owning_output), schema_debug_name(source.ts_schema()).c_str(),
+                                 schema_debug_name(schema).c_str(), static_cast<void *>(root_source.context_ref().ts_state),
+                                 static_cast<void *>(source.context_ref().ts_state), static_cast<void *>(source_resolved.ts_state),
+                                 source.context_ref().is_bound(), source.context_ref().pending_dict_child.active());
+                }
+                TSOutputView detached_source =
+                    output_view_from_context(detail::stable_output_context(source), source.evaluation_time());
+                DetachedAlternativeKey detached_key{target_state, detached_source.ts_schema(), schema};
+                const auto [detached_it, detached_inserted] = m_detached_alternatives.try_emplace(detached_key, nullptr);
+                if (detached_inserted || detached_it->second == nullptr ||
+                    !detail::linked_context_equal(detached_it->second->root_source_context(),
+                                                  detail::stable_output_context(detached_source))) {
+                    detached_it->second.reset(new AlternativeOutput(detached_source, *schema));
+                }
+                return detached_it->second->view(owning_output, source.evaluation_time());
+            }
+
+            const TSMeta *root_source_schema = root_source.ts_schema();
+            if (root_source_schema == nullptr) {
+                throw std::logic_error("TSOutput alternative bindable view requires a rooted source schema");
+            }
+
+            const TSMeta *alternative_schema = replace_schema_at_path(*root_source_schema, source_path, 0, *schema);
+            const auto [it, inserted]        = m_alternatives.try_emplace(alternative_schema, nullptr);
+            if (inserted) { it->second.reset(new AlternativeOutput(root_source, *alternative_schema)); }
+
+            TSOutputView alternative_view = it->second->view(owning_output, source.evaluation_time());
+            const auto   dict_keys        = capture_dict_traversal_keys(root_source, root_source_schema, source_path);
+            return traverse_output_path(alternative_view, alternative_schema, source_path, dict_keys);
+        }
+
+        void notify(engine_time_t modified_time) override {
+            if (m_dynamic_dict_bindings.empty() && m_dynamic_key_set_bindings.empty() && m_collection_ref_bindings.empty()) {
+                if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
+            }
+        }
+
+      private:
+        struct WrappedRefSubscription
+        {
+            std::unique_ptr<WrappedRefNotifier> notifier;
+        };
+
+        struct ScalarValueBinding
+        {
+            struct SourceNotifier final : Notifiable
+            {
+                void notify(engine_time_t modified_time) override {
+                    if (binding != nullptr && binding->owner != nullptr) {
+                        binding->owner->sync_scalar_value(*binding, modified_time, false);
+                    }
+                }
+
+                ScalarValueBinding *binding{nullptr};
+            };
+
+            ScalarValueBinding(AlternativeOutput *owner_, const TSOutputView &target_view, const TSOutputView &source_view) noexcept
+                : owner(owner_), target_context(target_view.context_ref()),
+                  source_context(detail::stable_output_context(source_view)) {
+                source_notifier.binding = this;
+            }
+
+            AlternativeOutput *owner{nullptr};
+            TSViewContext      target_context{TSViewContext::none()};
+            LinkedTSContext    source_context{};
+            SourceNotifier     source_notifier{};
+        };
+
+        struct DynamicDictBinding
+        {
+            struct SourceNotifier final : Notifiable
+            {
+                void notify(engine_time_t modified_time) override {
+                    if (binding != nullptr && binding->owner != nullptr) {
+                        binding->owner->notify_dynamic_dict_source(*binding, modified_time);
+                    }
+                }
+
+                DynamicDictBinding *binding{nullptr};
+            };
+
+            // One binding records "this alternative TSD subtree mirrors that
+            // source TSD subtree". The stored target context stays rooted at
+            // the alternative dict boundary, while source_context identifies
+            // the live producer-side dict we replay from.
+            DynamicDictBinding(AlternativeOutput *owner_, const TSOutputView &target_view, const TSOutputView &source_view) noexcept
+                : owner(owner_), target_context(detail::stable_output_context(target_view)),
+                  source_context(detail::stable_output_context(source_view)) {
+                source_notifier.binding = this;
+                register_target_invalidator();
+                set_last_source_snapshot(source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
+                                         false);
+            }
+
+            DynamicDictBinding(AlternativeOutput *owner_, const TSOutputView &target_view,
+                               std::unique_ptr<TimeSeriesStateV> source_bridge_state_, LinkedTSContext source_context_) noexcept
+                : owner(owner_), target_context(detail::stable_output_context(target_view)),
+                  source_context(std::move(source_context_)), source_bridge_state(std::move(source_bridge_state_)) {
+                source_notifier.binding = this;
+                register_target_invalidator();
+                set_last_source_snapshot(source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
+                                         false);
+            }
+
+            ~DynamicDictBinding() {
+                unsubscribe_source();
+                unregister_target_invalidator();
+            }
+
+            DynamicDictBinding(const DynamicDictBinding &)            = delete;
+            DynamicDictBinding &operator=(const DynamicDictBinding &) = delete;
+            DynamicDictBinding(DynamicDictBinding &&)                 = delete;
+            DynamicDictBinding &operator=(DynamicDictBinding &&)      = delete;
+
+            [[nodiscard]] const BaseState *last_source_root_state() const noexcept { return m_last_source_snapshot.ptr(); }
+            [[nodiscard]] bool             last_source_had_value() const noexcept { return m_last_source_snapshot.tag() != 0; }
+            void                           set_last_source_snapshot(const BaseState *state, bool had_value) noexcept {
+                m_last_source_snapshot.set(state, had_value ? 1u : 0u);
+            }
+
+            void register_target_invalidator() noexcept {
+                target_invalidator.owner           = this;
+                target_invalidator.invalidate      = &DynamicDictBinding::invalidate_target_context;
+                target_invalidator.rebind          = &DynamicDictBinding::rebind_contexts;
+                target_invalidator.state_destroyed = false;
+                if (target_context.ts_state != nullptr && target_context.ts_state->storage_kind != TSStorageKind::Destroyed) {
+                    target_context.ts_state->register_state_invalidator(&target_invalidator);
+                }
+            }
+
+            void unregister_target_invalidator() noexcept {
+                if (!target_invalidator.state_destroyed && target_context.ts_state != nullptr &&
+                    target_context.ts_state->storage_kind != TSStorageKind::Destroyed) {
+                    target_context.ts_state->unregister_state_invalidator(&target_invalidator);
+                }
+                target_invalidator.owner      = nullptr;
+                target_invalidator.invalidate = nullptr;
+                target_invalidator.rebind     = nullptr;
+            }
+
+            void subscribe_source() noexcept {
+                unsubscribe_source();
+                source_state = notification_state_of(source_context);
+                if (source_state == nullptr || source_state->storage_kind == TSStorageKind::Destroyed) {
+                    source_state = nullptr;
+                    return;
+                }
+
+                source_invalidator.owner           = this;
+                source_invalidator.invalidate      = &DynamicDictBinding::invalidate_source_context;
+                source_invalidator.rebind          = &DynamicDictBinding::rebind_contexts;
+                source_invalidator.state_destroyed = false;
+                source_state->register_state_invalidator(&source_invalidator);
+                source_state->subscribe(&source_notifier);
+                source_notifier.binding = this;
+            }
+
+            void unsubscribe_source() noexcept {
+                if (!source_invalidator.state_destroyed && source_state != nullptr &&
+                    source_state->storage_kind != TSStorageKind::Destroyed) {
+                    source_state->unsubscribe(&source_notifier);
+                    source_state->unregister_state_invalidator(&source_invalidator);
+                }
+                source_state                        = nullptr;
+                source_invalidator.owner           = nullptr;
+                source_invalidator.invalidate      = nullptr;
+                source_invalidator.rebind          = nullptr;
+                source_invalidator.state_destroyed = false;
+            }
+
+            void deactivate() noexcept {
+                unsubscribe_source();
+                source_context             = {};
+                source_notifier.binding    = nullptr;
+                owner                      = nullptr;
+                pending_modified_time      = MIN_DT;
+                last_synced_time           = MIN_DT;
+                set_last_source_snapshot(nullptr, false);
+            }
+
+            static void invalidate_target_context(void *owner_) noexcept {
+                auto *binding = static_cast<DynamicDictBinding *>(owner_);
+                if (binding == nullptr) { return; }
+                binding->unsubscribe_source();
+                binding->target_context.clear();
+                binding->pending_modified_time   = MIN_DT;
+                binding->source_notifier.binding = nullptr;
+                binding->owner                   = nullptr;
+            }
+
+            static void invalidate_source_context(void *owner_) noexcept {
+                auto *binding = static_cast<DynamicDictBinding *>(owner_);
+                if (binding == nullptr) { return; }
+                binding->source_state             = nullptr;
+                binding->source_context           = {};
+                binding->pending_modified_time    = MIN_DT;
+                binding->source_notifier.binding  = nullptr;
+                binding->owner                    = nullptr;
+                binding->last_synced_time         = MIN_DT;
+                binding->set_last_source_snapshot(nullptr, false);
+            }
+
+            static void rebind_contexts(void *owner_, BaseState *old_state, BaseState *new_state) noexcept {
+                auto *binding = static_cast<DynamicDictBinding *>(owner_);
+                if (binding == nullptr) { return; }
+                if (binding->source_state == old_state) { binding->source_state = new_state; }
+                rebind_context_state(binding->target_context, old_state, new_state);
+                rebind_context_state(binding->source_context, old_state, new_state);
+                if (binding->last_source_root_state() == old_state) {
+                    binding->set_last_source_snapshot(new_state, binding->last_source_had_value());
+                }
+            }
+
+            AlternativeOutput                *owner{nullptr};
+            LinkedTSContext                   target_context{};
+            LinkedTSContext                   source_context{};
+            std::unique_ptr<TimeSeriesStateV> source_bridge_state{};
+            BaseState                        *source_state{nullptr};
+            tagged_ptr<const BaseState, 1>    m_last_source_snapshot{};
+            engine_time_t                     pending_modified_time{MIN_DT};
+            // Tracks the modified_time of the most recent sync_dynamic_dict run
+            // for this binding. Distinct from `target_root_state->last_modified_time`
+            // because that field can be set eagerly by upstream child_modified
+            // notifications (which propagate before the sync's own body runs and
+            // would otherwise hide the tick transition from sync_dynamic_dict).
+            engine_time_t                     last_synced_time{MIN_DT};
+            StateInvalidator                  target_invalidator{};
+            StateInvalidator                  source_invalidator{};
+            SourceNotifier                    source_notifier{};
+        };
+
+        struct DynamicKeySetBinding
+        {
+            struct SourceNotifier final : Notifiable
+            {
+                void notify(engine_time_t modified_time) override {
+                    if (binding != nullptr && binding->owner != nullptr) {
+                        binding->owner->sync_dynamic_key_set(*binding, modified_time, false);
+                    }
+                }
+
+                DynamicKeySetBinding *binding{nullptr};
+            };
+
+            DynamicKeySetBinding(AlternativeOutput *owner_, const TSOutputView &target_view,
+                                 const TSOutputView &source_view) noexcept
+                : owner(owner_), target_context(detail::stable_output_context(target_view)),
+                  source_context(detail::stable_output_context(source_view)) {
+                source_notifier.binding = this;
+                set_last_source_snapshot(source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
+                                         false);
+            }
+
+            DynamicKeySetBinding(AlternativeOutput *owner_, const TSOutputView &target_view,
+                                 std::unique_ptr<TimeSeriesStateV> source_bridge_state_, LinkedTSContext source_context_) noexcept
+                : owner(owner_), target_context(detail::stable_output_context(target_view)),
+                  source_context(std::move(source_context_)), source_bridge_state(std::move(source_bridge_state_)) {
+                source_notifier.binding = this;
+                set_last_source_snapshot(source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
+                                         false);
+            }
+
+            [[nodiscard]] const BaseState *last_source_root_state() const noexcept { return m_last_source_snapshot.ptr(); }
+            [[nodiscard]] bool             last_source_had_value() const noexcept { return m_last_source_snapshot.tag() != 0; }
+            void                           set_last_source_snapshot(const BaseState *state, bool had_value) noexcept {
+                m_last_source_snapshot.set(state, had_value ? 1u : 0u);
+            }
+
+            AlternativeOutput                *owner{nullptr};
+            LinkedTSContext                   target_context{};
+            LinkedTSContext                   source_context{};
+            std::unique_ptr<TimeSeriesStateV> source_bridge_state{};
+            tagged_ptr<const BaseState, 1>    m_last_source_snapshot{};
+            SourceNotifier                    source_notifier{};
+        };
+
+        struct CollectionRefBinding
+        {
+            struct SourceNotifier final : Notifiable
+            {
+                void notify(engine_time_t modified_time) override {
+                    if (binding != nullptr && binding->owner != nullptr) {
+                        binding->owner->sync_collection_ref(*binding, modified_time, false);
+                    }
+                }
+
+                CollectionRefBinding *binding{nullptr};
+            };
+
+            struct TargetNotifier final : Notifiable
+            {
+                void notify(engine_time_t modified_time) override {
+                    if (binding != nullptr && binding->owner != nullptr) {
+                        binding->owner->sync_collection_ref(*binding, modified_time, false);
+                    }
+                }
+
+                CollectionRefBinding *binding{nullptr};
+            };
+
+            CollectionRefBinding(AlternativeOutput *owner_, const TSOutputView &target_view,
+                                 const TSOutputView &source_view) noexcept
+                : owner(owner_), target_context(target_view.context_ref()),
+                  source_context(detail::stable_output_context(source_view)) {
+                source_notifier.binding = this;
+                target_notifier.binding = this;
+            }
+
+            AlternativeOutput              *owner{nullptr};
+            TSViewContext                   target_context{TSViewContext::none()};
+            LinkedTSContext                 source_context{};
+            std::unordered_set<BaseState *> target_subscription_states{};
+            SourceNotifier                  source_notifier{};
+            TargetNotifier                  target_notifier{};
+        };
+
+        [[nodiscard]] std::unique_ptr<DynamicDictBinding>
+        make_dereferenced_dynamic_dict_binding(const TSOutputView &target_view, const TSOutputView &ref_source_view) {
+            const TSMeta *source_schema = ref_source_view.ts_schema();
+            if (source_schema == nullptr || source_schema->kind != TSKind::REF || source_schema->element_ts() == nullptr ||
+                source_schema->element_ts()->kind != TSKind::TSD) {
+                throw std::invalid_argument("TSOutput dereferenced dynamic dict binding requires REF[TSD[...]] source");
+            }
+
+            auto  source_bridge_state = std::make_unique<TimeSeriesStateV>();
+            auto &bridge_state        = source_bridge_state->template emplace<RefLinkState>();
+            initialize_ref_link_state(bridge_state, TimeSeriesStateParentPtr{}, 0);
+            bridge_state.retain_transition_value = false;
+            bridge_state.set_source(detail::stable_output_context(ref_source_view));
+
+            LinkedTSContext source_context{
+                source_schema->element_ts(), nullptr, nullptr, nullptr, base_state_of(*source_bridge_state),
+            };
+
+            return std::make_unique<DynamicDictBinding>(this, target_view, std::move(source_bridge_state),
+                                                        std::move(source_context));
+        }
+
+        [[nodiscard]] std::unique_ptr<DynamicKeySetBinding>
+        make_dereferenced_dynamic_key_set_binding(const TSOutputView &target_view, const TSOutputView &ref_source_view) {
+            const TSMeta *source_schema = ref_source_view.ts_schema();
+            if (source_schema == nullptr || source_schema->kind != TSKind::REF || source_schema->element_ts() == nullptr ||
+                source_schema->element_ts()->kind != TSKind::TSD) {
+                throw std::invalid_argument("TSOutput dereferenced key-set binding requires REF[TSD[...]] source");
+            }
+
+            auto  source_bridge_state = std::make_unique<TimeSeriesStateV>();
+            auto &bridge_state        = source_bridge_state->template emplace<RefLinkState>();
+            initialize_ref_link_state(bridge_state, TimeSeriesStateParentPtr{}, 0);
+            bridge_state.retain_transition_value = false;
+            bridge_state.set_source(detail::stable_output_context(ref_source_view));
+
+            LinkedTSContext source_context{
+                source_schema->element_ts(), nullptr, nullptr, nullptr, base_state_of(*source_bridge_state),
+            };
+
+            return std::make_unique<DynamicKeySetBinding>(this, target_view, std::move(source_bridge_state),
+                                                          std::move(source_context));
+        }
+
+        [[nodiscard]] TSOutputView output_view_for(const TSViewContext &context, engine_time_t evaluation_time = MIN_DT) const {
+            return TSOutputView{context, TSViewContext::none(), evaluation_time, context.owning_output,
+                                context.output_view_ops != nullptr ? context.output_view_ops : &detail::default_output_view_ops()};
+        }
+
+        [[nodiscard]] TSOutputView output_view_for(const LinkedTSContext &context, engine_time_t evaluation_time = MIN_DT) const {
+            return output_view_from_context(context, evaluation_time);
+        }
+
+        void refresh_wrapped_ref(const TSViewContext &target_context, const LinkedTSContext &source_context,
+                                 engine_time_t modified_time) {
+            TSOutputView target_view  = output_view_for(target_context, modified_time);
+            TSOutputView source_view  = output_view_for(source_context, modified_time);
+            BaseState   *target_state = target_view.context_ref().ts_state;
+            if (target_state == nullptr) { return; }
+            const TSMeta *target_schema = target_view.ts_schema();
+            if (target_schema == nullptr || target_schema->kind != TSKind::REF) { return; }
+            if (target_view.context_ref().value_dispatch == nullptr || target_view.context_ref().value_data == nullptr) { return; }
+
+            TimeSeriesReference next_value   = TimeSeriesReference::make(source_view);
+            const View          target_value = target_view.value();
+            const auto *current_value = target_value.has_value() ? target_value.as_atomic().try_as<TimeSeriesReference>() : nullptr;
+            if (current_value != nullptr && *current_value == next_value) {
+                if (next_value.observed_time() == modified_time && next_value.observed_time() != MIN_DT) {
+                    target_value.as_atomic().set(next_value);
+                    target_state->mark_modified(modified_time);
+                }
+                return;
+            }
+
+            target_value.as_atomic().set(next_value);
+            target_state->mark_modified(modified_time);
+        }
+
+        void add_dynamic_dict_binding(std::unique_ptr<DynamicDictBinding> binding, engine_time_t initial_modified_time) {
+            auto &binding_ref = *binding;
+            if (DynamicDictBinding *existing = find_dynamic_dict_binding_for_target(binding_ref.target_context.ts_state);
+                existing != nullptr) {
+                if (!detail::linked_context_equal(existing->source_context, binding_ref.source_context)) {
+                    existing->unsubscribe_source();
+                    existing->source_context = binding_ref.source_context;
+                    existing->subscribe_source();
+                }
+                sync_dynamic_dict(*existing, initial_modified_time, false);
+                return;
+            }
+
+            auto unsubscribe_on_failure = make_scope_exit([&] { binding_ref.unsubscribe_source(); });
+            binding_ref.subscribe_source();
+            sync_dynamic_dict(binding_ref, initial_modified_time, true);
+            unsubscribe_on_failure.release();
+            m_dynamic_dict_bindings.push_back(std::move(binding));
+        }
+
+        void notify_dynamic_dict_source(DynamicDictBinding &binding, engine_time_t modified_time) {
+            if (binding.target_context.ts_state == nullptr || binding.source_notifier.binding == nullptr) { return; }
+            if (m_dynamic_dict_sync_depth != 0) {
+                binding.pending_modified_time = modified_time;
+                return;
+            }
+
+            sync_dynamic_dict(binding, modified_time, false);
+        }
+
+        [[nodiscard]] DynamicDictBinding *find_dynamic_dict_binding_for_target(BaseState *target_state) noexcept {
+            if (target_state == nullptr) { return nullptr; }
+            for (auto &binding : m_dynamic_dict_bindings) {
+                if (binding != nullptr && binding->target_context.ts_state == target_state &&
+                    binding->source_notifier.binding != nullptr && binding->owner != nullptr) {
+                    return binding.get();
+                }
+            }
+            return nullptr;
+        }
+
+        bool sync_existing_dynamic_dict_child(const TSOutputView &target_child, const TSOutputView &source_child,
+                                              engine_time_t modified_time) {
+            DynamicDictBinding *binding = find_dynamic_dict_binding_for_target(target_child.linked_context().ts_state);
+            if (binding == nullptr) { return false; }
+
+            LinkedTSContext next_source_context = detail::stable_output_context(source_child);
+            if (!detail::linked_context_equal(binding->source_context, next_source_context)) {
+                binding->unsubscribe_source();
+                binding->source_context = std::move(next_source_context);
+                binding->subscribe_source();
+            }
+
+            sync_dynamic_dict(*binding, modified_time, false);
+            return true;
+        }
+
+        void unsubscribe_dynamic_dict_binding(DynamicDictBinding &binding) {
+            binding.deactivate();
+        }
+
+        void remove_invalid_dynamic_dict_bindings() {
+            for (auto it = m_dynamic_dict_bindings.begin(); it != m_dynamic_dict_bindings.end();) {
+                auto &binding = *it;
+                if (binding == nullptr) {
+                    it = m_dynamic_dict_bindings.erase(it);
+                    continue;
+                }
+                if (binding->target_context.ts_state == nullptr || binding->source_notifier.binding == nullptr ||
+                    binding->owner == nullptr) {
+                    unsubscribe_dynamic_dict_binding(*binding);
+                    it = m_dynamic_dict_bindings.erase(it);
+                    continue;
+                }
+                ++it;
+            }
+        }
+
+        void add_scalar_value_binding(std::unique_ptr<ScalarValueBinding> binding, engine_time_t initial_modified_time) {
+            auto &binding_ref            = *binding;
+            auto  unsubscribe_on_failure = make_scope_exit([&] {
+                if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                    source_state->unsubscribe(&binding_ref.source_notifier);
+                }
+            });
+            if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                source_state->subscribe(&binding_ref.source_notifier);
+            }
+            sync_scalar_value(binding_ref, initial_modified_time, true);
+            unsubscribe_on_failure.release();
+            m_scalar_value_bindings.push_back(std::move(binding));
+        }
+
+        void add_dynamic_key_set_binding(std::unique_ptr<DynamicKeySetBinding> binding, engine_time_t initial_modified_time) {
+            auto &binding_ref            = *binding;
+            auto  unsubscribe_on_failure = make_scope_exit([&] {
+                if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                    source_state->unsubscribe(&binding_ref.source_notifier);
+                }
+            });
+            if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                source_state->subscribe(&binding_ref.source_notifier);
+            }
+            sync_dynamic_key_set(binding_ref, initial_modified_time, true);
+            unsubscribe_on_failure.release();
+            m_dynamic_key_set_bindings.push_back(std::move(binding));
+        }
+
+        void add_collection_ref_binding(std::unique_ptr<CollectionRefBinding> binding, engine_time_t initial_modified_time) {
+            auto &binding_ref            = *binding;
+            auto  unsubscribe_on_failure = make_scope_exit([&] {
+                if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                    source_state->unsubscribe(&binding_ref.source_notifier);
+                }
+                for (BaseState *target_state : binding_ref.target_subscription_states) {
+                    if (target_state != nullptr) { target_state->unsubscribe(&binding_ref.target_notifier); }
+                }
+                binding_ref.target_subscription_states.clear();
+            });
+            if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                source_state->subscribe(&binding_ref.source_notifier);
+            }
+            sync_collection_ref(binding_ref, initial_modified_time, true);
+            unsubscribe_on_failure.release();
+            m_collection_ref_bindings.push_back(std::move(binding));
+        }
+
+        void release_wrapped_ref_subscriptions(const BaseState *subtree_root) {
+            if (subtree_root == nullptr) { return; }
+
+            // Dynamic TSD replay can replace an entire child subtree when a
+            // key is removed or a stable slot is reused for a different key.
+            // Any wrap subscriptions owned by that subtree must disappear with
+            // it or the old source branch would keep driving stale state.
+            auto it = m_wrapped_ref_subscriptions.begin();
+            while (it != m_wrapped_ref_subscriptions.end()) {
+                WrappedRefNotifier *notifier = it->notifier.get();
+                if (notifier == nullptr || notifier->target_state == nullptr ||
+                    is_descendant_state(notifier->target_state, subtree_root) ||
+                    is_descendant_state(notifier->source_state, subtree_root) ||
+                    context_references_subtree(notifier->target_context, subtree_root) ||
+                    context_references_subtree(notifier->source_context, subtree_root)) {
+                    if (notifier != nullptr) { notifier->unsubscribe_source(); }
+                    it = m_wrapped_ref_subscriptions.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
+        void release_scalar_value_bindings(const BaseState *subtree_root) {
+            if (subtree_root == nullptr) { return; }
+
+            for (auto it = m_scalar_value_bindings.begin(); it != m_scalar_value_bindings.end();) {
+                if (context_references_subtree((*it)->target_context, subtree_root) ||
+                    context_references_subtree((*it)->source_context, subtree_root)) {
+                    if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&(*it)->source_notifier);
+                    }
+                    it = m_scalar_value_bindings.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
+        void release_dynamic_dict_bindings(const BaseState *subtree_root) {
+            if (subtree_root == nullptr) { return; }
+
+            for (auto it = m_dynamic_dict_bindings.begin(); it != m_dynamic_dict_bindings.end();) {
+                if (*it == nullptr) {
+                    it = m_dynamic_dict_bindings.erase(it);
+                    continue;
+                }
+                if ((*it)->target_context.ts_state == nullptr || (*it)->source_notifier.binding == nullptr ||
+                    (*it)->owner == nullptr) {
+                    unsubscribe_dynamic_dict_binding(**it);
+                    it = m_dynamic_dict_bindings.erase(it);
+                } else if (context_references_subtree((*it)->target_context, subtree_root) ||
+                           context_references_subtree((*it)->source_context, subtree_root)) {
+                    unsubscribe_dynamic_dict_binding(**it);
+                    it = m_dynamic_dict_bindings.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
+        void release_dynamic_key_set_bindings(const BaseState *subtree_root) {
+            if (subtree_root == nullptr) { return; }
+
+            for (auto it = m_dynamic_key_set_bindings.begin(); it != m_dynamic_key_set_bindings.end();) {
+                if (context_references_subtree((*it)->target_context, subtree_root) ||
+                    context_references_subtree((*it)->source_context, subtree_root)) {
+                    if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&(*it)->source_notifier);
+                    }
+                    it = m_dynamic_key_set_bindings.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
+        void release_collection_ref_bindings(const BaseState *subtree_root) {
+            if (subtree_root == nullptr) { return; }
+
+            for (auto it = m_collection_ref_bindings.begin(); it != m_collection_ref_bindings.end();) {
+                bool release_binding = context_references_subtree((*it)->target_context, subtree_root) ||
+                                       context_references_subtree((*it)->source_context, subtree_root);
+                if (!release_binding) {
+                    for (BaseState *target_state : (*it)->target_subscription_states) {
+                        if (is_descendant_state(target_state, subtree_root)) {
+                            release_binding = true;
+                            break;
+                        }
+                    }
+                }
+                if (release_binding) {
+                    if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&(*it)->source_notifier);
+                    }
+                    for (BaseState *target_state : (*it)->target_subscription_states) {
+                        if (target_state != nullptr) { target_state->unsubscribe(&(*it)->target_notifier); }
+                    }
+                    (*it)->target_subscription_states.clear();
+                    it = m_collection_ref_bindings.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
+        void release_dynamic_child_slot_bindings(TSDState &state, size_t slot) {
+            if (slot >= state.child_states.size() || state.child_states[slot] == nullptr) { return; }
+
+            // The stable slot is being vacated from the alternative map. Tear
+            // down every owned subtree artifact before the map mutation
+            // notifies the TSD state that the slot was removed.
+            BaseState *child_root = base_state_of(*state.child_states[slot]);
+            release_wrapped_ref_subscriptions(child_root);
+            release_scalar_value_bindings(child_root);
+            release_dynamic_dict_bindings(child_root);
+            release_dynamic_key_set_bindings(child_root);
+            release_collection_ref_bindings(child_root);
+        }
+
+        void clear_dynamic_child_slot(TSDState &state, size_t slot) {
+            release_dynamic_child_slot_bindings(state, slot);
+            state.on_erase(slot);
+        }
+
+        void reset_dynamic_child_slot(TSDState &state, size_t slot, const TSMeta &child_schema) {
+            if (slot >= state.child_states.size()) { state.child_states.resize(slot + 1); }
+
+            release_dynamic_child_slot_bindings(state, slot);
+            state.child_states[slot] = make_time_series_state_node(child_schema, parent_ptr(state), slot);
+        }
+
+        template <typename TCollectionState>
+        void reset_fixed_child_slot(TCollectionState &state, size_t slot, const TSMeta &child_schema) {
+            if (slot >= state.child_states.size()) {
+                throw std::out_of_range("TSOutput collection ref binding slot is out of range");
+            }
+
+            if (state.child_states[slot] != nullptr) {
+                BaseState *child_root = base_state_of(*state.child_states[slot]);
+                release_wrapped_ref_subscriptions(child_root);
+                release_scalar_value_bindings(child_root);
+                release_dynamic_dict_bindings(child_root);
+                release_dynamic_key_set_bindings(child_root);
+                release_collection_ref_bindings(child_root);
+            }
+
+            state.child_states[slot] = make_time_series_state_node(child_schema, parent_ptr(state), slot);
+        }
+
+        template <typename TCollectionState, typename TCollectionView, typename TChildSchemaFn>
+        bool sync_fixed_collection_root_value(TCollectionState &target_state, const TSOutputView &target_view,
+                                              const TCollectionView &target_collection, engine_time_t modified_time,
+                                              size_t slot_count, TChildSchemaFn &&child_schema_for_slot,
+                                              auto &&desired_value_for_slot) {
+            const bool new_tick = target_state.last_modified_time != modified_time;
+            if (new_tick) { target_state.modified_children.clear(); }
+
+            std::vector<size_t> changed_slots;
+            changed_slots.reserve(slot_count);
+
+            // Track per-slot whether the desired value is a real publish.
+            // Replacing a fresh slot's structural placeholder with an
+            // `invalid_for(...)` view is not a tick event and must not bubble
+            // a modification up to downstream consumers — those rely on the
+            // child state's `last_modified_time` advancing only when an
+            // actual value is published. We still write the desired value to
+            // the bundle/list value-layer so reads observe the right data,
+            // but we suppress the per-slot child mark_modified.
+            std::vector<bool> slot_has_value;
+            slot_has_value.reserve(slot_count);
+            if constexpr (std::same_as<TCollectionState, TSBState>) {
+                auto mutation = target_view.value().as_bundle().begin_mutation();
+                auto current  = target_view.value().as_bundle();
+                for (size_t slot = 0; slot < slot_count; ++slot) {
+                    const TSMeta *child_schema = child_schema_for_slot(slot);
+                    if (child_schema == nullptr || child_schema->value_type == nullptr) {
+                        throw std::logic_error("TSOutput collection ref binding requires target child value schemas");
+                    }
+
+                    const TSOutputView child    = target_collection[slot];
+                    const View         desired  = desired_value_for_slot(slot, child_schema, child);
+                    const View         existing = current.at(slot);
+                    if (desired == existing) { continue; }
+
+                    mutation.set(slot, desired);
+                    changed_slots.push_back(slot);
+                    slot_has_value.push_back(desired.has_value());
+                }
+            } else if constexpr (std::same_as<TCollectionState, TSLState>) {
+                auto mutation = target_view.value().as_list().begin_mutation();
+                auto current  = target_view.value().as_list();
+                for (size_t slot = 0; slot < slot_count; ++slot) {
+                    const TSMeta *child_schema = child_schema_for_slot(slot);
+                    if (child_schema == nullptr || child_schema->value_type == nullptr) {
+                        throw std::logic_error("TSOutput collection ref binding requires target child value schemas");
+                    }
+
+                    const TSOutputView child    = target_collection[slot];
+                    const View         desired  = desired_value_for_slot(slot, child_schema, child);
+                    const View         existing = current.at(slot);
+                    if (desired == existing) { continue; }
+
+                    mutation.set(slot, desired);
+                    changed_slots.push_back(slot);
+                    slot_has_value.push_back(desired.has_value());
+                }
+            }
+
+            bool child_published = false;
+            for (size_t i = 0; i < changed_slots.size(); ++i) {
+                const size_t slot           = changed_slots[i];
+                const bool   desired_valued = slot_has_value[i];
+                BaseState *child_state = slot < target_state.child_states.size() && target_state.child_states[slot] != nullptr
+                                             ? base_state_of(*target_state.child_states[slot])
+                                             : nullptr;
+
+                if (!desired_valued && (child_state == nullptr || child_state->last_modified_time == MIN_DT)) {
+                    // Fresh slot being initialised to "no value" (the source
+                    // has nothing to publish). The child state has never
+                    // ticked and we are not delivering a tick now — leave the
+                    // child state alone so downstream `modified` queries
+                    // correctly report False.
+                    continue;
+                }
+
+                if (child_state != nullptr && child_state->last_modified_time != modified_time) {
+                    child_state->mark_modified(modified_time);
+                    child_published = true;
+                } else {
+                    target_state.modified_children.insert(slot);
+                }
+            }
+
+            if (!changed_slots.empty() && !child_published) {
+                if (new_tick) {
+                    target_state.mark_modified(modified_time);
+                } else {
+                    target_state.mark_modified_local(modified_time);
+                }
+            }
+            return !changed_slots.empty();
+        }
+
+        void sync_collection_ref_from_output(const TSOutputView &target_view, const TSOutputView &source_view,
+                                             engine_time_t modified_time) {
+            const TSMeta *target_schema = target_view.ts_schema();
+            const TSMeta *source_schema = source_view.ts_schema();
+            if (target_schema == nullptr || source_schema == nullptr || target_schema->kind != source_schema->kind) {
+                throw std::invalid_argument("TSOutput collection ref binding requires matching source and target schemas");
+            }
+
+            switch (target_schema->kind) {
+                case TSKind::TSB:
+                    {
+                        auto &target_state  = *static_cast<TSBState *>(target_view.context_ref().ts_state);
+                        auto  target_bundle = target_view.as_bundle();
+                        auto  source_bundle = source_view.as_bundle();
+                        for (size_t index = 0; index < target_schema->field_count(); ++index) {
+                            const TSMeta *child_schema = target_schema->fields()[index].ts_type;
+                            if (child_schema == nullptr) {
+                                throw std::logic_error("TSOutput collection ref binding requires target child schemas");
+                            }
+
+                            reset_fixed_child_slot(target_state, index, *child_schema);
+                            TSOutputView target_child = target_bundle[index];
+                            TSOutputView source_child = source_bundle[index];
+                            if (source_child.ts_schema() == child_schema) {
+                                install_target_link(target_state, index, detail::stable_output_context(source_child),
+                                                    "collection_ref_tsb");
+                            } else {
+                                configure_branch(target_child, source_child);
+                            }
+                        }
+                        static_cast<void>(sync_fixed_collection_root_value(
+                            target_state, target_view, target_bundle, modified_time, target_schema->field_count(),
+                            [&](size_t slot) { return target_schema->fields()[slot].ts_type; },
+                            [&](size_t slot, const TSMeta *child_schema, const TSOutputView &target_child) {
+                                TSOutputView source_child = source_bundle[slot];
+                                if (source_child.ts_schema() == child_schema) {
+                                    return source_child.valid() ? source_child.value()
+                                                                : View::invalid_for(child_schema->value_type);
+                                }
+                                return target_child.valid() ? target_child.value() : View::invalid_for(child_schema->value_type);
+                            }));
+                        return;
+                    }
+
+                case TSKind::TSL:
+                    {
+                        auto &target_state = *static_cast<TSLState *>(target_view.context_ref().ts_state);
+                        auto  target_list  = target_view.as_list();
+                        auto  source_list  = source_view.as_list();
+                        for (size_t index = 0; index < target_schema->fixed_size(); ++index) {
+                            const TSMeta *child_schema = target_schema->element_ts();
+                            if (child_schema == nullptr) {
+                                throw std::logic_error("TSOutput collection ref binding requires a target element schema");
+                            }
+
+                            reset_fixed_child_slot(target_state, index, *child_schema);
+                            TSOutputView target_child = target_list[index];
+                            TSOutputView source_child = source_list[index];
+                            if (source_child.ts_schema() == child_schema) {
+                                install_target_link(target_state, index, detail::stable_output_context(source_child),
+                                                    "collection_ref_tsl");
+                            } else {
+                                configure_branch(target_child, source_child);
+                            }
+                        }
+                        static_cast<void>(sync_fixed_collection_root_value(
+                            target_state, target_view, target_list, modified_time, target_schema->fixed_size(),
+                            [&](size_t) { return target_schema->element_ts(); },
+                            [&](size_t slot, const TSMeta *child_schema, const TSOutputView &target_child) {
+                                TSOutputView source_child = source_list[slot];
+                                if (source_child.ts_schema() == child_schema) {
+                                    return source_child.valid() ? source_child.value()
+                                                                : View::invalid_for(child_schema->value_type);
+                                }
+                                return target_child.valid() ? target_child.value() : View::invalid_for(child_schema->value_type);
+                            }));
+                        return;
+                    }
+
+                default: throw std::invalid_argument("TSOutput collection ref binding only supports TSB and fixed-size TSL");
+            }
+        }
+
+        void sync_collection_ref_from_value(const TSOutputView &target_view, const TimeSeriesReference &ref,
+                                            engine_time_t modified_time) {
+            const TSMeta *target_schema = target_view.ts_schema();
+            if (target_schema == nullptr) {
+                throw std::invalid_argument("TSOutput collection ref binding requires a target schema");
+            }
+
+            switch (ref.kind()) {
+                case TimeSeriesReference::Kind::EMPTY:
+                    {
+                        switch (target_schema->kind) {
+                            case TSKind::TSB:
+                                {
+                                    auto &target_state = *static_cast<TSBState *>(target_view.context_ref().ts_state);
+                                    if (target_state.last_modified_time != modified_time) {
+                                        target_state.modified_children.clear();
+                                    }
+                                    for (size_t index = 0; index < target_schema->field_count(); ++index) {
+                                        const TSMeta *child_schema = target_schema->fields()[index].ts_type;
+                                        if (child_schema != nullptr) { reset_fixed_child_slot(target_state, index, *child_schema); }
+                                    }
+                                    break;
+                                }
+
+                            case TSKind::TSL:
+                                {
+                                    auto &target_state = *static_cast<TSLState *>(target_view.context_ref().ts_state);
+                                    if (target_state.last_modified_time != modified_time) {
+                                        target_state.modified_children.clear();
+                                    }
+                                    for (size_t index = 0; index < target_schema->fixed_size(); ++index) {
+                                        const TSMeta *child_schema = target_schema->element_ts();
+                                        if (child_schema != nullptr) { reset_fixed_child_slot(target_state, index, *child_schema); }
+                                    }
+                                    break;
+                                }
+
+                            default:
+                                throw std::invalid_argument("TSOutput collection ref binding only supports TSB and fixed-size TSL");
+                        }
+                        static_cast<void>(modified_time);
+                        return;
+                    }
+
+                case TimeSeriesReference::Kind::PEERED:
+                    sync_collection_ref_from_output(target_view, ref.target_view(modified_time), modified_time);
+                    return;
+
+                case TimeSeriesReference::Kind::NON_PEERED:
+                    {
+                        switch (target_schema->kind) {
+                            case TSKind::TSB:
+                                {
+                                    auto &target_state  = *static_cast<TSBState *>(target_view.context_ref().ts_state);
+                                    auto  target_bundle = target_view.as_bundle();
+                                    for (size_t index = 0; index < target_schema->field_count(); ++index) {
+                                        const TSMeta *child_schema = target_schema->fields()[index].ts_type;
+                                        if (child_schema == nullptr) {
+                                            throw std::logic_error("TSOutput collection ref binding requires target child schemas");
+                                        }
+
+                                        reset_fixed_child_slot(target_state, index, *child_schema);
+                                        if (index >= ref.items().size()) { continue; }
+
+                                        const auto &item = ref.items()[index];
+                                        if (item.is_empty()) { continue; }
+                                        if (item.is_peered()) {
+                                            install_target_link(target_state, index, item.target(), "ref_value_tsb");
+                                        } else {
+                                            sync_collection_ref_from_value(target_bundle[index], item, modified_time);
+                                        }
+                                    }
+                                    static_cast<void>(sync_fixed_collection_root_value(
+                                        target_state, target_view, target_bundle, modified_time, target_schema->field_count(),
+                                        [&](size_t slot) { return target_schema->fields()[slot].ts_type; },
+                                        [&](size_t slot, const TSMeta *child_schema, const TSOutputView &target_child) {
+                                            if (slot >= ref.items().size() || ref.items()[slot].is_empty()) {
+                                                return View::invalid_for(child_schema->value_type);
+                                            }
+                                            const auto &item = ref.items()[slot];
+                                            if (item.is_peered() && item.target().schema == child_schema) {
+                                                TSOutputView source_child = item.target_view(modified_time);
+                                                return source_child.valid() ? source_child.value()
+                                                                            : View::invalid_for(child_schema->value_type);
+                                            }
+                                            return target_child.valid() ? target_child.value()
+                                                                        : View::invalid_for(child_schema->value_type);
+                                        }));
+                                    return;
+                                }
+
+                            case TSKind::TSL:
+                                {
+                                    auto &target_state = *static_cast<TSLState *>(target_view.context_ref().ts_state);
+                                    auto  target_list  = target_view.as_list();
+                                    for (size_t index = 0; index < target_schema->fixed_size(); ++index) {
+                                        const TSMeta *child_schema = target_schema->element_ts();
+                                        if (child_schema == nullptr) {
+                                            throw std::logic_error(
+                                                "TSOutput collection ref binding requires a target element schema");
+                                        }
+
+                                        reset_fixed_child_slot(target_state, index, *child_schema);
+                                        if (index >= ref.items().size()) { continue; }
+
+                                        const auto &item = ref.items()[index];
+                                        if (item.is_empty()) { continue; }
+                                        if (item.is_peered()) {
+                                            install_target_link(target_state, index, item.target(), "ref_value_tsl");
+                                        } else {
+                                            sync_collection_ref_from_value(target_list[index], item, modified_time);
+                                        }
+                                    }
+                                    static_cast<void>(sync_fixed_collection_root_value(
+                                        target_state, target_view, target_list, modified_time, target_schema->fixed_size(),
+                                        [&](size_t) { return target_schema->element_ts(); },
+                                        [&](size_t slot, const TSMeta *child_schema, const TSOutputView &target_child) {
+                                            if (slot >= ref.items().size() || ref.items()[slot].is_empty()) {
+                                                return View::invalid_for(child_schema->value_type);
+                                            }
+                                            const auto &item = ref.items()[slot];
+                                            if (item.is_peered() && item.target().schema == child_schema) {
+                                                TSOutputView source_child = item.target_view(modified_time);
+                                                return source_child.valid() ? source_child.value()
+                                                                            : View::invalid_for(child_schema->value_type);
+                                            }
+                                            return target_child.valid() ? target_child.value()
+                                                                        : View::invalid_for(child_schema->value_type);
+                                        }));
+                                    return;
+                                }
+
+                            default:
+                                throw std::invalid_argument("TSOutput collection ref binding only supports TSB and fixed-size TSL");
+                        }
+                    }
+            }
+        }
+
+        void update_collection_ref_target_subscription(CollectionRefBinding &binding, const TimeSeriesReference &ref) noexcept {
+            std::unordered_set<BaseState *> next_target_states;
+            collect_ref_target_states(ref, next_target_states);
+            if (binding.target_subscription_states == next_target_states) { return; }
+
+            for (BaseState *target_state : binding.target_subscription_states) {
+                if (target_state != nullptr && !next_target_states.contains(target_state)) {
+                    target_state->unsubscribe(&binding.target_notifier);
+                }
+            }
+            for (BaseState *target_state : next_target_states) {
+                if (target_state != nullptr && !binding.target_subscription_states.contains(target_state)) {
+                    target_state->subscribe(&binding.target_notifier);
+                }
+            }
+            binding.target_subscription_states = std::move(next_target_states);
+        }
+
+        [[nodiscard]] bool copy_scalar_value_natively(const TSOutputView &target_view, const TSOutputView &source_view) {
+            View target_value = target_view.value();
+            View source_value = source_view.value();
+            if (!target_value.has_value() || !source_value.has_value()) { return false; }
+
+            return target_value.try_copy_from(source_value);
+        }
+
+        void sync_scalar_value(ScalarValueBinding &binding, engine_time_t modified_time, bool initializing) {
+            TSOutputView target_view  = output_view_for(binding.target_context, modified_time);
+            TSOutputView source_view  = output_view_for(binding.source_context, modified_time);
+            BaseState   *target_state = target_view.context_ref().ts_state;
+            if (target_state == nullptr) { throw std::logic_error("TSOutput scalar cast binding requires a live target TS state"); }
+
+            if (!source_view.valid()) {
+                if (initializing) { target_state->last_modified_time = MIN_DT; }
+                return;
+            }
+
+            if (!copy_scalar_value_natively(target_view, source_view)) {
+                throw std::invalid_argument(
+                    fmt::format("TSOutput scalar cast binding requires a native-compatible value copy: {} -> {}",
+                                schema_debug_name(source_view.ts_schema()), schema_debug_name(target_view.ts_schema())));
+            }
+            if (initializing) {
+                target_state->last_modified_time = source_view.last_modified_time();
+            } else {
+                target_state->mark_modified(modified_time);
+            }
+        }
+
+        void sync_collection_ref(CollectionRefBinding &binding, engine_time_t modified_time, bool initializing) {
+            TSOutputView target_view = output_view_for(binding.target_context, modified_time);
+            TSOutputView source_view = output_view_for(binding.source_context, modified_time);
+            const auto  *ref         = source_view.value().as_atomic().try_as<TimeSeriesReference>();
+            if (ref == nullptr) { throw std::logic_error("TSOutput collection ref binding requires a REF source value"); }
+
+            update_collection_ref_target_subscription(binding, *ref);
+            sync_collection_ref_from_value(target_view, *ref, modified_time);
+            if (initializing) {
+                if (BaseState *root = target_view.context_ref().ts_state; root != nullptr && root->last_modified_time == MIN_DT) {
+                    root->last_modified_time = modified_time;
+                }
+            }
+        }
+
+        void install_ref_link_for_target(const TSOutputView &target_view, const TSOutputView &source_view) {
+            BaseState *target_state = target_view.linked_context().ts_state;
+            if (target_state == nullptr) {
+                throw std::logic_error("TSOutput alternative REF dereference requires a live target state");
+            }
+
+            const LinkedTSContext ref_source = detail::stable_output_context(source_view);
+            bool                  replaced   = false;
+            hgraph::visit(
+                target_state->parent,
+                [&](auto *parent_state) {
+                    using T = std::remove_pointer_t<decltype(parent_state)>;
+
+                    if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSBState> || std::same_as<T, TSDState>) {
+                        if (parent_state == nullptr) {
+                            throw std::logic_error("TSOutput alternative REF dereference requires a live parent collection");
+                        }
+                        install_ref_link(*parent_state, target_state->index, ref_source);
+                        replaced = true;
+                    }
+                },
+                [&] {
+                    // Root-level REF -> TS casts replace the alternative's
+                    // root state node itself rather than a collection child.
+                    auto &root_state  = state_variant();
+                    auto &typed_state = root_state.template emplace<RefLinkState>();
+                    initialize_ref_link_state(typed_state, TimeSeriesStateParentPtr{}, 0);
+                    typed_state.set_source(ref_source);
+                    replaced = true;
+                });
+
+            if (!replaced) { throw std::logic_error("TSOutput alternative REF dereference could not replace the target state"); }
+        }
+
+        void install_signal_subscription(const TSOutputView &target_view, const TSOutputView &source_view) {
+            BaseState *target_state = target_view.linked_context().ts_state;
+            BaseState *source_state = notification_state_of(detail::stable_output_context(source_view));
+            if (target_state == nullptr) {
+                throw std::logic_error("TSOutput alternative SIGNAL cast requires a live target state");
+            }
+
+            // SIGNAL semantics only care that the source ticked; the carried
+            // value stays pinned to `True` for Python-facing reads.
+            target_view.value().as_atomic().set(true);
+
+            auto notifier = std::make_unique<WrappedRefNotifier>(target_state);
+            notifier->subscribe_source(source_state);
+            m_wrapped_ref_subscriptions.push_back(WrappedRefSubscription{.notifier = std::move(notifier)});
+        }
+
+        void install_dynamic_child(const TSOutputView &target_dict_view, const View &key, const TSOutputView &source_child,
+                                   engine_time_t modified_time) {
+            // The mutation layer has already ensured the key exists in the
+            // alternative map value. Resolve the corresponding output-side TS
+            // slot and then install either:
+            // - a direct TargetLink for unchanged child schema, or
+            // - a recursively transformed child subtree when the value schema
+            //   itself still needs wrapping/dereference work below this point.
+            TSOutputView target_child       = detail::ensure_dict_child_output_view(target_dict_view, key);
+            BaseState   *target_child_state = target_child.context_ref().ts_state;
+            auto        &target_state       = *static_cast<TSDState *>(target_dict_view.context_ref().ts_state);
+            if (target_child_state == nullptr) {
+                auto         target_map = target_dict_view.value().as_map();
+                const size_t slot       = target_map.find_slot(key);
+                if (slot == static_cast<size_t>(-1)) {
+                    throw std::logic_error("TSOutput alternative dynamic dict child key is missing from the target map");
+                }
+
+                // The value-layer insert owns key->slot assignment. If the TS
+                // child state has not been materialized yet, create it for the
+                // already-live slot before installing the child binding.
+                target_state.on_insert(slot);
+                target_child       = detail::ensure_dict_child_output_view(target_dict_view, key);
+                target_child_state = target_child.context_ref().ts_state;
+            }
+            if (target_child_state == nullptr) {
+                throw std::logic_error("TSOutput alternative dynamic dict child requires a live target state");
+            }
+
+            const size_t  target_slot         = target_child_state->index;
+            const TSMeta *target_child_schema = target_child.ts_schema();
+            const TSMeta *source_child_schema = source_child.ts_schema();
+            if (target_child_schema == nullptr || source_child_schema == nullptr) {
+                throw std::logic_error("TSOutput alternative dynamic dict child requires bound source and target schemas");
+            }
+
+            if (equivalent_ts_schema(target_child_schema, source_child_schema)) {
+                if (target_child_schema->kind == TSKind::REF) {
+                    reset_dynamic_child_slot(target_state, target_slot, *target_child_schema);
+                } else {
+                    install_target_link(target_state, target_slot, detail::stable_output_context(source_child),
+                                        "dynamic_dict_child");
+                }
+            } else {
+                configure_branch(target_child, source_child);
+            }
+        }
+
+        void sync_dynamic_dict(DynamicDictBinding &binding, engine_time_t modified_time, bool initializing) {
+            ++m_dynamic_dict_sync_depth;
+            auto unwind_sync_depth = make_scope_exit([this] noexcept {
+                if (m_dynamic_dict_sync_depth > 0) { --m_dynamic_dict_sync_depth; }
+            });
+            auto finish_sync       = [&] {
+                unwind_sync_depth.release();
+                if (--m_dynamic_dict_sync_depth == 0 && !m_draining_dynamic_dict_syncs) { drain_pending_dynamic_dict_syncs(); }
+            };
+
+            TSOutputView target_root = output_view_for(binding.target_context, modified_time);
+            TSOutputView source_root = output_view_for(binding.source_context, modified_time);
+
+            auto *target_root_state = static_cast<TSDState *>(target_root.context_ref().ts_state);
+            if (target_root_state == nullptr) {
+                throw std::logic_error("TSOutput alternative dynamic dict sync requires a live target TSD state");
+            }
+            // Use the binding's own last_synced_time to detect a tick transition
+            // rather than target_root_state->last_modified_time. The latter can
+            // be advanced before this sync runs by an unrelated child_modified
+            // propagation, which would mask the transition and leak the
+            // previous tick's value-layer delta into downstream consumers.
+            const bool starting_new_tick = modified_time != MIN_DT && binding.last_synced_time != modified_time;
+            if (starting_new_tick && target_root_state->last_modified_time != modified_time) {
+                target_root_state->modified_children.clear();
+            }
+
+            const TSViewContext target_root_context = target_root.context_ref();
+            if (target_root_context.value_dispatch != nullptr && target_root_context.value_data != nullptr) {
+                target_root_state->bind_value_storage(
+                    *target_root.ts_schema()->element_ts(),
+                    static_cast<const detail::MapViewDispatch &>(*target_root_context.value_dispatch),
+                    target_root_context.value_data);
+            }
+
+            // The target of a dynamic dict binding is itself a TSD output that
+            // downstream consumers (e.g. another sync_dynamic_dict, or a TSD
+            // input reading modified_items()) will inspect via its value-layer
+            // delta. Unlike Native TSD outputs, no publish_value_storage_delta
+            // call clears that delta after each tick — sync_dynamic_dict mutates
+            // the value layer directly and propagates child changes via
+            // child_modified instead. Without explicit clearing, stale added/
+            // updated/removed slot bits leak into the next tick, causing
+            // consumers to replay slots that were last touched several ticks
+            // ago. Clear the value-layer delta at the start of each new tick so
+            // it only carries the mutations performed within that tick.
+            if (starting_new_tick && target_root.valid()) {
+                target_root.value().as_map().clear_delta_tracking();
+            }
+
+            const View       source_value      = source_root.value();
+            auto             target_map        = target_root.value().as_map();
+            auto             target_dict       = target_root.as_dict();
+            const bool       target_was_valid  = target_root.valid();
+            auto             mutation          = target_map.begin_mutation(modified_time);
+            bool             map_value_changed = false;
+            constexpr size_t no_slot           = static_cast<size_t>(-1);
+            const BaseState *current_source_root_state =
+                binding.source_context.ts_state != nullptr ? binding.source_context.ts_state->resolved_state() : nullptr;
+            const bool current_source_had_value = source_value.has_value() && source_root.valid();
+            const bool source_rebound           = !initializing && current_source_root_state != binding.last_source_root_state();
+            const bool source_value_changed     = !initializing && current_source_had_value != binding.last_source_had_value();
+            const bool sampled_root_tick        = sampled_transition_this_tick(source_root.context_ref(), modified_time);
+            const bool full_resync              = initializing || source_rebound || source_value_changed || sampled_root_tick;
+
+            auto remove_target_key = [&](const View &key) {
+                if (!target_map.contains(key)) { return; }
+                TSOutputView existing_child = target_dict.at(key);
+                size_t       existing_slot  = target_map.find_slot(key);
+                if (existing_slot != static_cast<size_t>(-1)) {
+                    target_root_state->record_removed_child_key(existing_slot, key, modified_time);
+                }
+                if (BaseState *existing_state = existing_child.context_ref().ts_state; existing_state != nullptr) {
+                    existing_slot = existing_state->index;
+                    release_dynamic_child_slot_bindings(*target_root_state, existing_slot);
+                }
+                if (mutation.remove(key)) { map_value_changed = true; }
+                if (existing_slot != static_cast<size_t>(-1) && existing_slot < target_root_state->child_states.size() &&
+                    target_root_state->child_states[existing_slot] != nullptr) {
+                    target_root_state->on_erase(existing_slot);
+                }
+            };
+
+            if (!current_source_had_value) {
+                if (full_resync) {
+                    std::vector<Value> stale_keys;
+                    for (size_t slot = target_map.first_live_slot(); slot != no_slot; slot = target_map.next_live_slot(slot)) {
+                        if (!detail::dict_slot_is_live(target_map.delta(), slot)) { continue; }
+                        stale_keys.emplace_back(target_map.delta().key_at_slot(slot).clone());
+                    }
+                    for (const auto &key : stale_keys) { remove_target_key(key.view()); }
+                }
+
+                binding.set_last_source_snapshot(current_source_root_state, false);
+                if (map_value_changed && modified_time != MIN_DT) { target_root_state->mark_modified(modified_time); }
+                binding.last_synced_time = modified_time;
+                finish_sync();
+                return;
+            }
+
+            const auto  source_delta = source_value.as_map().delta();
+            const auto  source_map   = source_value.as_map();
+            const Value *sampled_previous_map =
+                sampled_root_tick ? transition_previous_map_value(source_root.context_ref(), modified_time) : nullptr;
+            const bool sampled_previous_map_matches =
+                sampled_previous_map != nullptr && transition_map_schema_matches(*sampled_previous_map, source_root.context_ref());
+            const auto *source_native_state =
+                current_source_root_state != nullptr && current_source_root_state->storage_kind == TSStorageKind::Native
+                    ? static_cast<const TSDState *>(current_source_root_state)
+                    : nullptr;
+            const bool materialize_empty_dict = !target_was_valid && source_map.empty();
+
+            // TSD key flow:
+            // 1. The source map delta is authoritative for structural changes.
+            // 2. We replay removals first, because stable slots may be reused.
+            // 3. We then replay live slots into the alternative map value.
+            // 4. Finally, for each live key we ensure the TS child subtree at
+            //    that key mirrors the source child shape (link, REF wrap, or a
+            //    deeper recursive alternative).
+            //
+            // The map value and TS child state move in lock-step: the value
+            // layer owns key/slot membership, while the TS state layer owns the
+            // per-key binding subtree that hangs off each occupied slot.
+
+            // Remove stale keys before replaying live slots so reused logical
+            // positions tear down their old subtree subscriptions first.
+            if (full_resync) {
+                std::vector<Value> stale_keys;
+                for (size_t slot = target_map.first_live_slot(); slot != no_slot; slot = target_map.next_live_slot(slot)) {
+                    if (!detail::dict_slot_is_live(target_map.delta(), slot)) { continue; }
+                    const View key = target_map.delta().key_at_slot(slot);
+                    if (!source_map.contains(key)) { stale_keys.emplace_back(key.clone()); }
+                }
+                for (const auto &key : stale_keys) { remove_target_key(key.view()); }
+            } else {
+                for (size_t slot = source_delta.first_removed_slot(); slot != no_slot;
+                     slot        = source_delta.next_removed_slot(slot)) {
+                    remove_target_key(source_delta.key_at_slot(slot));
+                }
+                if (source_native_state != nullptr && source_native_state->removed_valid_children_modified_time == modified_time) {
+                    for (const auto &[slot, key_values] : source_native_state->removed_valid_child_keys) {
+                        static_cast<void>(slot);
+                        for (const Value &key_value : key_values) {
+                            if (!key_value.view().has_value() || source_map.contains(key_value.view())) { continue; }
+                            remove_target_key(key_value.view());
+                        }
+                    }
+                }
+            }
+
+            // The source's value-layer delta accumulates structural changes
+            // (added/updated/removed slots) until something explicitly clears
+            // it. For a Native TSD source, publish_value_storage_delta clears
+            // it once per tick — but for a sync_dynamic_dict alternative source
+            // there is no equivalent global clearer, so the delta can contain
+            // entries from a prior tick. When the source is Native and its
+            // own last_modified_time is older than the current modified_time,
+            // its delta is from a prior tick and must not be replayed —
+            // doing so would resurface stale slot mutations and pollute
+            // downstream consumers' modified_children sets. For non-Native
+            // sources we have no alternate signal to consult, so we honor the
+            // value-layer delta directly.
+            const bool source_native_published_this_tick =
+                source_native_state != nullptr && source_native_state->last_modified_time == modified_time;
+            const auto source_slot_changed_this_tick = [&](size_t slot) {
+                if (source_native_state == nullptr) { return true; }
+                if (!source_native_published_this_tick) { return false; }
+                if (source_native_state->modified_children.contains(slot)) { return true; }
+                if (source_native_state->added_valid_children_modified_time == modified_time &&
+                    source_native_state->added_valid_children.contains(slot)) {
+                    return true;
+                }
+                if (source_native_state->removed_valid_children_modified_time == modified_time &&
+                    source_native_state->removed_valid_children.contains(slot)) {
+                    return true;
+                }
+                return false;
+            };
+            const bool has_added_slots          = source_delta.first_added_slot() != no_slot;
+            const bool has_updated_slots        = source_delta.first_updated_slot() != no_slot;
+            const bool has_native_removed_slots = source_native_state != nullptr &&
+                                                  source_native_state->removed_valid_children_modified_time == modified_time &&
+                                                  !source_native_state->removed_valid_child_keys.empty();
+            const bool has_native_modified_slots =
+                source_native_state != nullptr && source_native_state->last_modified_time == modified_time &&
+                !source_native_state->modified_children.empty();
+            if (!full_resync && !map_value_changed && !has_added_slots && !has_updated_slots && !has_native_removed_slots &&
+                !has_native_modified_slots && !materialize_empty_dict) {
+                binding.set_last_source_snapshot(current_source_root_state, current_source_had_value);
+                binding.last_synced_time = modified_time;
+                finish_sync();
+                return;
+            }
+
+            auto replay_live_slot = [&](size_t slot, bool source_updated, bool rebuild_child) {
+                const View   key          = source_delta.key_at_slot(slot);
+                TSOutputView source_child = ensure_tsd_child_view(source_root, key);
+                if (source_updated && source_child.valid()) {
+                    if (BaseState *source_child_state = source_child.context_ref().ts_state;
+                        source_child_state != nullptr && source_child_state->last_modified_time != modified_time) {
+                        // Dynamic alternatives can bind directly against TSD children
+                        // even when the source output only published a root-level dict
+                        // tick. Materialize the child state on demand and stamp it with
+                        // the current replay time so peered REF wrappers observe the same
+                        // validity the normal TSD publish path would expose.
+                        source_child_state->mark_modified(modified_time);
+                    }
+                }
+                TSOutputView target_child   = target_dict.at(key);
+                const bool   target_has_key = target_child.context_ref().is_bound();
+                const bool   child_schema_differs =
+                    target_has_key && !equivalent_ts_schema(target_child.ts_schema(), source_child.ts_schema());
+                const bool child_can_sync_recursively =
+                    child_schema_differs && target_child.ts_schema() != nullptr && source_child.ts_schema() != nullptr &&
+                    target_child.ts_schema()->kind == TSKind::TSD && source_child.ts_schema()->kind == TSKind::TSD &&
+                    supports_alternative_cast(*source_child.ts_schema(), *target_child.ts_schema());
+                const bool child_is_existing_ref_wrapper =
+                    target_has_key && child_schema_differs && target_child.ts_schema() != nullptr &&
+                    source_child.ts_schema() != nullptr && target_child.ts_schema()->kind == TSKind::REF &&
+                    target_child.ts_schema()->element_ts() != nullptr &&
+                    supports_alternative_cast(*source_child.ts_schema(), *target_child.ts_schema()->element_ts());
+                const bool child_is_existing_ref_dereference =
+                    target_has_key && child_schema_differs && target_child.ts_schema() != nullptr &&
+                    source_child.ts_schema() != nullptr && source_child.ts_schema()->kind == TSKind::REF &&
+                    source_child.ts_schema()->element_ts() != nullptr &&
+                    supports_alternative_cast(*source_child.ts_schema()->element_ts(), *target_child.ts_schema());
+                bool child_ref_wrapper_is_current = false;
+                if (child_is_existing_ref_wrapper) {
+                    const View  target_child_value = target_child.value();
+                    const auto *target_child_ref =
+                        target_child_value.has_value() ? target_child_value.as_atomic().try_as<TimeSeriesReference>() : nullptr;
+                    const LinkedTSContext source_child_context = detail::stable_output_context(source_child);
+                    child_ref_wrapper_is_current =
+                        target_child_ref != nullptr && target_child_ref->is_peered() &&
+                        (source_child_context.is_bound() || source_child_context.pending_dict_child.active()) &&
+                        detail::linked_context_equal(target_child_ref->target(), source_child_context);
+                }
+                bool child_ref_dereference_is_current = false;
+                if (child_is_existing_ref_dereference) {
+                    BaseState *target_child_state = target_child.context_ref().ts_state;
+                    if (target_child_state != nullptr && target_child_state->storage_kind == TSStorageKind::RefLink) {
+                        const auto           &ref_link             = *static_cast<const RefLinkState *>(target_child_state);
+                        const LinkedTSContext source_child_context = detail::stable_output_context(source_child);
+                        child_ref_dereference_is_current =
+                            (source_child_context.is_bound() || source_child_context.pending_dict_child.active()) &&
+                            detail::linked_context_equal(ref_link.source, source_child_context);
+                    } else if (target_child_state != nullptr) {
+                        const LinkedTSContext source_child_context = detail::stable_output_context(source_child);
+                        if (source_child_context.is_bound() || source_child_context.pending_dict_child.active()) {
+                            for (const auto &binding : m_collection_ref_bindings) {
+                                if (binding != nullptr && binding->target_context.ts_state == target_child_state &&
+                                    detail::linked_context_equal(binding->source_context, source_child_context)) {
+                                    child_ref_dereference_is_current = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (rebuild_child && (child_ref_wrapper_is_current || child_ref_dereference_is_current)) { rebuild_child = false; }
+
+                // Dict-level slot updates can replace the child payload for an
+                // existing key without changing the key itself. Nested TSD
+                // alternatives are live bindings, so they must receive their
+                // source deltas incrementally instead of being rebuilt into a
+                // fresh full-resync state that loses same-tick removals.
+                if (source_updated && child_schema_differs && !child_can_sync_recursively && !child_ref_wrapper_is_current &&
+                    !child_ref_dereference_is_current) {
+                    rebuild_child = true;
+                }
+                bool recursive_child_synced = false;
+                if (source_updated && child_can_sync_recursively && target_has_key && !rebuild_child) {
+                    if (sync_existing_dynamic_dict_child(target_child, source_child, modified_time)) {
+                        recursive_child_synced = true;
+                    } else {
+                        configure_branch(target_child, source_child);
+                        recursive_child_synced = true;
+                    }
+                }
+
+                if (!target_has_key) {
+                    // Insert the key into the alternative map before touching
+                    // TS child state. That guarantees dict navigation can
+                    // resolve a stable slot for install_dynamic_child().
+                    Value placeholder{*target_root.ts_schema()->element_ts()->value_type, MutationTracking::Plain};
+                    mutation.set(key, placeholder.view());
+                    map_value_changed = true;
+                }
+
+                if (!recursive_child_synced && rebuild_child && target_has_key) {
+                    if (BaseState *existing_state = target_child.context_ref().ts_state; existing_state != nullptr) {
+                        clear_dynamic_child_slot(*target_root_state, existing_state->index);
+                    }
+                }
+
+                if (!recursive_child_synced && (rebuild_child || !target_has_key)) {
+                    install_dynamic_child(target_root, key, source_child, modified_time);
+                    target_child = target_dict.at(key);
+                }
+
+                if (source_updated) {
+                    if (BaseState *target_child_state = target_child.context_ref().ts_state; target_child_state != nullptr) {
+                        const bool already_bubbled =
+                            target_root_state->last_modified_time == modified_time &&
+                            target_root_state->modified_children.contains(target_child_state->index);
+                        if (target_child_state->last_modified_time != modified_time) {
+                            target_child_state->mark_modified_local(modified_time);
+                        }
+                        if (!already_bubbled) { target_root_state->child_modified(target_child_state->index, modified_time); }
+                    }
+                }
+
+                if (source_updated &&
+                    (!target_has_key || rebuild_child || context_modified(target_child.context_ref(), modified_time))) {
+                    // New keys start with a placeholder value purely to claim
+                    // their stable slot. Once the child binding is installed,
+                    // publish the live child value back into the parent map so
+                    // dict reads observe the linked payload rather than the
+                    // zero/blank placeholder. Rebuilds of an existing key are
+                    // also value replacements at the dict level.
+                    if (child_can_sync_recursively && target_has_key && !rebuild_child) {
+                        if (BaseState *target_child_state = target_child.context_ref().ts_state; target_child_state != nullptr) {
+                            target_root_state->child_modified(target_child_state->index, modified_time);
+                        }
+                    } else if (equivalent_ts_schema(source_child.ts_schema(), target_child.ts_schema())) {
+                        const View source_item_value = source_map.at(key);
+                        mutation.set(key, source_item_value.has_value()
+                                              ? source_item_value
+                                              : View::invalid_for(target_root.ts_schema()->element_ts()->value_type));
+                        map_value_changed = true;
+                    } else {
+                        Value materialized_child{*target_root.ts_schema()->element_ts()->value_type, MutationTracking::Plain};
+                        materialized_child.reset();
+                        const View target_child_value = target_child.value();
+                        if (target_child_value.has_value()) {
+                            if (target_child_value.schema() != materialized_child.view().schema()) {
+                                throw std::logic_error("TSOutput dynamic dict materialization requires matching value schemas");
+                            }
+                            materialized_child.view().copy_from(target_child_value);
+                        }
+                        mutation.set(key, materialized_child.view());
+                        map_value_changed = true;
+                    }
+                }
+            };
+
+            if (full_resync) {
+                // When the binding has been rebound (`source_rebound` /
+                // `source_value_changed`) we still need to walk every live slot to
+                // make sure newly-introduced keys get materialised on the target,
+                // but we must not unconditionally re-replay slots whose data has
+                // not actually changed. Doing so was causing spurious entries in
+                // the target's `modified_children` set whenever the upstream REF
+                // target was refreshed (a common occurrence when downstream of
+                // `partition`/`map_` chains where the source TSD object is rebound
+                // every tick), which in turn made `request.modified_items()` on
+                // the consumer side report previously-existing keys as modified.
+                // We rely on the existing `sampled_slot_changed` / source-delta /
+                // child-modified signals to identify the truly-changed slots, and
+                // only the `initializing && !target_was_valid` path force-refreshes
+                // a fresh binding to populate it from scratch.
+                for (size_t slot = source_map.first_live_slot(); slot != no_slot; slot = source_map.next_live_slot(slot)) {
+                    const View key                 = source_delta.key_at_slot(slot);
+                    const bool target_has_live_key = target_map.contains(key);
+                    const bool sampled_slot_changed =
+                        sampled_root_tick &&
+                        (!sampled_previous_map_matches ||
+                         transition_map_slot_changed(*sampled_previous_map, source_root.context_ref(), key));
+                    const bool force_live_refresh =
+                        sampled_slot_changed || (initializing && !target_was_valid);
+                    const bool native_child_changed =
+                        source_native_state != nullptr && source_slot_changed_this_tick(slot);
+                    const bool source_slot_changed = source_delta.slot_added(slot) || source_delta.slot_updated(slot) ||
+                                                     native_child_changed || force_live_refresh;
+                    replay_live_slot(slot, !target_has_live_key || source_slot_changed,
+                                     !target_has_live_key || force_live_refresh);
+                }
+            } else {
+                std::unordered_set<size_t> replayed_slots;
+                for (size_t slot = source_delta.first_added_slot(); slot != no_slot;
+                     slot        = source_delta.next_added_slot(slot)) {
+                    const View   key          = source_delta.key_at_slot(slot);
+                    TSOutputView target_child = target_dict.at(key);
+                    if (!source_slot_changed_this_tick(slot) && target_child.context_ref().is_bound()) { continue; }
+                    replay_live_slot(slot, true, true);
+                    replayed_slots.insert(slot);
+                }
+                for (size_t slot = source_delta.first_updated_slot(); slot != no_slot;
+                     slot        = source_delta.next_updated_slot(slot)) {
+                    if (source_delta.slot_added(slot)) { continue; }
+                    if (!source_slot_changed_this_tick(slot)) { continue; }
+                    const View   key          = source_delta.key_at_slot(slot);
+                    TSOutputView source_child = ensure_tsd_child_view(source_root, key);
+                    TSOutputView target_child = target_dict.at(key);
+
+                    const bool child_changed_this_tick = context_modified(source_child.context_ref(), modified_time);
+                    const bool target_has_key          = target_child.context_ref().is_bound();
+                    const bool child_schema_differs    = target_has_key && target_child.ts_schema() != source_child.ts_schema();
+
+                    bool materialized_value_changed = !target_has_key;
+                    if (!materialized_value_changed && !child_schema_differs) {
+                        const View source_item_value = source_map.at(key);
+                        const View target_item_value = target_map.at(key);
+                        materialized_value_changed   = source_item_value != target_item_value;
+                    }
+
+                    if (!child_changed_this_tick && !materialized_value_changed && !child_schema_differs) { continue; }
+                    replay_live_slot(slot, true, false);
+                    replayed_slots.insert(slot);
+                }
+                if (source_native_state != nullptr && source_native_state->last_modified_time == modified_time) {
+                    const size_t slot_capacity = source_delta.slot_capacity();
+                    for (const size_t slot : source_native_state->modified_children) {
+                        if (replayed_slots.contains(slot) || slot >= slot_capacity || !source_delta.slot_occupied(slot) ||
+                            source_delta.slot_removed(slot)) {
+                            continue;
+                        }
+                        const View   key            = source_delta.key_at_slot(slot);
+                        TSOutputView target_child   = target_dict.at(key);
+                        const bool   target_has_key = target_child.context_ref().is_bound();
+                        replay_live_slot(slot, true, !target_has_key);
+                    }
+                }
+            }
+
+            binding.set_last_source_snapshot(current_source_root_state, true);
+
+            if ((map_value_changed || materialize_empty_dict) && modified_time != MIN_DT) {
+                // The dynamic dict binding handles child-level validity and
+                // modification directly. Only publish a root-level change when
+                // replay actually changed the bound field/root map value.
+                // Mark the target TSD state itself so nested projections such
+                // as `.true` observe the modification before it bubbles to any
+                // enclosing bundle alternative.
+                if (target_root_state->last_modified_time != modified_time) { target_root_state->mark_modified(modified_time); }
+            }
+            binding.last_synced_time = modified_time;
+            finish_sync();
+        }
+
+        void drain_pending_dynamic_dict_syncs() {
+            if (m_draining_dynamic_dict_syncs) { return; }
+
+            m_draining_dynamic_dict_syncs = true;
+            auto finish_drain             = make_scope_exit([this] { m_draining_dynamic_dict_syncs = false; });
+
+            for (;;) {
+                remove_invalid_dynamic_dict_bindings();
+                bool drained_one = false;
+                for (auto &binding : m_dynamic_dict_bindings) {
+                    if (binding == nullptr || binding->pending_modified_time == MIN_DT) { continue; }
+
+                    const engine_time_t pending_modified_time = binding->pending_modified_time;
+                    binding->pending_modified_time            = MIN_DT;
+                    sync_dynamic_dict(*binding, pending_modified_time, false);
+                    drained_one = true;
+                    break;
+                }
+
+                if (!drained_one) { break; }
+            }
+        }
+
+        void sync_dynamic_key_set(DynamicKeySetBinding &binding, engine_time_t modified_time, bool initializing) {
+            TSOutputView target_root = output_view_for(binding.target_context, modified_time);
+            TSOutputView source_root = output_view_for(binding.source_context, modified_time);
+
+            auto *target_root_state = target_root.context_ref().ts_state;
+            if (target_root_state == nullptr) { throw std::logic_error("TSOutput key-set sync requires a live target TSS state"); }
+
+            auto             target_set            = target_root.value().as_set();
+            auto             mutation              = target_set.begin_mutation(modified_time);
+            bool             set_changed           = false;
+            const bool       materialize_empty_set = initializing && !target_root.value().has_value();
+            constexpr size_t no_slot               = static_cast<size_t>(-1);
+            const BaseState *current_source_root_state =
+                binding.source_context.ts_state != nullptr ? binding.source_context.ts_state->resolved_state() : nullptr;
+            const bool current_source_had_value = source_root.value().has_value();
+            const bool source_rebound           = !initializing && current_source_root_state != binding.last_source_root_state();
+            const bool source_value_changed     = !initializing && current_source_had_value != binding.last_source_had_value();
+            const bool sampled_root_tick        = sampled_transition_this_tick(source_root.context_ref(), modified_time);
+            const bool full_resync              = initializing || source_rebound || source_value_changed || sampled_root_tick;
+
+            auto remove_target_key = [&](const View &key) { set_changed = mutation.remove(key) || set_changed; };
+
+            const View source_value = source_root.value();
+            if (!source_value.has_value()) {
+                if (full_resync) {
+                    std::vector<Value> stale_keys;
+                    for (const View &key : target_set.values()) { stale_keys.emplace_back(key.clone()); }
+                    for (const auto &key : stale_keys) { remove_target_key(key.view()); }
+                }
+
+                binding.set_last_source_snapshot(current_source_root_state, false);
+                if ((materialize_empty_set || set_changed) && modified_time != MIN_DT) {
+                    target_root_state->mark_modified(modified_time);
+                }
+                return;
+            }
+
+            const auto source_map   = source_value.as_map();
+            const auto source_delta = source_map.delta();
+
+            if (full_resync) {
+                std::vector<Value> stale_keys;
+                for (const View &key : target_set.values()) {
+                    if (!source_map.contains(key)) { stale_keys.emplace_back(key.clone()); }
+                }
+                for (const auto &key : stale_keys) { remove_target_key(key.view()); }
+
+                for (size_t slot = source_map.first_live_slot(); slot != no_slot; slot = source_map.next_live_slot(slot)) {
+                    set_changed = mutation.add(source_map.delta().key_at_slot(slot)) || set_changed;
+                }
+            } else {
+                for (size_t slot = source_delta.first_removed_slot(); slot != no_slot;
+                     slot        = source_delta.next_removed_slot(slot)) {
+                    remove_target_key(source_delta.key_at_slot(slot));
+                }
+                for (size_t slot = source_delta.first_added_slot(); slot != no_slot; slot = source_delta.next_added_slot(slot)) {
+                    set_changed = mutation.add(source_delta.key_at_slot(slot)) || set_changed;
+                }
+            }
+
+            binding.set_last_source_snapshot(current_source_root_state, true);
+            if ((materialize_empty_set || set_changed) && modified_time != MIN_DT) {
+                target_root_state->mark_modified(modified_time);
+            }
+        }
+
+        void configure_branch(const TSOutputView &target_view, const TSOutputView &source_view) {
+            const TSMeta *target_schema = target_view.ts_schema();
+            const TSMeta *source_schema = source_view.ts_schema();
+            if (target_schema == nullptr || source_schema == nullptr) {
+                throw std::invalid_argument("TSOutput alternative configuration requires bound source and target schemas");
+            }
+
+            BaseState            *target_state   = target_view.linked_context().ts_state;
+            const LinkedTSContext source_context = detail::stable_output_context(source_view);
+            BaseState            *source_state   = source_context.ts_state;
+            if (target_state != nullptr) {
+                target_state->last_modified_time = source_state != nullptr ? source_state->last_modified_time : MIN_DT;
+            }
+
+            if (source_schema->kind == TSKind::REF) {
+                const TSMeta *dereferenced_schema = source_schema->element_ts();
+                if (dereferenced_schema == nullptr) {
+                    throw std::invalid_argument("TSOutput alternative REF dereference requires a referenced schema");
+                }
+
+                if (target_schema->kind == TSKind::REF) {
+                    const TSMeta *target_element = target_schema->element_ts();
+                    if (target_element != nullptr && supports_alternative_cast(*dereferenced_schema, *target_element)) {
+                        add_scalar_value_binding(std::make_unique<ScalarValueBinding>(this, target_view, source_view),
+                                                 source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                        return;
+                    }
+                }
+
+                if (target_schema->kind == TSKind::TSD && dereferenced_schema->kind == TSKind::TSD &&
+                    supports_alternative_cast(*dereferenced_schema, *target_schema)) {
+                    add_dynamic_dict_binding(make_dereferenced_dynamic_dict_binding(target_view, source_view),
+                                             source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                    return;
+                }
+
+                if (target_schema->kind == TSKind::TSS && dereferenced_schema->kind == TSKind::TSD &&
+                    supports_alternative_cast(*dereferenced_schema, *target_schema)) {
+                    add_dynamic_key_set_binding(make_dereferenced_dynamic_key_set_binding(target_view, source_view),
+                                                target_view.evaluation_time());
+                    return;
+                }
+
+                if (supports_alternative_cast(*dereferenced_schema, *target_schema)) {
+                    if (target_schema->kind == TSKind::TSB || target_schema->kind == TSKind::TSL) {
+                        add_collection_ref_binding(std::make_unique<CollectionRefBinding>(this, target_view, source_view),
+                                                   source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                    } else {
+                        // REF -> TS does not copy target data into the alternative.
+                        // Instead the alternative position becomes a RefLinkState that
+                        // tracks the REF source and exposes the current dereferenced
+                        // target through the normal TS view surface.
+                        install_ref_link_for_target(target_view, source_view);
+                    }
+                    return;
+                }
+
+                throw std::invalid_argument(
+                    "TSOutput alternative REF dereference requires matching or recursively compatible schema");
+            }
+
+            if (target_schema->kind == TSKind::SIGNAL) {
+                install_signal_subscription(target_view, source_view);
+                return;
+            }
+
+            if (target_schema->kind == TSKind::TSValue && source_schema->kind == TSKind::TSValue) {
+                add_scalar_value_binding(std::make_unique<ScalarValueBinding>(this, target_view, source_view),
+                                         source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                return;
+            }
+
+            if (target_schema->kind == TSKind::REF) {
+                const TSMeta *target_element = target_schema->element_ts();
+                if (target_element == nullptr || !supports_alternative_cast(*source_schema, *target_element)) {
+                    throw std::invalid_argument("TSOutput alternative REF wrapping requires matching referenced schema");
+                }
+
+                target_view.value().as_atomic().set(hgraph::TimeSeriesReference::make(source_view));
+                if (target_state != nullptr) {
+                    const engine_time_t source_modified_time =
+                        source_state != nullptr && source_state->last_modified_time != MIN_DT ? source_state->last_modified_time
+                        : source_view.evaluation_time() != MIN_DT                             ? source_view.evaluation_time()
+                                                                                              : MIN_ST;
+                    target_state->last_modified_time = source_modified_time;
+                }
+                auto       notifier = std::make_unique<WrappedRefNotifier>(this, target_view.context_ref(), source_context);
+                BaseState *source_notification_state =
+                    source_context.ts_state != nullptr ? source_context.ts_state : notification_state_of(source_context);
+                notifier->subscribe_source(source_notification_state);
+                m_wrapped_ref_subscriptions.push_back(WrappedRefSubscription{.notifier = std::move(notifier)});
+                return;
+            }
+
+            if (target_schema == source_schema) {
+                throw std::logic_error("TSOutput alternative configuration should not recurse into schema-identical branches");
+            }
+
+            if (target_schema->kind == TSKind::TSS && source_schema->kind == TSKind::TSD) {
+                add_dynamic_key_set_binding(std::make_unique<DynamicKeySetBinding>(this, target_view, source_view),
+                                            target_view.evaluation_time());
+                return;
+            }
+
+            if (target_schema->kind != source_schema->kind) {
+                throw std::invalid_argument("TSOutput alternative configuration requires matching collection kinds");
+            }
+
+            switch (target_schema->kind) {
+                case TSKind::TSB:
+                    {
+                        auto      &target_state_ref = *static_cast<TSBState *>(target_view.linked_context().ts_state);
+                        auto       source_bundle    = source_view.as_bundle();
+                        auto       target_bundle    = target_view.as_bundle();
+                        const bool debug_links      = std::getenv("HGRAPH_DEBUG_LINKS") != nullptr;
+                        if (debug_links) {
+                            std::fprintf(stderr,
+                                         "configure_branch TSB target=%p source=%p target_kind=%d source_kind=%d fields=%zu\n",
+                                         static_cast<void *>(target_view.linked_context().ts_state),
+                                         static_cast<void *>(detail::stable_output_context(source_view).ts_state),
+                                         static_cast<int>(target_schema->kind), static_cast<int>(source_schema->kind),
+                                         target_schema->field_count());
+                        }
+                        for (size_t i = 0; i < target_schema->field_count(); ++i) {
+                            const TSMeta *target_child_schema = target_schema->fields()[i].ts_type;
+                            const TSMeta *source_child_schema = source_schema->fields()[i].ts_type;
+                            TSOutputView  source_child        = source_bundle[i];
+                            if (debug_links) {
+                                const LinkedTSContext child_context = detail::stable_output_context(source_child);
+                                std::fprintf(stderr, "  field[%zu] target_child_kind=%d source_child_kind=%d source_state=%p\n", i,
+                                             target_child_schema != nullptr ? static_cast<int>(target_child_schema->kind) : -1,
+                                             source_child_schema != nullptr ? static_cast<int>(source_child_schema->kind) : -1,
+                                             static_cast<void *>(child_context.ts_state));
+                            }
+                            if (target_child_schema == source_child_schema) {
+                                install_target_link(target_state_ref, i, detail::stable_output_context(source_child),
+                                                    "configure_branch_tsb");
+                            } else {
+                                configure_branch(target_bundle[i], source_child);
+                            }
+                        }
+                        return;
+                    }
+
+                case TSKind::TSL:
+                    {
+                        if (target_schema->fixed_size() == 0 || target_schema->fixed_size() != source_schema->fixed_size()) {
+                            throw std::invalid_argument("TSOutput alternatives only support fixed-size TSL wrap casts");
+                        }
+                        auto &target_state_ref = *static_cast<TSLState *>(target_view.linked_context().ts_state);
+                        auto  source_list      = source_view.as_list();
+                        auto  target_list      = target_view.as_list();
+                        for (size_t i = 0; i < target_schema->fixed_size(); ++i) {
+                            const TSMeta *target_child_schema = target_schema->element_ts();
+                            const TSMeta *source_child_schema = source_schema->element_ts();
+                            TSOutputView  source_child        = source_list[i];
+                            if (target_child_schema == source_child_schema) {
+                                install_target_link(target_state_ref, i, detail::stable_output_context(source_child),
+                                                    "configure_branch_tsl");
+                            } else {
+                                configure_branch(target_list[i], source_child);
+                            }
+                        }
+                        return;
+                    }
+
+                case TSKind::TSD:
+                    {
+                        if (source_schema->key_type() != target_schema->key_type()) {
+                            throw std::invalid_argument("TSOutput alternatives only support TSD casts with matching key schemas");
+                        }
+
+                        // Dynamic dict alternatives are kept live after
+                        // construction. Instead of eagerly recursing every
+                        // possible child, we subscribe to the source dict root
+                        // and replay key-level structural changes on demand.
+                        add_dynamic_dict_binding(std::make_unique<DynamicDictBinding>(this, target_view, source_view),
+                                                 source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                        return;
+                    }
+
+                default:
+                    throw std::invalid_argument(
+                        "TSOutput alternatives only support collection wrap casts through TSB, TSL, TSD, and TSS");
+            }
+        }
+
+        std::vector<WrappedRefSubscription>                m_wrapped_ref_subscriptions;
+        std::vector<std::unique_ptr<ScalarValueBinding>>   m_scalar_value_bindings;
+        std::vector<std::unique_ptr<DynamicDictBinding>>   m_dynamic_dict_bindings;
+        std::vector<std::unique_ptr<DynamicKeySetBinding>> m_dynamic_key_set_bindings;
+        std::vector<std::unique_ptr<CollectionRefBinding>> m_collection_ref_bindings;
+        size_t                                             m_dynamic_dict_sync_depth{0};
+        bool                                               m_draining_dynamic_dict_syncs{false};
+        ViewOps                                            m_view_ops{this};
+        AlternativeMap                                     m_alternatives;
+        DetachedAlternativeMap                             m_detached_alternatives;
+        LinkedTSContext                                    m_root_source_context{};
+    };
+
+    TSOutput::RefTargetSubscription::RefTargetSubscription(BaseState *state_, std::unique_ptr<Notifiable> notifier_) noexcept
+        : state(state_), notifier(std::move(notifier_)) {
+        invalidator.owner      = this;
+        invalidator.invalidate = &RefTargetSubscription::invalidate_state;
+        invalidator.rebind     = &RefTargetSubscription::rebind_state;
+
+        if (state != nullptr && notifier != nullptr) {
+            state->register_state_invalidator(&invalidator);
+            state->subscribe(notifier.get());
+        }
+    }
+
+    TSOutput::RefTargetSubscription::~RefTargetSubscription() noexcept { release(); }
+
+    void TSOutput::RefTargetSubscription::release() noexcept {
+        if (state != nullptr && !invalidator.state_destroyed) {
+            if (notifier != nullptr) { state->unsubscribe(notifier.get()); }
+            state->unregister_state_invalidator(&invalidator);
+        }
+        state                       = nullptr;
+        notifier                    = nullptr;
+        invalidator.owner           = nullptr;
+        invalidator.invalidate      = nullptr;
+        invalidator.rebind          = nullptr;
+        invalidator.state_destroyed = false;
+    }
+
+    void TSOutput::RefTargetSubscription::invalidate_state(void *owner) noexcept {
+        auto *subscription = static_cast<RefTargetSubscription *>(owner);
+        if (subscription == nullptr) { return; }
+        subscription->state = nullptr;
+    }
+
+    void TSOutput::RefTargetSubscription::rebind_state(void *owner, BaseState *old_state, BaseState *new_state) noexcept {
+        auto *subscription = static_cast<RefTargetSubscription *>(owner);
+        if (subscription != nullptr && subscription->state == old_state) {
+            subscription->state                       = new_state;
+            subscription->invalidator.state_destroyed = false;
+        }
+    }
+
+    TSOutput::TSOutput() noexcept = default;
+
+    TSOutput::TSOutput(const TSOutputBuilder &builder) { builder.construct_output(*this); }
+
+    void mark_output_view_modified(const TSOutputView &view, engine_time_t evaluation_time) {
+        LinkedTSContext context = view.linked_context();
+        if (context.ts_state == nullptr) { throw std::logic_error("mark_output_view_modified requires a linked output state"); }
+
+        if (context.schema != nullptr && context.schema->kind == TSKind::TSD &&
+            context.ts_state->storage_kind == TSStorageKind::Native && context.value_dispatch != nullptr &&
+            context.value_data != nullptr) {
+            auto &state = *static_cast<TSDState *>(context.ts_state);
+            if (evaluation_time != MIN_DT && state.last_modified_time != evaluation_time) { state.modified_children.clear(); }
+            state.bind_value_storage(*context.schema->element_ts(),
+                                     static_cast<const detail::MapViewDispatch &>(*context.value_dispatch), context.value_data);
+            // Child-slot deltas and root-level collection subscribers are both
+            // meaningful. Dynamic TSD alternatives need the root notification
+            // after batched map output publication has completed.
+            static_cast<void>(state.publish_value_storage_delta(evaluation_time));
+        }
+
+        if (TSOutput *owning_output = view.owning_output(); owning_output != nullptr) {
+            owning_output->sync_ref_target_subscriptions(evaluation_time);
+        }
+        context.ts_state->mark_modified(evaluation_time);
+    }
+
+    namespace
+    {
+        [[nodiscard]] OutputLinkState *ensure_output_link_state(const TSOutputView &target) {
+            const TSMeta *target_schema = target.ts_schema();
+            if (target_schema == nullptr) { throw std::invalid_argument("prepare_output_link requires a target schema"); }
+
+            BaseState *target_state = target.context_ref().ts_state;
+            if (target_state == nullptr) { throw std::logic_error("prepare_output_link requires a live target state"); }
+
+            TimeSeriesStateV *slot = owning_state_variant(target_state, target.owning_output());
+            if (slot == nullptr) { throw std::logic_error("prepare_output_link could not resolve the owning target state slot"); }
+
+            if (target_state->storage_kind == TSStorageKind::OutputLink) { return static_cast<OutputLinkState *>(target_state); }
+
+            BaseState                     *old_state                = target_state;
+            const TimeSeriesStateParentPtr parent                   = target_state->parent;
+            const size_t                   index                    = target_state->index;
+            const engine_time_t            last_modified_time       = target_state->last_modified_time;
+            auto                           subscribers              = std::move(target_state->subscribers);
+            auto                           ref_invalidators         = std::move(target_state->ref_invalidators);
+            auto                           target_link_invalidators = std::move(target_state->target_link_invalidators);
+            auto                           state_invalidators       = std::move(target_state->state_invalidators);
+            auto                           feature_registry         = std::move(target_state->feature_registry);
+            auto                          &new_state                = slot->emplace<OutputLinkState>();
+            initialize_base_state(new_state, parent, index, last_modified_time, TSStorageKind::OutputLink);
+            new_state.subscribers              = std::move(subscribers);
+            new_state.ref_invalidators         = std::move(ref_invalidators);
+            new_state.target_link_invalidators = std::move(target_link_invalidators);
+            new_state.state_invalidators       = std::move(state_invalidators);
+            new_state.feature_registry         = std::move(feature_registry);
+            rebind_base_state_lifetime(new_state, old_state);
+            new_state.target.clear();
+            return &new_state;
+        }
+
+        void restore_native_output_link_state(const TSOutputView &target) {
+            BaseState *target_state = target.context_ref().ts_state;
+            if (target_state == nullptr || target_state->storage_kind != TSStorageKind::OutputLink) { return; }
+
+            const TSMeta *schema = target.ts_schema();
+            if (schema == nullptr) { throw std::logic_error("restore_native_output_link_state requires a target schema"); }
+
+            TimeSeriesStateV *slot = owning_state_variant(target_state, target.owning_output());
+            if (slot == nullptr) {
+                throw std::logic_error("restore_native_output_link_state could not resolve the owning target state slot");
+            }
+
+            BaseState                     *old_state                = target_state;
+            const TimeSeriesStateParentPtr parent                   = target_state->parent;
+            const size_t                   index                    = target_state->index;
+            const engine_time_t            last_modified_time       = target_state->last_modified_time;
+            auto                           subscribers              = std::move(target_state->subscribers);
+            auto                           ref_invalidators         = std::move(target_state->ref_invalidators);
+            auto                           target_link_invalidators = std::move(target_state->target_link_invalidators);
+            auto                           state_invalidators       = std::move(target_state->state_invalidators);
+            auto                           feature_registry         = std::move(target_state->feature_registry);
+
+            auto restore_common = [&](auto &state) -> void {
+                initialize_base_state(state, parent, index, last_modified_time, TSStorageKind::Native);
+                state.subscribers              = std::move(subscribers);
+                state.ref_invalidators         = std::move(ref_invalidators);
+                state.target_link_invalidators = std::move(target_link_invalidators);
+                state.state_invalidators       = std::move(state_invalidators);
+                state.feature_registry         = std::move(feature_registry);
+                rebind_base_state_lifetime(state, old_state);
+            };
+
+            switch (schema->kind) {
+                case TSKind::TSValue: restore_common(slot->emplace<TSState>()); break;
+                case TSKind::TSS: restore_common(slot->emplace<TSSState>()); break;
+                case TSKind::TSD: restore_common(slot->emplace<TSDState>()); break;
+                case TSKind::TSB:
+                    {
+                        auto &state = slot->emplace<TSBState>();
+                        restore_common(state);
+                        state.child_states.resize(schema->field_count());
+                        for (size_t child_index = 0; child_index < schema->field_count(); ++child_index) {
+                            const TSMeta *child_schema = schema->fields()[child_index].ts_type;
+                            if (child_schema != nullptr) {
+                                state.child_states[child_index] =
+                                    make_time_series_state_node(*child_schema, parent_ptr(state), child_index);
+                            }
+                        }
+                        break;
+                    }
+                case TSKind::TSL:
+                    {
+                        auto &state = slot->emplace<TSLState>();
+                        restore_common(state);
+                        state.child_states.resize(schema->fixed_size());
+                        const TSMeta *child_schema = schema->element_ts();
+                        if (child_schema != nullptr) {
+                            for (size_t child_index = 0; child_index < schema->fixed_size(); ++child_index) {
+                                state.child_states[child_index] =
+                                    make_time_series_state_node(*child_schema, parent_ptr(state), child_index);
+                            }
+                        }
+                        break;
+                    }
+                case TSKind::TSW: restore_common(slot->emplace<TSWState>()); break;
+                default: throw std::logic_error("restore_native_output_link_state does not support this output schema");
+            }
+        }
+
+        void materialize_output_link_transition_delta(const TSOutputView &target, const Value &previous_value) {
+            if (!previous_value.has_value()) { return; }
+
+            const TSMeta *schema = target.ts_schema();
+            if (schema == nullptr) { return; }
+
+            if (target.context_ref().ts_state != nullptr &&
+                target.context_ref().ts_state->storage_kind == TSStorageKind::OutputLink) {
+                restore_native_output_link_state(target);
+            }
+
+            View target_value = target.value();
+            if (!target_value.has_value() || target_value.schema() != previous_value.view().schema()) {
+                throw std::logic_error("OutputLink transition materialization requires matching native value storage");
+            }
+            target_value.copy_from(previous_value.view());
+
+            switch (schema->kind) {
+                case TSKind::TSS:
+                    {
+                        auto               set_view = target.value().as_set();
+                        std::vector<Value> items;
+                        for (const View &item : set_view.values()) { items.emplace_back(item.clone()); }
+                        set_view.clear_delta_tracking();
+                        auto mutation = set_view.begin_mutation(target.evaluation_time());
+                        for (const auto &item : items) { static_cast<void>(mutation.remove(item.view())); }
+                        break;
+                    }
+
+                case TSKind::TSD:
+                    {
+                        auto                                  map_view = target.value().as_map();
+                        std::vector<std::pair<Value, size_t>> keys;
+                        constexpr size_t                      no_slot = static_cast<size_t>(-1);
+                        for (size_t slot = map_view.first_live_slot(); slot != no_slot; slot = map_view.next_live_slot(slot)) {
+                            keys.emplace_back(map_view.delta().key_at_slot(slot).clone(), slot);
+                        }
+                        map_view.clear_delta_tracking();
+                        TSDState *state    = target.context_ref().ts_state != nullptr &&
+                                                     target.context_ref().ts_state->storage_kind == TSStorageKind::Native
+                                                 ? static_cast<TSDState *>(target.context_ref().ts_state)
+                                                 : nullptr;
+                        auto      mutation = map_view.begin_mutation(target.evaluation_time());
+                        for (const auto &[key, slot] : keys) {
+                            if (mutation.remove(key.view()) && state != nullptr) {
+                                state->record_removed_child_key(slot, key.view(), target.evaluation_time());
+                            }
+                        }
+                        break;
+                    }
+
+                default: break;
+            }
+        }
+    }  // namespace
+
+    void prepare_output_link(const TSOutputView &target) { static_cast<void>(ensure_output_link_state(target)); }
+
+    bool bind_output_link(const TSOutputView &target, const TSOutputView &source) {
+        const TSMeta *target_schema = target.ts_schema();
+        const TSMeta *source_schema = source.ts_schema();
+        if (target_schema == nullptr || source_schema == nullptr || target_schema != source_schema) {
+            if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
+                std::fprintf(stderr,
+                             "bind_output_link schema mismatch source=%s target=%s source_owner=%p target_owner=%p "
+                             "source_state=%p target_state=%p source_bound=%d target_bound=%d\n",
+                             schema_debug_name(source_schema).c_str(), schema_debug_name(target_schema).c_str(),
+                             static_cast<void *>(source.owning_output()), static_cast<void *>(target.owning_output()),
+                             static_cast<void *>(source.context_ref().ts_state), static_cast<void *>(target.context_ref().ts_state),
+                             source.context_ref().is_bound(), target.context_ref().is_bound());
+                print_stack_trace();
+            }
+            throw std::invalid_argument(fmt::format("bind_output_link requires matching source and target schemas: {} -> {}",
+                                                    schema_debug_name(source_schema), schema_debug_name(target_schema)));
+        }
+
+        BaseState *target_state = target.context_ref().ts_state;
+        if (target_state == nullptr) { throw std::logic_error("bind_output_link requires a live target state"); }
+        OutputLinkState *link_state = ensure_output_link_state(target);
+
+        const LinkedTSContext source_context = detail::stable_output_context(source);
+        if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
+            std::fprintf(stderr,
+                         "bind_output_link target_state=%p target_storage=%d source_state=%p source_value=%p "
+                         "source_schema=%s source_bound=%d source_valid=%d source_mod=%d\n",
+                         static_cast<void *>(target_state), static_cast<int>(target_state->storage_kind),
+                         static_cast<void *>(source_context.ts_state), source_context.value_data,
+                         schema_debug_name(source_context.schema).c_str(), source_context.is_bound(), source.valid(),
+                         source.modified());
+        }
+        if (detail::linked_context_equal(link_state->target, source_context)) { return false; }
+        link_state->set_target(source_context, target.evaluation_time());
+        if (link_state->feature_registry != nullptr) {
+            link_state->feature_registry->rebind_link_source(&source_context, target.evaluation_time());
+        }
+        return true;
+    }
+
+    void clear_output_link(const TSOutputView &target) {
+        BaseState *target_state = target.context_ref().ts_state;
+        if (target_state == nullptr || target_state->storage_kind != TSStorageKind::OutputLink) { return; }
+        auto               &link_state      = *static_cast<OutputLinkState *>(target_state);
+        const engine_time_t evaluation_time = target.evaluation_time();
+        link_state.reset_target(evaluation_time);
+        if (link_state.feature_registry != nullptr) { link_state.feature_registry->rebind_link_source(nullptr, evaluation_time); }
+        const bool transition_this_tick    = evaluation_time != MIN_DT && link_state.switch_modified_time == evaluation_time;
+        Value      previous_target_value   = transition_this_tick && link_state.previous_target_value.has_value()
+                                                 ? Value(link_state.previous_target_value)
+                                                 : Value{};
+        bool       materialized_transition = false;
+        if (transition_this_tick && previous_target_value.has_value()) {
+            const TSMeta *schema = target.ts_schema();
+            if (schema != nullptr && (schema->kind == TSKind::TSS || schema->kind == TSKind::TSD)) {
+                materialize_output_link_transition_delta(target, previous_target_value);
+                materialized_transition = true;
+            }
+        }
+        if (transition_this_tick && !materialized_transition) {
+            BaseState *current_state = target.context_ref().ts_state;
+            if (current_state != nullptr) { current_state->mark_modified(evaluation_time); }
+        }
+        restore_native_output_link_state(target);
+    }
+
+    void clear_output_link_without_transition(const TSOutputView &target) {
+        BaseState *target_state = target.context_ref().ts_state;
+        if (target_state == nullptr || target_state->storage_kind != TSStorageKind::OutputLink) { return; }
+
+        auto               &link_state      = *static_cast<OutputLinkState *>(target_state);
+        const engine_time_t evaluation_time = target.evaluation_time();
+        link_state.reset_target(MIN_DT);
+        if (link_state.feature_registry != nullptr) { link_state.feature_registry->rebind_link_source(nullptr, evaluation_time); }
+        restore_native_output_link_state(target);
+    }
+
+    nb::object detail::TSDispatch::to_python(const TSViewContext &context, engine_time_t) const {
+        return detail::leaf_to_python(context);
+    }
+
+    nb::object detail::TSDispatch::delta_to_python(const TSViewContext &context, engine_time_t) const {
+        return detail::leaf_delta_to_python(context);
+    }
+
+    namespace
+    {
+        [[nodiscard]] const detail::TSDispatch *resolved_ts_dispatch(const TSViewContext &context) noexcept {
+            return context.ts_dispatch != nullptr ? context.ts_dispatch : context.resolved().ts_dispatch;
+        }
+
+        void copy_value_payload_to_output(const TSOutputView &target, const View &source_value, std::string_view operation) {
+            if (!source_value.has_value()) {
+                target.invalidate();
+                return;
+            }
+
+            View target_value = target.value();
+            if (!target_value.has_value()) {
+                throw std::logic_error(std::string(operation) + " requires live target value storage");
+            }
+            if (target_value.schema() != source_value.schema()) {
+                throw std::invalid_argument(std::string(operation) + " requires matching native value schemas");
+            }
+
+            target_value.copy_from(source_value);
+            mark_output_view_modified(target, target.evaluation_time());
+        }
+    }  // namespace
+
+    void detail::TSDispatch::from_python(const TSOutputView &view, nb::handle value) const {
+        const TSMeta *schema = view.ts_schema();
+        if (schema != nullptr && schema->kind == TSKind::REF && nb::isinstance<TimeSeriesReference>(value)) {
+            const TimeSeriesReference reference = nb::cast<TimeSeriesReference>(value);
+            if (reference.is_peered() && copy_from_reference(view, reference, view.evaluation_time())) { return; }
+        }
+
+        view.value().from_python(nb::borrow<nb::object>(value));
+        mark_output_view_modified(view, view.evaluation_time());
+    }
+
+    bool detail::TSDispatch::can_apply_result(const TSOutputView &view, nb::handle value) const {
+        static_cast<void>(value);
+        return !view.modified();
+    }
+
+    void detail::TSDispatch::apply_result(const TSOutputView &view, nb::handle value) const { from_python(view, value); }
+
+    void detail::TSDispatch::clear(const TSOutputView &view) const {
+        static_cast<void>(view);
+        throw std::logic_error("TS clear() is only implemented for collection schemas");
+    }
+
+    void detail::TSDispatch::clear_for_input_copy(const TSOutputView &view) const {
+        if (view.valid()) { view.invalidate(); }
+    }
+
+    bool detail::TSDispatch::copy_to_output(const TSInputView &source, const TSOutputView &target) const {
+        static_cast<void>(source);
+        static_cast<void>(target);
+        return false;
+    }
+
+    bool detail::TSDispatch::copy_output_to_output(const TSOutputView &source, const TSOutputView &target) const {
+        static_cast<void>(source);
+        static_cast<void>(target);
+        return false;
+    }
+
+    bool detail::TSDispatch::copy_from_reference(const TSOutputView &view, const TimeSeriesReference &reference,
+                                                 engine_time_t evaluation_time) const {
+        if (!reference.is_peered()) { return false; }
+        view.copy_from_output(reference.target_view(evaluation_time));
+        return true;
+    }
+
+    void detail::TSDispatch::copy_from_input(const TSOutputView &view, const TSInputView &source) const {
+        if (source.ts_schema() == nullptr) { return; }
+
+        if (!source.valid()) {
+            clear_for_input_copy(view);
+            return;
+        }
+
+        const auto *source_dispatch = resolved_ts_dispatch(source.context_ref());
+        if (source_dispatch != nullptr && source_dispatch->copy_to_output(source, view)) { return; }
+
+        copy_value_payload_to_output(view, source.value(), "TS input copy");
+    }
+
+    void detail::TSDispatch::copy_from_output(const TSOutputView &view, const TSOutputView &source) const {
+        if (source.ts_schema() == nullptr) { return; }
+
+        if (!source.valid()) {
+            clear_for_input_copy(view);
+            return;
+        }
+
+        const auto *source_dispatch = resolved_ts_dispatch(source.context_ref());
+        if (source_dispatch != nullptr && source_dispatch->copy_output_to_output(source, view)) { return; }
+
+        copy_value_payload_to_output(view, source.value(), "TS output copy");
+    }
+
+    void detail::TSDispatch::patch_from_output(const TSOutputView &view, const TSOutputView &source) const {
+        copy_from_output(view, source);
+    }
+
+    void detail::TSCollectionDispatch::clear_for_input_copy(const TSOutputView &view) const {
+        if (view.valid()) { clear(view); }
+    }
+
+    void detail::TSSetDispatch::clear_for_input_copy(const TSOutputView &view) const {
+        if (view.valid()) { clear(view); }
+    }
+
+    void detail::TSKeyDispatch::child_from_python(const TSOutputView &, const View &, nb::handle) const {
+        throw std::logic_error("TSKeyDispatch child_from_python is not implemented for this dispatch");
+    }
+
+    namespace detail
+    {
+        nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time) {
+            return to_python_impl(context, evaluation_time);
+        }
+
+        nb::object delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) {
+            return delta_to_python_impl(context, evaluation_time);
+        }
+    }  // namespace detail
+
+    void TSOutputView::apply_result(nb::handle value) const {
+        if (value.is_none()) { return; }
+        const auto *dispatch = context_ref().resolved().ts_dispatch;
+        if (dispatch == nullptr) {
+            from_python(value);
+            return;
+        }
+        dispatch->apply_result(*this, value);
+    }
+
+    bool TSOutputView::can_apply_result(nb::handle value) const {
+        if (value.is_none()) { return true; }
+        const auto *dispatch = context_ref().resolved().ts_dispatch;
+        return dispatch != nullptr ? dispatch->can_apply_result(*this, value) : !modified();
+    }
+
+    void TSOutputView::clear() const {
+        const auto *dispatch = context_ref().resolved().ts_dispatch;
+        if (dispatch == nullptr) {
+            from_python(nb::none());
+            return;
+        }
+        dispatch->clear(*this);
+    }
+
+    void TSOutputView::copy_from_input(const TSInputView &source) const {
+        const auto *dispatch = context_ref().resolved().ts_dispatch;
+        if (dispatch == nullptr) {
+            if (source.valid()) { copy_value_payload_to_output(*this, source.value(), "TS input copy"); }
+            return;
+        }
+        dispatch->copy_from_input(*this, source);
+    }
+
+    void TSOutputView::copy_from_output(const TSOutputView &source) const {
+        const auto *dispatch = context_ref().resolved().ts_dispatch;
+        if (dispatch == nullptr) {
+            if (source.valid()) { copy_value_payload_to_output(*this, source.value(), "TS output copy"); }
+            return;
+        }
+        dispatch->copy_from_output(*this, source);
+    }
+
+    void TSOutputView::patch_from_output(const TSOutputView &source) const {
+        const auto *dispatch = context_ref().resolved().ts_dispatch;
+        if (dispatch == nullptr) {
+            if (source.valid()) { copy_value_payload_to_output(*this, source.value(), "TS output patch"); }
+            return;
+        }
+        dispatch->patch_from_output(*this, source);
+    }
+
+    void TSOutputView::invalidate() const {
+        LinkedTSContext context = linked_context();
+        BaseState      *state   = context.ts_state;
+        if (state == nullptr) { return; }
+
+        const engine_time_t evaluation_time            = this->evaluation_time();
+        const engine_time_t previous_modified_time     = state->last_modified_time;
+        const bool          already_invalid            = previous_modified_time == MIN_DT;
+        const bool          already_notified_this_tick = evaluation_time != MIN_DT && previous_modified_time == evaluation_time;
+
+        if (already_invalid) { return; }
+
+        if (!already_notified_this_tick && evaluation_time != MIN_DT) {
+            if (TSOutput *owner = owning_output(); owner != nullptr) { owner->sync_ref_target_subscriptions(evaluation_time); }
+            state->mark_modified_local(evaluation_time);
+        }
+        state->last_modified_time = MIN_DT;
+    }
+
+    void TSOutputView::from_python(nb::handle value) const {
+        if (context_ref().pending_dict_child.active()) {
+            TSOutputView parent_view =
+                detail::output_view_from_pending_dict_child(context_ref().pending_dict_child, evaluation_time());
+            parent_view.as_dict().from_python(context_ref().pending_dict_child.key.view(), value);
+            return;
+        }
+
+        const auto *dispatch = context_ref().resolved().ts_dispatch;
+        if (dispatch == nullptr) {
+            if (const auto *ops = output_view_ops(); ops != nullptr && ops->from_python(*this, value)) { return; }
+            throw std::logic_error("TSOutputView Python mutation requires a dispatch");
+        }
+        dispatch->from_python(*this, value);
+    }
+
+    TSOutput::TSOutput(const TSOutput &other) {
+        if (other.m_builder != nullptr) {
+            other.builder().copy_construct_output(*this, other);
+            sync_ref_target_subscriptions(ts_root_state() != nullptr ? ts_root_state()->last_modified_time : MIN_DT);
+        }
+    }
+
+    TSOutput::TSOutput(TSOutput &&other) noexcept {
+        if (other.m_builder != nullptr) {
+            other.builder().move_construct_output(*this, other);
+            sync_ref_target_subscriptions(ts_root_state() != nullptr ? ts_root_state()->last_modified_time : MIN_DT);
+        }
+    }
+
+    TSOutput &TSOutput::operator=(const TSOutput &other) {
+        if (this == &other) { return *this; }
+        TSOutput replacement(other);
+        return *this = std::move(replacement);
+    }
+
+    TSOutput &TSOutput::operator=(TSOutput &&other) noexcept {
+        if (this == &other) { return *this; }
+
+        clear_storage();
+        if (other.m_builder == nullptr) {
+            m_builder = nullptr;
+            m_alternatives.clear();
+            m_detached_alternatives.clear();
+            return *this;
+        }
+        other.builder().move_construct_output(*this, other);
+        sync_ref_target_subscriptions(ts_root_state() != nullptr ? ts_root_state()->last_modified_time : MIN_DT);
+        return *this;
+    }
+
+    TSOutput::~TSOutput() { clear_storage(); }
+
+    TSOutputView TSOutput::view(engine_time_t evaluation_time) {
+        TSViewContext context = view_context();
+        return TSOutputView{context, TSViewContext::none(), evaluation_time, this, &detail::default_output_view_ops()};
+    }
+
+    TSOutputView detail::register_set_contains_output(const TSOutputView &view, const View &item) {
+        LinkedTSContext source_context = feature_source_context(view);
+        auto           &registry       = ensure_collection_feature_registry(*source_context.ts_state);
+        return registry.register_contains_output(source_context, view.evaluation_time(), item);
+    }
+
+    void detail::unregister_set_contains_output(const TSOutputView &view, const View &item) {
+        LinkedTSContext source_context = feature_source_context(view);
+        if (source_context.ts_state == nullptr || source_context.ts_state->feature_registry == nullptr) { return; }
+
+        auto *registry = dynamic_cast<CollectionFeatureRegistry *>(source_context.ts_state->feature_registry.get());
+        if (registry != nullptr) { registry->unregister_contains_output(item); }
+    }
+
+    TSOutputView detail::register_set_is_empty_output(const TSOutputView &view) {
+        LinkedTSContext source_context = feature_source_context(view);
+        auto           &registry       = ensure_collection_feature_registry(*source_context.ts_state);
+        return registry.register_is_empty_output(source_context, view.evaluation_time());
+    }
+
+    void detail::unregister_set_is_empty_output(const TSOutputView &view) {
+        LinkedTSContext source_context = feature_source_context(view);
+        if (source_context.ts_state == nullptr || source_context.ts_state->feature_registry == nullptr) { return; }
+
+        auto *registry = dynamic_cast<CollectionFeatureRegistry *>(source_context.ts_state->feature_registry.get());
+        if (registry != nullptr) { registry->unregister_is_empty_output(); }
+    }
+
+    TSOutputView detail::register_dict_key_set_output(BaseState &owner_state, const LinkedTSContext &source_context,
+                                                      engine_time_t evaluation_time) {
+        auto &registry = ensure_collection_feature_registry(owner_state);
+        return registry.register_key_set_output(source_context, evaluation_time);
+    }
+
+    TSOutputView detail::project_dict_key_set_output(const TSOutputView &source_view, engine_time_t evaluation_time) {
+        const TSViewContext &source_context_view = source_view.context_ref();
+        if (source_context_view.is_bound()) {
+            LinkedTSContext feature_context = feature_source_context(source_view);
+            auto           &registry        = ensure_collection_feature_registry(*feature_context.ts_state);
+            return registry.register_key_set_output(feature_context, evaluation_time);
+        }
+
+        const TSViewContext resolved_context = source_context_view.resolved();
+        if (resolved_context.ts_state == nullptr) {
+            const TSMeta *source_schema = source_view.ts_schema();
+            if (source_schema == nullptr || source_schema->kind != TSKind::TSD || source_schema->key_type() == nullptr) {
+                throw std::logic_error(fmt::format("project_dict_key_set_output requires a TSD output view, got {}",
+                                                   schema_debug_name(source_schema)));
+            }
+            TSViewContext deferred_context;
+            deferred_context.schema = TSTypeRegistry::instance().tss(source_schema->key_type());
+            return TSOutputView{deferred_context, TSViewContext::none(), evaluation_time, source_view.owning_output(),
+                                &detail::default_output_view_ops()};
+        }
+
+        LinkedTSContext feature_context = feature_source_context(source_view);
+        auto           &registry        = ensure_collection_feature_registry(*feature_context.ts_state);
+        return registry.register_key_set_output(feature_context, evaluation_time);
+    }
+
+    TSOutputView TSOutput::bindable_view(const TSOutputView &source, const TSMeta *schema) {
+        if (schema == nullptr) { throw std::invalid_argument("TSOutput::bindable_view requires a non-null target schema"); }
+
+        if (source.context_ref().pending_dict_child.active()) {
+            const auto   &pending       = source.context_ref().pending_dict_child;
+            TSOutputView  parent_view   = detail::output_view_from_pending_dict_child(pending, source.evaluation_time());
+            const TSMeta *parent_schema = parent_view.ts_schema();
+            if (parent_schema == nullptr || parent_schema->kind != TSKind::TSD) {
+                throw std::logic_error("TSOutput::bindable_view pending dict child requires a rooted TSD parent");
+            }
+
+            const TSMeta *alternative_parent_schema = TSTypeRegistry::instance().tsd(parent_schema->key_type(), schema);
+            TSOutputView bindable_parent = equivalent_ts_schema(parent_schema, alternative_parent_schema)
+                                               ? parent_view
+                                               : parent_view.owning_output()->bindable_view(parent_view, alternative_parent_schema);
+            return detail::ensure_dict_child_output_view(bindable_parent, pending.key.view());
+        }
+
+        const LinkedTSContext source_context  = source.linked_context();
+        const TSMeta *effective_source_schema = source_context.schema != nullptr ? source_context.schema : source.ts_schema();
+        if (equivalent_ts_schema(effective_source_schema, schema)) { return source; }
+
+        if (effective_source_schema == nullptr || !supports_alternative_cast(*effective_source_schema, *schema)) {
+            if (std::getenv("HGRAPH_DEBUG_BINDABLE") != nullptr) {
+                std::fprintf(stderr,
+                             "bindable throw owner=%p source_owner=%p source_schema=%s target_schema=%s source_state=%p "
+                             "resolved_state=%p bound=%d valid=%d modified=%d\n",
+                             static_cast<void *>(this), static_cast<void *>(source.owning_output()),
+                             schema_debug_name(effective_source_schema).c_str(), schema_debug_name(schema).c_str(),
+                             static_cast<void *>(source.context_ref().ts_state),
+                             static_cast<void *>(source.context_ref().resolved().ts_state), source.context_ref().is_bound(),
+                             source.valid(), source.modified());
+                print_stack_trace();
+            }
+            throw std::invalid_argument(fmt::format("TSOutput::bindable_view does not support the requested schema cast: {} -> {}",
+                                                    schema_debug_name(effective_source_schema), schema_debug_name(schema)));
+        }
+
+        if (source.owning_output() != nullptr && source.owning_output() != this) {
+            throw std::logic_error("TSOutput alternative source view is not owned by the requested output");
+        }
+
+        if (const auto *ops = dynamic_cast<const AlternativeOutput::ViewOps *>(source.output_view_ops());
+            ops != nullptr && ops->owner != nullptr) {
+            return ops->owner->bindable_view(this, source, schema);
+        }
+
+        if (const auto *linked_ops = dynamic_cast<const AlternativeOutput::ViewOps *>(source_context.output_view_ops);
+            linked_ops != nullptr && linked_ops->owner != nullptr) {
+            TSOutputView linked_source = output_view_from_context(source_context, source.evaluation_time());
+            return linked_ops->owner->bindable_view(this, linked_source, schema);
+        }
+
+        TSOutputView        root_source = view(source.evaluation_time());
+        TSPath              source_path;
+        const TSViewContext source_resolved = source.context_ref().resolved();
+        BaseState *target_state = source_resolved.ts_state != nullptr ? source_resolved.ts_state : source.context_ref().ts_state;
+        if (target_state != nullptr &&
+            !find_state_path(root_source.context_ref().ts_state, root_source.ts_schema(), target_state, source_path)) {
+            TSOutputView           detached_source = output_view_from_context(source_context, source.evaluation_time());
+            DetachedAlternativeKey detached_key{target_state, detached_source.ts_schema(), schema};
+            const auto [detached_it, detached_inserted] = m_detached_alternatives.try_emplace(detached_key, nullptr);
+            if (detached_inserted || detached_it->second == nullptr ||
+                !detail::linked_context_equal(detached_it->second->root_source_context(),
+                                              detail::stable_output_context(detached_source))) {
+                detached_it->second.reset(new AlternativeOutput(detached_source, *schema));
+            }
+            return detached_it->second->view(this, source.evaluation_time());
+        }
+
+        const TSMeta *root_source_schema = root_source.ts_schema();
+        if (root_source_schema == nullptr) { throw std::logic_error("TSOutput::bindable_view requires a rooted source schema"); }
+
+        // Alternatives are owned and cached at the output boundary. Child
+        // casts therefore rebuild a rooted target schema with only the
+        // requested subtree transformed, then project the requested child view
+        // back out of that rooted alternative.
+        const TSMeta *alternative_schema = replace_schema_at_path(*root_source_schema, source_path, 0, *schema);
+        const auto [it, inserted]        = m_alternatives.try_emplace(alternative_schema, nullptr);
+        if (inserted) { it->second.reset(new AlternativeOutput(root_source, *alternative_schema)); }
+
+        TSOutputView alternative_view = it->second->view(this, source.evaluation_time());
+        const auto   dict_keys        = capture_dict_traversal_keys(root_source, root_source_schema, source_path);
+        return traverse_output_path(alternative_view, alternative_schema, source_path, dict_keys);
+    }
+
+    void TSOutput::clear_storage() noexcept {
+        clear_ref_target_subscriptions();
+        m_alternatives.clear();
+        m_detached_alternatives.clear();
+        if (m_builder == nullptr) { return; }
+        builder().destruct_output(*this);
+    }
+
+    void TSOutput::clear_ref_target_subscriptions() noexcept { m_ref_target_subscriptions.clear(); }
+
+    void TSOutput::sync_ref_target_subscriptions(engine_time_t evaluation_time) {
+        clear_ref_target_subscriptions();
+
+        TSOutputView  view   = this->view(evaluation_time);
+        const TSMeta *schema = view.ts_schema();
+        if (schema == nullptr) { return; }
+
+        std::vector<std::pair<BaseState *, BaseState *>> subscriptions;
+        collect_ref_target_subscriptions(view.context_ref(), subscriptions);
+        for (const auto &[target_state, ref_state] : subscriptions) {
+            if (target_state == nullptr || ref_state == nullptr) { continue; }
+            auto notifier = std::make_unique<RefValueNotifier>(ref_state);
+            m_ref_target_subscriptions.emplace_back(target_state, std::move(notifier));
+        }
+    }
+
+    void TSOutput::AlternativeOutputDeleter::operator()(AlternativeOutput *value) const noexcept { delete value; }
+}  // namespace hgraph

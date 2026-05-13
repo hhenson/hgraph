@@ -99,11 +99,16 @@ class InspectionObserver(EvaluationLifeCycleObserver):
         return self.graphs_by_id.get(graph_id)
 
     def walk(self, graph: "Graph"):
-        from hgraph import PythonNestedNodeImpl
+        from hgraph import PythonNestedNodeImpl, is_feature_enabled
+
+        if is_feature_enabled("use_cpp"):
+            from hgraph._hgraph import NestedNode
+        else:
+            NestedNode = PythonNestedNodeImpl
 
         self.on_before_start_graph(graph)
         for n in graph.nodes:
-            if isinstance(n, PythonNestedNodeImpl):
+            if isinstance(n, NestedNode):
                 for k, v in n.nested_graphs.items():
                     self.walk(v)
 

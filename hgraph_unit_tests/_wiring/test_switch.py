@@ -165,6 +165,22 @@ def test_switch_bundle():
     assert eval_node(switch_test, ["one", "two"]) == [{"a": 1}, {"b": 1}]
 
 
+def test_switch_scalar_branch_reset_to_invalid():
+    @graph
+    def switch_test(key: TS[str], value1: TS[int], value2: TS[int]) -> TS[int]:
+        return switch_(key, {
+            "one": lambda v1, v2: v1,
+            "two": lambda v1, v2: lag(v2, MIN_TD),
+        }, value1, value2)
+
+    assert eval_node(
+        switch_test,
+        ["one", "two", None],
+        [1, None, None],
+        [10, 10, 20],
+    ) == [1, None, 10, 20]
+
+
 def test_switch_from_reduce():
     class AB(TimeSeriesSchema):
         a: TS[int]

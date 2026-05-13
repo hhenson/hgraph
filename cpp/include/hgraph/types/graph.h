@@ -1,131 +1,112 @@
-//
-// Created by Howard Henson on 05/05/2024.
-//
+#pragma once
 
-#ifndef GRAPH_H
-#define GRAPH_H
-
-#include <hgraph/api/python/api_ptr.h>
-
-#include <hgraph/runtime/evaluation_engine.h>
+#include <hgraph/hgraph_base.h>
 #include <hgraph/types/traits.h>
-#include <hgraph/util/arena_enable_shared_from_this.h>
-#include <hgraph/util/sender_receiver_state.h>
+#include <hgraph/types/evaluation_engine.h>
+#include <hgraph/types/node.h>
+
+#include <cstddef>
+#include <limits>
 #include <memory>
+#include <span>
+#include <string>
+#include <vector>
 
 namespace hgraph
 {
-    struct HGRAPH_EXPORT Graph : ComponentLifeCycle, arena_enable_shared_from_this<Graph>
+    /** Schedule entry pairing the next requested evaluation time with a node. */
+    struct HGRAPH_EXPORT NodeEntry
     {
-        using ptr = Graph*;
-        using s_ptr = std::shared_ptr<Graph>;
-        using node_list = std::vector<node_s_ptr>;
+        engine_time_t scheduled{MIN_DT};
+        Node         *node{nullptr};
+        //TODO: this is fine as a concept, but it would be more useful if we could somehow encode this
+        // into a more compact form, especially since this is only occationally used and once the node has started
+        // it is never used again. Perhaps we could encode another sentinel we can use with the scheduled time?
+        bool          force_eval{false};
+    };
 
-        Graph(std::vector<int64_t> graph_id_, node_list nodes_,
-              std::optional<node_ptr> parent_node_, std::string label_, const_traits_ptr parent_traits_);
+    /** Prevalidated push-source node reference used by the realtime push pass. */
+    struct HGRAPH_EXPORT PushSourceNodeRef
+    {
+        Node                           &node;
+        const PushSourceNodeRuntimeOps &runtime_ops;
+    };
 
-        ~Graph() override;
+    /**
+     * Runtime graph owning the v2 node slab.
+     *
+     * Graph owns one contiguous storage block containing NodeEntry[N] followed
+     * by the variable-sized node chunks created by GraphBuilder. Evaluation is
+     * driven through an attached GraphEvaluationEngine supplied by the owning
+     * EvaluationEngine runner.
+     */
+    struct HGRAPH_EXPORT Graph
+    {
+        ~Graph();
+        Graph(const Graph &)            = delete;
+        Graph &operator=(const Graph &) = delete;
+        Graph(Graph &&other);
+        Graph &operator=(Graph &&other);
 
-        /**
-         * Get the control block for this graph.
-         * Extracts the control block from shared_from_this() to be used as donor for child objects.
-         */
-        //[[nodiscard]] control_block_ptr control_block() const;
+        [[nodiscard]] const std::byte           *node_layout() const noexcept { return static_cast<const std::byte *>(m_storage); }
+        [[nodiscard]] std::span<const NodeEntry> entries() const noexcept {
+            return {reinterpret_cast<const NodeEntry *>(m_storage), m_node_count};
+        }
+        [[nodiscard]] EvaluationEngineApi         evaluation_engine_api() const noexcept;
+        [[nodiscard]] GraphEvaluationEngine       graph_evaluation_engine() const noexcept;
+        [[nodiscard]] EvaluationClock             evaluation_clock() const noexcept;
+        [[nodiscard]] EngineEvaluationClock       engine_evaluation_clock() const noexcept;
+        [[nodiscard]] Traits                     &traits();
+        [[nodiscard]] const Traits               &traits() const;
+        [[nodiscard]] const std::vector<int64_t> &graph_id() const noexcept { return m_graph_id; }
+        [[nodiscard]] Node                       *parent_node() const noexcept { return m_parent_node; }
+        [[nodiscard]] std::string_view            label() const noexcept { return m_label; }
+        [[nodiscard]] engine_time_t               evaluation_time() const noexcept;
+        [[nodiscard]] engine_time_t               last_evaluation_time() const noexcept;
+        [[nodiscard]] SenderReceiverState        *push_message_receiver() const noexcept;
+        /** Prefix length of nodes treated as push sources during evaluation. */
+        [[nodiscard]] int64_t           push_source_nodes_end() const noexcept;
+        [[nodiscard]] engine_time_t     scheduled_time(size_t index) const;
+        [[nodiscard]] Node             &node_at(size_t index);
+        [[nodiscard]] const Node       &node_at(size_t index) const;
+        [[nodiscard]] PushSourceNodeRef push_source_node_at(size_t index);
 
-        [[nodiscard]] const std::vector<int64_t> &graph_id() const;
+        void start();
+        void stop();
+        void abandon() noexcept;
+        void evaluate(engine_time_t when);
+        void schedule_node(int64_t node_index, engine_time_t when, bool force_set = false);
+        void schedule_node_forced_eval(int64_t node_index, engine_time_t when);
+        void set_identity(std::vector<int64_t> graph_id, Node *parent_node = nullptr, std::string label = {});
 
-        [[nodiscard]] const node_list &nodes() const;
+      private:
+        friend struct GraphBuilder;
 
-        [[nodiscard]] node_ptr parent_node() const;
+        explicit Graph(GraphEvaluationEngine evaluation_engine) noexcept;
+        void adopt_storage(void *storage, size_t storage_alignment, size_t node_count, int64_t push_source_nodes_end,
+                           bool owns_storage);
+        void clear_storage();
+        void attach_nodes() noexcept;
+        void stop_nodes(size_t nodes_end);
+        void require_engine_removal_allowed() const;
+        [[nodiscard]] NodeEntry       *entry_storage() noexcept;
+        [[nodiscard]] const NodeEntry *entry_storage() const noexcept;
 
-        [[nodiscard]] std::optional<std::string> label() const;
+        static constexpr size_t INVALID_EVALUATION_CURSOR = std::numeric_limits<size_t>::max();
 
-        [[nodiscard]] EvaluationEngineApi::s_ptr evaluation_engine_api();
-
-        [[nodiscard]] EvaluationClock::s_ptr evaluation_clock();
-
-        [[nodiscard]] EvaluationClock::s_ptr evaluation_clock() const;
-
-        [[nodiscard]] const EngineEvaluationClock::s_ptr& evaluation_engine_clock();
-
-        [[nodiscard]] const EvaluationEngine::s_ptr& evaluation_engine() const;
-
-        void set_evaluation_engine(EvaluationEngine::s_ptr value);
-
-        int64_t push_source_nodes_end() const;
-
-        engine_time_t last_evaluation_time() const;
-
-        void schedule_node(int64_t node_ndx, engine_time_t when);
-
-        void schedule_node(int64_t node_ndx, engine_time_t when, bool force_set);
-
-        std::vector<engine_time_t> &schedule();
-
-        void evaluate_graph();
-
-        s_ptr copy_with(node_list nodes);
-
-        /**
-         * Clone traits from another graph (copies the traits data).
-         */
-        void clone_traits_from(const Graph &other);
-
-        /**
-         * Get traits as a const reference.
-         * Traits is stored as a value object inside Graph.
-         */
-        [[nodiscard]] const Traits &traits() const;
-
-        [[nodiscard]] SenderReceiverState &receiver();
-
-        void extend_graph(const GraphBuilder &graph_builder, bool delay_start = false);
-
-        void reduce_graph(const GraphBuilder &graph_builder, int64_t start_node);
-
-        void initialise_subgraph(int64_t start, int64_t end);
-
-        void start_subgraph(int64_t start, int64_t end);
-
-        void stop_subgraph(int64_t start, int64_t end);
-
-        void dispose_subgraph(const GraphBuilder &graph_builder, int64_t start, int64_t end);
-
-        // Performance: Cached clock pointer and evaluation time reference set during initialization
-        [[nodiscard]] EngineEvaluationClock *cached_engine_clock() const { return _cached_engine_clock; }
-        [[nodiscard]] const engine_time_t   *cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
-
-        // Performance: Direct access to evaluation time without shared_ptr overhead
-        [[nodiscard]] engine_time_t evaluation_time() const { return *_cached_evaluation_time_ptr; }
-
-      protected:
-        void initialise() override;
-
-        void start() override;
-
-        void stop() override;
-
-        void dispose() override;
-
-        friend struct GraphBuilder;  // Allow GraphBuilder to access private members
-
-    private:
-        EvaluationEngine::s_ptr    _evaluation_engine;
-        std::vector<int64_t>       _graph_id;
-        node_list                  _nodes;
-        std::vector<engine_time_t> _schedule;
-        node_ptr                   _parent_node;  // back-pointer, not owned
-        std::string                _label;
-        Traits                     _traits;  // Stored as value object
-        SenderReceiverState        _receiver;
-        engine_time_t              _last_evaluation_time{MIN_DT};
-        int64_t                    _push_source_nodes_end{-1};
-
-        // Performance optimization: Cache clock pointer and evaluation time pointer at initialization
-        // Set once when evaluation engine is assigned, never changes
-        EngineEvaluationClock *_cached_engine_clock{nullptr};
-        const engine_time_t   *_cached_evaluation_time_ptr{nullptr};
+        size_t                          m_node_count{0};
+        int64_t                         m_push_source_nodes_end{0};
+        bool                            m_started{false};
+        bool                            m_is_evaluating{false};
+        bool                            m_owns_storage{false};
+        size_t                          m_storage_alignment{alignof(std::max_align_t)};
+        size_t                          m_evaluation_cursor{INVALID_EVALUATION_CURSOR};
+        engine_time_t                   m_last_evaluation_time{MIN_DT};
+        GraphEvaluationEngine           m_evaluation_engine;
+        mutable std::unique_ptr<Traits> m_traits;
+        std::vector<int64_t>            m_graph_id;
+        Node                           *m_parent_node{nullptr};
+        std::string                     m_label;
+        void                           *m_storage{nullptr};
     };
 }  // namespace hgraph
-
-#endif  // GRAPH_H

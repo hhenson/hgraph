@@ -26,6 +26,7 @@ from hgraph import (
     CustomMessageWiringError,
     WiringGraphContext,
     add_,
+    convert,
     format_,
     const,
     debug_print,
@@ -500,7 +501,42 @@ def test_map_output_invalid():
         None,
         {1: '1'},
     ]
-    
+
+
+def test_map_creates_output_child_for_invalid_output():
+    @graph
+    def delayed_output(key: TS[str]) -> TS[int]:
+        return nothing(TS[int])
+
+    @compute_node
+    def missing_children(mapped: TSD[str, TS[int]], keys: TS[tuple[str, ...]]) -> TS[tuple[str, ...]]:
+        return tuple(k for k in keys.value if mapped.get(k) is None)
+
+    @graph
+    def g(keys: TS[tuple[str, ...]]) -> TS[tuple[str, ...]]:
+        key_set = convert[TSS[str]](keys)
+        mapped = map_(delayed_output, __keys__=key_set, __key_arg__="key")
+        return missing_children(mapped, keys)
+
+    assert eval_node(g, [("a", "b")]) == [()]
+
+
+def test_map_invalid_reference_bundle_field_output():
+    from hgraph import TimeSeriesSchema, TSB
+
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+
+    @graph
+    def child(v: TS[int], cond: TS[bool]) -> TSB[AB]:
+        return TSB[AB].from_ts(a=if_(cond, v).true)
+
+    @graph
+    def g(tsd: TSD[str, TS[int]], cond: TS[bool]) -> TSD[str, TSB[AB]]:
+        return map_(child, tsd, cond)
+
+    assert eval_node(g, [{"x": 1}], [False]) == [{}]
+
 
 def test_map_input_goes_away():
     @compute_node

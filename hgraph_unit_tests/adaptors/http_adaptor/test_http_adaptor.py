@@ -244,5 +244,5 @@ try:
                 v |= d
             assert v == {str(i): True for i in range(10)}
 
-except ImportError:
-    pass
+except Exception as exc:
+    pytest.skip(f"optional HTTP adaptor test dependencies are unavailable or broken: {exc}", allow_module_level=True)

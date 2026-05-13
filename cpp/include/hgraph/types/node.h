@@ -1,303 +1,244 @@
-#ifndef NODE_H
-#define NODE_H
+#pragma once
 
+#include <hgraph/hgraph_base.h>
 #include <hgraph/types/notifiable.h>
-#include <hgraph/util/arena_enable_shared_from_this.h>
-#include <hgraph/util/lifecycle.h>
-#include <memory>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/value/value.h>
 
-#include <ddv/visitable.h>
+#include <optional>
+#include <set>
+#include <span>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace hgraph
 {
-    template <typename Enum> typename std::enable_if<std::is_enum<Enum>::value, Enum>::type operator|(Enum lhs, Enum rhs) {
-        using underlying = typename std::underlying_type<Enum>::type;
-        return static_cast<Enum>(static_cast<underlying>(lhs) | static_cast<underlying>(rhs));
-    }
+    struct Graph;
+    struct NodeBuilder;
 
-    template <typename Enum> typename std::enable_if<std::is_enum<Enum>::value, Enum>::type operator&(Enum lhs, Enum rhs) {
-        using underlying = typename std::underlying_type<Enum>::type;
-        return static_cast<Enum>(static_cast<underlying>(lhs) & static_cast<underlying>(rhs));
-    }
+    using Path     = std::vector<int64_t>;
+    using PathView = std::span<const int64_t>;
 
-    enum class NodeTypeEnum : char8_t {
-        NONE             = 0,
-        SOURCE_NODE      = 1,
-        PUSH_SOURCE_NODE = SOURCE_NODE | (1 << 1),
-        PULL_SOURCE_NODE = SOURCE_NODE | (1 << 2),
-        COMPUTE_NODE     = 1 << 3,
-        SINK_NODE        = 1 << 4
+    struct HGRAPH_EXPORT Node;
+    struct HGRAPH_EXPORT NodeScheduler;
+
+    /** Runtime node category, aligned with the existing Python/C++ node type names. */
+    enum class NodeTypeEnum {
+        PUSH_SOURCE_NODE = 0,
+        PULL_SOURCE_NODE = 1,
+        COMPUTE_NODE     = 2,
+        SINK_NODE        = 3,
     };
 
-    void node_type_enum_py_register(nb::module_ &m);
-
-    enum InjectableTypesEnum : int16_t {
-        NONE             = 0,
-        STATE            = 1,
-        RECORDABLE_STATE = 1 << 1,
-        SCHEDULER        = 1 << 2,
-        OUTPUT           = 1 << 3,
-        CLOCK            = 1 << 4,
-        ENGINE_API       = 1 << 5,
-        LOGGER           = 1 << 6,
-        NODE             = 1 << 7,
-        TRAIT            = 1 << 8
-    };
-
-    void injectable_type_enum(nb::module_ &m);
-
-    // NodeSignature - external object created from Python, keeps nb::intrusive_base
-    struct HGRAPH_EXPORT NodeSignature : nanobind::intrusive_base
+    /**
+     * Runtime behavior for a family of node layouts.
+     *
+     * Node itself is intentionally tiny and type-erased. The runtime ops know
+     * how to interpret the node-local payload, expose input/output views, and
+     * invoke the node-family-specific start/stop/eval hooks.
+     */
+    struct HGRAPH_EXPORT NodeRuntimeOps
     {
-        using ptr   = NodeSignature *;
-        using s_ptr = nanobind::ref<NodeSignature>;
+        void (*start)(Node &node, engine_time_t evaluation_time);
+        void (*stop)(Node &node, engine_time_t evaluation_time);
+        void (*eval)(Node &node, engine_time_t evaluation_time);
 
-        NodeSignature(std::string name, NodeTypeEnum node_type, std::vector<std::string> args,
-                      std::optional<std::unordered_map<std::string, nb::object>> time_series_inputs,
-                      std::optional<nb::object> time_series_output, std::optional<nb::dict> scalars, nb::object src_location,
-                      std::optional<std::unordered_set<std::string>>                      active_inputs,
-                      std::optional<std::unordered_set<std::string>>                      valid_inputs,
-                      std::optional<std::unordered_set<std::string>>                      all_valid_inputs,
-                      std::optional<std::unordered_set<std::string>>                      context_inputs,
-                      std::optional<std::unordered_map<std::string, InjectableTypesEnum>> injectable_inputs, size_t injectables,
-                      bool capture_exception, int64_t trace_back_depth, std::string wiring_path_name,
-                      std::optional<std::string> label, bool capture_values, std::optional<std::string> record_replay_id,
-                      bool has_nested_graphs);
-
-        std::string                                                         name;
-        NodeTypeEnum                                                        node_type;
-        std::vector<std::string>                                            args;
-        std::optional<std::unordered_map<std::string, nb::object>>          time_series_inputs;
-        std::optional<nb::object>                                           time_series_output;
-        std::optional<nb::dict>                                             scalars;
-        nb::object                                                          src_location;
-        std::optional<std::unordered_set<std::string>>                      active_inputs;
-        std::optional<std::unordered_set<std::string>>                      valid_inputs;
-        std::optional<std::unordered_set<std::string>>                      all_valid_inputs;
-        std::optional<std::unordered_set<std::string>>                      context_inputs;
-        std::optional<std::unordered_map<std::string, InjectableTypesEnum>> injectable_inputs;
-        size_t                                                              injectables;
-        bool                                                                capture_exception;
-        int64_t                                                             trace_back_depth;
-        std::string                                                         wiring_path_name;
-        std::optional<std::string>                                          label;
-        bool                                                                capture_values;
-        std::optional<std::string>                                          record_replay_id;
-        bool                                                                has_nested_graphs;
-
-        [[nodiscard]] nb::object get_arg_type(const std::string &arg) const;
-
-        [[nodiscard]] std::string signature() const;
-
-        [[nodiscard]] bool uses_scheduler() const;
-
-        [[nodiscard]] bool uses_clock() const;
-
-        [[nodiscard]] bool uses_engine() const;
-
-        [[nodiscard]] bool uses_state() const;
-
-        [[nodiscard]] bool uses_recordable_state() const;
-
-        [[nodiscard]] std::optional<std::string> recordable_state_arg() const;
-
-        [[nodiscard]] std::optional<nb::object> recordable_state() const;
-
-        [[nodiscard]] bool uses_output_feedback() const;
-
-        [[nodiscard]] bool is_source_node() const;
-
-        [[nodiscard]] bool is_push_source_node() const;
-
-        [[nodiscard]] bool is_pull_source_node() const;
-
-        [[nodiscard]] bool is_compute_node() const;
-
-        [[nodiscard]] bool is_sink_node() const;
-
-        [[nodiscard]] bool is_recordable() const;
-
-        [[nodiscard]] nb::dict to_dict() const;
-
-        [[nodiscard]] s_ptr copy_with(const nb::kwargs &kwargs) const;
-
-        static void register_with_nanobind(nb::module_ &m);
+        bool (*has_input)(const Node &node) noexcept;
+        bool (*has_output)(const Node &node) noexcept;
+        bool (*has_error_output)(const Node &node) noexcept;
+        bool (*has_recordable_state)(const Node &node) noexcept;
+        TSInputView (*input_view)(Node &node, engine_time_t evaluation_time);
+        TSOutputView (*output_view)(Node &node, engine_time_t evaluation_time);
+        TSOutputView (*error_output_view)(Node &node, engine_time_t evaluation_time);
+        TSOutputView (*recordable_state_view)(Node &node, engine_time_t evaluation_time);
+        std::string (*runtime_label)(const Node &node);
     };
 
-    // NodeScheduler - owned by Node, uses shared_ptr
-    struct NodeScheduler : std::enable_shared_from_this<NodeScheduler>
+    /** Runtime behavior used only by push-source node families. */
+    struct HGRAPH_EXPORT PushSourceNodeRuntimeOps
     {
-        using ptr   = NodeScheduler *;
-        using s_ptr = std::shared_ptr<NodeScheduler>;
+        bool (*apply_message)(Node &node, const value::Value &message, engine_time_t evaluation_time);
+    };
 
-        explicit NodeScheduler(node_ptr node);
+    /**
+     * Immutable per-node build product embedded in the node's slab chunk.
+     *
+     * The spec describes the node-local payload layout and carries the static
+     * metadata needed by the runtime. It is produced by NodeBuilder and then
+     * read by the type-erased Node at evaluation time.
+     */
+    struct HGRAPH_EXPORT BuiltNodeSpec
+    {
+        ~BuiltNodeSpec() noexcept {
+            if (!python_signature.is_valid() && !python_scalars.is_valid()) { return; }
+            if (Py_IsInitialized()) {
+                nb::gil_scoped_acquire gil;
+                python_signature = nb::object{};
+                python_scalars   = nb::object{};
+            } else {
+                static_cast<void>(python_signature.release());
+                static_cast<void>(python_scalars.release());
+            }
+        }
 
-        [[nodiscard]] engine_time_t next_scheduled_time() const;
+        const NodeRuntimeOps           *runtime_ops{nullptr};
+        const PushSourceNodeRuntimeOps *push_source_runtime_ops{nullptr};
+        void (*destruct)(Node &node) noexcept {nullptr};
+        size_t scheduler_offset{0};
+        size_t runtime_data_offset{0};
+        bool   uses_scheduler{false};
 
-        [[nodiscard]] bool requires_scheduling() const;
+        std::string_view label;
+        NodeTypeEnum     node_type{NodeTypeEnum::COMPUTE_NODE};
+        int64_t          public_node_index{-1};
+        const TSMeta    *input_schema{nullptr};
+        const TSMeta    *output_schema{nullptr};
+        const TSMeta    *error_output_schema{nullptr};
+        const TSMeta    *recordable_state_schema{nullptr};
+        bool             has_explicit_active_inputs{false};
+        bool             has_explicit_valid_inputs{false};
+        bool             has_explicit_all_valid_inputs{false};
+        nb::object       python_signature;
+        nb::object       python_scalars;
 
-        [[nodiscard]] bool is_scheduled() const;
+        // Non-owning views into builder/slab-owned selector storage; the backing arrays outlive this spec.
+        std::span<const size_t> active_inputs{};
+        std::span<const size_t> valid_inputs{};
+        std::span<const size_t> all_valid_inputs{};
+    };
 
-        [[nodiscard]] bool is_scheduled_now() const;
+    /**
+     * Generic per-node scheduler state used by scheduler injectables.
+     *
+     * This is wrapper-owned node state, not runtime-family-specific payload.
+     * Both static nodes and Python-backed nodes use the same scheduling
+     * semantics through Node's generic start/eval/stop wrappers.
+     */
+    struct HGRAPH_EXPORT NodeScheduler
+    {
+        explicit NodeScheduler(Node *node) noexcept : m_node(node) {}
 
-        [[nodiscard]] bool has_tag(const std::string &tag) const;
+        NodeScheduler(const NodeScheduler &)            = delete;
+        NodeScheduler &operator=(const NodeScheduler &) = delete;
+        NodeScheduler(NodeScheduler &&)                 = default;
+        NodeScheduler &operator=(NodeScheduler &&)      = default;
+        ~NodeScheduler()                                = default;
 
-        engine_time_t pop_tag(const std::string &tag);
-
-        engine_time_t pop_tag(const std::string &tag, engine_time_t default_time);
-
-        void schedule(engine_time_t when, std::optional<std::string> tag, bool on_wall_clock = false);
-
-        void schedule(engine_time_delta_t when, std::optional<std::string> tag, bool on_wall_clock = false);
-
+        [[nodiscard]] engine_time_t next_scheduled_time() const noexcept;
+        [[nodiscard]] bool          requires_scheduling() const noexcept;
+        [[nodiscard]] bool          is_scheduled() const noexcept;
+        [[nodiscard]] bool          is_scheduled_now() const noexcept;
+        [[nodiscard]] bool          has_tag(std::string_view tag) const;
+        [[nodiscard]] engine_time_t tag_time(std::string_view tag, engine_time_t default_time = MIN_DT) const;
+        [[nodiscard]] bool          tag_is_scheduled_now(std::string_view tag) const;
+        [[nodiscard]] engine_time_t pop_tag(std::string_view tag, engine_time_t default_time = MIN_DT);
+        void schedule(engine_time_t when, std::optional<std::string> tag = std::nullopt, bool on_wall_clock = false);
+        void schedule(engine_time_delta_t when, std::optional<std::string> tag = std::nullopt, bool on_wall_clock = false);
+        void schedule_immediate(std::optional<std::string> tag = std::nullopt);
         void un_schedule(const std::string &tag);
-
         void un_schedule();
-
         void reset();
-
         void advance();
 
-      protected:
-        void _on_alarm(engine_time_t when, std::string tag);
-
       private:
-        // Back-pointer to owning node (raw pointer, no ownership)
-        node_ptr                                        _node;
-        std::set<std::pair<engine_time_t, std::string>> _scheduled_events;
-        std::unordered_map<std::string, engine_time_t>  _tags;
-        std::unordered_map<std::string, engine_time_t>  _alarm_tags;
-        engine_time_t                                   _last_scheduled_time{MIN_DT};
+        [[nodiscard]] std::string wall_clock_alarm_tag(std::string_view tag) const;
+        void                      on_wall_clock_alarm(engine_time_t when, std::string tag);
+
+        Node                                           *m_node{nullptr};
+        std::set<std::pair<engine_time_t, std::string>> m_scheduled_events;
+        std::unordered_map<std::string, engine_time_t>  m_tags;
+        std::unordered_map<std::string, engine_time_t>  m_alarm_tags;
     };
 
-    using node_types =
-        tp::tpack<PushQueueNode, ContextStubSourceNode, LastValuePullNode, BasePythonNode, NestedNode,
-            // BasePythonNode descendands
-            PythonGeneratorNode, PythonNode,
-            // NestedNode descendands (all non-templated now, including SwitchNode)
-            ComponentNode, TsdNonAssociativeReduceNode, NestedGraphNode, TryExceptNode,
-            ReduceNode, TsdMapNode, MeshNode, SwitchNode>;
-    inline constexpr auto node_types_v = node_types{};
-
-    using NodeVisitor = decltype(tp::make_v<ddv::mux>(node_types_v))::type;
-
-    // Node - runtime object, uses shared_ptr
-    struct HGRAPH_EXPORT Node : ComponentLifeCycle,
-                                Notifiable,
-                                arena_enable_shared_from_this<Node>,
-                                ddv::visitable<Node, NodeVisitor>
+    /**
+     * Type-erased runtime node.
+     *
+     * A Node is placement-constructed at the start of a variable-sized chunk
+     * owned by Graph. The rest of the chunk stores the BuiltNodeSpec and any
+     * generic wrapper state such as NodeScheduler, plus node-family-specific
+     * payload such as TSInput, TSOutput, local state, and copied selector
+     * metadata.
+     */
+    struct HGRAPH_EXPORT Node : Notifiable
     {
-        using ptr   = Node *;
-        using s_ptr = std::shared_ptr<Node>;
+        Node(int64_t node_index, const BuiltNodeSpec *spec) noexcept;
 
-        Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars);
+        Node(const Node &)            = delete;
+        Node &operator=(const Node &) = delete;
+        Node(Node &&)                 = delete;
+        Node &operator=(Node &&)      = delete;
+        ~Node() override              = default;
 
-        virtual void eval();
+        void set_graph(Graph *graph) noexcept;
 
-        void notify(engine_time_t modified_time) override;
+        [[nodiscard]] Graph                      *graph() const noexcept;
+        [[nodiscard]] const std::vector<int64_t> &owning_graph_id() const noexcept;
+        [[nodiscard]] std::vector<int64_t>        node_id() const;
+        [[nodiscard]] int64_t                     node_index() const noexcept;
+        [[nodiscard]] int64_t                     public_node_index() const noexcept;
+        [[nodiscard]] std::string_view            label() const noexcept;
+        [[nodiscard]] std::string                 runtime_label() const;
+        [[nodiscard]] NodeTypeEnum                node_type() const noexcept;
+        /** Push sources are drained by the realtime engine before the normal scheduled pass. */
+        [[nodiscard]] bool is_push_source_node() const noexcept;
+        /** Pull sources remain in the normal scheduled evaluation pass. */
+        [[nodiscard]] bool                 is_pull_source_node() const noexcept;
+        [[nodiscard]] const TSMeta        *input_schema() const noexcept;
+        [[nodiscard]] const TSMeta        *output_schema() const noexcept;
+        [[nodiscard]] const TSMeta        *error_output_schema() const noexcept;
+        [[nodiscard]] const TSMeta        *recordable_state_schema() const noexcept;
+        [[nodiscard]] bool                 has_input() const noexcept;
+        [[nodiscard]] bool                 has_output() const noexcept;
+        [[nodiscard]] bool                 has_error_output() const noexcept;
+        [[nodiscard]] bool                 has_recordable_state() const noexcept;
+        [[nodiscard]] bool                 started() const noexcept;
+        [[nodiscard]] bool                 uses_scheduler() const noexcept;
+        [[nodiscard]] bool                 has_scheduler() const noexcept;
+        [[nodiscard]] engine_time_t        evaluation_time() const noexcept;
+        void                               set_started(bool value) noexcept;
+        [[nodiscard]] NodeScheduler       &scheduler();
+        [[nodiscard]] NodeScheduler       *scheduler_if_present() noexcept;
+        [[nodiscard]] const NodeScheduler *scheduler_if_present() const noexcept;
+        [[nodiscard]] void                *data() noexcept;
+        [[nodiscard]] const void          *data() const noexcept;
 
-        void notify();
+        /** View access is delegated to the node family via NodeRuntimeOps. */
+        [[nodiscard]] TSInputView          input_view(engine_time_t evaluation_time = MIN_DT);
+        [[nodiscard]] TSOutputView         output_view(engine_time_t evaluation_time = MIN_DT);
+        [[nodiscard]] TSOutputView         error_output_view(engine_time_t evaluation_time = MIN_DT);
+        [[nodiscard]] TSOutputView         recordable_state_view(engine_time_t evaluation_time = MIN_DT);
+        [[nodiscard]] const BuiltNodeSpec &spec() const noexcept;
 
-        void notify_next_cycle();
+        /** Apply top-level valid/all_valid gating before calling eval. */
+        [[nodiscard]] bool ready_to_eval(engine_time_t evaluation_time);
 
-        int64_t node_ndx() const;
-
-        const std::vector<int64_t> &owning_graph_id() const;
-
-        std::vector<int64_t> node_id() const;
-
-        const NodeSignature &signature() const;
-
-        const nb::dict &scalars() const;
-
-        graph_ptr graph();
-
-        graph_ptr graph() const;
-
-        void set_graph(graph_ptr value);
-
-        time_series_bundle_input_s_ptr &input();
-
-        const time_series_bundle_input_s_ptr &input() const;
-
-        auto start_inputs() const { return _start_inputs; }
-
-        void set_input(const time_series_bundle_input_s_ptr &value);
-
-        virtual void reset_input(const time_series_bundle_input_s_ptr &value);
-
-        time_series_output_s_ptr &output();
-
-        void set_output(const time_series_output_s_ptr &value);
-
-        time_series_bundle_output_s_ptr &recordable_state();
-
-        void set_recordable_state(const time_series_bundle_output_s_ptr &value);
-
-        bool has_recordable_state() const;
-
-        NodeScheduler::s_ptr &scheduler();
-
-        bool has_scheduler() const;
-
-        void unset_scheduler();
-
-        time_series_output_s_ptr &error_output();
-
-        void set_error_output(const time_series_output_s_ptr &value);
-
-        // Performance optimization: provide access to cached evaluation time pointer
-        [[nodiscard]] const engine_time_t *cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
-
-        friend struct Graph;
-        friend struct NodeScheduler;
-
-        void add_start_input(const time_series_reference_input_s_ptr &input);
-
-        bool has_input() const;
-
-        bool has_output() const;
-
-        std::string repr() const;
-
-        std::string str() const;
-
-      protected:
-        void start() override;
-
-        void stop() override;
-
-        virtual void do_start() = 0;
-
-        virtual void do_stop() = 0;
-
-        virtual void do_eval() = 0;
-
-        void _initialise_inputs();
+        /** Apply generic start semantics and then invoke the bespoke start hook. */
+        void start(engine_time_t evaluation_time);
+        /** Apply generic stop semantics and then invoke the bespoke stop hook. */
+        void stop(engine_time_t evaluation_time);
+        /** Apply generic readiness gating and then invoke the bespoke eval hook. */
+        void eval(engine_time_t evaluation_time, bool force_eval = false);
+        void notify(engine_time_t et) override;
 
       private:
-        int64_t                         _node_ndx;
-        std::vector<int64_t>            _owning_graph_id;
-        node_signature_s_ptr            _signature;
-        nb::dict                        _scalars;
-        graph_ptr                       _graph;             // back-pointer, not owned
-        time_series_bundle_input_s_ptr  _input;             // owned
-        time_series_output_s_ptr        _output;            // owned
-        time_series_output_s_ptr        _error_output;      // owned
-        time_series_bundle_output_s_ptr _recordable_state;  // owned
-        NodeScheduler::s_ptr            _scheduler;         // owned
-        // I am not a fan of this approach to managing the start inputs, but for now keep consistent with current code base in
-        // Python.
-        std::vector<time_series_reference_input_s_ptr> _start_inputs;  // owned
+        friend struct Graph;
+        friend struct NodeBuilder;
 
-        // Cache for these calculated values - not owned, just references
-        std::vector<time_series_input_ptr> _check_valid_inputs;
-        std::vector<time_series_input_ptr> _check_all_valid_inputs;
+        void destruct() noexcept;
 
-        // Performance optimization: Cache evaluation time pointer from graph
-        // Set once when graph is assigned to node, never changes
-        const engine_time_t *_cached_evaluation_time_ptr{nullptr};
+        [[nodiscard]] TSInputView resolve_input_slot(size_t slot, engine_time_t evaluation_time);
+
+        Graph               *m_graph{nullptr};
+        const BuiltNodeSpec *m_spec{nullptr};
+        int64_t              m_node_index{-1};
+        int64_t              m_public_node_index{-1};
+        bool                 m_started{false};
+        bool                 m_starting{false};
     };
-}  // namespace hgraph
 
-#endif  // NODE_H
+}  // namespace hgraph

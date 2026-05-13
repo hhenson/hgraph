@@ -1,116 +1,48 @@
 project(_hgraph)
 
 set(HGRAPH_SOURCES
-        api/python/py_evaluation_clock.cpp
-        api/python/py_evaluation_engine.cpp
-        api/python/py_graph.cpp
-        api/python/py_node.cpp
-        api/python/py_special_nodes.cpp
-        api/python/py_time_series.cpp
-        api/python/py_ref.cpp
-        api/python/py_signal.cpp
-        api/python/py_ts.cpp
-        api/python/py_tsb.cpp
-        api/python/py_tsd.cpp
-        api/python/py_tsl.cpp
-        api/python/py_tss.cpp
-        api/python/py_tsw.cpp
         api/python/py_value.cpp
         api/python/py_ts_type_registry.cpp
-        api/python/wrapper_factory.cpp
-        builders/builder.cpp
-        builders/graph_builder.cpp
-        builders/input_builder.cpp
-        builders/node_builder.cpp
-        builders/output_builder.cpp
-        builders/nodes/python_node_builder.cpp
-        builders/nodes/python_generator_node_builder.cpp
-        builders/nodes/tsd_map_node_builder.cpp
-        builders/nodes/reduce_node_builder.cpp
-        builders/nodes/context_node_builder.cpp
-        builders/nodes/base_nested_graph_node_builder.cpp
-        builders/nodes/nested_graph_node_builder.cpp
-        builders/nodes/component_node_builder.cpp
-        builders/nodes/try_except_node_builder.cpp
-        builders/nodes/switch_node_builder.cpp
-        builders/nodes/tsd_non_associative_reduce_node_builder.cpp
-        builders/nodes/mesh_node_builder.cpp
-        builders/nodes/last_value_pull_node_builder.cpp
-        builders/time_series_types/time_series_signal_input_builder.cpp
-        builders/time_series_types/time_series_value_input_builder.cpp
-        builders/time_series_types/specialized_ref_builders.cpp
-        builders/time_series_types/time_series_list_input_builder.cpp
-        builders/time_series_types/time_series_bundle_input_builder.cpp
-        builders/time_series_types/time_series_set_input_builder.cpp
-        builders/time_series_types/time_series_window_input_builder.cpp
-        builders/time_series_types/time_series_dict_input_builder.cpp
-        builders/time_series_types/time_series_value_output_builder.cpp
-        builders/time_series_types/time_series_list_output_builder.cpp
-        builders/time_series_types/time_series_bundle_output_builder.cpp
-        builders/time_series_types/time_series_set_output_builder.cpp
-        builders/time_series_types/time_series_window_output_builder.cpp
-        builders/time_series_types/time_series_dict_output_builder.cpp
 
-        nodes/base_python_node.cpp
-        nodes/component_node.cpp
-        nodes/last_value_pull_node.cpp
-        nodes/mesh_node.cpp
-        nodes/context_node.cpp
-        nodes/nested_evaluation_engine.cpp
-        nodes/nested_graph_node.cpp
-        nodes/nested_node.cpp
-        nodes/non_associative_reduce_node.cpp
-        nodes/python_generator_node.cpp
-        nodes/python_node.cpp
-        nodes/push_queue_node.cpp
-        nodes/reduce_node.cpp
-        nodes/switch_node.cpp
-        nodes/try_except_node.cpp
-        nodes/tsd_map_node.cpp
-
-        python/_hgraph_builder.cpp
         python/_hgraph_module.cpp
         python/_hgraph_nodes.cpp
-        python/_hgraph_runtime.cpp
         python/_hgraph_types.cpp
-        python/_hgraph_utils.cpp
         python/global_state.cpp
         python/global_keys.cpp
 
-        runtime/evaluation_context.cpp
-        runtime/evaluation_engine.cpp
-        runtime/graph_executor.cpp
-        runtime/record_replay.cpp
-        runtime/observers/evaluation_profiler.cpp
-        runtime/observers/evaluation_trace.cpp
-        runtime/observers/inspection_observer.cpp
-        runtime/observers/observers_bindings.cpp
-
-        types/base_time_series.cpp
         types/constants.cpp
-        types/error_type.cpp
-        types/feature_extension.cpp
-        types/graph.cpp
-        types/node.cpp
-        types/ref.cpp
-        types/scalar_types.cpp
-        types/schema_type.cpp
-        types/time_series_type.cpp
         types/traits.cpp
-        types/ts.cpp
-        types/ts_signal.cpp
-        types/tsd.cpp
-        types/tss.cpp
-        types/ts_indexed.cpp
-        types/tsb.cpp
-        types/tsl.cpp
-        types/tsw.cpp
         types/value/type_registry.cpp
         types/value/type_meta_bindings.cpp
+        types/time_series/value/atomic.cpp
+        types/time_series/value/associative.cpp
+        types/time_series/value/list.cpp
+        types/time_series/value/record.cpp
+        types/time_series/value/sequence.cpp
+        types/time_series/value/builder.cpp
+        types/time_series/value/value.cpp
+        types/time_series/ts_input.cpp
+        types/time_series/ts_input_view.cpp
+        types/time_series/ts_output.cpp
+        types/time_series/ts_output_builder.cpp
+        types/time_series/ts_input_builder.cpp
+        types/time_series/ts_value_builder.cpp
+        types/time_series/ts_value.cpp
+        types/time_series/time_series_state.cpp
+        types/time_series/active_trie.cpp
         types/time_series/ts_type_registry.cpp
+        types/boundary_binding.cpp
+        types/child_graph.cpp
+        types/evaluation_engine.cpp
+        types/graph.cpp
+        types/graph_builder.cpp
+        types/nested_clock.cpp
+        types/node.cpp
+        types/node_builder.cpp
+        types/python_node_support.cpp
+        types/ref.cpp
 
         util/lifecycle.cpp
-        util/sender_receiver_state.cpp
         util/stack_trace.cpp
         util/string_util.cpp
 )
@@ -119,8 +51,22 @@ add_definitions(-Dhgraph_EXPORTS)
 
 nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
 
+# numpy C API — required for zero-copy array views (PyArray_SimpleNewFromData).
+if (Python_NumPy_INCLUDE_DIRS)
+    target_include_directories(${PROJECT_NAME} PRIVATE ${Python_NumPy_INCLUDE_DIRS})
+else ()
+    execute_process(
+        COMMAND "${Python_EXECUTABLE}" -c "import numpy; print(numpy.get_include())"
+        OUTPUT_VARIABLE _NUMPY_INC OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE _NUMPY_RC)
+    if (_NUMPY_RC EQUAL 0 AND EXISTS "${_NUMPY_INC}")
+        target_include_directories(${PROJECT_NAME} PRIVATE "${_NUMPY_INC}")
+    else ()
+        message(FATAL_ERROR "numpy headers not found — numpy>=1.23 is required (pyproject.toml [build-system].requires)")
+    endif ()
+endif ()
+
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
-target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt ddvisitor dynamic_bitset ${HGRAPH_NANOARROW_TARGET})
+target_link_libraries(${PROJECT_NAME} PUBLIC ${HGRAPH_FMT_TARGET} ddvisitor dynamic_bitset ${HGRAPH_NANOARROW_TARGET})
 
 # Propagate HGRAPH_WITH_BACKWARD to the compiler for conditional compilation
 if (HGRAPH_WITH_BACKWARD)

@@ -80,9 +80,51 @@ endif ()
 if (DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
     set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
 endif ()
+if (DEFINED Python_EXECUTABLE)
+    set(Python_FIND_VIRTUALENV FIRST)
+    set(_hgraph_python_include_script [=[
+import sysconfig
+
+print(sysconfig.get_config_var('INCLUDEPY') or '', end='')
+]=])
+    set(_hgraph_python_library_script [=[
+import os
+import sys
+import sysconfig
+
+candidates = []
+framework = sysconfig.get_config_var('PYTHONFRAMEWORK')
+framework_prefix = sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX')
+version = sysconfig.get_config_var('VERSION') or f'{sys.version_info.major}.{sys.version_info.minor}'
+if framework and framework_prefix:
+    candidates.append(os.path.join(framework_prefix, f'{framework}.framework', 'Versions', version, framework))
+    candidates.append(os.path.join(framework_prefix, f'{framework}.framework', framework))
+libdir = sysconfig.get_config_var('LIBDIR')
+for name in (sysconfig.get_config_var('LDLIBRARY'), sysconfig.get_config_var('LIBRARY')):
+    if libdir and name:
+        candidates.append(os.path.join(libdir, name))
+print(next((path for path in candidates if path and os.path.exists(path)), ''), end='')
+]=])
+    execute_process(
+            COMMAND "${Python_EXECUTABLE}" -c "${_hgraph_python_include_script}"
+            OUTPUT_VARIABLE HGRAPH_PYTHON_INCLUDE_DIR
+            RESULT_VARIABLE _hgraph_python_include_result)
+    if (_hgraph_python_include_result EQUAL 0 AND IS_DIRECTORY "${HGRAPH_PYTHON_INCLUDE_DIR}")
+        set(Python_INCLUDE_DIR "${HGRAPH_PYTHON_INCLUDE_DIR}" CACHE PATH "Python include directory" FORCE)
+    endif ()
+    execute_process(
+            COMMAND "${Python_EXECUTABLE}" -c "${_hgraph_python_library_script}"
+            OUTPUT_VARIABLE HGRAPH_PYTHON_LIBRARY
+            RESULT_VARIABLE _hgraph_python_library_result)
+    if (_hgraph_python_library_result EQUAL 0 AND EXISTS "${HGRAPH_PYTHON_LIBRARY}")
+        set(Python_LIBRARY "${HGRAPH_PYTHON_LIBRARY}" CACHE FILEPATH "Python library" FORCE)
+    endif ()
+endif ()
 # Required: Python interpreter + development module. When scikit-build-core is
 # targeting the stable ABI, it exposes SKBUILD_SABI_COMPONENT=Development.SABIModule.
 find_package(Python 3.12 COMPONENTS Interpreter Development.Module ${SKBUILD_SABI_COMPONENT} REQUIRED)
+# Optional: NumPy headers for zero-copy array views
+find_package(Python 3.12 COMPONENTS NumPy QUIET)
 include_directories(${Python_INCLUDE_DIRS})
 
 # Get Python SOABI to avoid double .so extension in nanobind
@@ -133,6 +175,11 @@ if (NOT fmt_FOUND)
     FetchContent_MakeAvailable(fmt)
 else ()
     message(STATUS "Found fmt via Conan/system: ${fmt_DIR}")
+endif ()
+
+set(HGRAPH_FMT_TARGET fmt::fmt)
+if (TARGET fmt::fmt-header-only)
+    set(HGRAPH_FMT_TARGET fmt::fmt-header-only)
 endif ()
 
 # sul::dynamic_bitset - header-only library for dynamic bitsets (used by KeySet)
@@ -258,95 +305,95 @@ configure_file(
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 set(HGRAPH_INCLUDES
-        include/hgraph/api/python/api_ptr.h
-        include/hgraph/api/python/py_evaluation_clock.h
-        include/hgraph/api/python/py_evaluation_engine.h
-        include/hgraph/api/python/py_graph.h
-        include/hgraph/api/python/py_node.h
-        include/hgraph/api/python/py_special_nodes.h
-        include/hgraph/api/python/py_time_series.h
-        include/hgraph/api/python/py_ref.h
-        include/hgraph/api/python/py_signal.h
-        include/hgraph/api/python/py_ts.h
-        include/hgraph/api/python/py_tsb.h
-        include/hgraph/api/python/py_tsd.h
-        include/hgraph/api/python/py_tsl.h
-        include/hgraph/api/python/py_tss.h
-        include/hgraph/api/python/py_tsw.h
-        include/hgraph/api/python/wrapper_factory.h
+        include/hgraph/api/python/py_ts_type_registry.h
+        include/hgraph/api/python/py_value.h
+        include/hgraph/hgraph_base.h
+        include/hgraph/hgraph_export.h
         include/hgraph/hgraph_forward_declarations.h
-        include/hgraph/builders/builder.h
-        include/hgraph/builders/graph_builder.h
-        include/hgraph/builders/input_builder.h
-        include/hgraph/builders/node_builder.h
-        include/hgraph/builders/output_builder.h
-        include/hgraph/nodes/base_python_node.h
-        include/hgraph/nodes/component_node.h
-        include/hgraph/nodes/last_value_pull_node.h
-        include/hgraph/nodes/mesh_node.h
-        include/hgraph/nodes/nest_graph_node.h
-        include/hgraph/nodes/nested_evaluation_engine.h
-        include/hgraph/nodes/nested_node.h
-        include/hgraph/nodes/python_node.h
-        include/hgraph/nodes/non_associative_reduce_node.h
-        include/hgraph/nodes/python_generator_node.h
-        include/hgraph/nodes/push_queue_node.h
-        include/hgraph/nodes/reduce_node.h
-        include/hgraph/nodes/switch_node.h
-        include/hgraph/nodes/try_except_node.h
-        include/hgraph/nodes/tsd_map_node.h
-        include/hgraph/runtime/evaluation_context.h
-        include/hgraph/runtime/evaluation_engine.h
-        include/hgraph/runtime/graph_executor.h
-        include/hgraph/runtime/record_replay.h
-        include/hgraph/runtime/observers/evaluation_profiler.h
-        include/hgraph/runtime/observers/evaluation_trace.h
-        include/hgraph/runtime/observers/inspection_observer.h
-        include/hgraph/types/base_time_series.h
-        include/hgraph/types/constants.h
-        include/hgraph/types/error_type.h
-        include/hgraph/types/feature_extension.h
-        include/hgraph/types/graph.h
-        include/hgraph/types/node.h
-        include/hgraph/types/notifiable.h
-        include/hgraph/types/ref.h
-        include/hgraph/types/scalar_types.h
-        include/hgraph/types/schema_type.h
-        include/hgraph/types/time_series_type.h
-        include/hgraph/types/traits.h
-        include/hgraph/types/ts.h
-        include/hgraph/types/ts_signal.h
-        include/hgraph/types/tsd.h
-        include/hgraph/types/tss.h
-        include/hgraph/types/ts_indexed.h
-        include/hgraph/types/tsb.h
-        include/hgraph/types/tsl.h
-        include/hgraph/types/tsw.h
+        include/hgraph/nodes/basic_nodes.h
         include/hgraph/python/chrono.h
         include/hgraph/python/format.h
-        include/hgraph/python/global_state.h
         include/hgraph/python/global_keys.h
+        include/hgraph/python/global_state.h
         include/hgraph/python/hashable.h
         include/hgraph/python/nb_types_ext.h
         include/hgraph/python/reference_wrapper.h
+        include/hgraph/types/boundary_binding.h
+        include/hgraph/types/child_graph.h
+        include/hgraph/types/constants.h
+        include/hgraph/types/evaluation_clock.h
+        include/hgraph/types/evaluation_engine.h
+        include/hgraph/types/graph.h
+        include/hgraph/types/graph_builder.h
+        include/hgraph/types/nested_clock.h
+        include/hgraph/types/nested_node_builder.h
+        include/hgraph/types/node.h
+        include/hgraph/types/node_builder.h
+        include/hgraph/types/node_impl.h
+        include/hgraph/types/notifiable.h
+        include/hgraph/types/path_constants.h
+        include/hgraph/types/python_export.h
+        include/hgraph/types/python_node_support.h
+        include/hgraph/types/ref.h
+        include/hgraph/types/sender_receiver_state.h
+        include/hgraph/types/static_schema.h
+        include/hgraph/types/static_signature.h
+        include/hgraph/types/time_series/active_trie.h
+        include/hgraph/types/time_series/time_series_state.h
+        include/hgraph/types/time_series/ts_input.h
+        include/hgraph/types/time_series/ts_input_builder.h
+        include/hgraph/types/time_series/ts_input_view.h
+        include/hgraph/types/time_series/ts_meta.h
+        include/hgraph/types/time_series/ts_output.h
+        include/hgraph/types/time_series/ts_output_builder.h
+        include/hgraph/types/time_series/ts_output_view.h
+        include/hgraph/types/time_series/ts_type_registry.h
+        include/hgraph/types/time_series/ts_value.h
+        include/hgraph/types/time_series/ts_value_builder.h
+        include/hgraph/types/time_series/ts_view.h
+        include/hgraph/types/time_series/value/associative.h
+        include/hgraph/types/time_series/value/atomic.h
+        include/hgraph/types/time_series/value/builder.h
+        include/hgraph/types/time_series/value/keyed_slot_store.h
+        include/hgraph/types/time_series/value/list.h
+        include/hgraph/types/time_series/value/record.h
+        include/hgraph/types/time_series/value/sequence.h
+        include/hgraph/types/time_series/value/slot_observer.h
+        include/hgraph/types/time_series/value/tracking.h
+        include/hgraph/types/time_series/value/value.h
+        include/hgraph/types/time_series/value/view.h
+        include/hgraph/types/traits.h
+        include/hgraph/types/value/indexed_view.h
+        include/hgraph/types/value/set_delta_value.h
+        include/hgraph/types/value/type_meta.h
+        include/hgraph/types/value/type_meta_bindings.h
+        include/hgraph/types/value/type_registry.h
+        include/hgraph/types/value/validity_bitmap.h
+        include/hgraph/types/value/value.h
+        include/hgraph/types/value/value_fwd.h
+        include/hgraph/types/value/value_view.h
+        include/hgraph/types/value/visitor.h
         include/hgraph/util/date_time.h
         include/hgraph/util/lifecycle.h
-        include/hgraph/util/sender_receiver_state.h
+        include/hgraph/util/scope.h
+        include/hgraph/util/stable_slot_storage.h
         include/hgraph/util/stack_trace.h
         include/hgraph/util/string_utils.h
-        include/hgraph/hgraph_export.h
+        include/hgraph/util/tagged_ptr.h
 )
 list(TRANSFORM HGRAPH_INCLUDES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 
-# Expose includes var to src/cpp subdirectory
-set(HGRAPH_INCLUDES ${HGRAPH_INCLUDES} PARENT_SCOPE)
+# Expose includes var to a parent project without warning when cpp/ is the root source dir.
+if (NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(HGRAPH_INCLUDES ${HGRAPH_INCLUDES} PARENT_SCOPE)
+endif ()
 
 add_subdirectory(src/cpp)
 
-# Optional: Build tests if enabled
-# Tests are independent and don't require Python bindings
-option(HGRAPH_BUILD_TESTS "Build hgraph C++ unit tests" OFF)
-if (HGRAPH_BUILD_TESTS AND NOT CMAKE_CROSSCOMPILING)
+# Build C++ tests whenever standard CMake testing is enabled.
+# This keeps the test subtree aligned with the normal `ctest` workflow
+# and avoids a second cache toggle that can silently hide the targets.
+if (BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     message(STATUS "Building hgraph C++ tests")
     add_subdirectory(tests)
 endif()

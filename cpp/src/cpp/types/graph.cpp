@@ -1,292 +1,342 @@
-#include <hgraph/builders/graph_builder.h>
-#include <hgraph/builders/node_builder.h>
-#include <hgraph/nodes/push_queue_node.h>
-#include <hgraph/runtime/evaluation_engine.h>
-#include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
-#include <hgraph/types/node.h>
-#include <hgraph/types/traits.h>
-#include <hgraph/util/arena_enable_shared_from_this.h>
+#include <hgraph/util/scope.h>
 
+#include <cassert>
+#include <new>
+#include <stdexcept>
 #include <utility>
 
 namespace hgraph
 {
-    Graph::Graph(std::vector<int64_t> graph_id_, node_list nodes_, std::optional<node_ptr> parent_node_,
-                 std::string label_, const_traits_ptr parent_traits_)
-        : ComponentLifeCycle(), _graph_id{std::move(graph_id_)},
-          _nodes{std::move(nodes_)}, _parent_node{parent_node_.has_value() ? *parent_node_ : nullptr},
-          _label{std::move(label_)}, _traits{parent_traits_} {
-        auto it{std::find_if(_nodes.begin(), _nodes.end(),
-                             [](const node_s_ptr &v) { return v->signature().node_type != NodeTypeEnum::PUSH_SOURCE_NODE; })};
-        _push_source_nodes_end = std::distance(_nodes.begin(), it);
-        _schedule.resize(_nodes.size(), MIN_DT);
-    }
-
-    Graph::~Graph() {}
-
-    const std::vector<int64_t> &Graph::graph_id() const { return _graph_id; }
-
-    const Graph::node_list &Graph::nodes() const { return _nodes; }
-
-    node_ptr Graph::parent_node() const { return _parent_node; }
-
-    std::optional<std::string> Graph::label() const { return _label; }
-
-    EvaluationEngineApi::s_ptr Graph::evaluation_engine_api() { return _evaluation_engine; }
-
-    EvaluationClock::s_ptr Graph::evaluation_clock() { return _evaluation_engine->engine_evaluation_clock(); }
-
-    EvaluationClock::s_ptr Graph::evaluation_clock() const { return _evaluation_engine->engine_evaluation_clock(); }
-
-    const EngineEvaluationClock::s_ptr& Graph::evaluation_engine_clock() { return _evaluation_engine->engine_evaluation_clock(); }
-
-    const EvaluationEngine::s_ptr& Graph::evaluation_engine() const { return _evaluation_engine; }
-
-    void Graph::set_evaluation_engine(EvaluationEngine::s_ptr value) {
-        if (_evaluation_engine != nullptr && value != nullptr) {
-            throw std::runtime_error("Duplicate attempt to set evaluation engine");
+    Graph::~Graph() {
+        try {
+            clear_storage();
+        } catch (...) {
+            std::terminate();
         }
-        _evaluation_engine = std::move(value);
-
-        // Cache the clock pointer and evaluation time pointer once at initialization for performance
-        _cached_engine_clock        = _evaluation_engine->engine_evaluation_clock().get();
-        _cached_evaluation_time_ptr = _cached_engine_clock->evaluation_time_ptr();
-
-        if (_push_source_nodes_end > 0) { _receiver.set_evaluation_clock(evaluation_engine_clock().get()); }
     }
 
-    int64_t Graph::push_source_nodes_end() const { return _push_source_nodes_end; }
+    Graph::Graph(GraphEvaluationEngine evaluation_engine) noexcept : m_evaluation_engine(evaluation_engine) {}
 
-    engine_time_t Graph::last_evaluation_time() const { return _last_evaluation_time; }
+    Graph::Graph(Graph &&other) {
+        other.require_engine_removal_allowed();
 
-    void Graph::schedule_node(int64_t node_ndx, engine_time_t when) { schedule_node(node_ndx, when, false); }
+        m_node_count            = other.m_node_count;
+        m_push_source_nodes_end = other.m_push_source_nodes_end;
+        m_started               = other.m_started;
+        m_is_evaluating         = false;
+        m_owns_storage          = other.m_owns_storage;
+        m_storage_alignment     = other.m_storage_alignment;
+        m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
+        m_last_evaluation_time  = other.m_last_evaluation_time;
+        m_evaluation_engine     = other.m_evaluation_engine;
+        m_traits                = std::move(other.m_traits);
+        m_graph_id              = std::move(other.m_graph_id);
+        m_parent_node           = other.m_parent_node;
+        m_label                 = std::move(other.m_label);
+        m_storage               = other.m_storage;
 
-    void Graph::schedule_node(int64_t node_ndx, engine_time_t when, bool force_set) {
-        // Use cached evaluation time pointer (set at initialization) - direct memory access
-        auto et = *_cached_evaluation_time_ptr;
+        other.m_node_count            = 0;
+        other.m_push_source_nodes_end = 0;
+        other.m_started               = false;
+        other.m_is_evaluating         = false;
+        other.m_owns_storage          = false;
+        other.m_storage_alignment     = alignof(std::max_align_t);
+        other.m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
+        other.m_last_evaluation_time  = MIN_DT;
+        other.m_evaluation_engine     = {};
+        other.m_parent_node           = nullptr;
+        other.m_storage               = nullptr;
+        attach_nodes();
+    }
 
-        // Match Python: just throw if scheduling in the past
-        if (when < et) {
-            auto graph_id{this->graph_id()};
-            auto msg{fmt::format(
-                "Graph[{}] Trying to schedule node: {}[{}] for {:%Y-%m-%d %H:%M:%S} but current time is {:%Y-%m-%d %H:%M:%S}",
-                fmt::join(graph_id, ","), this->nodes()[node_ndx]->signature().signature(), node_ndx, when, et)};
-            throw std::runtime_error(msg);
+    Graph &Graph::operator=(Graph &&other) {
+        if (this != &other) {
+            other.require_engine_removal_allowed();
+            clear_storage();
+
+            m_node_count            = other.m_node_count;
+            m_push_source_nodes_end = other.m_push_source_nodes_end;
+            m_started               = other.m_started;
+            m_is_evaluating         = false;
+            m_owns_storage          = other.m_owns_storage;
+            m_storage_alignment     = other.m_storage_alignment;
+            m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
+            m_last_evaluation_time  = other.m_last_evaluation_time;
+            m_evaluation_engine     = other.m_evaluation_engine;
+            m_traits                = std::move(other.m_traits);
+            m_graph_id              = std::move(other.m_graph_id);
+            m_parent_node           = other.m_parent_node;
+            m_label                 = std::move(other.m_label);
+            m_storage               = other.m_storage;
+
+            other.m_node_count            = 0;
+            other.m_push_source_nodes_end = 0;
+            other.m_started               = false;
+            other.m_is_evaluating         = false;
+            other.m_owns_storage          = false;
+            other.m_storage_alignment     = alignof(std::max_align_t);
+            other.m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
+            other.m_last_evaluation_time  = MIN_DT;
+            other.m_evaluation_engine     = {};
+            other.m_parent_node           = nullptr;
+            other.m_storage               = nullptr;
+
+            attach_nodes();
         }
-
-        auto &st = this->_schedule[node_ndx];
-        if (force_set || st <= et || st > when) { st = when; }
-        _cached_engine_clock->update_next_scheduled_evaluation_time(when);
+        return *this;
     }
 
-    std::vector<engine_time_t> &Graph::schedule() { return _schedule; }
+    EvaluationEngineApi Graph::evaluation_engine_api() const noexcept { return m_evaluation_engine.evaluation_engine_api(); }
 
-    void Graph::evaluate_graph() {
-        NotifyGraphEvaluation nge{evaluation_engine().get(), graph_ptr{this}};
+    GraphEvaluationEngine Graph::graph_evaluation_engine() const noexcept { return m_evaluation_engine; }
 
-        // Use cached pointers (set at initialization) for direct memory access
-        auto          clock    = _cached_engine_clock;
-        engine_time_t now      = *_cached_evaluation_time_ptr;
-        auto         &nodes    = _nodes;
-        auto         &schedule = _schedule;
+    EvaluationClock Graph::evaluation_clock() const noexcept { return engine_evaluation_clock(); }
 
-        _last_evaluation_time = now;
+    Traits &Graph::traits() {
+        if (!m_traits) {
+            const auto *parent_traits =
+                m_parent_node != nullptr && m_parent_node->graph() != nullptr ? &m_parent_node->graph()->traits() : nullptr;
+            m_traits = std::make_unique<Traits>(static_cast<const_traits_ptr>(parent_traits));
+        }
+        return *m_traits;
+    }
 
-        // Handle push source nodes scheduling if necessary
-        if (push_source_nodes_end() > 0 && clock->push_node_requires_scheduling()) {
-            clock->reset_push_node_requires_scheduling();
+    const Traits &Graph::traits() const {
+        if (!m_traits) {
+            const auto *parent_traits =
+                m_parent_node != nullptr && m_parent_node->graph() != nullptr ? &m_parent_node->graph()->traits() : nullptr;
+            m_traits = std::make_unique<Traits>(static_cast<const_traits_ptr>(parent_traits));
+        }
+        return *m_traits;
+    }
 
-            while (auto value = receiver().dequeue()) {
-                auto [i, message] = *value;  // Use the already dequeued value
-                auto  node        = nodes[i];
-                auto &node_ref    = *node;
-                try {
-                    NotifyNodeEvaluation nne{evaluation_engine().get(), node.get()};
-                    bool                 success = dynamic_cast<PushQueueNode &>(node_ref).apply_message(message);
-                    if (!success) {
-                        receiver().enqueue_front({i, message});
-                        clock->mark_push_node_requires_scheduling();
-                        break;
-                    }
-                } catch (const NodeException &e) {
-                    throw;  // already enriched
-                } catch (const std::exception &e) {
-                    throw NodeException::capture_error(e, node_ref, "During push node message application");
-                } catch (...) {
-                    throw NodeException::capture_error(std::current_exception(), node_ref,
-                                                       "Unknown error during push node message application");
-                }
-            }
+    void Graph::set_identity(std::vector<int64_t> graph_id, Node *parent_node, std::string label) {
+        m_graph_id    = std::move(graph_id);
+        m_parent_node = parent_node;
+        m_label       = std::move(label);
+        m_traits.reset();
+    }
+
+    EngineEvaluationClock Graph::engine_evaluation_clock() const noexcept { return m_evaluation_engine.engine_evaluation_clock(); }
+
+    engine_time_t Graph::evaluation_time() const noexcept { return engine_evaluation_clock().evaluation_time(); }
+
+    engine_time_t Graph::last_evaluation_time() const noexcept { return m_last_evaluation_time; }
+
+    SenderReceiverState *Graph::push_message_receiver() const noexcept { return m_evaluation_engine.push_message_receiver(); }
+
+    int64_t Graph::push_source_nodes_end() const noexcept { return m_push_source_nodes_end; }
+
+    engine_time_t Graph::scheduled_time(size_t index) const {
+        if (index >= m_node_count) { throw std::out_of_range("v2 graph schedule index is out of range"); }
+        return entry_storage()[index].scheduled;
+    }
+
+    void Graph::adopt_storage(void *storage, size_t storage_alignment, size_t node_count, int64_t push_source_nodes_end,
+                              bool owns_storage) {
+        clear_storage();
+        m_node_count            = node_count;
+        m_push_source_nodes_end = push_source_nodes_end;
+        m_started               = false;
+        m_is_evaluating         = false;
+        m_owns_storage          = owns_storage;
+        m_storage_alignment     = storage_alignment;
+        m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
+        m_last_evaluation_time  = MIN_DT;
+        m_storage               = storage;
+        attach_nodes();
+    }
+
+    void Graph::clear_storage() {
+        if (m_storage == nullptr) { return; }
+        require_engine_removal_allowed();
+
+        if (m_started) {
             try {
-                evaluation_engine()->notify_after_push_nodes_evaluation(graph_ptr{this});
-            } catch (const NodeException &e) {
-                throw;  // already enriched
-            } catch (const std::exception &e) {
-                throw std::runtime_error(std::string("Error in notify_after_push_nodes_evaluation: ") + e.what());
-            } catch (...) { throw std::runtime_error("Unknown error in notify_after_push_nodes_evaluation"); }
+                stop();
+            } catch (...) {}
         }
 
-        for (size_t i = push_source_nodes_end(); i < nodes.size(); ++i) {
-            auto  scheduled_time = schedule[i];
-            auto  pnode          = nodes[i].get();
-            auto &node           = *pnode;
-
-            if (scheduled_time == now) {
-                try {
-                    NotifyNodeEvaluation nne{evaluation_engine().get(), pnode};
-                    node.eval();
-                } catch (const NodeException &e) { throw e; } catch (const std::exception &e) {
-                    throw NodeException::capture_error(e, node, "During evaluation");
-                } catch (...) {
-                    throw NodeException::capture_error(std::current_exception(), node, "Unknown error during node evaluation");
-                }
-            } else if (scheduled_time > now) {
-                clock->update_next_scheduled_evaluation_time(scheduled_time);
+        if (entry_storage() != nullptr) {
+            for (size_t i = m_node_count; i > 0; --i) {
+                if (entry_storage()[i - 1].node != nullptr) { entry_storage()[i - 1].node->destruct(); }
             }
         }
+
+        if (m_owns_storage) { ::operator delete(m_storage, std::align_val_t(m_storage_alignment)); }
+        m_node_count            = 0;
+        m_push_source_nodes_end = 0;
+        m_started               = false;
+        m_is_evaluating         = false;
+        m_owns_storage          = false;
+        m_storage_alignment     = alignof(std::max_align_t);
+        m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
+        m_last_evaluation_time  = MIN_DT;
+        m_evaluation_engine     = {};
+        m_graph_id.clear();
+        m_parent_node = nullptr;
+        m_label.clear();
+        m_traits.reset();
+        m_storage = nullptr;
     }
 
-    Graph::s_ptr Graph::copy_with(node_list nodes) {
-        // This is a copy, need to make sure we copy the graph contents
-        // TODO: This REALLY should be constructed using a builder, for now we will just allow to continue
-        auto new_graph = arena_make_shared<Graph>(_graph_id, std::move(nodes), _parent_node, _label, nullptr);
-        new_graph->clone_traits_from(*this);
-        return new_graph;
-    }
-
-    void Graph::clone_traits_from(const Graph &other) {
-        _traits = other._traits.copy();
-    }
-
-    const Traits &Graph::traits() const { return _traits; }
-
-    SenderReceiverState &Graph::receiver() { return _receiver; }
-
-    void Graph::extend_graph(const GraphBuilder &graph_builder, bool delay_start) {
-        auto first_node_index{_nodes.size()};
-        auto sz{graph_builder.node_builders.size()};
-        auto nodes{graph_builder.make_and_connect_nodes(_graph_id, first_node_index)};
-        auto capacity{first_node_index + sz};
-        _nodes.reserve(capacity);
-        _schedule.reserve(capacity);
-        for (auto node : nodes) {
-            _nodes.emplace_back(node);
-            _schedule.emplace_back(MIN_DT);
-        }
-        initialise_subgraph(first_node_index, capacity);
-        if (!delay_start && is_started()) { start_subgraph(first_node_index, capacity); }
-    }
-
-    void Graph::reduce_graph(const GraphBuilder &graph_builder, int64_t start_node) {
-        auto end{_nodes.size()};
-        if (is_started()) { stop_subgraph(start_node, end); }
-        dispose_subgraph(graph_builder, start_node, end);
-
-        _nodes.erase(_nodes.begin() + start_node, _nodes.end());
-        _schedule.erase(_schedule.begin() + start_node, _schedule.end());
-    }
-
-    void Graph::initialise_subgraph(int64_t start, int64_t end) {
-        // Need to ensure that the graph is set prior to initialising the nodes
-        // In case of interaction between nodes.
-        for (auto i = start; i < end; ++i) {
-            auto node{_nodes[i]};
-            node->set_graph(this);
-        }
-        for (auto i = start; i < end; ++i) {
-            auto node{_nodes[i]};
-            initialise_component(*node);
+    void Graph::require_engine_removal_allowed() const {
+        if (m_started || m_is_evaluating) {
+            throw std::logic_error("v2 Graph cannot remove its evaluation engine while the graph is started");
         }
     }
 
-    void Graph::start_subgraph(int64_t start, int64_t end) {
-        for (auto i = start; i < end; ++i) {
-            auto node{_nodes[i]};
-            try {
-                evaluation_engine()->notify_before_start_node(node.get());
-                start_component(*node);
-                evaluation_engine()->notify_after_start_node(node.get());
-            } catch (const NodeException &e) {
-                throw;  // already enriched
-            } catch (const std::exception &e) { throw NodeException::capture_error(e, *node, "During node start"); } catch (...) {
-                throw NodeException::capture_error(std::current_exception(), *node, "Unknown error during node start");
-            }
+    void Graph::attach_nodes() noexcept {
+        if (entry_storage() == nullptr) { return; }
+        for (size_t i = 0; i < m_node_count; ++i) {
+            if (entry_storage()[i].node != nullptr) { entry_storage()[i].node->set_graph(this); }
         }
     }
 
-    void Graph::stop_subgraph(int64_t start, int64_t end) {
-        for (auto i = start; i < end; ++i) {
-            auto node{_nodes[i]};
-            try {
-                evaluation_engine()->notify_before_stop_node(node.get());
-                stop_component(*node);
-                evaluation_engine()->notify_after_stop_node(node.get());
-            } catch (const NodeException &e) {
-                throw;  // already enriched
-            } catch (const std::exception &e) { throw NodeException::capture_error(e, *node, "During node stop"); } catch (...) {
-                throw NodeException::capture_error(std::current_exception(), *node, "Unknown error during node stop");
-            }
-        }
+    NodeEntry *Graph::entry_storage() noexcept { return m_storage != nullptr ? reinterpret_cast<NodeEntry *>(m_storage) : nullptr; }
+
+    const NodeEntry *Graph::entry_storage() const noexcept {
+        return m_storage != nullptr ? reinterpret_cast<const NodeEntry *>(m_storage) : nullptr;
     }
 
-    void Graph::dispose_subgraph(const GraphBuilder &graph_builder, int64_t start, int64_t end) {
-        const auto& node_builders = graph_builder.node_builders;
-        auto b = node_builders.size();
-        for (auto i = start; i < end; ++i) {
-            node_builders[i % b]->release_instance(_nodes[i]);
-        }
+    Node &Graph::node_at(size_t index) {
+        if (index >= m_node_count) { throw std::out_of_range("v2 graph node index is out of range"); }
+        return *entry_storage()[index].node;
     }
 
-    void Graph::initialise() {
-        // Need to ensure that the graph is set prior to initialising the nodes
-        // In case of interaction between nodes.
-        for (auto &node : _nodes) { node->set_graph(this); }
-        for (auto &node : _nodes) { node->initialise(); }
+    const Node &Graph::node_at(size_t index) const {
+        if (index >= m_node_count) { throw std::out_of_range("v2 graph node index is out of range"); }
+        return *entry_storage()[index].node;
+    }
+
+    PushSourceNodeRef Graph::push_source_node_at(size_t index) {
+        auto &node = node_at(index);
+        assert(index < static_cast<size_t>(m_push_source_nodes_end));
+        assert(node.spec().push_source_runtime_ops != nullptr);
+        return PushSourceNodeRef{node, *node.spec().push_source_runtime_ops};
     }
 
     void Graph::start() {
-        auto &engine = *_evaluation_engine;
-        engine.notify_before_start_graph(graph_ptr{this});
-        for (auto &node : _nodes) {
-            engine.notify_before_start_node(node.get());
-            start_component(*node);
-            engine.notify_after_start_node(node.get());
+        if (m_started) { return; }
+        if (!m_evaluation_engine) { throw std::logic_error("v2 Graph cannot start without an evaluation engine"); }
+
+        m_evaluation_engine.notify_before_start_graph(*this);
+        size_t rollback_nodes_end     = 0;
+        auto   rollback_started_nodes = UnwindCleanupGuard([&] { stop_nodes(rollback_nodes_end); });
+
+        for (size_t i = 0; i < m_node_count; ++i) {
+            auto &node = *entry_storage()[i].node;
+            m_evaluation_engine.notify_before_start_node(node);
+            node.start(evaluation_time());
+            rollback_nodes_end = i + 1;
+            m_evaluation_engine.notify_after_start_node(node);
         }
-        engine.notify_after_start_graph(graph_ptr{this});
+        m_evaluation_engine.notify_after_start_graph(*this);
+        m_started = true;
     }
 
     void Graph::stop() {
-        auto &engine = *_evaluation_engine;
-        engine.notify_before_stop_graph(graph_ptr{this});
-        std::exception_ptr first_exc;
-        for (auto &node : _nodes) {
-            try {
-                engine.notify_before_stop_node(node.get());
-            } catch (...) {
-                if (!first_exc) first_exc = std::current_exception();
-            }
-            try {
-                stop_component(*node);
-            } catch (...) {
-                if (!first_exc) first_exc = std::current_exception();
-            }
-            try {
-                engine.notify_after_stop_node(node.get());
-            } catch (...) {
-                if (!first_exc) first_exc = std::current_exception();
-            }
-        }
-        try {
-            engine.notify_after_stop_graph(graph_ptr{this});
-        } catch (...) {
-            if (!first_exc) first_exc = std::current_exception();
-        }
-        if (first_exc) std::rethrow_exception(first_exc);
+        if (!m_started) { return; }
+
+        auto mark_stopped = hgraph::make_scope_exit([&] { m_started = false; });
+        stop_nodes(m_node_count);
     }
 
-    void Graph::dispose() {
-        // Since we initialise nodes from within the graph, we need to dispose them here.
-        for (auto &node : _nodes) { node->dispose(); }
+    void Graph::abandon() noexcept { m_started = false; }
+
+    void Graph::stop_nodes(size_t nodes_end) {
+        m_evaluation_engine.notify_before_stop_graph(*this);
+        FirstExceptionRecorder exceptions;
+        for (size_t i = nodes_end; i-- > 0;) {
+            auto      &node        = *entry_storage()[i].node;
+            const bool was_started = node.started();
+            exceptions.capture([&] {
+                if (was_started) { m_evaluation_engine.notify_before_stop_node(node); }
+            });
+            exceptions.capture([&] { node.stop(evaluation_time()); });
+            exceptions.capture([&] {
+                if (was_started) { m_evaluation_engine.notify_after_stop_node(node); }
+            });
+        }
+        exceptions.capture([&] { m_evaluation_engine.notify_after_stop_graph(*this); });
+        exceptions.rethrow_if_any();
+    }
+
+    void Graph::evaluate(engine_time_t when) {
+        const auto clock = engine_evaluation_clock();
+
+        clock.set_evaluation_time(when);
+        m_last_evaluation_time = when;
+        m_is_evaluating     = true;
+        m_evaluation_cursor = INVALID_EVALUATION_CURSOR;
+        auto reset_eval_state = hgraph::make_scope_exit([&] {
+            m_is_evaluating     = false;
+            m_evaluation_cursor = INVALID_EVALUATION_CURSOR;
+        });
+        m_evaluation_engine.notify_before_graph_evaluation(*this);
+        auto after_graph_evaluation = UnwindCleanupGuard([&] {
+            m_evaluation_engine.notify_after_graph_evaluation(*this);
+        });
+
+        m_evaluation_engine.evaluate_push_source_nodes(*this, when);
+
+        for (size_t index = static_cast<size_t>(m_push_source_nodes_end); index < m_node_count; ++index) {
+            auto &entry = entry_storage()[index];
+            if (entry.scheduled == when) {
+                const bool force_eval = entry.force_eval;
+                entry.force_eval      = false;
+                m_evaluation_cursor = index;
+                m_evaluation_engine.notify_before_node_evaluation(*entry.node);
+                auto after_node_evaluation =
+                    UnwindCleanupGuard([&] { m_evaluation_engine.notify_after_node_evaluation(*entry.node); });
+                entry.node->eval(when, force_eval);
+                after_node_evaluation.complete();
+            } else if (entry.scheduled > when) {
+                clock.update_next_scheduled_evaluation_time(entry.scheduled);
+            }
+        }
+
+        after_graph_evaluation.complete();
+    }
+
+    void Graph::schedule_node(int64_t node_index, engine_time_t when, bool force_set) {
+        if (node_index < 0 || static_cast<size_t>(node_index) >= m_node_count) {
+            throw std::out_of_range("v2 graph schedule index is out of range");
+        }
+
+        const auto          clock        = engine_evaluation_clock();
+        const engine_time_t current_time = clock.evaluation_time();
+        if (current_time != MIN_DT && when < current_time) {
+            throw std::runtime_error("v2 graph cannot schedule a node in the past");
+        }
+
+        engine_time_t &scheduled_time = entry_storage()[node_index].scheduled;
+        const bool later_same_tick_in_current_pass =
+            m_is_evaluating && current_time != MIN_DT && when == current_time &&
+            m_evaluation_cursor != INVALID_EVALUATION_CURSOR && static_cast<size_t>(node_index) > m_evaluation_cursor;
+        const bool missed_same_tick_in_current_pass =
+            m_is_evaluating && current_time != MIN_DT && when == current_time &&
+            m_evaluation_cursor != INVALID_EVALUATION_CURSOR && static_cast<size_t>(node_index) < m_evaluation_cursor;
+        const engine_time_t effective_when =
+            missed_same_tick_in_current_pass ? clock.next_cycle_evaluation_time() : when;
+        const bool preserve_future_schedule =
+            !force_set && missed_same_tick_in_current_pass && scheduled_time != MAX_DT && scheduled_time > current_time &&
+            scheduled_time <= effective_when;
+        if (!preserve_future_schedule &&
+            (force_set || scheduled_time <= current_time || effective_when < scheduled_time)) {
+            scheduled_time = effective_when;
+        }
+
+        if (preserve_future_schedule) {
+            clock.update_next_scheduled_evaluation_time(scheduled_time);
+        } else if (!later_same_tick_in_current_pass) {
+            clock.update_next_scheduled_evaluation_time(effective_when);
+        }
+    }
+
+    void Graph::schedule_node_forced_eval(int64_t node_index, engine_time_t when) {
+        schedule_node(node_index, when, true);
+        entry_storage()[static_cast<size_t>(node_index)].force_eval = true;
     }
 }  // namespace hgraph

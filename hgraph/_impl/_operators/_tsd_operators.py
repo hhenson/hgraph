@@ -772,10 +772,13 @@ def partition_tsd(
         prev_partition = prev.get(k, None)
         if prev_partition is not None and partition != prev_partition:
             out[prev_partition][k] = REMOVE_IF_EXISTS
-        prev[k] = partition
-        v = ts.get(k)
-        if v is not None:
-            out[partition][k] = v.value
+        if prev_partition is None or partition != prev_partition:
+            prev[k] = partition
+            v = ts.get(k)
+            if v is not None:
+                out[partition][k] = v.value
+        else:
+            prev[k] = partition
 
     for k, v in ts.modified_items():
         partition = prev.get(k, None)

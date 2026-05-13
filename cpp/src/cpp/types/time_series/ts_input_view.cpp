@@ -1,0 +1,636 @@
+#include <hgraph/hgraph_base.h>
+#include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_input_view.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/types/value/type_meta_bindings.h>
+
+#include <fmt/format.h>
+
+#include <memory>
+#include <stdexcept>
+#include <type_traits>
+#include <variant>
+
+namespace hgraph
+{
+    namespace detail
+    {
+        namespace
+        {
+            [[nodiscard]] const char *safe_type_name(const value::TypeMeta *schema) noexcept
+            {
+                return schema != nullptr && schema->name != nullptr ? schema->name : "?";
+            }
+
+            [[nodiscard]] std::string schema_debug_name(const TSMeta *schema)
+            {
+                if (schema == nullptr) { return "<null>"; }
+
+                switch (schema->kind) {
+                    case TSKind::TSValue: return fmt::format("TS[{}]", safe_type_name(schema->value_type));
+                    case TSKind::TSS:
+                        return fmt::format("TSS[{}]",
+                                           schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                    case TSKind::TSD:
+                        return fmt::format("TSD[{}, {}]",
+                                           safe_type_name(schema->key_type()),
+                                           schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                    case TSKind::TSL:
+                        return fmt::format("TSL[{}, {}]",
+                                           schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?",
+                                           schema->fixed_size());
+                    case TSKind::TSW: return "TSW[...]";
+                    case TSKind::TSB: return fmt::format("TSB[{}]", schema->bundle_name() != nullptr ? schema->bundle_name() : "?");
+                    case TSKind::REF:
+                        return fmt::format("REF[{}]",
+                                           schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                    case TSKind::SIGNAL: return "SIGNAL";
+                }
+                return "<?>";
+            }
+
+            [[nodiscard]] bool requires_bindable_output_cast(const TSMeta *source_schema, const TSMeta *target_schema) noexcept
+            {
+                if (source_schema == nullptr || target_schema == nullptr) { return false; }
+                if (equivalent_ts_schema(source_schema, target_schema)) { return false; }
+                if (!binding_compatible_ts_schema(source_schema, target_schema)) { return false; }
+                if (source_schema->kind != target_schema->kind) { return false; }
+
+                switch (source_schema->kind) {
+                    case TSKind::TSD:
+                    case TSKind::TSL:
+                    case TSKind::TSB:
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+
+            [[nodiscard]] RefLinkState *ref_link_boundary(const TSInputView &view) noexcept
+            {
+                BaseState *state = view.context_ref().ts_state;
+                if (state == nullptr) { return nullptr; }
+
+                if (state->storage_kind == TSStorageKind::RefLink) { return static_cast<RefLinkState *>(state); }
+
+                if (state->storage_kind != TSStorageKind::TargetLink) { return nullptr; }
+                const LinkedTSContext *target = state->linked_target();
+                return target != nullptr && target->ts_state != nullptr && target->ts_state->storage_kind == TSStorageKind::RefLink
+                    ? static_cast<RefLinkState *>(target->ts_state)
+                    : nullptr;
+            }
+
+            [[nodiscard]] Notifiable *child_scheduling_notifier(const TSInputView &parent, BaseState *child_state) noexcept
+            {
+                Notifiable *parent_notifier = parent.scheduling_notifier();
+                if (RefLinkState *ref_link = ref_link_boundary(parent); ref_link != nullptr) {
+                    auto &attachment = ref_link->attachment_for(parent_notifier);
+                    attachment.forwarding_notifier.set_target(parent_notifier);
+                    return &attachment.forwarding_notifier;
+                }
+
+                if (child_state == nullptr) { return parent_notifier; }
+
+                Notifiable *child_notifier = child_state->boundary_notifier(parent_notifier);
+                if (child_notifier != parent_notifier && parent_notifier != nullptr) {
+                    static_cast<TargetLinkState::SchedulingNotifier *>(child_notifier)->set_target(parent_notifier);
+                }
+                return child_notifier;
+            }
+
+            [[nodiscard]] ActiveTriePosition child_active_position(const TSInputView &parent, BaseState *child_state)
+            {
+                if (RefLinkState *ref_link = ref_link_boundary(parent); ref_link != nullptr) {
+                    auto &attachment = ref_link->attachment_for(parent.scheduling_notifier());
+                    ActiveTriePosition child_pos;
+                    child_pos.trie = &attachment.active_trie;
+                    child_pos.boundary_root = ref_link->current_target_root_state();
+                    child_pos.node = lookup_trie_path(child_pos, child_state);
+                    return child_pos;
+                }
+
+                ActiveTriePosition child_pos;
+                child_pos.trie = parent.active_position().trie;
+                child_pos.boundary_root = parent.active_position().boundary_root;
+                child_pos.link_crossings = parent.active_position().link_crossings;
+
+                if (child_state != nullptr && child_state->storage_kind == TSStorageKind::TargetLink) {
+                    if (const LinkedTSContext *target = child_state->linked_target();
+                        target != nullptr && target->ts_state != nullptr) {
+                        child_pos.link_crossings.push_back(LinkCrossing{target->ts_state, child_state});
+                    }
+                }
+
+                child_pos.node = lookup_trie_path(child_pos, child_state);
+                return child_pos;
+            }
+
+            void update_dict_navigation_state(const TSInputView &parent, TSInputView &child)
+            {
+                const TSViewContext &parent_context = parent.context_ref();
+                if (parent_context.schema == nullptr || parent_context.schema->kind != TSKind::TSD) { return; }
+
+                auto *state = parent_context.ts_state != nullptr ? static_cast<TSDState *>(parent_context.ts_state->resolved_state()) : nullptr;
+                BaseState *child_state = child.context_ref().ts_state;
+                if (state == nullptr || child_state == nullptr) { return; }
+
+                const size_t slot = child_state->index;
+                MapDeltaView delta = parent.value().as_map().delta();
+                if (slot < delta.slot_capacity() && delta.slot_occupied(slot)) {
+                    if (ActiveTrieNode *child_node = child.active_position_mutable().node;
+                        child_node != nullptr && !child_node->slot_key) {
+                        child_node->slot_key = std::make_unique<Value>(delta.key_at_slot(slot));
+                    }
+                }
+
+                if (ActiveTrieNode *parent_trie = parent.active_position().node; parent_trie != nullptr) {
+                    if (parent_trie->has_any_active() && child.scheduling_notifier() != nullptr) {
+                        state->active_tries.emplace(child.scheduling_notifier(), parent_trie);
+                    }
+                } else if (child.scheduling_notifier() != nullptr) {
+                    state->active_tries.erase(child.scheduling_notifier());
+                }
+            }
+
+            [[nodiscard]] BaseState *state_address(TimeSeriesStateV &state) noexcept
+            {
+                return std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, state);
+            }
+
+            [[nodiscard]] TimeSeriesStateV *owning_state_slot(TSInputView &view, BaseState *state) noexcept
+            {
+                if (state == nullptr) { return nullptr; }
+
+                TimeSeriesStateV *slot = nullptr;
+                hgraph::visit(
+                    state->parent,
+                    [&](auto *parent_state) {
+                        using T = std::remove_pointer_t<decltype(parent_state)>;
+
+                        if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState> ||
+                                      std::same_as<T, SignalState>) {
+                            if (parent_state != nullptr && state->index < parent_state->child_states.size() &&
+                                parent_state->child_states[state->index] != nullptr &&
+                                state_address(*parent_state->child_states[state->index]) == state) {
+                                slot = parent_state->child_states[state->index].get();
+                            }
+                        }
+                    },
+                    [] {});
+
+                if (slot == nullptr) {
+                    TSInput *owning_input = view.owning_input();
+                    if (owning_input != nullptr) {
+                        TimeSeriesStateV &root = owning_input->root_state_variant();
+                        if (state_address(root) == state) { slot = &root; }
+                    }
+                }
+
+                return slot;
+            }
+
+            void unsubscribe_bound_active_subtree(TSViewContext context, ActiveTrieNode *node, Notifiable *notifier) noexcept
+            {
+                if (node == nullptr || notifier == nullptr) { return; }
+
+                TSViewContext resolved = context;
+                if (BaseState *link_state = context.ts_state; link_state != nullptr) {
+                    if (const LinkedTSContext *target = link_state->linked_target(); target != nullptr) {
+                        if (!target->is_bound()) {
+                            resolved.pending_dict_child = target->pending_dict_child;
+                            resolved.value_data         = nullptr;
+                        } else {
+                            resolved.schema = target->schema != nullptr ? target->schema : resolved.schema;
+                            resolved.value_dispatch =
+                                target->value_dispatch != nullptr ? target->value_dispatch : resolved.value_dispatch;
+                            resolved.ts_dispatch =
+                                target->ts_dispatch != nullptr ? target->ts_dispatch : resolved.ts_dispatch;
+                            resolved.value_data = target->value_data;
+                            resolved.ts_state   = target->ts_state;
+                            resolved.owning_output =
+                                target->owning_output != nullptr ? target->owning_output : resolved.owning_output;
+                            resolved.output_view_ops =
+                                target->output_view_ops != nullptr ? target->output_view_ops : resolved.output_view_ops;
+                            resolved.notification_state =
+                                target->notification_state != nullptr ? target->notification_state
+                                                                      : resolved.notification_state;
+                            resolved.pending_dict_child = target->pending_dict_child;
+                        }
+                    }
+                }
+
+                BaseState *state = context.ts_state != nullptr ? context.ts_state : resolved.ts_state;
+                if (node->locally_active && state != nullptr) { state->unsubscribe(notifier); }
+
+                const auto *collection = resolved.ts_dispatch != nullptr ? resolved.ts_dispatch->as_collection() : nullptr;
+                if (collection == nullptr) { return; }
+
+                if (collection->as_keys() != nullptr) {
+                    BaseState *resolved_state = resolved.ts_state != nullptr ? resolved.ts_state->resolved_state() : nullptr;
+                    if (resolved_state != nullptr && resolved_state->storage_kind == TSStorageKind::Native) {
+                        static_cast<TSDState *>(resolved_state)->active_tries.erase(notifier);
+                    }
+                }
+
+                for (const auto &[slot, child_node] : node->children) {
+                    if (!child_node) { continue; }
+
+                    TSViewContext child = collection->child_at(resolved, slot);
+                    if (!child.is_bound()) { continue; }
+
+                    Notifiable *child_notifier = child.ts_state != nullptr ? child.ts_state->boundary_notifier(notifier) : notifier;
+                    unsubscribe_bound_active_subtree(child, child_node.get(), child_notifier);
+                }
+            }
+
+            void clear_active_subtree(ActiveTrieNode &node) noexcept
+            {
+                node.locally_active = false;
+                node.children.clear();
+                node.pending.clear();
+                node.slot_key.reset();
+            }
+
+            void deactivate_active_subtree(TSInputView &view) noexcept
+            {
+                ActiveTriePosition &active_pos = view.active_position_mutable();
+                ActiveTrieNode     *active_node =
+                    active_pos.node != nullptr ? active_pos.node : (active_pos.trie != nullptr ? active_pos.trie->root_node()
+                                                                                                : nullptr);
+                if (active_node == nullptr) { return; }
+
+                unsubscribe_bound_active_subtree(view.context_ref(), active_node, view.scheduling_notifier());
+                if (view.context_ref().ts_state != nullptr && view.scheduling_notifier() != nullptr) {
+                    view.context_ref().ts_state->unsubscribe(view.scheduling_notifier());
+                }
+
+                clear_active_subtree(*active_node);
+                if (active_pos.trie != nullptr) { active_pos.trie->try_prune_root(); }
+                active_pos.node = nullptr;
+            }
+
+            [[nodiscard]] TargetLinkState &ensure_target_link_state(TSInputView &view, BaseState *state)
+            {
+                if (state == nullptr) {
+                    throw std::logic_error("TSInputView dynamic binding requires a live input state");
+                }
+                if (state->storage_kind == TSStorageKind::TargetLink) { return *static_cast<TargetLinkState *>(state); }
+                if (state->storage_kind != TSStorageKind::Native) {
+                    throw std::logic_error("TSInputView dynamic binding only supports native input states");
+                }
+
+                TimeSeriesStateV *slot = owning_state_slot(view, state);
+                if (slot == nullptr) {
+                    throw std::logic_error("TSInputView dynamic binding could not resolve the owning state slot");
+                }
+
+                BaseState *old_state = state;
+                const TimeSeriesStateParentPtr parent = state->parent;
+                const size_t index = state->index;
+                const engine_time_t last_modified_time = state->last_modified_time;
+                auto subscribers = std::move(state->subscribers);
+                auto ref_invalidators = std::move(state->ref_invalidators);
+                auto target_link_invalidators = std::move(state->target_link_invalidators);
+                auto state_invalidators = std::move(state->state_invalidators);
+                auto feature_registry = std::move(state->feature_registry);
+
+                auto &link_state = slot->emplace<TargetLinkState>();
+                link_state.parent = parent;
+                link_state.index = index;
+                link_state.last_modified_time = last_modified_time;
+                link_state.storage_kind = TSStorageKind::TargetLink;
+                link_state.subscribers = std::move(subscribers);
+                link_state.ref_invalidators = std::move(ref_invalidators);
+                link_state.target_link_invalidators = std::move(target_link_invalidators);
+                link_state.state_invalidators = std::move(state_invalidators);
+                link_state.feature_registry = std::move(feature_registry);
+                rebind_base_state_lifetime(link_state, old_state);
+                link_state.target.clear();
+                link_state.scheduling_notifier.set_target(nullptr);
+                return link_state;
+            }
+
+            struct DefaultTSInputViewOps final : TSInputViewOps
+            {
+                void bind_output(TSInputView &view, const TSOutputView &output) const override
+                {
+                    TSViewContext &context = view.context_mutable();
+                    BaseState *state = context.ts_state;
+                    if (state == nullptr || context.schema == nullptr) {
+                        throw std::logic_error("TSInputView::bind_output requires a live input view");
+                    }
+
+                    TSViewContext parent_context = view.parent_context_ref();
+                    const bool parent_is_ref =
+                        parent_context.schema != nullptr && parent_context.schema->kind == TSKind::REF &&
+                        parent_context.schema->element_ts() != nullptr;
+                    const TSMeta *child_schema = context.schema;
+
+                    TSOutputView bindable_output = output;
+                    LinkedTSContext output_context = bindable_output.linked_context();
+                    if (child_schema != nullptr && child_schema->kind == TSKind::REF && child_schema->element_ts() != nullptr &&
+                        output_context.schema != nullptr && output_context.schema->kind != TSKind::REF) {
+                        TSOutput *owning_output =
+                            output.owning_output() != nullptr ? output.owning_output() : output_context.owning_output;
+                        if (owning_output == nullptr) {
+                            throw std::logic_error("TSInputView::bind_output requires an owning output endpoint for REF casts");
+                        }
+                        bindable_output = owning_output->bindable_view(output, child_schema);
+                        output_context  = bindable_output.linked_context();
+                    }
+                    if (!binding_compatible_ts_schema(output_context.schema, child_schema) ||
+                        requires_bindable_output_cast(output_context.schema, child_schema)) {
+                        TSOutput *owning_output = output.owning_output();
+                        if (owning_output == nullptr) {
+                            throw std::logic_error("TSInputView::bind_output requires an owning output endpoint for casts");
+                        }
+                        bindable_output = owning_output->bindable_view(output, child_schema);
+                        output_context = bindable_output.linked_context();
+                    }
+
+                    if (!binding_compatible_ts_schema(output_context.schema, child_schema)) {
+                        throw std::invalid_argument(
+                            fmt::format("TSInputView::bind_output requires a bindable output matching the selected child schema: "
+                                        "linked={} source_view={} bindable_view={} target={}",
+                                        schema_debug_name(output_context.schema),
+                                        schema_debug_name(output.ts_schema()),
+                                        schema_debug_name(bindable_output.ts_schema()),
+                                        schema_debug_name(child_schema)));
+                    }
+
+                    if (parent_is_ref) {
+                        hgraph::visit(
+                            state->parent,
+                            [&](auto *parent_state) {
+                                using T = std::remove_pointer_t<decltype(parent_state)>;
+                                if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSBState>) {
+                                    if (parent_state != nullptr) { parent_state->suppress_repeated_child_notifications = true; }
+                                }
+                            },
+                            [] {});
+                    }
+
+                    TargetLinkState &link_state = ensure_target_link_state(view, state);
+                    context.ts_state = &link_state;
+                    if (context.notification_state == state || context.notification_state == nullptr) {
+                        context.notification_state = &link_state;
+                    }
+                    const LinkedTSContext previous_target = link_state.target;
+                    const engine_time_t evaluation_time = view.evaluation_time();
+                    link_state.set_target(output_context);
+                    BaseState *output_state =
+                        output_context.notification_state != nullptr ? output_context.notification_state : output_context.ts_state;
+                    const bool          target_changed = !detail::linked_context_equal(previous_target, link_state.target);
+                    const engine_time_t output_last_modified =
+                        output_state != nullptr ? output_state->last_modified_time : MIN_DT;
+                    if (target_changed) {
+                        link_state.last_modified_time = output_last_modified;
+                        if (evaluation_time != MIN_DT) {
+                            link_state.previous_target_value =
+                                previous_target.is_bound()
+                                    ? detail::snapshot_target_value(previous_target, evaluation_time)
+                                    : (detail::linked_context_valid(link_state.target)
+                                           ? detail::empty_target_value(link_state.target)
+                                           : Value{});
+                            link_state.switch_modified_time =
+                                link_state.previous_target_value.has_value() ? evaluation_time : MIN_DT;
+                        } else {
+                            link_state.previous_target_value = {};
+                            link_state.switch_modified_time = MIN_DT;
+                        }
+                    } else {
+                        if (output_last_modified > link_state.last_modified_time) {
+                            link_state.last_modified_time = output_last_modified;
+                        }
+                        link_state.previous_target_value = {};
+                        link_state.switch_modified_time = MIN_DT;
+                    }
+
+                    if (evaluation_time != MIN_DT && target_changed) { link_state.mark_modified(evaluation_time); }
+
+                    if (link_state.feature_registry != nullptr) {
+                        link_state.feature_registry->rebind_link_source(&output_context, evaluation_time);
+                    }
+                }
+
+                void unbind_output(TSInputView &view) const override
+                {
+                    TSViewContext &context = view.context_mutable();
+                    BaseState *state = context.ts_state;
+                    if (state == nullptr || state->storage_kind != TSStorageKind::TargetLink) { return; }
+
+                    auto &link_state = *static_cast<TargetLinkState *>(state);
+                    if (!link_state.is_bound()) { return; }
+                    const LinkedTSContext previous_target = link_state.target;
+                    const bool was_valid = previous_target.is_bound() && detail::linked_context_valid(previous_target);
+                    const engine_time_t evaluation_time = view.evaluation_time();
+                    ActiveTriePosition &active_pos = view.active_position_mutable();
+                    ActiveTrieNode     *active_node =
+                        active_pos.node != nullptr ? active_pos.node : (active_pos.trie != nullptr ? active_pos.trie->root_node()
+                                                                                                    : nullptr);
+                    if (previous_target.is_bound()) {
+                        unsubscribe_bound_active_subtree(TSViewContext{previous_target}, active_node, view.scheduling_notifier());
+                    }
+                    if (evaluation_time != MIN_DT && previous_target.is_bound()) {
+                        link_state.previous_target_value = detail::snapshot_target_value(previous_target, evaluation_time);
+                        link_state.switch_modified_time = link_state.previous_target_value.has_value() ? evaluation_time : MIN_DT;
+                    } else {
+                        link_state.previous_target_value = {};
+                        link_state.switch_modified_time = MIN_DT;
+                    }
+                    link_state.reset_target();
+                    link_state.last_modified_time = was_valid ? evaluation_time : MIN_DT;
+
+                    if (link_state.feature_registry != nullptr) {
+                        link_state.feature_registry->rebind_link_source(nullptr, evaluation_time);
+                    }
+                    if (evaluation_time != MIN_DT && was_valid) { link_state.mark_modified(evaluation_time); }
+                }
+
+                void make_active(TSInputView &view) const override
+                {
+                    TSViewContext &context = view.context_mutable();
+                    const TSViewContext &parent_context = view.parent_context_ref();
+                    ActiveTriePosition &active_pos = view.active_position_mutable();
+                    if (active_pos.node != nullptr && active_pos.node->locally_active) { return; }
+
+                    if (active_pos.node == nullptr && active_pos.trie != nullptr) {
+                        ensure_trie_path(active_pos, context.ts_state);
+                    }
+
+                    if (active_pos.node == nullptr) { return; }
+
+                    if (parent_context.schema != nullptr && parent_context.schema->kind == TSKind::TSD && context.ts_state != nullptr &&
+                        !active_pos.node->slot_key) {
+                        const size_t slot = context.ts_state->index;
+                        MapDeltaView delta = parent_context.value().as_map().delta();
+                        if (slot < delta.slot_capacity() && delta.slot_occupied(slot)) {
+                            active_pos.node->slot_key = std::make_unique<Value>(delta.key_at_slot(slot));
+                        }
+                    }
+
+                    active_pos.node->locally_active = true;
+                    const bool opaque_local_reference =
+                        context.schema != nullptr && context.schema->kind == TSKind::REF &&
+                        detail::has_local_reference_binding(context);
+                    if (!opaque_local_reference && context.ts_state != nullptr && view.scheduling_notifier() != nullptr) {
+                        context.ts_state->subscribe(view.scheduling_notifier());
+                    }
+
+                    if (parent_context.schema != nullptr && parent_context.schema->kind == TSKind::TSD &&
+                        view.scheduling_notifier() != nullptr) {
+                        auto *state = parent_context.ts_state != nullptr
+                                          ? static_cast<TSDState *>(parent_context.ts_state->resolved_state())
+                                          : nullptr;
+                        if (state != nullptr && active_pos.trie != nullptr) {
+                            ActiveTriePosition parent_pos;
+                            parent_pos.trie = active_pos.trie;
+                            parent_pos.boundary_root = active_pos.boundary_root;
+                            parent_pos.link_crossings = active_pos.link_crossings;
+                            BaseState *parent_state = parent_context.resolved().ts_state;
+                            if (ActiveTrieNode *parent_trie = ensure_trie_path(parent_pos, parent_state);
+                                parent_trie != nullptr && parent_trie->has_any_active()) {
+                                state->active_tries[view.scheduling_notifier()] = parent_trie;
+                            }
+                        }
+                    }
+
+                    if (view.evaluation_time() > MIN_DT && context.ts_state != nullptr && context.schema != nullptr &&
+                        context.schema->kind == TSKind::REF && context.ts_state->last_modified_time == MIN_DT &&
+                        context.value().has_value()) {
+                        // REF inputs can carry a live handle even when the bound target
+                        // has not produced data yet. Record the activation-time sample on
+                        // the input-local state so node scheduling observes the handle.
+                        context.ts_state->last_modified_time = view.evaluation_time();
+                    }
+
+                    if (view.evaluation_time() > MIN_DT && view.scheduling_notifier() != nullptr && context.ts_state != nullptr) {
+                        const BaseState *resolved = context.ts_state->resolved_state();
+                        if (context.ts_state->last_modified_time == MIN_DT &&
+                            (resolved == nullptr || resolved->last_modified_time == MIN_DT)) {
+                            // Active inputs need one activation-time evaluation even when
+                            // neither the local input state nor the upstream target has
+                            // ever produced data. That lets operators such as valid() and
+                            // modified() emit their initial False result instead of staying
+                            // silent until the first real tick arrives.
+                            view.scheduling_notifier()->notify(view.evaluation_time());
+                            return;
+                        }
+                        if (context.ts_state->last_modified_time == view.evaluation_time()) {
+                            view.scheduling_notifier()->notify(view.evaluation_time());
+                            return;
+                        }
+                        if (resolved != nullptr && resolved->last_modified_time == view.evaluation_time()) {
+                            view.scheduling_notifier()->notify(resolved->last_modified_time);
+                        }
+                    }
+                }
+
+                void make_passive(TSInputView &view) const override
+                {
+                    TSViewContext &context = view.context_mutable();
+                    const TSViewContext &parent_context = view.parent_context_ref();
+                    ActiveTriePosition &active_pos = view.active_position_mutable();
+                    if (active_pos.node == nullptr || !active_pos.node->locally_active) { return; }
+
+                    active_pos.node->locally_active = false;
+                    if (context.ts_state != nullptr && view.scheduling_notifier() != nullptr) {
+                        context.ts_state->unsubscribe(view.scheduling_notifier());
+                    }
+
+                    if (parent_context.schema != nullptr && parent_context.schema->kind == TSKind::TSD &&
+                        view.scheduling_notifier() != nullptr) {
+                        auto *state = parent_context.ts_state != nullptr
+                                          ? static_cast<TSDState *>(parent_context.ts_state->resolved_state())
+                                          : nullptr;
+                        if (state != nullptr && active_pos.trie != nullptr) {
+                            ActiveTriePosition parent_pos;
+                            parent_pos.trie = active_pos.trie;
+                            parent_pos.boundary_root = active_pos.boundary_root;
+                            parent_pos.link_crossings = active_pos.link_crossings;
+                            BaseState *parent_state = parent_context.resolved().ts_state;
+                            if (ActiveTrieNode *parent_trie = ensure_trie_path(parent_pos, parent_state); parent_trie != nullptr) {
+                                if (parent_trie->has_any_active()) {
+                                    state->active_tries[view.scheduling_notifier()] = parent_trie;
+                                } else {
+                                    state->active_tries.erase(view.scheduling_notifier());
+                                }
+                            }
+                        }
+                    }
+
+                    if (!active_pos.node->has_any_active()) {
+                        if (active_pos.trie != nullptr) { active_pos.trie->try_prune_root(); }
+                        active_pos.node = nullptr;
+                    }
+                }
+
+                [[nodiscard]] bool active(const TSInputView &view) const noexcept override
+                {
+                    return view.active_position().node != nullptr && view.active_position().node->locally_active;
+                }
+            };
+        }  // namespace
+
+        const TSInputViewOps &default_input_view_ops() noexcept
+        {
+            static DefaultTSInputViewOps ops;
+            return ops;
+        }
+    }  // namespace detail
+
+    TSInputView TSInputView::make_child_view_impl(TSViewContext context,
+                                                  TSViewContext parent,
+                                                  engine_time_t evaluation_time) const
+    {
+        TSInputView child{
+            std::move(context),
+            parent,
+            evaluation_time,
+            m_owning_input,
+            detail::child_active_position(*this, context.ts_state),
+            detail::child_scheduling_notifier(*this, context.ts_state),
+            m_input_view_ops,
+        };
+        detail::update_dict_navigation_state(*this, child);
+        return child;
+    }
+
+    void TSInputView::bind_output(const TSOutputView &output)
+    {
+        if (m_input_view_ops == nullptr) {
+            throw std::logic_error("TSInputView::bind_output requires input runtime ops");
+        }
+        m_input_view_ops->bind_output(*this, output);
+    }
+
+    void TSInputView::unbind_output()
+    {
+        if (m_input_view_ops == nullptr) {
+            throw std::logic_error("TSInputView::unbind_output requires input runtime ops");
+        }
+        m_input_view_ops->unbind_output(*this);
+    }
+
+    void TSInputView::make_active()
+    {
+        if (m_input_view_ops != nullptr) { m_input_view_ops->make_active(*this); }
+    }
+
+    void TSInputView::make_passive()
+    {
+        if (m_input_view_ops != nullptr) { m_input_view_ops->make_passive(*this); }
+    }
+
+    void TSInputView::make_passive_subtree()
+    {
+        detail::deactivate_active_subtree(*this);
+    }
+
+    bool TSInputView::active() const
+    {
+        return m_input_view_ops != nullptr && m_input_view_ops->active(*this);
+    }
+}  // namespace hgraph

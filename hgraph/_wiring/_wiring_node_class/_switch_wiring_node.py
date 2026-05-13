@@ -41,6 +41,17 @@ class SwitchWiringNodeClass(BaseWiringNodeClass):
         self._resolved_signature_inner = resolved_signature_inner
         self._reload_on_ticked = reload_on_ticked
 
+    def _identity_eq_key(self) -> tuple:
+        return (self.signature.inner_graphs, self._resolved_signature_inner, self._reload_on_ticked)
+
+    def _identity_hash_key(self) -> tuple:
+        inner_graphs = self.signature.inner_graphs or {}
+        return (
+            frozenset((key, id(graph)) for key, graph in inner_graphs.items()),
+            self._resolved_signature_inner,
+            self._reload_on_ticked,
+        )
+
     def create_node_builder_instance(
         self,
         resolved_wiring_signature: "WiringNodeSignature",

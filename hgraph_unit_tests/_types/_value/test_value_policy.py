@@ -1,8 +1,8 @@
 """
 Value API surface regression tests.
 
-The Value layer now exposes a single owning type (`Value`) with typed-null
-semantics. Policy-specific variants are intentionally not exposed.
+The Value layer now exposes a single owning type (`Value`) with default-live
+schema-bound storage. Policy-specific variants are intentionally not exposed.
 """
 
 import pytest
@@ -25,34 +25,32 @@ def test_policy_value_variants_not_exposed():
     assert not hasattr(value, "ValidatedValue")
 
 
-def test_plain_value_typed_null_roundtrip():
+def test_plain_value_is_live_when_schema_bound():
     int_schema = value.scalar_type_meta_int64()
 
     v = value.Value(int_schema)
-    assert not v.has_value()
-    assert not v.valid()
+    assert v.has_value()
+    assert v.has_value()
     assert v.schema is int_schema
-    assert v.to_python() is None
+    assert v.to_python() == 0
 
     v.from_python(123)
     assert v.has_value()
-    assert v.valid()
+    assert v.has_value()
     assert v.as_int() == 123
 
-    v.from_python(None)
-    assert not v.has_value()
-    assert not v.valid()
-    assert v.schema is int_schema
-    assert v.to_python() is None
-
-
-def test_plain_value_schema_and_python_ctor():
-    int_schema = value.scalar_type_meta_int64()
-
-    v = value.Value(int_schema, 456)
+    v.reset()
     assert v.has_value()
-    assert v.valid()
+    assert v.has_value()
     assert v.schema is int_schema
+    assert v.as_int() == 0
+
+
+def test_plain_value_python_ctor_is_schema_bound():
+    v = value.Value(456)
+    assert v.has_value()
+    assert v.has_value()
+    assert v.schema is value.scalar_type_meta_int64()
     assert v.as_int() == 456
 
 
@@ -60,12 +58,14 @@ def test_plain_value_emplace_and_reset():
     int_schema = value.scalar_type_meta_int64()
 
     v = value.Value(int_schema)
-    assert not v.has_value()
-
-    v.emplace()
     assert v.has_value()
     assert v.as_int() == 0
 
     v.reset()
-    assert not v.has_value()
+    assert v.has_value()
+    assert v.as_int() == 0
+
+    v.reset()
+    assert v.has_value()
+    assert v.as_int() == 0
     assert v.schema is int_schema

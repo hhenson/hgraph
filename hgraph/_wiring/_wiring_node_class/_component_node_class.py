@@ -43,6 +43,12 @@ class ComponentNodeClass(BaseWiringNodeClass):
         )
         super().__init__(signature, None)
 
+    def _identity_eq_key(self) -> tuple:
+        return (getattr(self.signature, "inner_graph", None), self._nested_graph_signature)
+
+    def _identity_hash_key(self) -> tuple:
+        return (id(getattr(self.signature, "inner_graph", None)), self._nested_graph_signature)
+
     def __call__(
         self,
         *args,

@@ -1,7 +1,7 @@
 """
 Test Value Type System - Views
 
-Tests for ValueView and View based on the Value_DESIGN.md Section 6:
+Tests for Value views based on the Value_DESIGN.md Section 6:
 Value and View Classes
 
 These tests verify the C++ implementation once available.
@@ -20,7 +20,6 @@ value = _hgraph.value  # Value types are in the value submodule
 # Import types from the C++ extension
 try:
     Value = value.Value
-    ValueView = value.ValueView
     TypeRegistry = value.TypeRegistry
 except AttributeError:
     pytest.skip("Value view types not yet exposed in C++ extension", allow_module_level=True)
@@ -94,13 +93,13 @@ def list_schema():
 def test_read_only_view_from_value(int_value):
     """View can be created from Value."""
     cv = int_value.view()
-    assert cv.valid()
+    assert cv.has_value()
 
 
 def test_read_only_view_validity(int_value):
-    """View reports valid() correctly."""
+    """View reports has_value() correctly."""
     cv = int_value.view()
-    assert cv.valid() is True
+    assert cv.has_value() is True
 
 
 def test_read_only_view_schema_access(int_value):
@@ -164,7 +163,7 @@ def test_is_bundle_for_bundle_value(bundle_schema):
     """is_bundle() returns True for bundle values."""
     v = Value(bundle_schema)
 
-    v.emplace()
+    v.reset()
     cv = v.view()
     assert cv.is_bundle() is True
 
@@ -173,7 +172,7 @@ def test_is_scalar_for_bundle(bundle_schema):
     """is_scalar() returns False for bundle values."""
     v = Value(bundle_schema)
 
-    v.emplace()
+    v.reset()
     cv = v.view()
     assert cv.is_scalar() is False
 
@@ -182,7 +181,7 @@ def test_is_tuple_for_tuple_value(tuple_schema):
     """is_tuple() returns True for tuple values."""
     v = Value(tuple_schema)
 
-    v.emplace()
+    v.reset()
     cv = v.view()
     assert cv.is_tuple() is True
 
@@ -191,7 +190,7 @@ def test_is_list_for_list_value(list_schema):
     """is_list() returns True for list values."""
     v = Value(list_schema)
 
-    v.emplace()
+    v.reset()
     cv = v.view()
     assert cv.is_list() is True
 
@@ -200,16 +199,16 @@ def test_is_list_for_list_value(list_schema):
 # View Scalar Access
 # =============================================================================
 
-def test_is_scalar_type_correct(int_value):
-    """is_int() returns True for integer values."""
+def test_try_as_scalar_type_correct(int_value):
+    """try_as_int() returns the integer payload for integer values."""
     cv = int_value.view()
-    assert cv.is_int() is True
+    assert cv.try_as_int() == 42
 
 
-def test_is_scalar_type_incorrect(int_value):
-    """is_double() returns False for integer values."""
+def test_try_as_scalar_type_incorrect(int_value):
+    """try_as_double() returns None for integer values."""
     cv = int_value.view()
-    assert cv.is_double() is False
+    assert cv.try_as_double() is None
 
 
 def test_as_scalar_read(int_value):
@@ -282,45 +281,49 @@ def test_clone_creates_owning_copy(int_value):
     """clone() creates an owning Value copy."""
     cv = int_value.view()
     cloned = cv.clone()
-    assert cloned.valid()
+    assert cloned.has_value()
     assert cloned.view().as_int() == 42
 
 
 # =============================================================================
-# Safe View Conversions (try_as_* methods)
+# View Kind Checks Before Typed Conversion
 # =============================================================================
 
-def test_try_as_bundle_returns_none_for_scalar(int_value):
-    """try_as_bundle() returns None for scalar values."""
+def test_bundle_view_requires_bundle_kind(int_value):
+    """bundle_view() is only attempted after the kind check passes."""
     cv = int_value.view()
-    result = cv.try_as_bundle()
-    assert result is None
+    assert not cv.is_bundle()
+    with pytest.raises(RuntimeError):
+        cv.as_bundle()
 
 
-def test_try_as_list_returns_none_for_scalar(int_value):
-    """try_as_list() returns None for scalar values."""
+def test_list_view_requires_list_kind(int_value):
+    """list_view() is only attempted after the kind check passes."""
     cv = int_value.view()
-    result = cv.try_as_list()
-    assert result is None
+    assert not cv.is_list()
+    with pytest.raises(RuntimeError):
+        cv.as_list()
 
 
-def test_try_as_bundle_returns_view_for_bundle(bundle_schema):
-    """try_as_bundle() returns BundleView for bundle values."""
+def test_bundle_view_returns_view_for_bundle(bundle_schema):
+    """bundle_view() returns BundleView for bundle values."""
     v = Value(bundle_schema)
 
-    v.emplace()
+    v.reset()
     cv = v.view()
-    result = cv.try_as_bundle()
+    assert cv.is_bundle()
+    result = cv.as_bundle()
     assert result is not None
 
 
-def test_try_as_tuple_returns_view_for_tuple(tuple_schema):
-    """try_as_tuple() returns TupleView for tuple values."""
+def test_tuple_view_returns_view_for_tuple(tuple_schema):
+    """tuple_view() returns TupleView for tuple values."""
     v = Value(tuple_schema)
 
-    v.emplace()
+    v.reset()
     cv = v.view()
-    result = cv.try_as_tuple()
+    assert cv.is_tuple()
+    result = cv.as_tuple()
     assert result is not None
 
 
@@ -329,24 +332,24 @@ def test_try_as_tuple_returns_view_for_tuple(tuple_schema):
 # =============================================================================
 
 def test_as_bundle_throws_for_scalar(int_value):
-    """as_bundle() throws for scalar values."""
+    """bundle_view() throws for scalar values."""
     cv = int_value.view()
     with pytest.raises(RuntimeError):
         cv.as_bundle()
 
 
 def test_as_list_throws_for_scalar(int_value):
-    """as_list() throws for scalar values."""
+    """list_view() throws for scalar values."""
     cv = int_value.view()
     with pytest.raises(RuntimeError):
         cv.as_list()
 
 
 def test_as_bundle_succeeds_for_bundle(bundle_schema):
-    """as_bundle() succeeds for bundle values."""
+    """bundle_view() succeeds for bundle values."""
     v = Value(bundle_schema)
 
-    v.emplace()
+    v.reset()
     cv = v.view()
     bv = cv.as_bundle()
     assert bv is not None
@@ -359,13 +362,13 @@ def test_as_bundle_succeeds_for_bundle(bundle_schema):
 def test_view_from_value(int_value):
     """ValueView can be created from Value."""
     v = int_value.view()
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_view_validity(int_value):
-    """ValueView reports valid() correctly."""
+    """ValueView reports has_value() correctly."""
     v = int_value.view()
-    assert v.valid() is True
+    assert v.has_value() is True
 
 
 def test_view_schema_access(int_value):
@@ -385,12 +388,6 @@ def test_as_mutable_access():
     view = v.view()
     view.set_int(100)
     assert v.view().as_int() == 100
-
-
-def test_mutable_data_access(int_value):
-    """data() provides raw data pointer (as integer for FFI)."""
-    view = int_value.view()
-    assert view.data() is not None
 
 
 # =============================================================================
@@ -438,22 +435,23 @@ def test_from_python_string():
 # =============================================================================
 
 def test_as_bundle_mutable(bundle_schema):
-    """as_bundle() returns mutable BundleView."""
+    """bundle_view() returns mutable BundleView."""
     v = Value(bundle_schema)
 
-    v.emplace()
+    v.reset()
     view = v.view()
     bv = view.as_bundle()
     assert bv is not None
 
 
-def test_try_as_bundle_mutable(bundle_schema):
-    """try_as_bundle() returns mutable BundleView."""
+def test_bundle_view_mutable(bundle_schema):
+    """bundle_view() returns mutable BundleView."""
     v = Value(bundle_schema)
 
-    v.emplace()
+    v.reset()
     view = v.view()
-    bv = view.try_as_bundle()
+    assert view.is_bundle()
+    bv = view.as_bundle()
     assert bv is not None
 
 
@@ -464,7 +462,7 @@ def test_try_as_bundle_mutable(bundle_schema):
 def test_value_view_has_const_methods(int_value):
     """ValueView has all View methods."""
     view = int_value.view()
-    assert hasattr(view, 'valid')
+    assert hasattr(view, 'has_value')
     assert hasattr(view, 'schema')
     assert hasattr(view, 'is_scalar')
     assert hasattr(view, 'as_int')

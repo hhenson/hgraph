@@ -1,0 +1,2612 @@
+#include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/value/associative.h>
+#include <hgraph/types/time_series/value/builder.h>
+#include <hgraph/types/time_series/value/keyed_slot_store.h>
+#include <hgraph/types/time_series/value/value.h>
+
+#include <ankerl/unordered_dense.h>
+#include <sul/dynamic_bitset.hpp>
+
+#include <algorithm>
+#include <cassert>
+#include <concepts>
+#include <memory>
+#include <mutex>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <unordered_map>
+#include <vector>
+
+namespace hgraph
+{
+    namespace detail
+    {
+        namespace
+        {
+            [[nodiscard]] static MutationTracking nested_value_tracking(const value::TypeMeta &schema,
+                                                                        MutationTracking       tracking) noexcept {
+                if (tracking != MutationTracking::Delta) { return MutationTracking::Plain; }
+
+                switch (schema.kind) {
+                    case value::TypeKind::Atomic: return MutationTracking::Plain;
+                    default: return MutationTracking::Delta;
+                }
+            }
+
+            constexpr size_t no_slot = static_cast<size_t>(-1);
+
+            template <typename TBitset> [[nodiscard]] size_t first_set_slot(const TBitset &bitset) noexcept {
+                const size_t slot = bitset.find_first();
+                return slot == TBitset::npos ? no_slot : slot;
+            }
+
+            template <typename TBitset> [[nodiscard]] size_t next_set_slot(const TBitset &bitset, size_t slot) noexcept {
+                if (slot == no_slot) { return first_set_slot(bitset); }
+                const size_t next = bitset.find_next(slot);
+                return next == TBitset::npos ? no_slot : next;
+            }
+
+            [[nodiscard]] constexpr size_t mutation_depth(size_t state) noexcept { return state >> 1U; }
+
+            [[nodiscard]] constexpr bool mutation_dirty(size_t state) noexcept { return (state & size_t{1}) != 0U; }
+
+            void enter_mutation_scope(size_t &state) noexcept { state += 2U; }
+
+            void leave_mutation_scope(size_t &state, std::string_view label) {
+                if (mutation_depth(state) == 0U) { throw std::runtime_error(std::string(label) + " mutation depth underflow"); }
+                state -= 2U;
+            }
+
+            void mark_mutation_dirty(size_t &state) noexcept { state |= size_t{1}; }
+
+            void clear_mutation_dirty(size_t &state) noexcept { state &= ~size_t{1}; }
+
+            template <typename TState>
+            void begin_time_aware_mutation_scope(TState &state, engine_time_t evaluation_time, auto &&release_removed,
+                                                 std::string_view label) {
+                if (mutation_depth(state.mutation_state) == 0U) {
+                    if (mutation_dirty(state.mutation_state) && state.last_modified_time < evaluation_time) {
+                        release_removed();
+                        clear_mutation_dirty(state.mutation_state);
+                    }
+                    state.current_mutation_time = evaluation_time;
+                } else if (state.current_mutation_time != evaluation_time) {
+                    throw std::runtime_error(std::string(label) +
+                                             " nested mutation scope entered with a different evaluation_time");
+                }
+                enter_mutation_scope(state.mutation_state);
+            }
+
+            template <typename TState> void note_collection_modified(TState &state) noexcept {
+                mark_mutation_dirty(state.mutation_state);
+                state.last_modified_time = state.current_mutation_time;
+            }
+        }  // namespace
+        struct KeyStorageBase;
+
+        struct SetKeyIndexHash
+        {
+            using is_transparent = void;
+            using is_avalanching = void;
+
+            const KeyStorageBase *state{nullptr};
+            const ViewDispatch   *dispatch{nullptr};
+            size_t                stride{0};
+
+            [[nodiscard]] uint64_t operator()(size_t slot) const;
+            [[nodiscard]] uint64_t operator()(const void *key) const;
+        };
+
+        struct SetKeyIndexEqual
+        {
+            using is_transparent = void;
+
+            const KeyStorageBase *state{nullptr};
+            const ViewDispatch   *dispatch{nullptr};
+            size_t                stride{0};
+
+            [[nodiscard]] bool operator()(size_t lhs, size_t rhs) const;
+            [[nodiscard]] bool operator()(size_t slot, const void *key) const;
+            [[nodiscard]] bool operator()(const void *key, size_t slot) const;
+        };
+
+        struct KeyStorageBase
+        {
+            using IndexSet = ankerl::unordered_dense::set<size_t, SetKeyIndexHash, SetKeyIndexEqual>;
+            /**
+             * Dense key-to-index lookup over the currently addressable slots.
+             *
+             * The interpretation of a slot depends on the concrete state:
+             * plain storage uses dense live indices, while delta storage uses
+             * stable occupied slots.
+             */
+            std::unique_ptr<IndexSet> index{};
+            /**
+             * Number of live entries.
+             */
+            size_t size{0};
+            /**
+             * Number of addressable storage slots.
+             */
+            size_t capacity{0};
+            /**
+             * Raw element storage.
+             *
+             * Small associative containers point this at inline payload storage
+             * inside the root value allocation. Larger containers spill to heap
+             * storage once they exceed the schema-derived inline capacity.
+             */
+            std::byte *elements{nullptr};
+            /**
+             * Whether `elements` points into the root value allocation rather
+             * than a separately allocated heap buffer.
+             */
+            bool elements_inline{false};
+        };
+
+        struct PlainSetState : KeyStorageBase
+        {};
+
+        struct DeltaSetState : KeyStorageBase
+        {
+            /**
+             * Occupied-slot bitset used to track slots with constructed payload.
+             *
+             * Removed elements stay occupied until clear or slot reuse so the
+             * associative layer can preserve removed payloads internally.
+             */
+            sul::dynamic_bitset<> occupied{};
+            /**
+             * Slots available for reuse.
+             */
+            std::vector<size_t> free_list{};
+            /**
+             * Live-slot bitset used for membership and public iteration.
+             *
+             * This sits directly above the element storage because those two
+             * structures are read together whenever live entries are scanned.
+             */
+            sul::dynamic_bitset<> alive{};
+            /**
+             * Slots introduced in the current mutation epoch.
+             *
+             * This records the net added delta only. If a key is added and
+             * then removed in the same epoch, the slot is released immediately
+             * and is no longer marked as either added or removed.
+             */
+            sul::dynamic_bitset<> added{};
+            /**
+             * Recently removed slots.
+             *
+             * Removed payloads remain available by slot until the next
+             * outermost mutation scope begins. This bitset also carries the
+             * net removed-delta surface exposed by the public views.
+             */
+            sul::dynamic_bitset<> removed{};
+            /**
+             * Packed mutation state.
+             *
+             * Bit 0 tracks whether the current delta epoch contains retained
+             * removed payloads or delta bookkeeping that should be released or
+             * reset before the next epoch begins. Higher bits track the active
+             * mutation-scope depth, so nested scopes can share one outer
+             * mutation epoch without extra storage.
+             */
+            size_t mutation_state{0};
+            /**
+             * Evaluation time for the active outer mutation scope.
+             */
+            engine_time_t current_mutation_time{MIN_DT};
+            /**
+             * Evaluation time when this collection last changed.
+             */
+            engine_time_t last_modified_time{MIN_DT};
+        };
+
+        struct PlainMapState
+        {
+            /**
+             * Plain maps use dense key storage. Slot ids are dense live
+             * indices, so erase may swap the last entry into the removed slot.
+             */
+            PlainSetState keys{};
+            std::byte    *values{nullptr};
+            /**
+             * Whether `values` points into the root value allocation rather
+             * than a separately allocated heap buffer.
+             */
+            bool values_inline{false};
+        };
+
+        struct DeltaMapState
+        {
+            /**
+             * Delta maps use stable key slots so removed keys remain
+             * addressable until the next outermost mutation begins.
+             */
+            DeltaSetState keys{};
+            /**
+             * Value-side storage and bookkeeping over the same stable slot ids
+             * owned by `keys`.
+             */
+            KeyedSlotStore slot_store{};
+            /**
+             * Packed mutation state.
+             *
+             * Bit 0 tracks whether the current delta epoch contains retained
+             * removed payloads or delta bookkeeping that should be released or
+             * reset before the next epoch begins. Higher bits track the active
+             * mutation-scope depth, so nested scopes can share one outer
+             * mutation epoch without extra storage.
+             */
+            size_t mutation_state{0};
+            /**
+             * Evaluation time for the active outer mutation scope.
+             */
+            engine_time_t current_mutation_time{MIN_DT};
+            /**
+             * Evaluation time when this collection last changed.
+             */
+            engine_time_t last_modified_time{MIN_DT};
+        };
+
+        [[nodiscard]] size_t first_live_occupied_slot(const DeltaSetState &state) noexcept {
+            for (size_t slot = first_set_slot(state.alive); slot != no_slot; slot = next_set_slot(state.alive, slot)) {
+                if (slot < state.capacity && state.occupied.test(slot)) { return slot; }
+            }
+            return no_slot;
+        }
+
+        [[nodiscard]] size_t next_live_occupied_slot(const DeltaSetState &state, size_t slot) noexcept {
+            for (slot = next_set_slot(state.alive, slot); slot != no_slot; slot = next_set_slot(state.alive, slot)) {
+                if (slot < state.capacity && state.occupied.test(slot)) { return slot; }
+            }
+            return no_slot;
+        }
+
+        inline uint64_t SetKeyIndexHash::operator()(size_t slot) const {
+            return dispatch != nullptr ? dispatch->hash(state->elements + slot * stride) : 0U;
+        }
+
+        inline uint64_t SetKeyIndexHash::operator()(const void *key) const {
+            return dispatch != nullptr ? dispatch->hash(key) : 0U;
+        }
+
+        inline bool SetKeyIndexEqual::operator()(size_t lhs, size_t rhs) const {
+            if (lhs == rhs) { return true; }
+            return dispatch != nullptr &&
+                   std::is_eq(dispatch->compare(state->elements + lhs * stride, state->elements + rhs * stride));
+        }
+
+        inline bool SetKeyIndexEqual::operator()(size_t slot, const void *key) const {
+            return dispatch != nullptr && std::is_eq(dispatch->compare(state->elements + slot * stride, key));
+        }
+
+        inline bool SetKeyIndexEqual::operator()(const void *key, size_t slot) const { return (*this)(slot, key); }
+
+        /**
+         * Shared keyed storage management for associative containers.
+         *
+         * Plain storage uses dense live indices and swap-based erase. Delta
+         * storage uses stable occupied slots so removed payloads can be
+         * retained by slot until the next mutation epoch. Keeping both models
+         * in one helper avoids silent divergence in lookup and payload
+         * lifecycle semantics.
+         */
+        struct KeySlotStorage
+        {
+            struct InsertResult
+            {
+                size_t slot{npos};
+                bool   inserted{false};
+            };
+
+            KeySlotStorage(const ViewDispatch &dispatch, const ValueBuilder &builder) noexcept
+                : m_dispatch(dispatch), m_builder(builder), m_stride(stride_for(builder)),
+                  m_requires_destruct(builder.requires_destruct()) {}
+
+            [[nodiscard]] const ViewDispatch &dispatch() const noexcept { return m_dispatch.get(); }
+            [[nodiscard]] const ValueBuilder &builder() const noexcept { return m_builder.get(); }
+            [[nodiscard]] size_t              stride() const noexcept { return m_stride; }
+
+            template <typename TState> void initialise(TState &state) const {
+                state.index = std::make_unique<KeyStorageBase::IndexSet>(
+                    0, SetKeyIndexHash{.state = &state, .dispatch = &dispatch(), .stride = stride()},
+                    SetKeyIndexEqual{.state = &state, .dispatch = &dispatch(), .stride = stride()});
+            }
+
+            void rebind_index(PlainSetState &state) const {
+                initialise(state);
+                for (size_t slot = 0; slot < state.size; ++slot) { state.index->insert(slot); }
+            }
+
+            void rebind_index(DeltaSetState &state) const {
+                initialise(state);
+                for (size_t slot = 0; slot < state.capacity; ++slot) {
+                    if (state.occupied.test(slot)) { state.index->insert(slot); }
+                }
+            }
+
+            template <typename TState> [[nodiscard]] void *slot_data(TState &state, size_t slot) const noexcept {
+                return state.elements + slot * stride();
+            }
+
+            template <typename TState> [[nodiscard]] const void *slot_data(const TState &state, size_t slot) const noexcept {
+                return state.elements + slot * stride();
+            }
+
+            template <typename TState> [[nodiscard]] size_t find_slot(const TState &state, const void *key) const {
+                if (state.index == nullptr) { return npos; }
+                const auto it = state.index->find(key);
+                return it == state.index->end() ? npos : *it;
+            }
+
+            [[nodiscard]] size_t find_slot(const DeltaSetState &state, const void *key) const {
+                if (state.index == nullptr) { return npos; }
+                const auto it = state.index->find(key);
+                if (it == state.index->end()) { return npos; }
+                const size_t slot = *it;
+                return slot < state.capacity && state.occupied.test(slot) ? slot : npos;
+            }
+
+            template <typename TState> [[nodiscard]] bool contains(const TState &state, const void *key) const {
+                return find_live_slot(state, key) != npos;
+            }
+
+            void reserve_exact(PlainSetState &state, size_t min_capacity) const {
+                if (min_capacity <= state.capacity) { return; }
+
+                const size_t new_capacity = min_capacity;
+                std::byte   *new_elements =
+                    static_cast<std::byte *>(::operator new(new_capacity * stride(), std::align_val_t{builder().alignment()}));
+
+                size_t moved = 0;
+                try {
+                    for (; moved < state.size; ++moved) {
+                        builder().move_construct(new_elements + moved * stride(), state.elements + moved * stride(), builder());
+                    }
+                } catch (...) {
+                    for (size_t slot = 0; slot < moved; ++slot) { destruct_payload(new_elements + slot * stride()); }
+                    ::operator delete(new_elements, std::align_val_t{builder().alignment()});
+                    throw;
+                }
+
+                destruct_dense_payloads(state);
+                if (state.elements != nullptr) {
+                    if (!state.elements_inline) { ::operator delete(state.elements, std::align_val_t{builder().alignment()}); }
+                }
+
+                state.elements        = new_elements;
+                state.capacity        = new_capacity;
+                state.elements_inline = false;
+                rebind_index(state);
+            }
+
+            void reserve_exact(DeltaSetState &state, size_t min_capacity) const {
+                if (min_capacity <= state.capacity) { return; }
+
+                const size_t new_capacity = min_capacity;
+                std::byte   *new_elements =
+                    static_cast<std::byte *>(::operator new(new_capacity * stride(), std::align_val_t{builder().alignment()}));
+
+                std::vector<size_t> moved_slots;
+                moved_slots.reserve(state.capacity);
+                try {
+                    for (size_t slot = 0; slot < state.capacity; ++slot) {
+                        if (!state.occupied.test(slot)) { continue; }
+                        builder().move_construct(new_elements + slot * stride(), state.elements + slot * stride(), builder());
+                        moved_slots.push_back(slot);
+                    }
+                } catch (...) {
+                    for (const size_t slot : moved_slots) { destruct_payload(new_elements + slot * stride()); }
+                    ::operator delete(new_elements, std::align_val_t{builder().alignment()});
+                    throw;
+                }
+
+                destruct_occupied_payloads(state);
+                if (state.elements != nullptr) {
+                    if (!state.elements_inline) { ::operator delete(state.elements, std::align_val_t{builder().alignment()}); }
+                }
+
+                const size_t old_capacity = state.capacity;
+                state.elements            = new_elements;
+                state.capacity            = new_capacity;
+                state.elements_inline     = false;
+                state.alive.resize(new_capacity);
+                state.occupied.resize(new_capacity);
+                state.added.resize(new_capacity);
+                state.removed.resize(new_capacity);
+                for (size_t slot = new_capacity; slot > old_capacity; --slot) { state.free_list.push_back(slot - 1); }
+                rebind_index(state);
+            }
+
+            [[nodiscard]] size_t find_live_slot(const PlainSetState &state, const void *key) const { return find_slot(state, key); }
+
+            [[nodiscard]] size_t find_live_slot(const DeltaSetState &state, const void *key) const {
+                const size_t slot = find_slot(state, key);
+                return slot != npos && state.occupied.test(slot) && state.alive.test(slot) ? slot : npos;
+            }
+
+            void repair_non_occupied_live_slots(DeltaSetState &state) const noexcept {
+                for (size_t slot = 0; slot < state.capacity; ++slot) {
+                    if (!state.alive.test(slot) || state.occupied.test(slot)) { continue; }
+                    state.alive.reset(slot);
+                    state.added.reset(slot);
+                    state.removed.reset(slot);
+                    if (state.size > 0) { --state.size; }
+                }
+            }
+
+            [[nodiscard]] InsertResult insert(PlainSetState &state, const void *key) const {
+                if (const size_t existing = find_slot(state, key); existing != npos) {
+                    return {.slot = existing, .inserted = false};
+                }
+
+                if (state.size == state.capacity) {
+                    reserve_exact(state, std::max<size_t>(state.size + 1, std::max<size_t>(8, state.capacity * 2)));
+                }
+                const size_t slot = state.size;
+                void        *dst  = slot_data(state, slot);
+                builder().construct(dst);
+                dispatch().assign(dst, key);
+                ++state.size;
+                state.index->insert(slot);
+                return {.slot = slot, .inserted = true};
+            }
+
+            [[nodiscard]] InsertResult insert(DeltaSetState &state, const void *key) const {
+                repair_non_occupied_live_slots(state);
+
+                if (const size_t existing = find_slot(state, key); existing != npos) {
+                    if (state.alive.test(existing)) { return {.slot = existing, .inserted = false}; }
+                    state.alive.set(existing);
+                    state.removed.reset(existing);
+                    ++state.size;
+                    note_collection_modified(state);
+                    return {.slot = existing, .inserted = true};
+                }
+
+                if (state.free_list.empty()) {
+                    reserve_exact(state, std::max<size_t>(state.size + 1, std::max<size_t>(8, state.capacity * 2)));
+                }
+                size_t slot = npos;
+                while (!state.free_list.empty()) {
+                    const size_t candidate = state.free_list.back();
+                    state.free_list.pop_back();
+                    if (candidate < state.capacity && !state.occupied.test(candidate) && !state.alive.test(candidate)) {
+                        slot = candidate;
+                        break;
+                    }
+                }
+                if (slot == npos) {
+                    reserve_exact(state, std::max<size_t>(state.size + 1, std::max<size_t>(8, state.capacity * 2)));
+                    slot = state.free_list.back();
+                    state.free_list.pop_back();
+                }
+
+                void *dst = slot_data(state, slot);
+                if (state.occupied.test(slot)) {
+                    dispatch().assign(dst, key);
+                } else {
+                    builder().construct(dst);
+                    dispatch().assign(dst, key);
+                    state.occupied.set(slot);
+                }
+
+                state.alive.set(slot);
+                state.added.set(slot);
+                state.removed.reset(slot);
+                ++state.size;
+                state.index->insert(slot);
+                note_collection_modified(state);
+                return {.slot = slot, .inserted = true};
+            }
+
+            template <typename TState> [[nodiscard]] bool remove(TState &state, const void *key) const {
+                const size_t slot = find_live_slot(state, key);
+                if (slot == npos) { return false; }
+                remove_slot(state, slot);
+                return true;
+            }
+
+            void remove_slot(PlainSetState &state, size_t slot) const {
+                if (slot >= state.size) { throw std::out_of_range("Associative remove_slot on dense slot"); }
+
+                state.index->erase(slot);
+                const size_t last = state.size - 1;
+                if (slot != last) {
+                    state.index->erase(last);
+                    destruct_payload(slot_data(state, slot));
+                    builder().move_construct(slot_data(state, slot), slot_data(state, last), builder());
+                    destruct_payload(slot_data(state, last));
+                    state.index->insert(slot);
+                } else {
+                    destruct_payload(slot_data(state, last));
+                }
+                --state.size;
+            }
+
+            void remove_slot(DeltaSetState &state, size_t slot) const {
+                if (slot >= state.capacity || !state.alive.test(slot)) {
+                    throw std::out_of_range("Associative remove_slot on non-live slot");
+                }
+
+                if (state.added.test(slot)) {
+                    state.index->erase(slot);
+                    destruct_payload(slot_data(state, slot));
+                    state.alive.reset(slot);
+                    state.occupied.reset(slot);
+                    state.added.reset(slot);
+                    state.removed.reset(slot);
+                    state.free_list.push_back(slot);
+                    --state.size;
+                    note_collection_modified(state);
+                    return;
+                }
+
+                state.alive.reset(slot);
+                state.removed.set(slot);
+                --state.size;
+                note_collection_modified(state);
+            }
+
+            void release_removed(DeltaSetState &state) const noexcept {
+                for (size_t slot = 0; slot < state.capacity; ++slot) {
+                    if (!state.removed.test(slot)) { continue; }
+                    state.index->erase(slot);
+                    destruct_payload(slot_data(state, slot));
+                    state.alive.reset(slot);
+                    state.occupied.reset(slot);
+                    state.removed.reset(slot);
+                    state.free_list.push_back(slot);
+                }
+                state.added.reset();
+            }
+
+            void clear(PlainSetState &state) const noexcept {
+                destruct_dense_payloads(state);
+                if (state.index != nullptr) { state.index->clear(); }
+                state.size = 0;
+            }
+
+            void clear(DeltaSetState &state) const noexcept {
+                destruct_occupied_payloads(state);
+                if (state.index != nullptr) { state.index->clear(); }
+                state.size = 0;
+                state.alive.reset();
+                state.occupied.reset();
+                state.added.reset();
+                state.removed.reset();
+                state.free_list.clear();
+                for (size_t slot = state.capacity; slot > 0; --slot) { state.free_list.push_back(slot - 1); }
+            }
+
+            void destruct_dense_payloads(PlainSetState &state) const noexcept {
+                if (!m_requires_destruct) { return; }
+                for (size_t slot = 0; slot < state.size; ++slot) { builder().destruct(slot_data(state, slot)); }
+            }
+
+            void destruct_occupied_payloads(DeltaSetState &state) const noexcept {
+                if (!m_requires_destruct) { return; }
+                for (size_t slot = 0; slot < state.capacity; ++slot) {
+                    if (state.occupied.test(slot)) { builder().destruct(slot_data(state, slot)); }
+                }
+            }
+
+            void destruct_payload(void *slot) const noexcept {
+                if (m_requires_destruct) { builder().destruct(slot); }
+            }
+
+          private:
+            [[nodiscard]] static size_t stride_for(const ValueBuilder &builder) noexcept {
+                const size_t alignment = builder.alignment();
+                const size_t size      = builder.size();
+                return ((size + alignment - 1) / alignment) * alignment;
+            }
+
+            static constexpr size_t npos = static_cast<size_t>(-1);
+
+            std::reference_wrapper<const ViewDispatch> m_dispatch;
+            std::reference_wrapper<const ValueBuilder> m_builder;
+            size_t                                     m_stride;
+            bool                                       m_requires_destruct;
+        };
+
+        template <MutationTracking TTracking> struct SetDispatch final : SetViewDispatch
+        {
+            static constexpr MutationTracking tracking_mode   = TTracking;
+            static constexpr bool             tracks_deltas_v = TTracking == MutationTracking::Delta;
+            using SetState                                    = std::conditional_t<tracks_deltas_v, DeltaSetState, PlainSetState>;
+
+            [[nodiscard]] MutationTracking tracking() const noexcept override { return tracking_mode; }
+
+            explicit SetDispatch(const value::TypeMeta &schema)
+                : m_schema(schema), m_element_builder(ValueBuilderFactory::checked_builder_for(
+                                        schema.element_type, schema.element_type != nullptr
+                                                                 ? nested_value_tracking(*schema.element_type, tracking_mode)
+                                                                 : MutationTracking::Plain)),
+                  m_keys(m_element_builder.get().dispatch(), m_element_builder.get()) {
+                if (schema.element_type == nullptr) { throw std::runtime_error("Set schema requires an element schema"); }
+            }
+
+            /**
+             * Return the number of keys retained inline in the root value
+             * allocation before the set spills to heap storage.
+             */
+            [[nodiscard]] size_t inline_capacity() const noexcept {
+                return SmallBufferPolicy::capacity_for(
+                    [this](size_t elements) noexcept { return m_keys.stride() * elements <= SmallBufferPolicy::target_bytes; });
+            }
+
+            /**
+             * Return the total root-allocation size required for the set header
+             * plus its schema-derived inline key buffer.
+             */
+            [[nodiscard]] size_t allocation_size() const noexcept {
+                return inline_capacity() == 0 ? sizeof(SetState) : header_size() + m_keys.stride() * inline_capacity();
+            }
+
+            /**
+             * Return the alignment required by the header and inline key
+             * storage.
+             */
+            [[nodiscard]] size_t allocation_alignment() const noexcept {
+                return std::max(alignof(SetState), m_element_builder.get().alignment());
+            }
+
+            [[nodiscard]] bool tracks_deltas() const noexcept { return tracks_deltas_v; }
+
+            [[nodiscard]] size_t size(const void *data) const noexcept override { return state(data)->size; }
+            [[nodiscard]] size_t slot_capacity(const void *data) const noexcept override {
+                return tracks_deltas_v ? state(data)->capacity : state(data)->size;
+            }
+            [[nodiscard]] const value::TypeMeta &element_schema() const noexcept override { return *m_schema.get().element_type; }
+            [[nodiscard]] const ViewDispatch    &element_dispatch() const noexcept override { return m_keys.dispatch(); }
+
+            void begin_mutation(void *data, engine_time_t evaluation_time) const override {
+                if constexpr (tracks_deltas_v) {
+                    SetState *set = state(data);
+                    begin_time_aware_mutation_scope(*set, evaluation_time, [&] { m_keys.release_removed(*set); }, "Set");
+                } else {
+                    static_cast<void>(evaluation_time);
+                }
+            }
+
+            void end_mutation(void *data) const override {
+                if constexpr (tracks_deltas_v) {
+                    SetState *set = state(data);
+                    leave_mutation_scope(set->mutation_state, "Set");
+                }
+            }
+
+            [[nodiscard]] bool slot_live(const void *data, size_t slot) const noexcept override {
+                const auto *set = state(data);
+                if constexpr (tracks_deltas_v) {
+                    return slot < set->capacity && set->alive.test(slot);
+                } else {
+                    return slot < set->size;
+                }
+            }
+
+            [[nodiscard]] bool slot_occupied(const void *data, size_t slot) const noexcept override {
+                const auto *set = state(data);
+                if constexpr (tracks_deltas_v) {
+                    return slot < set->capacity && set->occupied.test(slot);
+                } else {
+                    return slot < set->size;
+                }
+            }
+
+            [[nodiscard]] bool slot_added(const void *data, size_t slot) const noexcept override {
+                if constexpr (tracks_deltas_v) {
+                    return slot < state(data)->capacity && state(data)->added.test(slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return false;
+                }
+            }
+
+            [[nodiscard]] bool slot_removed(const void *data, size_t slot) const noexcept override {
+                if constexpr (tracks_deltas_v) {
+                    return slot < state(data)->capacity && state(data)->removed.test(slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return false;
+                }
+            }
+
+            [[nodiscard]] void *slot_data(void *data, size_t slot) const override {
+                auto *set = state(data);
+                if constexpr (tracks_deltas_v) {
+                    if (slot >= set->capacity || !set->occupied.test(slot)) { throw std::out_of_range("Set slot out of range"); }
+                } else if (slot >= set->size) {
+                    throw std::out_of_range("Set slot out of range");
+                }
+                return m_keys.slot_data(*set, slot);
+            }
+
+            [[nodiscard]] const void *slot_data(const void *data, size_t slot) const override {
+                const auto *set = state(data);
+                if constexpr (tracks_deltas_v) {
+                    if (slot >= set->capacity || !set->occupied.test(slot)) { throw std::out_of_range("Set slot out of range"); }
+                } else if (slot >= set->size) {
+                    throw std::out_of_range("Set slot out of range");
+                }
+                return m_keys.slot_data(*set, slot);
+            }
+
+            [[nodiscard]] bool contains(const void *data, const void *element) const override {
+                return m_keys.contains(*state(data), element);
+            }
+
+            void reserve(void *data, size_t capacity) const override { m_keys.reserve_exact(*state(data), capacity); }
+
+            [[nodiscard]] bool add(void *data, const void *element) const override {
+                return m_keys.insert(*state(data), element).inserted;
+            }
+
+            [[nodiscard]] bool remove(void *data, const void *element) const override {
+                return m_keys.remove(*state(data), element);
+            }
+
+            void clear(void *data) const override {
+                auto &set = *state(data);
+                if constexpr (tracks_deltas_v) {
+                    for (size_t slot = 0; slot < set.capacity; ++slot) {
+                        if (!set.alive.test(slot)) { continue; }
+                        m_keys.remove_slot(set, slot);
+                    }
+                } else {
+                    while (set.size > 0) { m_keys.remove_slot(set, set.size - 1); }
+                }
+            }
+
+            void clear_delta_tracking(void *data) const override {
+                if constexpr (tracks_deltas_v) {
+                    SetState *set = state(data);
+                    m_keys.release_removed(*set);
+                    clear_mutation_dirty(set->mutation_state);
+                } else {
+                    static_cast<void>(data);
+                }
+            }
+
+            [[nodiscard]] size_t hash(const void *data) const override {
+                const auto  *set    = state(data);
+                size_t       result = 0;
+                const size_t limit  = tracks_deltas_v ? set->capacity : set->size;
+                for (size_t slot = 0; slot < limit; ++slot) {
+                    if constexpr (tracks_deltas_v) {
+                        if (!set->alive.test(slot)) { continue; }
+                    }
+                    result ^= element_dispatch().hash(m_keys.slot_data(*set, slot));
+                }
+                return result;
+            }
+
+            [[nodiscard]] std::string to_string(const void *data) const override {
+                const auto  *set    = state(data);
+                std::string  result = "{";
+                bool         first  = true;
+                const size_t limit  = tracks_deltas_v ? set->capacity : set->size;
+                for (size_t slot = 0; slot < limit; ++slot) {
+                    if constexpr (tracks_deltas_v) {
+                        if (!set->alive.test(slot)) { continue; }
+                    }
+                    if (!first) { result += ", "; }
+                    first = false;
+                    result += element_dispatch().to_string(m_keys.slot_data(*set, slot));
+                }
+                result += "}";
+                return result;
+            }
+
+            [[nodiscard]] std::partial_ordering compare(const void *lhs, const void *rhs) const override {
+                const auto *a = state(lhs);
+                const auto *b = state(rhs);
+                if (a->size != b->size) { return std::partial_ordering::unordered; }
+                const size_t limit = tracks_deltas_v ? a->capacity : a->size;
+                for (size_t slot = 0; slot < limit; ++slot) {
+                    if constexpr (tracks_deltas_v) {
+                        if (!a->alive.test(slot)) { continue; }
+                    }
+                    if (!m_keys.contains(*b, m_keys.slot_data(*a, slot))) { return std::partial_ordering::unordered; }
+                }
+                return std::partial_ordering::equivalent;
+            }
+
+            [[nodiscard]] nb::object to_python(const void *data, const value::TypeMeta *schema) const override {
+                static_cast<void>(schema);
+                nb::set      result;
+                const auto  *set   = state(data);
+                const size_t limit = tracks_deltas_v ? set->capacity : set->size;
+                for (size_t slot = 0; slot < limit; ++slot) {
+                    if constexpr (tracks_deltas_v) {
+                        if (!set->alive.test(slot)) { continue; }
+                    }
+                    result.add(element_dispatch().to_python(m_keys.slot_data(*set, slot), &element_schema()));
+                }
+                return result;
+            }
+
+            void from_python(void *dst, const nb::object &src, const value::TypeMeta *schema) const override {
+                static_cast<void>(schema);
+                if (!nb::isinstance<nb::set>(src) && !nb::isinstance<nb::frozenset>(src) && !nb::isinstance<nb::list>(src) &&
+                    !nb::isinstance<nb::tuple>(src)) {
+                    throw std::runtime_error("Set value expects a set, frozenset, list, or tuple");
+                }
+
+                hard_clear(dst);
+                nb::iterator it = nb::iter(src);
+                while (it != nb::iterator::sentinel()) {
+                    nb::handle item = *it;
+                    if (item.is_none()) { throw std::runtime_error("Set value does not allow None elements"); }
+
+                    void *temp = m_element_builder.get().allocate();
+                    try {
+                        m_element_builder.get().construct(temp);
+                        element_dispatch().from_python(temp, nb::borrow<nb::object>(item), &element_schema());
+                        static_cast<void>(add(dst, temp));
+                    } catch (...) {
+                        if (m_element_builder.get().requires_destruct()) { m_element_builder.get().destruct(temp); }
+                        m_element_builder.get().deallocate(temp);
+                        throw;
+                    }
+
+                    if (m_element_builder.get().requires_destruct()) { m_element_builder.get().destruct(temp); }
+                    m_element_builder.get().deallocate(temp);
+                    ++it;
+                }
+            }
+
+            void assign(void *dst, const void *src) const override {
+                hard_clear(dst);
+                const auto  *set   = state(src);
+                const size_t limit = tracks_deltas_v ? set->capacity : set->size;
+                for (size_t slot = 0; slot < limit; ++slot) {
+                    if constexpr (tracks_deltas_v) {
+                        if (!set->alive.test(slot)) { continue; }
+                    }
+                    static_cast<void>(add(dst, m_keys.slot_data(*set, slot)));
+                }
+            }
+
+            void copy_from(void *dst, const View &src) const override {
+                if (this == detail::ViewAccess::dispatch(src)) {
+                    assign(dst, detail::ViewAccess::data(src));
+                    return;
+                }
+
+                hard_clear(dst);
+                auto src_set = src.as_set();
+                for (const View source_element : src_set.values()) {
+                    Value normalized_element{element_schema(), element_dispatch().tracking()};
+                    normalized_element.view().copy_from(source_element);
+                    static_cast<void>(add(dst, detail::ViewAccess::data(normalized_element.view())));
+                }
+            }
+
+            [[nodiscard]] bool try_copy_from(void *dst, const View &src) const override {
+                if (const auto *object = src.try_as<nb::object>(); object != nullptr) {
+                    if (!object->is_valid() || object->is_none()) { return false; }
+                    if (!nb::isinstance<nb::set>(*object) && !nb::isinstance<nb::frozenset>(*object) &&
+                        !nb::isinstance<nb::list>(*object) && !nb::isinstance<nb::tuple>(*object)) {
+                        return false;
+                    }
+
+                    Value normalized_set{m_schema.get(), tracking_mode};
+                    View  normalized_view = normalized_set.view();
+                    normalized_view.from_python(*object);
+                    assign(dst, detail::ViewAccess::data(normalized_view));
+                    return true;
+                }
+
+                if (src.schema() == nullptr || src.schema()->kind != value::TypeKind::Set) { return false; }
+
+                Value normalized_set{m_schema.get(), tracking_mode};
+                View  normalized_view = normalized_set.view();
+                {
+                    SetView normalized_set_view{normalized_view};
+                    auto    mutation = normalized_set_view.begin_mutation(MIN_DT);
+                    auto    src_set  = src.as_set();
+                    mutation.reserve(src_set.size());
+
+                    for (const View source_element : src_set.values()) {
+                        Value normalized_element{element_schema(), element_dispatch().tracking()};
+                        if (!normalized_element.view().try_copy_from(source_element)) { return false; }
+                        static_cast<void>(mutation.add(normalized_element.view()));
+                    }
+                }
+
+                assign(dst, detail::ViewAccess::data(normalized_view));
+                return true;
+            }
+
+            void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override {
+                if (src_schema == &m_schema.get()) {
+                    assign(dst, src);
+                    return;
+                }
+                throw std::invalid_argument("Set value set_from_cpp requires a matching set schema");
+            }
+
+            void move_from_cpp(void *dst, void *src, const value::TypeMeta *src_schema) const override {
+                if (src_schema == &m_schema.get()) {
+                    assign(dst, src);
+                    hard_clear(src);
+                    return;
+                }
+                throw std::invalid_argument("Set value move_from_cpp requires a matching set schema");
+            }
+
+            void construct(void *memory) const {
+                std::construct_at(state(memory));
+                m_keys.initialise(*state(memory));
+                if (const size_t capacity = inline_capacity(); capacity > 0) {
+                    state(memory)->elements        = inline_elements_memory(memory);
+                    state(memory)->capacity        = capacity;
+                    state(memory)->elements_inline = true;
+                    state(memory)->index->reserve(capacity);
+                    if constexpr (tracks_deltas_v) {
+                        state(memory)->alive.resize(capacity);
+                        state(memory)->occupied.resize(capacity);
+                        state(memory)->added.resize(capacity);
+                        state(memory)->removed.resize(capacity);
+                        state(memory)->free_list.reserve(capacity);
+                        for (size_t slot = capacity; slot > 0; --slot) { state(memory)->free_list.push_back(slot - 1); }
+                    }
+                }
+            }
+
+            void destruct(void *memory) const noexcept {
+                auto *set = state(memory);
+                hard_clear(*set);
+                if (set->elements != nullptr) {
+                    if (!set->elements_inline) {
+                        ::operator delete(set->elements, std::align_val_t{m_element_builder.get().alignment()});
+                    }
+                }
+                std::destroy_at(state(memory));
+            }
+
+            void copy_construct(void *dst, const void *src) const {
+                construct(dst);
+                assign(dst, src);
+            }
+
+            void move_construct(void *dst, void *src) const {
+                if (state(src)->elements_inline) {
+                    construct(dst);
+                    assign(dst, src);
+                    hard_clear(src);
+                    return;
+                }
+
+                std::construct_at(state(dst), std::move(*state(src)));
+                m_keys.rebind_index(*state(dst));
+                state(src)->elements        = nullptr;
+                state(src)->size            = 0;
+                state(src)->capacity        = 0;
+                state(src)->elements_inline = false;
+                state(src)->index.reset();
+                if constexpr (tracks_deltas_v) {
+                    state(src)->alive.clear();
+                    state(src)->occupied.clear();
+                    state(src)->free_list.clear();
+                    state(src)->added.clear();
+                    state(src)->removed.clear();
+                    state(src)->mutation_state        = 0;
+                    state(src)->current_mutation_time = MIN_DT;
+                    state(src)->last_modified_time    = MIN_DT;
+                }
+            }
+
+          private:
+            void hard_clear(void *memory) const noexcept { hard_clear(*state(memory)); }
+
+            template <typename TState> void hard_clear(TState &state) const noexcept { m_keys.clear(state); }
+
+            [[nodiscard]] SetState *state(void *memory) const noexcept {
+                return std::launder(reinterpret_cast<SetState *>(memory));
+            }
+
+            [[nodiscard]] const SetState *state(const void *memory) const noexcept {
+                return std::launder(reinterpret_cast<const SetState *>(memory));
+            }
+
+            [[nodiscard]] size_t header_size() const noexcept {
+                const size_t header    = tracks_deltas_v ? sizeof(DeltaSetState) : sizeof(PlainSetState);
+                const size_t alignment = m_element_builder.get().alignment();
+                return alignment <= 1 ? header : ((header + alignment - 1) / alignment) * alignment;
+            }
+
+            [[nodiscard]] std::byte *inline_elements_memory(void *memory) const noexcept {
+                return static_cast<std::byte *>(memory) + header_size();
+            }
+
+            std::reference_wrapper<const value::TypeMeta> m_schema;
+            std::reference_wrapper<const ValueBuilder>    m_element_builder;
+            KeySlotStorage                                m_keys;
+        };
+
+        template <MutationTracking TTracking> struct MapDispatch final : MapViewDispatch
+        {
+            static constexpr MutationTracking tracking_mode   = TTracking;
+            static constexpr bool             tracks_deltas_v = TTracking == MutationTracking::Delta;
+            using MapState                                    = std::conditional_t<tracks_deltas_v, DeltaMapState, PlainMapState>;
+            using KeyState                                    = std::conditional_t<tracks_deltas_v, DeltaSetState, PlainSetState>;
+
+            [[nodiscard]] MutationTracking tracking() const noexcept override { return tracking_mode; }
+
+            explicit MapDispatch(const value::TypeMeta &schema)
+                : m_schema(schema),
+                  m_key_builder(ValueBuilderFactory::checked_builder_for(schema.key_type, MutationTracking::Plain)),
+                  m_value_builder(ValueBuilderFactory::checked_builder_for(
+                      schema.element_type, schema.element_type != nullptr
+                                               ? nested_value_tracking(*schema.element_type, tracking_mode)
+                                               : MutationTracking::Plain)),
+                  m_keys(m_key_builder.get().dispatch(), m_key_builder.get()), m_value_stride(stride_for(m_value_builder.get())),
+                  m_value_requires_destruct(m_value_builder.get().requires_destruct()) {
+                if (schema.key_type == nullptr || schema.element_type == nullptr) {
+                    throw std::runtime_error("Map schema requires key and value schemas");
+                }
+            }
+
+            /**
+             * Return the number of map items retained inline in the root value
+             * allocation before the map spills to heap-backed key/value arrays.
+             */
+            [[nodiscard]] size_t inline_capacity() const noexcept {
+                return SmallBufferPolicy::capacity_for([this](size_t elements) noexcept {
+                    return m_keys.stride() * elements + m_value_stride * elements <= SmallBufferPolicy::target_bytes;
+                });
+            }
+
+            /**
+             * Return the total root-allocation size required for the map header
+             * plus its schema-derived inline buffers.
+             */
+            [[nodiscard]] size_t allocation_size() const noexcept {
+                if (inline_capacity() == 0) { return sizeof(MapState); }
+                if constexpr (tracks_deltas_v) { return header_size() + m_keys.stride() * inline_capacity(); }
+                return inline_values_offset() + m_value_stride * inline_capacity();
+            }
+
+            /**
+             * Return the alignment required by the header and inline payload.
+             */
+            [[nodiscard]] size_t allocation_alignment() const noexcept {
+                return std::max({alignof(MapState), m_key_builder.get().alignment(), m_value_builder.get().alignment()});
+            }
+
+            [[nodiscard]] bool tracks_deltas() const noexcept { return tracks_deltas_v; }
+
+            [[nodiscard]] size_t size(const void *data) const noexcept override { return keys(data).size; }
+            [[nodiscard]] size_t slot_capacity(const void *data) const noexcept override {
+                return tracks_deltas_v ? keys(data).capacity : keys(data).size;
+            }
+            [[nodiscard]] const value::TypeMeta &key_schema() const noexcept override { return *m_schema.get().key_type; }
+            [[nodiscard]] const value::TypeMeta &value_schema() const noexcept override { return *m_schema.get().element_type; }
+            [[nodiscard]] const ViewDispatch    &key_dispatch() const noexcept override { return m_keys.dispatch(); }
+            [[nodiscard]] const ViewDispatch &value_dispatch() const noexcept override { return m_value_builder.get().dispatch(); }
+
+            void begin_mutation(void *data, engine_time_t evaluation_time) const override {
+                if constexpr (tracks_deltas_v) {
+                    MapState *map = state(data);
+                    begin_time_aware_mutation_scope(*map, evaluation_time, [&] { release_removed(*map); }, "Map");
+                } else {
+                    static_cast<void>(evaluation_time);
+                }
+            }
+
+            void end_mutation(void *data) const override {
+                if constexpr (tracks_deltas_v) {
+                    MapState *map = state(data);
+                    leave_mutation_scope(map->mutation_state, "Map");
+                }
+            }
+
+            [[nodiscard]] size_t find(const void *data, const void *key) const override {
+                return m_keys.find_live_slot(keys(data), key);
+            }
+
+            [[nodiscard]] size_t first_live_slot(const void *data) const noexcept override {
+                const auto &key_state = keys(data);
+                if constexpr (tracks_deltas_v) {
+                    return first_live_occupied_slot(key_state);
+                } else {
+                    return key_state.size == 0 ? no_slot : 0;
+                }
+            }
+
+            [[nodiscard]] size_t next_live_slot(const void *data, size_t slot) const noexcept override {
+                const auto &key_state = keys(data);
+                if constexpr (tracks_deltas_v) {
+                    return next_live_occupied_slot(key_state, slot);
+                } else {
+                    return slot + 1 < key_state.size ? slot + 1 : no_slot;
+                }
+            }
+
+            [[nodiscard]] bool slot_occupied(const void *data, size_t slot) const noexcept override {
+                const auto &key_state = keys(data);
+                if constexpr (tracks_deltas_v) {
+                    return slot < key_state.capacity && key_state.occupied.test(slot);
+                } else {
+                    return slot < key_state.size;
+                }
+            }
+
+            [[nodiscard]] bool slot_added(const void *data, size_t slot) const noexcept override {
+                if constexpr (tracks_deltas_v) {
+                    return slot < state(data)->keys.capacity && state(data)->keys.added.test(slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return false;
+                }
+            }
+
+            [[nodiscard]] bool slot_removed(const void *data, size_t slot) const noexcept override {
+                if constexpr (tracks_deltas_v) {
+                    return slot < state(data)->keys.capacity && state(data)->keys.removed.test(slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return false;
+                }
+            }
+
+            [[nodiscard]] bool slot_updated(const void *data, size_t slot) const noexcept override {
+                if constexpr (tracks_deltas_v) {
+                    return slot < state(data)->keys.capacity && state(data)->slot_store.slot_updated(slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return false;
+                }
+            }
+
+            [[nodiscard]] size_t first_added_slot(const void *data) const noexcept override {
+                if constexpr (tracks_deltas_v) {
+                    return first_set_slot(state(data)->keys.added);
+                } else {
+                    static_cast<void>(data);
+                    return no_slot;
+                }
+            }
+
+            [[nodiscard]] size_t next_added_slot(const void *data, size_t slot) const noexcept override {
+                if constexpr (tracks_deltas_v) {
+                    return next_set_slot(state(data)->keys.added, slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return no_slot;
+                }
+            }
+
+            [[nodiscard]] size_t first_removed_slot(const void *data) const noexcept override {
+                if constexpr (tracks_deltas_v) {
+                    return first_set_slot(state(data)->keys.removed);
+                } else {
+                    static_cast<void>(data);
+                    return no_slot;
+                }
+            }
+
+            [[nodiscard]] size_t next_removed_slot(const void *data, size_t slot) const noexcept override {
+                if constexpr (tracks_deltas_v) {
+                    return next_set_slot(state(data)->keys.removed, slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return no_slot;
+                }
+            }
+
+            [[nodiscard]] size_t first_updated_slot(const void *data) const noexcept override {
+                if constexpr (tracks_deltas_v) {
+                    return first_set_slot(state(data)->slot_store.updated);
+                } else {
+                    static_cast<void>(data);
+                    return no_slot;
+                }
+            }
+
+            [[nodiscard]] size_t next_updated_slot(const void *data, size_t slot) const noexcept override {
+                if constexpr (tracks_deltas_v) {
+                    return next_set_slot(state(data)->slot_store.updated, slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return no_slot;
+                }
+            }
+
+            [[nodiscard]] void *key_data(void *data, size_t index) const override {
+                auto &key_state = keys(data);
+                if constexpr (tracks_deltas_v) {
+                    if (index >= key_state.capacity || !key_state.occupied.test(index)) {
+                        throw std::out_of_range("Map key index out of range");
+                    }
+                } else if (index >= key_state.size) {
+                    throw std::out_of_range("Map key index out of range");
+                }
+                return m_keys.slot_data(key_state, index);
+            }
+
+            [[nodiscard]] const void *key_data(const void *data, size_t index) const override {
+                const auto &key_state = keys(data);
+                if constexpr (tracks_deltas_v) {
+                    if (index >= key_state.capacity || !key_state.occupied.test(index)) {
+                        throw std::out_of_range("Map key index out of range");
+                    }
+                } else if (index >= key_state.size) {
+                    throw std::out_of_range("Map key index out of range");
+                }
+                return m_keys.slot_data(key_state, index);
+            }
+
+            [[nodiscard]] void *value_data(void *data, size_t index) const override {
+                const auto &key_state = keys(data);
+                if constexpr (tracks_deltas_v) {
+                    if (index >= key_state.capacity || !key_state.occupied.test(index)) {
+                        throw std::out_of_range("Map value index out of range");
+                    }
+                } else if (index >= key_state.size) {
+                    throw std::out_of_range("Map value index out of range");
+                }
+                return value_memory(*state(data), index);
+            }
+
+            [[nodiscard]] const void *value_data(const void *data, size_t index) const override {
+                const auto &key_state = keys(data);
+                if constexpr (tracks_deltas_v) {
+                    if (index >= key_state.capacity || !key_state.occupied.test(index)) {
+                        throw std::out_of_range("Map value index out of range");
+                    }
+                } else if (index >= key_state.size) {
+                    throw std::out_of_range("Map value index out of range");
+                }
+                return value_memory(*state(data), index);
+            }
+
+            void mark_value_updated(void *data, size_t slot, engine_time_t evaluation_time) const override {
+                if constexpr (tracks_deltas_v) {
+                    MapState *map = state(data);
+                    begin_time_aware_mutation_scope(*map, evaluation_time, [&] { release_removed(*map); }, "Map");
+
+                    const auto &key_state = keys(data);
+                    if (slot < key_state.capacity && key_state.occupied.test(slot) && key_state.alive.test(slot) &&
+                        !map->keys.added.test(slot)) {
+                        map->slot_store.mark_updated(slot);
+                        note_collection_modified(*map);
+                    }
+
+                    leave_mutation_scope(map->mutation_state, "Map");
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    static_cast<void>(evaluation_time);
+                }
+            }
+
+            void add_slot_observer(void *data, SlotObserver *observer) const override {
+                if constexpr (tracks_deltas_v) {
+                    state(data)->slot_store.add_slot_observer(observer);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(observer);
+                }
+            }
+
+            void remove_slot_observer(void *data, SlotObserver *observer) const override {
+                if constexpr (tracks_deltas_v) {
+                    state(data)->slot_store.remove_slot_observer(observer);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(observer);
+                }
+            }
+
+            [[nodiscard]] bool set_item(void *data, const void *key, const void *value) const override {
+                if (value == nullptr) { throw std::invalid_argument("Map value requires a live value for every present key"); }
+                auto &key_state = keys(data);
+                if (key_state.index == nullptr) { m_keys.rebind_index(key_state); }
+                if (const size_t slot = m_keys.find_slot(key_state, key); slot != npos) {
+                    if constexpr (tracks_deltas_v) {
+                        const bool was_live = key_state.alive.test(slot);
+                        if (!was_live) {
+                            key_state.alive.set(slot);
+                            state(data)->keys.removed.reset(slot);
+                            ++key_state.size;
+                            state(data)->slot_store.mark_updated(slot);
+                            note_collection_modified(*state(data));
+                        } else if (!state(data)->keys.added.test(slot)) {
+                            state(data)->slot_store.mark_updated(slot);
+                            note_collection_modified(*state(data));
+                        }
+                        key_dispatch().assign(key_data(data, slot), key);
+                        value_dispatch().assign(value_data(data, slot), value);
+                        if (!was_live) { notify_insert(*state(data), slot); }
+                        return !was_live;
+                    } else {
+                        value_dispatch().assign(value_data(data, slot), value);
+                        return false;
+                    }
+                }
+
+                if constexpr (tracks_deltas_v) {
+                    if (key_state.free_list.empty()) {
+                        const size_t old_capacity = key_state.capacity;
+                        reserve_exact(*state(data),
+                                      std::max<size_t>(key_state.size + 1, std::max<size_t>(8, key_state.capacity * 2)));
+                        notify_capacity(*state(data), old_capacity);
+                    }
+                } else {
+                    if (key_state.size == key_state.capacity) {
+                        reserve_exact(*state(data),
+                                      std::max<size_t>(key_state.size + 1, std::max<size_t>(8, key_state.capacity * 2)));
+                    }
+                }
+                const auto   insertion = m_keys.insert(state(data)->keys, key);
+                const size_t slot      = insertion.slot;
+                // Key insertion marks the slot occupied before the value
+                // payload exists. A newly allocated map slot therefore needs
+                // first-time value construction here, not reset/destruction of
+                // an uninitialised payload.
+                m_value_builder.get().construct(value_memory(*state(data), slot));
+                value_dispatch().assign(value_data(data, slot), value);
+                if constexpr (tracks_deltas_v) {
+                    note_collection_modified(*state(data));
+                    notify_insert(*state(data), slot);
+                }
+                return insertion.inserted;
+            }
+
+            [[nodiscard]] bool remove(void *data, const void *key) const override {
+                const size_t slot = find(data, key);
+                if (slot == npos) { return false; }
+                if constexpr (tracks_deltas_v) {
+                    const bool erased_immediately = state(data)->keys.added.test(slot);
+                    notify_remove(*state(data), slot);
+                    if (erased_immediately) { notify_erase(*state(data), slot); }
+                    if (erased_immediately) { destruct_value(value_memory(*state(data), slot)); }
+                    state(data)->slot_store.clear_updated(slot);
+                    m_keys.remove_slot(state(data)->keys, slot);
+                    note_collection_modified(*state(data));
+                } else {
+                    remove_dense_slot(*state(data), slot);
+                }
+                return true;
+            }
+
+            void clear(void *data) const override {
+                auto &map_keys = keys(data);
+                if constexpr (tracks_deltas_v) {
+                    notify_clear(*state(data));
+                    for (size_t slot = 0; slot < map_keys.capacity; ++slot) {
+                        if (!map_keys.alive.test(slot)) { continue; }
+                        if (state(data)->keys.added.test(slot)) { destruct_value(value_memory(*state(data), slot)); }
+                        state(data)->slot_store.clear_updated(slot);
+                        m_keys.remove_slot(state(data)->keys, slot);
+                    }
+                } else {
+                    while (map_keys.size > 0) { remove_dense_slot(*state(data), map_keys.size - 1); }
+                }
+            }
+
+            void clear_delta_tracking(void *data) const override {
+                if constexpr (tracks_deltas_v) {
+                    MapState *map = state(data);
+                    release_removed(*map);
+                    clear_mutation_dirty(map->mutation_state);
+                    map->keys.mutation_state = 0;
+                } else {
+                    static_cast<void>(data);
+                }
+            }
+
+            void reserve(void *data, size_t capacity) const override {
+                if constexpr (tracks_deltas_v) {
+                    const size_t old_capacity = state(data)->keys.capacity;
+                    reserve_exact(*state(data), capacity);
+                    notify_capacity(*state(data), old_capacity);
+                } else {
+                    reserve_exact(*state(data), capacity);
+                }
+            }
+
+            [[nodiscard]] size_t hash(const void *data) const override {
+                size_t       result = 0;
+                const size_t limit  = tracks_deltas_v ? keys(data).capacity : keys(data).size;
+                for (size_t slot = 0; slot < limit; ++slot) {
+                    if constexpr (tracks_deltas_v) {
+                        if (!keys(data).alive.test(slot)) { continue; }
+                    }
+                    size_t pair_hash = key_dispatch().hash(key_data(data, slot));
+                    pair_hash ^= value_dispatch().hash(value_data(data, slot)) << 1;
+                    result ^= pair_hash;
+                }
+                return result;
+            }
+
+            [[nodiscard]] std::string to_string(const void *data) const override {
+                std::string  result = "{";
+                bool         first  = true;
+                const size_t limit  = tracks_deltas_v ? keys(data).capacity : keys(data).size;
+                for (size_t slot = 0; slot < limit; ++slot) {
+                    if constexpr (tracks_deltas_v) {
+                        if (!keys(data).alive.test(slot)) { continue; }
+                    }
+                    if (!first) { result += ", "; }
+                    first = false;
+                    result += key_dispatch().to_string(key_data(data, slot));
+                    result += ": ";
+                    result += value_dispatch().to_string(value_data(data, slot));
+                }
+                result += "}";
+                return result;
+            }
+
+            [[nodiscard]] std::partial_ordering compare(const void *lhs, const void *rhs) const override {
+                if (keys(lhs).size != keys(rhs).size) { return std::partial_ordering::unordered; }
+
+                const size_t limit = tracks_deltas_v ? keys(lhs).capacity : keys(lhs).size;
+                for (size_t slot = 0; slot < limit; ++slot) {
+                    if constexpr (tracks_deltas_v) {
+                        if (!keys(lhs).alive.test(slot)) { continue; }
+                    }
+                    const size_t rhs_slot = find(rhs, key_data(lhs, slot));
+                    if (rhs_slot == npos) { return std::partial_ordering::unordered; }
+                    if (value_dispatch().compare(value_data(lhs, slot), value_data(rhs, rhs_slot)) !=
+                        std::partial_ordering::equivalent) {
+                        return std::partial_ordering::unordered;
+                    }
+                }
+                return std::partial_ordering::equivalent;
+            }
+
+            [[nodiscard]] nb::object to_python(const void *data, const value::TypeMeta *schema) const override {
+                static_cast<void>(schema);
+                nb::dict     result;
+                const size_t limit = tracks_deltas_v ? keys(data).capacity : keys(data).size;
+                for (size_t slot = 0; slot < limit; ++slot) {
+                    if constexpr (tracks_deltas_v) {
+                        if (!keys(data).alive.test(slot)) { continue; }
+                    }
+                    nb::object py_key   = key_dispatch().to_python(key_data(data, slot), &key_schema());
+                    nb::object py_value = value_dispatch().to_python(value_data(data, slot), &value_schema());
+                    result[py_key]      = py_value;
+                }
+                return result;
+            }
+
+            void from_python(void *dst, const nb::object &src, const value::TypeMeta *schema) const override {
+                static_cast<void>(schema);
+                if (!nb::isinstance<nb::dict>(src) && !nb::hasattr(src, "items")) {
+                    throw std::runtime_error("Map value expects a dict or dict-like object");
+                }
+
+                hard_clear(dst);
+                const nb::object items = nb::hasattr(src, "items") ? src.attr("items")() : src;
+                nb::iterator     it    = nb::iter(items);
+                while (it != nb::iterator::sentinel()) {
+                    const nb::tuple pair = nb::cast<nb::tuple>(*it);
+                    if (pair.size() != 2) { throw std::runtime_error("Map items() must yield key/value pairs"); }
+                    if (pair[0].is_none()) { throw std::runtime_error("Map value does not allow None keys"); }
+                    if (pair[1].is_none()) { throw std::runtime_error("Map value does not allow None values"); }
+
+                    void *temp_key   = m_key_builder.get().allocate();
+                    void *temp_value = nullptr;
+                    try {
+                        m_key_builder.get().construct(temp_key);
+                        key_dispatch().from_python(temp_key, nb::borrow<nb::object>(pair[0]), &key_schema());
+
+                        temp_value = m_value_builder.get().allocate();
+                        m_value_builder.get().construct(temp_value);
+                        value_dispatch().from_python(temp_value, nb::borrow<nb::object>(pair[1]), &value_schema());
+                        static_cast<void>(set_item(dst, temp_key, temp_value));
+                    } catch (...) {
+                        if (temp_value != nullptr) {
+                            if (m_value_builder.get().requires_destruct()) { m_value_builder.get().destruct(temp_value); }
+                            m_value_builder.get().deallocate(temp_value);
+                        }
+                        if (temp_key != nullptr) {
+                            if (m_key_builder.get().requires_destruct()) { m_key_builder.get().destruct(temp_key); }
+                            m_key_builder.get().deallocate(temp_key);
+                        }
+                        throw;
+                    }
+
+                    if (temp_value != nullptr) {
+                        if (m_value_builder.get().requires_destruct()) { m_value_builder.get().destruct(temp_value); }
+                        m_value_builder.get().deallocate(temp_value);
+                    }
+                    if (m_key_builder.get().requires_destruct()) { m_key_builder.get().destruct(temp_key); }
+                    m_key_builder.get().deallocate(temp_key);
+                    ++it;
+                }
+            }
+
+            void assign(void *dst, const void *src) const override {
+                hard_clear(dst);
+                const size_t limit = tracks_deltas_v ? keys(src).capacity : keys(src).size;
+                for (size_t slot = 0; slot < limit; ++slot) {
+                    if constexpr (tracks_deltas_v) {
+                        if (!keys(src).alive.test(slot)) { continue; }
+                    }
+                    static_cast<void>(set_item(dst, key_data(src, slot), value_data(src, slot)));
+                }
+            }
+
+            void copy_from(void *dst, const View &src) const override {
+                if (this == detail::ViewAccess::dispatch(src)) {
+                    assign(dst, detail::ViewAccess::data(src));
+                    return;
+                }
+
+                hard_clear(dst);
+                const auto source = src.as_map();
+                for (size_t slot = source.first_live_slot(); slot != npos; slot = source.next_live_slot(slot)) {
+                    Value normalized_key{key_schema(), key_dispatch().tracking()};
+                    normalized_key.view().copy_from(source.delta().key_at_slot(slot));
+
+                    Value normalized_value{value_schema(), value_dispatch().tracking()};
+                    normalized_value.view().copy_from(source.delta().value_at_slot(slot));
+
+                    static_cast<void>(set_item(dst, detail::ViewAccess::data(normalized_key.view()),
+                                               detail::ViewAccess::data(normalized_value.view())));
+                }
+            }
+
+            void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override {
+                if (src_schema == &m_schema.get()) {
+                    assign(dst, src);
+                    return;
+                }
+                throw std::invalid_argument("Map value set_from_cpp requires a matching map schema");
+            }
+
+            void move_from_cpp(void *dst, void *src, const value::TypeMeta *src_schema) const override {
+                if (src_schema == &m_schema.get()) {
+                    assign(dst, src);
+                    hard_clear(src);
+                    return;
+                }
+                throw std::invalid_argument("Map value move_from_cpp requires a matching map schema");
+            }
+
+            void construct(void *memory) const {
+                std::construct_at(state(memory));
+                m_keys.initialise(state(memory)->keys);
+                if (const size_t capacity = inline_capacity(); capacity > 0) {
+                    state(memory)->keys.elements        = inline_keys_memory(memory);
+                    state(memory)->keys.capacity        = capacity;
+                    state(memory)->keys.elements_inline = true;
+                    state(memory)->keys.index->reserve(capacity);
+                    if constexpr (tracks_deltas_v) {
+                        reserve_value_storage(*state(memory), capacity);
+                        state(memory)->keys.alive.resize(capacity);
+                        state(memory)->keys.occupied.resize(capacity);
+                        state(memory)->keys.added.resize(capacity);
+                        state(memory)->keys.removed.resize(capacity);
+                        state(memory)->keys.free_list.reserve(capacity);
+                        for (size_t slot = capacity; slot > 0; --slot) { state(memory)->keys.free_list.push_back(slot - 1); }
+                    } else {
+                        state(memory)->values        = inline_values_memory(memory);
+                        state(memory)->values_inline = true;
+                    }
+                }
+            }
+
+            void destruct(void *memory) const noexcept {
+                hard_clear(memory);
+                if (keys(memory).elements != nullptr) {
+                    if (!keys(memory).elements_inline) {
+                        ::operator delete(keys(memory).elements, std::align_val_t{m_key_builder.get().alignment()});
+                    }
+                }
+                if constexpr (!tracks_deltas_v) {
+                    if (state(memory)->values != nullptr && !state(memory)->values_inline) {
+                        ::operator delete(state(memory)->values, std::align_val_t{m_value_builder.get().alignment()});
+                    }
+                }
+                std::destroy_at(state(memory));
+            }
+
+            void copy_construct(void *dst, const void *src) const {
+                construct(dst);
+                assign(dst, src);
+            }
+
+            void move_construct(void *dst, void *src) const {
+                const bool uses_inline_storage = [&]() noexcept {
+                    if constexpr (tracks_deltas_v) {
+                        return state(src)->keys.elements_inline;
+                    } else {
+                        return state(src)->keys.elements_inline || state(src)->values_inline;
+                    }
+                }();
+                if (uses_inline_storage) {
+                    construct(dst);
+                    assign(dst, src);
+                    hard_clear(src);
+                    return;
+                }
+
+                std::construct_at(state(dst), std::move(*state(src)));
+                m_keys.rebind_index(state(dst)->keys);
+                if constexpr (tracks_deltas_v) { state(dst)->slot_store.observers.clear(); }
+                state(src)->keys.elements        = nullptr;
+                state(src)->keys.size            = 0;
+                state(src)->keys.capacity        = 0;
+                state(src)->keys.elements_inline = false;
+                state(src)->keys.index.reset();
+                if constexpr (tracks_deltas_v) {
+                    state(src)->slot_store.value_storage.clear();
+                    state(src)->keys.alive.clear();
+                    state(src)->keys.occupied.clear();
+                    state(src)->keys.free_list.clear();
+                    state(src)->keys.added.clear();
+                    state(src)->keys.removed.clear();
+                    state(src)->keys.mutation_state        = 0;
+                    state(src)->keys.current_mutation_time = MIN_DT;
+                    state(src)->keys.last_modified_time    = MIN_DT;
+                    state(src)->slot_store.updated.clear();
+                    state(src)->slot_store.observers.clear();
+                    state(src)->mutation_state        = 0;
+                    state(src)->current_mutation_time = MIN_DT;
+                    state(src)->last_modified_time    = MIN_DT;
+                } else {
+                    state(src)->values        = nullptr;
+                    state(src)->values_inline = false;
+                }
+            }
+
+          private:
+            static constexpr size_t npos = static_cast<size_t>(-1);
+
+            void notify_capacity(DeltaMapState &map, size_t old_capacity) const {
+                if constexpr (tracks_deltas_v) {
+                    map.slot_store.notify_capacity(old_capacity, map.keys.capacity);
+                } else {
+                    static_cast<void>(map);
+                    static_cast<void>(old_capacity);
+                }
+            }
+
+            void notify_insert(DeltaMapState &map, size_t slot) const {
+                if constexpr (tracks_deltas_v) {
+                    map.slot_store.notify_insert(slot);
+                } else {
+                    static_cast<void>(map);
+                    static_cast<void>(slot);
+                }
+            }
+
+            void notify_remove(DeltaMapState &map, size_t slot) const {
+                if constexpr (tracks_deltas_v) {
+                    map.slot_store.notify_remove(slot);
+                } else {
+                    static_cast<void>(map);
+                    static_cast<void>(slot);
+                }
+            }
+
+            void notify_erase(DeltaMapState &map, size_t slot) const {
+                if constexpr (tracks_deltas_v) {
+                    map.slot_store.notify_erase(slot);
+                } else {
+                    static_cast<void>(map);
+                    static_cast<void>(slot);
+                }
+            }
+
+            void notify_clear(DeltaMapState &map) const {
+                if constexpr (tracks_deltas_v) {
+                    map.slot_store.notify_clear();
+                } else {
+                    static_cast<void>(map);
+                }
+            }
+
+            void remove_dense_slot(PlainMapState &map, size_t slot) const {
+                if (slot >= map.keys.size) { throw std::out_of_range("Map dense slot out of range"); }
+
+                const size_t last = map.keys.size - 1;
+                map.keys.index->erase(slot);
+
+                destruct_value(map.values + slot * m_value_stride);
+                if (slot != last) {
+                    map.keys.index->erase(last);
+                    m_keys.destruct_payload(m_keys.slot_data(map.keys, slot));
+                    m_keys.builder().move_construct(m_keys.slot_data(map.keys, slot), m_keys.slot_data(map.keys, last),
+                                                    m_keys.builder());
+                    m_keys.destruct_payload(m_keys.slot_data(map.keys, last));
+
+                    m_value_builder.get().move_construct(map.values + slot * m_value_stride, map.values + last * m_value_stride,
+                                                         m_value_builder);
+                    destruct_value(map.values + last * m_value_stride);
+                    map.keys.index->insert(slot);
+                } else {
+                    m_keys.destruct_payload(m_keys.slot_data(map.keys, last));
+                }
+                --map.keys.size;
+            }
+
+            [[nodiscard]] static size_t stride_for(const ValueBuilder &builder) noexcept {
+                const size_t alignment = builder.alignment();
+                const size_t size      = builder.size();
+                return ((size + alignment - 1) / alignment) * alignment;
+            }
+
+            void reserve_exact(PlainMapState &map, size_t min_capacity) const {
+                if (min_capacity <= map.keys.capacity) { return; }
+
+                const size_t new_capacity = min_capacity;
+                std::byte   *new_values   = static_cast<std::byte *>(
+                    ::operator new(new_capacity * m_value_stride, std::align_val_t{m_value_builder.get().alignment()}));
+
+                size_t moved = 0;
+                try {
+                    for (; moved < map.keys.size; ++moved) {
+                        m_value_builder.get().move_construct(new_values + moved * m_value_stride,
+                                                             map.values + moved * m_value_stride, m_value_builder);
+                    }
+                } catch (...) {
+                    for (size_t slot = 0; slot < moved; ++slot) { destruct_value(new_values + slot * m_value_stride); }
+                    ::operator delete(new_values, std::align_val_t{m_value_builder.get().alignment()});
+                    throw;
+                }
+
+                try {
+                    m_keys.reserve_exact(map.keys, new_capacity);
+                } catch (...) {
+                    for (size_t slot = 0; slot < moved; ++slot) { destruct_value(new_values + slot * m_value_stride); }
+                    ::operator delete(new_values, std::align_val_t{m_value_builder.get().alignment()});
+                    throw;
+                }
+
+                destruct_dense_values(map);
+                if (map.values != nullptr) {
+                    if (!map.values_inline) { ::operator delete(map.values, std::align_val_t{m_value_builder.get().alignment()}); }
+                }
+                map.values        = new_values;
+                map.values_inline = false;
+            }
+
+            void reserve_exact(DeltaMapState &map, size_t min_capacity) const {
+                if (min_capacity <= map.keys.capacity) { return; }
+
+                const size_t new_capacity = min_capacity;
+                m_keys.reserve_exact(map.keys, new_capacity);
+                map.slot_store.reserve_to(new_capacity, m_value_stride, m_value_builder.get().alignment());
+            }
+
+            void release_removed(DeltaMapState &map) const noexcept {
+                for (size_t slot = 0; slot < map.keys.capacity; ++slot) {
+                    if (!map.keys.removed.test(slot)) { continue; }
+                    notify_erase(map, slot);
+                    map.keys.index->erase(slot);
+                    m_keys.destruct_payload(m_keys.slot_data(map.keys, slot));
+                    destruct_value(value_memory(map, slot));
+                    map.keys.alive.reset(slot);
+                    map.keys.occupied.reset(slot);
+                    map.keys.removed.reset(slot);
+                    map.slot_store.clear_updated(slot);
+                    map.keys.free_list.push_back(slot);
+                }
+                map.keys.added.reset();
+                map.slot_store.clear_all_updated();
+            }
+
+            void hard_clear(void *memory) const noexcept { hard_clear_impl(*state(memory)); }
+
+            void hard_clear_impl(PlainMapState &map) const noexcept {
+                destruct_dense_values(map);
+                m_keys.clear(map.keys);
+            }
+
+            void hard_clear_impl(DeltaMapState &map) const noexcept {
+                notify_clear(map);
+                destruct_constructed_values(map);
+                m_keys.clear(map.keys);
+                map.slot_store.clear_all_updated();
+            }
+
+            void destruct_dense_values(PlainMapState &map) const noexcept {
+                if (!m_value_requires_destruct) { return; }
+                for (size_t slot = 0; slot < map.keys.size; ++slot) {
+                    m_value_builder.get().destruct(map.values + slot * m_value_stride);
+                }
+            }
+
+            void destruct_constructed_values(DeltaMapState &map) const noexcept {
+                if (!m_value_requires_destruct) { return; }
+                for (size_t slot = 0; slot < map.keys.capacity; ++slot) {
+                    if (map.keys.occupied.test(slot)) { m_value_builder.get().destruct(value_memory(map, slot)); }
+                }
+            }
+
+            void destruct_value(void *slot) const noexcept {
+                if (m_value_requires_destruct) { m_value_builder.get().destruct(slot); }
+            }
+
+            [[nodiscard]] MapState *state(void *memory) const noexcept {
+                return std::launder(reinterpret_cast<MapState *>(memory));
+            }
+
+            [[nodiscard]] const MapState *state(const void *memory) const noexcept {
+                return std::launder(reinterpret_cast<const MapState *>(memory));
+            }
+
+            [[nodiscard]] size_t header_size() const noexcept {
+                const size_t header    = tracks_deltas_v ? sizeof(DeltaMapState) : sizeof(PlainMapState);
+                const size_t alignment = std::max(m_key_builder.get().alignment(), m_value_builder.get().alignment());
+                return alignment <= 1 ? header : ((header + alignment - 1) / alignment) * alignment;
+            }
+
+            [[nodiscard]] size_t inline_values_offset() const noexcept {
+                const size_t keys_end  = header_size() + m_keys.stride() * inline_capacity();
+                const size_t alignment = m_value_builder.get().alignment();
+                return alignment <= 1 ? keys_end : ((keys_end + alignment - 1) / alignment) * alignment;
+            }
+
+            [[nodiscard]] std::byte *inline_keys_memory(void *memory) const noexcept {
+                return static_cast<std::byte *>(memory) + header_size();
+            }
+
+            [[nodiscard]] std::byte *inline_values_memory(void *memory) const noexcept {
+                return static_cast<std::byte *>(memory) + inline_values_offset();
+            }
+
+            [[nodiscard]] KeyState &keys(void *memory) const noexcept { return state(memory)->keys; }
+
+            [[nodiscard]] const KeyState &keys(const void *memory) const noexcept { return state(memory)->keys; }
+
+            void reserve_value_storage(DeltaMapState &map, size_t capacity) const {
+                if (capacity == 0) { return; }
+                map.slot_store.reserve_to(capacity, m_value_stride, m_value_builder.get().alignment());
+            }
+
+            [[nodiscard]] void *value_memory(PlainMapState &map, size_t slot) const noexcept {
+                return map.values + slot * m_value_stride;
+            }
+
+            [[nodiscard]] const void *value_memory(const PlainMapState &map, size_t slot) const noexcept {
+                return map.values + slot * m_value_stride;
+            }
+
+            [[nodiscard]] void *value_memory(DeltaMapState &map, size_t slot) const noexcept {
+                return map.slot_store.value_memory(slot);
+            }
+
+            [[nodiscard]] const void *value_memory(const DeltaMapState &map, size_t slot) const noexcept {
+                return map.slot_store.value_memory(slot);
+            }
+
+            std::reference_wrapper<const value::TypeMeta> m_schema;
+            std::reference_wrapper<const ValueBuilder>    m_key_builder;
+            std::reference_wrapper<const ValueBuilder>    m_value_builder;
+            KeySlotStorage                                m_keys;
+            size_t                                        m_value_stride;
+            bool                                          m_value_requires_destruct;
+        };
+
+        template <typename TDispatch> struct AssociativeStateOps final : ValueBuilderOps
+        {
+            explicit AssociativeStateOps(const TDispatch &dispatch) noexcept : m_dispatch(dispatch) {}
+
+            [[nodiscard]] BuilderLayout layout(const value::TypeMeta &schema) const noexcept override {
+                static_cast<void>(schema);
+                return BuilderLayout{m_dispatch.get().allocation_size(), m_dispatch.get().allocation_alignment()};
+            }
+
+            [[nodiscard]] const ViewDispatch &view_dispatch(const value::TypeMeta &schema) const noexcept override {
+                static_cast<void>(schema);
+                return m_dispatch;
+            }
+
+            [[nodiscard]] bool requires_destruct(const value::TypeMeta &schema) const noexcept override {
+                static_cast<void>(schema);
+                return true;
+            }
+
+            [[nodiscard]] bool requires_deallocate(const value::TypeMeta &schema) const noexcept override {
+                static_cast<void>(schema);
+                return true;
+            }
+
+            [[nodiscard]] bool stores_inline_in_value_handle(const value::TypeMeta &schema) const noexcept override {
+                static_cast<void>(schema);
+                return false;
+            }
+
+            void construct(void *memory) const override { m_dispatch.get().construct(memory); }
+            void destruct(void *memory) const noexcept override { m_dispatch.get().destruct(memory); }
+            void copy_construct(void *dst, const void *src) const override { m_dispatch.get().copy_construct(dst, src); }
+            void move_construct(void *dst, void *src) const override { m_dispatch.get().move_construct(dst, src); }
+
+            std::reference_wrapper<const TDispatch> m_dispatch;
+        };
+
+        struct CachedBuilderEntry
+        {
+            std::shared_ptr<const ViewDispatch>    dispatch;
+            std::shared_ptr<const ValueBuilderOps> state_ops;
+            std::shared_ptr<const ValueBuilder>    builder;
+        };
+
+        struct AssociativeBuilderKey
+        {
+            const value::TypeMeta *schema{nullptr};
+            MutationTracking       tracking{MutationTracking::Delta};
+
+            [[nodiscard]] bool operator==(const AssociativeBuilderKey &other) const noexcept {
+                return schema == other.schema && tracking == other.tracking;
+            }
+        };
+
+        struct AssociativeBuilderKeyHash
+        {
+            [[nodiscard]] size_t operator()(const AssociativeBuilderKey &key) const noexcept {
+                return std::hash<const value::TypeMeta *>{}(key.schema) ^ (static_cast<size_t>(key.tracking) << 1U);
+            }
+        };
+
+        const ValueBuilder *associative_builder_for(const value::TypeMeta *schema, MutationTracking tracking) {
+            if (schema == nullptr) { return nullptr; }
+            if (schema->kind != value::TypeKind::Set && schema->kind != value::TypeKind::Map) { return nullptr; }
+
+            static std::recursive_mutex                                                                     cache_mutex;
+            static std::unordered_map<AssociativeBuilderKey, CachedBuilderEntry, AssociativeBuilderKeyHash> cache;
+
+            std::lock_guard             lock(cache_mutex);
+            const AssociativeBuilderKey key{schema, tracking};
+            if (auto it = cache.find(key); it != cache.end()) { return it->second.builder.get(); }
+
+            CachedBuilderEntry entry;
+            if (schema->kind == value::TypeKind::Set) {
+                if (tracking == MutationTracking::Delta) {
+                    auto dispatch   = std::make_shared<SetDispatch<MutationTracking::Delta>>(*schema);
+                    auto state_ops  = std::make_shared<AssociativeStateOps<SetDispatch<MutationTracking::Delta>>>(*dispatch);
+                    auto builder    = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch  = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder   = std::move(builder);
+                } else {
+                    auto dispatch   = std::make_shared<SetDispatch<MutationTracking::Plain>>(*schema);
+                    auto state_ops  = std::make_shared<AssociativeStateOps<SetDispatch<MutationTracking::Plain>>>(*dispatch);
+                    auto builder    = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch  = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder   = std::move(builder);
+                }
+            } else {
+                if (tracking == MutationTracking::Delta) {
+                    auto dispatch   = std::make_shared<MapDispatch<MutationTracking::Delta>>(*schema);
+                    auto state_ops  = std::make_shared<AssociativeStateOps<MapDispatch<MutationTracking::Delta>>>(*dispatch);
+                    auto builder    = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch  = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder   = std::move(builder);
+                } else {
+                    auto dispatch   = std::make_shared<MapDispatch<MutationTracking::Plain>>(*schema);
+                    auto state_ops  = std::make_shared<AssociativeStateOps<MapDispatch<MutationTracking::Plain>>>(*dispatch);
+                    auto builder    = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch  = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder   = std::move(builder);
+                }
+            }
+
+            auto [it, inserted] = cache.emplace(key, std::move(entry));
+            static_cast<void>(inserted);
+            return it->second.builder.get();
+        }
+
+    }  // namespace detail
+
+    SetView::SetView(const View &view) : View(view) {
+        if (!view.has_value()) { return; }
+        if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Set) {
+            throw std::runtime_error("SetView requires a set schema");
+        }
+    }
+
+    SetMutationView SetView::begin_mutation(engine_time_t evaluation_time) { return SetMutationView{*this, evaluation_time}; }
+
+    SetDeltaView SetView::delta() { return SetDeltaView{*this}; }
+
+    SetDeltaView SetView::delta() const { return SetDeltaView{*this}; }
+
+    void SetView::begin_mutation_scope(engine_time_t evaluation_time) {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetView::begin_mutation on invalid view"); }
+        dispatch->begin_mutation(data(), evaluation_time);
+    }
+
+    void SetView::end_mutation_scope() noexcept {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { return; }
+        dispatch->end_mutation(data());
+    }
+
+    size_t SetView::size() const {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetView::size on invalid view"); }
+        return dispatch->size(data());
+    }
+
+    bool SetView::empty() const { return size() == 0; }
+
+    SetDeltaView::SetDeltaView(const View &view) : View(view) {
+        if (!view.has_value()) { return; }
+        if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Set) {
+            throw std::runtime_error("SetDeltaView requires a set schema");
+        }
+    }
+
+    Range<View> SetDeltaView::added() const {
+        return Range<View>{this, slot_capacity(), &SetDeltaView::slot_is_added, &SetDeltaView::project_slot};
+    }
+
+    Range<View> SetDeltaView::removed() const {
+        return Range<View>{this, slot_capacity(), &SetDeltaView::slot_is_removed, &SetDeltaView::project_slot};
+    }
+
+    size_t SetDeltaView::slot_capacity() const {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetDeltaView::slot_capacity on invalid view"); }
+        return dispatch->slot_capacity(data());
+    }
+
+    const value::TypeMeta *SetView::element_schema() const {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetView::element_schema on invalid view"); }
+        return &dispatch->element_schema();
+    }
+
+    Range<View> SetView::values() const {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetView::values on invalid view"); }
+        return Range<View>{this, dispatch->slot_capacity(data()), &SetView::slot_is_live, &SetView::project_live_slot};
+    }
+
+    bool SetDeltaView::slot_occupied(size_t slot) const {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetDeltaView::slot_occupied on invalid view"); }
+        return dispatch->slot_occupied(data(), slot);
+    }
+
+    bool SetDeltaView::slot_added(size_t slot) const {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetDeltaView::slot_added on invalid view"); }
+        return dispatch->slot_added(data(), slot);
+    }
+
+    bool SetDeltaView::slot_removed(size_t slot) const {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetDeltaView::slot_removed on invalid view"); }
+        return dispatch->slot_removed(data(), slot);
+    }
+
+    View SetDeltaView::at_slot(size_t slot) {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetDeltaView::at_slot on invalid view"); }
+        return View{&dispatch->element_dispatch(), dispatch->slot_data(data(), slot), &dispatch->element_schema()};
+    }
+
+    View SetDeltaView::at_slot(size_t slot) const {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetDeltaView::at_slot on invalid view"); }
+        return View{&dispatch->element_dispatch(), const_cast<void *>(dispatch->slot_data(data(), slot)),
+                    &dispatch->element_schema()};
+    }
+
+    bool SetView::contains(const View &value) const {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetView::contains on invalid view"); }
+        if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
+            throw std::runtime_error("SetView::contains requires a valid matching-schema element");
+        }
+        if (value.tracking() == dispatch->element_dispatch().tracking()) { return dispatch->contains(data(), data_of(value)); }
+        Value normalized{value, dispatch->element_dispatch().tracking()};
+        return dispatch->contains(data(), data_of(normalized.view()));
+    }
+
+    void SetView::clear_delta_tracking() {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetView::clear_delta_tracking on invalid view"); }
+        dispatch->clear_delta_tracking(data());
+    }
+
+    SetMutationView::SetMutationView(SetView &view, engine_time_t evaluation_time) : SetView(view) {
+        begin_mutation_scope(evaluation_time);
+    }
+
+    SetMutationView::SetMutationView(SetMutationView &&other) noexcept : SetView(other) {
+        m_owns_scope       = other.m_owns_scope;
+        other.m_owns_scope = false;
+    }
+
+    SetMutationView::~SetMutationView() {
+        if (!m_owns_scope) { return; }
+        try {
+            end_mutation_scope();
+        } catch (...) {}
+    }
+
+    bool SetMutationView::add(const View &value) {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetMutationView::add on invalid view"); }
+        if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
+            throw std::runtime_error("SetMutationView::add requires a valid matching-schema element");
+        }
+        if (value.tracking() == dispatch->element_dispatch().tracking()) { return dispatch->add(data(), data_of(value)); }
+        Value normalized{value, dispatch->element_dispatch().tracking()};
+        return dispatch->add(data(), data_of(normalized.view()));
+    }
+
+    void SetMutationView::reserve(size_t capacity) {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetMutationView::reserve on invalid view"); }
+        dispatch->reserve(data(), capacity);
+    }
+
+    SetMutationView &SetMutationView::adding(const View &value) {
+        static_cast<void>(add(value));
+        return *this;
+    }
+
+    bool SetMutationView::remove(const View &value) {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetMutationView::remove on invalid view"); }
+        if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
+            throw std::runtime_error("SetMutationView::remove requires a valid matching-schema element");
+        }
+        if (value.tracking() == dispatch->element_dispatch().tracking()) { return dispatch->remove(data(), data_of(value)); }
+        Value normalized{value, dispatch->element_dispatch().tracking()};
+        return dispatch->remove(data(), data_of(normalized.view()));
+    }
+
+    SetMutationView &SetMutationView::removing(const View &value) {
+        static_cast<void>(remove(value));
+        return *this;
+    }
+
+    void SetMutationView::clear() {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetMutationView::clear on invalid view"); }
+        dispatch->clear(data());
+    }
+
+    SetMutationView &SetMutationView::clearing() {
+        clear();
+        return *this;
+    }
+
+    const detail::SetViewDispatch *SetView::set_dispatch() const noexcept {
+        return has_value() ? static_cast<const detail::SetViewDispatch *>(dispatch()) : nullptr;
+    }
+
+    bool SetView::slot_is_live(const void *context, size_t slot) {
+        const auto *self     = static_cast<const SetView *>(context);
+        const auto *dispatch = self->set_dispatch();
+        return dispatch != nullptr && dispatch->slot_live(self->data(), slot);
+    }
+
+    View SetView::project_live_slot(const void *context, size_t slot) {
+        const auto *self     = static_cast<const SetView *>(context);
+        const auto *dispatch = self->set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetView::values on invalid view"); }
+        return View{&dispatch->element_dispatch(), const_cast<void *>(dispatch->slot_data(self->data(), slot)),
+                    &dispatch->element_schema()};
+    }
+
+    const detail::SetViewDispatch *SetDeltaView::set_dispatch() const noexcept {
+        return has_value() ? static_cast<const detail::SetViewDispatch *>(dispatch()) : nullptr;
+    }
+
+    bool SetDeltaView::slot_is_added(const void *context, size_t slot) {
+        const auto *self = static_cast<const SetDeltaView *>(context);
+        return self->slot_occupied(slot) && self->slot_added(slot);
+    }
+
+    bool SetDeltaView::slot_is_removed(const void *context, size_t slot) {
+        const auto *self = static_cast<const SetDeltaView *>(context);
+        return self->slot_occupied(slot) && self->slot_removed(slot);
+    }
+
+    View SetDeltaView::project_slot(const void *context, size_t slot) {
+        const auto *self = static_cast<const SetDeltaView *>(context);
+        return self->at_slot(slot);
+    }
+
+    MapView::MapView(const View &view) : View(view) {
+        if (!view.has_value()) { return; }
+        if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Map) {
+            throw std::runtime_error("MapView requires a map schema");
+        }
+    }
+
+    MapMutationView MapView::begin_mutation(engine_time_t evaluation_time) { return MapMutationView{*this, evaluation_time}; }
+
+    MapDeltaView MapView::delta() { return MapDeltaView{*this}; }
+
+    MapDeltaView MapView::delta() const { return MapDeltaView{*this}; }
+
+    void MapView::begin_mutation_scope(engine_time_t evaluation_time) {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::begin_mutation on invalid view"); }
+        dispatch->begin_mutation(data(), evaluation_time);
+    }
+
+    void MapView::end_mutation_scope() noexcept {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { return; }
+        dispatch->end_mutation(data());
+    }
+
+    size_t MapView::size() const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::size on invalid view"); }
+        return dispatch->size(data());
+    }
+
+    bool MapView::empty() const { return size() == 0; }
+
+    size_t MapView::first_live_slot() const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::first_live_slot on invalid view"); }
+        return dispatch->first_live_slot(data());
+    }
+
+    size_t MapView::next_live_slot(size_t slot) const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::next_live_slot on invalid view"); }
+        return dispatch->next_live_slot(data(), slot);
+    }
+
+    MapDeltaView::MapDeltaView(const View &view) : View(view) {
+        if (!view.has_value()) { return; }
+        if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Map) {
+            throw std::runtime_error("MapDeltaView requires a map schema");
+        }
+    }
+
+    Range<View> MapDeltaView::added_keys() const {
+        return Range<View>{this, slot_capacity(), &MapDeltaView::slot_is_added, &MapDeltaView::project_key};
+    }
+
+    Range<View> MapDeltaView::removed_keys() const {
+        return Range<View>{this, slot_capacity(), &MapDeltaView::slot_is_removed, &MapDeltaView::project_key};
+    }
+
+    Range<View> MapDeltaView::updated_keys() const {
+        return Range<View>{this, slot_capacity(), &MapDeltaView::slot_is_updated, &MapDeltaView::project_key};
+    }
+
+    Range<View> MapDeltaView::added_values() const {
+        return Range<View>{this, slot_capacity(), &MapDeltaView::slot_is_added, &MapDeltaView::project_value};
+    }
+
+    Range<View> MapDeltaView::removed_values() const {
+        return Range<View>{this, slot_capacity(), &MapDeltaView::slot_is_removed, &MapDeltaView::project_value};
+    }
+
+    Range<View> MapDeltaView::updated_values() const {
+        return Range<View>{this, slot_capacity(), &MapDeltaView::slot_is_updated, &MapDeltaView::project_value};
+    }
+
+    Range<std::pair<View, View>> MapDeltaView::added_items() const {
+        return Range<std::pair<View, View>>{this, slot_capacity(), &MapDeltaView::slot_is_added, &MapDeltaView::project_item};
+    }
+
+    Range<std::pair<View, View>> MapDeltaView::removed_items() const {
+        return Range<std::pair<View, View>>{this, slot_capacity(), &MapDeltaView::slot_is_removed, &MapDeltaView::project_item};
+    }
+
+    Range<std::pair<View, View>> MapDeltaView::updated_items() const {
+        return Range<std::pair<View, View>>{this, slot_capacity(), &MapDeltaView::slot_is_updated, &MapDeltaView::project_item};
+    }
+
+    size_t MapDeltaView::slot_capacity() const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::slot_capacity on invalid view"); }
+        return dispatch->slot_capacity(data());
+    }
+
+    const value::TypeMeta *MapView::key_schema() const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::key_schema on invalid view"); }
+        return &dispatch->key_schema();
+    }
+
+    const value::TypeMeta *MapView::value_schema() const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::value_schema on invalid view"); }
+        return &dispatch->value_schema();
+    }
+
+    bool MapDeltaView::slot_occupied(size_t slot) const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::slot_occupied on invalid view"); }
+        return dispatch->slot_occupied(data(), slot);
+    }
+
+    bool MapDeltaView::slot_added(size_t slot) const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::slot_added on invalid view"); }
+        return dispatch->slot_added(data(), slot);
+    }
+
+    bool MapDeltaView::slot_removed(size_t slot) const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::slot_removed on invalid view"); }
+        return dispatch->slot_removed(data(), slot);
+    }
+
+    bool MapDeltaView::slot_updated(size_t slot) const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::slot_updated on invalid view"); }
+        return dispatch->slot_updated(data(), slot);
+    }
+
+    size_t MapDeltaView::first_added_slot() const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::first_added_slot on invalid view"); }
+        return dispatch->first_added_slot(data());
+    }
+
+    size_t MapDeltaView::next_added_slot(size_t slot) const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::next_added_slot on invalid view"); }
+        return dispatch->next_added_slot(data(), slot);
+    }
+
+    size_t MapDeltaView::first_removed_slot() const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::first_removed_slot on invalid view"); }
+        return dispatch->first_removed_slot(data());
+    }
+
+    size_t MapDeltaView::next_removed_slot(size_t slot) const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::next_removed_slot on invalid view"); }
+        return dispatch->next_removed_slot(data(), slot);
+    }
+
+    size_t MapDeltaView::first_updated_slot() const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::first_updated_slot on invalid view"); }
+        return dispatch->first_updated_slot(data());
+    }
+
+    size_t MapDeltaView::next_updated_slot(size_t slot) const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::next_updated_slot on invalid view"); }
+        return dispatch->next_updated_slot(data(), slot);
+    }
+
+    View MapDeltaView::key_at_slot(size_t slot) {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::key_at_slot on invalid view"); }
+        return View{&dispatch->key_dispatch(), dispatch->key_data(data(), slot), &dispatch->key_schema()};
+    }
+
+    View MapDeltaView::key_at_slot(size_t slot) const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::key_at_slot on invalid view"); }
+        return View{&dispatch->key_dispatch(), const_cast<void *>(dispatch->key_data(data(), slot)), &dispatch->key_schema()};
+    }
+
+    View MapDeltaView::value_at_slot(size_t slot) {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::value_at_slot on invalid view"); }
+        return View{&dispatch->value_dispatch(), dispatch->value_data(data(), slot), &dispatch->value_schema()};
+    }
+
+    View MapDeltaView::value_at_slot(size_t slot) const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::value_at_slot on invalid view"); }
+        return View{&dispatch->value_dispatch(), const_cast<void *>(dispatch->value_data(data(), slot)), &dispatch->value_schema()};
+    }
+
+    bool MapView::contains(const View &key) const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::contains on invalid view"); }
+        if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
+            throw std::runtime_error("MapView::contains requires a valid matching-schema key");
+        }
+        const auto slot_is_live = [this, dispatch](size_t slot) {
+            return slot != static_cast<size_t>(-1) && dispatch->slot_occupied(data(), slot) &&
+                   !dispatch->slot_removed(data(), slot);
+        };
+        if (key.tracking() == dispatch->key_dispatch().tracking()) { return slot_is_live(dispatch->find(data(), data_of(key))); }
+        Value normalized{key, dispatch->key_dispatch().tracking()};
+        return slot_is_live(dispatch->find(data(), data_of(normalized.view())));
+    }
+
+    void MapView::clear_delta_tracking() {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::clear_delta_tracking on invalid view"); }
+        dispatch->clear_delta_tracking(data());
+    }
+
+    size_t MapView::find_slot(const View &key) const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::find_slot on invalid view"); }
+        if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
+            throw std::runtime_error("MapView::find_slot requires a valid matching-schema key");
+        }
+        if (key.tracking() == dispatch->key_dispatch().tracking()) { return dispatch->find(data(), data_of(key)); }
+        Value normalized{key, dispatch->key_dispatch().tracking()};
+        return dispatch->find(data(), data_of(normalized.view()));
+    }
+
+    View MapView::at(const View &key) {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::at on invalid view"); }
+        if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
+            throw std::runtime_error("MapView::at requires a valid matching-schema key");
+        }
+        size_t index = static_cast<size_t>(-1);
+        if (key.tracking() == dispatch->key_dispatch().tracking()) {
+            index = dispatch->find(data(), data_of(key));
+        } else {
+            Value normalized{key, dispatch->key_dispatch().tracking()};
+            index = dispatch->find(data(), data_of(normalized.view()));
+        }
+        if (index == static_cast<size_t>(-1)) { throw std::out_of_range("MapView::at key not found"); }
+        return View{&dispatch->value_dispatch(), dispatch->value_data(data(), index), &dispatch->value_schema()};
+    }
+
+    View MapView::at(const View &key) const {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::at on invalid view"); }
+        if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
+            throw std::runtime_error("MapView::at requires a valid matching-schema key");
+        }
+        size_t index = static_cast<size_t>(-1);
+        if (key.tracking() == dispatch->key_dispatch().tracking()) {
+            index = dispatch->find(data(), data_of(key));
+        } else {
+            Value normalized{key, dispatch->key_dispatch().tracking()};
+            index = dispatch->find(data(), data_of(normalized.view()));
+        }
+        if (index == static_cast<size_t>(-1)) { throw std::out_of_range("MapView::at key not found"); }
+        return View{&dispatch->value_dispatch(), const_cast<void *>(dispatch->value_data(data(), index)),
+                    &dispatch->value_schema()};
+    }
+
+    MapMutationView::MapMutationView(MapView &view, engine_time_t evaluation_time) : MapView(view) {
+        begin_mutation_scope(evaluation_time);
+    }
+
+    MapMutationView::MapMutationView(MapMutationView &&other) noexcept : MapView(other) {
+        m_owns_scope       = other.m_owns_scope;
+        other.m_owns_scope = false;
+    }
+
+    MapMutationView::~MapMutationView() {
+        if (!m_owns_scope) { return; }
+        try {
+            end_mutation_scope();
+        } catch (...) {}
+    }
+
+    void MapMutationView::set(const View &key, const View &value) {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapMutationView::set on invalid view"); }
+        if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
+            throw std::runtime_error("MapMutationView::set requires a valid matching-schema key");
+        }
+        if (!value.has_value()) { throw std::runtime_error("MapMutationView::set requires a valid value"); }
+        if (value.schema() != nullptr && value.schema() != &dispatch->value_schema()) {
+            throw std::runtime_error("MapMutationView::set requires a matching value schema");
+        }
+        Value       normalized_key;
+        Value       normalized_value;
+        const void *key_data   = nullptr;
+        const void *value_data = nullptr;
+        if (key.tracking() == dispatch->key_dispatch().tracking()) {
+            key_data = data_of(key);
+        } else {
+            normalized_key = Value{key, dispatch->key_dispatch().tracking()};
+            key_data       = data_of(normalized_key.view());
+        }
+        if (value.tracking() == dispatch->value_dispatch().tracking()) {
+            value_data = data_of(value);
+        } else {
+            normalized_value = Value{value, dispatch->value_dispatch().tracking()};
+            value_data       = data_of(normalized_value.view());
+        }
+        dispatch->set_item(data(), key_data, value_data);
+    }
+
+    void MapMutationView::reserve(size_t capacity) {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapMutationView::reserve on invalid view"); }
+        dispatch->reserve(data(), capacity);
+    }
+
+    MapMutationView &MapMutationView::setting(const View &key, const View &value) {
+        set(key, value);
+        return *this;
+    }
+
+    bool MapMutationView::remove(const View &key) {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapMutationView::remove on invalid view"); }
+        if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
+            throw std::runtime_error("MapMutationView::remove requires a valid matching-schema key");
+        }
+        if (key.tracking() == dispatch->key_dispatch().tracking()) { return dispatch->remove(data(), data_of(key)); }
+        Value normalized{key, dispatch->key_dispatch().tracking()};
+        return dispatch->remove(data(), data_of(normalized.view()));
+    }
+
+    MapMutationView &MapMutationView::removing(const View &key) {
+        static_cast<void>(remove(key));
+        return *this;
+    }
+
+    void MapMutationView::clear() {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapMutationView::clear on invalid view"); }
+        dispatch->clear(data());
+    }
+
+    MapMutationView &MapMutationView::clearing() {
+        clear();
+        return *this;
+    }
+
+    const detail::MapViewDispatch *MapView::map_dispatch() const noexcept {
+        return has_value() ? static_cast<const detail::MapViewDispatch *>(dispatch()) : nullptr;
+    }
+
+    const detail::MapViewDispatch *MapDeltaView::map_dispatch() const noexcept {
+        return has_value() ? static_cast<const detail::MapViewDispatch *>(dispatch()) : nullptr;
+    }
+
+    bool MapDeltaView::slot_is_added(const void *context, size_t slot) {
+        const auto *self = static_cast<const MapDeltaView *>(context);
+        return self->slot_occupied(slot) && self->slot_added(slot);
+    }
+
+    bool MapDeltaView::slot_is_removed(const void *context, size_t slot) {
+        const auto *self = static_cast<const MapDeltaView *>(context);
+        return self->slot_occupied(slot) && self->slot_removed(slot);
+    }
+
+    bool MapDeltaView::slot_is_updated(const void *context, size_t slot) {
+        const auto *self     = static_cast<const MapDeltaView *>(context);
+        const auto *dispatch = self->map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::updated range on invalid view"); }
+        return self->slot_occupied(slot) && dispatch->slot_updated(self->data(), slot);
+    }
+
+    View MapDeltaView::project_key(const void *context, size_t slot) {
+        const auto *self = static_cast<const MapDeltaView *>(context);
+        return self->key_at_slot(slot);
+    }
+
+    View MapDeltaView::project_value(const void *context, size_t slot) {
+        const auto *self = static_cast<const MapDeltaView *>(context);
+        return self->value_at_slot(slot);
+    }
+
+    std::pair<View, View> MapDeltaView::project_item(const void *context, size_t slot) {
+        const auto *self = static_cast<const MapDeltaView *>(context);
+        return {self->key_at_slot(slot), self->value_at_slot(slot)};
+    }
+
+}  // namespace hgraph

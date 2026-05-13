@@ -19,6 +19,24 @@ class MeshWiringSignature(TsdMapWiringSignature):
 class MeshWiringNodeClass(BaseWiringNodeClass):
     signature: MeshWiringSignature
 
+    def _identity_eq_key(self) -> tuple:
+        return (
+            self.signature.inner_graph,
+            self.signature.multiplexed_args,
+            self.signature.key_arg,
+            self.signature.key_tp,
+            self.signature.context_path,
+        )
+
+    def _identity_hash_key(self) -> tuple:
+        return (
+            id(self.signature.inner_graph),
+            self.signature.multiplexed_args,
+            self.signature.key_arg,
+            self.signature.key_tp,
+            self.signature.context_path,
+        )
+
     def create_node_builder_instance(
         self, resolved_wiring_signature, node_signature: "MeshWiringSignature", scalars: Mapping[str, Any]
     ) -> "NodeBuilder":

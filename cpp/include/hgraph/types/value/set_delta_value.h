@@ -9,8 +9,8 @@
  */
 
 #include <hgraph/types/value/value.h>
-#include <hgraph/types/value/indexed_view.h>
 #include <hgraph/types/value/type_registry.h>
+#include <hgraph/types/constants.h>
 
 #include <nanobind/nanobind.h>
 
@@ -21,8 +21,10 @@ namespace hgraph::value {
 /**
  * @brief Value class representing set delta changes.
  *
- * Contains snapshots of added and removed elements from a TrackedSetStorage.
- * This is an owning value class (copies the delta sets).
+ * Contains owning snapshots of added and removed set elements.
+ *
+ * This is used when code needs stable materialized delta sets rather than the
+ * storage-backed `SetDeltaView` ranges exposed by the value layer.
  */
 struct SetDeltaValue {
     Value _added;
@@ -43,8 +45,8 @@ struct SetDeltaValue {
             _set_schema = TypeRegistry::instance().set(_element_type).build();
             _added = Value(_set_schema);
             _removed = Value(_set_schema);
-            _added.emplace();
-            _removed.emplace();
+            _added.reset();
+            _removed.reset();
         }
     }
 
@@ -58,17 +60,19 @@ struct SetDeltaValue {
             _set_schema = TypeRegistry::instance().set(_element_type).build();
             _added = Value(_set_schema);
             _removed = Value(_set_schema);
-            _added.emplace();
-            _removed.emplace();
+            _added.reset();
+            _removed.reset();
 
             // Copy elements from views
             auto add_set = _added.view().as_set();
-            for (auto elem : added_view) {
-                add_set.add(elem);
+            auto add_mut = add_set.begin_mutation(MIN_ST);
+            for (auto elem : added_view.values()) {
+                static_cast<void>(add_mut.add(elem));
             }
             auto rem_set = _removed.view().as_set();
-            for (auto elem : removed_view) {
-                rem_set.add(elem);
+            auto rem_mut = rem_set.begin_mutation(MIN_ST);
+            for (auto elem : removed_view.values()) {
+                static_cast<void>(rem_mut.add(elem));
             }
         }
     }
@@ -132,12 +136,14 @@ struct SetDeltaValue {
 
         // Convert to Python sets
         nb::set py_added;
-        for (auto elem : added()) {
+        auto add_view = added();
+        for (auto elem : add_view.values()) {
             py_added.add(elem.to_python());
         }
 
         nb::set py_removed;
-        for (auto elem : removed()) {
+        auto rem_view = removed();
+        for (auto elem : rem_view.values()) {
             py_removed.add(elem.to_python());
         }
 

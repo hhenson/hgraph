@@ -235,7 +235,7 @@ is_atomic = False
 | Property | Description |
 |----------|-------------|
 | `value` | Current value at this tick |
-| `delta_value` | Change since last tick |
+| `delta_value` | Change since last tick (type-specific; scalar-like invalid deltas are `None`, container deltas are empty containers when unchanged) |
 | `modified` | True if value changed this tick |
 | `valid` | True if value exists |
 | `all_valid` | True if all children valid (collections) |
@@ -257,7 +257,8 @@ TS[Trade]  # Time-series of compound scalars
 - `value_scalar_tp`: The scalar type T
 
 **Semantics:**
-- `delta_value = value` (for scalars, delta is the full value)
+- `delta_value = value` when valid (for scalars, delta is the full value)
+- `delta_value = None` when invalid at the Python API surface
 
 ### 3.3 TSB[Schema] - Time-Series Bundle
 

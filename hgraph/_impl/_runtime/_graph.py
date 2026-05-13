@@ -201,7 +201,7 @@ class PythonGraph(Graph):
         engine = self._evaluation_engine
         engine.notify_before_stop_graph(self)
         exception = None
-        for node in self._nodes:
+        for node in reversed(self._nodes):
             engine.notify_before_stop_node(node)
             try:
                 node.stop()
@@ -216,7 +216,7 @@ class PythonGraph(Graph):
     def stop_subgraph(self, start: int, end: int):
         """Stop the subgraph (end is exclusive), i.e. [start, end)"""
         engine = self._evaluation_engine
-        for node in self.nodes[start:end]:
+        for node in reversed(self.nodes[start:end]):
             engine.notify_before_stop_node(node)
             node.stop()
             engine.notify_after_stop_node(node)

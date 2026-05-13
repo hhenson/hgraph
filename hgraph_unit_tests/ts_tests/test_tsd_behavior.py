@@ -218,6 +218,20 @@ def test_getitem_missing_then_added():
     assert result == [None, 2, 3, 1, None]
 
 
+def test_getitem_inside_compute_node_with_scalar_keys():
+    """Test direct Python TSD child access using scalar keys from the TSD API."""
+    @compute_node
+    def g(tsd: TSD[str, TS[int]]) -> TS[dict]:
+        out = {}
+        for key in tsd.valid_keys():
+            value = tsd[key]
+            out[key] = value.value if value.valid else None
+        return out
+
+    result = eval_node(g, [{"a": 1}, {"a": 2}, {"b": 3}])
+    assert result == [{"a": 1}, {"a": 2}, {"a": 2, "b": 3}]
+
+
 # =============================================================================
 # STATE PROPERTY TESTS
 # =============================================================================

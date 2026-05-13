@@ -1,8 +1,5 @@
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/value.h>
-#include <hgraph/types/value/composite_ops.h>
-#include <hgraph/types/value/cyclic_buffer_ops.h>
-#include <hgraph/types/value/queue_ops.h>
 
 namespace hgraph::value {
 
@@ -155,40 +152,6 @@ const char* TypeRegistry::store_name(std::string name) {
 }
 
 // ============================================================================
-// Non-template register_type (name + custom ops, no C++ type binding)
-// ============================================================================
-
-const TypeMeta* TypeRegistry::register_type(const std::string& name, const type_ops& custom_ops) {
-    // Check name cache first
-    auto it = _name_cache.find(name);
-    if (it != _name_cache.end()) {
-        return it->second;
-    }
-
-    // Create TypeMeta with custom ops
-    auto meta = std::make_unique<TypeMeta>();
-    meta->size = 0;
-    meta->alignment = 1;
-    meta->kind = TypeKind::Atomic;
-    meta->flags = TypeFlags::None;
-    meta->ops_ = custom_ops;
-    meta->element_type = nullptr;
-    meta->key_type = nullptr;
-    meta->fields = nullptr;
-    meta->field_count = 0;
-    meta->fixed_size = 0;
-
-    const char* stored_name = store_name_interned(name);
-    meta->name = stored_name;
-
-    TypeMeta* meta_ptr = meta.get();
-    _composite_types.push_back(std::move(meta));
-    _name_cache[name] = meta_ptr;
-
-    return meta_ptr;
-}
-
-// ============================================================================
 // Name-Based Type Lookup
 // ============================================================================
 
@@ -315,11 +278,8 @@ const TypeMeta* TupleBuilder::build() {
     meta->kind = TypeKind::Tuple;
     meta->flags = flags;
     meta->field_count = count;
-    size_t tuple_storage_size = total_size + validity_mask_bytes(count);
-    tuple_storage_size = (tuple_storage_size + max_alignment - 1) & ~(max_alignment - 1);
-    meta->size = tuple_storage_size;
-    meta->alignment = max_alignment;
-    meta->ops_ = TupleOps::make_ops();
+    meta->size = sizeof(::hgraph::Value);
+    meta->alignment = alignof(::hgraph::Value);
     meta->name = nullptr;
     meta->element_type = nullptr;
     meta->key_type = nullptr;
@@ -379,11 +339,8 @@ const TypeMeta* BundleBuilder::build() {
     meta->kind = TypeKind::Bundle;
     meta->flags = flags;
     meta->field_count = count;
-    size_t bundle_storage_size = total_size + validity_mask_bytes(count);
-    bundle_storage_size = (bundle_storage_size + max_alignment - 1) & ~(max_alignment - 1);
-    meta->size = bundle_storage_size;
-    meta->alignment = max_alignment;
-    meta->ops_ = BundleOps::make_ops();
+    meta->size = sizeof(::hgraph::Value);
+    meta->alignment = alignof(::hgraph::Value);
     meta->name = nullptr;
     meta->element_type = nullptr;
     meta->key_type = nullptr;
@@ -410,21 +367,9 @@ const TypeMeta* ListBuilder::build() {
     meta->flags = _is_variadic_tuple ? TypeFlags::VariadicTuple : TypeFlags::None;
     meta->field_count = 0;
 
-    if (_fixed_size > 0) {
-        // Fixed-size list: elements stored inline
-        size_t elem_size = _element_type ? _element_type->size : 0;
-        size_t elem_align = _element_type ? _element_type->alignment : 1;
-        size_t list_storage_size = elem_size * _fixed_size + validity_mask_bytes(_fixed_size);
-        list_storage_size = (list_storage_size + elem_align - 1) & ~(elem_align - 1);
-        meta->size = list_storage_size;
-        meta->alignment = elem_align;
-    } else {
-        // Dynamic list: uses DynamicListStorage
-        meta->size = sizeof(DynamicListStorage);
-        meta->alignment = alignof(DynamicListStorage);
-    }
+    meta->size = sizeof(::hgraph::Value);
+    meta->alignment = alignof(::hgraph::Value);
 
-    meta->ops_ = ListOps::make_ops();
     meta->name = nullptr;
     meta->element_type = _element_type;
     meta->key_type = nullptr;
@@ -443,9 +388,8 @@ const TypeMeta* SetBuilder::build() {
     meta->kind = TypeKind::Set;
     meta->flags = TypeFlags::None;
     meta->field_count = 0;
-    meta->size = sizeof(SetStorage);
-    meta->alignment = alignof(SetStorage);
-    meta->ops_ = SetOps::make_ops();
+    meta->size = sizeof(::hgraph::Value);
+    meta->alignment = alignof(::hgraph::Value);
     meta->name = nullptr;
     meta->element_type = _element_type;
     meta->key_type = nullptr;
@@ -464,9 +408,8 @@ const TypeMeta* MapBuilder::build() {
     meta->kind = TypeKind::Map;
     meta->flags = TypeFlags::None;
     meta->field_count = 0;
-    meta->size = sizeof(MapStorage);
-    meta->alignment = alignof(MapStorage);
-    meta->ops_ = MapOps::make_ops();
+    meta->size = sizeof(::hgraph::Value);
+    meta->alignment = alignof(::hgraph::Value);
     meta->name = nullptr;
     meta->element_type = _value_type;  // Map uses element_type for values
     meta->key_type = _key_type;
@@ -485,9 +428,8 @@ const TypeMeta* CyclicBufferBuilder::build() {
     meta->kind = TypeKind::CyclicBuffer;
     meta->flags = TypeFlags::None;
     meta->field_count = 0;
-    meta->size = sizeof(CyclicBufferStorage);
-    meta->alignment = alignof(CyclicBufferStorage);
-    meta->ops_ = CyclicBufferOps::make_ops();
+    meta->size = sizeof(::hgraph::Value);
+    meta->alignment = alignof(::hgraph::Value);
     meta->name = nullptr;
     meta->element_type = _element_type;
     meta->key_type = nullptr;
@@ -506,9 +448,8 @@ const TypeMeta* QueueBuilder::build() {
     meta->kind = TypeKind::Queue;
     meta->flags = TypeFlags::None;
     meta->field_count = 0;
-    meta->size = sizeof(QueueStorage);
-    meta->alignment = alignof(QueueStorage);
-    meta->ops_ = QueueOps::make_ops();
+    meta->size = sizeof(::hgraph::Value);
+    meta->alignment = alignof(::hgraph::Value);
     meta->name = nullptr;
     meta->element_type = _element_type;
     meta->key_type = nullptr;

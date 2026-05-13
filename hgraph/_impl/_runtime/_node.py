@@ -1,4 +1,5 @@
 import functools
+import logging
 import threading
 from abc import ABC, abstractmethod
 from collections import deque
@@ -539,6 +540,7 @@ class _SenderReceiverState:
     queue: deque = field(default_factory=deque)
     evaluation_clock: EngineEvaluationClock = None
     stopped: bool = False
+    stopped_warning_emitted: bool = False
 
     def __call__(self, value):
         self.enqueue(value)
@@ -546,7 +548,10 @@ class _SenderReceiverState:
     def enqueue(self, value):
         with self.lock:
             if self.stopped:
-                raise RuntimeError("Cannot enqueue into a stopped receiver")
+                if not self.stopped_warning_emitted:
+                    logging.getLogger(__name__).warning("Ignoring enqueue into a stopped receiver")
+                    self.stopped_warning_emitted = True
+                return
             self.queue.append(value)
             self.evaluation_clock.mark_push_node_requires_scheduling()
 
