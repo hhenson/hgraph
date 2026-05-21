@@ -242,7 +242,7 @@ def _publish_table_from_tsd_start(
     elif isinstance(_schema, HgTSTypeMetaData):
         if isinstance(_schema.value_scalar_tp, HgCompoundScalarType):
             state.schema = {k: v.py_type for k, v in _schema.value_scalar_tp.meta_data_schema.items()}
-            state.process_row = lambda v: asdict(v.value)
+            state.process_row = lambda v: v.value.to_dict()
             state.multi_row = False
         elif isinstance(_schema.value_scalar_tp, HgDataFrameScalarTypeMetaData):
             state.schema = {k: v.py_type for k, v in _schema.value_scalar_tp.schema.meta_data_schema.items()}

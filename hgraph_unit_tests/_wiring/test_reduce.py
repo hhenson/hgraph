@@ -1,7 +1,9 @@
+import logging
 import pytest
 pytestmark = pytest.mark.smoke
 
 from hgraph import DEFAULT, REMOVE, REMOVE_IF_EXISTS, const, debug_print, graph, TSD, TS, log_, reduce, add_, Size, TSL, SIZE, map_, default, format_, sum_, switch_, compute_node, if_, TS_OUT, TimeSeriesSchema, TSB
+from hgraph.nodes import keys_where_true
 from hgraph.test import eval_node
 
 
@@ -285,3 +287,59 @@ def test_reduce_unset_refs():
                     __trace__=False)
 
     assert res == [0, None, 3]
+
+
+def test_reduce_map_shrink_no_subscriber_leak():
+    """
+    Reproduces the 'Output instance still has subscribers when released' bug.
+
+    When a reduce node uses a map_ lambda and the binary tree shrinks (due to removals),
+    the MAP node's per-key TSD outputs are released while still having subscribers.
+
+    The pattern:
+      - reduce over TSD[str, TSD[str, TS[float]]] using map_ inside the lambda
+      - downstream nodes subscribe to the reduce's reference output
+        (via keys_where_true + map_)
+      - enough items to grow the tree past capacity 8 (requires >8 super-nodes)
+      - enough removals to trigger _re_balance_nodes -> _shrink_tree
+
+    Previously this logged "Output instance still has subscribers when released" errors
+    and caused crashes due to dangling references to released outputs.
+    """
+    errors = []
+
+    class ErrorCapture(logging.Handler):
+        def emit(self, record):
+            if record.levelno >= logging.ERROR:
+                errors.append(record.getMessage())
+
+    handler = ErrorCapture()
+    logging.getLogger("hgraph").addHandler(handler)
+    try:
+
+        @graph
+        def g(outer: TSD[str, TSD[str, TS[float]]]) -> TSD[str, TS[float]]:
+            reduced = outer.reduce(lambda x, y: map_(lambda i, j: default(i, 0.0) + default(j, 0.0), x, y))
+            non_zero = reduced[keys_where_true(map_(lambda v: v != 0.0, reduced))]
+            return non_zero
+
+        n = 17
+        keys = ["s" + str(i).zfill(2) for i in range(n)]
+
+        result = eval_node(
+            g,
+            [
+                {k: {"a": float(i + 1), "b": float(i + 2)} for i, k in enumerate(keys)},
+                {k: REMOVE_IF_EXISTS for k in keys[:11]},
+                {keys[0]: {"a": 100.0}},
+                {k: REMOVE_IF_EXISTS for k in keys[11:]},
+                {keys[0]: {"a": 200.0}},
+            ],
+        )
+
+        assert result[-1] == {"a": 200.0}
+        assert not errors, f"Unexpected error logs (subscriber leak):\n" + "\n".join(
+            e.split("\n")[0] for e in errors
+        )
+    finally:
+        logging.getLogger("hgraph").removeHandler(handler)
