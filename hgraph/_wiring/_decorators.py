@@ -1,6 +1,6 @@
 from functools import wraps
 from inspect import signature, isfunction
-from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any, overload
+from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any, overload, overload
 
 from frozendict import frozendict
 
@@ -49,7 +49,7 @@ def operator(fn: GRAPH_SIGNATURE) -> GRAPH_SIGNATURE: ...
 @overload
 def operator(*, deprecated: bool | str = ...) -> Callable[[GRAPH_SIGNATURE], GRAPH_SIGNATURE]: ...
 
-def operator(fn: GRAPH_SIGNATURE = None, deprecated: bool | str = False) -> GRAPH_SIGNATURE:
+def operator(fn=None, deprecated: bool | str = False):
     """
     Used to define a name and partial signature of a graph operator. A graph operator is a function that
     operates on more or more time-series values, typically producing a time-series value.
@@ -125,18 +125,18 @@ def compute_node(
 ) -> Callable[[COMPUTE_NODE_SIGNATURE], COMPUTE_NODE_SIGNATURE]: ...
 
 def compute_node(
-    fn: COMPUTE_NODE_SIGNATURE = None,
+    fn=None,
     /,
-    node_impl=None,
+    node_impl = None,
     active: Sequence[str] | Callable = None,
     valid: Sequence[str] | Callable = None,
     all_valid: Sequence[str] | Callable = None,
     overloads: "WiringNodeClass" | COMPUTE_NODE_SIGNATURE = None,
     resolvers: Mapping["Type", Callable] = None,
-    requires: Callable[[..., ...], bool] = None,
+    requires: Callable = None,
     label: str | None = None,
     deprecated: bool | str = False,
-) -> COMPUTE_NODE_SIGNATURE:
+):
     """
     Marks a function as being a compute node in the graph, a compute node accepts one or more time-series inputs and
     returns a time-series value. The compute node performs work whenever an input (marked as active) is modified.
@@ -251,19 +251,24 @@ def pull_source_node(fn: SOURCE_NODE_SIGNATURE, /) -> SOURCE_NODE_SIGNATURE: ...
 
 @overload
 def pull_source_node(
-    fn: None = ..., /, node_impl: Any = ..., resolvers: Mapping["TypeVar", Callable] = ...,
-    requires: Callable[[..., ...], bool] = ..., label: str | None = ..., deprecated: bool | str = ...,
+    fn: None = ..., 
+    /, 
+    node_impl: Any = ..., 
+    resolvers: Mapping["TypeVar", Callable] = ...,
+    requires: Callable[[..., ...], bool] = ..., 
+    label: str | None = ..., 
+    deprecated: bool | str = ...,
 ) -> Callable[[SOURCE_NODE_SIGNATURE], SOURCE_NODE_SIGNATURE]: ...
 
 def pull_source_node(
-    fn: SOURCE_NODE_SIGNATURE = None,
+    fn=None,
     /,
     node_impl=None,
-    resolvers: Mapping["TypeVar", Callable] = None,
-    requires: Callable[[..., ...], bool] = None,
-    label: str | None = None,
+    resolvers=None,
+    requires=None,
+    label=None,
     deprecated: bool | str = False,
-) -> SOURCE_NODE_SIGNATURE:
+):
     """
     Used to indicate the signature for a source node. For Python source nodes use either the
     generator or source_adapter annotations.
@@ -291,14 +296,14 @@ def push_source_node(
 ) -> Callable[[SOURCE_NODE_SIGNATURE], SOURCE_NODE_SIGNATURE]: ...
 
 def push_source_node(
-    fn: SOURCE_NODE_SIGNATURE = None,
+    fn=None,
     /,
     node_impl=None,
-    resolvers: Mapping["TypeVar", Callable] = None,
-    requires: Callable[[..., ...], bool] = None,
-    label: str | None = None,
+    resolvers=None,
+    requires=None,
+    label=None,
     deprecated: bool | str = False,
-) -> SOURCE_NODE_SIGNATURE:
+):
     """
     Used to indicate the signature for a push source node.
     """
@@ -327,18 +332,18 @@ def sink_node(
 ) -> Callable[[SINK_NODE_SIGNATURE], SINK_NODE_SIGNATURE]: ...
 
 def sink_node(
-    fn: SINK_NODE_SIGNATURE = None,
+    fn=None,
     /,
     node_impl=None,
-    active: Sequence[str] | Callable = None,
-    valid: Sequence[str] | Callable = None,
-    all_valid: Sequence[str] | Callable = None,
-    overloads: "WiringNodeClass" | SINK_NODE_SIGNATURE = None,
-    resolvers: Mapping["Type", Callable] = None,
-    requires: Callable[[..., ...], bool] = None,
-    label: str | None = None,
+    active=None,
+    valid=None,
+    all_valid=None,
+    overloads=None,
+    resolvers=None,
+    requires=None,
+    label=None,
     deprecated: bool | str = False,
-) -> SINK_NODE_SIGNATURE:
+):
     """
     A sink node is a node in the graph that accepts one or more time-series inputs and produces no output.
     These nodes are leaf nodes of the graph and generally the only nodes in the graph that we expect to have side
@@ -392,13 +397,13 @@ def graph(
 ) -> Callable[[GRAPH_SIGNATURE], GRAPH_SIGNATURE]: ...
 
 def graph(
-    fn: GRAPH_SIGNATURE = None,
-    overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
-    resolvers: Mapping["TypeVar", Callable] = None,
-    requires: Callable[[..., ...], bool] = None,
-    label: str | None = None,
+    fn=None,
+    overloads=None,
+    resolvers=None,
+    requires=None,
+    label=None,
     deprecated: bool | str = False,
-) -> GRAPH_SIGNATURE:
+):
     """
     The `graph` decorator represents a function that contains wiring logic. Wiring logic is only evaluated once
     when the graph is created and is used to indicate which nodes to construct and how to connect the input and outputs
@@ -461,13 +466,13 @@ def const_fn(
 ) -> Callable[[SOURCE_NODE_SIGNATURE], SOURCE_NODE_SIGNATURE]: ...
 
 def const_fn(
-    fn: SOURCE_NODE_SIGNATURE = None,
-    overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
-    resolvers: Mapping["TypeVar", Callable] = None,
-    requires: Callable[[..., ...], bool] = None,
-    label: str | None = None,
+    fn=None,
+    overloads=None,
+    resolvers=None,
+    requires=None,
+    label=None,
     deprecated: bool | str = False,
-) -> SOURCE_NODE_SIGNATURE:
+):
     """
     Wraps a constant function. A constant function is one that accepts non-time-series inputs and produces a constant
     value. The function returns a value that matches the scalar representation of the time-series output.
@@ -517,13 +522,13 @@ def generator(
 ) -> Callable[[SOURCE_NODE_SIGNATURE], SOURCE_NODE_SIGNATURE]: ...
 
 def generator(
-    fn: SOURCE_NODE_SIGNATURE = None,
-    overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
-    resolvers: Mapping["TypeVar", Callable] = None,
-    requires: Callable[[..., ...], bool] = None,
-    label: str | None = None,
+    fn=None,
+    overloads=None,
+    resolvers=None,
+    requires=None,
+    label=None,
     deprecated: bool | str = False,
-) -> SOURCE_NODE_SIGNATURE:
+):
     """
     Creates a pull source node that supports generating a sequence of ticks that will be fed into the
     graph. The generator wraps a function that is implemented as a python generator which returns a tuple of
@@ -656,9 +661,7 @@ def subscription_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION: ...
 @overload
 def subscription_service(*, resolvers: Mapping["TypeVar", Callable] = ...) -> Callable[[SERVICE_DEFINITION], SERVICE_DEFINITION]: ...
 
-def subscription_service(
-    fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None
-) -> SERVICE_DEFINITION:
+def subscription_service(fn=None, resolvers=None):
     """
     A subscription service is a service where the input receives a subscription key and then
     streams back results. This looks like:
@@ -691,9 +694,7 @@ def reference_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION: ...
 @overload
 def reference_service(*, resolvers: Mapping["TypeVar", Callable] = ...) -> Callable[[SERVICE_DEFINITION], SERVICE_DEFINITION]: ...
 
-def reference_service(
-    fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None
-) -> SERVICE_DEFINITION:
+def reference_service(fn=None, resolvers=None):
     """
     A reference service is a service that only produces a value that does not vary by request.
     The pattern for a reference services is the same as a source node.
@@ -716,16 +717,13 @@ def reference_service(
 
     return _node_decorator(WiringNodeType.REF_SVC, fn, resolvers=resolvers)
 
-
 @overload
 def request_reply_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION: ...
 
 @overload
 def request_reply_service(*, resolvers: Mapping["TypeVar", Callable] = ...) -> Callable[[SERVICE_DEFINITION], SERVICE_DEFINITION]: ...
 
-def request_reply_service(
-    fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None
-) -> SERVICE_DEFINITION:
+def request_reply_service(fn=None, resolvers=None):
     """
     A request-reply service takes a request and returns a response, error or time-out.
     for example:
@@ -819,7 +817,7 @@ def adaptor(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION: ...
 @overload
 def adaptor(*, resolvers: Mapping["TypeVar", Callable] = ...) -> Callable[[SERVICE_DEFINITION], SERVICE_DEFINITION]: ...
 
-def adaptor(fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None) -> SERVICE_DEFINITION:
+def adaptor(fn=None, resolvers=None):
     """
     ::
 
@@ -870,9 +868,7 @@ def service_adaptor(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION: ...
 @overload
 def service_adaptor(*, resolvers: Mapping["TypeVar", Callable] = ...) -> Callable[[SERVICE_DEFINITION], SERVICE_DEFINITION]: ...
 
-def service_adaptor(
-    fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None
-) -> SERVICE_DEFINITION:
+def service_adaptor(fn=None, resolvers=None):
     """
     ::
 
@@ -969,13 +965,13 @@ def component(
 ) -> Callable[[GRAPH_SIGNATURE], GRAPH_SIGNATURE]: ...
 
 def component(
-    fn: GRAPH_SIGNATURE = None,
+    fn=None,
     *,
-    recordable_id: str | None = None,
-    resolvers: Mapping["TypeVar", Callable] = None,
-    label: str | None = None,
+    recordable_id=None,
+    resolvers=None,
+    label=None,
     deprecated: bool | str = False,
-) -> GRAPH_SIGNATURE:
+):
     """
     Decorator to indicate the function being wrapped is a graph that is recordable.
     A component is a graph, with the following constraints:

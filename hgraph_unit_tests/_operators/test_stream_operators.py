@@ -11,9 +11,13 @@ from hgraph import (
     MIN_TD,
     graph,
     if_,
+    lift,
     map_,
+    combine,
     schedule,
     SIGNAL,
+    until_true,
+    freeze,
     sample,
     lag,
     resample,
@@ -54,6 +58,111 @@ from hgraph.test import eval_node, EvaluationTrace
 
 import pytest
 pytestmark = pytest.mark.smoke
+
+
+def test_until_true_passivates_after_predicate_true():
+    calls = []
+
+    def should_stop(value: int) -> bool:
+        calls.append(value)
+        return value >= 3
+
+    assert eval_node(until_true, should_stop, [1, 2, 3, 4, 5]) == [False, False, True, None, None]
+    assert calls == [1, 2, 3]
+
+
+def test_until_true_stops_ticking_but_remains_true_while_source_keeps_ticking():
+    calls = []
+    schema = ts_schema(f=TS[bool], g_tick=TS[bool], g_value=TS[bool])
+
+    def until_seen_true(value: bool) -> bool:
+        calls.append(value)
+        return value
+
+    @graph
+    def h(f: TS[bool]) -> TSB[schema]:
+        g = until_true(until_seen_true, f)
+        return combine[TSB[schema]](f=f, g_tick=g, g_value=sample(f, g))
+
+    assert eval_node(h, [False, True, None, False, True, False]) == [
+        fd(f=False, g_tick=False, g_value=False),
+        fd(f=True, g_tick=True, g_value=True),
+        None,
+        fd(f=False, g_value=True),
+        fd(f=True, g_value=True),
+        fd(f=False, g_value=True),
+    ]
+    assert calls == [False, True]
+
+
+def test_freeze_passes_through_until_predicate_true():
+    calls = []
+
+    def should_freeze(value: int) -> bool:
+        calls.append(value)
+        return value >= 3
+
+    @graph
+    def g(ts: TS[int]) -> TS[int]:
+        return freeze(should_freeze, ts)
+
+    assert eval_node(g, [1, None, 2, 3, 4]) == [1, None, 2, 3, None]
+    assert calls == [1, 2, 3]
+
+
+def test_freeze_when_predicate_true_on_first_tick():
+    calls = []
+
+    def should_freeze(value: int) -> bool:
+        calls.append(value)
+        return value >= 1
+
+    @graph
+    def g(ts: TS[int]) -> TS[int]:
+        return freeze(should_freeze, ts)
+
+    assert eval_node(g, [1, 2, 3]) == [1, None, None]
+    assert calls == [1]
+
+
+def test_freeze_passes_through_when_predicate_never_true():
+    calls = []
+
+    def should_freeze(value: int) -> bool:
+        calls.append(value)
+        return False
+
+    @graph
+    def g(ts: TS[int]) -> TS[int]:
+        return freeze(lift(should_freeze)(ts), ts)
+
+    assert eval_node(g, [1, None, 2, 3]) == [1, None, 2, 3]
+    assert calls == [1, 2, 3]
+
+
+def test_freeze_does_not_passivate_upstream_value_node():
+    upstream_calls = []
+    schema = ts_schema(frozen=TS[int], frozen_value=TS[int], live=TS[int])
+
+    @compute_node
+    def track(ts: TS[int]) -> TS[int]:
+        upstream_calls.append(ts.value)
+        return ts.value
+
+    @graph
+    def g(ts: TS[int]) -> TSB[schema]:
+        tracked = track(ts)
+        frozen = freeze(lambda value: value >= 3, tracked)
+        return combine[TSB[schema]](frozen=frozen, frozen_value=sample(tracked, frozen), live=tracked)
+
+    assert eval_node(g, [1, 2, 3, 4, 5]) == [
+        fd(frozen=1, frozen_value=1, live=1),
+        fd(frozen=2, frozen_value=2, live=2),
+        fd(frozen=3, frozen_value=3, live=3),
+        fd(frozen_value=3, live=4),
+        fd(frozen_value=3, live=5),
+    ]
+    assert upstream_calls == [1, 2, 3, 4, 5]
 
 
 def test_sample():

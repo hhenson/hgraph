@@ -9,6 +9,7 @@ def diff(ts: OUT) -> OUT:
     """
     Computes the difference between the current value and the previous value in the time-series.
     """
+    ...
 
 
 @operator
@@ -16,6 +17,7 @@ def count(ts: SIGNAL, reset: SIGNAL = None) -> TS[int]:
     """
     Performs a running count of the number of times the time-series has ticked (i.e. emitted a value).
     """
+    ...
 
 
 @operator
@@ -25,6 +27,7 @@ def clip(ts: OUT, min_: NUMBER, max_: NUMBER) -> OUT:
     This can operate on a time-series of NUMBER or more complex data
     structures such as a data frame.
     """
+    ...
 
 
 @operator
@@ -32,6 +35,7 @@ def ewma(ts: OUT, alpha: float, min_periods: int = 0) -> OUT:
     """
     Perform an exponential moving average of the input value/s.
     """
+    ...
 
 
 def center_of_mass_to_alpha(com: float) -> float:

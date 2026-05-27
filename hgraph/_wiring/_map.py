@@ -1,6 +1,6 @@
 import inspect
 from itertools import chain
-from typing import Callable, cast, TYPE_CHECKING, List
+from typing import Any, Callable, cast, TYPE_CHECKING, List
 
 from frozendict import frozendict
 
@@ -40,21 +40,47 @@ KEYS_ARG = "__keys__"
 _KEY_ARG = "__key_arg__"
 
 
-def map_(func: Callable, *args, __label__: str = None, **kwargs):
+def map_(func: WiringNodeClass | Callable[..., Any], *args, __label__: str | None = None, **kwargs) -> WiringPort:
     """
-    This is a simple wrapper that makes it easier to use the map without having to think about the inputs too much.
-    This will attempt to infer which of the map functions are suitable to make use of based on the inputs provided.
-    It will then delegate to the appropriate map function.
+    Apply a node or lambda element-wise over multiplexed time-series inputs (TSD or TSL).
 
-    For mapping over TSD multiplexed inputs, the following extensions are available:
-    * ``__keys__: TSS[SCALAR]`` - The set of keys to use for de-multiplexing values
-    * ``__key_arg__: str = 'key'`` - The name of the input that represents the key property
+    ``map_`` demultiplexes its inputs, calls ``func`` once per key/index, and collects
+    the results into a multiplexed output. The types of ``func``'s parameters are
+    inferred at wiring time from the demultiplexed components of the supplied inputs.
 
-    It is possible to mark an input as not contributing to the key set (when the ``__keys__`` property is not set).
-    To do this, wrap the input with the ``no_key`` operator.
+    :param func: A ``@graph``/``@compute_node`` decorated function or a lambda.
+        When a **TSD** input is supplied, ``func`` receives ``(key, value, ...)`` where
+        ``key`` is the dictionary key and ``value`` is the per-key time-series.
+        When a **TSL** input is supplied, ``func`` receives the per-index time-series.
+    :param args: Time-series inputs to demultiplex and pass to ``func``.
+    :param __label__: Optional label for debugging/tracing.
+    :param kwargs: Named time-series inputs to demultiplex and pass to ``func``.
+    :returns: A ``WiringPort`` representing the multiplexed output.
 
-    Sometimes it is not possible to determine if an input is to be de-multiplexed or not, when you need to be
-    explicit, use the ``pass_through`` operator to mark the input as needing to be supplied directly.
+    **TSD extensions:**
+
+    * ``__keys__: TSS[SCALAR]`` — explicit key set for demultiplexing.
+    * ``__key_arg__: str = 'key'`` — name of the parameter that receives the key.
+    * Wrap an input with ``no_key()`` to exclude it from key-set inference.
+    * Wrap an input with ``pass_through()`` to pass it directly without demultiplexing.
+
+    **Example — map over a TSD:**
+
+    ::
+
+        config: TSD[str, TSB[Config]] = ...
+
+        # func receives (key: TS[str], c: TSB[Config]) per entry
+        map_(lambda key, c: publish_multitable("data", key, random_values(c)), config)
+
+    **Example — map a decorated node:**
+
+    ::
+
+        @compute_node
+        def process(key: TS[str], value: TS[float]) -> TS[float]: ...
+
+        map_(process, my_tsd)
     """
     if len(args) + len(kwargs) == 0:
         raise NoTimeSeriesInputsError()

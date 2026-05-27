@@ -24,6 +24,7 @@ def const(
     :param delay: The amount of time to delay the value by. The default is 0.
     :return: A single tick of the value supplied.
     """
+    ...
 
 
 @operator
@@ -39,6 +40,7 @@ def convert(ts: TIME_SERIES_TYPE, to: type[OUT] = DEFAULT[OUT], **kwargs) -> OUT
         convert[TS[tuple[str, ...]]](c)
 
     """
+    ...
 
 
 @operator
@@ -46,6 +48,7 @@ def combine(*args: TIME_SERIES_TYPE, **kwargs) -> DEFAULT[OUT]:
     """
     Combines the incoming time series into one collection time-series output.
     """
+    ...
 
 
 @operator
@@ -85,3 +88,4 @@ def emit(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
     Accepts a collection representation, for example: ``TS[tuple[int, ...]]`` and returns a time-series of the values
     as a stream of individual ticks (in the example above that would be ``TS[int]``.
     """
+    ...

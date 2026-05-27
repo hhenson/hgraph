@@ -17,6 +17,7 @@ def str_(ts: TIME_SERIES_TYPE) -> TS[str]:
     """
     Converts the incoming time series to a string representation. Default implementation would be str(ts.value).
     """
+    ...
 
 
 class Match(TimeSeriesSchema):
@@ -29,6 +30,7 @@ def match_(pattern: TS[str], s: TS[str]) -> TSB[Match]:
     """
     Matches the pattern in the string and returns the result and matching groups.
     """
+    ...
 
 
 @operator
@@ -36,6 +38,7 @@ def replace(pattern: TS[str], repl: TS[str], s: TS[str]) -> TS[str]:
     """
     Replaces the pattern in the string with the replacement.
     """
+    ...
 
 
 @operator  # Would need to define substr in imports
@@ -48,6 +51,7 @@ def substr(s: TS[str], start: TS[int], end: TS[int] = None) -> TS[str]:
     :param end: Optional ending position (exclusive) of the substring. If None, extracts to the end of string.
     :return: Time series containing the extracted substring
     """
+    ...
 
 
 @operator
@@ -58,6 +62,7 @@ def split(s: TS[str], separator: str, maxsplits: int = sys.maxsize, to: Type[OUT
      - TS[Tuple[str, str]],
      - TSL[TS[str], SIZE]
     """
+    ...
 
 
 @operator
@@ -65,6 +70,7 @@ def join(*strings: TSL[TS[str], SIZE], separator: str) -> TS[str]:
     """
     Joins the strings with the separator.
     """
+    ...
 
 
 @operator
@@ -81,3 +87,4 @@ def format_(
     :param kwargs: Time series kwargs
     :return: The formatted string.
     """
+    ...
