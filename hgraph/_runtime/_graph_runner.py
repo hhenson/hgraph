@@ -125,7 +125,7 @@ class GraphConfiguration:
     cleanup_on_error: bool = True
 
     def __post_init__(self):
-        if self.start_time is MIN_DT:
+        if self.start_time == MIN_DT:
             self.start_time = MIN_ST if self.run_mode is EvaluationMode.SIMULATION else datetime.utcnow()
 
         if self.start_time < MIN_ST:

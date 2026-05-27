@@ -280,9 +280,7 @@ def emit_tsd(
     _state: STATE[_BufferState] = None,
     _schedule: SCHEDULER = None,
 ) -> TSB[KeyValue[KEYABLE_SCALAR, V]]:
-    """
-    Converts a tuple of KeyValue values in a stream of individual SCALAR values.
-    """
+
     if ts.modified:
         _state.buffer.extend([(k, v.value) for k, v in ts.modified_items()])
 

@@ -144,7 +144,7 @@ def collect_tss_from_tss(
 @compute_node(overloads=emit)
 def emit_tss(ts: TSS[SCALAR], _state: STATE[_BufferState] = None, _schedule: SCHEDULER = None) -> TS[SCALAR]:
     """
-    Converts a tuple of SCALAR values in a stream of individual SCALAR values.
+    Converts a set of SCALAR values into a stream of individual SCALAR values
     """
     if ts.modified:
         _state.buffer.extend(ts.added())
