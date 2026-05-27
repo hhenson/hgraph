@@ -1,9 +1,72 @@
+#include <fmt/format.h>
 #include <hgraph/types/base_time_series.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/types/tsb.h>
 
 namespace hgraph {
+
+    namespace {
+        std::string describe_time_series_kind(TimeSeriesKind kind) {
+            switch (kind) {
+                case TimeSeriesKind::Value | TimeSeriesKind::Input: return "ValueInput";
+                case TimeSeriesKind::Value | TimeSeriesKind::Output: return "ValueOutput";
+                case TimeSeriesKind::Dict | TimeSeriesKind::Input: return "DictInput";
+                case TimeSeriesKind::Dict | TimeSeriesKind::Output: return "DictOutput";
+                case TimeSeriesKind::Set | TimeSeriesKind::Input: return "SetInput";
+                case TimeSeriesKind::Set | TimeSeriesKind::Output: return "SetOutput";
+                case TimeSeriesKind::Bundle | TimeSeriesKind::Input: return "BundleInput";
+                case TimeSeriesKind::Bundle | TimeSeriesKind::Output: return "BundleOutput";
+                case TimeSeriesKind::List | TimeSeriesKind::Input: return "ListInput";
+                case TimeSeriesKind::List | TimeSeriesKind::Output: return "ListOutput";
+                case TimeSeriesKind::Reference | TimeSeriesKind::Input: return "ReferenceInput";
+                case TimeSeriesKind::Reference | TimeSeriesKind::Output: return "ReferenceOutput";
+                default: return fmt::format("kind={}", static_cast<uint32_t>(kind));
+            }
+        }
+
+        std::string describe_subscriber(Notifiable *subscriber) {
+            if (auto *input = dynamic_cast<TimeSeriesInput *>(subscriber)) {
+                auto binding = fmt::format("kind={} output@{:p} ref_output@{:p} active={} bound={}",
+                                           describe_time_series_kind(input->kind()),
+                                           static_cast<void *>(input->output()),
+                                           static_cast<void *>(input->reference_output().get()),
+                                           input->active(),
+                                           input->bound());
+                if (input->has_owning_node()) {
+                    auto *node = input->owning_node();
+                    auto node_id = node != nullptr ? fmt::format("{}", fmt::join(node->node_id(), ", ")) : std::string("?");
+                    std::string arg_name = "<unknown>";
+                    if (node != nullptr && node->has_input()) {
+                        const auto &schema = node->input()->schema().keys();
+                        for (size_t i = 0; i < schema.size(); ++i) {
+                            if ((*node->input())[i].get() == input) {
+                                arg_name = schema[i];
+                                break;
+                            }
+                        }
+                    }
+                    return fmt::format("TimeSeriesInput@{:p} {} node={} node_id=<{}> arg={}",
+                                       static_cast<void *>(input),
+                                       binding,
+                                       node != nullptr ? node->signature().signature() : std::string("<unknown>"),
+                                       node_id,
+                                       arg_name);
+                }
+                return fmt::format("TimeSeriesInput@{:p} {} node=<unknown>", static_cast<void *>(input), binding);
+            }
+
+            if (auto *node = dynamic_cast<Node *>(subscriber)) {
+                return fmt::format("Node@{:p} node={} node_id=<{}>",
+                                   static_cast<void *>(node),
+                                   node->signature().signature(),
+                                   fmt::join(node->node_id(), ", "));
+            }
+
+            return fmt::format("Notifiable@{:p}", static_cast<void *>(subscriber));
+        }
+    }
 
     // ============================================================================
     // BaseTimeSeriesOutput Implementation
@@ -115,6 +178,40 @@ namespace hgraph {
     }
 
     void BaseTimeSeriesOutput::builder_release_cleanup() {
+        if (!_subscribers.empty()) {
+            std::vector<std::string> subscriber_descriptions;
+            subscriber_descriptions.reserve(_subscribers.size());
+            for (auto *subscriber : _subscribers) {
+                subscriber_descriptions.push_back(describe_subscriber(subscriber));
+            }
+
+            // Match the Python runtime invariant check as closely as the C++ runtime can.
+            // Unlike Python we cannot suppress this during exception unwinding, so always emit it.
+            if (has_owning_node()) {
+                auto *node = owning_node();
+                fmt::print(stderr,
+                           "Output instance still has subscribers when released, this is a bug.\n"
+                           "output belongs to node {} node_id=<{}>\n"
+                           "subscriber_count={}\n"
+                           "subscriber_details=[{}]\n"
+                           "output@{:p}\n",
+                           node != nullptr ? node->signature().signature() : std::string("<unknown>"),
+                           node != nullptr ? fmt::format("{}", fmt::join(node->node_id(), ", ")) : std::string("?"),
+                           _subscribers.size(),
+                           fmt::join(subscriber_descriptions, ", "),
+                           static_cast<const void *>(this));
+            } else {
+                fmt::print(stderr,
+                           "Output instance still has subscribers when released, this is a bug.\n"
+                           "output belongs to node <unknown>\n"
+                           "subscriber_count={}\n"
+                           "subscriber_details=[{}]\n"
+                           "output@{:p}\n",
+                           _subscribers.size(),
+                           fmt::join(subscriber_descriptions, ", "),
+                           static_cast<const void *>(this));
+            }
+        }
         // Clear subscribers safely without notifications
         _subscribers.clear();
         // Reset modification state to a neutral value without touching evaluation_clock
@@ -487,4 +584,3 @@ namespace hgraph {
         return bound() ? std::max(_output->last_modified_time(), _sample_time) : MIN_DT;
     }
 } // namespace hgraph
-

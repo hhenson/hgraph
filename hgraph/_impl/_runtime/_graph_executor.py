@@ -73,6 +73,7 @@ class PythonGraphExecutor(GraphExecutor):
         finally:
             if cleanup:
                 evaluation_engine.notify_after_evaluation()  # stop() creates after evaluation events that need to be processed for the shutdown to be clean
+                evaluation_engine.notify_before_evaluation()
                 self._graph_builder.release_instance(graph)
 
     @staticmethod

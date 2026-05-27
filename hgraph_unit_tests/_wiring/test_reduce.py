@@ -343,3 +343,164 @@ def test_reduce_map_shrink_no_subscriber_leak():
         )
     finally:
         logging.getLogger("hgraph").removeHandler(handler)
+
+
+def test_switch_reduce_map_shrink_no_subscriber_leak(capfd):
+    """
+    Distills the crash-stack shape down to a pure hgraph repro:
+    shrink a nested reduce/map tree, then flip a switch that owns it.
+
+    The C++ runtime must not release branch outputs while downstream nodes still
+    hold subscriptions into the reduced map.
+    """
+
+    @graph
+    def reduced_non_zero(outer: TSD[str, TSD[str, TS[float]]]) -> TSD[str, TS[float]]:
+        reduced = outer.reduce(lambda x, y: map_(lambda i, j: default(i, 0.0) + default(j, 0.0), x, y))
+        return reduced[keys_where_true(map_(lambda v: v != 0.0, reduced))]
+
+    @graph
+    def g(outer: TSD[str, TSD[str, TS[float]]], enabled: TS[bool]) -> TSD[str, TS[float]]:
+        return switch_(
+            enabled,
+            {
+                True: lambda o: reduced_non_zero(o),
+                False: lambda o: reduced_non_zero(o),
+            },
+            outer,
+        )
+
+    keys = [f"s{i:02d}" for i in range(17)]
+
+    result = eval_node(
+        g,
+        [
+            {k: {"a": float(i + 1), "b": float(i + 2)} for i, k in enumerate(keys)},
+            {k: REMOVE_IF_EXISTS for k in keys[:11]},
+            None,
+            {k: REMOVE_IF_EXISTS for k in keys[11:]},
+            None,
+        ],
+        [
+            True,
+            None,
+            False,
+            None,
+            True,
+        ],
+    )
+
+    assert result[-1] == {}
+
+    captured = "".join(capfd.readouterr())
+    assert "Output instance still has subscribers when released" not in captured
+
+
+def test_switch_reduce_map_shrink_with_trace():
+    """
+    A stronger version of the switch/reduce repro above.
+
+    Trace output should remain safe while a switched branch tears down a reduced
+    nested map and downstream nodes still inspect the resulting references.
+    """
+
+    @graph
+    def reduced_non_zero(outer: TSD[str, TSD[str, TS[float]]]) -> TSD[str, TS[float]]:
+        reduced = outer.reduce(lambda x, y: map_(lambda i, j: default(i, 0.0) + default(j, 0.0), x, y))
+        return reduced[keys_where_true(map_(lambda v: v != 0.0, reduced))]
+
+    @graph
+    def switched_reduce(outer: TSD[str, TSD[str, TS[float]]], enabled: TS[bool]) -> TSD[str, TS[float]]:
+        return switch_(
+            enabled,
+            {
+                True: lambda o: reduced_non_zero(o),
+                False: lambda o: reduced_non_zero(o),
+            },
+            outer,
+        )
+
+    @graph
+    def g(values: TSD[str, TSD[str, TSD[str, TS[float]]]], enabled: TSD[str, TS[bool]]) -> TSD[str, TSD[str, TS[float]]]:
+        return map_(switched_reduce, values, enabled)
+
+    keys = [f"s{i:02d}" for i in range(17)]
+
+    result = eval_node(
+        g,
+        [
+            {"p1": {k: {"a": float(i + 1), "b": float(i + 2)} for i, k in enumerate(keys)}},
+            {"p1": {k: REMOVE_IF_EXISTS for k in keys[:11]}},
+            None,
+            {"p1": {k: REMOVE_IF_EXISTS for k in keys[11:]}},
+            {"p1": REMOVE_IF_EXISTS},
+            {"p1": {"r1": {"a": 10.0, "b": 20.0}, "r2": {"a": 1.0}}},
+            {"p1": {"r2": REMOVE_IF_EXISTS}},
+            None,
+        ],
+        [
+            {"p1": True},
+            None,
+            {"p1": False},
+            None,
+            None,
+            {"p1": True},
+            None,
+            {"p1": False},
+        ],
+        __trace__=True,
+    )
+
+    assert result == [
+        {"p1": {"a": 153.0, "b": 170.0}},
+        {"p1": {"a": 87.0, "b": 93.0}},
+        {"p1": {"a": 87.0, "b": 93.0}},
+        {"p1": {"a": REMOVE, "b": REMOVE}},
+        None,
+        {"p1": {"a": 11.0, "b": 20.0}},
+        {"p1": {"a": 10.0}},
+        {"p1": {"a": 10.0, "b": 20.0}},
+    ]
+
+
+def test_switch_reduce_map_shrink_on_final_tick_cleanup(capfd):
+    """
+    If shrink happens on the final tick, deferred release should still run during clean shutdown.
+    """
+
+    @graph
+    def reduced_non_zero(outer: TSD[str, TSD[str, TS[float]]]) -> TSD[str, TS[float]]:
+        reduced = outer.reduce(lambda x, y: map_(lambda i, j: default(i, 0.0) + default(j, 0.0), x, y))
+        return reduced[keys_where_true(map_(lambda v: v != 0.0, reduced))]
+
+    @graph
+    def g(outer: TSD[str, TSD[str, TS[float]]], enabled: TS[bool]) -> TSD[str, TS[float]]:
+        return switch_(
+            enabled,
+            {
+                True: lambda o: reduced_non_zero(o),
+                False: lambda o: reduced_non_zero(o),
+            },
+            outer,
+        )
+
+    keys = [f"s{i:02d}" for i in range(17)]
+
+    result = eval_node(
+        g,
+        [
+            {k: {"a": float(i + 1), "b": float(i + 2)} for i, k in enumerate(keys)},
+            {k: REMOVE_IF_EXISTS for k in keys[:11]},
+            {k: REMOVE_IF_EXISTS for k in keys[11:]},
+        ],
+        [
+            True,
+            None,
+            False,
+        ],
+    )
+
+    assert result[-1] == {"a": REMOVE, "b": REMOVE}
+
+    captured = "".join(capfd.readouterr())
+    assert "Output instance still has subscribers when released" not in captured
