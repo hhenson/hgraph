@@ -8,6 +8,7 @@ import psutil
 from sqlalchemy.testing.util import total_size
 
 from hgraph import MIN_DT, Node, Graph
+from hgraph._runtime._constants import utc_now
 from hgraph.debug._inspector_item_id import InspectorItemId, InspectorItemType
 from hgraph.debug._inspector_state import InspectorState
 from hgraph.debug._inspector_util import (
@@ -129,16 +130,16 @@ def process_graph(state: InspectorState, graph: Graph, publish_interval: float):
         detailed = state.track_detailed_performance
         full_stats_republish = state.observer.recent_performance_batch > state.detailed_perf_data_time \
             if detailed \
-            else state.detailed_perf_data_time + timedelta(seconds=60) < datetime.utcnow()
+            else state.detailed_perf_data_time + timedelta(seconds=60) < utc_now()
             
         if full_stats_republish:
             for graph_id, item_id in state.graph_subscriptions.items():
                 process_graph_stats(state, graph_id, item_id, detailed)
             for node_id, item_id in state.node_subscriptions.items():
                 process_node_stats(state, node_id, item_id, detailed)
-            state.detailed_perf_data_time = state.observer.recent_performance_batch if detailed else datetime.utcnow()
+            state.detailed_perf_data_time = state.observer.recent_performance_batch if detailed else utc_now()
 
-        state.total_data["time"].append(datetime.utcnow())
+        state.total_data["time"].append(utc_now())
         state.total_data["evaluation_time"].append(root_graph.graph.evaluation_clock.evaluation_time)
         state.total_data["cycles"].append(root_graph.eval_count)
         state.total_data["cycle_time"].append(root_graph.cycle_time)
@@ -166,14 +167,14 @@ def check_requests_and_publish(state: InspectorState, start: int = None, stats_p
 
     if (
         state.last_request_process_time is None
-        or (datetime.utcnow() - state.last_request_process_time).total_seconds() > 0.1
+        or (utc_now() - state.last_request_process_time).total_seconds() > 0.1
     ):
         publish_values = handle_requests(state)
-        state.last_request_process_time = datetime.utcnow()
+        state.last_request_process_time = utc_now()
 
         publish = (
             state.last_publish_time is None
-            or (datetime.utcnow() - state.last_publish_time).total_seconds() > stats_period
+            or (utc_now() - state.last_publish_time).total_seconds() > stats_period
         )
         if publish_values or publish:
             if start is not None:
@@ -264,4 +265,4 @@ def publish_tables(state: InspectorState, include_stats=True):
         state.total_data_prev = {k: v[-1] for k, v in data.items()}
         state.total_data = defaultdict(list)
 
-    state.last_publish_time = datetime.utcnow()
+    state.last_publish_time = utc_now()

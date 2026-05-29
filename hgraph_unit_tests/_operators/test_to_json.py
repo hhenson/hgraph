@@ -7,7 +7,22 @@ import pytest
 import json
 from frozendict import frozendict as fd
 
-from hgraph import TIME_SERIES_TYPE, TS, to_json, CompoundScalar, from_json, Size, TSL, TSB, TSS, TSD, Removed, REMOVE
+from hgraph import (
+    TIME_SERIES_TYPE,
+    TS,
+    to_json,
+    CompoundScalar,
+    from_json,
+    Size,
+    TSL,
+    TSB,
+    TSS,
+    TSD,
+    Removed,
+    REMOVE,
+    to_json_builder,
+    from_json_builder,
+)
 from hgraph.test import eval_node
 
 
@@ -25,6 +40,11 @@ class MyCS(CompoundScalar):
 @dataclass
 class MyComplexCS(CompoundScalar):
     c1: tuple[MyCS, ...]
+
+
+@dataclass
+class MyNullableMappingCS(CompoundScalar):
+    data: Mapping[str, str] = None
 
 
 @pytest.mark.parametrize(
@@ -88,3 +108,13 @@ def test_to_json_delta(tp: TIME_SERIES_TYPE, value: Any, expected: str):
     out = eval_node(to_json[tp], value, delta=True)
     assert [json.loads(o) for o in out] == [json.loads(e) for e in expected]
     assert eval_node(from_json[tp], expected) == value
+
+
+def test_to_json_builder_serializes_none_mapping_value_as_null():
+    expected = MyNullableMappingCS(data={"Key": None})
+
+    payload = to_json_builder(type(expected))(expected)
+    payload_dict = json.loads(payload)
+
+    assert payload_dict == {"data": {"Key": None}}
+    assert from_json_builder(type(expected))(payload_dict) == expected

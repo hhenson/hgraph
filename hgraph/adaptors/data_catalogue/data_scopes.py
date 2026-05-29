@@ -1,8 +1,10 @@
 from abc import abstractmethod
 import copy
-from datetime import date, datetime, timedelta, UTC
+from datetime import date, datetime, timedelta
 import random
 from typing import Iterable
+
+from hgraph._runtime._constants import utc_now
 
 
 __all__ = [
@@ -157,7 +159,7 @@ class DateTimeScope(Scope):
 
 class AsofDateTimeScope(DateTimeScope):
     def default(self) -> object:
-        return datetime.now(UTC).replace(tzinfo=None)
+        return utc_now()
 
 
 class MinDateTimeScope(DateTimeScope):

@@ -6,7 +6,7 @@ from typing import Callable
 
 from sortedcontainers import SortedList
 
-from hgraph._runtime._constants import MAX_DT, MIN_TD, MIN_DT
+from hgraph._runtime._constants import MAX_DT, MIN_TD, MIN_DT, utc_now
 from hgraph._runtime._evaluation_clock import EngineEvaluationClock
 
 
@@ -51,7 +51,7 @@ class SimulationEvaluationClock(BaseEvaluationClock):
 
     def __init__(self, current_time: datetime):
         super().__init__(current_time)
-        self._system_clock_at_start_of_evaluation = datetime.utcnow()
+        self._system_clock_at_start_of_evaluation = utc_now()
 
     @property
     def evaluation_time(self) -> datetime:
@@ -61,7 +61,7 @@ class SimulationEvaluationClock(BaseEvaluationClock):
     @evaluation_time.setter
     def evaluation_time(self, value: datetime):
         self._evaluation_time = value
-        self._system_clock_at_start_of_evaluation = datetime.utcnow()
+        self._system_clock_at_start_of_evaluation = utc_now()
         self._next_scheduled_evaluation_time = MAX_DT
 
     @property
@@ -76,7 +76,7 @@ class SimulationEvaluationClock(BaseEvaluationClock):
     @property
     def cycle_time(self) -> timedelta:
         """The time since the current evaluation time was set and now."""
-        return datetime.utcnow() - self._system_clock_at_start_of_evaluation
+        return utc_now() - self._system_clock_at_start_of_evaluation
 
     def advance_to_next_scheduled_time(self):
         self.evaluation_time = self.next_scheduled_evaluation_time
@@ -109,7 +109,7 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
     @property
     def now(self) -> datetime:
         """This represents the current system clock time."""
-        return datetime.utcnow()
+        return utc_now()
 
     @property
     def cycle_time(self) -> timedelta:
@@ -117,7 +117,7 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
         The cycle time here represents the time elapsed
         since the evaluation time and the current system clock.
         """
-        return datetime.utcnow() - self._evaluation_time
+        return utc_now() - self._evaluation_time
 
     def mark_push_node_requires_scheduling(self):
         with self._push_node_requires_scheduling_condition:
@@ -136,7 +136,7 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
 
         # We only let push values to be introduced when there are no feedback entries left otherwise go compute those
         # however if we've been busy like that for more than a second, let push values in.
-        now = datetime.utcnow()
+        now = utc_now()
 
         while self._alarms:  # Process all alarms that are due and reschedule for the upcoming ones
             next_alarm_time = self._alarms[0][0]
@@ -164,7 +164,7 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
                     self._push_node_requires_scheduling_condition.wait(
                         min(sleep_time, 10)
                     )  # wake up regularly so sleep_time is not 100 years
-                    now = datetime.utcnow()
+                    now = utc_now()
             # It could be that a push node has triggered
             # print(f"RealTimeEvaluationClock.advance_to_next_scheduled_time: setting evaluation time to {next_scheduled_time}", file=sys.stderr)
         self.evaluation_time = min(next_scheduled_time, max(self.next_cycle_evaluation_time, now))

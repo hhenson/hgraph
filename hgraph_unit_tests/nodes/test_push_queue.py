@@ -3,7 +3,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Callable, Tuple
 
-from hgraph import REMOVE, TSD, record, TS, evaluate_graph, GraphConfiguration, GlobalState, push_queue, graph, const, if_true, EvaluationMode, contains_
+from hgraph import REMOVE, TSD, record, TS, evaluate_graph, GraphConfiguration, GlobalState, push_queue, graph, const, if_true, EvaluationMode, contains_, utc_now
 from hgraph import stop_engine
 from hgraph._impl._operators._record_replay_in_memory import get_recorded_value
 
@@ -26,7 +26,7 @@ def test_push_queue():
         record(messages)
         stop_engine(if_true(messages == const("3")), "Completed Processing request")
 
-    now = datetime.utcnow()
+    now = utc_now()
     # Note that it is possible that the time-out here may be insufficient to allow the task to complete.
     with GlobalState():
         evaluate_graph(main, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, start_time=now, end_time=timedelta(seconds=1)))
@@ -50,7 +50,7 @@ def test_batch_push_queue():
         record(messages)
         stop_engine(if_true(contains_(messages, const("3"))), "Completed Processing request")
 
-    now = datetime.utcnow()
+    now = utc_now()
     # Note that it is possible that the time-out here may be insufficient to allow the task to complete.
     with GlobalState():
         evaluate_graph(main, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, start_time=now, end_time=timedelta(seconds=1)))
@@ -74,7 +74,7 @@ def test_elide_push_queue():
         record(messages)
         stop_engine(if_true(messages == const("3")), "Completed Processing request")
 
-    now = datetime.utcnow()
+    now = utc_now()
     # Note that it is possible that the time-out here may be insufficient to allow the task to complete.
     with GlobalState():
         evaluate_graph(main, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, start_time=now, end_time=timedelta(seconds=1)))

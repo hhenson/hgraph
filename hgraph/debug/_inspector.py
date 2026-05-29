@@ -7,6 +7,7 @@ from typing import Callable
 import tornado.web
 
 from hgraph import graph
+from hgraph._runtime._constants import utc_now
 from hgraph._wiring._decorators import push_queue
 from hgraph._runtime._global_state import GlobalState
 from hgraph._wiring._decorators import sink_node
@@ -125,7 +126,7 @@ def start_inspector(port: int, publish_interval: float, requests: TS[tuple[tuple
     )
 
     _state.total_data_prev = dict(
-        time=datetime.utcnow(),
+        time=utc_now(),
         evaluation_time=graph.evaluation_clock.evaluation_time,
         cycles=0,
         graph_time=0.0,

@@ -23,7 +23,7 @@ find_package(fmt CONFIG QUIET)
 if (NOT fmt_FOUND)
     message(STATUS "fmt not found via find_package, using FetchContent")
     include(FetchContent)
-    FetchContent_Declare(fmt GIT_REPOSITORY https://github.com/fmtlib/fmt.git GIT_TAG 10.1.0)
+    FetchContent_Declare(fmt GIT_REPOSITORY https://github.com/fmtlib/fmt.git GIT_TAG 12.1.0)
     FetchContent_MakeAvailable(fmt)
 endif()
 

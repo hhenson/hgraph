@@ -80,8 +80,9 @@ endif ()
 if (DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
     set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
 endif ()
-# Required: Python interpreter + development module
-find_package(Python 3.12 COMPONENTS Interpreter Development.Module REQUIRED)
+# Required: Python interpreter + development module. When scikit-build-core is
+# targeting the stable ABI, it exposes SKBUILD_SABI_COMPONENT=Development.SABIModule.
+find_package(Python 3.12 COMPONENTS Interpreter Development.Module ${SKBUILD_SABI_COMPONENT} REQUIRED)
 include_directories(${Python_INCLUDE_DIRS})
 
 # Get Python SOABI to avoid double .so extension in nanobind
@@ -128,7 +129,7 @@ find_package(fmt CONFIG QUIET)
 if (NOT fmt_FOUND)
     message(STATUS "fmt not found via find_package, using FetchContent")
     include(FetchContent)
-    FetchContent_Declare(fmt GIT_REPOSITORY https://github.com/fmtlib/fmt.git GIT_TAG 10.1.0)
+    FetchContent_Declare(fmt GIT_REPOSITORY https://github.com/fmtlib/fmt.git GIT_TAG 12.1.0)
     FetchContent_MakeAvailable(fmt)
 else ()
     message(STATUS "Found fmt via Conan/system: ${fmt_DIR}")

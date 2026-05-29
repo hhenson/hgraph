@@ -20,6 +20,7 @@ from hgraph import (
     STATE,
     GraphConfiguration,
     evaluate_graph,
+    utc_now,
 )
 from hgraph.adaptors.tornado import rest_list, register_rest_client, rest_read, rest_create, rest_update, rest_delete
 from hgraph.adaptors.tornado._rest_handler import (
@@ -193,7 +194,7 @@ def test_single_rest_request_graph(port):
             pass  # Server may shutdown before responding
 
     evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME,
-                                         end_time=datetime.utcnow() + timedelta(seconds=3)))
+                                         end_time=utc_now() + timedelta(seconds=3)))
 
     assert response1 is not None
     assert response1.status_code == 404
@@ -256,7 +257,7 @@ def test_multiple_request_graph(port):
             pass  # Server may shutdown before responding
 
     evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME,
-                                         end_time=datetime.utcnow() + timedelta(seconds=3)))
+                                         end_time=utc_now() + timedelta(seconds=3)))
 
     assert response1 is not None
     assert response1.status_code == 404

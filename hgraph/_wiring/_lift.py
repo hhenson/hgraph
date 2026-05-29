@@ -115,6 +115,7 @@ def lower(fn: Callable, /, date_col: str = "date", as_of_col: str = "as_of", no_
     """
     from hgraph._operators._record_replay import replay, record, set_record_replay_model
     from hgraph._operators._to_table import set_as_of, set_table_schema_date_key, set_table_schema_as_of_key
+    from hgraph._runtime._constants import utc_now
     from hgraph._runtime._global_state import GlobalState
     from hgraph._runtime._graph_runner import evaluate_graph, GraphConfiguration
     from hgraph._wiring._wiring_node_class._wiring_node_class import WiringNodeClass
@@ -148,7 +149,7 @@ def lower(fn: Callable, /, date_col: str = "date", as_of_col: str = "as_of", no_
         with GlobalState(), MemoryDataFrameStorage() as storage:
             set_table_schema_date_key(date_col)
             set_table_schema_as_of_key(as_of_col)
-            set_as_of(datetime.utcnow())
+            set_as_of(utc_now())
             set_record_replay_model(DATA_FRAME_RECORD_REPLAY)
             _prepare_inputs(storage, ts_inputs, recordable_id, no_as_of_support, as_of_col, **kwargs_)
             config_kwargs = {}

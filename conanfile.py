@@ -20,7 +20,7 @@ class HgraphCppConan(ConanFile):
     # Dependencies used by the C++ engine. Nanobind is discovered via the selected Python interpreter
     # and is NOT provided by Conan (it is a Python package).
     requires = (
-        "fmt/10.1.0",
+        "fmt/12.1.0",
         "backward-cpp/1.6",
     )
 

@@ -21,6 +21,7 @@ from hgraph import (
     schedule,
     evaluate_graph,
     GraphConfiguration, run_graph, sample,
+    utc_now,
 )
 from hgraph import const
 from hgraph.test import eval_node
@@ -108,7 +109,7 @@ def test_wall_clock_scheduler():
         my_scheduler_realtime(10000, "TAG")  # to make sure different alarms do not interfere
         sleep(schedule(timedelta(milliseconds=7), initial_delay=True), 0.01)
 
-    now = datetime.utcnow()
+    now = utc_now()
     with GlobalState():
         config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, start_time=now,
                                     end_time=now + timedelta(milliseconds=250))
@@ -126,7 +127,7 @@ def test_wall_clock_scheduler_reschedule():
     def g():
         record(my_scheduler_realtime(sample(schedule(timedelta(milliseconds=50), initial_delay=False, max_ticks=2), 100000), "TAG"))
 
-    now = datetime.utcnow()
+    now = utc_now()
     with GlobalState():
         run_graph(g, run_mode=EvaluationMode.REAL_TIME, start_time=now, end_time=now + timedelta(milliseconds=350), __trace__=True)
         values = get_recorded_value()

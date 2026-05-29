@@ -9,6 +9,7 @@ import psutil
 from perspective import Table
 
 from hgraph import CompoundScalar
+from hgraph._runtime._constants import utc_now
 from hgraph._impl._runtime._node import _SenderReceiverState
 from hgraph.adaptors.perspective import PerspectiveTablesManager
 from hgraph.debug._inspector_observer import InspectionObserver
@@ -70,7 +71,7 @@ class InspectorState(CompoundScalar):
     
     track_detailed_performance: bool = True
     detailed_perf_data: dict = field(default_factory=lambda: defaultdict(list))
-    detailed_perf_data_time: datetime = datetime.utcnow()
+    detailed_perf_data_time: datetime = utc_now()
     detailed_perf_data_node_times = dict()
     detailed_perf_data_graph_times = dict()
     
