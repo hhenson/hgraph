@@ -101,7 +101,10 @@ class _DelayedBindingWiringPort(WiringPort, Generic[TIME_SERIES_TYPE]):
                 lambda x: getattr(x, item), self.output_type.bundle_schema_tp.meta_data_schema[item]
             )
 
-        return super().__getattribute__(item)
+        try:
+            return super().__getattribute__(item)
+        except AttributeError:
+            return super().__getattr__(item)
 
     def copy_with(self, **kwargs):
         if isinstance(self.output_type.dereference(), HgTSBTypeMetaData):

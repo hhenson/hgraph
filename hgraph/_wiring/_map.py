@@ -16,7 +16,7 @@ from hgraph._types._tsd_type import K
 from hgraph._types._tsl_type import TSL, Size
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
-from hgraph._wiring._decorators import graph
+from hgraph._wiring._decorators import graph, operator
 from hgraph._wiring._markers import _PassthroughMarker, _NoKeyMarker
 from hgraph._wiring._wiring_node_class._map_wiring_node import (
     TsdMapWiringNodeClass,
@@ -43,7 +43,7 @@ KEYS_ARG = "__keys__"
 _KEY_ARG = "__key_arg__"
 
 
-@graph(resolvers={K: lambda m: object})
+@operator
 def map_(
     func: Callable[..., Any], 
     *args: TSB[TS_SCHEMA], 
@@ -94,6 +94,17 @@ def map_(
 
         map_(process, my_tsd)
     """
+    ...
+    
+@graph(overloads=map_,resolvers={K: lambda m: object})
+def map_default(
+    func: Callable[..., Any], 
+    *args: TSB[TS_SCHEMA], 
+    __label__: str = None, 
+    __keys__: TSS[K] = None,
+    __key_arg__: str = None,
+    **kwargs: TSB[TS_SCHEMA_1]
+) -> TIME_SERIES_TYPE:
     
     args = tuple(i.value if i.is_auto_const else i for i in args.as_dict().values()) if args else ()
     kwargs = {k: v.value if v.is_auto_const else v for k, v in kwargs.as_dict().items()} if kwargs else {}
