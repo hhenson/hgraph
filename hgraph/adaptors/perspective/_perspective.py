@@ -8,7 +8,7 @@ import os
 import tempfile
 import time
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, UTC
 from functools import reduce
 from glob import glob
 from pathlib import Path
@@ -785,12 +785,15 @@ class ViewPageHandler(BaseHandler):
             match format:
                 case "json":
                     self.set_header("Content-Type", "application/json")
+                    self.set_header("Cache-Control", "no-cache")        
                     self.write(json.dumps(view.to_json()))
                 case "arrow":
                     self.set_header("Content-Type", "application/octet-stream")
+                    self.set_header("Cache-Control", "no-cache")        
                     self.write(view.to_arrow())
                 case "csv":
                     self.set_header("Content-Type", "text/csv")
+                    self.set_header("Cache-Control", "no-cache")        
                     self.write(view.to_csv())
                 case _:
                     self.set_status(400)

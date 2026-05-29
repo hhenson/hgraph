@@ -1,3 +1,5 @@
+from typing import Any, Callable
+
 from hgraph._operators._stream import filter_
 import pytest
 from frozendict import frozendict
@@ -524,3 +526,19 @@ def test_map_input_goes_away():
     assert eval_node(g, [{'a': 1, 'b': 2, 'c': 0}, None, {'a': 3, 'c': REMOVE}], [{'a': 10, 'b': 20}, {'a': 11, 'b': REMOVE}, {'a': REMOVE, 'b': 21}]) == [
         {'a': 11, 'b': 22}, {'a': 12}, {'a': 12, 'b': 23} # Note: a:12 in tick 3 comes from sampling in the switch
     ]
+    
+    
+def test_map_overload():
+    @graph
+    def only_even(ts: TS[int]) -> TS[int]:
+        return 0
+    
+    @compute_node(overloads=map_, requires=lambda m, func: func == only_even)
+    def my_map_overload(func: Callable[..., Any], ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return {k: v.value for k, v in ts.items() if v.value % 2 == 0}
+    
+    @graph
+    def g(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return map_(only_even, ts)
+    
+    assert eval_node(g, [{'a': 1, 'b': 2, 'c': 3}]) == [{'b': 2}]

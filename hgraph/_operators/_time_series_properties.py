@@ -14,6 +14,7 @@ def valid(ts: TIME_SERIES_TYPE, ts_value: TIME_SERIES_TYPE = None) -> TS[bool]:
     """
     Ticks with False when the ts is not valid and True when it is.
     """
+    ...
 
 
 @operator
@@ -21,6 +22,7 @@ def last_modified_time(ts: SIGNAL) -> TS[datetime]:
     """
     The datetime representing the last modified time of the time series.
     """
+    ...
 
 
 @operator
@@ -28,6 +30,7 @@ def last_modified_wall_clock_time(ts: SIGNAL) -> TS[datetime]:
     """
     The datetime representing the last modified time of the time series.
     """
+    ...
 
 
 @operator
@@ -35,6 +38,7 @@ def last_modified_date(ts: SIGNAL) -> TS[date]:
     """
     The date component of the last modified time of the time series.
     """
+    ...
 
 
 @operator
@@ -44,6 +48,7 @@ def modified(ts: SIGNAL) -> TS[bool]:
     This is a live time-series as such it will actively tick False on the next engine cycle
     if the value is not modified again.
     """
+    ...
 
 
 TIME_TYPE = TypeVar("TIME_TYPE", datetime, date, time)
@@ -66,3 +71,4 @@ def evaluation_time_in_range(start_time: TS[TIME_TYPE], end_time: TS[TIME_TYPE])
     :param end_time: [datetime, date, time] The end time of the range.
     :return: CmpResult indicating if the engine time is less than, within, or greater than the time range.
     """
+    ...

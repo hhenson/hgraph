@@ -49,7 +49,7 @@ def run_graph_on_thread(
     out_: Type[OUT] = DEFAULT[OUT],
     path: str = "thread_graph_runner",
 ) -> TSB[RunGraphOutput[OUT]]:
-    pass
+    ...
 
 
 @service_adaptor_impl(interfaces=run_graph_on_thread)
@@ -80,10 +80,19 @@ def run_graph_on_thread_impl(
                 started_queue=lambda x: output_queue({"started": x}),
                 status_queue=lambda x: output_queue({"status": x}),
             )
-
             with gs:
-                start_time = params.get("start_time", datetime.combine(params.get("start_date", MIN_DT.date()), time()))
-                end_time = params.get("end_time", datetime.combine(params.get("end_date", MAX_DT.date()), time()))
+                default_start_time = datetime.combine(params.get("start_date", MIN_DT.date()), time())
+                default_end_time = datetime.combine(params.get("end_date", MAX_DT.date()), time())
+                kwargs = {
+                    "start_time": params.get("start_time", default_start_time),
+                    "end_time": params.get("end_time", default_end_time),
+                    "run_mode": params.pop("run_mode", EvaluationMode.SIMULATION),
+                }
+                for k in ("graph_logger", "capture_values", "cleanup_on_error", "trace_back_depth"):
+                    if (p := params.pop(k, None)) is not None:
+                        kwargs[k] = p
+                graph_config = GraphConfiguration(**kwargs)
+
                 params = {k: v for k, v in params.items() if k in fn.signature.args}
 
                 @graph
@@ -91,15 +100,8 @@ def run_graph_on_thread_impl(
                     fn(**params)
                     started()
 
-                evaluate_graph(
-                    g,
-                    GraphConfiguration(
-                        run_mode=EvaluationMode.SIMULATION,
-                        start_time=start_time,
-                        end_time=end_time,
-                        # trace=True
-                    ),
-                )
+                evaluate_graph(g, graph_config)
+
                 output_queue({"finished": True})
                 output_queue({"status": "OK"})
         except Exception as e:

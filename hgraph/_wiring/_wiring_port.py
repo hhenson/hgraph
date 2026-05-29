@@ -65,6 +65,7 @@ class WiringPort:
 
     node_instance: "WiringNodeInstance"
     path: tuple[SCALAR, ...] = tuple()  # The path from out () to the time-series to be bound.
+    markers: tuple[type, ...] | None = None  # The markers that are applied to this wiring port, if any.
 
     @property
     def has_peer(self) -> bool:
@@ -128,6 +129,10 @@ class WiringPort:
             return self.__getattr__("value")
         else:
             return v
+        
+    @property
+    def is_auto_const(self):
+        return self.node_instance is not None and self.node_instance.inputs.get("auto_const", False)
 
 
 @dataclass(frozen=True, eq=False, unsafe_hash=True)

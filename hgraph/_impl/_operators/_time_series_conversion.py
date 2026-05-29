@@ -28,3 +28,23 @@ def const_default(
     :return: A single tick of the value supplied.
     """
     yield _api.start_time + delay, value
+    
+    
+@generator(overloads=const, requires=lambda m, auto_const: auto_const is True)
+def const_auto(
+    value: SCALAR,
+    auto_const: bool,
+    tp: type[OUT] = TS[SCALAR],
+    _api: EvaluationEngineApi = None,
+) -> DEFAULT[OUT]:
+    """
+    Overload for const that is used when scalar value is auto-promoted. Allows to detect this in later wiring logic and treat it differently if needed.
+
+    :param value: The value in appropriate form to be applied to the time-series type specified in tp.
+    :param tp: Used to resolve the correct type for the output, by default this is TS[SCALAR] where SCALAR is the type
+               of the value.
+    :param auto_const: Should be set to True.
+    :param _api: The evaluation api (to get start time). (To be injected)
+    :return: A single tick of the value supplied.
+    """
+    yield _api.start_time, value

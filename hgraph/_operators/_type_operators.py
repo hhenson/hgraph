@@ -28,3 +28,4 @@ def downcast_ref(tp: type[SCALAR], ts: REF[TS[SCALAR_1]]) -> REF[TS[SCALAR]]:
     """
     Downcasts a time-series reference to the given type. This is fast but unsafe as there is no type checking happens here
     """
+    ...

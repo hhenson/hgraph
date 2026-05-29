@@ -179,12 +179,34 @@ namespace hgraph
     }
 
     void Graph::reduce_graph(const GraphBuilder &graph_builder, int64_t start_node) {
-        auto end{_nodes.size()};
+        int64_t end{static_cast<int64_t>(_nodes.size())};
         if (is_started()) { stop_subgraph(start_node, end); }
-        dispose_subgraph(graph_builder, start_node, end);
+
+        Graph::node_list retired_nodes;
+        retired_nodes.reserve(end - start_node);
+        for (auto i = start_node; i < end; ++i) { retired_nodes.push_back(std::move(_nodes[i])); }
 
         _nodes.erase(_nodes.begin() + start_node, _nodes.end());
         _schedule.erase(_schedule.begin() + start_node, _schedule.end());
+
+        if (retired_nodes.empty()) { return; }
+
+        auto release_retired = [start_node, &graph_builder](Graph::node_list retired_nodes) mutable {
+            const auto &node_builders = graph_builder.node_builders;
+            auto        b             = node_builders.size();
+            for (size_t i = retired_nodes.size(); i-- > 0;) {
+                node_builders[(start_node + i) % b]->release_instance(retired_nodes[i]);
+            }
+        };
+
+        if (is_started() && _evaluation_engine != nullptr) {
+            _evaluation_engine->add_before_evaluation_notification(
+                [retired_nodes = std::move(retired_nodes), release_retired]() mutable {
+                    release_retired(std::move(retired_nodes));
+                });
+        } else {
+            release_retired(std::move(retired_nodes));
+        }
     }
 
     void Graph::initialise_subgraph(int64_t start, int64_t end) {
@@ -231,10 +253,8 @@ namespace hgraph
     }
 
     void Graph::dispose_subgraph(const GraphBuilder &graph_builder, int64_t start, int64_t end) {
-        const auto& node_builders = graph_builder.node_builders;
-        auto b = node_builders.size();
-        for (auto i = start; i < end; ++i) {
-            node_builders[i % b]->release_instance(_nodes[i]);
+        for (auto i = end; i-- > start;) {
+            dispose_component(*_nodes[i]);
         }
     }
 

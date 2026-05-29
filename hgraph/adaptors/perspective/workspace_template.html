@@ -93,6 +93,52 @@
                 justify-content: center;
             }
 
+            .on-demand-overlay {
+                position: fixed;
+                z-index: 100;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                background: rgba(0, 0, 0, 0.45);
+                color: white;
+                font-family: "ui-monospace","SFMono-Regular","SF Mono","Menlo","Consolas","Liberation Mono",monospace;
+                font-size: 0.9rem;
+                gap: 10px;
+            }
+
+            .on-demand-load {
+                padding: 6px 20px;
+                background: #4a90d9;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                font-family: inherit;
+                font-size: inherit;
+                cursor: pointer;
+            }
+
+            .on-demand-load:hover {
+                background: #357abd;
+            }
+
+            .on-demand-error {
+                color: #ff8080;
+            }
+
+            .on-demand-loading {
+                width: 28px;
+                height: 28px;
+                border: 3px solid rgba(255, 255, 255, 0.3);
+                border-top-color: white;
+                border-radius: 50%;
+                animation: on-demand-spin 0.7s linear infinite;
+            }
+
+            @keyframes on-demand-spin {
+                to { transform: rotate(360deg); }
+            }
+
             .loading-banner {
                 display: block; 
                 position: fixed; /* Stay in place */

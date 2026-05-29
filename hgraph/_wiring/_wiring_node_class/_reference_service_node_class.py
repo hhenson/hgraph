@@ -56,7 +56,10 @@ class ReferenceServiceNodeClass(ServiceInterfaceNodeClass):
 
             return out
 
-    def wire_impl_out_stub(self, path, out, __pre_resolved_types__=None):
+    def impl_signature(self, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None):
+        return self.signature.copy_with(output_type=self.signature.output_type.dereference())
+
+    def wire_impl_out_stub(self, path, out, __pre_resolved_types__=None, **scalars):
         from hgraph.nodes import capture_output_to_global_state
         from hgraph import WiringGraphContext
 

@@ -187,7 +187,9 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                     from hgraph import PythonTimeSeriesReferenceInput
 
                     tsd : TSD[str, TIME_SERIES_TYPE] = self.input[arg]
-                    node.input.ts.re_parent(tsd)
+                    transplanted_ts = node.input.ts
+                    transplanted_ts.make_passive()
+                    transplanted_ts.re_parent(tsd)
                     node.input = node.input.copy_with(
                         __init_args__=dict(_parent_or_node=node), ts=(ts := PythonTimeSeriesReferenceInput())
                     )
@@ -196,7 +198,6 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
                         tsd.on_key_removed(key)
 
         if self.output_node_id:
-            # Replace the nodes output with the map node's output for the key
             del self.tsd_output()[key]
 
     def _wire_graph(self, key: K, graph: Graph):

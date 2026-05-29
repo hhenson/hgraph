@@ -33,6 +33,7 @@ def default(ts: DEFAULT[OUT], default_value: OUT) -> OUT:
     :param default_value: The value to replace missing values with.
     :return: The time-series with missing values replaced with default_value.
     """
+    ...
 
 
 @operator
@@ -52,6 +53,7 @@ def nothing(tp: type[OUT] = AUTO_RESOLVE) -> DEFAULT[OUT]:
 
     This is equivalent to None for time-series inputs.
     """
+    ...
 
 
 @operator

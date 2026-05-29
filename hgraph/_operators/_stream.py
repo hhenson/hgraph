@@ -24,6 +24,8 @@ __all__ = (
     "resample",
     "dedup",
     "filter_",
+    "until_true",
+    "freeze",
     "throttle",
     "INT_OR_TIME_DELTA",
     "take",
@@ -45,6 +47,7 @@ def sample(signal: SIGNAL, ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     Snaps the value of a time series (ts) on a tick from another time series (signal).
     """
+    ...
 
 
 @operator
@@ -56,6 +59,7 @@ def lag(ts: TIME_SERIES_TYPE, period: INT_OR_TIME_DELTA, on_wall_clock: bool = F
 
     When a time-delta is specified the value will be scheduled to be delivered at the receipt time + period.
     """
+    ...
 
 
 @operator
@@ -74,6 +78,7 @@ def schedule(
     max_ticks specifies the maximum number of ticks to produce.  on_wall_clock indicates if the wall clock time is to
     be used for the schedule.  The default is to use engine time.
     """
+    ...
 
 
 @operator
@@ -83,6 +88,7 @@ def resample(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE:
     produce a time series of ts that ticks every three seconds. This will always tick at the specified delay, even if
     the input time series does not tick.
     """
+    ...
 
 
 @operator
@@ -90,6 +96,7 @@ def dedup(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     Drops duplicate values from a time-series.
     """
+    ...
 
 
 # For backwards compatibility.  Prefer dedup
@@ -101,6 +108,23 @@ def filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     Suppresses ticks of a time series when the condition time series' value is False
     """
+    ...
+
+
+@operator
+def until_true(predicate: Callable[[SCALAR], bool], ts: TS[SCALAR]) -> TS[bool]:
+    """
+    Emits False until ``predicate`` first returns True, then emits True and passivates ``ts``.
+    """
+    ...
+
+
+@operator
+def freeze(predicate: Callable[[SCALAR], bool], ts: TS[SCALAR], ) -> TS[SCALAR]:
+    """
+    Forwards ``ts`` until ``predicate`` first returns True, then passivates ``ts`` so it is no longer evaluated.
+    """
+    ...
 
 
 @operator
@@ -116,6 +140,7 @@ def filter_by(
     :param kwargs: Any additional arguments to supply to the expression.
     :return: The filtered time-series.
     """
+    ...
 
 
 @operator
@@ -126,6 +151,7 @@ def throttle(
     Reduces the rate of ticks in a time series to the given period. It works like ``resample`` if the rate of ticks is
     higher than the period but unlike ``resample`` does not produce ticks when the source time series does not tick.
     """
+    ...
 
 
 @operator
@@ -133,6 +159,7 @@ def take(ts: TIME_SERIES_TYPE, count: INT_OR_TIME_DELTA) -> TIME_SERIES_TYPE:
     """
     filters out all ticks the input time series after ``count`` initial ticks or the given time series
     """
+    ...
 
 
 @operator
@@ -140,6 +167,7 @@ def drop(ts: TIME_SERIES_TYPE, count: INT_OR_TIME_DELTA) -> TIME_SERIES_TYPE:
     """
     Drops the first `count` ticks and then returns the remainder of the ticks
     """
+    ...
 
 
 class WindowResult(TimeSeriesSchema, Generic[SCALAR]):
@@ -161,6 +189,7 @@ def window(ts: TS[SCALAR], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_
     if you have 3 ticks at 1 microsecond intervals, and a window of 3 milliseconds, then the buffer will
     not be full until the 4th tick.
     """
+    ...
 
 
 @operator
@@ -177,6 +206,7 @@ def to_window(
     if you have 3 ticks at 1 microsecond intervals, and a window of 3 milliseconds, then the buffer will
     not be full until the 4th tick.
     """
+    ...
 
 
 @operator
@@ -189,6 +219,7 @@ def gate(condition: TS[bool], ts: TIME_SERIES_TYPE, buffer_length: int = sys.max
     process is gating, once it has finished gating, the last modified value is released, and then ticks are processed
     as usual.
     """
+    ...
 
 
 @operator
@@ -198,6 +229,7 @@ def batch(condition: TS[bool], ts: TS[SCALAR], delay: timedelta, buffer_length: 
     ticks are released in batches with a given delay between each batch. A ``RuntimeError`` is raised if the buffer
     exceeds the given buffer_length.
     """
+    ...
 
 
 @operator
@@ -205,6 +237,7 @@ def step(ts: TIME_SERIES_TYPE, step_size: int) -> TIME_SERIES_TYPE:
     """
     Steps the time series by the specified number of ticks. This will skip ticks in the time series.
     """
+    ...
 
 
 @operator
@@ -213,3 +246,4 @@ def slice_(ts: TIME_SERIES_TYPE, start: INT_OR_TIME_DELTA, stop: INT_OR_TIME_DEL
     Slices the time series from the start to the stop index stepped by the step size. Essentially combines ``drop``,
     ``take`` and ``step`` into one operation. It works like python's slice operator but along the ticks or time axis.
     """
+    ...

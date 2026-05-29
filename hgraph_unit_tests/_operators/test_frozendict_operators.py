@@ -16,6 +16,9 @@ from hgraph import (
     keys_,
     collapse_keys,
     uncollapse_keys,
+    combine,
+    TSL,
+    Size,
 )
 from hgraph import (
     sub_,
@@ -293,3 +296,27 @@ def test_uncollapse_keys_frozendict():
         frozendict({1: frozendict({"c": 5}), 2: frozendict({"b": 6})}),
         frozendict({1: frozendict({"c": 5})}),
     ]
+
+
+def test_combine_frozendict_single():
+    @graph
+    def g(ts: TS[str], value: TS[float]) -> TS[frozendict[str, float]]:
+        return combine[TS[frozendict]](ts, value)
+
+    assert eval_node(g, ["a"], [1.0]) == [frozendict({"a": 1.0})]
+
+
+def test_combine_frozendict_tuples():
+    @graph
+    def g(ts: TS[tuple[str, ...]], value: TS[tuple[float, ...]]) -> TS[frozendict[str, float]]:
+        return combine[TS[frozendict]](ts, value)
+
+    assert eval_node(g, [("a", "b", "c")], [(1.0, 2.0, 3.0)]) == [frozendict({"a": 1.0, "b": 2.0, "c": 3.0})]
+
+
+def test_combine_frozendict_tsls():
+    @graph
+    def g(ts: TSL[TS[str], Size[3]], value: TSL[TS[float], Size[3]]) -> TS[frozendict[str, float]]:
+        return combine[TS[frozendict[str, float]]](ts, value)
+
+    assert eval_node(g, [["a", "b", "c"]], [[1.0, 2.0, 3.0]]) == [frozendict({"a": 1.0, "b": 2.0, "c": 3.0})]

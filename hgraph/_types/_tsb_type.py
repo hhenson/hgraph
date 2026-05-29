@@ -482,7 +482,7 @@ class TimeSeriesBundleInput(TimeSeriesInput, TimeSeriesBundle[TS_SCHEMA], Generi
             elif meta_data_schema[k].scalar_type().matches(HgTypeMetaData.parse_value(v)):
                 from hgraph import const
 
-                kwargs[k] = const(v, tp=meta_data_schema[k].py_type)
+                kwargs[k] = const(v, tp=meta_data_schema[k].py_type, auto_const=True)
             elif v is None:
                 from hgraph import nothing
 

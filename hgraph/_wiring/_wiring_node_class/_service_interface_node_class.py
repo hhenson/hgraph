@@ -1,8 +1,10 @@
 from abc import abstractmethod
-from typing import TypeVar
+from typing import Callable, TypeVar
 
 from hgraph._types._type_meta_data import HgTypeMetaData
+from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass
+from hgraph._wiring._wiring_node_signature import WiringNodeSignature
 
 
 class ServiceInterfaceNodeClass(BaseWiringNodeClass):
@@ -37,3 +39,59 @@ class ServiceInterfaceNodeClass(BaseWiringNodeClass):
         return (
             f"{', '.join(f'{k}:{str(type_map[k])}' for k in sorted(type_map, key=lambda x: getattr(x, '__name__', str(x))))}"
         )
+
+    def impl_signature(self, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None) -> WiringNodeSignature:
+        """
+        The lowered implementation contract for this service-like interface.
+        Adaptors use their public signature directly; services override this to expose the transport shape.
+        """
+        return self.signature
+
+    def wire_outside_stubs(
+        self, path: str, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **scalars
+    ):
+        """
+        Wire transport stubs that need to live outside the implementation graph.
+        By default there is nothing to do.
+        """
+
+
+def validate_signature_against_impl_signature(
+    signature: WiringNodeSignature, interface: ServiceInterfaceNodeClass
+) -> WiringNodeSignature:
+    expected_signature = interface.impl_signature()
+
+    missing_inputs = tuple(arg for arg in expected_signature.time_series_inputs if arg not in signature.time_series_inputs)
+    if missing_inputs:
+        raise CustomMessageWiringError(
+            f"The implementation has missing inputs compared to the lowered '{interface.signature.name}' signature: "
+            f"{', '.join(missing_inputs)}"
+        )
+
+    unexpected_inputs = tuple(arg for arg in signature.time_series_inputs if arg not in expected_signature.time_series_inputs)
+    if unexpected_inputs:
+        raise CustomMessageWiringError(
+            f"The implementation has unexpected time-series inputs for '{interface.signature.name}': "
+            f"{', '.join(unexpected_inputs)}"
+        )
+
+    for arg, expected_tp in expected_signature.time_series_inputs.items():
+        actual_tp = signature.time_series_inputs[arg]
+        if not actual_tp.matches(expected_tp):
+            raise CustomMessageWiringError(
+                f"The implementation input {arg}: {actual_tp} does not match the lowered service signature {expected_tp}"
+            )
+
+    expected_output = expected_signature.output_type
+    actual_output = signature.output_type
+    if expected_output is None:
+        if actual_output is not None:
+            raise CustomMessageWiringError(
+                f"The implementation should not return an output for '{interface.signature.name}'"
+            )
+    elif actual_output is None or not actual_output.dereference().matches(expected_output.dereference()):
+        raise CustomMessageWiringError(
+            f"The implementation output {actual_output} does not match the lowered service signature {expected_output}"
+        )
+
+    return signature

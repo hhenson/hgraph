@@ -417,10 +417,7 @@ def validate_and_resolve_signature(
     try:
         from hgraph._wiring._markers import _PassivateMarker
 
-        passive_keys = set(k for k, v in kwargs.items() if isinstance(v, _PassivateMarker))
-        if passive_keys:
-            # Unpack passive keys
-            kwargs = {k: v.value if k in passive_keys else v for k, v in kwargs.items()}
+        passive_keys = set(k for k, v in kwargs.items() if isinstance(v, WiringPort) and v.markers and _PassivateMarker in v.markers)
         # Extract any additional required type resolution information from inputs
         kwarg_types = signature.convert_kwargs_to_types(**kwargs)
         # Do the resolve to ensure types match as well as actually resolve the types.

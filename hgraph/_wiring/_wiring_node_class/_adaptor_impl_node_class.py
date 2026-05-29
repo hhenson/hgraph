@@ -7,6 +7,7 @@ from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import WiringGraphContext, GraphWiringNodeClass
+from hgraph._wiring._wiring_node_class._service_interface_node_class import validate_signature_against_impl_signature
 from hgraph._wiring._wiring_node_class._wiring_node_class import (
     WiringNodeClass,
     validate_and_resolve_signature,
@@ -17,6 +18,8 @@ __all__ = ("AdaptorImplNodeClass",)
 
 
 class AdaptorImplNodeClass(GraphWiringNodeClass):
+    wire_service_outputs_directly = True
+
     def __init__(self, signature: WiringNodeSignature, fn: Callable, interfaces=None):
         self.implementation_graph = GraphWiringNodeClass(signature, fn)
 
@@ -52,8 +55,13 @@ class AdaptorImplNodeClass(GraphWiringNodeClass):
         __interface__: WiringNodeSignature = None,
         **kwargs,
     ) -> "WiringPort":
-        with WiringContext(current_wiring_node=self, current_signature=self.signature):
+        with WiringContext(
+            current_wiring_node=self,
+            current_signature=self.signature,
+            wire_service_outputs_directly=self.wire_service_outputs_directly,
+        ):
             path = kwargs.get("path")
+            pre_resolved_types_all = __pre_resolved_types__ or {}
 
             from hgraph import AdaptorNodeClass
 
@@ -72,13 +80,8 @@ class AdaptorImplNodeClass(GraphWiringNodeClass):
                 full_path = path
 
             path = path.replace("/from_graph", "").replace("/to_graph", "")
-
-            self._validate_service_not_already_bound(full_path, __pre_resolved_types__)
-
-            scalars = {k: v for k, v in __pre_resolved_types__.items() if k in self.signature.scalar_inputs}
-            pre_resolved_types = {
-                k: v for k, v in __pre_resolved_types__.items() if k not in self.signature.scalar_inputs
-            }
+            scalars = {k: v for k, v in pre_resolved_types_all.items() if k in self.signature.scalar_inputs}
+            pre_resolved_types = {k: v for k, v in pre_resolved_types_all.items() if k not in self.signature.scalar_inputs}
 
             kwargs["path"] = path
 
@@ -87,16 +90,30 @@ class AdaptorImplNodeClass(GraphWiringNodeClass):
             )
 
             if len(self.interfaces) == 1:
-                with WiringGraphContext(node_signature=resolved_signature):
-                    from_graph = __interface__.wire_impl_inputs_stub(path, resolution_dict, **scalars)
+                interface_resolution_dict = {k: v for k, v in resolution_dict.items() if k in __interface__.signature.type_vars}
+                full_typed_path = __interface__.typed_full_path(full_path, interface_resolution_dict | scalars)
+                self._validate_service_not_already_bound(full_path, interface_resolution_dict | scalars)
+
+                from_graph = None
+                from_graph_kwargs = {}
+                if __interface__.signature.time_series_inputs:
+                    with WiringGraphContext(node_signature=resolved_signature):
+                        from_graph = __interface__.wire_impl_inputs_stub(path, interface_resolution_dict, **scalars)
+                        from_graph_kwargs = from_graph.as_dict()
 
                 to_graph = self.implementation_graph.__call__(
-                    __pre_resolved_types__=resolution_dict, **kwargs_, **from_graph.as_dict()
+                    __pre_resolved_types__=resolution_dict, **kwargs_, **from_graph_kwargs
                 )
                 if to_graph is not None:
                     with WiringGraphContext(node_signature=resolved_signature):
-                        __interface__.wire_impl_out_stub(path, to_graph, resolution_dict, **scalars)
+                        __interface__.wire_impl_out_stub(path, to_graph, interface_resolution_dict, **scalars)
+
+                built_services = WiringGraphContext.instance().built_services()
+                if built_services.get(full_typed_path) is None:
+                    anchor_node = getattr(from_graph, "node_instance", None) or getattr(to_graph, "node_instance", None)
+                    WiringGraphContext.instance().add_built_service_impl(full_typed_path, anchor_node)
             else:  # multiadaptor/multiservice implementations use the interface stub APIs to wire up the service
+                self._validate_service_not_already_bound(full_path, pre_resolved_types_all)
                 with WiringGraphContext(node_signature=resolved_signature):
                     self.implementation_graph.__call__(__pre_resolved_types__=resolution_dict, **kwargs_)
 
@@ -109,31 +126,7 @@ class AdaptorImplNodeClass(GraphWiringNodeClass):
     def validate_signature_vs_interfaces(
         self, signature: WiringNodeSignature, fn: Callable, interfaces: Sequence[WiringNodeClass]
     ) -> WiringNodeSignature:
-        """
-        Simple adaptor implementation has the same interface as the adaptor it implements
-        """
-
         if len(interfaces) == 1:
-            interface_sig: WiringNodeSignature = interfaces[0].signature
-            match interface_sig.node_type:
-                case WiringNodeType.ADAPTOR:
-                    for arg, ts_type in signature.input_types.items():
-                        if ts_int_type := interface_sig.input_types.get(arg):
-                            if not ts_type.matches(ts_int_type):
-                                raise CustomMessageWiringError(
-                                    f"The implementation input {arg}: {ts_type} type value does not match {ts_int_type}"
-                                )
-                        elif not ts_type.is_scalar:
-                            raise CustomMessageWiringError(
-                                f"The implementation input {arg}: {ts_type} was not found on  the interface"
-                            )
-
-                    if signature.output_type:
-                        if not signature.output_type.dereference().matches(interface_sig.output_type.dereference()):
-                            raise CustomMessageWiringError(
-                                "The output type does not match that of the subscription service signature"
-                            )
-                case _:
-                    raise CustomMessageWiringError(f"Unknown service type: {interface_sig.node_type}")
+            validate_signature_against_impl_signature(signature, interfaces[0])
         else:
             pass  # multiservice/multiadaptor implementations use the interface stub APIs to wire up the service so checking happens there
