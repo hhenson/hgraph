@@ -132,7 +132,7 @@ class WiringPort:
         
     @property
     def is_auto_const(self):
-        return self.node_instance.inputs.get("auto_const", False)
+        return self.node_instance is not None and self.node_instance.inputs.get("auto_const", False)
 
 
 @dataclass(frozen=True, eq=False, unsafe_hash=True)
