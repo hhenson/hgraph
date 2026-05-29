@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from hgraph._types import TSD, K, TIME_SERIES_TYPE
 from hgraph._wiring._wiring_port import WiringPort
 
@@ -11,7 +13,7 @@ def pass_through(tsd: TSD[K, TIME_SERIES_TYPE]) -> TSD[K, TIME_SERIES_TYPE]:
     the implied keys for the tsd_map function.
     """
     # noinspection PyTypeChecker
-    return _PassthroughMarker(tsd)
+    return replace(tsd, markers=(_PassthroughMarker,) + (tsd.markers or ()))
 
 
 def no_key(tsd: TSD[K, TIME_SERIES_TYPE]) -> TSD[K, TIME_SERIES_TYPE]:
@@ -21,8 +23,7 @@ def no_key(tsd: TSD[K, TIME_SERIES_TYPE]) -> TSD[K, TIME_SERIES_TYPE]:
     This is only required if no keys are supplied to the tsd_map function.
     """
     # noinspection PyTypeChecker
-    return _NoKeyMarker(tsd)
-
+    return replace(tsd, markers=(_NoKeyMarker,) + (tsd.markers or ()))
 
 def passive(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
@@ -30,23 +31,14 @@ def passive(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     set the input to be passive (or raise an exception if all inputs become passive as a result).
     """
     # noinspection PyTypeChecker
-    return _PassivateMarker(ts)
+    return replace(ts, markers=(_PassivateMarker,) + (ts.markers or ()))
 
 
 class _Marker:
     """
-    Provide a placeholder for a wrapped wiring port. The wiring port should be unwrapped before being used.
+    Provide a base type for a marker applied to a wiring port
     """
-
-    def __init__(self, value: TIME_SERIES_TYPE):
-        if not isinstance(value, WiringPort):
-            raise AssertionError("Marker must wrap a valid time-series input.")
-
-        self.value = value
-
-    @property
-    def output_type(self):
-        return self.value.output_type
+    ...
 
 
 class _PassthroughMarker(_Marker): ...

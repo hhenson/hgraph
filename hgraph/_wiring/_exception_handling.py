@@ -13,6 +13,7 @@ from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsd_type import TSD
 from hgraph._types._tsl_type import TSL
 from hgraph._wiring._map import map_
+from hgraph._wiring._mesh import mesh_
 from hgraph._wiring._reduce import reduce
 from hgraph._wiring._source_code_details import SourceCodeDetails
 from hgraph._wiring._wiring_context import WiringContext
@@ -56,10 +57,12 @@ def try_except(
     """
     is_special_node: bool = False
     if not isinstance(func, WiringNodeClass):
-        if not func in (map_, reduce):
+        if not func in (mesh_, reduce):
             raise RuntimeError(f"The supplied function is not a graph or node function: '{func.__name__}'")
         else:
             is_special_node = True
+    elif func in (map_,):  # map_ is a graph now
+        is_special_node = True
 
     if is_special_node or func.signature.node_type in (
         WiringNodeType.COMPUTE_NODE,

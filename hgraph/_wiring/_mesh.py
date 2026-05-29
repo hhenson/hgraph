@@ -116,10 +116,6 @@ def _build_mesh_wiring_node_and_inputs(
         name=__name__,
     )
 
-    # 7. Clean the inputs (eliminate the marker wrappers)
-    for arg in chain(pass_through_args, no_key_args):
-        kwargs_[arg] = kwargs_[arg].value  # Unwrap the marker inputs.
-
     return mesh_wiring_node, kwargs_, ri
 
 
