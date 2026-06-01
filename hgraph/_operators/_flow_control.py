@@ -25,6 +25,7 @@ def merge(*tsl: TSL[TIME_SERIES_TYPE, SIZE], **kwargs) -> TIME_SERIES_TYPE:
     * If `disjoint` is set True, the TSDs are assumed to have non-overlapping keys.  This parameter should be set
         True to optimise performance when merging disjoint TSDs.
     """
+    ...
 
 
 @operator
@@ -33,6 +34,7 @@ def race(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TIME_SERIES_TYPE:
     Forwards the first of the values that are valid in the list provided.  If the first item becomes invalid
     then the next item to be valid is forwarded.
     """
+    ...
 
 
 @operator
@@ -40,6 +42,7 @@ def all_(*args: TSL[TS[bool], SIZE]) -> TS[bool]:
     """
     Graph version of python `all` operator
     """
+    ...
 
 
 @operator
@@ -47,6 +50,7 @@ def any_(*args: TSL[TS[bool], SIZE]) -> TS[bool]:
     """
     Graph version of python `any` operator
     """
+    ...
 
 
 class BoolResult(TimeSeriesSchema, Generic[TIME_SERIES_TYPE]):
@@ -60,6 +64,7 @@ def if_(condition: TS[bool], ts: TIME_SERIES_TYPE = AUTO_RESOLVE) -> TSB[BoolRes
     Forwards a timeseries value to one of two bundle outputs: "true" or "false", according to whether
     the condition is true or false
     """
+    ...
 
 
 @operator
@@ -67,6 +72,7 @@ def route_by_index(index_ts: TS[int], ts: TIME_SERIES_TYPE) -> TSL[TIME_SERIES_T
     """
     Forwards a timeseries value to the 'nth' output according to the value of index_ts
     """
+    ...
 
 
 @operator
@@ -76,6 +82,7 @@ def if_true(condition: TS[bool], tick_once_only: bool = False) -> TS[bool]:
     If tick_once_only is True then this will only tick once, otherwise this will tick with every tick of the condition,
     when the condition is True.
     """
+    ...
 
 
 @operator
@@ -83,6 +90,7 @@ def if_then_else(condition: TS[bool], true_value: TIME_SERIES_TYPE, false_value:
     """
     If the condition is true the output ticks with the true_value, otherwise it ticks with the false_value.
     """
+    ...
 
 
 @operator
@@ -98,3 +106,4 @@ def if_cmp(cmp: TS[CmpResult], lt: OUT, eq: OUT, gt: OUT) -> OUT:
         if lhs > rhs:
             return gt
     """
+    ...

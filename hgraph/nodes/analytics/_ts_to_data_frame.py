@@ -49,7 +49,7 @@ def to_frame_tsd_ts(
     ts: TSD[SCALAR, TS[SCALAR]], _tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE
 ) -> TS[Frame[COMPOUND_SCALAR]]:
     keys, values = zip(*ts.delta_value.items())
-    return pl.DataFrame({k: v for k, v in zip(_tp.__meta_data_schema__.keys(), (keys, values))})
+    return pl.DataFrame(dict(zip(_tp.__meta_data_schema__.keys(), (keys, values))))
 
 
 @compute_node(overloads=to_frame)
@@ -64,7 +64,7 @@ def to_frame_tsd_tsd_ts(
             keys_1.append(k1)
             keys_2.append(k2)
             values.append(v)
-    return pl.DataFrame({k: v for k, v in zip(_tp.__meta_data_schema__.keys(), (keys_1, keys_2, values))})
+    return pl.DataFrame(dict(zip(_tp.__meta_data_schema__.keys(), (keys_1, keys_2, values))))
 
 
 # @compute_node(overloads=to_frame)

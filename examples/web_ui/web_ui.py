@@ -71,7 +71,7 @@ def refdata():
             "randomness": (random() * 40 + 10) / 100,
             "trend": (random() - 0.5) * 0.5,
         }
-        for _ in range(150)
+        for _ in range(10)
     }
 
 

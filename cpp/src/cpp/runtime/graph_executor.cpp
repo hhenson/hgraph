@@ -123,6 +123,7 @@ namespace hgraph
                     throw;
                 }
             }
+            if (!PyErr_Occurred()) { evaluationEngine->notify_before_evaluation(); }
             // After StartStopContext destruction, check if a Python error was set during stop
             if (PyErr_Occurred()) { throw nb::python_error(); }
         } catch (const NodeException &e) {

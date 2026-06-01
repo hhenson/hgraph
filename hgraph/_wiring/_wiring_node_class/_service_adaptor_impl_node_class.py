@@ -23,8 +23,13 @@ class ServiceAdaptorImplNodeClass(AdaptorImplNodeClass):
         __interface__: WiringNodeSignature = None,
         **kwargs,
     ) -> "WiringPort":
-        with WiringContext(current_wiring_node=self, current_signature=self.signature):
+        with WiringContext(
+            current_wiring_node=self,
+            current_signature=self.signature,
+            wire_service_outputs_directly=self.wire_service_outputs_directly,
+        ):
             path = kwargs.get("path")
+            pre_resolved_types_all = __pre_resolved_types__ or {}
 
             from hgraph import AdaptorNodeClass
 
@@ -41,11 +46,9 @@ class ServiceAdaptorImplNodeClass(AdaptorImplNodeClass):
 
             path = path.replace("/from_graph", "").replace("/to_graph", "")
 
-            self._validate_service_not_already_bound(full_path, __pre_resolved_types__)
-
-            scalars = {k: v for k, v in __pre_resolved_types__.items() if k in __interface__.signature.scalar_inputs}
+            scalars = {k: v for k, v in pre_resolved_types_all.items() if k in __interface__.signature.scalar_inputs}
             pre_resolved_types = {
-                k: v for k, v in __pre_resolved_types__.items() if k not in self.signature.scalar_inputs
+                k: v for k, v in pre_resolved_types_all.items() if k not in self.signature.scalar_inputs
             }
 
             kwargs["path"] = path
@@ -53,9 +56,11 @@ class ServiceAdaptorImplNodeClass(AdaptorImplNodeClass):
             kwargs_, resolved_signature, resolution_dict = validate_and_resolve_signature(
                 self.signature, *args, __pre_resolved_types__=pre_resolved_types, **(kwargs | scalars)
             )
+            interface_resolution_dict = {k: v for k, v in resolution_dict.items() if k in __interface__.signature.type_vars}
+            self._validate_service_not_already_bound(full_path, interface_resolution_dict | scalars)
 
             with WiringGraphContext(node_signature=resolved_signature):
-                from_graph = __interface__.wire_impl_inputs_stub(path, resolution_dict, **scalars).as_dict()
+                from_graph = __interface__.wire_impl_inputs_stub(path, interface_resolution_dict, **scalars).as_dict()
 
             to_graph = self.implementation_graph.__call__(
                 __pre_resolved_types__=resolution_dict,
@@ -64,7 +69,7 @@ class ServiceAdaptorImplNodeClass(AdaptorImplNodeClass):
             )
 
             with WiringGraphContext(node_signature=resolved_signature):
-                __interface__.wire_impl_out_stub(path, to_graph, resolution_dict, **scalars)
+                __interface__.wire_impl_out_stub(path, to_graph, interface_resolution_dict, **scalars)
 
     def validate_signature_vs_interfaces(
         self, signature: WiringNodeSignature, fn: Callable, interfaces: Sequence[WiringNodeClass]

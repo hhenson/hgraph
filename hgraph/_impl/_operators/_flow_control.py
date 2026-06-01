@@ -84,26 +84,6 @@ def merge_ts_scalar(*tsl: TSL[TS[SCALAR], SIZE], _output: TS[SCALAR] = None) -> 
             return out
 
 
-@compute_node(overloads=combine, valid=("orig",))
-def combine_compound_scalars(orig: TS[COMPOUND_SCALAR], delta: TS[COMPOUND_SCALAR]) -> TS[COMPOUND_SCALAR]:
-    """
-    Combines two compound scalars. This assumes that the merge is right applied to left with the left value considered
-    as the original and the right the change to apply.
-    """
-    if not delta.valid:
-        return orig.value
-    original_values = (o_v := orig.value).to_dict()
-    items = [(key, value, original_values) for key, value in delta.value.to_dict().items()]
-    while items:
-        key, value, orig_values = items.pop()
-        if isinstance(value, dict):
-            values = orig_values.get(key, {})
-            items.extend([(k, v, values) for k, v in value.items()])
-        else:
-            orig_values[key] = value
-    return type(o_v).from_dict(original_values)
-
-
 @graph(overloads=merge)
 def merge_tsb(*tsl: TSL[TSB[TS_SCHEMA], SIZE], _schema_tp: type[TS_SCHEMA] = AUTO_RESOLVE) -> TSB[TS_SCHEMA]:
     """

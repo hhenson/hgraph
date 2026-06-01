@@ -13,6 +13,7 @@ from polars.datatypes import dtype_to_py_type
 
 from hgraph import (
     K,
+    SCHEMA_1,
     TS,
     Frame,
     COMPOUND_SCALAR,
@@ -292,12 +293,47 @@ def convert_df_to_frame(
 
 
 @compute_node(overloads=convert)
+def convert_frame_to_frame(
+    ts: TS[Frame[SCHEMA_1]], _tp: Type[TS[Frame[SCHEMA]]] = DEFAULT[OUT], _schema: Type[SCHEMA] = AUTO_RESOLVE, mapping: frozendict[str, str] = None
+) -> TS[Frame[SCHEMA]]:
+    df: DataFrame = ts.value
+    schema = {mapping.get(k, k) if mapping else k: v for k, v in df.schema.items() if mapping is None or mapping.get(k, k) is not None}
+
+    if schema.keys() != _schema.__meta_data_schema__.keys():
+        raise ValueError(
+            f"expected schema keys {_schema.__meta_data_schema__.keys()} does not match received frame with"
+            f" {df.schema.keys()} and mapping {mapping}"
+        )
+
+    wrong_types = []
+    for k, v in _schema.__meta_data_schema__.items():
+        if dtype_to_py_type(schema[k]) != v.py_type:
+            wrong_types.append(
+                f"{k}: schema type {v.py_type} does not match frame type {dtype_to_py_type(df.schema[k])}"
+            )
+
+    if wrong_types:
+        raise ValueError(f"schemas do not match: {', '.join(wrong_types)}")
+
+    return df if mapping is None else df.select(**{mapping.get(k, k): pl.col(k) for k in df.schema.keys() if mapping.get(k, k) is not None})
+
+
+@compute_node(overloads=convert)
 def convert_cs_to_frame(
     ts: TS[COMPOUND_SCALAR],
     _tp: Type[TS[Frame[COMPOUND_SCALAR]]] = DEFAULT[OUT],
     _cs: Type[COMPOUND_SCALAR] = AUTO_RESOLVE,
 ) -> TS[Frame[COMPOUND_SCALAR]]:
     return pl.DataFrame(asdict(ts.value))
+
+
+@compute_node(overloads=convert)
+def convert_tuple_of_cs_to_frame(
+    ts: TS[Tuple[COMPOUND_SCALAR, ...]],
+    _tp: Type[TS[Frame[COMPOUND_SCALAR]]] = DEFAULT[OUT],
+    _cs: Type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+) -> TS[Frame[COMPOUND_SCALAR]]:
+    return pl.DataFrame([asdict(i) for i in ts.value])
 
 
 def _check_schema(scalar, bundle):

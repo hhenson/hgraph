@@ -1,8 +1,10 @@
+from datetime import date, datetime
+
 import polars as pl
 import pytest
 from polars.testing import assert_series_equal
 
-from hgraph import graph, TS, Series, NodeException
+from hgraph import contains_, graph, TS, Series, NodeException
 from hgraph.test import eval_node
 
 
@@ -299,3 +301,12 @@ def test_add_series_float_series_int():
 
     results = eval_node(g, [pl.Series(values=[4.2, 3.0, 3.1])], [pl.Series(values=[2, 6, 1])])
     assert_series_equal(results[0], pl.Series(values=[6.2, 9.0, 4.1]))
+
+
+def test_series_contains():
+    @graph
+    def g(lhs: TS[Series[int]], rhs: TS[int]) -> TS[bool]:
+        return contains_(lhs, rhs)
+
+    results = eval_node(g, [pl.Series(values=[4, 3, 3])], [3, 6, 4])
+    assert results == [True, False, True]

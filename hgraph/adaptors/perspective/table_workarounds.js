@@ -134,6 +134,180 @@ export async function updateLockedMode(workspace, mode, locked, cb, call_cb){
 }
 
 
+async function evaluateOnDemandLoad(viewer, table_name) {
+    const wt = getWorkspaceTables()[table_name];
+    if (!wt || wt.type !== "on_demand_table") return;
+
+    const view = await viewer.getView();
+    if (!view) return;
+    const cfg = await view.get_config();
+    const filters = cfg.filter || [];
+
+    const overlay = document.querySelector(`.on-demand-overlay[data-on-demand-table="${table_name}"]`);
+
+    const all_present = wt.required_filter_columns.length === 0 ||
+        wt.required_filter_columns.every(col =>
+            filters.some(([fcol, op]) => fcol === col && op !== 'is null')
+        );
+
+    if (!all_present) {
+        if (wt.abort_controller) {
+            wt.abort_controller.abort();
+            wt.abort_controller = null;
+        }
+        if (wt.loaded) {
+            await wt.table.replace([]);
+            wt.loaded = false;
+        }
+        if (overlay) {
+            const missing = wt.required_filter_columns.filter(col =>
+                !filters.some(([fcol, op]) => fcol === col && op !== 'is null')
+            );
+            overlay.querySelector('.on-demand-message').textContent = `Please select ${missing.join(', ')} to load the data`;
+            overlay.style.display = 'flex';
+            overlay.querySelector('.on-demand-message').style.display = 'block';
+            overlay.querySelector('.on-demand-load').style.display = 'none';
+            overlay.querySelector('.on-demand-loading').style.display = 'none';
+            overlay.querySelector('.on-demand-error').style.display = 'none';
+        }
+        return;
+    }
+
+    if (wt.auto_filter) {
+        await triggerOnDemandLoad(viewer, table_name);
+        return;
+    }
+
+    if (overlay) {
+        overlay.style.display = 'flex';
+        overlay.querySelector('.on-demand-message').style.display = 'none';
+        overlay.querySelector('.on-demand-load').style.display = 'block';
+        overlay.querySelector('.on-demand-loading').style.display = 'none';
+        overlay.querySelector('.on-demand-error').style.display = 'none';
+    }
+}
+
+async function triggerOnDemandLoad(viewer, table_name) {
+    const wt = getWorkspaceTables()[table_name];
+    if (!wt || wt.type !== "on_demand_table") return;
+
+    const view = await viewer.getView();
+    const cfg = await view.get_config();
+    const filters = cfg.filter || [];
+
+    const overlay = document.querySelector(`.on-demand-overlay[data-on-demand-table="${table_name}"]`);
+
+    if (overlay) {
+        overlay.style.display = 'flex';
+        overlay.querySelector('.on-demand-message').style.display = 'none';
+        overlay.querySelector('.on-demand-load').style.display = 'none';
+        overlay.querySelector('.on-demand-loading').style.display = 'block';
+        overlay.querySelector('.on-demand-error').style.display = 'none';
+    }
+
+    if (wt.abort_controller) wt.abort_controller.abort();
+    wt.abort_controller = new AbortController();
+
+    const params = new URLSearchParams();
+    for (const [col, op, val] of filters) {
+        if (!wt.required_filter_columns.includes(col)) continue;
+        if (op === 'is null' || val === null || val === undefined) continue;
+        params.set(col, Array.isArray(val) ? val.join(',') : String(val));
+    }
+
+    const url = wt.url + (params.toString() ? '?' + params.toString() : '');
+    try {
+        const response = await fetch(url, {signal: wt.abort_controller.signal});
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.arrayBuffer();
+        if (data.byteLength > 0) await wt.table.replace(data);
+        wt.loaded = true;
+        if (overlay) overlay.style.display = 'none';
+    } catch (e) {
+        if (e.name === 'AbortError') return;
+        wt.loaded = false;
+        if (overlay) {
+            overlay.querySelector('.on-demand-loading').style.display = 'none';
+            overlay.querySelector('.on-demand-load').style.display = 'block';
+            const err = overlay.querySelector('.on-demand-error');
+            err.textContent = `Failed to load: ${e.message}`;
+            err.style.display = 'block';
+        }
+    }
+}
+
+
+async function resolve_required_filters(g, view_config, table_config) {
+    const cm_wt = getWorkspaceTables()["context_mapping"];
+    if (cm_wt?.table) {
+        const cm_view = await cm_wt.table.view();
+        const mappings = await cm_view.to_json();
+        cm_view.delete();
+        const cm_columns = mappings
+            .filter(m => m.target === view_config.title)
+            .map(m => m.column);
+        if (cm_columns.length > 0)
+            table_config.required_filter_columns = cm_columns;
+    }
+    await g.restore({filter: []});
+    await evaluateOnDemandLoad(g, view_config.table);
+}
+
+function setupOnDemandViewer(g, view_config, table_config) {
+    if (!document.querySelector(`.on-demand-overlay[data-on-demand-table="${view_config.table}"]`)) {
+        const overlay = document.createElement('div');
+        overlay.className = 'on-demand-overlay';
+        overlay.setAttribute('data-on-demand-table', view_config.table);
+        overlay.innerHTML = `
+            <span class="on-demand-message"></span>
+            <button class="on-demand-load" style="display:none">Load</button>
+            <div class="on-demand-loading" style="display:none"></div>
+            <span class="on-demand-error" style="display:none"></span>
+        `;
+        overlay.querySelector('.on-demand-load').addEventListener('click', () => {
+            triggerOnDemandLoad(g, view_config.table);
+        });
+        const updateOverlayPosition = () => {
+            const main_column = g.shadowRoot?.querySelector('#main_panel_container');
+            const rect = (main_column || g).getBoundingClientRect();
+            if (rect.width === 0 && rect.height === 0) {
+                overlay.style.visibility = 'hidden';
+                return;
+            }
+            overlay.style.visibility = 'visible';
+            overlay.style.top    = rect.top    + 'px';
+            overlay.style.left   = rect.left   + 'px';
+            overlay.style.width  = rect.width  + 'px';
+            overlay.style.height = rect.height + 'px';
+        };
+        new ResizeObserver(updateOverlayPosition).observe(g);
+        window.addEventListener('resize', updateOverlayPosition);
+        g.addEventListener('perspective-toggle-settings', () => {
+            // Re-position after the settings panel animation completes
+            for (const delay of [50, 150, 300]) {
+                setTimeout(updateOverlayPosition, delay);
+            }
+        });
+        updateOverlayPosition();
+        document.body.appendChild(overlay);
+    }
+
+    resolve_required_filters(g, view_config, table_config);
+
+    g.addEventListener("perspective-config-update", async () => {
+        await evaluateOnDemandLoad(g, view_config.table);
+    });
+}
+
+const colour_scheme_locks = {};
+function getColourSchemeLock(scheme) {
+    if (!colour_scheme_locks[scheme]) {
+        colour_scheme_locks[scheme] = new AsyncLock(scheme);
+    }
+    return colour_scheme_locks[scheme];
+}
+
+
 export async function installTableWorkarounds(mode, lockCallback) {
     await initViewSettings();
     await initColumnSettings();
@@ -189,6 +363,10 @@ export async function installTableWorkarounds(mode, lockCallback) {
                 }
             });
             await refreshTimeSensitiveViews({detail: config.viewers[g.slot]}, g, mode);
+
+            if (table_config.type === "on_demand_table") {
+                setupOnDemandViewer(g, view_config, table_config);
+            }
 
             g.dataset.events_set_up = "true";
         }
@@ -336,7 +514,8 @@ export async function installTableWorkarounds(mode, lockCallback) {
                 row_selection: viewSettings(view_config.title, "row_selection") || true,
                 group_selection: viewSettings(view_config.title, "group_selection") || false,
                 split_selection: viewSettings(view_config.title, "split_selection") || false,
-                block_selection: viewSettings(view_config.title, "block_selection") || false
+                block_selection: viewSettings(view_config.title, "block_selection") || false,
+                multiple_selection: viewSettings(view_config.title, "multiple_selection") || false,
             };
             table.addEventListener("mousedown", async (event) => {
                     await trackSelection(event, table, viewer, table_config, model, options);
@@ -360,7 +539,7 @@ export async function installTableWorkarounds(mode, lockCallback) {
     }
 
     for (const g of document.querySelectorAll(
-        "perspective-viewer perspective-viewer-d3fc-ybar")) {
+        "perspective-viewer perspective-viewer-d3fc-ybar, perspective-viewer perspective-viewer-d3fc-sunburst")) {
 
         // the mobile version of chrome/edge does not support shadow DOM
         const shadow = window.CSS?.supports && window.CSS?.supports("selector(:host-context(foo))");
@@ -384,59 +563,81 @@ export async function installTableWorkarounds(mode, lockCallback) {
 
         if ("chart_colours" in getWorkspaceTables() && viewSettings(view_config.title, "chart_colours")) {
             const chart_colours_table = getWorkspaceTables()["chart_colours"].table;
-            const view = await chart_colours_table.view({filter: [["view", "==", view_config.title]]});
-            const apply_colours = async () => {
-                const choices = await view.to_json();
-                const styles = g._settings.colorStyles;
-                const ids = {};
-                const values = new Array(styles.scheme.length).fill(null);
-                const values_to_index = {};
-                if (g._settings.data && g._settings.data.length > 0) {
-                    let i = 0;
-                    for (const key of Object.keys(g._settings.data[0])){
-                        if (key === '__ROW_PATH__') continue;
-                        const parts = key.split("|");
-                        values[i] = g._settings.mainValues.length <= 1 && parts.length > 1
-                            ? parts.slice(0, parts.length - 1).join("|")
-                            : key;
-                        values_to_index[values[i]] = i;
-                        i++;
+            const colour_scheme_name = viewSettings(view_config.title, "chart_colours");
+            await getColourSchemeLock(colour_scheme_name).enter();
+            try {
+                const view = await chart_colours_table.view({filter: [["view", "==", colour_scheme_name]]});
+                const apply_colours = async () => {
+                    const choices = await view.to_json();
+                    const styles = g._settings.colorStyles;
+                    const ids = {};
+                    const values = new Array(styles.scheme.length).fill(null); // values to map to colour (names of time series in ybar, categories in sunburst)
+                    const values_to_index = {};
+                    if (g._settings.data && g._settings.data.length > 0) {
+                        if (g.name == "Y Bar"){
+                            let i = 0;
+                            for (const key of Object.keys(g._settings.data[0])){
+                                if (key === '__ROW_PATH__') continue;
+                                const parts = key.split("|");
+                                values[i] = g._settings.mainValues.length <= 1 && parts.length > 1
+                                    ? parts.slice(0, parts.length - 1).join("|")
+                                    : key;
+                                values_to_index[values[i]] = i;
+                                i++;
+                            }
+                        } else if (g.name == "Sunburst") {
+                            const colour_col = g._settings.realValues[1]; // the second real value is used for colouring in sunburst
+                            let i = 0;
+                            for (const o of g._settings.data){
+                                if ('__ROW_PATH__' in o && o['__ROW_PATH__'].some((v) => v === null)) continue;
+                                values[i] = o[colour_col];
+                                values_to_index[values[i]] = i;
+                                i++;
+                            }
+                        }
                     }
-                }
-                for (const row of choices) {
-                    ids[row.value] = row._id;
-                    if (row.value in values_to_index) {
-                        styles.scheme[values_to_index[row.value]] = row.colour;
+                    for (const row of choices) {
+                        ids[row.value] = row._id;
+                        if (row.value in values_to_index) {
+                            styles.scheme[values_to_index[row.value]] = row.colour;
+                        }
                     }
-                }
-                for (const [v, i] of Object.entries(values_to_index)) {
-                    if (!(v in ids)) {
-                        ids[v] = Math.floor(Math.random() * 1_000_000_000) * -2 - 1;
+                    for (const v of values) {
+                        if (!(v in ids)) {
+                            ids[v] = Math.floor(Math.random() * 1_000_000_000) * -2 - 1;
+                        }
                     }
-                }
-                const update = Object.entries(values_to_index).map(([v, i]) => { 
-                    return {_id: ids[v], view: view_config.title, element: i, value: v, colour: styles.scheme[i]}; });
-                await chart_colours_table.update(update);
-                return values_to_index;
-            };
-            let values_to_index = await apply_colours();
-            await view.on_update(async () => {
-                setTimeout(async () => {
-                    const data = await view.to_json();
-                    for (const row of data) {
-                        g._settings.colorStyles.scheme[values_to_index[row.value]] = row.colour;
-                    }
-                    g._draw();
-                }, 100);
-            });
-            g.parentElement.addEventListener("perspective-config-update", async (event) => {
-                let c = 5;
-                const i = setInterval(async () => {
-                    values_to_index = await apply_colours();
-                    g._draw();
-                    if (--c < 0) clearInterval(i);
-                }, 100);
-            });
+                    const update = values.map((v) => { 
+                        return {_id: ids[v], view: colour_scheme_name, value: v, colour: styles.scheme[values_to_index[v]]}; });
+                    await chart_colours_table.update(update);
+                    return values_to_index;
+                };
+                let values_to_index = await apply_colours();
+                await view.on_update(async () => {
+                    setTimeout(async () => {
+                        const data = await view.to_json();
+                        for (const row of data) {
+                            g._settings.colorStyles.scheme[values_to_index[row.value]] = row.colour;
+                        }
+                        g._draw();
+                    }, 100);
+                });
+                g.parentElement.addEventListener("perspective-config-update", async (event) => {
+                    let c = 3;
+                    const i = setInterval(async () => {
+                        await getColourSchemeLock(colour_scheme_name).enter();
+                        try {
+                        values_to_index = await apply_colours();
+                        } finally {
+                            getColourSchemeLock(colour_scheme_name).exit();
+                        }
+                        g._draw();
+                        if (--c < 0) clearInterval(i);
+                    }, 10);
+                });
+            } finally {
+                getColourSchemeLock(colour_scheme_name).exit();
+            }
         }
 
         g._draw();
@@ -444,7 +645,7 @@ export async function installTableWorkarounds(mode, lockCallback) {
 }
 
 
-import {getWorkspaceTables, wait_for_table} from "./workspace_tables.js";
+import {getWorkspaceTables, wait_for_table, AsyncLock} from "./workspace_tables.js";
 
 async function col_values(table, td) {
     const meta = table.getMeta(td);
@@ -533,7 +734,11 @@ async function dropdown_editor(editor, element, table_, model_, table_config_) {
             datalist = document.createElement("table");
             datalist.id = "table-workarounds-dropdown";
             datalist.style.position = "absolute";
-            datalist.style.top = (element.getBoundingClientRect().bottom - table.getBoundingClientRect().top) + 'px';
+            if (table.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom < 52){
+                datalist.style.bottom = (table.getBoundingClientRect().bottom - element.getBoundingClientRect().top) + 'px';
+            } else {
+                datalist.style.top = (element.getBoundingClientRect().bottom - table.getBoundingClientRect().top) + 'px';
+            }
             datalist.style.left = (element.getBoundingClientRect().left - table.getBoundingClientRect().left) + 'px';
             datalist.style.zIndex = "1000";
             datalist.style.backgroundColor = "white";
@@ -613,7 +818,7 @@ async function dropdown_editor(editor, element, table_, model_, table_config_) {
                 }
             }
         }
-        if (dropped) table.appendChild(datalist);
+        if (dropped) table.parentNode.appendChild(datalist);
         return [datalist, dropped];
     };
     const fold = () => {
@@ -840,7 +1045,7 @@ async function maintainAddButtonOnFilter(event, table, viewer, config) {
 }
 
 
-function highlightSelection(table, viewer, model) {    
+function highlightSelection(table, viewer, model) {
     for (const t of table.querySelectorAll('.highlight')){
         t.classList.remove("highlight");
     }
@@ -848,20 +1053,24 @@ function highlightSelection(table, viewer, model) {
     const selection_type = table.dataset.selection_type;
     if (!selection_type) return;
 
-    const selection_meta = table.dataset.selection_meta ? JSON.parse(table.dataset.selection_meta) : null;
+    const raw_meta = table.dataset.selection_meta ? JSON.parse(table.dataset.selection_meta) : null;
+    if (!raw_meta) return;
+
+    const selection_metas = Array.isArray(raw_meta) ? raw_meta : [raw_meta];
 
     const tbody = table.children[0].children[1];
     for (const tr of tbody.children){
         const meta = table.getMeta(tr.children[tr.children.length-1]);
         const id = model._ids[meta.y - meta.y0];
-        if (id && selection_meta.row_header.length <= id.length && selection_meta.row_header.every((v, i) => v == id[i])) {
-            for (const td of tr.children){
-                const meta = table.getMeta(td);
-                const id = model._ids[meta.y - meta.y0];
-
-                if (meta.column_header && selection_meta.column_header.every((x, i) => x == meta.column_header[i])) {
-                    td.classList.add("highlight");
+        for (const selection_meta of selection_metas) {
+            if (id && selection_meta.row_header.length <= id.length && selection_meta.row_header.every((v, i) => v == id[i])) {
+                for (const td of tr.children){
+                    const meta = table.getMeta(td);
+                    if (meta.column_header && selection_meta.column_header.every((x, i) => x == meta.column_header[i])) {
+                        td.classList.add("highlight");
+                    }
                 }
+                break;
             }
         }
     }
@@ -952,26 +1161,75 @@ async function trackSelection(event, table, viewer, config, model, options) {
         }
         if (metadata){
             const selected = table.querySelector(".highlight");
+            const single_selection = options.multiple_selection === false
             if (!td.classList.contains("highlight")){
                 const {selection_type, selection_meta, selection_names, selection_values} = await metadataToSelection(table, viewer, model, metadata, options);
 
-                if (selection_type){
-                    table.dataset.selection_type = selection_type;
-                    table.dataset.selection_names = JSON.stringify(selection_names);
-                    table.dataset.selection_meta = JSON.stringify(selection_meta);
-                    table.dataset.selection_values = JSON.stringify(selection_values);
-
-                    if ('y' in metadata)
-                        table.dataset.selected_row = metadata.y;
-                    if ('x' in metadata)
-                        table.dataset.selected_col = metadata.x;
-                } else {
+                if (!selection_type) {
                     delete table.dataset.selected_row;
                     delete table.dataset.selected_col;
                     delete table.dataset.selection_type;
                     delete table.dataset.selection_values;
                     delete table.dataset.selection_names;
                     delete table.dataset.selection_meta;
+                } else {
+                    const existing_metas  = !single_selection && table.dataset.selection_meta   ? JSON.parse(table.dataset.selection_meta)   : [];
+                    const existing_values = !single_selection && table.dataset.selection_values ? JSON.parse(table.dataset.selection_values) : [];
+                    const existing_names  = !single_selection && table.dataset.selection_names  ? JSON.parse(table.dataset.selection_names)  : [];
+                    const existing_rows   = !single_selection && table.dataset.selected_row     ? JSON.parse(table.dataset.selected_row)     : [];
+                    const existing_cols   = !single_selection && table.dataset.selected_col     ? JSON.parse(table.dataset.selected_col)     : [];
+                    const existing_types  = !single_selection && table.dataset.selection_type   ? JSON.parse(table.dataset.selection_type)   : [];
+
+                    existing_metas.push(selection_meta);
+                    existing_values.push(selection_values);
+                    existing_names.push(selection_names);
+                    existing_rows.push('y' in metadata ? metadata.y : null);
+                    existing_cols.push('x' in metadata ? metadata.x : null);
+                    existing_types.push(selection_type);
+
+                    table.dataset.selection_type   = JSON.stringify(existing_types);
+                    table.dataset.selection_names  = JSON.stringify(existing_names);
+                    table.dataset.selection_meta   = JSON.stringify(existing_metas);
+                    table.dataset.selection_values = JSON.stringify(existing_values);
+                    table.dataset.selected_row     = JSON.stringify(existing_rows);
+                    table.dataset.selected_col     = JSON.stringify(existing_cols);
+                }
+            } else if (!single_selection) {
+                const {selection_values: clicked_values} = await metadataToSelection(table, viewer, model, metadata, options);
+
+                const existing_metas  = table.dataset.selection_meta   ? JSON.parse(table.dataset.selection_meta)   : [];
+                const existing_values = table.dataset.selection_values ? JSON.parse(table.dataset.selection_values) : [];
+                const existing_names  = table.dataset.selection_names  ? JSON.parse(table.dataset.selection_names)  : [];
+                const existing_rows   = table.dataset.selected_row     ? JSON.parse(table.dataset.selected_row)     : [];
+                const existing_cols   = table.dataset.selected_col     ? JSON.parse(table.dataset.selected_col)     : [];
+                const existing_types  = table.dataset.selection_type   ? JSON.parse(table.dataset.selection_type)   : [];
+
+                const clicked_str = JSON.stringify(clicked_values);
+                const remove_idx = existing_values.findIndex(v => JSON.stringify(v) === clicked_str);
+
+                if (remove_idx !== -1) {
+                    existing_metas.splice(remove_idx, 1);
+                    existing_values.splice(remove_idx, 1);
+                    existing_names.splice(remove_idx, 1);
+                    existing_rows.splice(remove_idx, 1);
+                    existing_cols.splice(remove_idx, 1);
+                    existing_types.splice(remove_idx, 1);
+                }
+
+                if (existing_metas.length === 0) {
+                    delete table.dataset.selected_row;
+                    delete table.dataset.selected_col;
+                    delete table.dataset.selection_type;
+                    delete table.dataset.selection_values;
+                    delete table.dataset.selection_names;
+                    delete table.dataset.selection_meta;
+                } else {
+                    table.dataset.selection_meta   = JSON.stringify(existing_metas);
+                    table.dataset.selection_values = JSON.stringify(existing_values);
+                    table.dataset.selection_names  = JSON.stringify(existing_names);
+                    table.dataset.selected_row     = JSON.stringify(existing_rows);
+                    table.dataset.selected_col     = JSON.stringify(existing_cols);
+                    table.dataset.selection_type   = JSON.stringify(existing_types);
                 }
             } else if (selected) {
                 delete table.dataset.selected_row;
@@ -990,11 +1248,10 @@ async function trackSelection(event, table, viewer, config, model, options) {
 }
 
 async function trackSelectionChange(table, viewer, config, model) {
-    const selection_type = table.dataset.selection_type;
-    const selection_names = table.dataset.selection_names;
-    const selection_values = table.dataset.selection_values;
-    if (selection_values !== undefined) {
-        const values = JSON.parse(selection_values);
+    const selection_values_raw = table.dataset.selection_values;
+    if (selection_values_raw !== undefined) {
+        const all_values = JSON.parse(selection_values_raw);
+        const all_names  = table.dataset.selection_names ? JSON.parse(table.dataset.selection_names) : [];
         const tbl = await viewer.getTable();
         const index = await tbl.get_index();
         const view_config = await viewer.save();
@@ -1002,30 +1259,37 @@ async function trackSelectionChange(table, viewer, config, model) {
         if (required_cols.length === 0)
             return;
 
-        let rows = [];
-        if (required_cols.every((col) => selection_names.includes(col))) {
-            rows = [values];
-            if (required_vals.length > 0) {
-                const { view, get_rows } = await createViewAndGetRows(tbl, view_config, values, required_vals, index, false);
-                const val_rows = await get_rows();
+        const rows = [];
+        for (let i = 0; i < all_values.length; i++) {
+            const values = all_values[i];
+            const selection_names = all_names[i] ?? [];
+            if (required_cols.every((col) => selection_names.includes(col))) {
+                let entry_rows = [values];
+                if (required_vals.length > 0) {
+                    const { view, get_rows } = await createViewAndGetRows(tbl, view_config, values, required_vals, index, false);
+                    const val_rows = await get_rows();
+                    await view.delete();
+                    if (val_rows.length === 1) {
+                        entry_rows[0] = {...entry_rows[0], ...val_rows[0]};
+                    } else if (val_rows.length > 1) {
+                        entry_rows = val_rows.map((r) => ({...entry_rows[0], ...r}));
+                    }
+                }
+                rows.push(...entry_rows);
+            } else {
+                const { view, get_rows } = await createViewAndGetRows(tbl, view_config, values, [...required_cols, ...required_vals], index, false);
+                const entry_rows = await get_rows();
                 await view.delete();
-                if (val_rows.length === 1){
-                    rows[0] = {...rows[0], ...val_rows[0]};
-                } else if (val_rows.length > 1){
-                    rows = val_rows.map((r) => ({...rows[0], ...r}));
-                }            
+                rows.push(...entry_rows);
             }
-        } else {
-            const { view, get_rows } = await createViewAndGetRows(tbl, view_config, values, [...required_cols, ...required_vals], index, false);
-            rows = await get_rows();
-            await view.delete();
         }
-        if (rows.length > 1){
+
+        if (rows.length > 1) {
             const row_reduce = Object.fromEntries(
                 [...required_cols, ...required_vals]
                     .map((col) => [col, new Set(rows.map((r) => r[col]))])
                     .map(([c, s]) => s.size == 1 ? [c, s.values().next().value] : [c, [...s]])
-                );
+            );
             await fireContextActions(viewer.slot, row_reduce);
         } else if (rows && rows.length == 1){
             await fireContextActions(viewer.slot, rows[0]);
@@ -1059,6 +1323,13 @@ async function getContextActionColumns(from) {
     const required_cols = [...columns];
     const required_vals = [...values];
     return {required_cols, required_vals}
+}
+
+function setOnDemandAutoFilter(table_name, row, actions, target_title, from_title) {
+    const wt = getWorkspaceTables()[table_name];
+    if (wt?.type !== 'on_demand_table') return;
+    const target_actions = actions.filter(x => x.target === target_title);
+    wt.auto_filter = !!row && target_actions.some(a => a.source === from_title && a.auto_filter === 'true');
 }
 
 async function fireContextActions(from, row) {
@@ -1114,6 +1385,7 @@ async function fireContextActions(from, row) {
             }
         }
         if (new_filter !== filters){
+            setOnDemandAutoFilter(target[1].table, row, actions, target_title, from_title);
             await viewer.restore({filter: new_filter});
         }
         if (new_title !== null){
@@ -1135,16 +1407,96 @@ class tooltip_info{
     static tooltip_ws_url = null;
 
     static update_timer = null;
+    static scrollbar_style_injected = false;
+
+    static inject_scrollbar_styles() {
+        if (tooltip_info.scrollbar_style_injected) return;
+        tooltip_info.scrollbar_style_injected = true;
+
+        const style = document.createElement('style');
+        style.textContent = `
+            #tooltip {
+                scrollbar-width: thin;
+                scrollbar-color: rgba(128, 128, 128, 0.6) transparent;
+            }
+
+            #tooltip::-webkit-scrollbar,
+            #tooltip::-webkit-scrollbar-corner {
+                background-color: transparent;
+                height: 12px;
+                width: 12px;
+            }
+
+            #tooltip::-webkit-scrollbar-thumb {
+                background-clip: content-box;
+                background: var(--icon--color);
+                border: 5.5px solid var(--plugin--background);
+                max-height: 50%;
+                max-width: 50%;
+                min-width: 10%;
+                min-height: 10%;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    static reposition_tooltip() {
+        if (!tooltip_info.tooltip) return;
+
+        const tdRect = tooltip_info.tooltip_trigger?.getBoundingClientRect();
+        if (!tdRect) return;
+
+        const tooltipRect = tooltip_info.tooltip.getBoundingClientRect();
+        const padding = 12;
+        const minHeight = 100;
+
+        let top = tdRect.bottom - padding;
+        let left = tdRect.right - padding;
+        let right = undefined;
+
+        // If tooltip goes off the right, restrict its width
+        if (left + tooltipRect.width > window.innerWidth - padding) {
+            right = padding;
+        }
+
+        let maxHeight = window.innerHeight - top - padding * 2;
+
+        // If not enough space below, try above
+        if (maxHeight < minHeight) {
+            const heightIfAbove = tdRect.top - padding * 2;
+            if (heightIfAbove > maxHeight) {
+                top = tdRect.top - tooltipRect.height - padding;
+                maxHeight = heightIfAbove;
+            }
+        }
+
+        if (top < padding) {
+            top = padding;
+            maxHeight = window.innerHeight - top - padding;
+        }
+
+        maxHeight = Math.max(minHeight, maxHeight);
+
+        tooltip_info.tooltip.style.top = top + 'px';
+        tooltip_info.tooltip.style.left = left + 'px';
+        if (right !== undefined) {
+            tooltip_info.tooltip.style.right = right + 'px';
+        } else {
+            tooltip_info.tooltip.style.right = '';
+        }
+        tooltip_info.tooltip.style.maxHeight = maxHeight + 'px';
+    }
 
     static show(table, td) {
         tooltip_info.clear();
+        tooltip_info.inject_scrollbar_styles();
 
         const style = window.getComputedStyle(td.parentElement);
         const style_2 = window.getComputedStyle(td);
         const tooltip = document.createElement("p");
-        tooltip.id = "tooltip"; 
+        tooltip.id = "tooltip";
         tooltip.className = "tooltip";
-        tooltip.style.position = "absolute";
+        tooltip.style.position = "fixed";
         tooltip.style.zIndex = "1000";
         tooltip.style.border = "1px solid grey";
         tooltip.style.padding = "5px";
@@ -1152,8 +1504,8 @@ class tooltip_info{
         tooltip.style.whiteSpace = "normal";
         tooltip.style.top = (td.getBoundingClientRect().bottom - 12) + 'px';
         tooltip.style.left = (td.getBoundingClientRect().right - 12) + 'px';
-        tooltip.style.overflow = "hidden";
-        tooltip.style.textOverflow = "ellipsis";
+        tooltip.style.overflow = "auto";
+        tooltip.style.maxWidth = "90vw";
         tooltip.style.backdropFilter = "blur(6px)";
         tooltip.style.boxShadow = "0 2px 5px rgba(0,0,0,0.2)";
         tooltip.style.fontSize = "12px";
@@ -1178,7 +1530,7 @@ class tooltip_info{
         pinContainer.style.top = "2px";
         pinContainer.style.right = "2px";
         pinContainer.style.cursor = "pointer";
-        
+
         // Create pin button
         const pinButton = document.createElement("div");
         pinButton.textContent = "🖈";
@@ -1188,7 +1540,7 @@ class tooltip_info{
         pinButton.style.padding = "2px";
         pinButton.title = "Pin tooltip";
         pinButton.dataset.pinned = "false";
-        
+
         // Pin/unpin behavior
         pinButton.addEventListener("click", (event) => {
             event.stopPropagation();
@@ -1198,21 +1550,28 @@ class tooltip_info{
             pinButton.title = isPinned ? "Pin tooltip" : "Unpin tooltip";
             pinButton.textContent = isPinned ? "🖈" : "✖";
         });
-        
+
         pinContainer.appendChild(pinButton);
         tooltip.appendChild(pinContainer);
         document.body.appendChild(tooltip);
 
+        // Store trigger element for repositioning when content changes
+        tooltip_info.tooltip_trigger = td;
+
         tooltip.addEventListener("mouseenter", () => {
             clearTimeout(tooltip_info.clear_timeout);
         });
-        
+
         tooltip.addEventListener("mouseleave", () => {
             if (tooltip_info.pinned) return;
             tooltip_info.clear();
         });
 
         tooltip_info.tooltip = tooltip;
+
+        // Reposition after initial render
+        setTimeout(() => tooltip_info.reposition_tooltip(), 0);
+
         return tooltip;
     }
 
@@ -1263,6 +1622,8 @@ class tooltip_info{
                                 container.style.display = "none";
                                 event.target.innerHTML = "+&nbsp;";
                             }
+                            // Reposition tooltip after tree expand/collapse
+                            setTimeout(() => tooltip_info.reposition_tooltip(), 0);
                         }
                     }
                 });
@@ -1293,12 +1654,15 @@ class tooltip_info{
         const loader = tooltip_info.tooltip.querySelector("#tooltip-loading");
         if (loader)
             loader.style.display = "none";
-        
+
         if (typeof text === "object") { // render json
             tooltip_info.render_json(tooltip_info.tooltip, text);
         } else {
             tooltip_info.tooltip.innerHTML = text;
         }
+
+        // Reposition after content update
+        setTimeout(() => tooltip_info.reposition_tooltip(), 0);
     }
 
     static async clear() {
@@ -1336,30 +1700,30 @@ function createButtonAction(td, action, metadata, model, viewer) {
     td.innerHTML = "<button style='font: inherit'>" + action.label + "</button>";
     const btn = td.querySelector("button");
     const id = model._ids[metadata.y - metadata.y0];
-    if (id){
+    if (id) {
         btn.addEventListener("click", async () => {
             const tbl = await viewer.getTable();
             const index = await tbl.get_index();
             const view = await tbl.view({filter: [[index, '==', id.join(',')]]});
             const row = (await (view).to_json())[0];
             view.delete();
-            if (row){
+            if (row) {
                 switch (action.action.type) {
-                case 'url':
-                    const url = action.action.url.replace(FORMAT_REGEX, (match, p1) => row[p1]);
-                    btn.disabled = true;
-                    btn.style.cursor = "progress";
-                    console.server(`Action: ${btn.innerText}, Fetching URL: ${url} at time ${new Date().toISOString()}`);
-                    const reply = await fetch (url, {method: 'GET'});
-                    btn.disabled = false;
-                    btn.style.cursor = "default";
-                    if (reply.ok) {
-                        console.server(`Action: ${btn.innerText}, Successfully fetched URL: ${url} at time ${new Date().toISOString()}`);
-                    } else {
-                        const error_text = await reply.text();
-                        console.server(`Action: ${btn.innerText}, Failed to fetch URL: ${url} with status ${reply.status} and message: '${error_text}' at time ${new Date().toISOString()}`);
-                        alert(`Action failed with status ${reply.status} and message: '${error_text}'`);
-                    }
+                    case 'url':
+                        const url = action.action.url.replace(FORMAT_REGEX, (match, p1) => p1 === '$random' ? `${Math.round(Math.random() * 1_000_000_000)}` : row[p1]);
+                        btn.disabled = true;
+                        btn.style.cursor = "progress";
+                        console.server(`Action: ${btn.innerText}, Fetching URL: ${url} at time ${new Date().toISOString()}`);
+                        const reply = await fetch(url, {method: 'GET'});
+                        btn.disabled = false;
+                        btn.style.cursor = "default";
+                        if (reply.ok) {
+                            console.server(`Action: ${btn.innerText}, Successfully fetched URL: ${url} at time ${new Date().toISOString()}`);
+                        } else {
+                            const error_text = await reply.text();
+                            console.server(`Action: ${btn.innerText}, Failed to fetch URL: ${url} with status ${reply.status} and message: '${error_text}' at time ${new Date().toISOString()}`);
+                            alert(`Action failed with status ${reply.status} and message: '${error_text}'`);
+                        }
                 }
             }
         });
@@ -1367,7 +1731,7 @@ function createButtonAction(td, action, metadata, model, viewer) {
         btn.disabled = true;
         btn.style.cursor = "not-allowed";
         console.error(`Action: ${btn.innerText}, Cannot attach action because row ID is missing.`);
-    }        
+    }
 }
 
 function parseActionConfig(action) {

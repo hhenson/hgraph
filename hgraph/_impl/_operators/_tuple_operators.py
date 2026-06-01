@@ -2,12 +2,14 @@ from statistics import stdev, variance
 from typing import Type, Tuple, Callable
 
 from hgraph import (
+    COMPOUND_SCALAR,
     SCALAR,
     TS,
     IncorrectTypeBinding,
     compute_node,
     HgTupleFixedScalarType,
     HgTupleCollectionScalarType,
+    getattr_,
     mul_,
     and_,
     or_,
@@ -52,6 +54,15 @@ def getitem_tuple(ts: TS[Tuple[SCALAR, ...]], key: TS[int]) -> TS[SCALAR]:
     Retrieve the tuple item indexed by key from the timeseries of scalar tuples
     """
     return ts.value[key.value]
+
+
+@compute_node(
+    overloads=getattr_,
+    resolvers={SCALAR: lambda mapping, attr: mapping[COMPOUND_SCALAR].meta_data_schema[attr].py_type},
+)
+def getattr_cs(ts: TS[Tuple[COMPOUND_SCALAR, ...]], attr: str, default_value: TS[SCALAR] = None) -> TS[Tuple[SCALAR, ...]]:
+    default = default_value.value
+    return tuple(default if (attr_value := getattr(i, attr, default)) is None else attr_value for i in ts.value)
 
 
 @compute_node(overloads=mul_)

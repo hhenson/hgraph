@@ -151,7 +151,7 @@ namespace hgraph
 
         [[nodiscard]] item_iterator end();
 
-        [[nodiscard]] const map_type &modified_items() const { return _modified_items; }
+        [[nodiscard]] const map_type &modified_items() const;
 
         [[nodiscard]] bool was_modified(const value::View &key) const {
             return _modified_items.find(key) != _modified_items.end();
@@ -252,8 +252,8 @@ namespace hgraph
         // Storage using Value keys (type-erased)
         map_type _ts_values;
         reverse_map_type _ts_values_to_keys;
-        map_type _modified_items;
-        removed_items_map_type _removed_items;  // Stores pair<value, was_valid>
+        mutable map_type _modified_items;
+        mutable removed_items_map_type _removed_items;  // Stores pair<value, was_valid>
         mutable map_type _valid_items_cache;
         mutable map_type _added_items_cache;  // Instance member instead of static for thread safety
         mutable engine_time_t _valid_items_cache_time{MIN_DT};  // Track when valid_items cache was built

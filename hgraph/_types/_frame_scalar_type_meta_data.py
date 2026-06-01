@@ -14,9 +14,10 @@ from hgraph._types._typing_utils import class_or_instance_method
 try:
     import polars as pl
 
-    __all__ = ("SCHEMA", "Frame", "HgDataFrameScalarTypeMetaData", "Series", "HgSeriesScalarTypeMetaData")
+    __all__ = ("SCHEMA", "SCHEMA_1", "Frame", "HgDataFrameScalarTypeMetaData", "Series", "HgSeriesScalarTypeMetaData")
 
     SCHEMA = TypeVar("SCHEMA", bound=CompoundScalar)
+    SCHEMA_1 = TypeVar("SCHEMA_1", bound=CompoundScalar)
 
     class _FrameTypeclass(_SpecialGenericAlias, _root=True): ...
 

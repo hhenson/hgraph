@@ -247,7 +247,7 @@ class PythonGraph(Graph):
                 clock.reset_push_node_requires_scheduling()
                 while self.receiver:
                     i, message = self.receiver.dequeue()
-                    # TODO: Extract the generic inteface description as this code can be generic, not depending on the impl
+                    # TODO: Extract the generic interface description as this code can be generic, not depending on the impl
                     node: PythonPushQueueNodeImpl = self.nodes[i]
                     self._evaluation_engine.notify_before_node_evaluation(node)
                     success = node.apply_message(message)

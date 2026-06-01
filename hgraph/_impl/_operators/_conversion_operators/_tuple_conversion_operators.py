@@ -104,11 +104,27 @@ def combine_tuple_specific_nonuniform(*tsl: TSB[TS_SCHEMA], __strict__: bool = T
     requires=lambda m: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR].py_type, ...]]),
     valid=("ts",),
 )
-def collect_tuple(
+def collect_scalar_to_tuple(
     ts: TS[SCALAR], *, reset: SIGNAL = None, tp_: Type[OUT] = DEFAULT[OUT], _output: TS_OUT[Tuple[SCALAR, ...]] = None
 ) -> TS[Tuple[SCALAR, ...]]:
     prev_value = _output.value if _output.valid and not reset.modified else ()
     new_value = (ts.value,) if ts.modified else ()
+    return prev_value + new_value
+
+
+@compute_node(
+    overloads=collect,
+    requires=lambda m: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR].py_type, ...]]),
+    valid=("ts",),
+)
+def collect_tuple_to_tuple(
+    ts: TS[Tuple[SCALAR, ...]],
+    reset: SIGNAL = None,
+    tp_: Type[OUT] = DEFAULT[OUT],
+    _output: TS_OUT[Tuple[SCALAR, ...]] = None
+) -> TS[Tuple[SCALAR, ...]]:
+    prev_value = _output.value if _output.valid and not reset.modified else ()
+    new_value = ts.value if ts.modified else ()
     return prev_value + new_value
 
 

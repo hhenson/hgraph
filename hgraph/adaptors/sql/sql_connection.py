@@ -68,7 +68,7 @@ def process_substitution(v: str) -> str:
             raise ValueError(f"get_secret is not defined, cannot get '{v[7:]}' not set for connection parameter")
     
     if v.startswith("$"):
-        value = sys.env.get(v[1:])
+        value = os.environ.get(v[1:])
         if value is None:
             raise ValueError(f"Environment variable {v[1:]} not set for connection parameter")
         return value
@@ -98,7 +98,7 @@ def start_sql_adaptor(
     match scheme:
         case "snowflake":
             connection = create_snowflake_connection(path, connection_params=dict(connection_params))
-        case "mssql" | "sqlite":
+        case "mssql" | "sqlite" | "postgresql":
             connection = create_sql_db_connection(path, connection_params=dict(connection_params), _state=_state)
 
     yield timedelta(), connection

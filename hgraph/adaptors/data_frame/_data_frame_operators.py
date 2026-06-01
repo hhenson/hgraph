@@ -20,7 +20,7 @@ from hgraph._types import (
 )
 from hgraph._wiring import compute_node
 
-__all__ = ("join", "filter_frame", "filter_cs", "filter_exp", "filter_exp_seq", "group_by", "ungroup", "sorted_", "concat")
+__all__ = ("join", "filter_frame", "filter_cs", "filter_exp", "filter_exp_seq", "group_by", "ungroup", "sorted_", "concat", "with_columns")
 
 ON_TYPE = TypeVar("ON_TYPE", str, tuple[str, ...], pl.Expr)
 
@@ -180,6 +180,26 @@ def ungroup_with_key(
         return pl.concat(v)
 
 
+@compute_node(overloads=ungroup, requires=lambda m, key_col: isinstance(m[KEYABLE_SCALAR], HgTupleFixedScalarType) and m[KEYABLE_SCALAR].size() == len(key_col))
+def ungroup_with_keys(
+        ts: TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]], 
+        key_col: Tuple[str, ...], 
+        _tp_out: Type[COMPOUND_SCALAR_1] = DEFAULT[OUT]
+    ) -> TS[Frame[COMPOUND_SCALAR_1]]:
+    
+    v = [v.value.with_columns(**{kc: pl.lit(k[i]) for i, kc in enumerate(key_col)}) for k, v in ts.valid_items() if v.valid and len(v.value) > 0]
+    if v:
+        return pl.concat(v)
+
+
+@compute_node(overloads=ungroup)
+def ungroup_from_items(ts: TSD[KEYABLE_SCALAR, TS[COMPOUND_SCALAR]]) -> TS[Frame[COMPOUND_SCALAR]]:
+    v = [v.value.to_dict() for v in ts.valid_values()]
+    if v:
+        return pl.DataFrame(v)
+
+
+
 @compute_node
 def sorted_(ts: TS[Frame[COMPOUND_SCALAR]], by: str, descending: bool = False) -> TS[Frame[COMPOUND_SCALAR]]:
     ts = ts.value
@@ -196,3 +216,29 @@ def concat(ts1: TS[Frame[COMPOUND_SCALAR]], ts2: TS[Frame[COMPOUND_SCALAR]]) -> 
 @compute_node(overloads=concat)
 def concat_frames(ts1: TS[Frame[COMPOUND_SCALAR]], ts2: TS[Frame[COMPOUND_SCALAR]]) -> TS[Frame[COMPOUND_SCALAR]]:
     return pl.concat([ts1.value, ts2.value])
+
+
+@operator
+def with_columns(ts: TS[Frame[COMPOUND_SCALAR]], **columns: TSB[TS_SCHEMA]) -> DEFAULT[OUT]: ...
+
+
+def _with_column_kwargs(columns: TSB[TS_SCHEMA]) -> dict[str, pl.Expr | pl.Series]:
+    return {k: v if isinstance(v, (pl.Expr, pl.Series)) else pl.lit(v) for k, v in columns.value.items()}
+
+
+@compute_node(
+    overloads=with_columns, 
+    all_valid=('columns',), 
+    requires=lambda m: all(k in m[COMPOUND_SCALAR].meta_data_schema for k in m[TS_SCHEMA].meta_data_schema.keys()))
+def with_columns_default(ts: TS[Frame[COMPOUND_SCALAR]], **columns: TSB[TS_SCHEMA]) -> TS[Frame[COMPOUND_SCALAR]]:
+    return ts.value.with_columns(**_with_column_kwargs(columns))
+
+
+@compute_node(overloads=with_columns, all_valid=('columns',))
+def with_columns_typed(
+        ts: TS[Frame[COMPOUND_SCALAR]],
+        _tp_out: Type[COMPOUND_SCALAR_1] = DEFAULT[OUT],
+        **columns: TSB[TS_SCHEMA]
+    ) -> TS[Frame[COMPOUND_SCALAR_1]]:
+    out = ts.value.with_columns(**_with_column_kwargs(columns))
+    return out.select(tuple(_tp_out.__meta_data_schema__.keys()))

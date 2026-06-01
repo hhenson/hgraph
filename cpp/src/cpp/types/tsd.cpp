@@ -69,6 +69,13 @@ namespace hgraph
         BaseTimeSeriesOutput::mark_child_modified(child, modified_time);
     }
 
+    const TimeSeriesDictOutputImpl::map_type &TimeSeriesDictOutputImpl::modified_items() const { 
+        if (!modified()) {
+            _modified_items.clear();
+        }
+        return _modified_items; 
+    }
+
     void TimeSeriesDictOutputImpl::remove_value(const value::View &key, bool raise_if_not_found) {
         auto it{_ts_values.find(key)};
         if (it == _ts_values.end()) {
@@ -980,18 +987,14 @@ namespace hgraph
         if (!has_owning_node()) { return; }
 
         // Release instances with deferred callback to ensure cleanup happens after all processing.
-        // Note: Do NOT call un_bind_output here - by the time this deferred callback runs,
-        // the reference outputs that this input was observing may have already been destroyed
-        // (e.g., when a switch branch changes and the old graph is disposed).
-        // The builder->release_instance will call builder_release_cleanup which safely handles
-        // cleanup of any remaining bindings.
         for (auto &[key, value_pair] : _removed_items) {
             auto &[value, was_valid] = value_pair;
             // Capture by value to ensure the lambda has valid references
             auto builder  = _ts_builder;
             auto instance = value;
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification(
-                [builder, instance]() { builder->release_instance(instance.get()); });
+                [builder, instance, p = shared_from_this()]() { builder->release_instance(instance.get()); });
+                // shared_from_this is needed to keep the input alive until the callback runs, which ensures the parent pointer remains valid
             instance->un_bind_output(true);
         }
 

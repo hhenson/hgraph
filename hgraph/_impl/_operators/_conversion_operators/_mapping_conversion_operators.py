@@ -51,7 +51,7 @@ def convert_tuples_to_mapping(
     if len(key.value) != len(ts.value):
         raise ValueError(f"Length mismatch: {len(key.value)} != {len(ts.value)}")
 
-    return {k: v for k, v in zip(key.value, ts.value)}
+    return dict(zip(key.value, ts.value))
 
 
 @compute_node(
@@ -140,7 +140,7 @@ def collect_mapping_from_tuples(
     _output: TS_OUT[Mapping[KEYABLE_SCALAR, SCALAR]] = None,
 ) -> TS[Mapping[KEYABLE_SCALAR, SCALAR]]:
     prev = _output.value if _output.valid and not reset.modified else {}
-    new = {k: v for k, v in zip(key.value, ts.value)} if ts.modified or key.modified else {}
+    new = dict(zip(key.value, ts.value)) if ts.modified or key.modified else {}
     return prev | new
 
 

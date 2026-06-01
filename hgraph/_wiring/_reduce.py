@@ -237,7 +237,7 @@ def _reduce_tsd(func, ts, zero, is_associative=True) -> TIME_SERIES_TYPE:
     if is_associative:
         input_types = {k: tp.value_tp for k in func.signature.input_types}
     else:
-        input_types = {k: v for k, v in zip(func.signature.args, (zero.output_type, item_tp_md))}
+        input_types = dict(zip(func.signature.args, (zero.output_type, item_tp_md)))
 
     builder, ri = wire_nested_graph(func, input_types, {}, resolved_signature, None, depth=2)
 

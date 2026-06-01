@@ -2,7 +2,7 @@ import sys
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import timedelta, datetime
-from typing import Mapping, Generic
+from typing import Callable, Mapping, Generic
 
 from hgraph import (
     TSW,
@@ -29,6 +29,7 @@ from hgraph import (
     dedup,
     drop,
     filter_,
+    freeze,
     gate,
     generator,
     graph,
@@ -40,6 +41,7 @@ from hgraph import (
     step,
     take,
     throttle,
+    until_true,
     window,
     WindowSize,
     EvaluationClock,
@@ -242,6 +244,31 @@ def filter_default(condition: TS[bool], ts: TIME_SERIES_TYPE, _output: TIME_SERI
 
         if ts.modified:
             return ts.delta_value
+
+
+@compute_node(overloads=until_true)
+def until_true_default(predicate: Callable[[SCALAR], bool], ts: TS[SCALAR]) -> TS[bool]:
+    if predicate(ts.value):
+        ts.make_passive()
+        return True
+
+    return False
+
+
+@compute_node(overloads=freeze)
+def freeze_default(predicate: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    if predicate.value:
+        predicate.make_passive()
+        ts.make_passive()
+        return ts.delta_value
+    
+    if ts.modified:
+        return ts.delta_value
+
+
+@graph(overloads=freeze)
+def freeze_predicate(predicate: Callable[[SCALAR], bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    return freeze(until_true(predicate, ts), ts)  # Read a bit awkward, it will freeze once the predicate is true, which is what we want
 
 
 @dataclass

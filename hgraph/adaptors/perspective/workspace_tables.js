@@ -126,7 +126,7 @@ function safeClone(obj) {
     }
 }
 
-class AsyncLock {
+export class AsyncLock {
     static max_wait = 0;
     static max_lock = 0;
 
@@ -450,6 +450,38 @@ async function buildClientOnlyTable(workspace, table_name, index, worker) {
             table_name,
             table_config.table
         );
+    } catch(e) {
+        DEBUG && console.log("Failed to add table", table_name);
+    }
+}
+
+
+async function buildOnDemandTable(workspace, table_name, index, worker) {
+    const table_config = workspace_tables[table_name];
+
+    const adjusted_schema = adjustSchemaTypes(table_config.schema);
+    if (index) {
+        const adjusted_index = index.includes(',') ? 'index' : index;
+        if (adjusted_index === 'index') {
+            adjusted_schema.index = 'string';
+        }
+        table_config.table = await worker.table(adjusted_schema, {index: adjusted_index, name: table_name});
+    } else {
+        table_config.table = await worker.table(adjusted_schema, {name: table_name});
+    }
+
+    const v = await table_config.table.view();
+    Object.assign(table_config, await processBlank(await v.to_arrow()));
+    v.delete();
+
+    table_config.started = true;
+    table_config.loaded = false;
+    table_config.required_filter_columns = Array.isArray(table_config.required_filter_columns)
+        ? table_config.required_filter_columns : [];
+    table_config.abort_controller = null;
+
+    try {
+        workspace.addTable(table_name, table_config.table);
     } catch(e) {
         DEBUG && console.log("Failed to add table", table_name);
     }
@@ -1504,6 +1536,12 @@ export async function connectWorkspaceTables(workspace, table_config, user_roles
                 table.schema,
                 table.index,
                 websocket_ro,
+                worker));
+        } else if (table.type === "on_demand_table") {
+            table_promises.push(buildOnDemandTable(
+                workspace,
+                table.name,
+                table.index,
                 worker));
         }
     }

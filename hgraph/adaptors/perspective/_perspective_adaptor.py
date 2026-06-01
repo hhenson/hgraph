@@ -51,11 +51,24 @@ __all__ = (
 
 
 @adaptor
-def publish_table(path: str, ts: TSD[K, TIME_SERIES_TYPE], index_col_name: str, history: int = None): ...
+def publish_table(path: str, ts: TSD[K, TIME_SERIES_TYPE], index_col_name: str, history: int = None):
+    """
+    Publish a time-series dictionary as a read-only table via the Perspective adaptor.
+
+    Publishes the entries of ``ts`` as rows in a table identified by ``path``. Each key in the TSD
+    becomes a row, with the key value placed in the column named by ``index_col_name``.
+
+    :param path: Unique identifier for the table. Must be unique per adaptor usage.
+    :param ts: A time-series dictionary whose entries form the table rows.
+    :param index_col_name: Name of the column that holds the TSD key values.
+    :param history: If set, the number of historical ticks to retain. ``None`` means no history.
+    """
+    ...
 
 
 @adaptor_impl(interfaces=publish_table)
 def publish_table_impl(path: str, ts: TSD[K, TIME_SERIES_TYPE], index_col_name: str, history: int = None):
+    """Implementation of :func:`publish_table`. Delegates to the internal ``_publish_table`` helper."""
     _assert_unique_type_per_path(publish_table)
 
     _publish_table(path, ts, index_col_name=index_col_name, history=history)
@@ -69,7 +82,23 @@ def publish_table_editable(
     history: int = None,
     edit_role: str = None,
     empty_row: bool = False,
-) -> TSB[TableEdits[K, TIME_SERIES_TYPE]]: ...
+) -> TSB[TableEdits[K, TIME_SERIES_TYPE]]:
+    """
+    Publish a time-series dictionary as an editable table via the Perspective adaptor.
+
+    Similar to :func:`publish_table`, but allows the UI to send edits back into the graph.
+    Returns a ``TSB[TableEdits]`` bundle containing an ``edits`` TSD (modified rows) and a
+    ``removes`` TSS (removed keys).
+
+    :param path: Unique identifier for the table. Must be unique per adaptor usage.
+    :param ts: A time-series dictionary whose entries form the table rows.
+    :param index_col_name: Name of the column that holds the TSD key values.
+    :param history: If set, the number of historical ticks to retain. ``None`` means no history.
+    :param edit_role: Optional role name that restricts who may edit the table.
+    :param empty_row: When ``True``, the UI can create new rows via an empty-row placeholder.
+    :return: A time-series bundle of edits and removals received from the UI.
+    """
+    ...
 
 
 @adaptor_impl(interfaces=publish_table_editable)
@@ -81,6 +110,12 @@ def publish_table_editable_impl(
     edit_role: str = None,
     empty_row: bool = False,
 ) -> TSB[TableEdits[K, TIME_SERIES_TYPE]]:
+    """
+    Implementation of :func:`publish_table_editable`.
+
+    Publishes the table with ``editable=True`` and returns a bundle that streams back
+    edits and removals from the UI.
+    """
     _assert_unique_type_per_path(publish_table_editable)
 
     _publish_table(
@@ -100,7 +135,23 @@ def publish_table_editable_impl(
 @service_adaptor
 def publish_multitable(
     path: str, key: TS[SCALAR], ts: TIME_SERIES_TYPE, unique: bool, index_col_name: str, history: int = None
-): ...
+):
+    """
+    Publish time-series data from multiple graph clients into a single shared table.
+
+    This is the multi-client variant of :func:`publish_table`. Each client contributes rows
+    keyed by ``key``. When ``unique`` is ``True``, every client must supply distinct keys;
+    when ``False``, rows from different clients with the same key are merged (bundles are
+    merged with a race strategy, scalars require uniqueness).
+
+    :param path: Unique identifier for the shared table.
+    :param key: A time-series scalar that identifies this client's contribution.
+    :param ts: The time-series data to publish as table rows.
+    :param unique: Whether each client is expected to provide distinct key values.
+    :param index_col_name: Name of the column that holds the key values.
+    :param history: If set, the number of historical ticks to retain. ``None`` means no history.
+    """
+    ...
 
 
 @service_adaptor_impl(interfaces=publish_multitable)
@@ -112,6 +163,13 @@ def publish_multitable_impl(
     index_col_name: str,
     history: int = None,
 ):
+    """
+    Implementation of :func:`publish_multitable`.
+
+    When ``unique`` is ``False``, merges data from multiple clients sharing the same key using
+    a race-reduction strategy for bundles. When ``unique`` is ``True``, re-keys the data
+    directly.
+    """
     _assert_unique_type_per_path(publish_multitable)
 
     if not unique:

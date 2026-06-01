@@ -24,8 +24,9 @@ from hgraph._operators import (
     std,
     keys_,
     union,
+    combine,
 )
-from hgraph._types._scalar_types import KEYABLE_SCALAR, SCALAR
+from hgraph._types._scalar_types import KEYABLE_SCALAR, SCALAR, SCALAR_1
 from hgraph._types._time_series_types import OUT, K, K_1
 from hgraph._types._ts_type import TS, TS_OUT
 from hgraph._types._tsl_type import TSL, SIZE
@@ -267,3 +268,28 @@ def uncollapse_keys_frozendict(ts: TS[frozendict[Tuple[K, K_1], SCALAR]]) -> TS[
     for (k, k1), v in ts.value.items():
         out.setdefault(k, {})[k1] = v
     return out
+
+
+def _fd_combine_req(m):
+    return (
+        m[OUT].py_type == TS[frozendict] or m[OUT].matches_type(TS[frozendict[m[SCALAR].py_type, m[SCALAR_1].py_type]])
+    )
+
+
+@compute_node(overloads=combine, requires=_fd_combine_req)
+def combine_frozendict_key_value(key: TS[SCALAR], value: TS[SCALAR_1]) -> TS[frozendict[SCALAR, SCALAR_1]]:
+    return frozendict({key.value: value.value})
+
+
+@compute_node(overloads=combine, requires=_fd_combine_req)
+def combine_frozendict_tuples(
+    key: TS[tuple[SCALAR, ...]], value: TS[tuple[SCALAR_1, ...]]
+) -> TS[frozendict[SCALAR, SCALAR_1]]:
+    return frozendict(zip(key.value, value.value))
+
+
+@compute_node(overloads=combine, requires=_fd_combine_req)
+def combine_frozendict_tsls(
+    key: TSL[TS[SCALAR], SIZE], value: TSL[TS[SCALAR_1], SIZE]
+) -> TS[frozendict[SCALAR, SCALAR_1]]:
+    return frozendict(zip(key.value, value.value))

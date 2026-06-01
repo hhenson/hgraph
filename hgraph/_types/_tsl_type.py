@@ -167,7 +167,7 @@ class TimeSeriesListInput(
         wiring_node_instance = create_wiring_node_instance(
             node=wiring_node,
             resolved_signature=wiring_node_signature,
-            inputs=frozendict({k: v for k, v in zip(args_, args)}),
+            inputs=frozendict(zip(args_, args)),
         )
         return TSLWiringPort(wiring_node_instance, tuple())
 

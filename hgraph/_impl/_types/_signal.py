@@ -103,3 +103,12 @@ class PythonTimeSeriesSignal(PythonBoundTimeSeriesInput, TimeSeriesSignalInput):
             return max(item.last_modified_time for item in self._ts_values)
         else:
             return super().last_modified_time
+
+    def items(self):
+        # this is really only supposed to be used by the diagnostoics and back trace code to capture the state of all items of a signal
+        if self._impl is not None:
+            return self._impl.items() if not self._impl.has_peer else enumerate([self._impl])
+        elif self._ts_values:
+            return enumerate(self._ts_values)
+        else:
+            return tuple()

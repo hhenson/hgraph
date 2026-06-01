@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Tuple
 
 from hgraph import CompoundScalar, graph, TS, eq_, getattr_, type_, str_
 from hgraph.test import eval_node
@@ -54,6 +55,26 @@ def test_getattr_cs_default():
     assert eval_node(g, [Test()]) == ["DEFAULT"]
     assert eval_node(g, [Test(b="")]) == [""]
     assert eval_node(g, [Test(b=None)]) == ["DEFAULT"]
+
+
+def test_getattr_tuple_of_cs():
+    @graph
+    def g(ts: TS[Tuple[_TestCS, ...]]) -> TS[Tuple[int, ...]]:
+        return ts.a
+
+    assert eval_node(g, [(_TestCS(a=1), _TestCS(a=2, b="x"))]) == [(1, 2)]
+
+
+def test_getattr_tuple_of_cs_default():
+    @dataclass
+    class Test(CompoundScalar):
+        b: str = None
+
+    @graph
+    def g(ts: TS[Tuple[Test, ...]]) -> TS[Tuple[str, ...]]:
+        return getattr_(ts, "b", "DEFAULT")
+
+    assert eval_node(g, [tuple(), (Test(), Test(b=""), Test(b=None))]) == [tuple(), ("DEFAULT", "", "DEFAULT")]
 
 
 def test_type_cs():

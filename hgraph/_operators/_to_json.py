@@ -13,6 +13,7 @@ def to_json(ts: DEFAULT[TIME_SERIES_TYPE], delta: bool = False) -> TS[str]:
     """
     Converts the ``ts`` to a JSON string.
     """
+    ...
 
 
 @operator
@@ -26,6 +27,7 @@ def from_json(ts: TS[str]) -> DEFAULT[OUT]:
         value = from_json[TS[MySchema]](ts)
 
     """
+    ...
 
 
 @cache

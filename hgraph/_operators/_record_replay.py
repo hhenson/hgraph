@@ -173,6 +173,7 @@ def replay(key: str, tp: type[OUT] = AUTO_RESOLVE, recordable_id: str = None) ->
     The key represents the input argument (or out for the output)
     If not supplied, the recordable_id will be extracted from Traits for the surrounding graph.
     """
+    ...
 
 
 @operator
@@ -188,6 +189,7 @@ def replay_const(
 
     When called as a value and not as a node, the user MUST supply the recordable_id, tm and as_of values.
     """
+    ...
 
 
 @operator
@@ -211,6 +213,7 @@ def from_data_frame(df: Frame[COMPOUND_SCALAR], dt_col: str = "date", offset: ti
     * TSB[TS_SCHEMA]
     * TSD[SCALAR, TS[SCALAR_1]]
     """
+    ...
 
 
 @operator
@@ -222,3 +225,4 @@ def to_data_frame(
     For more complex conversions, use the 'to_table' tooling. This will not record key removals and represents
     the value at a point in time, not the delta value.
     """
+    ...

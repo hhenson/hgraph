@@ -4,7 +4,10 @@ from frozendict import frozendict
 
 from hgraph._types._scalar_types import is_keyable_scalar
 from hgraph._types._ts_meta_data import HgTSTypeMetaData
+from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
 from hgraph._types._tsb_type import TSB
+from hgraph._types._tsd_type import TSD
+from hgraph._types._tss_meta_data import HgTSSTypeMetaData
 from hgraph._types._tss_type import TSS
 from hgraph._types._type_meta_data import HgTypeMetaData
 from hgraph._wiring._wiring_context import WiringContext
@@ -67,7 +70,19 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
 
                 return out[key]
 
-    def wire_impl_inputs_stub(self, path, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None):
+    def impl_signature(self, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None):
+        resolution_dict = self.signature.try_build_resolution_dict(__pre_resolved_types__)
+        arg = next(iter(self.signature.time_series_args))
+        key_tp = self.signature.input_types[arg].resolve(resolution_dict, weak=True).scalar_type()
+        output_tp = self.signature.output_type.resolve(resolution_dict, weak=True)
+        return self.signature.copy_with(
+            input_types=frozendict({arg: HgTSSTypeMetaData(key_tp)} | self.signature.scalar_inputs),
+            output_type=HgTSDTypeMetaData(key_tp, output_tp),
+        )
+
+    def wire_impl_inputs_stub(
+        self, path, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **scalars
+    ):
         from hgraph.nodes import capture_output_node_to_global_state
         from hgraph import last_value_source_node, ts_schema
 
@@ -87,7 +102,7 @@ class SubscriptionServiceNodeClass(ServiceInterfaceNodeClass):
 
         return TSB[ts_schema(**{arg: HgTypeMetaData.parse_type(tp)})].from_ts(**{arg: subscriptions})
 
-    def wire_impl_out_stub(self, path, out, __pre_resolved_types__=None):
+    def wire_impl_out_stub(self, path, out, __pre_resolved_types__=None, **scalars):
         from hgraph.nodes import capture_output_to_global_state
 
         capture_output_to_global_state(

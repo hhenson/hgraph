@@ -70,6 +70,7 @@ def add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> DEFAULT[OUT]:
     """
     This represents the ``+`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__add__ = lambda x, y: add_(x, y)
@@ -81,6 +82,7 @@ def sub_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> DEFAULT[OUT]:
     """
     This represents the ``-`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__sub__ = lambda x, y: sub_(x, y)
@@ -96,6 +98,7 @@ def mul_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, **kwargs) -> TIME_SERIES_
     * if True will return nothing if either lhs or rhs is not valid or present
     * if False will return lhs or rhs if rhs or lhs respectively is not present
     """
+    ...
 
 
 WiringPort.__mul__ = lambda x, y: mul_(x, y)
@@ -121,6 +124,7 @@ def div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, **kwargs) -> DEFAULT[OUT]
     Parameters:
     * divide_by_zero: DivideByZero - controls the behaviour when dividing by zero
     """
+    ...
 
 
 WiringPort.__truediv__ = lambda x, y: div_(x, y)
@@ -132,6 +136,7 @@ def floordiv_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, **kwargs) -> TIME_SE
     """
     This represents the `//` operator for time series types.
     """
+    ...
 
 
 WiringPort.__floordiv__ = lambda x, y: floordiv_(x, y)
@@ -143,6 +148,7 @@ def mod_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     This represents the `%` operator for time series types.
     """
+    ...
 
 
 WiringPort.__mod__ = lambda x, y: mod_(x, y)
@@ -155,6 +161,7 @@ def divmod_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TSL[TIME_SERIES_TYP
     This represents the `divmod` operator for time series types.
     (This is defined in Python as the integer division with remainder, i.e. divmod(9, 4) == (2, 1))
     """
+    ...
 
 
 WiringPort.__divmod__ = lambda x, y: divmod_(x, y)
@@ -168,6 +175,7 @@ def pow_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     Params:
     * divide_by_zero: DivideByZero - controls the behaviour when dividing by zero
     """
+    ...
 
 
 WiringPort.__pow__ = lambda x, y: pow_(x, y)
@@ -179,6 +187,7 @@ def lshift_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     This represents the ``<<`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__lshift__ = lambda x, y: lshift_(x, y)
@@ -190,6 +199,7 @@ def rshift_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     This represents the ``>>`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__rshift__ = lambda x, y: rshift_(x, y)
@@ -201,6 +211,7 @@ def bit_and(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
     """
     This represents the ``&`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__and__ = lambda x, y: bit_and(x, y)
@@ -215,6 +226,7 @@ def and_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     This operator does not substitute ``and`` (since that is not possible in Python), but can be used as a functional
     equivalent for ``and``.
     """
+    ...
 
 
 @operator
@@ -222,6 +234,7 @@ def bit_or(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[TIME_SERIES_TYPE_
     """
     This represents the ``|`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__or__ = lambda x, y: bit_or(x, y)
@@ -236,6 +249,7 @@ def or_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     This operator does not substitute ``or`` (since that is not possible in Python), but can be used as a functional
     equivalent for ``or``.
     """
+    ...
 
 
 @operator
@@ -243,6 +257,7 @@ def bit_xor(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
     """
     This represents the ``^`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__xor__ = lambda x, y: bit_xor(x, y)
@@ -254,6 +269,7 @@ def eq_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
     This represents the ``==`` operator for time series types.
     """
+    ...
 
 
 # This is currently safe to do as the wiring port needs to be immutable, but is never used as a key in a dict or
@@ -267,6 +283,7 @@ def ne_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
     This represents the ``!=`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__ne__ = lambda x, y: ne_(x, y)
@@ -277,6 +294,7 @@ def lt_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
     This represents the ``<`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__lt__ = lambda x, y: lt_(x, y)
@@ -287,6 +305,7 @@ def le_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
     This represents the ``<=`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__le__ = lambda x, y: le_(x, y)
@@ -297,6 +316,7 @@ def gt_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
     This represents the ``>`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__gt__ = lambda x, y: gt_(x, y)
@@ -307,6 +327,7 @@ def ge_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[bool]:
     """
     This represents the ``>=`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__ge__ = lambda x, y: ge_(x, y)
@@ -317,6 +338,7 @@ def neg_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     This represents the unary ``-`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__neg__ = lambda x: neg_(x)
@@ -327,6 +349,7 @@ def pos_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     This represents the unary ``+`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__pos__ = lambda x: pos_(x)
@@ -337,6 +360,7 @@ def abs_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     This represents the ``abs`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__abs__ = lambda x: abs_(x)
@@ -347,6 +371,7 @@ def invert_(ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
     """
     This represents the unary ``~`` operator for time series types.
     """
+    ...
 
 
 WiringPort.__invert__ = lambda x: invert_(x)
@@ -361,6 +386,7 @@ def contains_(ts: TIME_SERIES_TYPE, item: TS[SCALAR]) -> TS[bool]:
 
     This is logically: ``item in ts``
     """
+    ...
 
 
 @operator
@@ -370,6 +396,7 @@ def not_(ts: TIME_SERIES_TYPE) -> TS[bool]:
 
     This must be called as ``not_(ts)`` it is not possible to overload the standard ``not`` operator.
     """
+    ...
 
 
 @operator
@@ -379,6 +406,7 @@ def getitem_(ts: TIME_SERIES_TYPE, key: TS[SCALAR]) -> TIME_SERIES_TYPE_1:
 
     Use this as: ``ts[key]``
     """
+    ...
 
 
 WiringPort.__getitem__ = lambda x, y: getitem_(x, y)
@@ -391,6 +419,7 @@ def getattr_(ts: TIME_SERIES_TYPE, attr: str, default_value: SCALAR = None) -> T
 
     Use this as: ``ts.attr`` or more explicitly: ``getattr_(ts, attr)``
     """
+    ...
 
 
 WiringPort.__getattr__ = lambda x, y: getattr_(x, y)
@@ -401,6 +430,7 @@ def setattr_(ts: OUT, attr: str, value: TIME_SERIES_TYPE_1) -> OUT:
     """
     Sets the value on the ``ts`` provided for the ``attr`` to the ``value`` provided.
     """
+    ...
 
 
 @operator
@@ -415,6 +445,7 @@ def min_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None, __strict_
 
     __strict__ controls whether the operator will tick if any of the arguments are missing
     """
+    ...
 
 
 @operator
@@ -429,6 +460,7 @@ def max_(*ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None, __strict_
 
     __strict__ controls whether the operator will tick if any of the arguments are missing
     """
+    ...
 
 
 @operator
@@ -441,6 +473,7 @@ def sum_(*ts: TSL[TS[SCALAR], SIZE], **kwargs) -> DEFAULT[OUT]:
     * Binary or multi arg implies item-wise sum over all the arguments for collection types,
         or the sum of the scalar value for scalar types
     """
+    ...
 
 
 @operator
@@ -452,6 +485,7 @@ def mean(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
     Binary or multi arg implies item-wise sum over all the arguments for collection types,
     or the sum of the scalar value for scalar types
     """
+    ...
 
 
 @operator
@@ -463,6 +497,7 @@ def std(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
     Binary or multi arg implies item-wise std over all the arguments for collection types,
     or the std of the scalar value for scalar types
     """
+    ...
 
 
 @operator
@@ -474,6 +509,7 @@ def var(*ts: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
     Binary or multi arg implies item-wise var over all the arguments for collection types,
     or the vae of the scalar value for scalar types
     """
+    ...
 
 
 @operator
@@ -483,6 +519,7 @@ def zero(tp: Type[TIME_SERIES_TYPE], op: WiringNodeClass) -> TIME_SERIES_TYPE:
     type and operation dependent, so both are provided. The datatype designers should overload this graph for their
     respective data types and return correct zero values for the operation.
     """
+    ...
 
 
 @operator
@@ -490,6 +527,7 @@ def len_(ts: TIME_SERIES_TYPE) -> TS[int]:
     """
     This represents the `len` operator for time series types.
     """
+    ...
 
 
 @operator
@@ -499,6 +537,7 @@ def union(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
 
     Union is { p | p element of tsl[i] for i in range(len(tsl)) }
     """
+    ...
 
 
 @operator
@@ -508,6 +547,7 @@ def intersection(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
 
     Intersection is { p | p in all tsl[i] for i in range(len(tsl)) }
     """
+    ...
 
 
 @operator
@@ -517,6 +557,7 @@ def difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
 
     Difference is { p | p element of lhs and p not element of rhs }
     """
+    ...
 
 
 @operator
@@ -526,6 +567,7 @@ def symmetric_difference(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> DEFAULT[OUT]:
 
     Symmetric difference is { p | p element of union(lhs, rhs), but not element of intersection(lhs, rhs) }
     """
+    ...
 
 
 @operator
@@ -533,6 +575,7 @@ def is_empty(ts: TIME_SERIES_TYPE) -> TS[bool]:
     """
     Returns True if the value of the time-series is considered empty, False otherwise.
     """
+    ...
 
 
 @operator
@@ -540,6 +583,7 @@ def type_(ts: TIME_SERIES_TYPE) -> TS[type]:
     """
     Returns the type of the time-series value.
     """
+    ...
 
 
 @operator
@@ -547,6 +591,7 @@ def str_(ts: TIME_SERIES_TYPE) -> TS[str]:
     """
     Returns the string representation of the time-series value.
     """
+    ...
 
 
 # For backwards compatibility.  Prefer sum_ to accumulate and mean to average
@@ -574,6 +619,7 @@ def cmp_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TS[CmpResult]:
     Return one of LT, EQ, GT as a comparison result.
     This could be more efficient than performing a sequence of operations.
     """
+    ...
 
 
 @operator
@@ -588,13 +634,16 @@ def index_of(ts: TIME_SERIES_TYPE_1, item: TIME_SERIES_TYPE_2) -> TS[int]:
     TSL[TIME_SERIES_TYPE_2, SIZE]
         returns the index of the first occurrence of the item in the TSL
     """
+    ...
 
 
 @operator
 def ln(ts: TS[float]) -> TS[float]:
     """The natural logarithm of the time-series value"""
+    ...
 
 
 @operator
 def sign(ts: TS[TIME_SERIES_TYPE]) -> TS[TIME_SERIES_TYPE]:
     """The sign of the time-series value"""
+    ...

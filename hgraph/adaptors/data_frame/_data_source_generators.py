@@ -235,7 +235,7 @@ def tsd_k_b_from_data_source(
             dt = dt_converter(dt)
             key_df = df[key_col]
             value_df = df.select(*value_keys)
-            yield dt + offset, {k: v for k, v in zip(key_df, value_df.iter_rows(named=True))}
+            yield dt + offset, dict(zip(key_df, value_df.iter_rows(named=True)))
 
 
 def _extract_tsd_array_value(mapping, dt_col, key_col) -> SCALAR_1:

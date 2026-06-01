@@ -177,6 +177,7 @@ def table_schema(tp: type[TIME_SERIES_TYPE]) -> TS[TableSchema]:
     """
     A const tick of the expected schema that will be produced by the to_table operator.
     """
+    ...
 
 
 @operator
@@ -185,6 +186,7 @@ def to_table(ts: TIME_SERIES_TYPE, mode: TS[ToTableMode] = ToTableMode.Tick) -> 
     Convert the incoming time-series value to a tabular form.
     The result includes a schema description that represents the shape
     """
+    ...
 
 
 @operator
@@ -197,6 +199,7 @@ def from_table(ts: TS[TABLE]) -> DEFAULT[OUT]:
     This reverses the ``to_table`` operator.
     The Schema can be obtained using the ``table_schema`` operator.
     """
+    ...
 
 
 @operator
@@ -205,6 +208,7 @@ def from_table_const(value: TABLE) -> DEFAULT[OUT]:
     Extract data from a table tuple into the appropriate output type.
     This is the constant version of the from_table operator.
     """
+    ...
 
 
 def shape_of_table_type(
