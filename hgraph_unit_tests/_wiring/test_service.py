@@ -134,6 +134,40 @@ def test_request_reply_service2():
     assert eval_node(main, [1], [2]) == [None, None, 3]
 
 
+def test_request_reply_service_impl_accepts_path_and_scalar_config():
+    @request_reply_service
+    def echo_service(path: str, request: TS[str]) -> TS[str]:
+        """The service description"""
+
+    @service_impl(interfaces=echo_service)
+    def echo_service_impl(path: str, request: TSD[int, TS[str]], portfolio: str) -> TSD[int, TS[str]]:
+        return map_(lambda x: format_("{}:{}:{}", path, portfolio, x), request)
+
+    @graph
+    def main(x: TS[str]) -> TS[str]:
+        register_service("my_path", echo_service_impl, portfolio="p1")
+        return echo_service("my_path", x)
+
+    assert eval_node(main, ["abc"]) == [None, None, "my_path:p1:abc"]
+
+
+def test_request_reply_service_impl_accepts_scalar_config_without_path():
+    @request_reply_service
+    def echo_service(path: str, request: TS[str]) -> TS[str]:
+        """The service description"""
+
+    @service_impl(interfaces=echo_service)
+    def echo_service_impl(request: TSD[int, TS[str]], portfolio: str) -> TSD[int, TS[str]]:
+        return map_(lambda x: format_("{}:{}", portfolio, x), request)
+
+    @graph
+    def main(x: TS[str]) -> TS[str]:
+        register_service("my_path_2", echo_service_impl, portfolio="p2")
+        return echo_service("my_path_2", x)
+
+    assert eval_node(main, ["abc"]) == [None, None, "p2:abc"]
+
+
 def test_recursive_request_reply_service():
     @request_reply_service
     def add_one_service(path: str, ts: TS[int]) -> TS[int]:
