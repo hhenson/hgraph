@@ -1,6 +1,7 @@
 #include <hgraph/api/python/wrapper_factory.h>
 
 #include <hgraph/nodes/base_python_node.h>
+#include <hgraph/python/global_state.h>
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/error_type.h>
@@ -71,6 +72,8 @@ namespace hgraph
                         }
                     } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
                         wrapped_value = g ? wrap_traits(&g->traits(), g->shared_from_this()) : nb::none();
+                    } else if ((injectable & InjectableTypesEnum::GLOBAL_STATE) != InjectableTypesEnum::NONE) {
+                        wrapped_value = GlobalState::instance();
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
                         auto recordable_state = this->recordable_state();
                         if (!recordable_state) { throw std::runtime_error("Recordable state not set"); }

@@ -41,7 +41,8 @@ namespace hgraph
         ENGINE_API       = 1 << 5,
         LOGGER           = 1 << 6,
         NODE             = 1 << 7,
-        TRAIT            = 1 << 8
+        TRAIT            = 1 << 8,
+        GLOBAL_STATE     = 1 << 9
     };
 
     void injectable_type_enum(nb::module_ &m);
@@ -98,6 +99,8 @@ namespace hgraph
         [[nodiscard]] bool uses_state() const;
 
         [[nodiscard]] bool uses_recordable_state() const;
+
+        [[nodiscard]] bool uses_global_state() const;
 
         [[nodiscard]] std::optional<std::string> recordable_state_arg() const;
 

@@ -49,6 +49,8 @@ __all__ = (
     "HgLoggerType",
     "HgNodeType",
     "HgTraitsType",
+    "HgGlobalStateType",
+    "GlobalStateInjector",
 )
 
 
@@ -358,6 +360,7 @@ class HgInjectableType(HgScalarTypeMetaData):
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._runtime._evaluation_clock import EvaluationClock
         from hgraph._runtime._evaluation_engine import EvaluationEngineApi
+        from hgraph._runtime._global_state import GlobalState
         from hgraph._runtime._node import SCHEDULER, NODE
         from hgraph._runtime._traits import Traits
 
@@ -371,6 +374,8 @@ class HgInjectableType(HgScalarTypeMetaData):
             LOGGER: lambda: HgLoggerType(),
             NODE: lambda: HgNodeType(),
             Traits: lambda: HgTraitsType(),
+            GlobalState: lambda: HgGlobalStateType(),
+            GlobalStateInjector: lambda: HgGlobalStateType(),
         }.get(value_tp, lambda: None)()
 
     @classmethod
@@ -434,6 +439,28 @@ class HgTraitsType(HgInjectableType):
     @property
     def injector(self):
         return TraitsInjector()
+
+
+class GlobalStateInjector(Injector):
+    def __call__(self, node):
+        from hgraph._runtime._global_state import GlobalState
+
+        return GlobalState.instance()
+
+
+class HgGlobalStateType(HgInjectableType):
+    """
+    Injectable for the current GlobalState instance.
+    """
+
+    def __init__(self):
+        from hgraph._runtime._global_state import GlobalState
+
+        super().__init__(GlobalState)
+
+    @property
+    def injector(self):
+        return GlobalStateInjector()
 
 
 class LoggerInjector(Injector):

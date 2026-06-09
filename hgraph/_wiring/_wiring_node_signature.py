@@ -18,6 +18,7 @@ from hgraph._types._scalar_type_meta_data import (
     HgLoggerType,
     HgNodeType,
     HgTraitsType,
+    HgGlobalStateType,
 )
 from hgraph._types._scalar_type_meta_data import (
     HgScalarTypeMetaData,
@@ -148,6 +149,10 @@ class WiringNodeSignature:
     @property
     def uses_recordable_state(self) -> bool:
         return InjectableTypesEnum.RECORDABLE_STATE in self.injectables
+
+    @property
+    def uses_global_state(self) -> bool:
+        return InjectableTypesEnum.GLOBAL_STATE in self.injectables
 
     def _recordable_state(self) -> tuple[str, HgRecordableStateType] | tuple[None, None]:
         return next(
@@ -887,6 +892,7 @@ def extract_injectables(**kwargs) -> InjectableTypesEnum:
                 HgLoggerType: InjectableTypesEnum.LOGGER,
                 HgNodeType: InjectableTypesEnum.NODE,
                 HgTraitsType: InjectableTypesEnum.TRAIT,
+                HgGlobalStateType: InjectableTypesEnum.GLOBAL_STATE,
             }.get(type(v), InjectableTypesEnum.NONE)
             for v in kwargs.values()
         ),

@@ -78,4 +78,13 @@ class PythonConstWiringNodeClass(BaseWiringNodeClass):
                     return out
             else:
                 # Call this as a function
+                self._inject_direct_kwargs(resolved_signature, kwargs_)
                 return ValueTuple(value=self.fn(**kwargs_))
+
+    @staticmethod
+    def _inject_direct_kwargs(signature, kwargs):
+        from hgraph import GlobalState, HgGlobalStateType
+
+        for arg, tp in signature.scalar_inputs.items():
+            if type(tp) is HgGlobalStateType and kwargs.get(arg) is None and GlobalState.has_instance():
+                kwargs[arg] = GlobalState.instance()

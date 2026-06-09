@@ -250,13 +250,14 @@ class WiringNodeInstance:
         # Collect appropriate inputs and construct the node
         node_index = len(nodes)
         node_map[self] = node_index  # Update this wiring nodes index in the graph
+        node_signature = self.node_signature
 
         scalars = frozendict({
-            k: t.injector if t.is_injectable else self.inputs[k]
+            k: self._scalar_value(k, t)
             for k, t in self.resolved_signature.scalar_inputs.items()
         })
 
-        node_builder = self.node.create_node_builder_instance(self.resolved_signature, self.node_signature, scalars)
+        node_builder = self.node.create_node_builder_instance(self.resolved_signature, node_signature, scalars)
         # Extract out edges
 
         edges = set()
@@ -281,23 +282,40 @@ class WiringNodeInstance:
             HgLoggerType,
             HgNodeType,
             HgTraitsType,
+            HgGlobalStateType,
         )
+
+        enum = WiringNodeInstance.INJECTABLE_TYPES_ENUM
+        injectable_type_map = {
+            HgSchedulerType: enum.SCHEDULER,
+            HgEvaluationClockType: enum.CLOCK,
+            HgEvaluationEngineApiType: enum.ENGINE_API,
+            HgStateType: enum.STATE,
+            HgRecordableStateType: enum.RECORDABLE_STATE,
+            HgOutputType: enum.OUTPUT,
+            HgLoggerType: enum.LOGGER,
+            HgNodeType: enum.NODE,
+            HgTraitsType: enum.TRAIT,
+        }
+        if (global_state := getattr(enum, "GLOBAL_STATE", None)) is not None:
+            injectable_type_map[HgGlobalStateType] = global_state
 
         return frozendict({
             k: v_
             for k, v in kwargs.items()
-            if (
-                v_ := {
-                    HgSchedulerType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.SCHEDULER,
-                    HgEvaluationClockType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.CLOCK,
-                    HgEvaluationEngineApiType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.ENGINE_API,
-                    HgStateType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.STATE,
-                    HgRecordableStateType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.RECORDABLE_STATE,
-                    HgOutputType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.OUTPUT,
-                    HgLoggerType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.LOGGER,
-                    HgNodeType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.NODE,
-                    HgTraitsType: WiringNodeInstance.INJECTABLE_TYPES_ENUM.TRAIT,
-                }.get(type(v), WiringNodeInstance.INJECTABLE_TYPES_ENUM.NONE)
-            )
-            != WiringNodeInstance.INJECTABLE_TYPES_ENUM.NONE
+            if (v_ := injectable_type_map.get(type(v), enum.NONE)) != enum.NONE
         })
+
+    def _scalar_value(self, name: str, scalar_type: "HgScalarTypeMetaData") -> typing.Any:
+        if not scalar_type.is_injectable:
+            return self.inputs[name]
+
+        from hgraph import HgGlobalStateType
+
+        # GlobalState is a process-level runtime context. Passing the concrete
+        # object makes this safe for Python nodes under both runtimes, including
+        # C++ builds that do not call Python injectors for this resource.
+        if type(scalar_type) is HgGlobalStateType:
+            return scalar_type.injector(None)
+
+        return scalar_type.injector
