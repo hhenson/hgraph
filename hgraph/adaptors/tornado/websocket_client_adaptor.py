@@ -35,8 +35,10 @@ def websocket_client_adaptor_impl(
     is_binary = _tp is bytes
 
     @push_queue(TSD[int, TSB[WebSocketResponse[_tp]]])
-    def from_web(sender, path: str = "websocket_client") -> TSD[int, TSB[WebSocketResponse[_tp]]]:
-        GlobalState.instance()[f"websocket_client_adaptor://{path}/queue"] = sender
+    def from_web(
+        sender, path: str = "websocket_client", _global_state: GlobalState = None
+    ) -> TSD[int, TSB[WebSocketResponse[_tp]]]:
+        _global_state[f"websocket_client_adaptor://{path}/queue"] = sender
         return None
 
     async def make_websocket_request(state: STATE, id: int, request: WebSocketClientRequest, sender: Callable):
@@ -73,8 +75,12 @@ def websocket_client_adaptor_impl(
             state.queues[id].append(message)
 
     @sink_node
-    def to_web(request: TSD[int, TSB[WebSocketClientRequest[STR_OR_BYTES]]], _state: STATE = None):
-        sender = GlobalState.instance()[f"websocket_client_adaptor://{path}/queue"]
+    def to_web(
+        request: TSD[int, TSB[WebSocketClientRequest[STR_OR_BYTES]]],
+        _state: STATE = None,
+        _global_state: GlobalState = None,
+    ):
+        sender = _global_state[f"websocket_client_adaptor://{path}/queue"]
 
         for i, r in request.modified_items():
             if r.connect_request.modified:

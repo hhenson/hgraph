@@ -231,7 +231,7 @@ class HttpAdaptorManager:
             # Ensure we don't leak a pending future if the client disconnected
             future.cancel()
 
-    def shutdown(self, path: str | None = None):
+    def shutdown(self, path: str | None = None, global_state: GlobalState | None = None):
         """Cancel outstanding futures, clear internal state, and drop queue/global references."""
         # Cancel any outstanding futures
         for fut in list(self.requests.values()):
@@ -248,9 +248,9 @@ class HttpAdaptorManager:
         except Exception:
             pass
         # Drop queue reference and GlobalState key if provided
-        if path is not None:
+        if path is not None and global_state is not None:
             try:
-                del GlobalState.instance()[f"http_server_adaptor://{path}/queue"]
+                del global_state[f"http_server_adaptor://{path}/queue"]
             except Exception:
                 pass
         self.queue = None
@@ -488,9 +488,11 @@ def http_server_adaptor_impl(path: str, port: int):
     logger.info("Wiring HTTP Server Adaptor on port %d", port)
 
     @push_queue(TSD[int, TS[HttpRequest]])
-    def from_web(sender, path: str = "tornado_http_server_adaptor") -> TSD[int, TS[HttpRequest]]:
+    def from_web(
+        sender, path: str = "tornado_http_server_adaptor", _global_state: GlobalState = None
+    ) -> TSD[int, TS[HttpRequest]]:
         # Store the queue sender in GlobalState for discovery and also set it directly on the manager
-        GlobalState.instance()[f"http_server_adaptor://{path}/queue"] = sender
+        _global_state[f"http_server_adaptor://{path}/queue"] = sender
         try:
             HttpAdaptorManager.instance().set_queue(queue=sender)
         except Exception:
@@ -504,20 +506,21 @@ def http_server_adaptor_impl(path: str, port: int):
         port: int,
         path: str = "tornado_http_server_adaptor",
         _state: STATE = None,
+        _global_state: GlobalState = None,
     ):
         for response_id, response in responses.modified_items():
             TornadoWeb.get_loop().add_callback(_state.mgr.complete_request, response_id, response.value)
 
     @to_web.start
-    def to_web_start(port: int, path: str, _state: STATE):
+    def to_web_start(port: int, path: str, _state: STATE, _global_state: GlobalState = None):
         _state.mgr = HttpAdaptorManager.instance()
-        _state.mgr.set_queue(queue=GlobalState.instance()[f"http_server_adaptor://{path}/queue"])
+        _state.mgr.set_queue(queue=_global_state[f"http_server_adaptor://{path}/queue"])
         _state.mgr.start(port)
 
     @to_web.stop
-    def to_web_stop(path: str, _state: STATE):
+    def to_web_stop(path: str, _state: STATE, _global_state: GlobalState = None):
         try:
-            _state.mgr.shutdown(path)
+            _state.mgr.shutdown(path, global_state=_global_state)
         finally:
             # Stop the server instance; TornadoWeb handles ref counts per port
             _state.mgr.tornado_web.stop()

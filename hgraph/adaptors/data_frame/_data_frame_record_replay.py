@@ -55,8 +55,8 @@ def set_data_frame_record_path(path: Path):
     GlobalState.instance()[DATA_FRAME_RECORD_REPLAY_PATH] = path
 
 
-def _get_raw_data_frame_overrides():
-    d = GlobalState.instance().setdefault(DATA_FRAME_RECORD_REPLAY_PATH, {})
+def _get_raw_data_frame_overrides(global_state: GlobalState = None):
+    d = (global_state or GlobalState.instance()).setdefault(DATA_FRAME_RECORD_REPLAY_PATH, {})
     if len(d) == 0:
         d["all"] = {"track_as_of": True, "track_removes": False, "partition_keys": None,
                     "remove_partition_keys": None, }
@@ -87,9 +87,9 @@ def set_data_frame_overrides(
     d["remove_partition_keys"] = remove_partition_keys
 
 
-def get_data_frame_record_overrides(key: str, recordable_id: str) -> dict:
+def get_data_frame_record_overrides(key: str, recordable_id: str, global_state: GlobalState = None) -> dict:
     """Find the closest match and return the overrides"""
-    d = _get_raw_data_frame_overrides()
+    d = _get_raw_data_frame_overrides(global_state)
     # Overrides are more specific in the order all, recordable_id, key, key_recordable_id
     v = d["all"] | d["recordable_id"].get(recordable_id, {}) | d["key"].get(key, {}) | d["key_recordable_id"].get(
         (recordable_id, key), {})
@@ -121,6 +121,7 @@ def _record_to_data_frame(
         _state: STATE = None,
         _traits: Traits = None,
         _logger: LOGGER = None,
+        _global_state: GlobalState = None,
 ):
     _state.value.append(ts.value)
 
@@ -133,14 +134,21 @@ def _record_to_data_frame_start(key: str, recordable_id: str, _state: STATE, _tr
 
 
 @_record_to_data_frame.stop
-def _record_to_data_frame_stop(key: str, recordable_id: str, _state: STATE, schema: TS[TableSchema], _logger: LOGGER):
+def _record_to_data_frame_stop(
+    key: str,
+    recordable_id: str,
+    _state: STATE,
+    schema: TS[TableSchema],
+    _logger: LOGGER,
+    _global_state: GlobalState = None,
+):
     schema: TableSchema = schema.value
     if schema.partition_keys:
         rows = list(i for row in _state.value for i in row)
     else:
         rows = _state.value
     df = pl.from_records(rows, schema=[(k, t) for k, t in zip(schema.keys, schema.types)], orient="row").lazy()
-    overrides = get_data_frame_record_overrides(key, recordable_id)
+    overrides = get_data_frame_record_overrides(key, recordable_id, _global_state)
     if not overrides["track_as_of"]:
         df = df.drop(schema.as_of_key)
     if not overrides["track_removes"]:

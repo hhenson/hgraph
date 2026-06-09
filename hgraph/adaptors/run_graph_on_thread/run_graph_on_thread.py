@@ -37,8 +37,8 @@ class RunGraphOutput(TimeSeriesSchema, Generic[OUT]):
 
 
 @sink_node
-def publish_output(ts: TIME_SERIES_TYPE):
-    GlobalState.instance().output_queue(ts.delta_value)
+def publish_output(ts: TIME_SERIES_TYPE, _global_state: GlobalState = None):
+    _global_state.output_queue(ts.delta_value)
 
 
 @service_adaptor
@@ -65,12 +65,12 @@ def run_graph_on_thread_impl(
     path = f"{path}[{out_}]"
 
     @push_queue(TSD[int, TSB[RunGraphOutput[out_]]])
-    def receive(sender: Callable, path: str):
-        GlobalState.instance()[path] = sender
+    def receive(sender: Callable, path: str, _global_state: GlobalState = None):
+        _global_state[path] = sender
 
     @sink_node
-    def started(x: TS[bool] = True):
-        GlobalState.instance().started_queue(True)
+    def started(x: TS[bool] = True, _global_state: GlobalState = None):
+        _global_state.started_queue(True)
 
     def run(fn, global_state, params, output_queue):
         try:
@@ -110,9 +110,14 @@ def run_graph_on_thread_impl(
 
     @sink_node
     def _run_graph_on_thread(
-        i: TS[int], fn: TS[Callable], global_state: TS[dict[str, object]], params: TS[dict[str, object]], path: str
+        i: TS[int],
+        fn: TS[Callable],
+        global_state: TS[dict[str, object]],
+        params: TS[dict[str, object]],
+        path: str,
+        _global_state: GlobalState = None,
     ):
-        output_queue = GlobalState.instance().get(path)
+        output_queue = _global_state.get(path)
         Thread(
             target=run, args=(fn.value, global_state.value, params.value, lambda x: output_queue({i.value: x}))
         ).start()

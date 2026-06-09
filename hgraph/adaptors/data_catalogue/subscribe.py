@@ -51,10 +51,13 @@ class FindDCEResult(CompoundScalar):
 
 @compute_node
 def find_data_catalogue_entry(
-    tp: type[SCHEMA], dataset: TS[str], __options__: TS[dict[str, object]]
+    tp: type[SCHEMA],
+    dataset: TS[str],
+    __options__: TS[dict[str, object]],
+    _global_state: GlobalState = None,
 ) -> TSB[FindDCEResult]:
     dataset = dataset.value
-    dc = GlobalState.instance().get("data_catalogue", DataCatalogue.instance())
+    dc = _global_state.get("data_catalogue", DataCatalogue.instance())
     dces = dc.get_entries(tp, dataset, DataSource)
     if not dces:
         raise ValueError(f"No data catalogue entry found for {tp} and {dataset}")

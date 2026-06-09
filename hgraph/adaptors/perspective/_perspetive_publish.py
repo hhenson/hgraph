@@ -69,6 +69,7 @@ def _publish_table_from_tsd(
     ec: EvaluationClock = None,
     state: STATE = None,
     sched: SCHEDULER = None,
+    _global_state: GlobalState = None,
 ):
     """
     Publish a TSD to a perspective table as a collection of rows. The value types supported are a bundle,
@@ -166,8 +167,9 @@ def _publish_table_from_tsd_start(
     _key: Type[K],
     _schema: Type[TIME_SERIES_TYPE],
     state: STATE,
+    _global_state: GlobalState = None,
 ):
-    manager = PerspectiveTablesManager.current()
+    manager = PerspectiveTablesManager.current(_global_state)
     state.manager = manager
 
     if name in manager.get_table_names():
@@ -269,7 +271,7 @@ def _publish_table_from_tsd_start(
 
         state.index_to_id = defaultdbldict(_new_id)
         state.index_to_id_lock = threading.Lock()
-        index_to_id_and_lock = GlobalState.instance().setdefault(f"perspective_table_index_to_id_{name}", dict())
+        index_to_id_and_lock = _global_state.setdefault(f"perspective_table_index_to_id_{name}", dict())
         index_to_id_and_lock["mapping"] = state.index_to_id
         index_to_id_and_lock["lock"] = state.index_to_id_lock
 
@@ -327,6 +329,7 @@ def _receive_table_edits_tsd(
     empty_row: bool = False,
     _key: Type[K] = AUTO_RESOLVE,
     _schema: Type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+    _global_state: GlobalState = None,
 ) -> TSB[TableEdits[K, TIME_SERIES_TYPE]]:
     _schema = HgTimeSeriesTypeMetaData.parse_type(_schema)
     if isinstance(_schema, HgTSBTypeMetaData):
@@ -366,7 +369,7 @@ def _receive_table_edits_tsd(
 
     # the publish node will populate the global state with the index to id mapping object and its lock to be used for lookups
     if empty_row:
-        index_mapping = GlobalState.instance().setdefault(f"perspective_table_index_to_id_{name}", dict())
+        index_mapping = _global_state.setdefault(f"perspective_table_index_to_id_{name}", dict())
 
     def on_update(data: bytes):
         import pyarrow

@@ -124,7 +124,7 @@ class TimeSeriesContextTracker(AbstractContextManager):
 
 
 @sink_node(active=tuple(), valid=tuple())
-def capture_context(path: str, ts: REF[TIME_SERIES_TYPE], state: STATE = None):
+def capture_context(path: str, ts: REF[TIME_SERIES_TYPE], state: STATE = None, _global_state: GlobalState = None):
     """
     This node serves to capture the output of a context node and record the output reference in the global state
     with a prefix that would allow to distinguish it from same context node wired in other branches (if created on a branch).
@@ -132,17 +132,17 @@ def capture_context(path: str, ts: REF[TIME_SERIES_TYPE], state: STATE = None):
 
 
 @capture_context.start
-def capture_context_start(path: str, ts: REF[TIME_SERIES_TYPE], state: STATE):
+def capture_context_start(path: str, ts: REF[TIME_SERIES_TYPE], state: STATE, _global_state: GlobalState = None):
     """Place the reference into the global state"""
     source = ts.output or ts.value.output
     state.path = context_output_key(source.owning_node.owning_graph_id, path)
-    GlobalState.instance()[state.path] = ts
+    _global_state[state.path] = ts
 
 
 @capture_context.stop
-def capture_context_stop(path: str, state: STATE):
+def capture_context_stop(path: str, state: STATE, _global_state: GlobalState = None):
     """Clean up references"""
-    del GlobalState.instance()[state.path]
+    del _global_state[state.path]
 
 
 class ContextNodeClass(BaseWiringNodeClass):

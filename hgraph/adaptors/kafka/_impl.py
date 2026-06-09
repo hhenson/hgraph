@@ -60,8 +60,8 @@ class KafkaMessageState(MessageState):
     config: dict = None
 
     @classmethod
-    def instance(cls) -> "KafkaMessageState":
-        if "service.messaging.state" not in (gs := GlobalState.instance()):
+    def instance(cls, global_state: GlobalState = None) -> "KafkaMessageState":
+        if "service.messaging.state" not in (gs := global_state or GlobalState.instance()):
             gs["service.messaging.state"] = cls()
         return gs["service.messaging.state"]
 
@@ -122,7 +122,13 @@ def _registered_topics(m, topic):
 
 
 @sink_node(overloads=message_publisher_operator, requires=_registered_topics)
-def _kafka_message_publisher(msg: TS[bytes], topic: str, _state: STATE = None, _scheduler: SCHEDULER = None) -> None:
+def _kafka_message_publisher(
+    msg: TS[bytes],
+    topic: str,
+    _state: STATE = None,
+    _scheduler: SCHEDULER = None,
+    _global_state: GlobalState = None,
+) -> None:
     if msg.modified:
         _state.producer.send(topic, msg.value)
         _scheduler.schedule(
@@ -135,15 +141,15 @@ def _kafka_message_publisher(msg: TS[bytes], topic: str, _state: STATE = None, _
 
 
 @_kafka_message_publisher.start
-def _kafka_message_publisher_start(topic: str, _state: STATE):
-    _state.producer = KafkaMessageState.instance().producer
+def _kafka_message_publisher_start(topic: str, _state: STATE, _global_state: GlobalState = None):
+    _state.producer = KafkaMessageState.instance(_global_state).producer
 
 
 @_kafka_message_publisher.stop
-def _kafka_message_publisher_stop(_state: STATE):
+def _kafka_message_publisher_stop(_state: STATE, _global_state: GlobalState = None):
     _state.producer.flush()
     _state.producer = None
-    KafkaMessageState.instance().close_producer()
+    KafkaMessageState.instance(_global_state).close_producer()
 
 
 @service_impl(interfaces=message_subscriber_service)
@@ -154,8 +160,8 @@ def _message_subscriber_aggregator(path: str, topic: str) -> TS[bytes]:
 
 
 @service_impl(interfaces=(message_history_subscriber_service, message_subscriber_service))
-def _message_subscriber_impl(path: str, topic: str):
-    consumer = KafkaConsumer(**(ks := KafkaMessageState.instance()).config)
+def _message_subscriber_impl(path: str, topic: str, _global_state: GlobalState = None):
+    consumer = KafkaConsumer(**(ks := KafkaMessageState.instance(_global_state)).config)
     # First, get partition information by calling 'partitions_for_topic'.
     partitions = consumer.partitions_for_topic(topic)
     if not partitions:
@@ -237,20 +243,27 @@ def _real_time_message_subscriber_impl(path: str, topic: str) -> TS[bytes]:
 
 
 @push_queue(TS[bytes])
-def _message_subscriber_queue(sender: Callable[[SCALAR], None] = None, *, topic: str):
-    KafkaMessageState.instance().set_subscriber_sender(topic, sender)
+def _message_subscriber_queue(
+    sender: Callable[[SCALAR], None] = None, *, topic: str, _global_state: GlobalState = None
+):
+    KafkaMessageState.instance(_global_state).set_subscriber_sender(topic, sender)
 
 
 @sink_node
-def _start_realtime_message_subscriber(topic: str, start_real_time_service: TS[bool], consumer: KafkaConsumer):
+def _start_realtime_message_subscriber(
+    topic: str,
+    start_real_time_service: TS[bool],
+    consumer: KafkaConsumer,
+    _global_state: GlobalState = None,
+):
     if start_real_time_service.value:
         start_real_time_service.make_passive()
-        KafkaMessageState.instance().start_subscriber(topic, consumer)
+        KafkaMessageState.instance(_global_state).start_subscriber(topic, consumer)
 
 
 @_start_realtime_message_subscriber.stop
-def _start_realtime_message_subscriber_stop(topic: str):
-    KafkaMessageState.instance().stop_subscriber(topic)
+def _start_realtime_message_subscriber_stop(topic: str, _global_state: GlobalState = None):
+    KafkaMessageState.instance(_global_state).stop_subscriber(topic)
 
 
 class KafkaConsumerThread(Thread):

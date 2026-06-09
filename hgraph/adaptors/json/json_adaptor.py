@@ -56,8 +56,10 @@ def json_adaptor_impl(
     dir_path = de.get_entry(path).environment_path
 
     @push_queue(TSD[int, TSB[Stream[Data[DataFrame]]]])
-    def json_to_graph(sender: callable, path: str) -> TSD[int, TSB[Stream[Data[DataFrame]]]]:
-        GlobalState.instance()[f"json_adaptor://{path}/queue"] = sender
+    def json_to_graph(
+        sender: callable, path: str, _global_state: GlobalState = None
+    ) -> TSD[int, TSB[Stream[Data[DataFrame]]]]:
+        _global_state[f"json_adaptor://{path}/queue"] = sender
 
     @generator
     def start_json_adaptor(dir_path: str, _state: STATE = None) -> TS[Path]:
@@ -85,8 +87,15 @@ def json_adaptor_impl(
             queue(error)
 
     @sink_node
-    def handle_request(id: TS[int], file: TS[str], path: str, directory: TS[Path], executor: TS[Executor]):
-        queue = GlobalState.instance()[f"json_adaptor://{path}/queue"]
+    def handle_request(
+        id: TS[int],
+        file: TS[str],
+        path: str,
+        directory: TS[Path],
+        executor: TS[Executor],
+        _global_state: GlobalState = None,
+    ):
+        queue = _global_state[f"json_adaptor://{path}/queue"]
         executor.value.submit(load_json, directory=directory.value, id=id.value, file=file.value, queue=queue)
 
     directory = start_json_adaptor(dir_path)

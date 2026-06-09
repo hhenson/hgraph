@@ -81,8 +81,10 @@ def delta_read_adaptor_raw_impl(
         path += os.path.sep
 
     @push_queue(TSD[int, TSB[Stream[Data[DataFrame]]]])
-    def delta_to_graph(sender: Callable, path: str) -> TSD[int, TSB[Stream[Data[DataFrame]]]]:
-        GlobalState.instance()[f"delta_read_adaptor_raw://{path}/queue"] = sender
+    def delta_to_graph(
+        sender: Callable, path: str, _global_state: GlobalState = None
+    ) -> TSD[int, TSB[Stream[Data[DataFrame]]]]:
+        _global_state[f"delta_read_adaptor_raw://{path}/queue"] = sender
         return None
 
     def run_query(
@@ -127,8 +129,9 @@ def delta_read_adaptor_raw_impl(
         path: str,
         credentials: TS[object],
         executor: TS[Executor],
+        _global_state: GlobalState = None,
     ):
-        queue = GlobalState.instance()[f"delta_read_adaptor_raw://{path}/queue"]
+        queue = _global_state[f"delta_read_adaptor_raw://{path}/queue"]
         creds = dict(credentials.value) if credentials.valid else {}
         path = creds.pop("path", path)
         executor.value.submit(
@@ -143,8 +146,8 @@ def delta_read_adaptor_raw_impl(
         )
 
     @send_query.stop
-    def stop_send_query(id: TS[int], path: str):
-        queue = GlobalState.instance()[f"delta_read_adaptor_raw://{path}/queue"]
+    def stop_send_query(id: TS[int], path: str, _global_state: GlobalState = None):
+        queue = _global_state[f"delta_read_adaptor_raw://{path}/queue"]
         queue({id.value: REMOVE})
 
     credentials = delta_storage_options(path)
@@ -195,8 +198,10 @@ def delta_query_adaptor_raw_impl(
         path += os.path.sep
 
     @push_queue(TSD[int, TSB[Stream[Data[DataFrame]]]])
-    def delta_to_graph(sender: Callable, path: str) -> TSD[int, TSB[Stream[Data[DataFrame]]]]:
-        GlobalState.instance()[f"delta_query_adaptor_raw://{path}/queue"] = sender
+    def delta_to_graph(
+        sender: Callable, path: str, _global_state: GlobalState = None
+    ) -> TSD[int, TSB[Stream[Data[DataFrame]]]]:
+        _global_state[f"delta_query_adaptor_raw://{path}/queue"] = sender
         return None
 
     def run_query(credentials: dict, id: int, path: str, tables: set[str], query: str, queue):
@@ -233,8 +238,9 @@ def delta_query_adaptor_raw_impl(
         path: str,
         credentials: TS[object],
         executor: TS[Executor],
+        _global_state: GlobalState = None,
     ):
-        queue = GlobalState.instance()[f"delta_query_adaptor_raw://{path}/queue"]
+        queue = _global_state[f"delta_query_adaptor_raw://{path}/queue"]
         creds = dict(credentials.value) if credentials.valid else {}
         path = creds.pop("path", path)
         executor.value.submit(
@@ -292,8 +298,10 @@ def delta_write_adaptor_raw_impl(
         path += os.path.sep
 
     @push_queue(TSD[int, TSB[Stream[Data[datetime]]]])
-    def delta_to_graph(sender: Callable, path: str) -> TSD[int, TSB[Stream[Data[datetime]]]]:
-        GlobalState.instance()[f"delta_write_adaptor_raw://{path}/queue"] = sender
+    def delta_to_graph(
+        sender: Callable, path: str, _global_state: GlobalState = None
+    ) -> TSD[int, TSB[Stream[Data[datetime]]]]:
+        _global_state[f"delta_write_adaptor_raw://{path}/queue"] = sender
         return None
 
     def run_query(
@@ -365,8 +373,9 @@ def delta_write_adaptor_raw_impl(
         path: str,
         credentials: TS[object],
         executor: TS[Executor],
+        _global_state: GlobalState = None,
     ):
-        queue = GlobalState.instance()[f"delta_write_adaptor_raw://{path}/queue"]
+        queue = _global_state[f"delta_write_adaptor_raw://{path}/queue"]
         creds = dict(credentials.value) if credentials.valid else {}
         path = creds.pop("path", path)
         executor.value.submit(
