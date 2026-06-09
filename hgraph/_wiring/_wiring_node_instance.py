@@ -312,12 +312,10 @@ class WiringNodeInstance:
 
         from hgraph import HgGlobalStateType
 
-        # Older _hgraph binaries do not expose GLOBAL_STATE yet. In that case,
-        # pass the current state object directly so C++ Python nodes do not see
-        # the injector placeholder as a normal scalar.
-        if type(scalar_type) is HgGlobalStateType and not hasattr(
-            WiringNodeInstance.INJECTABLE_TYPES_ENUM, "GLOBAL_STATE"
-        ):
+        # GlobalState is a process-level runtime context. Passing the concrete
+        # object makes this safe for Python nodes under both runtimes, including
+        # C++ builds that do not call Python injectors for this resource.
+        if type(scalar_type) is HgGlobalStateType:
             return scalar_type.injector(None)
 
         return scalar_type.injector

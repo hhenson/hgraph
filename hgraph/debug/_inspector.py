@@ -20,8 +20,8 @@ from hgraph.debug._inspector_state import InspectorState
 
 
 @push_queue(TS[tuple[object, ...]])
-def inspector_requests_queue(sender: Callable, _global_state: GlobalState = None) -> TS[tuple[object, ...]]:
-    _global_state.inspector_requests_queue = sender
+def inspector_requests_queue(sender: Callable) -> TS[tuple[object, ...]]:
+    GlobalState.instance().inspector_requests_queue = sender
     
 
 @sink_node
