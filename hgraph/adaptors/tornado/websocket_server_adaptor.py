@@ -128,7 +128,7 @@ class WebSocketAdaptorManager:
     def stop(self):
         self.tornado_web.stop()
 
-    def shutdown(self, path: str | None = None):
+    def shutdown(self, path: str | None = None, global_state: GlobalState | None = None):
         # Cancel any outstanding futures and clear mappings
         for fut in list(self.requests.values()):
             try:
@@ -146,13 +146,13 @@ class WebSocketAdaptorManager:
         except Exception:
             pass
         # Drop queue references and remove GlobalState keys if provided
-        if path is not None:
+        if path is not None and global_state is not None:
             try:
-                del GlobalState.instance()[f"websocket_server_adaptor://{path}/connect_queue"]
+                del global_state[f"websocket_server_adaptor://{path}/connect_queue"]
             except Exception:
                 pass
             try:
-                del GlobalState.instance()[f"websocket_server_adaptor://{path}/message_queue"]
+                del global_state[f"websocket_server_adaptor://{path}/message_queue"]
             except Exception:
                 pass
         self.connect_queue = None
@@ -370,16 +370,22 @@ def websocket_server_adaptor_impl(path: str, port: int):
 
     @push_queue(TSD[int, TS[WebSocketConnectRequest]])
     def connections_from_web(
-        sender, path: str = "tornado_websocket_server_adaptor", elide: bool = True
+        sender,
+        path: str = "tornado_websocket_server_adaptor",
+        elide: bool = True,
+        _global_state: GlobalState = None,
     ) -> TSD[int, TS[WebSocketConnectRequest]]:
-        GlobalState.instance()[f"websocket_server_adaptor://{path}/connect_queue"] = sender
+        _global_state[f"websocket_server_adaptor://{path}/connect_queue"] = sender
         return None
 
     @push_queue(TSD[int, TS[tuple[STR_OR_BYTES, ...]]])
     def messages_from_web(
-        sender, path: str = "tornado_websocket_server_adaptor", batch: bool = True
+        sender,
+        path: str = "tornado_websocket_server_adaptor",
+        batch: bool = True,
+        _global_state: GlobalState = None,
     ) -> TSD[int, TS[tuple[bytes, ...]]]:
-        GlobalState.instance()[f"websocket_server_adaptor://{path}/message_queue"] = sender
+        _global_state[f"websocket_server_adaptor://{path}/message_queue"] = sender
         return None
 
     @graph
@@ -400,26 +406,38 @@ def websocket_server_adaptor_impl(path: str, port: int):
         path: str = "tornado_websocket_server_adaptor",
         _tp: Type[STR_OR_BYTES] = AUTO_RESOLVE,
         _state: STATE = None,
+        _global_state: GlobalState = None,
     ):
         for response_id, response in responses.modified_items():
             TornadoWeb.get_loop().add_callback(_state.mgr.complete_request, response_id, response.delta_value)
 
     @to_web.start
-    def to_web_start(port: int, path: str, _tp: Type[STR_OR_BYTES] = AUTO_RESOLVE, _state: STATE = None):
+    def to_web_start(
+        port: int,
+        path: str,
+        _tp: Type[STR_OR_BYTES] = AUTO_RESOLVE,
+        _state: STATE = None,
+        _global_state: GlobalState = None,
+    ):
         _state.mgr = WebSocketAdaptorManager.instance(_tp)
         path = f"{path}[{_tp.__name__.lower()}]"
         _state.mgr.set_queues(
-            connect_queue=GlobalState.instance()[f"websocket_server_adaptor://{path}/connect_queue"],
-            message_queue=GlobalState.instance()[f"websocket_server_adaptor://{path}/message_queue"],
+            connect_queue=_global_state[f"websocket_server_adaptor://{path}/connect_queue"],
+            message_queue=_global_state[f"websocket_server_adaptor://{path}/message_queue"],
         )
         _state.mgr.start(port)
 
     @to_web.stop
-    def to_web_stop(path: str, _tp: Type[STR_OR_BYTES] = AUTO_RESOLVE, _state: STATE = None):
+    def to_web_stop(
+        path: str,
+        _tp: Type[STR_OR_BYTES] = AUTO_RESOLVE,
+        _state: STATE = None,
+        _global_state: GlobalState = None,
+    ):
         # Ensure we clean up pending futures/queues and remove global keys before stopping the server
         try:
             typed_path = f"{path}[{_tp.__name__.lower()}]"
-            _state.mgr.shutdown(typed_path)
+            _state.mgr.shutdown(typed_path, global_state=_global_state)
         finally:
             _state.mgr.tornado_web.stop()
 

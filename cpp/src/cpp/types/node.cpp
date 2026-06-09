@@ -36,6 +36,7 @@ namespace hgraph
             .value("LOGGER", InjectableTypesEnum::LOGGER)
             .value("NODE", InjectableTypesEnum::NODE)
             .value("TRAIT", InjectableTypesEnum::TRAIT)
+            .value("GLOBAL_STATE", InjectableTypesEnum::GLOBAL_STATE)
             .export_values();
     }
 
@@ -139,6 +140,7 @@ namespace hgraph
             .def_prop_ro("uses_state", &NodeSignature::uses_state)
             .def_prop_ro("uses_output_feedback", &NodeSignature::uses_output_feedback)
             .def_prop_ro("uses_recordable_state", &NodeSignature::uses_recordable_state)
+            .def_prop_ro("uses_global_state", &NodeSignature::uses_global_state)
             .def_prop_ro("test_recordable_property", [](const NodeSignature &self) -> bool { return self.uses_recordable_state(); })
             .def_prop_ro("recordable_state_arg",
                          [](const NodeSignature &self) -> nb::object {
@@ -363,6 +365,10 @@ namespace hgraph
 
     [[nodiscard]] bool NodeSignature::uses_recordable_state() const {
         return (injectables & InjectableTypesEnum::RECORDABLE_STATE) == InjectableTypesEnum::RECORDABLE_STATE;
+    }
+
+    [[nodiscard]] bool NodeSignature::uses_global_state() const {
+        return (injectables & InjectableTypesEnum::GLOBAL_STATE) == InjectableTypesEnum::GLOBAL_STATE;
     }
 
     std::optional<std::string> NodeSignature::recordable_state_arg() const {

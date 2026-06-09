@@ -64,8 +64,10 @@ def http_client_adaptor_impl(
     logger.info("Starting client adaptor on path: '%s'", path)
 
     @push_queue(TSD[int, TS[HttpResponse]])
-    def from_web(sender, path: str = "http_client") -> TSD[int, TS[HttpResponse]]:
-        GlobalState.instance()[f"http_client_adaptor://{path}/queue"] = sender
+    def from_web(
+        sender, path: str = "http_client", _global_state: GlobalState = None
+    ) -> TSD[int, TS[HttpResponse]]:
+        _global_state[f"http_client_adaptor://{path}/queue"] = sender
         return None
 
     async def handle_auth_win(response, request, client):
@@ -327,8 +329,8 @@ def http_client_adaptor_impl(
         sender({id: HttpResponse(status_code=response.code, headers=response.headers, body=response.body)})
 
     @sink_node
-    def to_web(request: TSD[int, TS[HttpRequest]]):
-        sender = GlobalState.instance()[f"http_client_adaptor://{path}/queue"]
+    def to_web(request: TSD[int, TS[HttpRequest]], _global_state: GlobalState = None):
+        sender = _global_state[f"http_client_adaptor://{path}/queue"]
 
         for i, r in request.modified_items():
             TornadoWeb.get_loop().add_callback(make_http_request, i, r.value, sender)

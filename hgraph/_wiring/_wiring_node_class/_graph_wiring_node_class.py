@@ -561,6 +561,7 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
 
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
             with WiringGraphContext(resolved_signature, temporary=WiringGraphContext.is_temporary()) as g:
+                self._inject_graph_kwargs(resolved_signature, kwargs_)
                 out: WiringPort = self.fn(**kwargs_)
                 WiringGraphContext.instance().label_nodes()
                 if output_type := resolved_signature.output_type:
@@ -612,3 +613,11 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                 elif WiringGraphContext.is_strict() and not g.has_sink_nodes():
                     raise WiringError(f"'{self.signature.name}' does not seem to do anything")
                 return out
+
+    @staticmethod
+    def _inject_graph_kwargs(signature: WiringNodeSignature, kwargs: dict):
+        from hgraph import HgGlobalStateType
+
+        for arg, tp in signature.scalar_inputs.items():
+            if type(tp) is HgGlobalStateType and kwargs.get(arg) is None:
+                kwargs[arg] = tp.injector(None)
