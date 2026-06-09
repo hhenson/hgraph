@@ -73,6 +73,7 @@ def replay_from_memory(
         recordable_id: str = None,
         _traits: Traits = None,
         _clock: EvaluationClock = None,
+        _global_state: GlobalState = None,
 ) -> TIME_SERIES_TYPE:
     """
     This will replay a sequence of values, a None value will be ignored (skip the tick).
@@ -88,7 +89,7 @@ def replay_from_memory(
         # If there are no parent recordable id's and this was None then we need to catch the exception and set
         recordable_id = f"nodes.{replay_from_memory.signature.name}"
 
-    source = GlobalState.instance().get(f"{recordable_id}.{key}", None)
+    source = _global_state.get(f"{recordable_id}.{key}", None)
     if source is None:
         raise ValueError(f"Replay source with label '{key}' does not exist")
     tm = _clock.evaluation_time
@@ -109,10 +110,11 @@ def replay_const_from_memory(
         as_of: datetime = None,
         _traits: Traits = None,
         _clock: EvaluationClock = None,
+        _global_state: GlobalState = None,
 ) -> TIME_SERIES_TYPE:
     recordable_id = get_fq_recordable_id(_traits, recordable_id)
     recordable_id = f":memory:{recordable_id}.{key}"
-    gs = GlobalState.instance()
+    gs = _global_state or GlobalState.instance()
     source = gs.get(recordable_id, None)
     tm = _clock.evaluation_time if tm is None else tm
     if source is not None:
@@ -129,20 +131,20 @@ def _recover_initial_state(recordable_id: str, path: str, tp: type[TIME_SERIES_T
 
 
 @generator
-def _replay(recordable_id: str) -> OUT:
-    source = GlobalState.instance().get(recordable_id, None)
+def _replay(recordable_id: str, _global_state: GlobalState = None) -> OUT:
+    source = _global_state.get(recordable_id, None)
     for ts, v in source:
         yield ts, v
 
 
 @sink_node
-def _capture(path: str, ts: OUT):
+def _capture(path: str, ts: OUT, _global_state: GlobalState = None):
     ...
 
 
 @_capture.stop
-def _capture_stop(path: str, ts: OUT):
-    GlobalState.instance()[path] = ts.value
+def _capture_stop(path: str, ts: OUT, _global_state: GlobalState = None):
+    _global_state[path] = ts.value
 
 
 @sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY, True))
@@ -154,6 +156,7 @@ def record_to_memory(
         _api: EvaluationEngineApi = None,
         _state: STATE = None,
         _traits: Traits = None,
+        _global_state: GlobalState = None,
 ):
     """
     This node will record the values of the time series into the provided list.
@@ -175,8 +178,8 @@ def record_to_memory_start(key: str, is_operator: bool, recordable_id: str, _sta
 
 
 @record_to_memory.stop
-def record_to_memory_stop(_state: STATE, _api: EvaluationEngineApi):
-    global_state = GlobalState.instance()
+def record_to_memory_stop(_state: STATE, _api: EvaluationEngineApi, _global_state: GlobalState = None):
+    global_state = _global_state
     if _state.is_operator and (value := global_state.get(_state.recordable_id, None)):
         result = []
         st = _api.start_time

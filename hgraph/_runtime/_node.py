@@ -60,6 +60,9 @@ class InjectableTypesEnum(IntFlag):
 
     TRAIT = auto()
 
+    GLOBAL_STATE = auto()
+    """Requires access to the current GlobalState instance"""
+
 
 @dataclass
 class NodeSignature:
@@ -108,6 +111,10 @@ class NodeSignature:
     @property
     def uses_recordable_state(self) -> bool:
         return (InjectableTypesEnum.RECORDABLE_STATE.value & self.injectables) != 0
+
+    @property
+    def uses_global_state(self) -> bool:
+        return (InjectableTypesEnum.GLOBAL_STATE.value & self.injectables) != 0
 
     def _recordable_state(self) -> tuple[str, "HgRecordableStateType"] | tuple[None, None]:
         from hgraph._types._scalar_type_meta_data import HgRecordableStateType

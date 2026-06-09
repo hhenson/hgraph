@@ -154,16 +154,18 @@ class PerspectiveTablesManager:
             return self._client.table(*args, **kwargs)
 
     @classmethod
-    def set_current(cls, self):
-        assert GlobalState.instance().get("perspective_manager") is None
-        GlobalState.instance()["perspective_manager"] = self
+    def set_current(cls, self, global_state: GlobalState = None):
+        global_state = global_state or GlobalState.instance()
+        assert global_state.get("perspective_manager") is None
+        global_state["perspective_manager"] = self
 
     @classmethod
-    def current(cls) -> "PerspectiveTablesManager":
-        self = GlobalState.instance().get("perspective_manager")
+    def current(cls, global_state: GlobalState = None) -> "PerspectiveTablesManager":
+        global_state = global_state or GlobalState.instance()
+        self = global_state.get("perspective_manager")
         if not self:
             self = PerspectiveTablesManager()
-            GlobalState.instance()["perspective_manager"] = self
+            global_state["perspective_manager"] = self
 
         return self
 
@@ -593,9 +595,10 @@ def perspective_web(
     layouts_path: str = None,
     _sig: TS[bool] = True,
     logger: logging.Logger = None,
+    _global_state: GlobalState = None,
 ):
-    perspective_manager = PerspectiveTablesManager.current()
-    app = GlobalState.instance()["perspective_tornado_web"]
+    perspective_manager = PerspectiveTablesManager.current(_global_state)
+    app = _global_state["perspective_tornado_web"]
 
     if _sig.value:
         app.start()
@@ -644,6 +647,7 @@ def perspective_web_start(
     index_template: str = "index_template.html",
     workspace_template: str = "workspace_template.html",
     layouts_path: str = None,
+    _global_state: GlobalState = None,
 ):
 
     if "/" not in table_template:
@@ -653,7 +657,7 @@ def perspective_web_start(
     if "/" not in workspace_template:
         workspace_template = os.path.join(os.path.dirname(__file__), workspace_template)
 
-    perspective_manager = PerspectiveTablesManager.current()
+    perspective_manager = PerspectiveTablesManager.current(_global_state)
     perspective_manager.start()
 
     tempfile.gettempdir()
@@ -727,7 +731,7 @@ def perspective_web_start(
         ),
     )
 
-    GlobalState.instance()["perspective_tornado_web"] = app
+    _global_state["perspective_tornado_web"] = app
 
 
 def _perspective_thread(manager, cb):
