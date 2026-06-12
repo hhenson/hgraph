@@ -25,7 +25,7 @@ namespace hgraph {
         // Create nested graph and set up evaluation engine (matches Python lines 319, 329-331)
         //TODO: Should this be constructed by the GraphBuilder, if it does not escape into Python then
         //      this is fine, otherwise not.
-        nested_graph_ = arena_make_shared<Graph>(std::vector<int64_t>{node_ndx()}, std::vector<node_s_ptr>{}, this, "", &graph()->traits());
+        nested_graph_ = arena_make_shared<Graph>(node_id(), std::vector<node_s_ptr>{}, this, "", &graph()->traits());
         nested_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
             graph()->evaluation_engine(), std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock().get(), this)));
         initialise_component(*nested_graph_);

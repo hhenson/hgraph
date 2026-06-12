@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+import pytest
 from frozendict import frozendict as fd
 
 from hgraph import TS, CompoundScalar, TimeSeriesSchema, TSB, compute_node, TIME_SERIES_TYPE, TABLE, DEFAULT, TSD
@@ -68,3 +69,14 @@ def test_to_table_dispatch_tsd():
         ("__key_1__",),
         ("__key_1_removed__",),
     )
+
+
+@dataclass
+class MultiRowBundle(TimeSeriesSchema):
+    lhs: TSD[str, TS[int]]
+    rhs: TSD[str, TS[int]]
+
+
+def test_to_table_dispatch_tsb_multiple_row_fields_are_not_supported():
+    with pytest.raises(RuntimeError, match="multiple multi-row or partitioned fields"):
+        extract_table_schema_raw_type(TSB[MultiRowBundle])

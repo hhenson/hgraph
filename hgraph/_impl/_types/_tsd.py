@@ -420,6 +420,17 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         self._ts_values[key] = item
         self._ts_values_to_keys[id(item)] = key
 
+    def get_or_create(self, key: K) -> V:
+        if key in self._ts_values:
+            return self._ts_values[key]
+
+        if (removed := self._removed_items.pop(key, None)) is not None:
+            item, _ = removed
+            item.un_bind_output(unbind_refs=True)
+
+        self.create(key)
+        return self._ts_values[key]
+
     def notify_parent(self, child: "TimeSeriesInput", modified_time: datetime):
         if self._last_notified_time < modified_time:
             self._last_notified_time = modified_time

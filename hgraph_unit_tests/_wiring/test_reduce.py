@@ -1,8 +1,10 @@
+from typing import Any, Callable
+
 import logging
 import pytest
 pytestmark = pytest.mark.smoke
 
-from hgraph import DEFAULT, REMOVE, REMOVE_IF_EXISTS, const, debug_print, graph, TSD, TS, log_, reduce, add_, Size, TSL, SIZE, map_, default, format_, sum_, switch_, compute_node, if_, TS_OUT, TimeSeriesSchema, TSB
+from hgraph import DEFAULT, REMOVE, REMOVE_IF_EXISTS, const, graph, TSD, TS, log_, reduce, add_, Size, TSL, SIZE, map_, default, format_, sum_, switch_, compute_node, if_, TS_OUT, TimeSeriesSchema, TSB, equal_lambdas
 from hgraph.nodes import keys_where_true
 from hgraph.test import eval_node
 
@@ -129,8 +131,61 @@ def test_reduce_simple():
 
     assert eval_node(
         g,
-        [{1: 1, 2: 2}],
-    ) == [3]
+        [None, {1: 1, 2: 2}],
+    ) == [0, 3]
+
+
+def test_reduce_none_zero():
+    @graph
+    def g(items: TSD[int, TS[int]]) -> TS[int]:
+        return reduce(lambda x, y: x + y, items, None)
+
+    assert eval_node(
+        g,
+        [None, {1: 1, 2: 2}],
+    ) == [None, 3]
+
+
+def test_reduce_overload():
+    @graph
+    def only_even(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        return lhs + rhs
+
+    @compute_node(overloads=reduce, requires=lambda m, func: func == only_even)
+    def my_reduce_overload(
+        func: Callable[..., Any], ts: TSD[str, TS[int]], zero: int = 0, is_associative: bool = True
+    ) -> TS[int]:
+        return sum(v.value for v in ts.values() if v.value % 2 == 0)
+
+    @graph
+    def g(items: TSD[str, TS[int]]) -> TS[int]:
+        return reduce(only_even, items, 0)
+
+    assert eval_node(g, [{"a": 1, "b": 2, "c": 4}]) == [6]
+
+
+def test_reduce_overload_lambda_shape():
+    @compute_node(overloads=reduce, requires=lambda m, func: equal_lambdas(func, lambda a, b: a + b))
+    def my_reduce_lambda_shape_overload(
+        func: Callable[..., Any], ts: TSL[TS[int], Size[2]], zero: int = 0, is_associative: bool = True
+    ) -> TS[int]:
+        return 99
+
+    @graph
+    def g_match(items: TSL[TS[int], Size[2]]) -> TS[int]:
+        return reduce(lambda lhs, rhs: lhs + rhs, items, 0)
+
+    @graph
+    def g_renamed(items: TSL[TS[int], Size[2]]) -> TS[int]:
+        return reduce(lambda a, b: a + b, items, 0)
+
+    @graph
+    def g_no_match(items: TSL[TS[int], Size[2]]) -> TS[int]:
+        return reduce(lambda lhs, rhs: lhs + rhs + 1, items, 0)
+
+    assert eval_node(g_match, [(1, 2)]) == [99]
+    assert eval_node(g_renamed, [(1, 2)]) == [99]
+    assert eval_node(g_no_match, [(1, 2)]) == [4]
 
 
 def test_reduce_map_and_switch():

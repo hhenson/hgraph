@@ -1,16 +1,20 @@
 from dataclasses import dataclass
 from itertools import chain
-from typing import Callable
+from typing import Any, Callable
 
 from frozendict import frozendict
 
 from hgraph._types._scalar_types import STATE, SCALAR
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._types._ts_meta_data import HgTSTypeMetaData, HgTimeSeriesTypeMetaData
+from hgraph._types._tsb_type import TS_SCHEMA, TS_SCHEMA_1, TSB
 from hgraph._types._tsb_meta_data import HgTSBTypeMetaData
 from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
+from hgraph._types._tsd_type import K
 from hgraph._types._type_meta_data import HgTypeMetaData
+from hgraph._types._tss_type import TSS
 from hgraph._wiring._context_wiring import TimeSeriesContextTracker
+from hgraph._wiring._decorators import graph, operator
 from hgraph._wiring._map import (
     _deduce_signature_from_lambda_and_args,
     _extract_map_fn_key_arg_and_type,
@@ -31,33 +35,65 @@ from hgraph._wiring._wiring_utils import as_reference, wire_nested_graph
 __all__ = ("mesh_", "MeshWiringPort", "get_mesh")
 
 
-def mesh_(func: Callable, *args, **kwargs):
+@operator
+def mesh_(
+    func: object,
+    *args: TSB[TS_SCHEMA],
+    __name__: str = None,
+    __keys__: TSS[K] = None,
+    __key_arg__: str = None,
+    **kwargs: TSB[TS_SCHEMA_1],
+) -> TIME_SERIES_TYPE:
     """
     Wrap the given graph into a calculation mesh - a structure that is akin to a ``map_`` but allows instances of
     the graph to access outputs of other instances of the graph. New instances will also be created on demand from
     inner graphs as well as from the keys' inputs.
     """
+    ...
 
-    if len(args) + len(kwargs) == 0:
+
+@graph(overloads=mesh_, resolvers={K: lambda m: object})
+def mesh_default(
+    func: object,
+    *args: TSB[TS_SCHEMA],
+    __name__: str = None,
+    __keys__: TSS[K] = None,
+    __key_arg__: str = None,
+    **kwargs: TSB[TS_SCHEMA_1],
+) -> TIME_SERIES_TYPE:
+    args = tuple(i.value if i.is_auto_const else i for i in args.as_dict().values()) if args else ()
+    kwargs = {k: v.value if v.is_auto_const else v for k, v in kwargs.as_dict().items()} if kwargs else {}
+
+    if len(args) + len(kwargs) == 0 and __keys__ is None:
         # calling mesh_ without any arguments is used to access it from the inner graphs
-        return get_mesh(kwargs.get("__name__", func))
+        return get_mesh(__name__ or func)
 
     from inspect import isfunction
 
-    name = kwargs.pop("__name__", None)
+    name = __name__
     if isfunction(func) and func.__name__ == "<lambda>":
-        graph = _deduce_signature_from_lambda_and_args(func, *args, **kwargs)
+        graph = _deduce_signature_from_lambda_and_args(
+            func, *args, __keys__=__keys__, __key_arg__=__key_arg__, **kwargs
+        )
     elif isinstance(func, WiringNodeClass):
         graph = func
     else:
-        raise RuntimeError(f"The supplied function is not a graph or node function or lambda: '{func.__name__}'")
+        raise RuntimeError(
+            f"The supplied function is not a graph or node function or lambda: '{getattr(func, '__name__', func)}'"
+        )
 
     with WiringContext(current_signature=STATE(signature=f"mesh_('{graph.signature.signature}', ...)")):
         signature: WiringNodeSignature = graph.signature
-        map_wiring_node, calling_kwargs, ri = _build_mesh_wiring_node_and_inputs(
-            graph, signature, *args, **kwargs, __name__=name
+        mesh_wiring_node, calling_kwargs, ri = _build_mesh_wiring_node_and_inputs(
+            graph,
+            signature,
+            *args,
+            **kwargs,
+            __keys__=__keys__,
+            __key_arg__=__key_arg__,
+            __name__=name,
         )
-        port = map_wiring_node(**calling_kwargs)
+        port = mesh_wiring_node(**calling_kwargs)
 
         from hgraph import WiringGraphContext
 

@@ -20,11 +20,12 @@ from hgraph._types import (
     V,
     REMOVE_IF_EXISTS,
     HgREFTypeMetaData,
-    STATE,
     HgDataFrameScalarTypeMetaData,
     CompoundScalar,
 )
+from hgraph._types._ref_type import TimeSeriesReference
 from hgraph._types._scalar_type_meta_data import HgTupleFixedScalarType
+from hgraph._types._time_series_types import TimeSeriesOutput
 
 __all__ = ("PartialSchema", "extract_table_schema", "extract_table_schema_raw_type")
 
@@ -166,7 +167,54 @@ def _(tp: HgREFTypeMetaData) -> PartialSchema:
     schema = extract_table_schema(item_tp)
     return ref_schema_from_schema(tp, schema)
 
-    
+
+def _empty_ref_table(schema: PartialSchema, *, force_flat: bool = False) -> TABLE:
+    if not force_flat and (schema.partition_keys or schema.is_multi_row):
+        return tuple()
+    return (None,) * len(schema.keys)
+
+
+def _unbound_ref_to_table(value: TimeSeriesReference, schema: PartialSchema, fn_name: str) -> TABLE:
+    bundle_schema_tp = getattr(schema.tp, "bundle_schema_tp", None)
+    if bundle_schema_tp is None:
+        return _empty_ref_table(schema)
+
+    row = []
+    for (_, item_tp), item in zip(bundle_schema_tp.meta_data_schema.items(), value.items):
+        item_schema = extract_table_schema(item_tp)
+        item_table = _ref_value_to_table(item, item_schema, fn_name, force_flat=True)
+        row.extend(item_table)
+
+    return tuple(row)
+
+
+def _ref_value_to_table(value, schema: PartialSchema, fn_name: str, *, force_flat: bool = False) -> TABLE:
+    # we can come across references to reference outputs. Unwrap until we hit the
+    # concrete time-series object that matches the inner schema.
+    while value is not None:
+        if TimeSeriesReference.is_instance(value):
+            if not value.is_valid:
+                return _empty_ref_table(schema, force_flat=force_flat)
+            if value.has_output:
+                value = value.output
+                continue
+            return _unbound_ref_to_table(value, schema, fn_name)
+
+        if isinstance(value, TimeSeriesOutput) and value.is_reference():
+            if not value.valid or value.value is None:
+                return _empty_ref_table(schema, force_flat=force_flat)
+            value = value.value
+            continue
+
+        return getattr(schema, fn_name)(value)
+
+    return _empty_ref_table(schema, force_flat=force_flat)
+
+
+def _ref_to_table(value, schema: PartialSchema, fn_name: str) -> TABLE:
+    return _ref_value_to_table(value.value, schema, fn_name)
+
+
 def ref_schema_from_schema(tp, schema: PartialSchema) -> PartialSchema:
     return PartialSchema(
         tp,
@@ -174,77 +222,144 @@ def ref_schema_from_schema(tp, schema: PartialSchema) -> PartialSchema:
         types=schema.types,
         partition_keys=schema.partition_keys,
         remove_partition_keys=schema.remove_partition_keys,
-        to_table=lambda v, schema=schema: schema.to_table(
-            v.value.output
-            if v.value.has_output
-            else (
-                STATE(
-                    **{k: i.output for k, i in zip(schema.tp.bundle_schema_tp.meta_data_schema.keys(), v.value.items)}
-                )
-                if v.value.is_valid
-                else (None,) * len(schema.keys)
-            )
-        ),
-        to_table_sample=lambda v, schema=schema: schema.to_table_sample(
-            v.value.output
-            if v.value.has_output
-            else (
-                STATE(
-                    **{k: i.output for k, i in zip(schema.tp.bundle_schema_tp.meta_data_schema.keys(), v.value.items)}
-                )
-                if v.value.is_valid
-                else (None,) * len(schema.keys)
-            )
-        ),
-        to_table_snap=lambda v, schema=schema: schema.to_table_snap(
-            v.value.output
-            if v.value.has_output
-            else (
-                STATE(
-                    **{k: i.output for k, i in zip(schema.tp.bundle_schema_tp.meta_data_schema.keys(), v.value.items)}
-                )
-                if v.value.is_valid
-                else (None,) * len(schema.keys)
-            )
-        ),
+        to_table=lambda v, schema=schema: _ref_to_table(v, schema, "to_table"),
+        to_table_sample=lambda v, schema=schema: _ref_to_table(v, schema, "to_table_sample"),
+        to_table_snap=lambda v, schema=schema: _ref_to_table(v, schema, "to_table_snap"),
         from_table=lambda iter: next(iter),
     )
 
 
+def _rows_for_schema(schema: PartialSchema, value, fn_name: str) -> tuple[tuple, ...]:
+    rows = getattr(schema, fn_name)(value)
+    if schema.partition_keys or schema.is_multi_row:
+        return rows
+    return (rows,)
+
+
+def _tsb_to_table(value, fields: tuple[tuple[str, PartialSchema, int, int, tuple[str, ...]], ...], fn_name: str) -> TABLE:
+    rows_per_field = []
+    row_field = None
+    for index, (key, schema, _, _, _) in enumerate(fields):
+        rows = _rows_for_schema(schema, getattr(value, key), fn_name)
+        if not rows:
+            return tuple()
+        if schema.partition_keys or schema.is_multi_row:
+            if row_field is not None:
+                raise RuntimeError(
+                    "Cannot flatten TSB with multiple multi-row or partitioned fields into a single table"
+                )
+            row_field = index
+        rows_per_field.append(rows)
+
+    if row_field is None:
+        return tuple(item for rows in rows_per_field for item in rows[0])
+
+    out = []
+    for dynamic_row in rows_per_field[row_field]:
+        row = []
+        for index, rows in enumerate(rows_per_field):
+            row.extend(dynamic_row if index == row_field else rows[0])
+        out.append(tuple(row))
+    return tuple(out)
+
+
+def _tsb_from_table(it, fields: tuple[tuple[str, PartialSchema, int, int, tuple[str, ...]], ...]) -> fd:
+    rows = tuple(it)
+    if not rows:
+        return fd()
+
+    out = {}
+    first_row = rows[0]
+    for key, schema, start, end, _ in fields:
+        if schema.partition_keys or schema.is_multi_row:
+            value = schema.from_table(iter(tuple(row[start:end] for row in rows)))
+        else:
+            value = schema.from_table(iter(first_row[start:end]))
+        if value is not None:
+            out[key] = value
+
+    return fd(out)
+
+
 @extract_table_schema.register(HgTSBTypeMetaData)
 def _(tp: HgTSBTypeMetaData) -> PartialSchema:
-    schema = tp.bundle_schema_tp.meta_data_schema
-    schema_keys = schema.keys()
+    base_fields = tuple((k, extract_table_schema(v)) for k, v in tp.bundle_schema_tp.meta_data_schema.items())
     keys = []
     types = []
     from_table = []
-    to_table = []
-    to_table_sample = []
-    to_table_snap = []
-    for k, v in schema.items():
-        schema = extract_table_schema(v)
+    fields = []
+    offset = 0
+    row_fields = []
+    for k, schema in base_fields:
         if len(schema.keys) > 1:  # If the type is a CompoundScalar
-            keys.extend(f"{k}.{k_}" for k_ in schema.keys)
+            field_keys = tuple(f"{k}.{k_}" for k_ in schema.keys)
             types.extend(schema.types)
         else:
-            keys.append(k)
+            field_keys = (k,)
             types.append(schema.types[0])
-        to_table.append(lambda value, k=k, schema=schema: schema.to_table(getattr(value, k)))
-        to_table_sample.append(lambda value, k=k, schema=schema: schema.to_table_sample(getattr(value, k)))
-        to_table_snap.append(lambda value, k=k, schema=schema: schema.to_table_snap(getattr(value, k)))
+        keys.extend(field_keys)
         from_table.append(schema.from_table)
+        if schema.partition_keys or schema.is_multi_row:
+            row_fields.append(k)
+        fields.append((k, schema, offset, offset + len(schema.keys), field_keys))
+        offset += len(schema.keys)
+
+    if len(row_fields) > 1:
+        raise RuntimeError(
+            f"Cannot flatten TSB[{tp.bundle_schema_tp.py_type.__name__}] with multiple multi-row or partitioned fields: "
+            f"{', '.join(row_fields)}"
+        )
+
+    has_multi_row = bool(row_fields)
+    row_field = next(((key, schema, field_keys) for key, schema, _, _, field_keys in fields if schema.partition_keys or schema.is_multi_row), None)
+    if row_field:
+        _, row_schema, row_field_keys = row_field
+        key_map = dict(zip(row_schema.keys, row_field_keys))
+        partition_keys = tuple(key_map[k] for k in row_schema.partition_keys)
+        remove_partition_keys = tuple(key_map[k] for k in row_schema.remove_partition_keys)
+    else:
+        partition_keys = tuple()
+        remove_partition_keys = tuple()
+    schema_keys = tuple(k for k, _, _, _, _ in fields)
     return PartialSchema(
         tp,
         keys=tuple(keys),
         types=tuple(types),
-        partition_keys=tuple(),
-        remove_partition_keys=tuple(),
-        to_table=lambda v: tuple(i for fn in to_table for i in fn(v)),
-        to_table_sample=lambda v: tuple(i for fn in to_table_sample for i in fn(v)),
-        to_table_snap=lambda v: tuple(i for fn in to_table_snap for i in fn(v)),
-        from_table=lambda it, key_s=schema_keys, f_t=from_table,: fd(
-            **{k: v_ for k, v in zip(key_s, f_t) if (v_ := v(it)) is not None}
+        partition_keys=partition_keys,
+        remove_partition_keys=remove_partition_keys,
+        to_table=(
+            (lambda v, fields=fields: _tsb_to_table(v, fields, "to_table"))
+            if has_multi_row
+            else (lambda v, fields=fields: tuple(i for k, schema, _, _, _ in fields for i in schema.to_table(getattr(v, k))))
         ),
+        to_table_sample=(
+            (lambda v, fields=fields: _tsb_to_table(v, fields, "to_table_sample"))
+            if has_multi_row
+            else (
+                lambda v, fields=fields: tuple(
+                    i for k, schema, _, _, _ in fields for i in schema.to_table_sample(getattr(v, k))
+                )
+            )
+        ),
+        to_table_snap=(
+            (lambda v, fields=fields: _tsb_to_table(v, fields, "to_table_snap"))
+            if has_multi_row
+            else (
+                lambda v, fields=fields: tuple(
+                    i for k, schema, _, _, _ in fields for i in schema.to_table_snap(getattr(v, k))
+                )
+            )
+        ),
+        from_table=(
+            (lambda it, fields=tuple(fields): _tsb_from_table(it, fields))
+            if has_multi_row
+            else (
+                lambda it, key_s=schema_keys, f_t=from_table,: fd(
+                    **{k: v_ for k, v in zip(key_s, f_t) if (v_ := v(it)) is not None}
+                )
+            )
+        ),
+        is_multi_row=has_multi_row,
     )
 
 

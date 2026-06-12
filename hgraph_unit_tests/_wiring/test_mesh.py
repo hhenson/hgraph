@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Tuple, Callable
+from typing import Any, Tuple, Callable
 
 from hgraph._types._scalar_types import CompoundScalar
 import pytest
@@ -9,6 +9,7 @@ from hgraph import (
     TSD,
     switch_,
     graph,
+    compute_node,
     pass_through,
     mesh_,
     contains_,
@@ -22,6 +23,7 @@ from hgraph import (
     convert,
     const,
     NodeException,
+    equal_lambdas,
 )
 from hgraph._operators._flow_control import merge
 from hgraph.test import eval_node
@@ -202,3 +204,41 @@ def test_mesh_object_keys():
         return mesh_(fib, __key_arg__="n", __keys__=i, __name__="fib")
 
     assert eval_node(g, [{Key(7)}, {Removed(Key(7))}]) == [{}, {}]
+
+
+def test_mesh_overload():
+    @graph
+    def only_even(key: TS[str], value: TS[int]) -> TS[int]:
+        return 0
+
+    @compute_node(overloads=mesh_, requires=lambda m, func: func == only_even)
+    def my_mesh_overload(func: Callable[..., Any], ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return {k: v.value for k, v in ts.items() if v.value % 2 == 0}
+
+    @graph
+    def g(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return mesh_(only_even, ts)
+
+    assert eval_node(g, [{"a": 1, "b": 2, "c": 4}]) == [{"b": 2, "c": 4}]
+
+
+def test_mesh_overload_lambda_shape():
+    @compute_node(overloads=mesh_, requires=lambda m, func: equal_lambdas(func, lambda a: a + 1))
+    def my_mesh_lambda_shape_overload(func: Callable[..., Any], ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return {k: v.value * 10 for k, v in ts.items()}
+
+    @graph
+    def g_match(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return mesh_(lambda value: value + 1, ts)
+
+    @graph
+    def g_renamed(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return mesh_(lambda a: a + 1, ts)
+
+    @graph
+    def g_no_match(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return mesh_(lambda value: value + 2, ts)
+
+    assert eval_node(g_match, [{"a": 1, "b": 2}]) == [{"a": 10, "b": 20}]
+    assert eval_node(g_renamed, [{"a": 1, "b": 2}]) == [{"a": 10, "b": 20}]
+    assert eval_node(g_no_match, [{"a": 1, "b": 2}]) == [{"a": 3, "b": 4}]

@@ -1041,11 +1041,19 @@ namespace hgraph
 
     TimeSeriesDictInputImpl::value_type TimeSeriesDictInputImpl::get_or_create(const value::View &key) {
         auto it = _ts_values.find(key);
-        if (it == _ts_values.end()) {
-            create(key);
-            it = _ts_values.find(key);
+        if (it != _ts_values.end()) {
+            return it->second;
         }
-        return it->second;
+
+        auto removed_it = _removed_items.find(key);
+        if (removed_it != _removed_items.end()) {
+            auto item = removed_it->second.first;
+            _removed_items.erase(removed_it);
+            item->un_bind_output(true);
+            _ts_builder->release_instance(item.get());
+        }
+
+        return create(key);
     }
 
     bool TimeSeriesDictInputImpl::is_same_type(const TimeSeriesType *other) const {

@@ -10,7 +10,7 @@ from hgraph._types._tsd_type import TSD
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._tsl_type import TSL
 from hgraph._types._typing_utils import with_signature
-from hgraph._wiring._decorators import compute_node, graph
+from hgraph._wiring._decorators import compute_node, graph, operator
 from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._reduce_wiring_node import (
@@ -26,6 +26,14 @@ from hgraph._wiring._wiring_utils import wire_nested_graph
 __all__ = ("reduce",)
 
 
+def _resolve_reduce_output(mapping, zero=ZERO, is_associative=True):
+    ts_tp = mapping[TIME_SERIES_TYPE_1].dereference()
+    if type(ts_tp) in (HgTSDTypeMetaData, HgTSLTypeMetaData):
+        return ts_tp.value_tp.py_type
+    raise CustomMessageWiringError(f"Unable to resolve reduce output type for {ts_tp}")
+
+
+@operator
 def reduce(
     func: Callable[[TIME_SERIES_TYPE, TIME_SERIES_TYPE_1], TIME_SERIES_TYPE],
     ts: TSD[K, TIME_SERIES_TYPE_1] | TSL[TIME_SERIES_TYPE_1, SIZE],
@@ -76,6 +84,51 @@ def reduce(
           for the chain of keys. The output of the n-1th element is used as the input to the nth element lhs.
           The values from the dict are used as the rhs input.
     """
+    ...
+
+
+@graph(overloads=reduce, resolvers={TIME_SERIES_TYPE: _resolve_reduce_output})
+def reduce_default_no_zero(
+    func: Callable,
+    ts: TIME_SERIES_TYPE_1,
+    *,
+    is_associative: bool = True,
+) -> TIME_SERIES_TYPE:
+    return _reduce_dispatch(func, ts, ZERO, is_associative)
+
+
+@graph(
+    overloads=reduce,
+    resolvers={TIME_SERIES_TYPE: _resolve_reduce_output},
+    requires=lambda m, zero, is_associative=True: zero is None,
+)
+def reduce_default_none(
+    func: Callable,
+    ts: TIME_SERIES_TYPE_1,
+    zero: object = None,
+    is_associative: bool = True,
+) -> TIME_SERIES_TYPE:
+    return _reduce_dispatch(func, ts, None, is_associative)
+
+
+@graph(overloads=reduce)
+def reduce_default(
+    func: Callable,
+    ts: TIME_SERIES_TYPE_1,
+    zero: TIME_SERIES_TYPE,
+    is_associative: bool = True,
+) -> TIME_SERIES_TYPE:
+    return _reduce_dispatch(func, ts, zero, is_associative)
+
+
+def _reduce_dispatch(func, ts, zero, is_associative):
+    if isinstance(zero, WiringPort):
+        value = zero.node_instance.inputs.get("value", None) if zero.node_instance else None
+        if value is ZERO:
+            zero = ZERO
+        elif zero.is_auto_const:
+            zero = value
+
     if isinstance(func, WiringNodeClass):
         signature = func.signature.signature
     elif isinstance(func, Callable) and func.__name__ == "<lambda>":

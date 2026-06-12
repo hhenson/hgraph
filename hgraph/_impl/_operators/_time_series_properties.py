@@ -44,12 +44,12 @@ def valid_impl(ts: REF[TIME_SERIES_TYPE], ts_value: TIME_SERIES_TYPE = None, _ou
     return False if _output.value is not False else None
 
 
-@compute_node(overloads=modified)
+@compute_node(overloads=modified, valid=())
 def modified_impl(ts: SIGNAL, _schedule: SCHEDULER = None, _output: TS_OUT[bool] = None) -> TS[bool]:
     if ts.modified:
         _schedule.schedule(MIN_TD)
         return True
-    if _schedule.is_scheduled:
+    if _schedule.is_scheduled_now:
         return False
 
 

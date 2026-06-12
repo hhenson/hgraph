@@ -37,7 +37,7 @@ class RunGraphOutput(TimeSeriesSchema, Generic[OUT]):
 
 
 @sink_node
-def publish_output(ts: TIME_SERIES_TYPE, _global_state: GlobalState = None):
+def publish_output(ts: TIME_SERIES_TYPE, delta: bool = True, _global_state: GlobalState = None):
     _global_state.output_queue(ts.delta_value)
 
 

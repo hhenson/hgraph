@@ -13,12 +13,14 @@ from hgraph import (
     try_except,
     TryExceptTsdMapResult,
     exception_time_series,
+    add_,
     div_,
     NodeException,
     evaluate_graph,
     GraphConfiguration,
     const,
     null_sink,
+    reduce,
 )
 from hgraph import graph, TS, TSB, NodeError, ts_schema, TSD, map_, REF, sink_node
 from hgraph.test import eval_node
@@ -110,6 +112,14 @@ def test_error_handling_with_map_try_except():
     result = eval_node(main, [{0: 1.0}, {1: 2.0}, {2: 3.0}], [{0: 1.0}, {1: 2.0}, {2: 0.0}])
     assert result[0:2] == [{"out": frozendict({0: 1.0})}, {"out": frozendict({1: 1.0})}]
     assert "exception" in result[2].keys()
+
+
+def test_error_handling_with_reduce_try_except():
+    @graph
+    def main(values: TSD[int, TS[int]]) -> TSB[TryExceptResult[TS[int]]]:
+        return try_except(reduce, add_, values, 0)
+
+    assert eval_node(main, [{0: 1, 1: 2}]) == [{"out": 3}]
 
 
 def test_try_except():

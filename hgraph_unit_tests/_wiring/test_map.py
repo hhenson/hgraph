@@ -36,6 +36,7 @@ from hgraph import (
     Removed,
     sum_,
     valid, if_, if_then_else,
+    equal_lambdas,
 )
 from hgraph._wiring._map import _build_map_wiring
 from hgraph._wiring._wiring_node_class._map_wiring_node import TsdMapWiringSignature, TslMapWiringSignature
@@ -542,3 +543,25 @@ def test_map_overload():
         return map_(only_even, ts)
     
     assert eval_node(g, [{'a': 1, 'b': 2, 'c': 3}]) == [{'b': 2}]
+
+
+def test_map_overload_lambda_shape():
+    @compute_node(overloads=map_, requires=lambda m, func: equal_lambdas(func, lambda a: a + 1))
+    def my_map_lambda_shape_overload(func: Callable[..., Any], ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return {k: v.value * 10 for k, v in ts.items()}
+
+    @graph
+    def g_match(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return map_(lambda value: value + 1, ts)
+
+    @graph
+    def g_renamed(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return map_(lambda a: a + 1, ts)
+
+    @graph
+    def g_no_match(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return map_(lambda value: value + 2, ts)
+
+    assert eval_node(g_match, [{"a": 1, "b": 2}]) == [{"a": 10, "b": 20}]
+    assert eval_node(g_renamed, [{"a": 1, "b": 2}]) == [{"a": 10, "b": 20}]
+    assert eval_node(g_no_match, [{"a": 1, "b": 2}]) == [{"a": 3, "b": 4}]

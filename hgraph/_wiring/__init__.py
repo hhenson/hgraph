@@ -1,3 +1,4 @@
+from hgraph._wiring._callable_shape import *
 from hgraph._wiring._context_wiring import *
 from hgraph._wiring._decorators import *
 from hgraph._wiring._dispatch import *

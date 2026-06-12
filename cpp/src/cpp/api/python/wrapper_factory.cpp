@@ -163,6 +163,13 @@ namespace
         [](SwitchNode*, ApiPtr<Node> ptr) {
             return nb::cast(PyNestedNode(std::move(ptr)));
         },
+        // Reduce nodes
+        [](ReduceNode*, ApiPtr<Node> ptr) {
+            return nb::cast(PyNestedNode(std::move(ptr)));
+        },
+        [](TsdNonAssociativeReduceNode*, ApiPtr<Node> ptr) {
+            return nb::cast(PyNestedNode(std::move(ptr)));
+        },
         // Other nested nodes
         [](NestedNode*, ApiPtr<Node> ptr) {
             return nb::cast(PyNestedNode(std::move(ptr)));

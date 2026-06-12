@@ -57,11 +57,8 @@ def try_except(
     """
     is_special_node: bool = False
     if not isinstance(func, WiringNodeClass):
-        if not func in (mesh_, reduce):
-            raise RuntimeError(f"The supplied function is not a graph or node function: '{func.__name__}'")
-        else:
-            is_special_node = True
-    elif func in (map_,):  # map_ is a graph now
+        raise RuntimeError(f"The supplied function is not a graph or node function: '{func.__name__}'")
+    elif func in (map_, mesh_, reduce):  # these are operators that have special handling for exceptions
         is_special_node = True
 
     if is_special_node or func.signature.node_type in (

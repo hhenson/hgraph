@@ -1,16 +1,52 @@
 from ctypes import cast
+from dataclasses import dataclass
 from datetime import timedelta
 from math import e
 from socket import gethostname
+from types import SimpleNamespace
 from typing import Callable, Tuple
 
 import pytest
-from hgraph import STATE, TS, TSB, EvaluationMode, GlobalState, GraphConfiguration, TimeSeriesSchema, combine, convert, count, debug_print, evaluate_graph, graph, compute_node, TSD, if_true, map_, push_queue, register_adaptor, schedule, sink_node, stop_engine, switch_, try_except
+from hgraph import (
+    REF,
+    STATE,
+    TS,
+    TSB,
+    EvaluationMode,
+    GlobalState,
+    GraphConfiguration,
+    CompoundScalar,
+    TimeSeriesReference,
+    TimeSeriesSchema,
+    combine,
+    convert,
+    count,
+    debug_print,
+    evaluate_graph,
+    graph,
+    compute_node,
+    TSD,
+    if_true,
+    is_feature_enabled,
+    map_,
+    push_queue,
+    register_adaptor,
+    schedule,
+    sink_node,
+    stop_engine,
+    switch_,
+    try_except,
+)
 from hgraph.adaptors.perspective import PerspectiveTablesManager, perspective_web
 from hgraph.adaptors.tornado import HttpGetRequest, HttpPostRequest, http_client_adaptor, http_client_adaptor_impl
 from hgraph.debug import inspector
+from hgraph.debug._inspector_handler import inspector_read_value
 from hgraph.debug._inspector_item_id import InspectorItemId, InspectorItemType, NodeValueType
 from hgraph.test import eval_node
+
+HAS_CPP_RUNTIME = is_feature_enabled("use_cpp")
+if HAS_CPP_RUNTIME:
+    from hgraph._hgraph import NestedNode
 
 
 def test_inspector_item_id():
@@ -283,3 +319,161 @@ def test_inspector_graph_api_key_from_value_tsd():
         return {k: i.parent_input.key_from_value(i) for k, i in g.modified_items()}
     
     assert eval_node(test_key_from_value_tsd, [{1: True, 2: False}]) == [{1: 1, 2: 2}]
+
+
+@pytest.mark.skipif(not HAS_CPP_RUNTIME, reason="Current engine is not C++")
+def test_cpp_reduce_nested_graphs_are_exposed():
+    from hgraph import add_, reduce
+
+    @compute_node
+    def reduce_nested_graph_count(ts: TS[int]) -> TS[int]:
+        for node in ts.owning_graph.nodes:
+            if isinstance(node, NestedNode) and node.signature.name == "reduce":
+                return len(node.nested_graphs)
+        return -1
+
+    @graph
+    def g() -> TS[int]:
+        ticks = schedule(timedelta(milliseconds=1))
+        tsd = convert[TSD[int, TS[int]]](key=count(ticks), ts=count(ticks))
+        out = reduce(add_, tsd, 0)
+        return reduce_nested_graph_count(out)
+
+    result = evaluate_graph(
+        g,
+        GraphConfiguration(
+            run_mode=EvaluationMode.SIMULATION,
+            end_time=timedelta(milliseconds=2),
+        ),
+    )
+
+    assert [v for _, v in result] == [1, 1], result
+
+
+def test_inspector_reads_nested_ref_tsd_values():
+    @compute_node
+    def make_ref(tsd: TSD[int, TS[int]]) -> REF[TSD[int, TS[int]]]:
+        return TimeSeriesReference.make(tsd.output)
+
+    @compute_node
+    def wrap_ref(ref: REF[TSD[int, TS[int]]]) -> REF[TSD[int, TS[int]]]:
+        return TimeSeriesReference.make(ref.output)
+
+    @compute_node
+    def inspect_ref_value(ref: REF[TSD[int, TS[int]]]) -> TS[int]:
+        graph = ref.owning_graph
+        state = SimpleNamespace(
+            observer=SimpleNamespace(
+                get_graph_info=lambda graph_id: SimpleNamespace(graph=graph) if graph_id == graph.graph_id else None
+            )
+        )
+        body, _ = inspector_read_value(state, InspectorItemId.from_object(ref.output))
+        return len(body)
+
+    @graph
+    def g(tsd: TSD[int, TS[int]]) -> TS[int]:
+        return inspect_ref_value(wrap_ref(make_ref(tsd)))
+
+    values = eval_node(g, [{1: 1}, {1: 2}], __elide__=True)
+    assert values and all(value > 0 for value in values), values
+
+
+def test_inspector_preserves_partial_ref_bundle_values():
+    import pyarrow as pa
+
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[str]
+
+    def read_rows(ts):
+        graph = ts.owning_graph
+        state = SimpleNamespace(
+            observer=SimpleNamespace(
+                get_graph_info=lambda graph_id: SimpleNamespace(graph=graph) if graph_id == graph.graph_id else None
+            )
+        )
+        body, _ = inspector_read_value(state, InspectorItemId.from_object(ts.output if ts.output is not None else ts))
+        return pa.ipc.RecordBatchStreamReader(body).read_all().to_pylist()
+
+    @compute_node
+    def partial_ref_bundle(i: TS[int]) -> REF[TSB[AB]]:
+        return TimeSeriesReference.make(from_items=[TimeSeriesReference.make(i.output), TimeSeriesReference.make()])
+
+    @compute_node
+    def partial_tsd_ref_bundle(i: TS[int]) -> TSD[str, REF[TSB[AB]]]:
+        return {"k": TimeSeriesReference.make(from_items=[TimeSeriesReference.make(i.output), TimeSeriesReference.make()])}
+
+    @compute_node
+    def make_ref_tsd(tsd: TSD[str, REF[TSB[AB]]]) -> REF[TSD[str, REF[TSB[AB]]]]:
+        return TimeSeriesReference.make(tsd.output)
+
+    @compute_node
+    def inspect_ref_bundle(ref: REF[TSB[AB]]) -> TS[object]:
+        return read_rows(ref)
+
+    @compute_node
+    def inspect_tsd_ref_bundle(tsd: TSD[str, REF[TSB[AB]]]) -> TS[object]:
+        return read_rows(tsd)
+
+    @compute_node
+    def inspect_ref_tsd_ref_bundle(ref: REF[TSD[str, REF[TSB[AB]]]]) -> TS[object]:
+        return read_rows(ref)
+
+    @graph
+    def g_ref(i: TS[int]) -> TS[object]:
+        return inspect_ref_bundle(partial_ref_bundle(i))
+
+    @graph
+    def g_tsd(i: TS[int]) -> TS[object]:
+        return inspect_tsd_ref_bundle(partial_tsd_ref_bundle(i))
+
+    @graph
+    def g_ref_tsd(i: TS[int]) -> TS[object]:
+        return inspect_ref_tsd_ref_bundle(make_ref_tsd(partial_tsd_ref_bundle(i)))
+
+    assert eval_node(g_ref, [1], __elide__=True) == [[{"a": 1, "b": None}]]
+    assert eval_node(g_tsd, [1], __elide__=True) == [
+        [{"__key_1_removed__": False, "__key_1__": "k", "a": 1, "b": None}]
+    ]
+    assert eval_node(g_ref_tsd, [1], __elide__=True) == [
+        [{"__key_1_removed__": False, "__key_1__": "k", "a": 1, "b": None}]
+    ]
+
+
+def test_inspector_reads_tsd_output_child_ref_bundle_with_nested_tsd():
+    import pyarrow as pa
+
+    @dataclass(frozen=True)
+    class Req(CompoundScalar):
+        sym: str
+
+    class Inner(TimeSeriesSchema):
+        data: TSD[str, TS[str]]
+        name: TS[str]
+
+    @compute_node
+    def make_bundle(name: TS[str]) -> TSB[Inner]:
+        return {"data": {"k": name.value}, "name": name.value}
+
+    @compute_node
+    def make_tsd(bundle: TSB[Inner]) -> TSD[Req, REF[TSB[Inner]]]:
+        return {Req("x"): TimeSeriesReference.make(bundle.output)}
+
+    @compute_node
+    def inspect_output_child(tsd: TSD[Req, REF[TSB[Inner]]]) -> TS[object]:
+        graph = tsd.owning_graph
+        state = SimpleNamespace(
+            observer=SimpleNamespace(
+                get_graph_info=lambda graph_id: SimpleNamespace(graph=graph) if graph_id == graph.graph_id else None
+            )
+        )
+        body, _ = inspector_read_value(state, InspectorItemId.from_object(tsd.output[Req("x")]))
+        return pa.ipc.RecordBatchStreamReader(body).read_all().to_pylist()
+
+    @graph
+    def g(name: TS[str]) -> TS[object]:
+        return inspect_output_child(make_tsd(make_bundle(name)))
+
+    assert eval_node(g, ["z"], __elide__=True) == [
+        [{"data.__key_1_removed__": False, "data.__key_1__": "k", "data.value": "z", "name": "z"}]
+    ]

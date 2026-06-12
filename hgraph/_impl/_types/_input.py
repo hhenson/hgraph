@@ -119,6 +119,8 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
 
         was_bound = self.bound
         if isinstance(output, TimeSeriesReferenceOutput):
+            if self._reference_output is not None and self._reference_output is not output:
+                self._reference_output.stop_observing_reference(self)
             if output.value:
                 output.value.bind_input(self)
             output.observe_reference(self)

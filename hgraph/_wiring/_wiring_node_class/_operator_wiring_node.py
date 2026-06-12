@@ -17,6 +17,7 @@ from hgraph._wiring._wiring_node_class._wiring_node_class import (
 from hgraph._wiring._wiring_node_signature import WiringNodeType, AUTO_RESOLVE
 from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_utils import pretty_str_types
+from hgraph._wiring._callable_shape import callable_shape_key
 
 from hgraph._types._scalar_type_meta_data import HgTypeOfTypeMetaData
 
@@ -192,8 +193,8 @@ class OverloadedWiringNodeHelper:
             }
         if scalars:
             arg_type_key["__scalars__"] = frozendict({
-                **{i: a for i, a in enumerate(args) if i in scalars and arg_type_key[i].is_scalar},
-                **{k: v for k, v in cleaned_kwargs.items() if k in scalars and arg_type_key[k].is_scalar},
+                **{i: callable_shape_key(a) for i, a in enumerate(args) if i in scalars and arg_type_key[i].is_scalar},
+                **{k: callable_shape_key(v) for k, v in cleaned_kwargs.items() if k in scalars and arg_type_key[k].is_scalar},
             })
         if prt := kwargs.get("__pre_resolved_types__"):
             arg_type_key["__pre_resolved_types__"] = frozendict(prt)

@@ -48,7 +48,7 @@ namespace hgraph {
     }
 
     void ReduceNode::initialise() {
-        nested_graph_ = arena_make_shared<Graph>(std::vector<int64_t>{node_ndx()}, std::vector<node_s_ptr>{}, this, "", &graph()->traits());
+        nested_graph_ = arena_make_shared<Graph>(node_id(), std::vector<node_s_ptr>{}, this, "", &graph()->traits());
         nested_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
             graph()->evaluation_engine(), std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock().get(), this)));
         initialise_component(*nested_graph_);
@@ -95,59 +95,6 @@ namespace hgraph {
         // the possibility of growing the tree just to tear it down again)
         auto removed_keys = key_set.collect_removed();
         remove_nodes_from_views(removed_keys);
-
-        // When the upstream REF chain becomes empty (e.g. if_ switches to False),
-        // the cascading un_bind_output may not perfectly report all key removals
-        // through the key_set. Detect this by checking if the accessor's input is
-        // empty/unbound, and if so remove all bound keys.
-        // NOTE: We do NOT check individual key ref values - empty refs on individual
-        // keys are valid (e.g. when reduce lambda uses default() to handle them).
-        bool all_keys_stale = false;
-        if (!tsd->has_output()) {
-            all_keys_stale = true;
-        } else if (tsd->output()) {
-            auto tsd_output = tsd->output();
-            if (tsd_output->has_owning_node()) {
-                auto accessor_node = tsd_output->owning_node();
-                const auto& accessor_input = accessor_node->input();
-                if (accessor_input) {
-                    for (size_t i = 0; i < accessor_input->size(); ++i) {
-                        auto input_item = (*accessor_input)[i];
-                        if (auto ref_input = dynamic_cast<TimeSeriesReferenceInput*>(input_item.get())) {
-                            if (ref_input->value().is_empty()) {
-                                all_keys_stale = true;
-                                break;
-                            }
-                        }
-                        if (auto tsd_input = dynamic_cast<TimeSeriesDictInput*>(input_item.get())) {
-                            if (!tsd_input->has_output()) {
-                                all_keys_stale = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!bound_node_indexes_.empty()) {
-            std::vector<value::View> stale_keys;
-            if (all_keys_stale) {
-                for (const auto &[key, ndx] : bound_node_indexes_) {
-                    stale_keys.push_back(key.view());
-                }
-            } else {
-                // Also catch keys individually missing from the TSD
-                for (const auto &[key, ndx] : bound_node_indexes_) {
-                    if (!tsd->contains(key.view())) {
-                        stale_keys.push_back(key.view());
-                    }
-                }
-            }
-            if (!stale_keys.empty()) {
-                remove_nodes_from_views(stale_keys);
-            }
-        }
 
         auto added_keys = key_set.collect_added();
         add_nodes_from_views(added_keys);

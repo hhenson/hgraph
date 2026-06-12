@@ -195,7 +195,14 @@ class TSDWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
     def reduce(self, fn, zero=ZERO):
         from hgraph import reduce
 
-        return reduce(fn, self, zero)
+        if zero is ZERO:
+            return reduce(fn, self)
+        elif zero is None:
+            from hgraph import nothing
+
+            return reduce(fn, self, nothing(self.output_type.dereference().value_tp.py_type))
+        else:
+            return reduce(fn, self, zero)
 
 
 @dataclass(frozen=True, eq=False, unsafe_hash=False)
@@ -215,7 +222,14 @@ class TSDREFWiringPort(WiringPort, Generic[SCALAR, TIME_SERIES_TYPE]):
     def reduce(self, fn, zero=ZERO):
         from hgraph import reduce
 
-        return reduce(fn, self, zero)
+        if zero is ZERO:
+            return reduce(fn, self)
+        elif zero is None:
+            from hgraph import nothing
+
+            return reduce(fn, self, nothing(self.output_type.dereference().value_tp.py_type))
+        else:
+            return reduce(fn, self, zero)
 
 
 @dataclass(frozen=True, eq=False, unsafe_hash=True)
@@ -332,7 +346,7 @@ class TSBREFWiringPort(WiringPort):
                 raise IndexError(f"Index {item} is out of bounds for {self.__schema__}")
         elif type(item) is str:
             if item not in self.__schema__.__meta_data_schema__:
-                raise AttributeError(f"'{item}' is defined on {self.__schema__}")
+                raise AttributeError(f"'{item}' is not defined on {self.__schema__}")
         return getitem_(self, item)
 
     def as_dict(self):

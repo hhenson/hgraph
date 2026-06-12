@@ -429,7 +429,7 @@ def inspector_read_value(state, item_id):
         table = schema.to_table_snap(value)
         if not table:
             return "", []
-        if not schema.partition_keys:
+        if not schema.partition_keys and not schema.is_multi_row:
             table = [table]
 
         def map_type(t: type, values):
