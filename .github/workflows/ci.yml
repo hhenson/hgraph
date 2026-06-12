@@ -14,9 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The Windows build forces the Visual Studio 17 2022 CMake generator.
-        # Pin the runner accordingly; windows-latest now resolves to a VS 2026 image.
-        os: [ ubuntu-latest, macos-latest, windows-2022 ]
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
     steps:
       - uses: actions/checkout@v6
 
@@ -44,7 +42,7 @@ jobs:
         if: runner.os == 'Windows'
         env:
           CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
-          CMAKE_GENERATOR: "Visual Studio 17 2022"
+          CMAKE_GENERATOR: "Visual Studio 18 2026"
           CMAKE_GENERATOR_PLATFORM: x64
         run: uv build -v
 
