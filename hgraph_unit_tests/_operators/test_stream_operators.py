@@ -620,12 +620,13 @@ def test_throttle_tsd():
     def g(ts: TSD[int, TS[int]], period: timedelta) -> TSD[int, TS[int]]:
         return throttle(ts, period)
 
-    assert eval_node(
+    results = (eval_node(
         g,
-        [None, {1: 1}, {2: 2}, {1: 2}, None, {2: REMOVE}, {1: REMOVE}, {1: 1}],
+        [None, {1: 1}, {2: 2}, {1: 2}, None, {2: REMOVE}, {1: REMOVE}, {1: 1}, {0: 1}, {0: 0}],
         3 * MIN_TD,
-        __end_time__=MIN_ST + 10 * MIN_TD,
-    ) == [None, {1: 1}, None, None, {1: 2, 2: 2}, None, None, {2: REMOVE, 1: 1}]
+        __end_time__=MIN_ST + 16 * MIN_TD,
+    ))
+    assert results == [None, {1: 1}, None, None, {1: 2, 2: 2}, None, None, {2: REMOVE, 1: 1}, None, None, {0: 0}]
 
 
 def test_throttle_tss():

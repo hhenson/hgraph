@@ -48,7 +48,7 @@ def _(tp: HgTSDTypeMetaData) -> Callable[[Any, Any], Any]:
         for k, v_in in input_ts.modified_items():
             v_out_prev = out_tick.get(k)
             v_new = value_builder(v_in, v_out_prev if v_out_prev is not None else None)
-            if v_new:
+            if v_new is not None:
                 out_tick[k] = v_new
         # Add removed keys
         for k in input_ts.removed_keys():
