@@ -1,4 +1,4 @@
-from copyreg import remove_extension
+from dataclasses import dataclass
 from datetime import timedelta, datetime
 from typing import Tuple
 
@@ -49,14 +49,16 @@ from hgraph import (
     WindowSize,
     Array,
     ts_schema,
-    WINDOW_SIZE, WINDOW_SIZE_MIN, set_delta
+    WINDOW_SIZE,
+    WINDOW_SIZE_MIN,
+    set_delta,
+    Frame,
+    CompoundScalar,
 )
 from hgraph.stream import combine_status_messages
 from hgraph.stream.stream import register_status_message_pattern
 from hgraph.test import eval_node, EvaluationTrace
 
-
-import pytest
 pytestmark = pytest.mark.smoke
 
 
@@ -560,19 +562,56 @@ def test_filter_tsl():
     ]
 
 
-def test_throttle():
+def test_throttle_int():
     @graph
     def g(ts: TS[int], period: timedelta) -> TS[int]:
         return throttle(ts, period)
 
-    assert eval_node(g, [1, 1, 2, 3, 5, 2, 1], 2 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD) == [
+    assert eval_node(g, [1, 1, 2, 3, 0, 2, 1], 2 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD) == [
         1,
         None,
         2,
         None,
-        5,
+        0,
         None,
         1,
+    ]
+
+
+def test_throttle_str():
+    @graph
+    def g(ts: TS[str], period: timedelta) -> TS[str]:
+        return throttle(ts, period)
+
+    assert eval_node(g, ["1", "1", "2", "3", "", "2", "1"], 2 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD) == [
+        "1",
+        None,
+        "2",
+        None,
+        "",
+        None,
+        "1",
+    ]
+
+
+def test_throttle_cs():
+
+    @dataclass(frozen=True)
+    class CS(CompoundScalar):
+        value: int
+
+    @graph
+    def g(ts: TS[CS], period: timedelta) -> TS[CS]:
+        return throttle(ts, period)
+
+    assert eval_node(g, [CS(1), CS(1), CS(2), CS(3), CS(0), CS(2), CS(1)], 2 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD) == [
+        CS(1),
+        None,
+        CS(2),
+        None,
+        CS(0),
+        None,
+        CS(1),
     ]
 
 
@@ -634,6 +673,28 @@ def test_throttle_tsd_delay_first():
         3 * MIN_TD,
         __end_time__=MIN_ST + 10 * MIN_TD,
     ) == [None, None, None, None, {1: 2, 2: 2}, None, None, {2: REMOVE, 1: 1}]
+
+
+def test_throttle_dataframe():
+    @graph
+    def g(ts: TS[Frame], period: timedelta) -> TS[Frame]:
+        return throttle(ts, period)
+
+    import polars as pl
+    f1 = pl.DataFrame({"col1": [1, 2]})
+    f2 = pl.DataFrame({"col1": [2, 3]})
+    f3 = pl.DataFrame({"col1": [3, 4]})
+    f5 = pl.DataFrame({"col1": [5, 6]})
+
+    assert eval_node(g, [f1, f1, f2, f3, f5, f2, f1], 2 * MIN_TD, __end_time__=MIN_ST + 10 * MIN_TD) == [
+        f1,
+        None,
+        f2,
+        None,
+        f5,
+        None,
+        f1,
+    ]
 
 
 def test_take():
