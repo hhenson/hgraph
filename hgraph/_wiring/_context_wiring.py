@@ -193,9 +193,9 @@ def get_context(
     from hgraph import WiringNodeInstanceContext
 
     tp = HgTimeSeriesTypeMetaData.parse_type(tp_)
-    result = TimeSeriesContextTracker.instance().get_context(tp, WiringNodeInstanceContext.instance(), name)
-    assert not required or result is not None, f"Required {name} context not found"
-    return result
+    context = TimeSeriesContextTracker.instance().get_context(tp, WiringNodeInstanceContext.instance(), name)
+    assert not required or context is not None, f"Context variable for {name} is required but not found"
+    return context
 
 
 def enter_ts_context(context: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
