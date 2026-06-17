@@ -321,7 +321,7 @@ def http_client_adaptor_impl(
                     return
 
         except Exception as e:
-            logger.error("request %i failed : %s", id, e)
+            logger.error("request %i to %s failed: %s", id, url, e)
             sender({id: HttpResponse(status_code=400, body=str(e).encode())})
             return
 

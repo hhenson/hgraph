@@ -7,7 +7,6 @@ from hgraph import (
     CONTEXT,
     TS,
     graph,
-    log_,
     switch_,
     REQUIRED,
     TSD,
@@ -19,16 +18,19 @@ from hgraph import (
     const,
     CompoundScalar,
     TSB,
-    REF,
-    lag,
-    SCHEDULER,
-    MIN_TD,
     combine,
     try_except,
+    get_context,
+    WiringGraphContext,
+    nothing,
+    reference_service,
+    service_impl,
+    register_service,
+    subscription_service,
+    TSS,
 )
 from hgraph.test import eval_node
 
-import pytest
 pytestmark = pytest.mark.smoke
 
 
@@ -333,3 +335,45 @@ def test_named_context_missing():
         return use_context()
 
     assert eval_node(g, ["Hello", None]) == None
+
+
+def test_context_nested_services():
+
+    @reference_service
+    def g2_service(path: str = "g2") -> TS[str]:
+        ...
+
+    @service_impl(interfaces=(g2_service,))
+    def g2_impl(path: str = "test") -> TS[str]:
+        context_2 = get_context[TS[str]]("context_2")
+        return switch_(
+            context_2,
+            {
+                "context_2": lambda c2: c2,
+                "other": lambda c2: nothing[TS[str]]()
+            },
+            context_2,
+        )
+
+    @subscription_service
+    def g1_service(request: TS[str], path: str = "g1") -> TS[str]:
+        ...
+
+    @service_impl(interfaces=(g1_service,))
+    def g1_impl(request: TSS[str], path: str = "g1") -> TSD[str, TS[str]]:
+        return map_(lambda request: g2_service(), __keys__=request, __key_arg__="request")
+
+    @graph
+    def g() -> TS[str]:
+        with (
+            const("context_1") as context_1,
+            const("context_2") as context_2,
+        ):
+            out = g1_service("x")
+            register_service(None, g1_impl)
+            register_service(None, g2_impl)
+            WiringGraphContext.instance().build_services()
+            return out
+
+    results = eval_node(g, __elide__=True)
+    assert results == ["context_2"]
