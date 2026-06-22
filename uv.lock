@@ -500,7 +500,7 @@ wheels = [
 
 [[package]]
 name = "hgraph"
-version = "0.5.21"
+version = "0.5.23"
 source = { editable = "." }
 dependencies = [
     { name = "black" },
@@ -639,11 +639,11 @@ wheels = [
 
 [[package]]
 name = "kafka-python"
-version = "2.3.2"
+version = "3.0.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c6/7e/9eb4363e5018b71edf77de3d2fbd687f1e3a55d43101138a5b7f2ca56d97/kafka_python-2.3.2.tar.gz", hash = "sha256:2d2469bcabc2551be7eaf7fb512e1241484d358800f2665b90e7e24fea84259d", size = 357589, upload-time = "2026-06-03T22:46:49.022Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2d/5f/868bd4444b57fb410f63cf9c641d9a84fd6a51ac5eaf11140f99db8821fe/kafka_python-3.0.2.tar.gz", hash = "sha256:1921af12d8bc9e37843025b89c782d1c90498d80373af590aad45ba4fcfa6e77", size = 499942, upload-time = "2026-06-18T13:32:32.655Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4f/db/cfe23cfacc9aabeef59e349aa6c2738d195df1d56ccf8c31362abdd68ddb/kafka_python-2.3.2-py2.py3-none-any.whl", hash = "sha256:e8a5e6f2c4ce13a8041669337038d5125e0e09e6d6f0911902ae5939e5b9595e", size = 326623, upload-time = "2026-06-03T22:46:47.417Z" },
+    { url = "https://files.pythonhosted.org/packages/1c/c3/9fe1a3f29c1f68b478f01a94d9bafea978d67a7c403672f2bd01cbfd95c6/kafka_python-3.0.2-py3-none-any.whl", hash = "sha256:8f674afff08d40c981db903b6eb8ae9f3652909081158921437ee80e465bd9c7", size = 606623, upload-time = "2026-06-18T13:32:34.297Z" },
 ]
 
 [[package]]
