@@ -185,11 +185,17 @@ def get_context_output(path: str, depth: int) -> REF[CONTEXT_TIME_SERIES_TYPE]:
 
 
 @graph
-def get_context(name: str, tp_: Type[CONTEXT_TIME_SERIES_TYPE] = AUTO_RESOLVE) -> CONTEXT_TIME_SERIES_TYPE:
+def get_context(
+    name: str,
+    tp_: Type[CONTEXT_TIME_SERIES_TYPE] = AUTO_RESOLVE,
+    required: bool = False
+) -> CONTEXT_TIME_SERIES_TYPE:
     from hgraph import WiringNodeInstanceContext
 
     tp = HgTimeSeriesTypeMetaData.parse_type(tp_)
-    return TimeSeriesContextTracker.instance().get_context(tp, WiringNodeInstanceContext.instance(), name)
+    context = TimeSeriesContextTracker.instance().get_context(tp, WiringNodeInstanceContext.instance(), name)
+    assert not required or context is not None, f"Context variable for {name} is required but not found"
+    return context
 
 
 def enter_ts_context(context: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:

@@ -272,7 +272,11 @@ class WiringGraphContext:
         self._context_clients.append((path, depth, node))
 
     def reassign_context_clients(self, clients, node):
-        self._context_clients = [(path, depth, node) for path, depth, _ in clients]
+        context_clients = [(path, depth, node) for path, depth, _ in clients]
+        if self._context_clients:
+            self._context_clients.extend(context_clients)
+        else:
+            self._context_clients = context_clients
 
     def remove_context_clients(self, path, depth):
         clients = [node for c_path, c_depth, node in self._context_clients if c_path == path and c_depth == depth]
@@ -489,15 +493,16 @@ class WiringGraphContext:
             # For now lets bubble the sink nodes up.
             # It may be useful to track the sink nodes in the graph they are produced.
             # The alternative would be to track them only on the root node.
-            WiringGraphContext.__stack__[-1]._sink_nodes.extend(self._sink_nodes)
-            WiringGraphContext.__stack__[-1]._service_clients.extend(self._service_clients)
-            WiringGraphContext.__stack__[-1]._service_stubs.extend(self._service_stubs)
-            WiringGraphContext.__stack__[-1]._context_clients.extend(self._context_clients)
-            WiringGraphContext.__stack__[-1]._service_implementations.update(self._service_implementations)
-            WiringGraphContext.__stack__[-1]._built_services.update(self._built_services)
+            top_of_stack = WiringGraphContext.__stack__[-1]
+            top_of_stack._sink_nodes.extend(self._sink_nodes)
+            top_of_stack._service_clients.extend(self._service_clients)
+            top_of_stack._service_stubs.extend(self._service_stubs)
+            top_of_stack._context_clients.extend(self._context_clients)
+            top_of_stack._service_implementations.update(self._service_implementations)
+            top_of_stack._built_services.update(self._built_services)
 
             for c, n in self._service_build_contexts:
-                WiringGraphContext.__stack__[-1].add_service_build_context(c, n)
+                top_of_stack.add_service_build_context(c, n)
 
         del self._current_frame
         del self._other_nodes

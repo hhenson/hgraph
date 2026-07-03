@@ -297,13 +297,13 @@ def throttle_default(
             _state.tick = _state.fn(ts, _state.tick)
             _sched.schedule(period.value, tag='-')
         else:
-            _state.tick = {}
+            _state.tick = None
             _sched.schedule(period.value, tag='-')
             return ts.delta_value
 
     if _sched.is_scheduled_now:
-        if tick := _state.tick:
-            _state.tick = {}
+        if (tick := _state.tick) is not None:
+            _state.tick = None
             _sched.schedule(period.value, on_wall_clock=use_wall_clock, tag='-')
             return tick
 

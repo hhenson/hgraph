@@ -47,13 +47,15 @@ def _(tp: HgTSDTypeMetaData) -> Callable[[Any, Any], Any]:
         # Merge modified items (recursively accumulate per key)
         for k, v_in in input_ts.modified_items():
             v_out_prev = out_tick.get(k)
-            v_new = value_builder(v_in, v_out_prev if v_out_prev is not None else {})
+            v_new = value_builder(v_in, v_out_prev if v_out_prev is not None else None)
             if v_new is not None:
                 out_tick[k] = v_new
         # Add removed keys
         for k in input_ts.removed_keys():
             out_tick[k] = REMOVE_IF_EXISTS
-        return out_tick
+
+        if out_tick:
+            return out_tick
 
     return _fn
 
@@ -69,7 +71,9 @@ def _(tp: HgTSSTypeMetaData) -> Callable[[Any, Any], Any]:
         new_added, new_removed = input_ts.added(), input_ts.removed()
         added = (out_tick.added - new_removed) | new_added
         removed = (out_tick.removed - new_added) | new_removed
-        return set_delta(added, removed)
+
+        if added or removed:
+            return set_delta(added, removed)
 
     return _fn
 
@@ -85,7 +89,8 @@ def _(tp: HgTSLTypeMetaData) -> Callable[[Any, Any], Any]:
             v_new = el_builder(v_in, {})
             if v_new is not None:
                 new_tick[idx] = v_new
-        return new_tick
+        if new_tick:
+            return new_tick
 
     return _fn
 
@@ -104,6 +109,7 @@ def _(tp: HgTSBTypeMetaData) -> Callable[[Any, Any], Any]:
             v_new = field_builders[k](v_in, prev if prev is not None else {})
             if v_new is not None:
                 new_top[k] = v_new
-        return new_top
+        if new_top:
+            return new_top
 
     return _fn
