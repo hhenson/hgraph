@@ -91,7 +91,7 @@ dev = [
 
 [build-system]
 requires = [
-    "scikit-build-core==0.12.2",
+    "scikit-build-core==1.0.0",
     "nanobind==2.13.0",
     "setuptools==82.0.1"
 ]
