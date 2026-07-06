@@ -1,5 +1,8 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Callable
+
+from frozendict import frozendict
 
 from hgraph import (
     adaptor,
@@ -15,9 +18,27 @@ from hgraph import (
     if_then_else,
     operator,
     HgAtomicType,
+    CompoundScalar,
+    TIME_SERIES_TYPE,
 )
 
-__all__ = ("message_publisher", "message_subscriber", "MessageState")
+__all__ = ("message_publisher", "message_subscriber", "MessageState", "KafkaMessage")
+
+
+@dataclass(frozen=True)
+class KafkaMessage(CompoundScalar):
+    """
+    A structured Kafka message. Use this (instead of raw ``bytes``) when the key, content-type or
+    headers need to be set on publish, or read on subscribe.
+
+    The ``content_type`` is transported as a ``content-type`` header on the wire, allowing the
+    payload encoding/schema to be identified by consumers.
+    """
+
+    payload: bytes
+    key: bytes = None
+    content_type: str = None
+    headers: frozendict[str, bytes] = frozendict()
 
 
 def message_publisher(fn: Callable = None, *, topic: str = None):
@@ -32,11 +53,20 @@ def message_publisher(fn: Callable = None, *, topic: str = None):
         def my_fn() -> TS[bytes]:
             ...
 
+    To set the key, content-type, and/or headers along with the payload, return a ``TS[KafkaMessage]`` instead:
+
+    ::
+
+        @message_publisher(topic="my_topic")
+        def my_fn() -> TS[KafkaMessage]:
+            ...
+
     If ``msg`` and ``recovered`` inputs are present, then the publisher will replay the history of the topic before
     processing any new data.
     The data will be started from ``start_time`` provided to the graph engine. This should be set to the first time
     the data needs to be processed. To support replay capabilities, the function must accept a parameter
-    ``msg: TS[bytes]`` and ``recovered: TS[bool]``, on which the history will be replayed.
+    ``msg: TS[bytes]`` (or ``msg: TS[KafkaMessage]``) and ``recovered: TS[bool]``, on which the history will be
+    replayed.
 
     ::
 
@@ -66,13 +96,16 @@ def message_publisher(fn: Callable = None, *, topic: str = None):
     if not isinstance(fn, WiringNodeClass):
         fn = graph(fn)
 
+    replay_msg_is_bytes = True
     if "msg" in fn.signature.time_series_args or "recovered" in fn.signature.time_series_args:
         assert (
             "msg" in fn.signature.time_series_inputs.keys()
         ), "kafka_publisher graph must have an input named 'msg' when defining replay args"
-        assert fn.signature.time_series_inputs["msg"].matches_type(
-            TS[bytes]
-        ), f"Graph must have an input named 'msg' of type TS[bytes] got {fn.signature.time_series_inputs['msg']}"
+        replay_msg_is_bytes = fn.signature.time_series_inputs["msg"].matches_type(TS[bytes])
+        assert replay_msg_is_bytes or fn.signature.time_series_inputs["msg"].matches_type(TS[KafkaMessage]), (
+            "Graph must have an input named 'msg' of type TS[bytes] or TS[KafkaMessage] got"
+            f" {fn.signature.time_series_inputs['msg']}"
+        )
         assert (
             "recovered" in fn.signature.time_series_inputs.keys()
         ), "kafka_publisher graph must have an input named 'recovered' when defining replay args"
@@ -91,7 +124,9 @@ def message_publisher(fn: Callable = None, *, topic: str = None):
         assert "msg" in (schema := output_type.bundle_schema_tp.meta_data_schema), "TSB must have a 'msg' output"
         output_type = output_type["msg"]
 
-    assert output_type.matches_type(TS[bytes]), "Graph must have a message output of type TS[bytes]"
+    assert output_type.matches_type(TS[bytes]) or output_type.matches_type(
+        TS[KafkaMessage]
+    ), "Graph must have a message output of type TS[bytes] or TS[KafkaMessage]"
 
     final_output_type = None
     if is_tsb:
@@ -121,7 +156,8 @@ def message_publisher(fn: Callable = None, *, topic: str = None):
         if replay_history:
             get_message_state().add_historical_subscriber(topic_)
             msg_history = message_history_subscriber_service(path=topic_)
-            kwargs["msg"] = msg_history["msg"]  # Connect replay
+            replay_msg = msg_history["msg"]
+            kwargs["msg"] = replay_msg.payload if replay_msg_is_bytes else replay_msg  # Connect replay
             kwargs["recovered"] = msg_history["recovered"]  # Connect replay
 
         out = fn(**kwargs)
@@ -149,6 +185,14 @@ def message_subscriber(fn: Callable = None, *, topic: str = None):
         def my_fn(msg: TS[bytes]):
             ...
 
+    To receive the key, content-type and headers along with the payload, declare ``msg: TS[KafkaMessage]`` instead:
+
+    ::
+
+        @message_subscriber(topic="my_topic")
+        def my_fn(msg: TS[KafkaMessage]):
+            ...
+
     If the ``recovered`` argument is present, the subscriber will replay
     the history of the topic and then continue to process new data. The ``recovered: TS[bool]``
     will tick True when the subscriber has recovered the history data.
@@ -173,9 +217,11 @@ def message_subscriber(fn: Callable = None, *, topic: str = None):
         fn = graph(fn)
 
     assert "msg" in fn.signature.time_series_inputs.keys(), "message_subscriber graph must have an input named 'msg'"
-    assert fn.signature.time_series_inputs["msg"].matches_type(
-        TS[bytes]
-    ), f"The input named 'msg' must be of type TS[bytes] got {fn.signature.time_series_inputs['msg']}"
+    msg_is_bytes = fn.signature.time_series_inputs["msg"].matches_type(TS[bytes])
+    assert msg_is_bytes or fn.signature.time_series_inputs["msg"].matches_type(TS[KafkaMessage]), (
+        "The input named 'msg' must be of type TS[bytes] or TS[KafkaMessage] got"
+        f" {fn.signature.time_series_inputs['msg']}"
+    )
     has_recovered = "recovered" in fn.signature.time_series_inputs.keys()
     assert not has_recovered or fn.signature.time_series_inputs["recovered"].matches_type(
         TS[bool]
@@ -205,7 +251,7 @@ def message_subscriber(fn: Callable = None, *, topic: str = None):
             msg_history = message_history_subscriber_service(path=topic_)
             kwargs["recovered"] = (recovered := msg_history["recovered"])  # Connect recovered signal
             msg_input = if_then_else(default(recovered, False), msg_input, msg_history["msg"])
-        kwargs["msg"] = msg_input
+        kwargs["msg"] = msg_input.payload if msg_is_bytes else msg_input
         out = fn(**kwargs)
         return out
 
@@ -234,17 +280,17 @@ def get_message_state() -> MessageState:
 
 
 @operator
-def message_publisher_operator(msg: TS[bytes], topic: str):
-    """Publishes the msg to the topic provided."""
+def message_publisher_operator(msg: TIME_SERIES_TYPE, topic: str):
+    """Publishes the msg (``TS[bytes]`` or ``TS[KafkaMessage]``) to the topic provided."""
 
 
 @reference_service
-def message_history_subscriber_service(path: str) -> TSB["msg" : TS[bytes], "recovered" : TS[bool]]:
+def message_history_subscriber_service(path: str) -> TSB["msg" : TS[KafkaMessage], "recovered" : TS[bool]]:
     """Only retrieve history, after which the topic can be unsubscribed."""
 
 
 @reference_service
-def message_subscriber_service(path: str) -> TS[bytes]:
+def message_subscriber_service(path: str) -> TS[KafkaMessage]:
     """
     Subscriber for kafka, output contains the msg and a recovered flag.
     """

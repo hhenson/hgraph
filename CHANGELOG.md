@@ -1619,3 +1619,8 @@ Version 0.5.22
 --------------
 
 * Make GlobalState an injectable dependency (for wiring and run-time).
+
+Version 0.5.24
+--------------
+
+* Add the ability to set content type and headers on kafka messages.

@@ -19,7 +19,9 @@ from hgraph import (
     utc_now,
 )
 
-from hgraph.adaptors.kafka import register_kafka_adaptor, message_subscriber, message_publisher
+from frozendict import frozendict
+
+from hgraph.adaptors.kafka import register_kafka_adaptor, message_subscriber, message_publisher, KafkaMessage
 from hgraph.test import eval_node
 
 
@@ -115,6 +117,31 @@ def test_publisher_without_predefined_topic(mock_kafka_state, mock_kafka_produce
     assert mock_kafka_producer.send.call_count == 1
     assert mock_kafka_producer.send.call_args[0][0] == "test"
     assert mock_kafka_producer.send.call_args[0][1] == b"my publisher"
+
+
+def test_publisher_with_kafka_message(mock_kafka_state, mock_kafka_producer):
+    @message_publisher(topic="test")
+    def my_publisher() -> TS[KafkaMessage]:
+        return const(
+            KafkaMessage(
+                payload=b"my publisher",
+                key=b"my key",
+                content_type="application/json",
+                headers=frozendict({"h1": b"v1"}),
+            )
+        )
+
+    @graph
+    def g():
+        register_kafka_adaptor({})
+        my_publisher()
+
+    assert eval_node(g) == None
+    assert mock_kafka_producer.send.call_count == 1
+    assert mock_kafka_producer.send.call_args[0][0] == "test"
+    assert mock_kafka_producer.send.call_args[0][1] == b"my publisher"
+    assert mock_kafka_producer.send.call_args[1]["key"] == b"my key"
+    assert mock_kafka_producer.send.call_args[1]["headers"] == [("h1", b"v1"), ("content-type", b"application/json")]
 
 
 def test_publisher_with_tsb_out(mock_kafka_state, mock_kafka_producer):

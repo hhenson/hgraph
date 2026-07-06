@@ -5,6 +5,7 @@ from threading import Thread, Event
 from typing import Callable, Mapping
 
 import pytz
+from frozendict import frozendict
 from kafka import KafkaConsumer, KafkaProducer, TopicPartition
 
 from hgraph import (
@@ -34,9 +35,26 @@ from hgraph.adaptors.kafka._api import (
     message_subscriber_service,
     message_history_subscriber_service,
     MessageState,
+    KafkaMessage,
 )
 
 __all__ = ("register_kafka_adaptor",)
+
+CONTENT_TYPE_HEADER = "content-type"
+
+
+def _record_to_kafka_message(record) -> KafkaMessage:
+    """Convert a kafka ConsumerRecord into a KafkaMessage, lifting the content-type header out."""
+    content_type = None
+    headers = {}
+    for k, v in record.headers or ():
+        if k == CONTENT_TYPE_HEADER:
+            content_type = v.decode("utf-8") if isinstance(v, bytes) else v
+        else:
+            headers[k] = v
+    return KafkaMessage(
+        payload=record.value, key=record.key, content_type=content_type, headers=frozendict(headers)
+    )
 
 
 def register_kafka_adaptor(config: dict):
@@ -54,7 +72,7 @@ class KafkaMessageState(MessageState):
     publishers: set[str] = field(default_factory=set)
     _kafka_producer: KafkaProducer = None
     _kafka_producer_count: int = 0
-    _kafka_sender: dict[str, Callable[[bytes], None]] = field(default_factory=dict)
+    _kafka_sender: dict[str, Callable[[KafkaMessage], None]] = field(default_factory=dict)
     _kafka_consumer: dict[str, "KafkaConsumerThread"] = field(default_factory=dict)
 
     config: dict = None
@@ -152,11 +170,39 @@ def _kafka_message_publisher_stop(_state: STATE, _global_state: GlobalState = No
     KafkaMessageState.instance(_global_state).close_producer()
 
 
-@service_impl(interfaces=message_subscriber_service)
-def _message_subscriber_aggregator(path: str, topic: str) -> TS[bytes]:
-    print(f"subscribe topic: {topic}")
-    topic_b = b"sub: " + topic.encode("utf-8")
-    return const(topic_b, delay=MIN_TD * 2)
+@sink_node(overloads=message_publisher_operator, requires=_registered_topics)
+def _kafka_full_message_publisher(
+    msg: TS[KafkaMessage],
+    topic: str,
+    _state: STATE = None,
+    _scheduler: SCHEDULER = None,
+    _global_state: GlobalState = None,
+) -> None:
+    if msg.modified:
+        m: KafkaMessage = msg.value
+        headers = [(k, v) for k, v in m.headers.items()]
+        if m.content_type is not None:
+            headers.append((CONTENT_TYPE_HEADER, m.content_type.encode("utf-8")))
+        _state.producer.send(topic, m.payload, key=m.key, headers=headers or None)
+        _scheduler.schedule(
+            timedelta(milliseconds=100), tag="flush_timer", on_wall_clock=True,
+        )  # This will re-schedule the flush timer if already set.
+
+    if _scheduler.is_scheduled_now:
+        # Make sure we flush reasonably regularly.
+        _state.producer.flush()
+
+
+@_kafka_full_message_publisher.start
+def _kafka_full_message_publisher_start(topic: str, _state: STATE, _global_state: GlobalState = None):
+    _state.producer = KafkaMessageState.instance(_global_state).producer
+
+
+@_kafka_full_message_publisher.stop
+def _kafka_full_message_publisher_stop(_state: STATE, _global_state: GlobalState = None):
+    _state.producer.flush()
+    _state.producer = None
+    KafkaMessageState.instance(_global_state).close_producer()
 
 
 @service_impl(interfaces=(message_history_subscriber_service, message_subscriber_service))
@@ -187,7 +233,7 @@ def _message_subscriber_impl(path: str, topic: str, _global_state: GlobalState =
 @generator
 def _message_subscriber_history_aggregator(
     path: str, consumer: KafkaConsumer, topic_partitions: tuple[tuple[str, int], ...], _api: EvaluationEngineApi = None
-) -> TSB["msg" : TS[bytes], "recovered" : TS[bool]]:
+) -> TSB["msg" : TS[KafkaMessage], "recovered" : TS[bool]]:
     """Recovered must tick after the last message has been delivered."""
     start_time = _api.start_time
     if _api.evaluation_mode == EvaluationMode.SIMULATION:
@@ -222,7 +268,7 @@ def _message_subscriber_history_aggregator(
                 # Offset if it is the same
                 tm = last_time + MIN_TD
             last_time = tm
-            yield tm, dict(msg=msg.value)
+            yield tm, dict(msg=_record_to_kafka_message(msg))
     tm = last_time
     tm = max(tm, start_time - MIN_TD)
     yield tm + MIN_TD, dict(recovered=True)
@@ -233,16 +279,16 @@ def _timestamp_to_datetime(t: int) -> datetime:
 
 
 @adaptor
-def _real_time_message_subscriber(path: str) -> TS[bytes]:
+def _real_time_message_subscriber(path: str) -> TS[KafkaMessage]:
     """Expose the real-time message subscriber as an adaptor"""
 
 
 @adaptor_impl(interfaces=_real_time_message_subscriber)
-def _real_time_message_subscriber_impl(path: str, topic: str) -> TS[bytes]:
+def _real_time_message_subscriber_impl(path: str, topic: str) -> TS[KafkaMessage]:
     return _message_subscriber_queue(topic=topic)
 
 
-@push_queue(TS[bytes])
+@push_queue(TS[KafkaMessage])
 def _message_subscriber_queue(
     sender: Callable[[SCALAR], None] = None, *, topic: str, _global_state: GlobalState = None
 ):
@@ -268,7 +314,7 @@ def _start_realtime_message_subscriber_stop(topic: str, _global_state: GlobalSta
 
 class KafkaConsumerThread(Thread):
 
-    def __init__(self, topic, consumer: KafkaConsumer, sender: Callable[[bytes], None]):
+    def __init__(self, topic, consumer: KafkaConsumer, sender: Callable[[KafkaMessage], None]):
         super().__init__()
         self.topic = topic
         self.consumer = consumer
@@ -284,7 +330,7 @@ class KafkaConsumerThread(Thread):
                 if len(records) > 1:
                     all_messages = sorted(all_messages, key=lambda m: (m.timestamp, m.topic, m.offset))
                 for msg in all_messages:
-                    self.sender(msg.value)
+                    self.sender(_record_to_kafka_message(msg))
         except:
             error(f"Failure occurred whilst reading from Kafka on topic: {self.topic}", exc_info=True)
         finally:
