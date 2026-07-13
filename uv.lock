@@ -486,7 +486,7 @@ wheels = [
 
 [[package]]
 name = "hgraph"
-version = "0.5.23"
+version = "0.5.24"
 source = { editable = "." }
 dependencies = [
     { name = "black" },
@@ -554,7 +554,7 @@ requires-dist = [
     { name = "multimethod" },
     { name = "mypy", marker = "extra == 'test'" },
     { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=2.0.0" },
-    { name = "nanobind", marker = "extra == 'dev'", specifier = "==2.12.0" },
+    { name = "nanobind", marker = "extra == 'dev'", specifier = "==2.13.0" },
     { name = "numpy", specifier = ">=1.23" },
     { name = "ordered-set", specifier = ">=4.1.0" },
     { name = "pandas", marker = "extra == 'web'" },
@@ -1020,11 +1020,11 @@ wheels = [
 
 [[package]]
 name = "nanobind"
-version = "2.12.0"
+version = "2.13.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c6/5c/3b69bc3933ad3c3668ba029ad410ba8ecfdc8ee7262ff1009f3304f3c562/nanobind-2.12.0.tar.gz", hash = "sha256:0ae77c1a88f27153fa57045ee00f7b0a7b06b1cd3df942e95a34b38c5d0a5bee", size = 1002704, upload-time = "2026-02-25T09:41:54.691Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/e5/a6fc2f024eaef17c68b94b5f8f56098d31859a7840a11a3dd45da2d3908a/nanobind-2.13.0.tar.gz", hash = "sha256:c7b04d6a6a4cd57985571e605539399b51331ae455d7fce576a5e2fcb89b1dcf", size = 1052101, upload-time = "2026-06-18T06:03:49.491Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl", hash = "sha256:a10d3d88e691dcdf22696f9acd893fda3c5a05635763aea238829d274fcad480", size = 249512, upload-time = "2026-02-25T09:41:52.908Z" },
+    { url = "https://files.pythonhosted.org/packages/39/8d/cec69a0a804711fd89f47fad92cd2a438a1ceaafd9dabaf3b8b403b5cbba/nanobind-2.13.0-py3-none-any.whl", hash = "sha256:9268d7201eaf5519ae61b7a83175f2af77088cb4b99dd3ce5b00550f697da7b7", size = 269387, upload-time = "2026-06-18T06:03:47.508Z" },
 ]
 
 [[package]]
@@ -1159,14 +1159,15 @@ wheels = [
 
 [[package]]
 name = "perspective-python"
-version = "4.5.1"
+version = "4.5.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/41/0e/ad9edd3f1b27b67027a0640a259776b45707ef2c99e67669627bbfc2a416/perspective_python-4.5.1.tar.gz", hash = "sha256:7d94f63d24648c91be339ff1b268319b3e5ed14d3c37cd3fb82389f1ee991138", size = 3800737, upload-time = "2026-05-31T00:20:15.091Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bc/a8/2b3e14d83ae3dc815fe4247a609671fbc4288b59c39df34d759f78d95865/perspective_python-4.5.2.tar.gz", hash = "sha256:d209cff1bc746f44fd811a80e039d1a79d30841f3f6c20c73e648e633f82dca8", size = 3766410, upload-time = "2026-07-09T16:11:56.882Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7b/d2/e44f9cc3b59f02516e2bc20f69d550736c997b9bbe73e1052cbf59eef08d/perspective_python-4.5.1-cp311-abi3-macosx_14_0_arm64.whl", hash = "sha256:ab921f3ae8a096c6515943f9e80cea4b1cbe1635762b4151db62f17a1151b2af", size = 8523742, upload-time = "2026-05-31T00:20:04.434Z" },
-    { url = "https://files.pythonhosted.org/packages/68/1e/8da44bc9f2fb1f4e36f684e86c8022563236b28e24b8b1ed46526067fdf8/perspective_python-4.5.1-cp311-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:bf339c4b7ea8380dc54b904afd204abdaa2d2b0c57495a7f454a6f7b1ecc3321", size = 6253979, upload-time = "2026-05-31T00:20:07.437Z" },
-    { url = "https://files.pythonhosted.org/packages/64/4a/faac68f6ec590379001d4a57c757325a3895e788e4d4a16e25983b0c8d88/perspective_python-4.5.1-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:e9aa71d2bda00d0b4d4fecd284f2164857851d8fae42bde12a43793ff68e09f2", size = 10015151, upload-time = "2026-05-31T00:20:10.052Z" },
-    { url = "https://files.pythonhosted.org/packages/91/da/589392454e11a18ca8ef2dccd1799604e6c01e6d9eece709189eed77ffc3/perspective_python-4.5.1-cp311-abi3-win_amd64.whl", hash = "sha256:4d5c0aa18903830408bf78eeb8e37227e35e41d3cd69ec047ee2f98ced6c8115", size = 8181330, upload-time = "2026-05-31T00:20:12.933Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/fe/6a45f09002e69e9637e1fcea6e0e017c284a6beda854371b844cd007856d/perspective_python-4.5.2-cp311-abi3-macosx_14_0_arm64.whl", hash = "sha256:b5f3d91437f2586b85d87d45801d57ba769b3c4df65d94e0097335831d19b626", size = 8514220, upload-time = "2026-07-09T16:11:46.484Z" },
+    { url = "https://files.pythonhosted.org/packages/08/e6/fe8bfcb4839319a4779fe539844ef649ee615e6853702b5a9940c9b20e7e/perspective_python-4.5.2-cp311-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:de0df01715c2859db76ec61884689a93076f0653dffaf85250d269c397145e39", size = 6373214, upload-time = "2026-07-09T16:11:49.184Z" },
+    { url = "https://files.pythonhosted.org/packages/89/94/94c06faff7430c8b5c48bed41da759e1e4894528b2e2373617adf9d5f1e4/perspective_python-4.5.2-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:3811e22e57ddb21f5d6626b184c357a7c87ea91a54d06f999271dbe0741c0c64", size = 10016282, upload-time = "2026-07-09T16:11:51.877Z" },
+    { url = "https://files.pythonhosted.org/packages/a2/b3/dcc9bc83876ff4509de199d1d1d8c687314760a841465058b957e72d8561/perspective_python-4.5.2-cp311-abi3-pyemscripten_2025_0_wasm32.whl", hash = "sha256:00c2822ae83c9513a4ade8377a12e540140fd579beb2066390892ccab1947447", size = 3429407, upload-time = "2026-07-09T16:12:42.802Z" },
+    { url = "https://files.pythonhosted.org/packages/89/61/9622123a68f8588aad69a45203f6251a85ac3f6ecd8fb457f8731e98080b/perspective_python-4.5.2-cp311-abi3-win_amd64.whl", hash = "sha256:a8316040638146d78a50a470d0b9dbc680e88ff8ef0323a338a6f0296aad68b2", size = 8727838, upload-time = "2026-07-09T16:11:54.483Z" },
 ]
 
 [[package]]
