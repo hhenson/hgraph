@@ -17,6 +17,7 @@ from hgraph.reflection import (
     is_tss,
     key_type,
     operator_overloads,
+    resolved_type,
     scalar_type,
     size,
     value_type,
@@ -41,6 +42,7 @@ def test_reflection_accepts_resolved_signature_metadata():
     assert key_type(metadata) is str
     assert is_reference(value_type(metadata))
     assert dereference(value_type(metadata)) == TS[int]
+    assert resolved_type(metadata) == TSD[str, REF[TS[int]]]
 
 
 def test_fields_return_public_schema_types():
