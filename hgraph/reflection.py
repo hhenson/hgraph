@@ -23,6 +23,7 @@ from hgraph._types import (
 
 __all__ = (
     "scalar_type",
+    "resolved_type",
     "key_type",
     "value_type",
     "element_type",
@@ -47,6 +48,15 @@ def _metadata(type_or_metadata) -> HgTypeMetaData:
         return HgTypeMetaData.parse_type(type_or_metadata)
     except (TypeError, RuntimeError) as error:
         raise TypeError(f"{type_or_metadata!r} is not an hgraph type") from error
+
+
+def resolved_type(type_or_metadata):
+    """Return a resolved time-series binding as a public type expression.
+
+    This is the implementation-neutral replacement for reading ``.py_type``
+    from a resolution-map metadata object.
+    """
+    return _metadata(type_or_metadata).py_type
 
 
 def scalar_type(type_or_metadata):
