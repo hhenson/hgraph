@@ -9,6 +9,8 @@ signature and returns plain, comparable Python/hgraph types.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from hgraph._types import (
     CompoundScalar,
     HgCompoundScalarType,
@@ -44,6 +46,9 @@ __all__ = (
 def _metadata(type_or_metadata) -> HgTypeMetaData:
     if isinstance(type_or_metadata, HgTypeMetaData):
         return type_or_metadata
+    output_type = getattr(type_or_metadata, "output_type", None)
+    if output_type is not None:
+        return _metadata(output_type)
     try:
         return HgTypeMetaData.parse_type(type_or_metadata)
     except (TypeError, RuntimeError) as error:
@@ -104,6 +109,11 @@ def size(type_or_metadata) -> int:
 
 def fields(type_or_metadata) -> dict[str, object]:
     """Return the ordered fields of a TSB or CompoundScalar schema."""
+    if isinstance(type_or_metadata, Mapping):
+        return {
+            name: resolved_type(value)
+            for name, value in type_or_metadata.items()
+        }
     if isinstance(type_or_metadata, type) and issubclass(type_or_metadata, CompoundScalar):
         return {
             name: field.py_type
