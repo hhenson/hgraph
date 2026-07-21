@@ -83,10 +83,14 @@ class KafkaMessageState(MessageState):
             gs["service.messaging.state"] = cls()
         return gs["service.messaging.state"]
 
-    def add_subscriber(self, topic: str):
+    def add_subscriber(self, topic: str, replay: bool = False):
         self._register(topic)
         if topic not in self.subscribers:
-            register_adaptor(topic, _real_time_message_subscriber_impl, topic=topic)
+            if replay:
+                self._register(topic)
+                register_adaptor(topic, _real_time_message_subscriber_impl, topic=topic)
+            else:
+                register_adaptor(topic, _real_time_message_subscriber_service_impl, topic=topic)
         self.subscribers.add(topic)
 
     def add_historical_subscriber(self, topic: str):
@@ -277,6 +281,18 @@ def _message_subscriber_history_aggregator(
 def _timestamp_to_datetime(t: int) -> datetime:
     return datetime.utcfromtimestamp(t / 1000) + timedelta(milliseconds=t % 1000)
 
+@adaptor_impl(interfaces=message_subscriber_service)
+def _real_time_message_subscriber_service_impl(
+        path: str, topic: str, _global_state: GlobalState = None
+) -> TS[KafkaMessage]:
+    consumer = KafkaConsumer(**KafkaMessageState.instance(_global_state).config)
+    partitions = consumer.partitions_for_topic(topic)
+    if not partitions:
+        raise ValueError(f"Topic {topic} has no partitions")
+    consumer.assign(tuple(TopicPartition(topic, p) for p in partitions))
+    out = _message_subscriber_queue(topic=topic)
+    _start_realtime_message_subscriber(topic, True, consumer)
+    return out
 
 @adaptor
 def _real_time_message_subscriber(path: str) -> TS[KafkaMessage]:
