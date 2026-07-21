@@ -1,8 +1,6 @@
-from datetime import datetime, timedelta
-from unittest.mock import MagicMock
-
 import pytest
-
+from datetime import timedelta
+from frozendict import frozendict
 from hgraph import (
     graph,
     TS,
@@ -16,13 +14,13 @@ from hgraph import (
     if_true,
     TSB,
     combine,
-    utc_now,
+    utc_now, record, stop_engine, get_recorded_value,
 )
-
-from frozendict import frozendict
-
 from hgraph.adaptors.kafka import register_kafka_adaptor, message_subscriber, message_publisher, KafkaMessage
 from hgraph.test import eval_node
+from kafka import KafkaConsumer
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 
 @pytest.fixture
@@ -158,3 +156,35 @@ def test_publisher_with_tsb_out(mock_kafka_state, mock_kafka_producer):
     assert mock_kafka_producer.send.call_count == 1
     assert mock_kafka_producer.send.call_args[0][0] == "test"
     assert mock_kafka_producer.send.call_args[0][1] == b"my publisher"
+
+def test_realtime_subscriber(monkeypatch):
+    class Consumer(KafkaConsumer):
+        sent = False
+
+        def __init__(self, *args, **kwargs): ...
+        def partitions_for_topic(self, topic: str): return {0}
+        def assign(self, partitions): ...
+        def close(self): ...
+        def poll(self, **kwargs):
+            if self.sent:
+                return {}
+            self.sent = True
+            return {object(): [SimpleNamespace(value=b'ready', key=None, headers=())]}
+
+    from hgraph.adaptors.kafka import _impl as kafka_impl
+    monkeypatch.setattr(kafka_impl, "KafkaConsumer", Consumer)
+
+    @message_subscriber(topic="test")
+    def subscriber(msg: TS[bytes]) -> TS[bytes]:
+        return msg
+
+    @graph
+    def g():
+        register_kafka_adaptor({})
+        msg = subscriber()
+        record(msg)
+        stop_engine(msg == b"ready")
+
+    with GlobalState():
+        evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1)))
+        assert [value for _, value in get_recorded_value()] == [b"ready"]
