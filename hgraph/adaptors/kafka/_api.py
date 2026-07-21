@@ -244,7 +244,7 @@ def message_subscriber(fn: Callable = None, *, topic: str = None):
         topic_ = kwargs.pop("topic", None)
         if topic_ is None:
             raise ValueError(f"topic must be provided to {fn.signature.name}")
-        get_message_state().add_subscriber(topic_)
+        get_message_state().add_subscriber(topic_, replay=has_recovered)
         msg_input = message_subscriber_service(path=topic_)
         if has_recovered:
             get_message_state().add_historical_subscriber(topic_)
@@ -265,7 +265,7 @@ class MessageState(ABC):
         """Adds a publisher to the message state"""
 
     @abstractmethod
-    def add_subscriber(self, topic: str):
+    def add_subscriber(self, topic: str, replay: bool = False):
         """Adds a subscriber to the message state"""
 
     @abstractmethod
