@@ -122,6 +122,16 @@ on_wall_clock=true)`` is enabled only for real-time graph executors, where
 engine time is wall-clock-aligned; simulation rejects wall-clock alarms because
 simulated time cannot be advanced by host time.
 
+A wall-clock alarm that is already **due** when ``schedule`` runs — the wall
+clock crossed the requested time between the caller computing it and the
+scheduler re-reading the clock, which a polling node makes arbitrarily likely
+— is delivered on the next evaluatable cycle
+(``max(evaluation_time + MIN_TD, wall now)``, the authoritative Python alarm
+sweep's fire time), never dropped. Dropping it would silently kill a
+self-rescheduling alarm chain: an evaluation-time ``schedule`` at or before
+``now`` stays a no-op, because there the caller is scheduling from within the
+cycle that already satisfies the request.
+
 
 Wiring surface
 --------------

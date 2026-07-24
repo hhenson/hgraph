@@ -186,13 +186,25 @@ namespace hgraph
             require_state("schedule");
             const DateTime reference_now = scheduling_reference_time(on_wall_clock);
             // Started: only the future. Not yet started: the start cycle onward.
+            // A wall-clock alarm that is already due is delivered on the next
+            // evaluatable cycle rather than dropped: the wall clock may cross
+            // the requested time between the caller computing it and this
+            // guard re-reading the clock, and dropping the alarm silently
+            // kills a self-rescheduling chain (services.rst, wall-clock
+            // alarms; matches the Python alarm sweep's max(now, eval + MIN_TD)
+            // fire time).
             if (started_)
             {
-                if (when <= reference_now) { return; }
+                if (when <= reference_now)
+                {
+                    if (!on_wall_clock) { return; }
+                    when = std::max(now_ + MIN_TD, reference_now);
+                }
             }
             else if (when < reference_now)
             {
-                return;
+                if (!on_wall_clock) { return; }
+                when = reference_now;
             }
 
             const bool        tagged    = tag.has_value() && !tag->empty();
