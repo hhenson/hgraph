@@ -779,7 +779,8 @@ if(NOT HGRAPH_BUILD_SHARED OR NOT HGRAPH_BUILD_PYTHON_BINDINGS)
         "  message(FATAL_ERROR \"hgraph requires simdjson >= 4.5; found \${simdjson_VERSION}\")\n"
         "endif()\n"
     )
-    if(_hgraph_selected_time_zone_backend STREQUAL "date")
+    if(NOT HGRAPH_BUILD_SHARED AND
+       _hgraph_selected_time_zone_backend STREQUAL "date")
         list(APPEND _hgraph_config_dependencies
             "find_dependency(date 3.0.4 CONFIG)\n")
     endif()
