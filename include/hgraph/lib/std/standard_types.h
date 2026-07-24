@@ -4,7 +4,7 @@
 #include <hgraph/types/frame.h>
 #include <hgraph/types/series.h>
 #include <hgraph/types/metadata/type_registry.h>
-#include <hgraph/util/date_time.h>
+#include <hgraph/types/temporal.h>
 
 #include <cstdint>
 #include <initializer_list>
@@ -38,6 +38,18 @@ namespace hgraph::stdlib
         const ValueTypeMetaData *bytes_type{nullptr};
         const ValueTypeMetaData *frame_type{nullptr};
         const ValueTypeMetaData *series_type{nullptr};
+        const ValueTypeMetaData *period_type{nullptr};
+        const ValueTypeMetaData *civil_datetime_type{nullptr};
+        const ValueTypeMetaData *zone_id_type{nullptr};
+        const ValueTypeMetaData *zoned_datetime_type{nullptr};
+        const ValueTypeMetaData *instant_range_type{nullptr};
+        const ValueTypeMetaData *civil_date_range_type{nullptr};
+        const ValueTypeMetaData *instant_range_set_type{nullptr};
+        const ValueTypeMetaData *civil_date_range_set_type{nullptr};
+        const ValueTypeMetaData *month_end_policy_type{nullptr};
+        const ValueTypeMetaData *ambiguous_time_policy_type{nullptr};
+        const ValueTypeMetaData *nonexistent_time_policy_type{nullptr};
+        const ValueTypeMetaData *boundary_type{nullptr};
 
         const ValueTypeMetaData *int8_type{nullptr};
         const ValueTypeMetaData *int16_type{nullptr};
@@ -61,6 +73,14 @@ namespace hgraph::stdlib
         const TSValueTypeMetaData *ts_bytes{nullptr};
         const TSValueTypeMetaData *ts_frame{nullptr};
         const TSValueTypeMetaData *ts_series{nullptr};
+        const TSValueTypeMetaData *ts_period{nullptr};
+        const TSValueTypeMetaData *ts_civil_datetime{nullptr};
+        const TSValueTypeMetaData *ts_zone_id{nullptr};
+        const TSValueTypeMetaData *ts_zoned_datetime{nullptr};
+        const TSValueTypeMetaData *ts_instant_range{nullptr};
+        const TSValueTypeMetaData *ts_civil_date_range{nullptr};
+        const TSValueTypeMetaData *ts_instant_range_set{nullptr};
+        const TSValueTypeMetaData *ts_civil_date_range_set{nullptr};
 
         const TSValueTypeMetaData *tss_bool{nullptr};
         const TSValueTypeMetaData *tss_int{nullptr};
@@ -71,6 +91,14 @@ namespace hgraph::stdlib
         const TSValueTypeMetaData *tss_time{nullptr};
         const TSValueTypeMetaData *tss_str{nullptr};
         const TSValueTypeMetaData *tss_bytes{nullptr};
+        const TSValueTypeMetaData *tss_period{nullptr};
+        const TSValueTypeMetaData *tss_civil_datetime{nullptr};
+        const TSValueTypeMetaData *tss_zone_id{nullptr};
+        const TSValueTypeMetaData *tss_zoned_datetime{nullptr};
+        const TSValueTypeMetaData *tss_instant_range{nullptr};
+        const TSValueTypeMetaData *tss_civil_date_range{nullptr};
+        const TSValueTypeMetaData *tss_instant_range_set{nullptr};
+        const TSValueTypeMetaData *tss_civil_date_range_set{nullptr};
     };
 
     namespace standard_types_detail
@@ -151,6 +179,41 @@ namespace hgraph::stdlib
         types.bytes_type     = standard_types_detail::register_scalar_aliases<Bytes>(registry, {"bytes"});
         types.frame_type     = standard_types_detail::register_scalar_aliases<Frame>(registry, {"frame"});
         types.series_type    = standard_types_detail::register_scalar_aliases<Series>(registry, {"series"});
+        types.period_type = standard_types_detail::register_scalar_aliases<Period>(
+            registry, {"period"});
+        types.civil_datetime_type =
+            standard_types_detail::register_scalar_aliases<CivilDateTime>(
+                registry, {"civil_datetime"});
+        types.zone_id_type =
+            standard_types_detail::register_scalar_aliases<ZoneId>(
+                registry, {"zone_id"});
+        types.zoned_datetime_type =
+            standard_types_detail::register_scalar_aliases<ZonedDateTime>(
+                registry, {"zoned_datetime"});
+        types.instant_range_type =
+            standard_types_detail::register_scalar_aliases<InstantRange>(
+                registry, {"instant_range"});
+        types.civil_date_range_type =
+            standard_types_detail::register_scalar_aliases<CivilDateRange>(
+                registry, {"civil_date_range"});
+        types.instant_range_set_type =
+            standard_types_detail::register_scalar_aliases<InstantRangeSet>(
+                registry, {"instant_range_set"});
+        types.civil_date_range_set_type =
+            standard_types_detail::register_scalar_aliases<CivilDateRangeSet>(
+                registry, {"civil_date_range_set"});
+        types.month_end_policy_type =
+            standard_types_detail::register_scalar_aliases<MonthEndPolicy>(
+                registry, {"month_end_policy"});
+        types.ambiguous_time_policy_type =
+            standard_types_detail::register_scalar_aliases<AmbiguousTimePolicy>(
+                registry, {"ambiguous_time_policy"});
+        types.nonexistent_time_policy_type =
+            standard_types_detail::register_scalar_aliases<NonexistentTimePolicy>(
+                registry, {"nonexistent_time_policy"});
+        types.boundary_type =
+            standard_types_detail::register_scalar_aliases<Boundary>(
+                registry, {"boundary"});
 
         types.int8_type    = standard_types_detail::register_scalar_aliases<std::int8_t>(registry, {"int8"});
         types.int16_type   = standard_types_detail::register_scalar_aliases<std::int16_t>(registry, {"int16"});
@@ -163,6 +226,8 @@ namespace hgraph::stdlib
         types.float32_type = standard_types_detail::register_scalar_aliases<float>(registry, {"float32"});
         types.float64_type = types.float_type;
 
+        const TSValueTypeMetaData *unused_ts  = nullptr;
+        const TSValueTypeMetaData *unused_tss = nullptr;
         standard_types_detail::register_ts_aliases(registry, types.bool_type, {"bool"}, types.ts_bool, types.tss_bool);
         standard_types_detail::register_ts_aliases(registry, types.int_type, {"int", "int64"}, types.ts_int, types.tss_int);
         standard_types_detail::register_ts_aliases(registry, types.float_type, {"float", "float64", "double"},
@@ -178,6 +243,41 @@ namespace hgraph::stdlib
                                                    types.tss_str);
         standard_types_detail::register_ts_aliases(registry, types.bytes_type, {"bytes"}, types.ts_bytes,
                                                    types.tss_bytes);
+        standard_types_detail::register_ts_aliases(
+            registry, types.period_type, {"period"}, types.ts_period,
+            types.tss_period);
+        standard_types_detail::register_ts_aliases(
+            registry, types.civil_datetime_type, {"civil_datetime"},
+            types.ts_civil_datetime, types.tss_civil_datetime);
+        standard_types_detail::register_ts_aliases(
+            registry, types.zone_id_type, {"zone_id"}, types.ts_zone_id,
+            types.tss_zone_id);
+        standard_types_detail::register_ts_aliases(
+            registry, types.zoned_datetime_type, {"zoned_datetime"},
+            types.ts_zoned_datetime, types.tss_zoned_datetime);
+        standard_types_detail::register_ts_aliases(
+            registry, types.instant_range_type, {"instant_range"},
+            types.ts_instant_range, types.tss_instant_range);
+        standard_types_detail::register_ts_aliases(
+            registry, types.civil_date_range_type, {"civil_date_range"},
+            types.ts_civil_date_range, types.tss_civil_date_range);
+        standard_types_detail::register_ts_aliases(
+            registry, types.instant_range_set_type, {"instant_range_set"},
+            types.ts_instant_range_set, types.tss_instant_range_set);
+        standard_types_detail::register_ts_aliases(
+            registry, types.civil_date_range_set_type, {"civil_date_range_set"},
+            types.ts_civil_date_range_set, types.tss_civil_date_range_set);
+        standard_types_detail::register_ts_aliases(
+            registry, types.month_end_policy_type, {"month_end_policy"},
+            unused_ts, unused_tss);
+        standard_types_detail::register_ts_aliases(
+            registry, types.ambiguous_time_policy_type,
+            {"ambiguous_time_policy"}, unused_ts, unused_tss);
+        standard_types_detail::register_ts_aliases(
+            registry, types.nonexistent_time_policy_type,
+            {"nonexistent_time_policy"}, unused_ts, unused_tss);
+        standard_types_detail::register_ts_aliases(
+            registry, types.boundary_type, {"boundary"}, unused_ts, unused_tss);
         {
             const TSValueTypeMetaData *unused_frame_tss = nullptr;
             standard_types_detail::register_ts_aliases(registry, types.frame_type, {"frame"}, types.ts_frame,
@@ -189,8 +289,6 @@ namespace hgraph::stdlib
                                                        unused_series_tss);
         }
 
-        const TSValueTypeMetaData *unused_ts  = nullptr;
-        const TSValueTypeMetaData *unused_tss = nullptr;
         standard_types_detail::register_ts_aliases(registry, types.int8_type, {"int8"}, unused_ts, unused_tss);
         standard_types_detail::register_ts_aliases(registry, types.int16_type, {"int16"}, unused_ts, unused_tss);
         standard_types_detail::register_ts_aliases(registry, types.int32_type, {"int32"}, unused_ts, unused_tss);

@@ -89,7 +89,16 @@ namespace hgraph
                 case JsonConverter::AtomicTag::DateTime:
                 case JsonConverter::AtomicTag::TimeDelta:
                 case JsonConverter::AtomicTag::Time:
+                case JsonConverter::AtomicTag::CivilDateTime:
+                case JsonConverter::AtomicTag::ZoneId:
+                case JsonConverter::AtomicTag::ZonedDateTime:
                     return from_json_string(schema, quote_json_string(encoded));
+                case JsonConverter::AtomicTag::Period:
+                case JsonConverter::AtomicTag::InstantRange:
+                case JsonConverter::AtomicTag::CivilDateRange:
+                case JsonConverter::AtomicTag::InstantRangeSet:
+                case JsonConverter::AtomicTag::CivilDateRangeSet:
+                    return from_json_string(schema, encoded);
                 case JsonConverter::AtomicTag::None:
                     // Named enums are atomic but use their member name as a JSON string.
                     if (schema->is_enum())

@@ -6,7 +6,7 @@
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
-#include <hgraph/util/date_time.h>
+#include <hgraph/types/temporal.h>
 
 namespace hgraph::stdlib
 {
@@ -93,6 +93,137 @@ namespace hgraph::stdlib
 
     /** ``last_modified_date`` — the date component of the last-modified time. */
     struct last_modified_date : Operator<"last_modified_date", In<"ts", SIGNAL>, Out<TS<Date>>>
+    {
+    };
+
+    struct at_zone
+        : Operator<"at_zone", In<"instant", TS<Instant>>,
+                   In<"zone", TS<ZoneId>>, Out<TS<ZonedDateTime>>>
+    {
+    };
+
+    struct resolve_civil
+        : Operator<"resolve_civil", In<"local", TS<CivilDateTime>>,
+                   In<"zone", TS<ZoneId>>,
+                   Scalar<"ambiguous", AmbiguousTimePolicy>,
+                   Scalar<"nonexistent", NonexistentTimePolicy>,
+                   Out<TS<ZonedDateTime>>>
+    {
+    };
+
+    struct convert_zone
+        : Operator<"convert_zone", In<"value", TS<ZonedDateTime>>,
+                   In<"zone", TS<ZoneId>>, Out<TS<ZonedDateTime>>>
+    {
+    };
+
+    struct to_instant
+        : Operator<"to_instant", In<"value", TS<ZonedDateTime>>,
+                   Out<TS<Instant>>>
+    {
+    };
+
+    struct to_civil
+        : Operator<"to_civil", In<"value", TS<ZonedDateTime>>,
+                   Out<TS<CivilDateTime>>>
+    {
+    };
+
+    struct range_contains
+        : Operator<"range_contains", In<"range", TsVar<"R">>,
+                   In<"value", TsVar<"V">>, Out<TS<Bool>>>
+    {
+    };
+
+    struct range_intersection
+        : Operator<"range_intersection", In<"lhs", TsVar<"R">>,
+                   In<"rhs", TsVar<"R">>, Out<TsVar<"R">>>
+    {
+    };
+
+    struct range_overlaps
+        : Operator<"range_overlaps", In<"lhs", TsVar<"R">>,
+                   In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
+    {
+    };
+
+    struct range_touches
+        : Operator<"range_touches", In<"lhs", TsVar<"R">>,
+                   In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
+    {
+    };
+
+    struct range_adjacent
+        : Operator<"range_adjacent", In<"lhs", TsVar<"R">>,
+                   In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
+    {
+    };
+
+    struct range_mergeable
+        : Operator<"range_mergeable", In<"lhs", TsVar<"R">>,
+                   In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
+    {
+    };
+
+    struct range_difference
+        : Operator<"range_difference", In<"lhs", TsVar<"R">>,
+                   In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
+    {
+    };
+
+    struct range_union
+        : Operator<"range_union", In<"lhs", TsVar<"R">>,
+                   In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
+    {
+    };
+
+    struct range_merge
+        : Operator<"range_merge", In<"lhs", TsVar<"R">>,
+                   In<"rhs", TsVar<"R">>, Out<TsVar<"R">>>
+    {
+    };
+
+    struct range_hull
+        : Operator<"range_hull", In<"lhs", TsVar<"R">>,
+                   In<"rhs", TsVar<"R">>, Out<TsVar<"R">>>
+    {
+    };
+
+    struct range_shift
+        : Operator<"range_shift", In<"range", TsVar<"R">>,
+                   In<"delta", TsVar<"D">>,
+                   Scalar<"month_end_policy", MonthEndPolicy>,
+                   Out<TsVar<"R">>>
+    {
+    };
+
+    struct range_extent
+        : Operator<"range_extent", In<"range", TS<InstantRange>>,
+                   Out<TS<Duration>>>
+    {
+    };
+
+    struct temporal_floor
+        : Operator<"temporal_floor", In<"value", TsVar<"T">>,
+                   In<"quantum", TS<Duration>>, Out<TsVar<"T">>>
+    {
+    };
+
+    struct temporal_ceil
+        : Operator<"temporal_ceil", In<"value", TsVar<"T">>,
+                   In<"quantum", TS<Duration>>, Out<TsVar<"T">>>
+    {
+    };
+
+    struct temporal_round
+        : Operator<"temporal_round", In<"value", TsVar<"T">>,
+                   In<"quantum", TS<Duration>>, Out<TsVar<"T">>>
+    {
+    };
+
+    struct temporal_bucket
+        : Operator<"temporal_bucket", In<"value", TS<Instant>>,
+                   In<"width", TS<Duration>>, Out<TS<InstantRange>>>
     {
     };
 

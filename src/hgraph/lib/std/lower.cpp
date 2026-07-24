@@ -114,7 +114,10 @@ namespace hgraph::stdlib
 
             std::unique_ptr<arrow::ArrayBuilder> builder;
             require_ok(
-                arrow::MakeBuilder(arrow::default_memory_pool(), arrow::timestamp(arrow::TimeUnit::MICRO), &builder),
+                arrow::MakeBuilder(
+                    arrow::default_memory_pool(),
+                    arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"),
+                    &builder),
                 "as-of builder creation");
             auto &timestamps = static_cast<arrow::TimestampBuilder &>(*builder);
             for (std::int64_t row = 0; row < frame_rows(frame); ++row)
@@ -125,7 +128,11 @@ namespace hgraph::stdlib
             require_ok(builder->Finish(&array), "as-of finish");
             auto column = std::make_shared<arrow::ChunkedArray>(std::move(array));
             frame.table = require_result(
-                frame.table->AddColumn(1, arrow::field(std::string{name}, arrow::timestamp(arrow::TimeUnit::MICRO)),
+                frame.table->AddColumn(
+                    1,
+                    arrow::field(
+                        std::string{name},
+                        arrow::timestamp(arrow::TimeUnit::MICRO, "UTC")),
                                        std::move(column)),
                 "as-of column insertion");
             return frame;

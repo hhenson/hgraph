@@ -62,7 +62,7 @@ def test_typed_frame_metadata_is_encoded_in_arrow_schema_and_round_trips():
     )
     assert value.schema.metadata[b"hgraph.metadata.version"] == b"1"
     assert value.schema.metadata[b"hgraph.metadata.field.as_of"] == (
-        b"2026-01-01 00:00:00.000000"
+        b"2026-01-01T00:00:00Z"
     )
     assert value.schema.metadata[b"hgraph.metadata.field.source"] == (
         'fixture\n"α"'.encode()

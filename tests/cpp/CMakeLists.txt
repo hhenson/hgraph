@@ -192,6 +192,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_std_operators.cpp
     test_std_type_registration.cpp
     test_switch.cpp
+    test_temporal_operators.cpp
     test_tsl_nodes.cpp
     test_tss_nodes.cpp
 )
@@ -212,6 +213,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_slot_utils.cpp
     test_specialized_views.cpp
     test_static_schema.cpp
+    test_temporal.cpp
     test_time_series_reference.cpp
     test_ts_delta.cpp
     test_ts_input.cpp

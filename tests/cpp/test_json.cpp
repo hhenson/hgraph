@@ -7,6 +7,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/value/json_codec.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/temporal.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -47,9 +48,93 @@ TEST_CASE("json: atomic values round-trip in the Python wire format")
     CHECK(round_trip(Date{year{2020}, month{1}, day{31}}) == "\"2020-01-31\"");
     CHECK(round_trip(DateTime{sys_days{Date{year{2021}, month{6}, day{2}}}.time_since_epoch() +
                               microseconds{3'723'000'014}}) ==
-          "\"2021-06-02 01:02:03.000014\"");
-    CHECK(round_trip(TimeDelta{microseconds{2 * 86'400'000'000 + 3'723'500'000}}) == "\"2:1:2:3.500000\"");
+          "\"2021-06-02T01:02:03.000014Z\"");
+    CHECK(round_trip(TimeDelta{microseconds{2 * 86'400'000'000 + 3'723'500'000}}) ==
+          "\"176523500000us\"");
     CHECK(round_trip(time_of_day(9, 30, 5, 250)) == "\"09:30:05.000250\"");
+}
+
+TEST_CASE("json: temporal version 2 scalar and range forms round-trip")
+{
+    using namespace std::chrono;
+    const CivilDate day{year{2025}, month{11}, std::chrono::day{2}};
+    const CivilDateTime local{day, 1, 30, 0, 123};
+    CHECK(round_trip(local) == "\"2025-11-02T01:30:00.000123\"");
+    CHECK(round_trip(Period{1, -2, 3}) ==
+          "{\"months\": 10, \"days\": 3}");
+    CHECK(round_trip(ZoneId{"America/New_York"}) ==
+          "\"America/New_York\"");
+    const auto provider = make_time_zone_provider();
+    const ZonedDateTime zoned = resolve(
+        CivilDateTime{day, 1, 30}, ZoneId{"America/New_York"},
+        *provider, AmbiguousTimePolicy::Latest);
+    CHECK(round_trip(zoned) ==
+          "\"2025-11-02T01:30:00-05:00[America/New_York]\"");
+    CHECK_THROWS_AS(
+        from_json_string(
+            scalar_descriptor<ZonedDateTime>::value_meta(),
+            "\"2025-11-02T01:30:00-03:00[America/New_York]\""),
+        std::invalid_argument);
+
+    const InstantRange range = InstantRange::bounded(
+        Instant{microseconds{0}}, Instant{microseconds{10}},
+        Boundary::Closed, Boundary::Open);
+    CHECK(round_trip(range) ==
+          "{\"start\": \"1970-01-01T00:00:00Z\", \"end\": "
+          "\"1970-01-01T00:00:00.000010Z\", \"lower\": \"closed\", "
+          "\"upper\": \"open\"}");
+    CHECK(round_trip(InstantRange::all()) ==
+          "{\"start\": null, \"end\": null, \"lower\": \"open\", "
+          "\"upper\": \"open\"}");
+    CHECK(round_trip(InstantRange::make_empty()) ==
+          "{\"empty\": true}");
+
+    const InstantRangeSet ranges{
+        range,
+        InstantRange::bounded(Instant{microseconds{20}},
+                              Instant{microseconds{30}})};
+    CHECK(round_trip(ranges) ==
+          "[{\"start\": \"1970-01-01T00:00:00Z\", \"end\": "
+          "\"1970-01-01T00:00:00.000010Z\", \"lower\": \"closed\", "
+          "\"upper\": \"open\"}, {\"start\": "
+          "\"1970-01-01T00:00:00.000020Z\", \"end\": "
+          "\"1970-01-01T00:00:00.000030Z\", \"lower\": \"closed\", "
+          "\"upper\": \"open\"}]");
+}
+
+TEST_CASE("json: schema-directed temporal reads accept legacy version 1 text")
+{
+    using namespace std::chrono;
+    const DateTime expected_instant{
+        sys_days{Date{year{2024}, month{6}, day{13}}}.time_since_epoch() +
+        hours{10} + minutes{15} + seconds{30} + microseconds{42}};
+    const Value instant = from_json_string(
+        scalar_descriptor<DateTime>::value_meta(),
+        "\"2024-06-13 10:15:30.000042\"");
+    CHECK(instant.view().checked_as<DateTime>() == expected_instant);
+    CHECK(to_json_string(instant.view()) ==
+          "\"2024-06-13T10:15:30.000042Z\"");
+
+    const Value positive_duration = from_json_string(
+        scalar_descriptor<TimeDelta>::value_meta(),
+        "\"10:0:0:15.000042\"");
+    CHECK(positive_duration.view().checked_as<TimeDelta>() ==
+          TimeDelta{10 * 86'400'000'000LL + 15'000'042});
+    CHECK(to_json_string(positive_duration.view()) ==
+          "\"864015000042us\"");
+
+    const Value negative_duration = from_json_string(
+        scalar_descriptor<TimeDelta>::value_meta(),
+        "\"-1:23:59:59.999999\"");
+    CHECK(negative_duration.view().checked_as<TimeDelta>() ==
+          TimeDelta{-1});
+    CHECK(to_json_string(negative_duration.view()) == "\"-1us\"");
+
+    const Value early_native_negative = from_json_string(
+        scalar_descriptor<TimeDelta>::value_meta(),
+        "\"0:0:0:0.-00001\"");
+    CHECK(early_native_negative.view().checked_as<TimeDelta>() ==
+          TimeDelta{-1});
 }
 
 TEST_CASE("json: containers round-trip (list, set, map with string and int keys)")
@@ -75,6 +160,21 @@ TEST_CASE("json: containers round-trip (list, set, map with string and int keys)
     CHECK(to_json_string(int_map.view()) == "{\"42\": \"x\"}");
     const Value int_map_back = from_json_string(int_map.view().schema(), "{\"42\": \"x\"}");
     CHECK(int_map_back.view().as_map().size() == 1);
+
+    // Structured temporal keys are encoded as escaped JSON object text and
+    // decoded as JSON again, rather than being treated as plain strings.
+    const Value period_map =
+        stdlib::make_map<Period, Str>({{Period{0, 1, 2}, Str{"month"}}});
+    CHECK(to_json_string(period_map.view()) ==
+          "{\"{\\\"months\\\": 1, \\\"days\\\": 2}\": \"month\"}");
+    const Value period_map_back = from_json_string(
+        period_map.view().schema(),
+        "{\"{\\\"months\\\": 1, \\\"days\\\": 2}\": \"month\"}");
+    REQUIRE(period_map_back.view().as_map().size() == 1);
+    const auto [period_key, period_value] =
+        *period_map_back.view().as_map().begin();
+    CHECK(period_key.checked_as<Period>() == Period{0, 1, 2});
+    CHECK(period_value.checked_as<Str>() == Str{"month"});
 }
 
 TEST_CASE("json: bundles serialize as objects; unknown fields are skipped on read")

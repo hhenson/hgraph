@@ -7,6 +7,7 @@
 #include <hgraph/types/record_replay.h>
 #include <hgraph/types/value/table_codec.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/temporal.h>
 
 #include <arrow/api.h>
 
@@ -41,6 +42,12 @@ TEST_CASE("table codec: an atomic value round-trips through a bitemporal single-
     REQUIRE(converter.columns.size() == 1);
     CHECK(converter.columns[0].name == "value");
     CHECK(converter.arrow_schema->num_fields() == 3);
+    CHECK(converter.arrow_schema->field(0)->type()->ToString() ==
+          "timestamp[us, tz=UTC]");
+    REQUIRE(converter.arrow_schema->metadata() != nullptr);
+    CHECK(converter.arrow_schema->metadata()->Get(
+              "hgraph.temporal.version")
+              .ValueOr("") == "2");
 
     const Value value{Int{42}};
     const Frame frame = single_row_frame(converter, MIN_ST, MIN_ST + TimeDelta{5}, value.view());
@@ -50,6 +57,116 @@ TEST_CASE("table codec: an atomic value round-trips through a bitemporal single-
 
     const Value back = read_row(converter, frame, 0);
     CHECK(back.view().checked_as<Int>() == Int{42});
+}
+
+TEST_CASE("table codec: temporal version 2 Arrow mappings round-trip")
+{
+    using namespace std::chrono;
+    const CivilDate day{year{2025}, month{11}, std::chrono::day{2}};
+
+    const auto check_round_trip = [](const auto &value) {
+        using T = std::decay_t<decltype(value)>;
+        const auto &converter =
+            table_converter(scalar_descriptor<T>::value_meta());
+        const Value wrapped{value};
+        const Frame frame =
+            single_row_frame(converter, MIN_ST, MIN_ST, wrapped.view());
+        CHECK(read_row(converter, frame, 0).view().template checked_as<T>() ==
+              value);
+        return frame;
+    };
+
+    CHECK(check_round_trip(Instant{microseconds{123}})
+              .table->schema()->field(2)
+              ->type()
+              ->ToString() == "timestamp[us, tz=UTC]");
+    CHECK(check_round_trip(Duration{123})
+              .table->schema()->field(2)
+              ->type()
+              ->ToString() == "duration[us]");
+    CHECK(check_round_trip(CivilDateTime{day, 1, 30})
+              .table->schema()->field(2)
+              ->type()
+              ->ToString() == "timestamp[us]");
+    CHECK(check_round_trip(Period{1, -2, 3})
+              .table->schema()->field(2)
+              ->type()
+              ->ToString() == "month_day_nano_interval");
+    CHECK(check_round_trip(ZoneId{"America/New_York"})
+              .table->schema()->field(2)
+              ->type()
+              ->ToString() == "string");
+
+    const auto provider = make_time_zone_provider();
+    const auto zoned = resolve(
+        CivilDateTime{day, 1, 30}, ZoneId{"America/New_York"},
+        *provider, AmbiguousTimePolicy::Latest);
+    const Frame zoned_frame = check_round_trip(zoned);
+    CHECK(zoned_frame.table->schema()->field(2)->type()->id() ==
+          arrow::Type::STRUCT);
+    REQUIRE(zoned_frame.table->schema()->metadata() != nullptr);
+    CHECK_FALSE(zoned_frame.table->schema()
+                    ->metadata()
+                    ->Get("hgraph.tzdb.version")
+                    .ValueOr("")
+                    .empty());
+    auto mismatched_metadata =
+        zoned_frame.table->schema()->metadata()->Copy();
+    REQUIRE(mismatched_metadata
+                ->Set("hgraph.tzdb.version",
+                      "deliberately-different")
+                .ok());
+    const Frame mismatched_zoned{
+        zoned_frame.table->ReplaceSchemaMetadata(
+            std::move(mismatched_metadata))};
+    CHECK_THROWS_AS(
+        read_row(
+            table_converter(
+                scalar_descriptor<ZonedDateTime>::value_meta()),
+            mismatched_zoned, 0),
+        std::invalid_argument);
+
+    const InstantRange range = InstantRange::bounded(
+        Instant{microseconds{0}}, Instant{microseconds{10}});
+    CHECK(check_round_trip(range).table->schema()->field(2)->type()->id() ==
+          arrow::Type::STRUCT);
+    const InstantRangeSet ranges{
+        range,
+        InstantRange::bounded(Instant{microseconds{20}},
+                              Instant{microseconds{30}})};
+    CHECK(check_round_trip(ranges).table->schema()->field(2)->type()->id() ==
+          arrow::Type::FIXED_SIZE_LIST);
+}
+
+TEST_CASE("table codec: schema-declared legacy Instant reads but version 2 rejects it")
+{
+    auto builder = std::make_shared<arrow::TimestampBuilder>(
+        arrow::timestamp(arrow::TimeUnit::MICRO),
+        arrow::default_memory_pool());
+    REQUIRE(builder->Append(42).ok());
+    std::shared_ptr<arrow::Array> values;
+    REQUIRE(builder->Finish(&values).ok());
+
+    const auto legacy_schema = arrow::schema(
+        {arrow::field("value",
+                      arrow::timestamp(arrow::TimeUnit::MICRO))});
+    const Frame legacy{arrow::Table::Make(legacy_schema, {values}, 1)};
+    CHECK(frame_cell(legacy, "value",
+                     scalar_descriptor<Instant>::value_meta(), 0)
+              .view()
+              .checked_as<Instant>() ==
+              Instant{std::chrono::microseconds{42}});
+
+    const auto version_two_schema = arrow::schema(
+        legacy_schema->fields(),
+        arrow::key_value_metadata(
+            {"hgraph.temporal.version"}, {"2"}));
+    const Frame invalid{
+        arrow::Table::Make(version_two_schema, {values}, 1)};
+    CHECK_THROWS_AS(
+        frame_cell(invalid, "value",
+                   scalar_descriptor<Instant>::value_meta(), 0),
+        std::invalid_argument);
 }
 
 TEST_CASE("table codec: bytes and variadic tuples are Arrow leaf values")

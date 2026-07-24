@@ -14,6 +14,8 @@ project(
 )
 
 include(CMakePackageConfigHelpers)
+include(CheckCXXSourceCompiles)
+include(CheckCXXSourceRuns)
 include(CTest)
 include(FetchContent)
 include(GNUInstallDirs)
@@ -57,6 +59,7 @@ configure_file("${HGRAPH_VERSION_HEADER_IN}" "${HGRAPH_VERSION_HEADER}" @ONLY)
 option(HGRAPH_BUILD_SHARED "Build hgraph_core as a shared library" OFF)
 option(HGRAPH_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(HGRAPH_FETCH_SIMDJSON "Fetch the supported simdjson release instead of using a system package" OFF)
+option(HGRAPH_FETCH_DATE "Fetch the supported date/tz release when no package is available" OFF)
 option(HGRAPH_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(HGRAPH_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(HGRAPH_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
@@ -164,6 +167,118 @@ endif()
 
 find_package(Threads REQUIRED)
 target_link_libraries(hgraph_options INTERFACE Threads::Threads)
+
+set(HGRAPH_TIME_ZONE_BACKEND "auto" CACHE STRING
+    "Named-zone backend: auto, std, or date")
+set_property(CACHE HGRAPH_TIME_ZONE_BACKEND PROPERTY STRINGS auto std date)
+if(NOT HGRAPH_TIME_ZONE_BACKEND MATCHES "^(auto|std|date)$")
+    message(FATAL_ERROR
+        "HGRAPH_TIME_ZONE_BACKEND must be one of: auto, std, date")
+endif()
+
+set(_hgraph_saved_required_flags "${CMAKE_REQUIRED_FLAGS}")
+if(MSVC)
+    string(APPEND CMAKE_REQUIRED_FLAGS " /std:c++latest")
+else()
+    string(APPEND CMAKE_REQUIRED_FLAGS " -std=c++23")
+endif()
+check_cxx_source_compiles([=[
+    #include <chrono>
+    int main() {
+        const auto &database = std::chrono::get_tzdb();
+        const auto *zone = database.locate_zone("UTC");
+        (void)zone->get_info(std::chrono::sys_time<std::chrono::microseconds>{});
+        (void)zone->get_info(std::chrono::local_time<std::chrono::microseconds>{});
+        return database.version.empty();
+    }
+]=] HGRAPH_STD_CHRONO_TZDB_AVAILABLE)
+if(HGRAPH_STD_CHRONO_TZDB_AVAILABLE)
+    check_cxx_source_runs([=[
+        #include <chrono>
+        int main() {
+            try {
+                const auto *zone =
+                    std::chrono::get_tzdb().locate_zone("Pacific/Apia");
+                const auto before = zone->get_info(
+                    std::chrono::sys_seconds{std::chrono::seconds{1325239199}});
+                const auto after = zone->get_info(
+                    std::chrono::sys_seconds{std::chrono::seconds{1325239200}});
+                return before.offset == std::chrono::seconds{-36000} &&
+                               after.offset == std::chrono::seconds{50400}
+                           ? 0
+                           : 1;
+            } catch (...) {
+                return 1;
+            }
+        }
+    ]=] HGRAPH_STD_CHRONO_TZDB_CONFORMING)
+else()
+    set(HGRAPH_STD_CHRONO_TZDB_CONFORMING OFF)
+endif()
+set(CMAKE_REQUIRED_FLAGS "${_hgraph_saved_required_flags}")
+unset(_hgraph_saved_required_flags)
+
+set(_hgraph_selected_time_zone_backend "${HGRAPH_TIME_ZONE_BACKEND}")
+if(_hgraph_selected_time_zone_backend STREQUAL "auto")
+    if(HGRAPH_STD_CHRONO_TZDB_AVAILABLE AND
+       HGRAPH_STD_CHRONO_TZDB_CONFORMING)
+        set(_hgraph_selected_time_zone_backend "std")
+    else()
+        set(_hgraph_selected_time_zone_backend "date")
+    endif()
+endif()
+if(_hgraph_selected_time_zone_backend STREQUAL "std" AND
+   (NOT HGRAPH_STD_CHRONO_TZDB_AVAILABLE OR
+    NOT HGRAPH_STD_CHRONO_TZDB_CONFORMING))
+    message(FATAL_ERROR
+        "HGRAPH_TIME_ZONE_BACKEND=std was requested, but this standard "
+        "library does not provide a conforming C++20 TZDB implementation")
+endif()
+
+set(_hgraph_date_fetched OFF)
+if(_hgraph_selected_time_zone_backend STREQUAL "date")
+    find_package(date 3.0.4 CONFIG QUIET)
+    if(NOT TARGET date::date-tz)
+        if(NOT HGRAPH_FETCH_DATE)
+            message(FATAL_ERROR
+                "The selected named-zone backend requires date/tz >= 3.0.4. "
+                "Install its CMake package or configure with "
+                "-DHGRAPH_FETCH_DATE=ON.")
+        endif()
+        FetchContent_Declare(
+            date
+            GIT_REPOSITORY https://github.com/HowardHinnant/date.git
+            GIT_TAG        v3.0.4
+            GIT_SHALLOW    TRUE
+            SYSTEM
+        )
+        set(BUILD_TZ_LIB ON CACHE BOOL "Build date/tz" FORCE)
+        set(USE_SYSTEM_TZ_DB ON CACHE BOOL "Use the operating-system TZDB" FORCE)
+        set(ENABLE_DATE_TESTING OFF CACHE BOOL "Build date tests" FORCE)
+        if(HGRAPH_BUILD_SHARED)
+            set(ENABLE_DATE_INSTALL OFF CACHE BOOL
+                "Install date/tz with static hgraph SDKs" FORCE)
+        else()
+            set(ENABLE_DATE_INSTALL ON CACHE BOOL
+                "Install date/tz with static hgraph SDKs" FORCE)
+        endif()
+        FetchContent_MakeAvailable(date)
+        set(_hgraph_date_fetched ON)
+    endif()
+    if(HGRAPH_BUILD_SHARED)
+        target_link_libraries(hgraph_private_dependencies INTERFACE date::date-tz)
+    else()
+        target_link_libraries(hgraph_options INTERFACE
+            $<BUILD_INTERFACE:date::date-tz>)
+    endif()
+    target_compile_definitions(hgraph_options INTERFACE
+        HGRAPH_TIME_ZONE_BACKEND_DATE=1)
+else()
+    target_compile_definitions(hgraph_options INTERFACE
+        HGRAPH_TIME_ZONE_BACKEND_STD=1)
+endif()
+message(STATUS
+    "hgraph named-zone backend: ${_hgraph_selected_time_zone_backend}")
 
 if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_FETCH_SIMDJSON)
     # Wheels must not retain a dependency on a package-manager shared library;
@@ -664,6 +779,11 @@ if(NOT HGRAPH_BUILD_SHARED OR NOT HGRAPH_BUILD_PYTHON_BINDINGS)
         "  message(FATAL_ERROR \"hgraph requires simdjson >= 4.5; found \${simdjson_VERSION}\")\n"
         "endif()\n"
     )
+    if(NOT HGRAPH_BUILD_SHARED AND
+       _hgraph_selected_time_zone_backend STREQUAL "date")
+        list(APPEND _hgraph_config_dependencies
+            "find_dependency(date 3.0.4 CONFIG)\n")
+    endif()
 endif()
 string(JOIN "" _hgraph_config_dependencies ${_hgraph_config_dependencies})
 if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON_USER_NODES)
@@ -709,6 +829,9 @@ if(NOT HGRAPH_BUILD_SHARED)
         # resolved above for installed static configurations.
         "if(TARGET hgraph::options)\n"
         "  target_link_libraries(hgraph::options INTERFACE simdjson::simdjson fmt::fmt spdlog::spdlog)\n"
+        "  if(TARGET date::date-tz)\n"
+        "    target_link_libraries(hgraph::options INTERFACE date::date-tz)\n"
+        "  endif()\n"
         "endif()\n"
     )
 elseif(NOT HGRAPH_BUILD_PYTHON_BINDINGS)

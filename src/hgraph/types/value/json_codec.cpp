@@ -4,6 +4,7 @@
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/temporal.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/date_time.h>
 
@@ -317,9 +318,295 @@ namespace hgraph
                 ++i;
                 const std::size_t start = i;
                 micros                  = parse_fixed_int(s, i, reader);
+                if (i - start > 6)
+                {
+                    reader.fail(
+                        "time fractions support at most six digits");
+                }
                 for (std::size_t digits = i - start; digits < 6; ++digits) { micros *= 10; }
             }
+            if (h > 23 || m > 59 || sec > 59)
+            {
+                reader.fail("invalid time fields");
+            }
             return ((h * 60 + m) * 60 + sec) * 1'000'000 + micros;
+        }
+
+        [[nodiscard]] CivilDateTime parse_civil_datetime(
+            std::string_view text, Reader &reader, bool instant_syntax)
+        {
+            std::size_t position = 0;
+            const CivilDate date = parse_date_body(text, position, reader);
+            if (position >= text.size() ||
+                (text[position] != 'T' && text[position] != ' '))
+            {
+                reader.fail("bad date/time separator");
+            }
+            ++position;
+            const auto micros = parse_time_body_micros(text, position, reader);
+            // Version-2 instants end in Z.  Version-1 recordings used a
+            // space separator and no suffix; accept both on ingest and
+            // normalize through the native Instant representation.
+            if (instant_syntax && position < text.size() &&
+                text[position] == 'Z')
+            {
+                ++position;
+            }
+            if (position != text.size())
+            {
+                reader.fail("trailing civil datetime content");
+            }
+            return CivilDateTime{date, CivilTime{micros}};
+        }
+
+        [[nodiscard]] Duration parse_json_duration(
+            std::string_view text, Reader &reader)
+        {
+            if (text.ends_with("us"))
+            {
+                return parse_duration(text);
+            }
+
+            // Legacy hgraph JSON used
+            // ``days:hours:minutes:seconds.microseconds``. Python producers
+            // normalize a negative value into a signed day plus a
+            // non-negative remainder. Early native writers instead used
+            // signed, truncation-based components; accept both shapes.
+            std::array<std::string_view, 4> components{};
+            std::size_t component_start = 0;
+            for (std::size_t index = 0; index < 3; ++index)
+            {
+                const std::size_t separator =
+                    text.find(':', component_start);
+                if (separator == std::string_view::npos ||
+                    separator == component_start)
+                {
+                    reader.fail("invalid duration");
+                }
+                components[index] =
+                    text.substr(component_start,
+                                separator - component_start);
+                component_start = separator + 1;
+            }
+            components[3] = text.substr(component_start);
+            if (components[3].empty() ||
+                components[3].find(':') != std::string_view::npos)
+            {
+                reader.fail("invalid duration");
+            }
+
+            const auto parse_component =
+                [&](std::string_view component,
+                    std::string_view label) {
+                    bool positive_sign = false;
+                    if (component.starts_with('+'))
+                    {
+                        positive_sign = true;
+                        component.remove_prefix(1);
+                    }
+                    if (component.empty())
+                    {
+                        reader.fail(
+                            std::string{"invalid duration "} +
+                            std::string{label});
+                    }
+                    std::int64_t result{};
+                    const auto [end, error] = std::from_chars(
+                        component.data(),
+                        component.data() + component.size(), result);
+                    if (error != std::errc{} ||
+                        end != component.data() + component.size() ||
+                        (positive_sign && result < 0))
+                    {
+                        reader.fail(
+                            std::string{"invalid duration "} +
+                            std::string{label});
+                    }
+                    return result;
+                };
+
+            const std::int64_t days =
+                parse_component(components[0], "day field");
+            const std::int64_t hours =
+                parse_component(components[1], "hour field");
+            const std::int64_t minutes =
+                parse_component(components[2], "minute field");
+
+            std::int64_t seconds{};
+            std::int64_t micros{};
+            const std::size_t decimal = components[3].find('.');
+            if (decimal == std::string_view::npos)
+            {
+                seconds = parse_component(
+                    components[3], "second field");
+            }
+            else
+            {
+                seconds = parse_component(
+                    components[3].substr(0, decimal),
+                    "second field");
+                std::string_view fraction =
+                    components[3].substr(decimal + 1);
+                if (fraction.empty())
+                {
+                    reader.fail("invalid duration fraction");
+                }
+                const bool signed_fraction =
+                    fraction.front() == '-' ||
+                    fraction.front() == '+';
+                micros = parse_component(
+                    fraction, "fraction");
+                const std::size_t digits =
+                    fraction.size() - (signed_fraction ? 1U : 0U);
+                if (digits > 6)
+                {
+                    reader.fail(
+                        "duration fractions support at most six digits");
+                }
+                // Normal v1 text is a decimal fraction and is padded on the
+                // right. Early native v1 writers could emit a signed
+                // microsecond remainder such as ``.-00001``; preserve that
+                // exact integer interpretation as a compatibility path.
+                if (!signed_fraction)
+                {
+                    for (std::size_t index = digits; index < 6; ++index)
+                    {
+                        micros *= 10;
+                    }
+                }
+            }
+
+            constexpr auto minimum =
+                std::numeric_limits<std::int64_t>::min();
+            constexpr auto maximum =
+                std::numeric_limits<std::int64_t>::max();
+            std::int64_t result = 0;
+            const auto accumulate =
+                [&](std::int64_t component,
+                    std::int64_t scale) {
+                    if (component < minimum / scale ||
+                        component > maximum / scale)
+                    {
+                        reader.fail("duration overflow");
+                    }
+                    const std::int64_t value = component * scale;
+                    if ((value > 0 && result > maximum - value) ||
+                        (value < 0 && result < minimum - value))
+                    {
+                        reader.fail("duration overflow");
+                    }
+                    result += value;
+                };
+            accumulate(days, 86'400'000'000);
+            accumulate(hours, 3'600'000'000);
+            accumulate(minutes, 60'000'000);
+            accumulate(seconds, 1'000'000);
+            accumulate(micros, 1);
+            return Duration{result};
+        }
+
+        [[nodiscard]] Boundary parse_boundary(std::string_view value,
+                                              Reader &reader)
+        {
+            if (value == "open") { return Boundary::Open; }
+            if (value == "closed") { return Boundary::Closed; }
+            reader.fail("range boundary must be 'open' or 'closed'");
+        }
+
+        void write_boundary(Boundary value, std::string &out)
+        {
+            append_escaped(
+                value == Boundary::Closed ? "closed" : "open", out);
+        }
+
+        template <typename Range, typename Format>
+        void write_range(const Range &range, Format &&format,
+                         std::string &out)
+        {
+            if (range.empty())
+            {
+                out += "{\"empty\": true}";
+                return;
+            }
+            out += "{\"start\": ";
+            if (range.lower_bounded())
+            {
+                append_escaped(format(range.lower_value()), out);
+            }
+            else { out += "null"; }
+            out += ", \"end\": ";
+            if (range.upper_bounded())
+            {
+                append_escaped(format(range.upper_value()), out);
+            }
+            else { out += "null"; }
+            out += ", \"lower\": ";
+            write_boundary(range.lower_boundary(), out);
+            out += ", \"upper\": ";
+            write_boundary(range.upper_boundary(), out);
+            out.push_back('}');
+        }
+
+        template <typename Range, typename Parse>
+        [[nodiscard]] Range read_range(Reader &reader, Parse &&parse)
+        {
+            reader.expect('{');
+            const std::string first_key = reader.parse_string();
+            reader.expect(':');
+            if (first_key == "empty")
+            {
+                if (!reader.consume_keyword("true"))
+                {
+                    reader.fail("empty range marker must be true");
+                }
+                reader.expect('}');
+                return Range::make_empty();
+            }
+            if (first_key != "start")
+            {
+                reader.fail("range object must begin with 'start'");
+            }
+            using Endpoint = typename Range::value_type;
+            std::optional<Endpoint> start;
+            if (!reader.consume_keyword("null"))
+            {
+                start = parse(reader.parse_string(), reader);
+            }
+            reader.expect(',');
+            if (reader.parse_string() != "end")
+            {
+                reader.fail("range object requires 'end'");
+            }
+            reader.expect(':');
+            std::optional<Endpoint> end;
+            if (!reader.consume_keyword("null"))
+            {
+                end = parse(reader.parse_string(), reader);
+            }
+            reader.expect(',');
+            if (reader.parse_string() != "lower")
+            {
+                reader.fail("range object requires 'lower'");
+            }
+            reader.expect(':');
+            const Boundary lower =
+                parse_boundary(reader.parse_string(), reader);
+            reader.expect(',');
+            if (reader.parse_string() != "upper")
+            {
+                reader.fail("range object requires 'upper'");
+            }
+            reader.expect(':');
+            const Boundary upper =
+                parse_boundary(reader.parse_string(), reader);
+            reader.expect('}');
+            if (start && end)
+            {
+                return Range::bounded(*start, *end, lower, upper);
+            }
+            if (start) { return Range::from(*start, lower); }
+            if (end) { return Range::until(*end, upper); }
+            return Range::all();
         }
     }  // namespace json_detail
 
@@ -327,6 +614,27 @@ namespace hgraph
     {
         using json_detail::Reader;
         using AtomicTag = JsonConverter::AtomicTag;
+
+        [[nodiscard]] const TimeZoneProvider &codec_time_zone_provider()
+        {
+            static const auto provider = make_time_zone_provider();
+            return *provider;
+        }
+
+        [[nodiscard]] bool structured_map_key(AtomicTag tag) noexcept
+        {
+            switch (tag)
+            {
+            case AtomicTag::Period:
+            case AtomicTag::InstantRange:
+            case AtomicTag::CivilDateRange:
+            case AtomicTag::InstantRangeSet:
+            case AtomicTag::CivilDateRangeSet:
+                return true;
+            default:
+                return false;
+            }
+        }
 
         // ---------------------------------------------------------------
         // Write thunks
@@ -372,31 +680,90 @@ namespace hgraph
                     return;
                 }
                 case AtomicTag::DateTime: {
-                    const auto when = view.checked_as<DateTime>();
-                    const auto day  = std::chrono::floor<std::chrono::days>(when);
-                    out.push_back('"');
-                    json_detail::append_date(Date{day}, out);
-                    out.push_back(' ');
-                    json_detail::append_time_of_day(
-                        std::chrono::duration_cast<std::chrono::microseconds>(when - day).count(), out);
-                    out.push_back('"');
+                    json_detail::append_escaped(
+                        format_instant(view.checked_as<Instant>()), out);
                     return;
                 }
                 case AtomicTag::TimeDelta: {
-                    // Python form: "days:hours:minutes:seconds.micros".
-                    const auto delta  = view.checked_as<TimeDelta>();
-                    const auto micros = delta.count();
-                    const auto days   = micros / 86'400'000'000;
-                    const auto rem    = micros % 86'400'000'000;
-                    const auto secs   = rem / 1'000'000;
-                    out += fmt::format("\"{}:{}:{}:{}.{:06}\"", days, secs / 3'600, (secs / 60) % 60, secs % 60,
-                                       rem % 1'000'000);
+                    json_detail::append_escaped(
+                        format_duration(view.checked_as<Duration>()), out);
                     return;
                 }
                 case AtomicTag::Time: {
                     out.push_back('"');
                     json_detail::append_time_of_day(view.checked_as<Time>().microseconds, out);
                     out.push_back('"');
+                    return;
+                }
+                case AtomicTag::CivilDateTime:
+                    json_detail::append_escaped(
+                        format_civil_datetime(
+                            view.checked_as<CivilDateTime>()),
+                        out);
+                    return;
+                case AtomicTag::Period: {
+                    const Period value = view.checked_as<Period>();
+                    out += fmt::format(
+                        "{{\"months\": {}, \"days\": {}}}",
+                        value.total_months(), value.days());
+                    return;
+                }
+                case AtomicTag::ZoneId:
+                    json_detail::append_escaped(
+                        view.checked_as<ZoneId>().name(), out);
+                    return;
+                case AtomicTag::ZonedDateTime: {
+                    std::ostringstream text;
+                    text << view.checked_as<ZonedDateTime>();
+                    json_detail::append_escaped(text.str(), out);
+                    return;
+                }
+                case AtomicTag::InstantRange:
+                    json_detail::write_range(
+                        view.checked_as<InstantRange>(),
+                        [](Instant value) { return format_instant(value); },
+                        out);
+                    return;
+                case AtomicTag::CivilDateRange:
+                    json_detail::write_range(
+                        view.checked_as<CivilDateRange>(),
+                        [](CivilDate value) {
+                            return format_civil_date(value);
+                        },
+                        out);
+                    return;
+                case AtomicTag::InstantRangeSet: {
+                    out.push_back('[');
+                    bool first = true;
+                    for (const auto &range :
+                         view.checked_as<InstantRangeSet>())
+                    {
+                        if (!std::exchange(first, false)) { out += ", "; }
+                        json_detail::write_range(
+                            range,
+                            [](Instant value) {
+                                return format_instant(value);
+                            },
+                            out);
+                    }
+                    out.push_back(']');
+                    return;
+                }
+                case AtomicTag::CivilDateRangeSet: {
+                    out.push_back('[');
+                    bool first = true;
+                    for (const auto &range :
+                         view.checked_as<CivilDateRangeSet>())
+                    {
+                        if (!std::exchange(first, false)) { out += ", "; }
+                        json_detail::write_range(
+                            range,
+                            [](CivilDate value) {
+                                return format_civil_date(value);
+                            },
+                            out);
+                    }
+                    out.push_back(']');
                     return;
                 }
                 case AtomicTag::None: break;
@@ -533,26 +900,189 @@ namespace hgraph
                     return Value{json_detail::parse_date_body(s, i, reader)};
                 }
                 case AtomicTag::DateTime: {
-                    const std::string s   = reader.parse_string();
-                    std::size_t       i   = 0;
-                    const Date        day = json_detail::parse_date_body(s, i, reader);
-                    json_detail::expect_char(s, i, ' ', reader);
-                    const auto micros = json_detail::parse_time_body_micros(s, i, reader);
-                    return Value{DateTime{std::chrono::sys_days{day}.time_since_epoch() +
-                                          std::chrono::microseconds{micros}}};
+                    const CivilDateTime value =
+                        json_detail::parse_civil_datetime(
+                            reader.parse_string(), reader, true);
+                    return Value{Instant{
+                        Duration{value.epoch_microseconds()}}};
                 }
                 case AtomicTag::TimeDelta: {
-                    const std::string s = reader.parse_string();
-                    std::size_t       i = 0;
-                    const auto        d = json_detail::parse_fixed_int(s, i, reader);
-                    json_detail::expect_char(s, i, ':', reader);
-                    const auto micros = json_detail::parse_time_body_micros(s, i, reader);
-                    return Value{TimeDelta{d * 86'400'000'000 + micros}};
+                    return Value{
+                        json_detail::parse_json_duration(
+                            reader.parse_string(), reader)};
                 }
                 case AtomicTag::Time: {
                     const std::string s = reader.parse_string();
                     std::size_t       i = 0;
                     return Value{Time{json_detail::parse_time_body_micros(s, i, reader)}};
+                }
+                case AtomicTag::CivilDateTime:
+                    return Value{json_detail::parse_civil_datetime(
+                        reader.parse_string(), reader, false)};
+                case AtomicTag::Period: {
+                    reader.expect('{');
+                    if (reader.parse_string() != "months")
+                    {
+                        reader.fail("period object requires 'months'");
+                    }
+                    reader.expect(':');
+                    const auto months = json_detail::parse_int_token(
+                        reader.parse_number_token(), reader);
+                    reader.expect(',');
+                    if (reader.parse_string() != "days")
+                    {
+                        reader.fail("period object requires 'days'");
+                    }
+                    reader.expect(':');
+                    const auto days = json_detail::parse_int_token(
+                        reader.parse_number_token(), reader);
+                    reader.expect('}');
+                    return Value{Period{0, months, days}};
+                }
+                case AtomicTag::ZoneId:
+                    return Value{ZoneId{reader.parse_string()}};
+                case AtomicTag::ZonedDateTime: {
+                    const std::string text = reader.parse_string();
+                    const auto bracket = text.find('[');
+                    if (bracket == std::string::npos ||
+                        text.empty() || text.back() != ']')
+                    {
+                        reader.fail("invalid zoned datetime");
+                    }
+                    const auto sign_position =
+                        text.find_last_of("+-", bracket);
+                    if (sign_position == std::string::npos ||
+                        sign_position + 6 != bracket ||
+                        text[sign_position + 3] != ':')
+                    {
+                        reader.fail("invalid zoned datetime offset");
+                    }
+                    const CivilDateTime local =
+                        json_detail::parse_civil_datetime(
+                            std::string_view{text}.substr(0, sign_position),
+                            reader, false);
+                    const auto parse_two = [&](std::size_t position) {
+                        const char first = text[position];
+                        const char second = text[position + 1];
+                        if (first < '0' || first > '9' ||
+                            second < '0' || second > '9')
+                        {
+                            reader.fail("invalid zoned datetime offset");
+                        }
+                        return (first - '0') * 10 + second - '0';
+                    };
+                    const int magnitude =
+                        parse_two(sign_position + 1) * 3600 +
+                        parse_two(sign_position + 4) * 60;
+                    const int offset =
+                        text[sign_position] == '-' ? -magnitude : magnitude;
+                    const ZoneId zone{
+                        std::string_view{text}.substr(
+                            bracket + 1, text.size() - bracket - 2)};
+                    const Instant instant = checked_subtract(
+                        Instant{Duration{local.epoch_microseconds()}},
+                        Duration{static_cast<std::int64_t>(offset) *
+                                 1'000'000});
+                    const ZonedDateTime verified =
+                        at_zone(instant, zone,
+                                codec_time_zone_provider());
+                    if (verified.offset_seconds() != offset)
+                    {
+                        reader.fail(
+                            "zoned datetime offset disagrees with provider");
+                    }
+                    return Value{verified};
+                }
+                case AtomicTag::InstantRange:
+                    return Value{json_detail::read_range<InstantRange>(
+                        reader,
+                        [](std::string_view value, Reader &nested) {
+                            const CivilDateTime parsed =
+                                json_detail::parse_civil_datetime(
+                                    value, nested, true);
+                            return Instant{
+                                Duration{parsed.epoch_microseconds()}};
+                        })};
+                case AtomicTag::CivilDateRange:
+                    return Value{json_detail::read_range<CivilDateRange>(
+                        reader,
+                        [](std::string_view value, Reader &nested) {
+                            std::size_t position = 0;
+                            const CivilDate parsed =
+                                json_detail::parse_date_body(
+                                    value, position, nested);
+                            if (position != value.size())
+                            {
+                                nested.fail("trailing date content");
+                            }
+                            return parsed;
+                        })};
+                case AtomicTag::InstantRangeSet: {
+                    std::array<InstantRange, 2> ranges{};
+                    std::size_t size = 0;
+                    reader.expect('[');
+                    if (!reader.consume_if(']'))
+                    {
+                        while (true)
+                        {
+                            if (size == ranges.size())
+                            {
+                                reader.fail(
+                                    "instant range set exceeds capacity");
+                            }
+                            ranges[size++] =
+                                json_detail::read_range<InstantRange>(
+                                    reader,
+                                    [](std::string_view value,
+                                       Reader &nested) {
+                                        const auto parsed =
+                                            json_detail::parse_civil_datetime(
+                                                value, nested, true);
+                                        return Instant{Duration{
+                                            parsed.epoch_microseconds()}};
+                                    });
+                            if (!reader.consume_if(',')) { break; }
+                        }
+                        reader.expect(']');
+                    }
+                    return Value{InstantRangeSet{
+                        std::span<const InstantRange>{ranges.data(), size}}};
+                }
+                case AtomicTag::CivilDateRangeSet: {
+                    std::array<CivilDateRange, 2> ranges{};
+                    std::size_t size = 0;
+                    reader.expect('[');
+                    if (!reader.consume_if(']'))
+                    {
+                        while (true)
+                        {
+                            if (size == ranges.size())
+                            {
+                                reader.fail(
+                                    "civil date range set exceeds capacity");
+                            }
+                            ranges[size++] =
+                                json_detail::read_range<CivilDateRange>(
+                                    reader,
+                                    [](std::string_view value,
+                                       Reader &nested) {
+                                        std::size_t position = 0;
+                                        const auto parsed =
+                                            json_detail::parse_date_body(
+                                                value, position, nested);
+                                        if (position != value.size())
+                                        {
+                                            nested.fail(
+                                                "trailing date content");
+                                        }
+                                        return parsed;
+                                    });
+                            if (!reader.consume_if(',')) { break; }
+                        }
+                        reader.expect(']');
+                    }
+                    return Value{CivilDateRangeSet{
+                        std::span<const CivilDateRange>{ranges.data(), size}}};
                 }
                 case AtomicTag::None: break;
             }
@@ -747,7 +1277,9 @@ namespace hgraph
                         // Quoted forms (dates etc.) arrive without their quotes;
                         // re-wrap so the atomic reader sees its expected shape.
                         std::string requoted;
-                        if (self.children[0]->atomic_tag != AtomicTag::Int &&
+                        if (!structured_map_key(
+                                self.children[0]->atomic_tag) &&
+                            self.children[0]->atomic_tag != AtomicTag::Int &&
                             self.children[0]->atomic_tag != AtomicTag::Float &&
                             self.children[0]->atomic_tag != AtomicTag::Bool)
                         {
@@ -795,6 +1327,38 @@ namespace hgraph
             if (meta == scalar_descriptor<DateTime>::value_meta()) { return AtomicTag::DateTime; }
             if (meta == scalar_descriptor<TimeDelta>::value_meta()) { return AtomicTag::TimeDelta; }
             if (meta == scalar_descriptor<Time>::value_meta()) { return AtomicTag::Time; }
+            if (meta == scalar_descriptor<CivilDateTime>::value_meta())
+            {
+                return AtomicTag::CivilDateTime;
+            }
+            if (meta == scalar_descriptor<Period>::value_meta())
+            {
+                return AtomicTag::Period;
+            }
+            if (meta == scalar_descriptor<ZoneId>::value_meta())
+            {
+                return AtomicTag::ZoneId;
+            }
+            if (meta == scalar_descriptor<ZonedDateTime>::value_meta())
+            {
+                return AtomicTag::ZonedDateTime;
+            }
+            if (meta == scalar_descriptor<InstantRange>::value_meta())
+            {
+                return AtomicTag::InstantRange;
+            }
+            if (meta == scalar_descriptor<CivilDateRange>::value_meta())
+            {
+                return AtomicTag::CivilDateRange;
+            }
+            if (meta == scalar_descriptor<InstantRangeSet>::value_meta())
+            {
+                return AtomicTag::InstantRangeSet;
+            }
+            if (meta == scalar_descriptor<CivilDateRangeSet>::value_meta())
+            {
+                return AtomicTag::CivilDateRangeSet;
+            }
             return AtomicTag::None;
         }
 

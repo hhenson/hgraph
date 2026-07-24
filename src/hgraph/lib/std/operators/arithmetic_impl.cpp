@@ -15,12 +15,33 @@ namespace hgraph::stdlib
         register_overload<add_, lift<scalar_add<Int>>>();                                      // int + int -> int
         register_overload<add_, lift<scalar_add<Float>>>();                                    // float + float -> float
         register_overload<add_, lift<scalar_add<Str>>>();                                      // string concatenation
-        register_overload<add_, lift<scalar_add<TimeDelta>>>();                                // TimeDelta + TimeDelta
+        register_overload<add_, checked_add_durations>();                                      // TimeDelta + TimeDelta
         register_overload<add_, lift<scalar_add<Int, Float, Float>>>();                        // int + float -> float
         register_overload<add_, lift<scalar_add<Float, Int, Float>>>();                        // float + int -> float
-        register_overload<add_, lift<scalar_add<DateTime, TimeDelta, DateTime>>>();            // DateTime + TimeDelta
-        register_overload<add_, lift<scalar_add<TimeDelta, DateTime, DateTime>>>();            // TimeDelta + DateTime
+        register_overload<add_, checked_add_instant_duration>();                               // DateTime + TimeDelta
+        register_overload<add_, checked_add_duration_instant>();                               // TimeDelta + DateTime
         register_overload<add_, add_date_timedelta>();                                           // Date + TimeDelta -> Date
+        register_overload<add_, checked_add_periods>();
+        register_overload<add_, checked_add_civil_datetime_duration>();
+        register_overload<add_, combine_civil_date_time>();
+        register_overload<add_, checked_add_zoned_duration>();
+        register_overload<add_, checked_add_duration_zoned>();
+        register_overload<add_, apply_period_add_impl<
+                                    Date, MonthEndPolicy::Reject>>();
+        register_overload<add_, apply_period_add_impl<
+                                    Date, MonthEndPolicy::Clamp>>();
+        register_overload<add_, apply_period_add_impl<
+                                    Date,
+                                    MonthEndPolicy::PreserveEndOfMonth>>();
+        register_overload<add_, apply_period_add_impl<
+                                    CivilDateTime,
+                                    MonthEndPolicy::Reject>>();
+        register_overload<add_, apply_period_add_impl<
+                                    CivilDateTime,
+                                    MonthEndPolicy::Clamp>>();
+        register_overload<add_, apply_period_add_impl<
+                                    CivilDateTime,
+                                    MonthEndPolicy::PreserveEndOfMonth>>();
         register_graph_overload<add_, tsl_binary_map<add_>>();
         register_graph_overload<add_, tsl_rhs_broadcast_map<add_>>();
         register_graph_overload<add_, tsl_lhs_broadcast_map<add_>>();
@@ -29,12 +50,32 @@ namespace hgraph::stdlib
         // sub_ — note the result type that differs from the operands.
         register_overload<sub_, lift<scalar_sub<Int>>>();                                      // int - int -> int
         register_overload<sub_, lift<scalar_sub<Float>>>();                                    // float - float -> float
-        register_overload<sub_, lift<scalar_sub<TimeDelta>>>();                                // TimeDelta - TimeDelta
+        register_overload<sub_, checked_sub_durations>();                                      // TimeDelta - TimeDelta
         register_overload<sub_, lift<scalar_sub<Int, Float, Float>>>();                        // int - float -> float
         register_overload<sub_, lift<scalar_sub<Float, Int, Float>>>();                        // float - int -> float
-        register_overload<sub_, lift<scalar_sub<DateTime, TimeDelta, DateTime>>>();            // DateTime - TimeDelta
-        register_overload<sub_, lift<scalar_sub<DateTime, DateTime, TimeDelta>>>();            // DateTime - DateTime -> TimeDelta
+        register_overload<sub_, checked_sub_instant_duration>();                               // DateTime - TimeDelta
+        register_overload<sub_, checked_sub_instants>();                                       // DateTime - DateTime -> TimeDelta
         register_overload<sub_, sub_dates>();                                                    // Date - Date -> TimeDelta
+        register_overload<sub_, checked_sub_periods>();
+        register_overload<sub_, checked_sub_civil_datetime_duration>();
+        register_overload<sub_, checked_sub_civil_datetimes>();
+        register_overload<sub_, checked_sub_zoned_duration>();
+        register_overload<sub_, apply_period_sub_impl<
+                                    Date, MonthEndPolicy::Reject>>();
+        register_overload<sub_, apply_period_sub_impl<
+                                    Date, MonthEndPolicy::Clamp>>();
+        register_overload<sub_, apply_period_sub_impl<
+                                    Date,
+                                    MonthEndPolicy::PreserveEndOfMonth>>();
+        register_overload<sub_, apply_period_sub_impl<
+                                    CivilDateTime,
+                                    MonthEndPolicy::Reject>>();
+        register_overload<sub_, apply_period_sub_impl<
+                                    CivilDateTime,
+                                    MonthEndPolicy::Clamp>>();
+        register_overload<sub_, apply_period_sub_impl<
+                                    CivilDateTime,
+                                    MonthEndPolicy::PreserveEndOfMonth>>();
         register_graph_overload<sub_, tsl_binary_map<sub_>>();
         register_graph_overload<sub_, tsl_rhs_broadcast_map<sub_>>();
         register_graph_overload<sub_, tsl_lhs_broadcast_map<sub_>>();
@@ -71,7 +112,11 @@ namespace hgraph::stdlib
         register_overload<sub_, arithmetic_impl_detail::diff_maps_impl>();
         register_overload<sub_, arithmetic_impl_detail::remove_list_items_impl>();
         register_overload<mul_, arithmetic_impl_detail::timedelta_scale_impl>();
+        register_overload<mul_, arithmetic_impl_detail::timedelta_scale_float_impl>();
+        register_overload<mul_, arithmetic_impl_detail::period_scale_impl>();
+        register_overload<mul_, arithmetic_impl_detail::int_scale_period_impl>();
         register_overload<div_, arithmetic_impl_detail::timedelta_div_impl>();
+        register_overload<div_, arithmetic_impl_detail::timedelta_div_float_impl>();
         register_overload<getitem_, arithmetic_impl_detail::getitem_map_scalar_impl>();
         register_overload<and_, arithmetic_impl_detail::container_truthy_impl<true>>();
         register_overload<or_, arithmetic_impl_detail::container_truthy_impl<false>>();
@@ -154,7 +199,8 @@ namespace hgraph::stdlib
 
         register_overload<neg_, lift<scalar_neg<Int>>>();
         register_overload<neg_, lift<scalar_neg<Float>>>();
-        register_overload<neg_, lift<scalar_neg<TimeDelta>>>();
+        register_overload<neg_, arithmetic_impl_detail::negate_duration_impl>();
+        register_overload<neg_, arithmetic_impl_detail::negate_period_impl>();
         register_graph_overload<neg_, tsl_unary_map<neg_>>();
         register_graph_overload<neg_, tsb_unary_map<neg_>>();
         register_overload<pos_, lift<scalar_pos<Int>>>();

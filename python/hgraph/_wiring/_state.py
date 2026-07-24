@@ -232,6 +232,11 @@ def set_as_of(value):
     GlobalState.instance()["__as_of__"] = value
 
 
+def set_time_zone_provider():
+    """Install the configured immutable C++ TZDB provider for this graph seed."""
+    _hgraph._set_time_zone_provider(GlobalState.instance()._impl)
+
+
 def set_table_schema_date_key(key):
     _hgraph._set_table_schema_date_key(GlobalState.instance()._impl, key)
 

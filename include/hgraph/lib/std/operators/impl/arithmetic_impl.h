@@ -11,12 +11,13 @@
 #include <hgraph/lib/std/operators/impl/higher_order_impl.h>   // add_ / sub_ / mul_ / div_ / DivideByZero
 #include <hgraph/lib/std/operators/impl/tsb_itemwise_impl.h>
 #include <hgraph/lib/std/operators/impl/tsl_itemwise_impl.h>
+#include <hgraph/runtime/global_state.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/lift.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
-#include <hgraph/util/date_time.h>
+#include <hgraph/types/temporal.h>
 
 #include <algorithm>
 #include <chrono>
@@ -79,14 +80,17 @@ namespace hgraph::stdlib
         }
     };
 
-    /** ``Date + TimeDelta -> Date`` — advances the calendar date by whole days (the time part is floored). */
+    /** ``Date + TimeDelta -> Date`` — Python date arithmetic uses the
+        timedelta's normalized, floor-based day component. */
     struct add_date_timedelta
     {
         static void eval(In<"lhs", TS<Date>> lhs, In<"rhs", TS<TimeDelta>> rhs,
                          Out<TS<Date>> out)
         {
-            const std::chrono::sys_days base = lhs.value();
-            out.set(Date{base + std::chrono::floor<std::chrono::days>(rhs.value())});
+            out.set(checked_add_days(
+                lhs.value(),
+                std::chrono::floor<std::chrono::days>(
+                    rhs.value()).count()));
         }
     };
 
@@ -96,9 +100,7 @@ namespace hgraph::stdlib
         static void eval(In<"lhs", TS<Date>> lhs, In<"rhs", TS<Date>> rhs,
                          Out<TS<TimeDelta>> out)
         {
-            const std::chrono::sys_days lhs_days = lhs.value();
-            const std::chrono::sys_days rhs_days = rhs.value();
-            out.set(std::chrono::duration_cast<TimeDelta>(lhs_days - rhs_days));
+            out.set(hgraph::checked_subtract(lhs.value(), rhs.value()));
         }
     };
 
@@ -340,7 +342,8 @@ namespace hgraph::stdlib
     {
         static void eval(In<"ts", TS<TimeDelta>> ts, Out<TS<TimeDelta>> out)
         {
-            out.set(std::chrono::abs(ts.value()));
+            const TimeDelta value = ts.value();
+            out.set(value.count() < 0 ? checked_negate(value) : value);
         }
     };
 
@@ -646,7 +649,7 @@ namespace hgraph::stdlib
 
             static void eval(In<"lhs", TS<TimeDelta>> lhs, In<"rhs", TS<Int>> rhs, Out<TS<TimeDelta>> out)
             {
-                out.set(TimeDelta{lhs.value() * rhs.value()});
+                out.set(checked_multiply(lhs.value(), rhs.value()));
             }
         };
 
@@ -656,7 +659,69 @@ namespace hgraph::stdlib
 
             static void eval(In<"lhs", TS<TimeDelta>> lhs, In<"rhs", TS<Int>> rhs, Out<TS<TimeDelta>> out)
             {
-                out.set(TimeDelta{lhs.value() / rhs.value()});
+                out.set(checked_divide(lhs.value(), rhs.value()));
+            }
+        };
+
+        struct timedelta_scale_float_impl
+        {
+            static constexpr auto name = "mul_timedelta_float";
+
+            static void eval(In<"lhs", TS<Duration>> lhs,
+                             In<"rhs", TS<Float>> rhs,
+                             Out<TS<Duration>> out)
+            {
+                out.set(checked_multiply(lhs.value(), rhs.value()));
+            }
+        };
+
+        struct timedelta_div_float_impl
+        {
+            static constexpr auto name = "div_timedelta_float";
+
+            static void eval(In<"lhs", TS<Duration>> lhs,
+                             In<"rhs", TS<Float>> rhs,
+                             Out<TS<Duration>> out)
+            {
+                out.set(checked_divide(lhs.value(), rhs.value()));
+            }
+        };
+
+        struct period_scale_impl
+        {
+            static void eval(In<"lhs", TS<Period>> lhs,
+                             In<"rhs", TS<Int>> rhs,
+                             Out<TS<Period>> out)
+            {
+                out.set(checked_multiply(lhs.value(), rhs.value()));
+            }
+        };
+
+        struct int_scale_period_impl
+        {
+            static void eval(In<"lhs", TS<Int>> lhs,
+                             In<"rhs", TS<Period>> rhs,
+                             Out<TS<Period>> out)
+            {
+                out.set(checked_multiply(rhs.value(), lhs.value()));
+            }
+        };
+
+        struct negate_duration_impl
+        {
+            static void eval(In<"ts", TS<Duration>> value,
+                             Out<TS<Duration>> out)
+            {
+                out.set(checked_negate(value.value()));
+            }
+        };
+
+        struct negate_period_impl
+        {
+            static void eval(In<"ts", TS<Period>> value,
+                             Out<TS<Period>> out)
+            {
+                out.set(checked_negate(value.value()));
             }
         };
 
@@ -1144,5 +1209,215 @@ struct std::hash<hgraph::stdlib::arithmetic_impl_detail::AggMoments>
                (std::hash<hgraph::Float>{}(m.m2) << 2);
     }
 };
+
+namespace hgraph::stdlib
+{
+    struct checked_add_durations
+    {
+        static void eval(In<"lhs", TS<Duration>> lhs,
+                         In<"rhs", TS<Duration>> rhs,
+                         Out<TS<Duration>> out)
+        {
+            out.set(hgraph::checked_add(lhs.value(), rhs.value()));
+        }
+    };
+
+    struct checked_add_instant_duration
+    {
+        static void eval(In<"lhs", TS<Instant>> lhs,
+                         In<"rhs", TS<Duration>> rhs,
+                         Out<TS<Instant>> out)
+        {
+            out.set(hgraph::checked_add(lhs.value(), rhs.value()));
+        }
+    };
+
+    struct checked_add_duration_instant
+    {
+        static void eval(In<"lhs", TS<Duration>> lhs,
+                         In<"rhs", TS<Instant>> rhs,
+                         Out<TS<Instant>> out)
+        {
+            out.set(hgraph::checked_add(rhs.value(), lhs.value()));
+        }
+    };
+
+    struct checked_sub_durations
+    {
+        static void eval(In<"lhs", TS<Duration>> lhs,
+                         In<"rhs", TS<Duration>> rhs,
+                         Out<TS<Duration>> out)
+        {
+            out.set(hgraph::checked_subtract(lhs.value(), rhs.value()));
+        }
+    };
+
+    struct checked_sub_instant_duration
+    {
+        static void eval(In<"lhs", TS<Instant>> lhs,
+                         In<"rhs", TS<Duration>> rhs,
+                         Out<TS<Instant>> out)
+        {
+            out.set(hgraph::checked_subtract(lhs.value(), rhs.value()));
+        }
+    };
+
+    struct checked_sub_instants
+    {
+        static void eval(In<"lhs", TS<Instant>> lhs,
+                         In<"rhs", TS<Instant>> rhs,
+                         Out<TS<Duration>> out)
+        {
+            out.set(hgraph::checked_subtract(lhs.value(), rhs.value()));
+        }
+    };
+
+    struct checked_add_periods
+    {
+        static void eval(In<"lhs", TS<Period>> lhs,
+                         In<"rhs", TS<Period>> rhs, Out<TS<Period>> out)
+        {
+            out.set(hgraph::checked_add(lhs.value(), rhs.value()));
+        }
+    };
+
+    struct checked_sub_periods
+    {
+        static void eval(In<"lhs", TS<Period>> lhs,
+                         In<"rhs", TS<Period>> rhs, Out<TS<Period>> out)
+        {
+            out.set(hgraph::checked_subtract(lhs.value(), rhs.value()));
+        }
+    };
+
+    struct checked_add_civil_datetime_duration
+    {
+        static void eval(In<"lhs", TS<CivilDateTime>> lhs,
+                         In<"rhs", TS<Duration>> rhs,
+                         Out<TS<CivilDateTime>> out)
+        {
+            out.set(hgraph::checked_add(lhs.value(), rhs.value()));
+        }
+    };
+
+    struct combine_civil_date_time
+    {
+        static void eval(In<"lhs", TS<CivilDate>> lhs,
+                         In<"rhs", TS<CivilTime>> rhs,
+                         Out<TS<CivilDateTime>> out)
+        {
+            out.set(CivilDateTime{lhs.value(), rhs.value()});
+        }
+    };
+
+    struct checked_add_zoned_duration
+    {
+        static void eval(In<"lhs", TS<ZonedDateTime>> lhs,
+                         In<"rhs", TS<Duration>> rhs,
+                         GlobalStateView state,
+                         Out<TS<ZonedDateTime>> out)
+        {
+            out.set(hgraph::checked_add(
+                lhs.value(), rhs.value(), time_zone_provider(state)));
+        }
+    };
+
+    struct checked_add_duration_zoned
+    {
+        static void eval(In<"lhs", TS<Duration>> lhs,
+                         In<"rhs", TS<ZonedDateTime>> rhs,
+                         GlobalStateView state,
+                         Out<TS<ZonedDateTime>> out)
+        {
+            out.set(hgraph::checked_add(
+                rhs.value(), lhs.value(), time_zone_provider(state)));
+        }
+    };
+
+    struct checked_sub_zoned_duration
+    {
+        static void eval(In<"lhs", TS<ZonedDateTime>> lhs,
+                         In<"rhs", TS<Duration>> rhs,
+                         GlobalStateView state,
+                         Out<TS<ZonedDateTime>> out)
+        {
+            out.set(hgraph::checked_add(
+                lhs.value(), checked_negate(rhs.value()),
+                time_zone_provider(state)));
+        }
+    };
+
+    struct checked_sub_civil_datetime_duration
+    {
+        static void eval(In<"lhs", TS<CivilDateTime>> lhs,
+                         In<"rhs", TS<Duration>> rhs,
+                         Out<TS<CivilDateTime>> out)
+        {
+            out.set(hgraph::checked_subtract(lhs.value(), rhs.value()));
+        }
+    };
+
+    struct checked_sub_civil_datetimes
+    {
+        static void eval(In<"lhs", TS<CivilDateTime>> lhs,
+                         In<"rhs", TS<CivilDateTime>> rhs,
+                         Out<TS<Duration>> out)
+        {
+            out.set(hgraph::checked_subtract(lhs.value(), rhs.value()));
+        }
+    };
+
+    template <typename Civil, MonthEndPolicy Policy>
+    struct apply_period_add_impl
+    {
+        static std::vector<std::pair<std::string_view, Value>> defaults()
+        {
+            return {{"month_end_policy", Value{MonthEndPolicy::Reject}}};
+        }
+
+        static bool requires_(const ResolutionMap &,
+                              OperatorCallContext context)
+        {
+            const auto *selected =
+                context.scalar_as<MonthEndPolicy>("month_end_policy");
+            return selected != nullptr && *selected == Policy;
+        }
+
+        static void eval(
+            In<"lhs", TS<Civil>> lhs, In<"rhs", TS<Period>> rhs,
+            Scalar<"month_end_policy", MonthEndPolicy>,
+            Out<TS<Civil>> out)
+        {
+            out.set(apply_period(lhs.value(), rhs.value(), Policy));
+        }
+    };
+
+    template <typename Civil, MonthEndPolicy Policy>
+    struct apply_period_sub_impl
+    {
+        static std::vector<std::pair<std::string_view, Value>> defaults()
+        {
+            return {{"month_end_policy", Value{MonthEndPolicy::Reject}}};
+        }
+
+        static bool requires_(const ResolutionMap &,
+                              OperatorCallContext context)
+        {
+            const auto *selected =
+                context.scalar_as<MonthEndPolicy>("month_end_policy");
+            return selected != nullptr && *selected == Policy;
+        }
+
+        static void eval(
+            In<"lhs", TS<Civil>> lhs, In<"rhs", TS<Period>> rhs,
+            Scalar<"month_end_policy", MonthEndPolicy>,
+            Out<TS<Civil>> out)
+        {
+            out.set(apply_period(lhs.value(),
+                                 hgraph::checked_negate(rhs.value()),
+                                 Policy));
+        }
+    };
+}  // namespace hgraph::stdlib
 
 #endif  // HGRAPH_LIB_STD_OPERATORS_IMPL_ARITHMETIC_IMPL_H

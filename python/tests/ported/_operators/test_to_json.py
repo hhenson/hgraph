@@ -54,9 +54,11 @@ class MyNullableMappingCS(CompoundScalar):
         [TS[int], 1, "1"],
         [TS[float], 1.0, "1.0"],
         [TS[date], date(2024, 6, 13), '"2024-06-13"'],
-        [TS[datetime], datetime(2024, 6, 13, 10, 15, 30, 42), '"2024-06-13 10:15:30.000042"'],
+        # deviation: RFC 0002 version-2 writers use canonical UTC/signed-us
+        # text. The schema-directed reader retains upstream version-1 support.
+        [TS[datetime], datetime(2024, 6, 13, 10, 15, 30, 42), '"2024-06-13T10:15:30.000042Z"'],
         [TS[time], time(10, 15, 30, 42), '"10:15:30.000042"'],
-        [TS[timedelta], timedelta(10, 15, microseconds=42), '"10:0:0:15.000042"'],
+        [TS[timedelta], timedelta(10, 15, microseconds=42), '"864015000042us"'],
         [TS[ExpEnum], ExpEnum.E1, '"E1"'],
         [TS[MyCS], MyCS(p1="a", p2=date(2024, 6, 13)), '{"p1": "a", "p2": "2024-06-13"}'],
         [
@@ -89,6 +91,20 @@ def test_to_json(tp: TIME_SERIES_TYPE, value: Any, expected: str):
     out = eval_node(to_json[tp], [value])
     assert [json.loads(o) for o in out] == [json.loads(expected)]
     assert eval_node(from_json[tp], [expected]) == [value]
+
+
+def test_from_json_accepts_legacy_temporal_version_1_text():
+    assert eval_node(
+        from_json[TS[datetime]],
+        ['"2024-06-13 10:15:30.000042"'],
+    ) == [datetime(2024, 6, 13, 10, 15, 30, 42)]
+    assert eval_node(
+        from_json[TS[timedelta]],
+        ['"10:0:0:15.000042"', '"-1:23:59:59.999999"'],
+    ) == [
+        timedelta(days=10, seconds=15, microseconds=42),
+        timedelta(microseconds=-1),
+    ]
 
 
 @pytest.mark.parametrize(

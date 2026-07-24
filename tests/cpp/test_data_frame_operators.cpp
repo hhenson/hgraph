@@ -334,7 +334,7 @@ TEST_CASE("data frame operators: Arrow schema metadata survives row-preserving o
     CHECK(*arrow_metadata->Get(frame_metadata_version_key) == "1");
     CHECK(*arrow_metadata->Get("hgraph.metadata.field.revision") == "7");
     CHECK(*arrow_metadata->Get("hgraph.metadata.field.as_of") ==
-          "1970-01-01 00:00:00.123456");
+          "1970-01-01T00:00:00.123456Z");
     CHECK(*arrow_metadata->Get("hgraph.metadata.field.source") == "fixture");
     CHECK(*arrow_metadata->Get("hgraph.metadata.field.details") ==
           R"({"desk": "systematic"})");

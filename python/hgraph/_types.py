@@ -15,6 +15,18 @@ _SCALAR_NAMES = {
     datetime.date: "date",
     datetime.time: "time",
     datetime.timedelta: "timedelta",
+    _hgraph.CivilDateTime: "civil_datetime",
+    _hgraph.Period: "period",
+    _hgraph.ZoneId: "zone_id",
+    _hgraph.ZonedDateTime: "zoned_datetime",
+    _hgraph.InstantRange: "instant_range",
+    _hgraph.CivilDateRange: "civil_date_range",
+    _hgraph.InstantRangeSet: "instant_range_set",
+    _hgraph.CivilDateRangeSet: "civil_date_range_set",
+    _hgraph.MonthEndPolicy: "month_end_policy",
+    _hgraph.AmbiguousTimePolicy: "ambiguous_time_policy",
+    _hgraph.NonexistentTimePolicy: "nonexistent_time_policy",
+    _hgraph.Boundary: "boundary",
 }
 
 _COMPOUND_TYPE_CACHE = {}

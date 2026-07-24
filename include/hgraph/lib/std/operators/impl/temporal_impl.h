@@ -5,11 +5,12 @@
 
 #include <fmt/format.h>
 #include <hgraph/runtime/node_scheduler.h>
+#include <hgraph/runtime/global_state.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
-#include <hgraph/util/date_time.h>
+#include <hgraph/types/temporal.h>
 
 #include <chrono>
 #include <cstddef>
@@ -51,9 +52,321 @@ namespace hgraph::stdlib
 
         static void eval(In<"lhs", TS<Date>> lhs, In<"rhs", TS<TimeDelta>> rhs, Out<TS<Date>> out)
         {
-            const auto shifted = std::chrono::sys_days{lhs.value()} -
-                                 std::chrono::floor<std::chrono::days>(rhs.value());
-            out.set(Date{std::chrono::year_month_day{std::chrono::floor<std::chrono::days>(shifted)}});
+            out.set(checked_add_days(
+                lhs.value(),
+                -std::chrono::floor<std::chrono::days>(
+                    rhs.value()).count()));
+        }
+    };
+
+    struct at_zone_impl
+    {
+        static void eval(In<"instant", TS<Instant>> instant,
+                         In<"zone", TS<ZoneId>> zone,
+                         GlobalStateView state,
+                         Out<TS<ZonedDateTime>> out)
+        {
+            out.set(hgraph::at_zone(instant.value(), zone.value(),
+                                    time_zone_provider(state)));
+        }
+    };
+
+    template <AmbiguousTimePolicy Ambiguous,
+              NonexistentTimePolicy Nonexistent>
+    struct resolve_civil_impl
+    {
+        static std::vector<std::pair<std::string_view, Value>> defaults()
+        {
+            return {
+                {"ambiguous", Value{AmbiguousTimePolicy::Reject}},
+                {"nonexistent", Value{NonexistentTimePolicy::Reject}},
+            };
+        }
+
+        static bool requires_(const ResolutionMap &,
+                              OperatorCallContext context)
+        {
+            const auto *ambiguous =
+                context.scalar_as<AmbiguousTimePolicy>("ambiguous");
+            const auto *nonexistent =
+                context.scalar_as<NonexistentTimePolicy>("nonexistent");
+            return ambiguous != nullptr && nonexistent != nullptr &&
+                   *ambiguous == Ambiguous &&
+                   *nonexistent == Nonexistent;
+        }
+
+        static void eval(
+            In<"local", TS<CivilDateTime>> local,
+            In<"zone", TS<ZoneId>> zone,
+            Scalar<"ambiguous", AmbiguousTimePolicy>,
+            Scalar<"nonexistent", NonexistentTimePolicy>,
+            GlobalStateView state, Out<TS<ZonedDateTime>> out)
+        {
+            out.set(hgraph::resolve(
+                local.value(), zone.value(), time_zone_provider(state),
+                Ambiguous, Nonexistent));
+        }
+    };
+
+    struct convert_zone_impl
+    {
+        static void eval(In<"value", TS<ZonedDateTime>> value,
+                         In<"zone", TS<ZoneId>> zone,
+                         GlobalStateView state,
+                         Out<TS<ZonedDateTime>> out)
+        {
+            out.set(hgraph::convert_zone(
+                value.value(), zone.value(), time_zone_provider(state)));
+        }
+    };
+
+    struct to_instant_impl
+    {
+        static void eval(In<"value", TS<ZonedDateTime>> value,
+                         Out<TS<Instant>> out)
+        {
+            out.set(value.value().instant());
+        }
+    };
+
+    struct to_civil_impl
+    {
+        static void eval(In<"value", TS<ZonedDateTime>> value,
+                         Out<TS<CivilDateTime>> out)
+        {
+            out.set(value.value().civil());
+        }
+    };
+
+    template <typename Range, typename ValueType>
+    struct range_contains_value_impl
+    {
+        static void eval(In<"range", TS<Range>> range,
+                         In<"value", TS<ValueType>> value,
+                         Out<TS<Bool>> out)
+        {
+            out.set(range.value().contains(value.value()));
+        }
+    };
+
+    template <typename Range>
+    struct range_contains_range_impl
+    {
+        static void eval(In<"range", TS<Range>> range,
+                         In<"value", TS<Range>> value,
+                         Out<TS<Bool>> out)
+        {
+            out.set(range.value().contains(value.value()));
+        }
+    };
+
+    template <typename Range>
+    struct range_intersection_impl
+    {
+        static void eval(In<"lhs", TS<Range>> lhs,
+                         In<"rhs", TS<Range>> rhs, Out<TS<Range>> out)
+        {
+            out.set(lhs.value().intersection(rhs.value()));
+        }
+    };
+
+    template <typename Range, int Mode>
+    struct range_relation_impl
+    {
+        static void eval(In<"lhs", TS<Range>> lhs,
+                         In<"rhs", TS<Range>> rhs,
+                         Out<TS<Bool>> out)
+        {
+            if constexpr (Mode == 0)
+            {
+                out.set(lhs.value().overlaps(rhs.value()));
+            }
+            else if constexpr (Mode == 1)
+            {
+                out.set(lhs.value().touches(rhs.value()));
+            }
+            else if constexpr (Mode == 2)
+            {
+                out.set(lhs.value().adjacent(rhs.value()));
+            }
+            else
+            {
+                out.set(lhs.value().mergeable(rhs.value()));
+            }
+        }
+    };
+
+    template <typename Range, typename RangeSet>
+    struct range_difference_impl
+    {
+        static void eval(In<"lhs", TS<Range>> lhs,
+                         In<"rhs", TS<Range>> rhs,
+                         Out<TS<RangeSet>> out)
+        {
+            out.set(lhs.value().difference(rhs.value()));
+        }
+    };
+
+    template <typename Range, typename RangeSet>
+    struct range_union_impl
+    {
+        static void eval(In<"lhs", TS<Range>> lhs,
+                         In<"rhs", TS<Range>> rhs,
+                         Out<TS<RangeSet>> out)
+        {
+            out.set(lhs.value().set_union(rhs.value()));
+        }
+    };
+
+    template <typename Range>
+    struct range_merge_impl
+    {
+        static void eval(In<"lhs", TS<Range>> lhs,
+                         In<"rhs", TS<Range>> rhs, Out<TS<Range>> out)
+        {
+            if (const auto value = lhs.value().merge(rhs.value()))
+            {
+                out.set(*value);
+            }
+        }
+    };
+
+    template <typename Range>
+    struct range_hull_impl
+    {
+        static void eval(In<"lhs", TS<Range>> lhs,
+                         In<"rhs", TS<Range>> rhs,
+                         Out<TS<Range>> out)
+        {
+            out.set(lhs.value().hull(rhs.value()));
+        }
+    };
+
+    struct instant_range_shift_impl
+    {
+        static std::vector<std::pair<std::string_view, Value>> defaults()
+        {
+            return {
+                {"month_end_policy", Value{MonthEndPolicy::Reject}}};
+        }
+
+        static void eval(
+            In<"range", TS<InstantRange>> range,
+            In<"delta", TS<Duration>> delta,
+            Scalar<"month_end_policy", MonthEndPolicy>,
+            Out<TS<InstantRange>> out)
+        {
+            out.set(shift(range.value(), delta.value()));
+        }
+    };
+
+    template <MonthEndPolicy Policy>
+    struct civil_date_range_shift_impl
+    {
+        static std::vector<std::pair<std::string_view, Value>> defaults()
+        {
+            return {
+                {"month_end_policy", Value{MonthEndPolicy::Reject}}};
+        }
+
+        static bool requires_(const ResolutionMap &,
+                              OperatorCallContext context)
+        {
+            const auto *selected =
+                context.scalar_as<MonthEndPolicy>(
+                    "month_end_policy");
+            return selected != nullptr && *selected == Policy;
+        }
+
+        static void eval(
+            In<"range", TS<CivilDateRange>> range,
+            In<"delta", TS<Period>> delta,
+            Scalar<"month_end_policy", MonthEndPolicy>,
+            Out<TS<CivilDateRange>> out)
+        {
+            out.set(shift(range.value(), delta.value(), Policy));
+        }
+    };
+
+    struct instant_range_extent_impl
+    {
+        static void eval(In<"range", TS<InstantRange>> range,
+                         Out<TS<Duration>> out)
+        {
+            if (const auto value = extent(range.value()))
+            {
+                out.set(*value);
+            }
+        }
+    };
+
+    template <typename ValueType, int Mode>
+    struct quantize_impl
+    {
+        static void eval(In<"value", TS<ValueType>> value,
+                         In<"quantum", TS<Duration>> quantum,
+                         Out<TS<ValueType>> out)
+        {
+            if constexpr (Mode < 0)
+            {
+                out.set(hgraph::floor(value.value(), quantum.value()));
+            }
+            else if constexpr (Mode > 0)
+            {
+                out.set(hgraph::ceil(value.value(), quantum.value()));
+            }
+            else
+            {
+                out.set(hgraph::round(value.value(), quantum.value()));
+            }
+        }
+    };
+
+    template <int Mode>
+    struct quantize_instant_impl
+    {
+        static std::vector<std::pair<std::string_view, Value>> defaults()
+        {
+            return {{"origin", Value{Instant{}}}};
+        }
+
+        static void eval(In<"value", TS<Instant>> value,
+                         In<"quantum", TS<Duration>> quantum,
+                         Scalar<"origin", Instant> origin,
+                         Out<TS<Instant>> out)
+        {
+            if constexpr (Mode < 0)
+            {
+                out.set(hgraph::floor(
+                    value.value(), quantum.value(), origin.value()));
+            }
+            else if constexpr (Mode > 0)
+            {
+                out.set(hgraph::ceil(
+                    value.value(), quantum.value(), origin.value()));
+            }
+            else
+            {
+                out.set(hgraph::round(
+                    value.value(), quantum.value(), origin.value()));
+            }
+        }
+    };
+
+    struct temporal_bucket_impl
+    {
+        static std::vector<std::pair<std::string_view, Value>> defaults()
+        {
+            return {{"origin", Value{Instant{}}}};
+        }
+
+        static void eval(In<"value", TS<Instant>> value,
+                         In<"width", TS<Duration>> width,
+                         Scalar<"origin", Instant> origin,
+                         Out<TS<InstantRange>> out)
+        {
+            out.set(bucket(
+                value.value(), width.value(), origin.value()));
         }
     };
 

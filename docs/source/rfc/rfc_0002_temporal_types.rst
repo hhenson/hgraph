@@ -1,7 +1,7 @@
 RFC 0002: Temporal Types, Zones, and Ranges
 ===========================================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-07-23
 :Target: Incremental core foundation
@@ -116,7 +116,8 @@ Scope and ownership
 ``hg_cpp`` owns:
 
 * the scalar schemas and native/Python value contracts in this RFC;
-* checked timeline and Gregorian civil arithmetic;
+* checked timeline graph operations and named checked C++ functions, plus
+  checked Gregorian civil arithmetic;
 * the normalized range algebra;
 * the provider interface used to resolve named zones;
 * standard operator overloads and dispatch rules; and
@@ -187,18 +188,31 @@ Supported operations are:
 * ``Instant - Duration -> Instant``; and
 * ``Instant - Instant -> Duration``.
 
-Adding two instants is ill-formed at wiring time.  Arithmetic checks overflow
-and never wraps.
+Adding two instants is ill-formed at wiring time.  Hgraph graph operators and
+the named C++ functions ``checked_add`` and ``checked_subtract`` check
+overflow and never wrap.
+
+``Instant`` remains an alias of the existing ``DateTime``
+``std::chrono::time_point`` for source, schema, and engine compatibility.
+Consequently, an ordinary C++ expression using the raw ``std::chrono``
+``operator+`` or ``operator-`` has the standard library's arithmetic contract;
+hgraph cannot replace those operators through an alias.  C++ callers requiring
+the checked contract use the named functions.  Hgraph's temporal operator
+implementations must use those functions rather than raw chrono arithmetic.
 
 ``Duration``
 ~~~~~~~~~~~~
 
 The canonical payload is a signed 64-bit microsecond count.  It supports
-equality, total ordering, hashing, checked addition and subtraction, unary
-negation, multiplication or division by a numeric scalar, and the existing
-duration-to-duration ratio operations.  Integer scaling is exact and checked.
-Floating-point scaling follows Python ``timedelta`` compatibility by rounding
-to the nearest microsecond with ties to even.  Division by zero rejects.
+equality, total ordering, hashing, addition and subtraction, unary negation,
+multiplication or division by a numeric scalar, and the existing
+duration-to-duration ratio operations.  Hgraph graph operators and the named
+``checked_*`` C++ functions check overflow.  As with ``Instant``, raw
+``std::chrono::duration`` operators retain their standard-library contract
+because ``Duration`` remains the ``TimeDelta`` alias.  Integer scaling through
+hgraph is exact and checked.  Floating-point scaling follows Python
+``timedelta`` compatibility by rounding to the nearest microsecond with ties
+to even.  Division by zero rejects.
 
 ``Duration`` is not implicitly convertible to or comparable with ``Period``.
 A day expressed as ``Duration`` is exactly 86,400 elapsed seconds; it is not a
@@ -229,15 +243,19 @@ form avoids padding and repeated field conversion in time-series storage.
 Civil values support equality, lexicographic/chronological civil ordering,
 hashing, field access, and the following operations:
 
-* ``CivilDate + days -> CivilDate``;
+* ``CivilDate +/- Duration -> CivilDate`` using the duration's normalized
+  floor-based day component, matching Python ``date`` arithmetic;
 * ``CivilDate - CivilDate -> Duration`` containing a whole number of days;
 * ``CivilDate + CivilTime -> CivilDateTime``;
 * ``CivilDateTime +/- Duration -> CivilDateTime``; and
 * ``CivilDateTime - CivilDateTime -> Duration``.
 
-Adding a sub-day ``Duration`` directly to ``CivilDate`` is rejected rather
-than silently truncating.  Adding a duration to ``CivilTime`` alone is not a
-core operator because crossing midnight needs a date or an explicit
+A positive sub-day ``Duration`` therefore leaves a ``CivilDate`` unchanged,
+while a negative sub-day duration advances the normalized day component
+backward before addition.  This compatibility rule preserves the shipped
+Python/hgraph behaviour.  New APIs that require whole-day input must validate
+that precondition explicitly.  Adding a duration to ``CivilTime`` alone is
+not a core operator because crossing midnight needs a date or an explicit
 day-carry result.
 
 ``Period``
@@ -316,6 +334,15 @@ does not change during ordinary operation.  A reset or recycled slot
 increments the generation and a slot is retired rather than allowing
 generation to wrap.  Lookup validates all three fields before returning the
 name.
+
+Validated zone-name records and backend-native zone bindings are interned
+process resources.  Stable records are owned until the canonical registry
+reset, like type metadata.  A small atomic direct cache fronts each intern
+table, so repeated validation and provider binding for an already-seen
+``ZoneId`` require no mutex.  A miss may lock while interning one stable
+record; reset first withdraws every atomic borrower, then releases backend
+bindings, and only then advances the zone-name generation.  Reset remains a
+test-only, non-concurrent operation.
 
 Names are case-sensitive ASCII strings using the TZDB identifier vocabulary.
 Validation rejects:
@@ -454,6 +481,9 @@ The initial backend-selection policy is:
    C++20 chrono API, and remains independently packaged and maintained.  The
    initial implementation pins release ``v3.0.4`` rather than following its
    default branch; later updates use the normal dependency-review process.
+   When ``date/tz`` reads an operating-system TZDB that does not materialize
+   IANA links as files, the adapter resolves the link records from the
+   installed ``tzdata.zi`` while preserving the caller's original ``ZoneId``.
 
 The ``HGRAPH_TIME_ZONE_BACKEND`` CMake cache variable accepts ``auto``,
 ``std``, and ``date``.  ``auto`` selects the standard provider only when its
@@ -669,6 +699,13 @@ and free functions for the algebra above.  Fields are not publicly mutable.
 The public API does not expose a backend-specific zone pointer or a Python
 object.
 
+Because ``Instant`` and ``Duration`` deliberately preserve their existing
+chrono aliases, their checked C++ arithmetic surface is expressed by
+``checked_add``, ``checked_subtract``, ``checked_negate``, ``checked_multiply``,
+and ``checked_divide``.  Native graph operator implementations call this
+surface.  Raw chrono operators are compatibility operations and are not
+advertised as overflow-checking APIs.
+
 ``TimeRange<T>`` is a C++ template, but only explicitly registered concrete
 endpoint types are hgraph scalar schemas.  A downstream scalar may register
 its own concrete range only when it provides the same total-order, hash,
@@ -695,6 +732,23 @@ Every class is hashable when its C++ scalar is hashable.  Python equality and
 range normalization match C++ exactly.  Python wrappers must not expose
 writable fields that can invalidate a value after it has been hashed or
 published on a time series.
+
+Python value code, including code executing inside a ``compute_node``, uses
+``hgraph.temporal`` for the direct-value form of the temporal graph operators.
+The module is a thin binding to the same native C++ functions used by the
+operator implementations; it is not a second Python implementation.
+``CivilDateTime`` and ``Period`` additionally expose their natural checked
+arithmetic through Python's ``+``, ``-``, unary ``-``, and integer ``*``
+protocols.  Built-in ``datetime`` and ``timedelta`` retain their normal Python
+value protocols.
+
+Provider-backed value functions such as ``hgraph.temporal.at_zone``,
+``resolve``, ``convert_zone``, and checked zoned-duration addition obtain the
+provider from the active ``GlobalState``.  This is the same state consulted by
+the corresponding graph operator, so a value operation inside a compute node
+and a graph operator resolve against one provider version and policy contract.
+Calling one of these functions without first installing a provider fails
+rather than silently constructing an unrelated process-global provider.
 
 For compatibility, a naïve Python ``datetime`` at an ``Instant`` boundary is
 interpreted as UTC.  An aware ``datetime`` is normalized to UTC.  No local
@@ -749,9 +803,11 @@ uses its stored offset and does not query the provider.
 Operator and dispatch semantics
 -------------------------------
 
-Temporal scalar functions are exposed as ordinary C++ functions and as native
-hgraph operator overloads.  Python graphs call those overloads; Python does
-not implement a second temporal runtime.
+Temporal scalar functions are exposed as ordinary C++ functions, direct
+Python value functions under ``hgraph.temporal``, and native hgraph operator
+overloads.  Python graphs call the overloads while Python compute nodes may
+apply the value functions to ``input.value``.  Both paths execute the same
+native implementation.
 
 The operator matrix is:
 
@@ -814,7 +870,11 @@ processing:
    Quantize an ``Instant`` or ``Duration`` to a positive ``Duration`` quantum.
    Instant quantization is relative to an explicit origin, defaulting to the
    Unix epoch.  Negative values use mathematical floor/ceiling rather than
-   truncation toward zero.
+   truncation toward zero.  ``round`` selects the nearest quantum and resolves
+   an exact halfway value with ties-to-even: the result whose integral quantum
+   index relative to the origin is even is selected.  Thus, with a one-second
+   quantum and epoch origin, ``+0.5s`` and ``-0.5s`` round to zero,
+   ``+1.5s`` rounds to ``+2s``, and ``-1.5s`` rounds to ``-2s``.
 
 ``bucket``
    Return the half-open ``InstantRange`` containing an instant for a positive
@@ -944,7 +1004,7 @@ Canonical interchange is independent of the C++ layout:
      - RFC 3339 UTC timestamp ending in ``Z``
    * - ``Duration``
      - ``duration[us]``
-     - exact ISO-style duration or signed microsecond codec
+     - canonical signed-microsecond string
    * - ``CivilDate``
      - ``date32``
      - ``YYYY-MM-DD``
@@ -969,6 +1029,29 @@ Canonical interchange is independent of the C++ layout:
    * - ``FixedRangeSet[T, Capacity]``
      - fixed-size list/struct plus active count
      - ordered array of normalized range objects
+
+The canonical ``Duration`` text value, including the JSON string value, uses
+this exact ASCII grammar:
+
+.. code-block:: text
+
+   duration = "0us" / ("-"? non-zero-digit *digit "us")
+
+Positive values have no leading ``+``; non-zero values have no leading zeroes;
+and ``-0us`` is invalid.  Examples are ``"0us"``, ``"1us"``, and
+``"-86400000000us"``.  Writers emit only this form, and the public canonical
+``parse_duration`` API remains strict.
+
+The schema-directed JSON reader is a compatibility boundary and also accepts
+the legacy hgraph version-1
+``days:hours:minutes:seconds.microseconds`` duration form.  Likewise, an
+``Instant`` JSON reader accepts both the version-2 RFC 3339 form with ``T`` and
+``Z`` and the legacy space-separated, suffix-free UTC form.  Values normalize
+to ``Duration``/``Instant`` immediately, and every subsequent write uses the
+version-2 form.  This leniency is deliberately confined to schema-directed
+ingest; it does not create a second canonical representation.  The reader also
+recognizes signed remainder fields emitted for negative values by the early
+native version-1 writer.
 
 ``timestamp[us, "UTC"]`` is the canonical Arrow ``Instant`` representation,
 introduced as temporal encoding version 2.  Arrow schema metadata records
@@ -1019,8 +1102,9 @@ The performance contract is:
 * ``Instant -> ZonedDateTime`` and civil resolution perform no heap allocation
   once a zone is bound.  Lookup is amortized ``O(1)`` for values within the
   cached transition and at worst ``O(log transitions)``.
-* A static-zone graph node binds its zone record once at ``start``.  A dynamic
-  zone node repeats lookup only when the intern key changes.
+* Backend-native zone records are process-interned until registry reset and
+  reached through a lock-free atomic fast cache.  Repeated static-zone access
+  and already-bound dynamic zones do not acquire the cold interning mutex.
 * Loading and indexing one TZDB data set occurs once per provider, not once per
   graph or scalar value.
 * Pure C++ temporal graphs contain no Python calls or Python object storage.
@@ -1053,11 +1137,10 @@ New civil and zoned types are distinct scalar schemas and require explicit
 conversion.  An existing naïve ``datetime`` is never silently reinterpreted as
 ``CivilDateTime`` merely because it appears beside a ``ZoneId``.
 
-The preliminary implementation on the proposal branch is not an accepted ABI.
-In particular, an owning-string ``ZoneId``, independently stored
-years/months in ``Period``, mutable Python fields, finite-only ranges, and an
-optional-valued intersection are prototypes to be reconciled with this RFC
-before implementation acceptance.
+The preliminary proposal-branch prototype is superseded by the accepted
+implementation.  In particular, the implementation uses the checked intern
+handle for ``ZoneId``, total months for ``Period``, immutable Python values,
+normalized unbounded ranges, and a value-returning intersection.
 
 Alternatives considered
 -----------------------
@@ -1137,7 +1220,11 @@ Type and ABI tests
 Arithmetic tests
 ~~~~~~~~~~~~~~~~
 
-* Checked overflow is exercised at every physical and portable-domain edge.
+* Named checked functions and graph operators exercise overflow at every
+  physical and portable-domain edge; tests separately document that raw chrono
+  alias operators are outside that guarantee.
+* Quantization covers positive and negative halfway values and proves the
+  ties-to-even rule in C++ and Python.
 * Duration and Period operations cannot be mixed implicitly.
 * Period canonicalization proves one year equals twelve months.
 * Month-end policies cover leap and non-leap February, positive and negative
@@ -1152,8 +1239,9 @@ Zone tests
 * Pinned integration vectors cover ordinary transitions, both sides of a fold,
   both edges of a gap, a 30-minute transition, a skipped civil day, historical
   second offsets, and TZDB links.
-* Static-zone resolution binds once; dynamic-zone resolution rebinds only when
-  its ``ZoneId`` changes.
+* Static and dynamic zone resolution reuse reset-owned interned backend
+  bindings; tests cover hot-cache reuse, dynamic-zone changes, and cache
+  withdrawal before zone generations advance at reset.
 * Registry tests cover duplicate interning, invalid slot, stale generation,
   bad name tag, generation exhaustion, and re-interning names from serialized
   text rather than copying raw handles.
@@ -1189,6 +1277,12 @@ Serialization tests
 ~~~~~~~~~~~~~~~~~~~
 
 * Text/JSON/Arrow golden vectors cover every scalar and range shape.
+* Duration golden vectors enforce the canonical signed-microsecond grammar,
+  including rejection of leading ``+``, leading zeroes, ``-0us``, missing
+  suffixes, and overflow.
+* Schema-directed JSON readers accept legacy space-separated UTC datetimes
+  and normalized ``days:hours:minutes:seconds.microseconds`` durations, then
+  rewrite them in the version-2 canonical form.
 * New-version ``Instant`` writers emit ``timestamp[us, "UTC"]``; readers
   accept schema-identified legacy UTC ``timestamp[us]``, reject ambiguous
   unqualified input without a schema/policy, and normalize legacy values on
@@ -1219,11 +1313,23 @@ new numbered RFC rather than marking a partial contract accepted.
 Implementation status
 ---------------------
 
-A proposal-branch prototype proves that the new scalar names can participate
-in the native registry, Python bridge, and TS storage.  It does not yet satisfy
-the representation, immutability, range, provider, serialization, or
-performance contract above.  The RFC remains ``Proposed`` until the accepted
-implementation and conformance evidence merge.
+The accepted implementation supplies the compact native values, checked
+arithmetic, fixed-capacity range algebra, interned zone identifiers,
+``std::chrono``/``date::tz`` provider selection, static-policy graph
+overloads, immutable Python authoring values, and canonical JSON and Arrow
+version-2 codecs.  Automatic provider selection runs a historical
+base-offset-transition conformance vector as well as the compile-time TZDB
+feature probe; a standard library that exposes the API but fails that vector
+uses the pinned ``date/tz`` fallback.
+
+Conformance coverage includes portable layout checks, exhaustive
+small-domain range properties, physical arithmetic edges, wiring-level C++
+and Python parity, fake-provider resolution paths, pinned IANA transition
+vectors, RFC 9557 offset verification, TZDB-version mismatch rejection, and
+legacy/version-2 Arrow migration tests.  Release benchmarks enforce zero
+allocation for checked timeline arithmetic, binary range difference, and a
+warmed cached-zone projection, and record the initial timing baselines used
+for later regression thresholds.
 
 References
 ----------

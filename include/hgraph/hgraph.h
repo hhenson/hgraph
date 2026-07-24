@@ -7,4 +7,5 @@
 
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/primitive_types.h>
+#include <hgraph/types/temporal.h>
 #include <hgraph/version.h>

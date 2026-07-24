@@ -402,7 +402,7 @@ jobs:
           with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:
               path_file.write(str(Path(pyarrow.__file__).resolve().parent) + "\n")
       - name: Configure native C++ tests
-        run: cmake -S . -B build-native -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF -DHGRAPH_USE_PYARROW_ARROW=ON -DHGRAPH_FETCH_SIMDJSON=ON -DHGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS=ON -DHGRAPH_WARNINGS_AS_ERRORS=ON
+        run: cmake -S . -B build-native -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF -DHGRAPH_USE_PYARROW_ARROW=ON -DHGRAPH_FETCH_SIMDJSON=ON -DHGRAPH_FETCH_DATE=ON -DHGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS=ON -DHGRAPH_WARNINGS_AS_ERRORS=ON
       - name: Build native C++ tests
         run: cmake --build build-native --parallel ${{ matrix.parallel }}
       - name: Run native C++ tests
@@ -443,6 +443,7 @@ jobs:
           -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF
           -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF
           -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF
+          -DHGRAPH_FETCH_DATE=ON
           -DHGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS=ON
           -DHGRAPH_WARNINGS_AS_ERRORS=ON
       - name: Build shared C++ tests

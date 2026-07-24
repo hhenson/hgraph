@@ -1,6 +1,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 
 #include <hgraph/lib/std/standard_types.h>
+#include <hgraph/types/temporal.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series_reference.h>
 #include <hgraph/types/value_callable.h>
@@ -40,6 +41,18 @@ namespace hgraph
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(TimeSeriesReference);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(ValueCallable);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(WiredFn);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(Period);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(CivilDateTime);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(ZoneId);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(ZonedDateTime);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(InstantRange);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(CivilDateRange);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(InstantRangeSet);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(CivilDateRangeSet);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(MonthEndPolicy);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(AmbiguousTimePolicy);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(NonexistentTimePolicy);
+    HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(Boundary);
 
 #undef HGRAPH_DEFINE_STANDARD_SCALAR_BINDING
 

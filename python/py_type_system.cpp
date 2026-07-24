@@ -8,6 +8,12 @@
 #include "py_bindings.h"
 
 #include <hgraph/python/native_scalar_registration.h>
+#include <hgraph/types/temporal.h>
+
+#include <nanobind/make_iterator.h>
+#include <nanobind/stl/string_view.h>
+
+#include <sstream>
 
 namespace nb = nanobind;
 using namespace hgraph;
@@ -42,6 +48,518 @@ namespace hgraph::python_bridge
 
     void bind_type_system(nb::module_ &m)
     {
+    nb::enum_<MonthEndPolicy>(m, "MonthEndPolicy")
+        .value("REJECT", MonthEndPolicy::Reject)
+        .value("CLAMP", MonthEndPolicy::Clamp)
+        .value("PRESERVE_END_OF_MONTH",
+               MonthEndPolicy::PreserveEndOfMonth);
+    nb::enum_<AmbiguousTimePolicy>(m, "AmbiguousTimePolicy")
+        .value("REJECT", AmbiguousTimePolicy::Reject)
+        .value("EARLIEST", AmbiguousTimePolicy::Earliest)
+        .value("LATEST", AmbiguousTimePolicy::Latest);
+    nb::enum_<NonexistentTimePolicy>(m, "NonexistentTimePolicy")
+        .value("REJECT", NonexistentTimePolicy::Reject)
+        .value("NEXT_VALID", NonexistentTimePolicy::NextValid)
+        .value("PREVIOUS_VALID", NonexistentTimePolicy::PreviousValid);
+    nb::enum_<Boundary>(m, "Boundary")
+        .value("OPEN", Boundary::Open)
+        .value("CLOSED", Boundary::Closed);
+
+    nb::class_<CivilDateTime>(m, "CivilDateTime")
+        .def(nb::init<CivilDate, int, int, int, int>(),
+             nb::arg("date"), nb::arg("hour"),
+             nb::arg("minute") = 0, nb::arg("second") = 0,
+             nb::arg("microsecond") = 0)
+        .def("__init__",
+             [](nb::pointer_and_handle<CivilDateTime> self,
+                CivilDate date, nb::handle time) {
+                 new (self.p) CivilDateTime{
+                     date,
+                     python_conversion_traits<CivilTime>::from_python(
+                         time)};
+             },
+             nb::arg("date"), nb::arg("time"))
+        .def_prop_ro("date", &CivilDateTime::date)
+        .def_prop_ro("time", &CivilDateTime::time)
+        .def_prop_ro("year", &CivilDateTime::year)
+        .def_prop_ro("month", &CivilDateTime::month)
+        .def_prop_ro("day", &CivilDateTime::day)
+        .def_prop_ro("hour", &CivilDateTime::hour)
+        .def_prop_ro("minute", &CivilDateTime::minute)
+        .def_prop_ro("second", &CivilDateTime::second)
+        .def_prop_ro("microsecond", &CivilDateTime::microsecond)
+        .def("weekday", &CivilDateTime::weekday)
+        .def("isoweekday", &CivilDateTime::isoweekday)
+        .def_prop_ro("day_of_year", &CivilDateTime::day_of_year)
+        .def("__eq__", [](const CivilDateTime &self,
+                          const CivilDateTime &other) {
+            return self == other;
+        })
+        .def("__lt__", [](const CivilDateTime &self,
+                          const CivilDateTime &other) {
+            return self < other;
+        })
+        .def("__le__", [](const CivilDateTime &self,
+                          const CivilDateTime &other) {
+            return self <= other;
+        })
+        .def("__add__", [](CivilDateTime self, Duration delta) {
+            return checked_add(self, delta);
+        })
+        .def("__add__", [](CivilDateTime self, Period period) {
+            return apply_period(self, period);
+        })
+        .def("__radd__", [](CivilDateTime self, Duration delta) {
+            return checked_add(self, delta);
+        })
+        .def("__radd__", [](CivilDateTime self, Period period) {
+            return apply_period(self, period);
+        })
+        .def("__sub__", [](CivilDateTime self, Duration delta) {
+            return checked_subtract(self, delta);
+        })
+        .def("__sub__", [](CivilDateTime self, Period period) {
+            return apply_period(self, checked_negate(period));
+        })
+        .def("__sub__", [](CivilDateTime self, CivilDateTime other) {
+            return checked_subtract(self, other);
+        })
+        .def("__hash__", [](const CivilDateTime &self) {
+            return std::hash<CivilDateTime>{}(self);
+        })
+        .def("__repr__", [](const CivilDateTime &self) {
+            return "CivilDateTime('" +
+                   format_civil_datetime(self) + "')";
+        });
+
+    nb::class_<Period>(m, "Period")
+        .def(nb::init<std::int64_t, std::int64_t, std::int64_t>(),
+             nb::arg("years") = 0, nb::arg("months") = 0,
+             nb::arg("days") = 0)
+        .def_prop_ro("total_months", &Period::total_months)
+        .def_prop_ro("years", &Period::years)
+        .def_prop_ro("months", &Period::months)
+        .def_prop_ro("days", &Period::days)
+        .def("__add__", [](Period self, Period other) {
+            return checked_add(self, other);
+        })
+        .def("__sub__", [](Period self, Period other) {
+            return checked_subtract(self, other);
+        })
+        .def("__neg__", [](Period self) {
+            return checked_negate(self);
+        })
+        .def("__mul__", [](Period self, std::int64_t factor) {
+            return checked_multiply(self, factor);
+        })
+        .def("__rmul__", [](Period self, std::int64_t factor) {
+            return checked_multiply(self, factor);
+        })
+        .def("__radd__", [](Period self, nb::handle value) {
+            const nb::object datetime_type =
+                nb::module_::import_("datetime").attr("datetime");
+            if (nb::isinstance(value, datetime_type))
+            {
+                throw nb::type_error(
+                    "Period cannot be added to an Instant");
+            }
+            return apply_period(
+                nb::cast<CivilDate>(value),
+                self);
+        })
+        .def("__radd__", [](Period self, CivilDateTime value) {
+            return apply_period(value, self);
+        })
+        .def("__rsub__", [](Period self, nb::handle value) {
+            const nb::object datetime_type =
+                nb::module_::import_("datetime").attr("datetime");
+            if (nb::isinstance(value, datetime_type))
+            {
+                throw nb::type_error(
+                    "Period cannot be subtracted from an Instant");
+            }
+            return apply_period(
+                nb::cast<CivilDate>(value),
+                checked_negate(self));
+        })
+        .def("__rsub__", [](Period self, CivilDateTime value) {
+            return apply_period(value, checked_negate(self));
+        })
+        .def("__eq__", [](const Period &self, const Period &other) {
+            return self == other;
+        })
+        .def("__hash__", [](const Period &self) {
+            return std::hash<Period>{}(self);
+        })
+        .def("__repr__", [](const Period &self) {
+            std::ostringstream out;
+            out << self;
+            return out.str();
+        });
+
+    nb::class_<ZoneId>(m, "ZoneId")
+        .def(nb::init<std::string_view>(), nb::arg("name"))
+        .def_prop_ro("name", &ZoneId::name)
+        .def_prop_ro("value", &ZoneId::value)
+        .def("__str__", [](const ZoneId &self) {
+            return std::string{self.name()};
+        })
+        .def("__repr__", [](const ZoneId &self) {
+            return "ZoneId('" + std::string{self.name()} + "')";
+        })
+        .def("__eq__", [](const ZoneId &self, const ZoneId &other) {
+            return self == other;
+        })
+        .def("__hash__", [](const ZoneId &self) {
+            return std::hash<ZoneId>{}(self);
+        });
+
+    nb::class_<ZonedDateTime>(m, "ZonedDateTime")
+        .def_prop_ro("instant", &ZonedDateTime::instant)
+        .def_prop_ro("zone", &ZonedDateTime::zone)
+        .def_prop_ro("offset_seconds",
+                     &ZonedDateTime::offset_seconds)
+        .def_prop_ro("civil", &ZonedDateTime::civil)
+        .def("same_instant", &ZonedDateTime::same_instant)
+        .def("__eq__", [](const ZonedDateTime &self,
+                          const ZonedDateTime &other) {
+            return self == other;
+        })
+        .def("__hash__", [](const ZonedDateTime &self) {
+            return std::hash<ZonedDateTime>{}(self);
+        })
+        .def("__repr__", [](const ZonedDateTime &self) {
+            std::ostringstream out;
+            out << self;
+            return "ZonedDateTime('" + out.str() + "')";
+        });
+
+    const auto bind_range = [&]<typename Range>(const char *name) {
+        using Endpoint = typename Range::value_type;
+        nb::class_<Range>(m, name)
+            .def(nb::init<Endpoint, Endpoint, Boundary, Boundary>(),
+                 nb::arg("start"), nb::arg("end"),
+                 nb::arg("lower") = Boundary::Closed,
+                 nb::arg("upper") = Boundary::Open)
+            .def_static("empty", &Range::make_empty)
+            .def_static("all", &Range::all)
+            .def_static("bounded",
+                        [](Endpoint start, Endpoint end, Boundary lower,
+                           Boundary upper) {
+                            return Range::bounded(std::move(start),
+                                                  std::move(end), lower,
+                                                  upper);
+                        },
+                        nb::arg("start"), nb::arg("end"),
+                        nb::arg("lower") = Boundary::Closed,
+                        nb::arg("upper") = Boundary::Open)
+            .def_static("from_", &Range::from, nb::arg("start"),
+                        nb::arg("lower") = Boundary::Closed)
+            .def_static("until", &Range::until, nb::arg("end"),
+                        nb::arg("upper") = Boundary::Open)
+            .def_prop_ro("start", [](const Range &self) -> nb::object {
+                const auto value = self.start();
+                return value ? nb::cast(*value) : nb::none();
+            })
+            .def_prop_ro("end", [](const Range &self) -> nb::object {
+                const auto value = self.end();
+                return value ? nb::cast(*value) : nb::none();
+            })
+            .def_prop_ro("lower", &Range::lower_boundary)
+            .def_prop_ro("upper", &Range::upper_boundary)
+            .def_prop_ro("is_empty", &Range::empty)
+            .def_prop_ro("is_bounded",
+                         [](const Range &self) {
+                             return self.bounded();
+                         })
+            .def_prop_ro("lower_unbounded", &Range::lower_unbounded)
+            .def_prop_ro("upper_unbounded", &Range::upper_unbounded)
+            .def("contains",
+                 nb::overload_cast<const Endpoint &>(
+                     &Range::contains, nb::const_))
+            .def("contains",
+                 nb::overload_cast<const Range &>(
+                     &Range::contains, nb::const_))
+            .def("intersection", &Range::intersection)
+            .def("overlaps", &Range::overlaps)
+            .def("touches", &Range::touches)
+            .def("adjacent", &Range::adjacent)
+            .def("mergeable", &Range::mergeable)
+            .def("merge", &Range::merge)
+            .def("hull", &Range::hull)
+            .def("difference", &Range::difference)
+            .def("set_union", &Range::set_union)
+            .def("__eq__", [](const Range &self, const Range &other) {
+                return self == other;
+            })
+            .def("__hash__", [](const Range &self) {
+                return std::hash<Range>{}(self);
+            })
+            .def("__repr__", [](const Range &self) {
+                std::ostringstream out;
+                out << self;
+                return out.str();
+            });
+    };
+    bind_range.template operator()<InstantRange>("InstantRange");
+    bind_range.template operator()<CivilDateRange>("CivilDateRange");
+
+    const auto bind_range_set = [&]<typename RangeSet>(const char *name) {
+        using Range = typename RangeSet::value_type;
+        nb::class_<RangeSet>(m, name)
+            .def("__init__",
+                 [](nb::pointer_and_handle<RangeSet> self,
+                    nb::iterable source) {
+                     std::array<Range, 2> ranges{};
+                     std::size_t size = 0;
+                     for (nb::handle item : source)
+                     {
+                         if (size == ranges.size())
+                         {
+                             throw nb::value_error(
+                                 "range set capacity exceeded");
+                         }
+                         ranges[size++] = nb::cast<Range>(item);
+                     }
+                     new (self.p) RangeSet{
+                         std::span<const Range>{ranges.data(), size}};
+                 },
+                 nb::arg("ranges"))
+            .def("__len__", &RangeSet::size)
+            .def("__getitem__", [](const RangeSet &self,
+                                   std::ptrdiff_t index) {
+                if (index < 0)
+                {
+                    index += static_cast<std::ptrdiff_t>(self.size());
+                }
+                if (index < 0 ||
+                    static_cast<std::size_t>(index) >= self.size())
+                {
+                    throw nb::index_error();
+                }
+                return self[static_cast<std::size_t>(index)];
+            })
+            .def("__iter__",
+                 [](const RangeSet &self) {
+                     return nb::make_iterator(
+                         nb::type<RangeSet>(), "iterator",
+                         self.begin(), self.end());
+                 },
+                 nb::keep_alive<0, 1>())
+            .def("__eq__", [](const RangeSet &self,
+                              const RangeSet &other) {
+                return self == other;
+            })
+            .def("__hash__", [](const RangeSet &self) {
+                return std::hash<RangeSet>{}(self);
+            });
+    };
+    bind_range_set.template operator()<InstantRangeSet>(
+        "InstantRangeSet");
+    bind_range_set.template operator()<CivilDateRangeSet>(
+        "CivilDateRangeSet");
+
+    m.def("_temporal_checked_add",
+          [](Duration lhs, Duration rhs) {
+              return checked_add(lhs, rhs);
+          });
+    m.def("_temporal_checked_add",
+          [](Instant value, Duration delta) {
+              return checked_add(value, delta);
+          });
+    m.def("_temporal_checked_add",
+          [](Duration delta, Instant value) {
+              return checked_add(value, delta);
+          });
+    m.def("_temporal_checked_add",
+          [](CivilDateTime value, Duration delta) {
+              return checked_add(value, delta);
+          });
+    m.def("_temporal_checked_add",
+          [](Duration delta, CivilDateTime value) {
+              return checked_add(value, delta);
+          });
+    m.def("_temporal_checked_add",
+          [](Period lhs, Period rhs) {
+              return checked_add(lhs, rhs);
+          });
+    m.def("_temporal_checked_add",
+          [](CivilDate value, Period period, MonthEndPolicy policy) {
+              return apply_period(value, period, policy);
+          },
+          nb::arg("value"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+    m.def("_temporal_checked_add",
+          [](CivilDateTime value, Period period,
+             MonthEndPolicy policy) {
+              return apply_period(value, period, policy);
+          },
+          nb::arg("value"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+
+    m.def("_temporal_checked_subtract",
+          [](Duration lhs, Duration rhs) {
+              return checked_subtract(lhs, rhs);
+          });
+    m.def("_temporal_checked_subtract",
+          [](Instant value, Duration delta) {
+              return checked_subtract(value, delta);
+          });
+    m.def("_temporal_checked_subtract",
+          [](Instant lhs, Instant rhs) {
+              return checked_subtract(lhs, rhs);
+          });
+    m.def("_temporal_checked_subtract",
+          [](CivilDateTime value, Duration delta) {
+              return checked_subtract(value, delta);
+          });
+    m.def("_temporal_checked_subtract",
+          [](CivilDateTime lhs, CivilDateTime rhs) {
+              return checked_subtract(lhs, rhs);
+          });
+    m.def("_temporal_checked_subtract",
+          [](Period lhs, Period rhs) {
+              return checked_subtract(lhs, rhs);
+          });
+    m.def("_temporal_checked_subtract",
+          [](CivilDate value, Period period, MonthEndPolicy policy) {
+              return apply_period(value, checked_negate(period), policy);
+          },
+          nb::arg("value"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+    m.def("_temporal_checked_subtract",
+          [](CivilDateTime value, Period period,
+             MonthEndPolicy policy) {
+              return apply_period(value, checked_negate(period), policy);
+          },
+          nb::arg("value"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+
+    m.def("_temporal_checked_negate",
+          [](Duration value) {
+              return checked_negate(value);
+          });
+    m.def("_temporal_checked_negate",
+          [](Period value) {
+              return checked_negate(value);
+          });
+    m.def("_temporal_checked_multiply",
+          [](Duration value, std::int64_t factor) {
+              return checked_multiply(value, factor);
+          });
+    m.def("_temporal_checked_multiply",
+          [](Duration value, double factor) {
+              return checked_multiply(value, factor);
+          });
+    m.def("_temporal_checked_multiply",
+          [](Period value, std::int64_t factor) {
+              return checked_multiply(value, factor);
+          });
+    m.def("_temporal_checked_divide",
+          [](Duration value, std::int64_t divisor) {
+              return checked_divide(value, divisor);
+          });
+    m.def("_temporal_checked_divide",
+          [](Duration value, double divisor) {
+              return checked_divide(value, divisor);
+          });
+    m.def("_temporal_apply_period",
+          nb::overload_cast<CivilDate, Period, MonthEndPolicy>(
+              &apply_period),
+          nb::arg("value"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+    m.def("_temporal_apply_period",
+          nb::overload_cast<CivilDateTime, Period, MonthEndPolicy>(
+              &apply_period),
+          nb::arg("value"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+    m.def("_temporal_shift",
+          nb::overload_cast<InstantRange, Duration>(&shift),
+          nb::arg("range"), nb::arg("delta"));
+    m.def("_temporal_shift",
+          nb::overload_cast<CivilDateRange, Period, MonthEndPolicy>(
+              &shift),
+          nb::arg("range"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+    m.def("_temporal_extent", &extent, nb::arg("range"));
+    m.def("_temporal_floor",
+          nb::overload_cast<Duration, Duration>(&floor),
+          nb::arg("value"), nb::arg("quantum"));
+    m.def("_temporal_floor",
+          nb::overload_cast<Instant, Duration, Instant>(&floor),
+          nb::arg("value"), nb::arg("quantum"),
+          nb::arg("origin") = Instant{});
+    m.def("_temporal_ceil",
+          nb::overload_cast<Duration, Duration>(&ceil),
+          nb::arg("value"), nb::arg("quantum"));
+    m.def("_temporal_ceil",
+          nb::overload_cast<Instant, Duration, Instant>(&ceil),
+          nb::arg("value"), nb::arg("quantum"),
+          nb::arg("origin") = Instant{});
+    m.def("_temporal_round",
+          nb::overload_cast<Duration, Duration>(&round),
+          nb::arg("value"), nb::arg("quantum"));
+    m.def("_temporal_round",
+          nb::overload_cast<Instant, Duration, Instant>(&round),
+          nb::arg("value"), nb::arg("quantum"),
+          nb::arg("origin") = Instant{});
+    m.def("_temporal_bucket", &bucket,
+          nb::arg("value"), nb::arg("width"),
+          nb::arg("origin") = Instant{});
+    m.def("_temporal_parse_duration", &parse_duration,
+          nb::arg("value"));
+    m.def("_temporal_format_duration", &format_duration,
+          nb::arg("value"));
+    m.def("_temporal_format_instant", &format_instant,
+          nb::arg("value"));
+    m.def("_temporal_format_civil_date", &format_civil_date,
+          nb::arg("value"));
+    m.def("_temporal_format_civil_time", &format_civil_time,
+          nb::arg("value"));
+    m.def("_temporal_format_civil_datetime",
+          &format_civil_datetime, nb::arg("value"));
+
+    const auto register_temporal_type =
+        [&](const char *python_name,
+            const ValueTypeMetaData *native_meta) {
+            python_bridge::register_native_scalar_type(
+                m.attr(python_name), native_meta);
+        };
+    register_temporal_type(
+        "CivilDateTime",
+        scalar_descriptor<CivilDateTime>::value_meta());
+    register_temporal_type("Period",
+                           scalar_descriptor<Period>::value_meta());
+    register_temporal_type("ZoneId",
+                           scalar_descriptor<ZoneId>::value_meta());
+    register_temporal_type(
+        "ZonedDateTime",
+        scalar_descriptor<ZonedDateTime>::value_meta());
+    register_temporal_type(
+        "InstantRange",
+        scalar_descriptor<InstantRange>::value_meta());
+    register_temporal_type(
+        "CivilDateRange",
+        scalar_descriptor<CivilDateRange>::value_meta());
+    register_temporal_type(
+        "InstantRangeSet",
+        scalar_descriptor<InstantRangeSet>::value_meta());
+    register_temporal_type(
+        "CivilDateRangeSet",
+        scalar_descriptor<CivilDateRangeSet>::value_meta());
+    register_temporal_type(
+        "MonthEndPolicy",
+        scalar_descriptor<MonthEndPolicy>::value_meta());
+    register_temporal_type(
+        "AmbiguousTimePolicy",
+        scalar_descriptor<AmbiguousTimePolicy>::value_meta());
+    register_temporal_type(
+        "NonexistentTimePolicy",
+        scalar_descriptor<NonexistentTimePolicy>::value_meta());
+    register_temporal_type(
+        "Boundary",
+        scalar_descriptor<Boundary>::value_meta());
+
     nb::class_<PyTsType>(m, "TsType")
         .def("__eq__", [](const PyTsType &self, nb::handle other) {
             return nb::isinstance<PyTsType>(other) && nb::cast<PyTsType &>(other).meta == self.meta;

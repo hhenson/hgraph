@@ -53,6 +53,14 @@ namespace hgraph
             DateTime,
             TimeDelta,
             Time,
+            CivilDateTime,
+            Period,
+            ZoneId,
+            ZonedDateTime,
+            InstantRange,
+            CivilDateRange,
+            InstantRangeSet,
+            CivilDateRangeSet,
         };
 
         WriteFn                            write_{nullptr};

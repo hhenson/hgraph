@@ -27,6 +27,8 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/runtime/try_except_node.cpp
     hgraph/types/frame.cpp
     hgraph/types/series.cpp
+    hgraph/types/temporal.cpp
+    hgraph/types/time_zone_provider.cpp
     hgraph/types/type_pointer.cpp
     hgraph/types/metadata/debug_descriptor.cpp
     hgraph/types/metadata/ts_data_atomic_ops.cpp

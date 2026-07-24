@@ -3,12 +3,14 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/temporal.h>
 #include <hgraph/types/value/value_builder.h>
 
 #include <arrow/api.h>
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <stdexcept>
@@ -99,6 +101,227 @@ namespace hgraph
                                               "append time");
         }
 
+        void append_civil_datetime(const Column &, const ValueView &leaf,
+                                   arrow::ArrayBuilder &builder)
+        {
+            append_with<arrow::TimestampBuilder>(
+                builder,
+                [&] {
+                    return leaf.checked_as<CivilDateTime>()
+                        .epoch_microseconds();
+                },
+                "append civil datetime");
+        }
+
+        void append_period(const Column &, const ValueView &leaf,
+                           arrow::ArrayBuilder &builder)
+        {
+            const Period value = leaf.checked_as<Period>();
+            check(static_cast<arrow::MonthDayNanoIntervalBuilder &>(builder)
+                      .Append({value.total_months(), value.days(), 0}),
+                  "append period");
+        }
+
+        void append_zone_id(const Column &, const ValueView &leaf,
+                            arrow::ArrayBuilder &builder)
+        {
+            check(static_cast<arrow::StringBuilder &>(builder).Append(
+                      leaf.checked_as<ZoneId>().name()),
+                  "append zone id");
+        }
+
+        [[nodiscard]] std::shared_ptr<arrow::DataType> zoned_datetime_type()
+        {
+            static const auto type = arrow::struct_({
+                arrow::field(
+                    "instant",
+                    arrow::timestamp(arrow::TimeUnit::MICRO, "UTC")),
+                arrow::field("zone", arrow::utf8()),
+                arrow::field("offset_seconds", arrow::int32()),
+            });
+            return type;
+        }
+
+        [[nodiscard]] std::shared_ptr<arrow::DataType> instant_range_type()
+        {
+            static const auto type = arrow::struct_({
+                arrow::field(
+                    "start",
+                    arrow::timestamp(arrow::TimeUnit::MICRO, "UTC")),
+                arrow::field(
+                    "end",
+                    arrow::timestamp(arrow::TimeUnit::MICRO, "UTC")),
+                arrow::field("lower_closed", arrow::boolean()),
+                arrow::field("upper_closed", arrow::boolean()),
+                arrow::field("empty", arrow::boolean()),
+            });
+            return type;
+        }
+
+        [[nodiscard]] std::shared_ptr<arrow::DataType> civil_date_range_type()
+        {
+            static const auto type = arrow::struct_({
+                arrow::field("start", arrow::date32()),
+                arrow::field("end", arrow::date32()),
+                arrow::field("lower_closed", arrow::boolean()),
+                arrow::field("upper_closed", arrow::boolean()),
+                arrow::field("empty", arrow::boolean()),
+            });
+            return type;
+        }
+
+        template <typename Range, typename AppendEndpoint>
+        void append_range_value(const Range &range,
+                                arrow::StructBuilder &builder,
+                                AppendEndpoint &&append_endpoint)
+        {
+            check(builder.Append(), "append range");
+            auto &start = *builder.field_builder(0);
+            auto &end = *builder.field_builder(1);
+            if (range.lower_bounded())
+            {
+                append_endpoint(start, range.lower_value());
+            }
+            else { append_null(start); }
+            if (range.upper_bounded())
+            {
+                append_endpoint(end, range.upper_value());
+            }
+            else { append_null(end); }
+            append_with<arrow::BooleanBuilder>(
+                *builder.field_builder(2),
+                [&] {
+                    return range.lower_boundary() == Boundary::Closed;
+                },
+                "append lower range boundary");
+            append_with<arrow::BooleanBuilder>(
+                *builder.field_builder(3),
+                [&] {
+                    return range.upper_boundary() == Boundary::Closed;
+                },
+                "append upper range boundary");
+            append_with<arrow::BooleanBuilder>(
+                *builder.field_builder(4), [&] { return range.empty(); },
+                "append empty range marker");
+        }
+
+        void append_instant_range_value(
+            const InstantRange &range, arrow::StructBuilder &builder)
+        {
+            append_range_value(
+                range, builder,
+                [](arrow::ArrayBuilder &endpoint, Instant value) {
+                    append_with<arrow::TimestampBuilder>(
+                        endpoint,
+                        [&] { return value.time_since_epoch().count(); },
+                        "append instant range endpoint");
+                });
+        }
+
+        void append_civil_date_range_value(
+            const CivilDateRange &range, arrow::StructBuilder &builder)
+        {
+            append_range_value(
+                range, builder,
+                [](arrow::ArrayBuilder &endpoint, CivilDate value) {
+                    const auto days =
+                        std::chrono::sys_days{value}
+                            .time_since_epoch()
+                            .count();
+                    append_with<arrow::Date32Builder>(
+                        endpoint,
+                        [&] {
+                            return static_cast<std::int32_t>(days);
+                        },
+                        "append civil date range endpoint");
+                });
+        }
+
+        void append_zoned_datetime(const Column &, const ValueView &leaf,
+                                   arrow::ArrayBuilder &builder)
+        {
+            const auto value = leaf.checked_as<ZonedDateTime>();
+            auto &structure = static_cast<arrow::StructBuilder &>(builder);
+            check(structure.Append(), "append zoned datetime");
+            append_with<arrow::TimestampBuilder>(
+                *structure.field_builder(0),
+                [&] {
+                    return value.instant().time_since_epoch().count();
+                },
+                "append zoned instant");
+            check(static_cast<arrow::StringBuilder &>(
+                      *structure.field_builder(1))
+                      .Append(value.zone().name()),
+                  "append zoned zone id");
+            append_with<arrow::Int32Builder>(
+                *structure.field_builder(2),
+                [&] { return value.offset_seconds(); },
+                "append zoned offset");
+        }
+
+        void append_instant_range(const Column &, const ValueView &leaf,
+                                  arrow::ArrayBuilder &builder)
+        {
+            append_instant_range_value(
+                leaf.checked_as<InstantRange>(),
+                static_cast<arrow::StructBuilder &>(builder));
+        }
+
+        void append_civil_date_range(const Column &, const ValueView &leaf,
+                                     arrow::ArrayBuilder &builder)
+        {
+            append_civil_date_range_value(
+                leaf.checked_as<CivilDateRange>(),
+                static_cast<arrow::StructBuilder &>(builder));
+        }
+
+        template <typename RangeSet, typename AppendRange>
+        void append_range_set_value(const RangeSet &value,
+                                    arrow::ArrayBuilder &builder,
+                                    AppendRange &&append_range)
+        {
+            auto &list =
+                static_cast<arrow::FixedSizeListBuilder &>(builder);
+            check(list.Append(), "append fixed range set");
+            auto &ranges =
+                static_cast<arrow::StructBuilder &>(*list.value_builder());
+            for (std::size_t index = 0; index < RangeSet::capacity(); ++index)
+            {
+                if (index < value.size())
+                {
+                    append_range(value[index], ranges);
+                }
+                else
+                {
+                    check(ranges.AppendNull(),
+                          "append unused fixed range slot");
+                }
+            }
+        }
+
+        void append_instant_range_set(const Column &, const ValueView &leaf,
+                                      arrow::ArrayBuilder &builder)
+        {
+            append_range_set_value(
+                leaf.checked_as<InstantRangeSet>(), builder,
+                [](const InstantRange &range,
+                   arrow::StructBuilder &ranges) {
+                    append_instant_range_value(range, ranges);
+                });
+        }
+
+        void append_civil_date_range_set(const Column &,
+                                         const ValueView &leaf,
+                                         arrow::ArrayBuilder &builder)
+        {
+            append_range_set_value(
+                leaf.checked_as<CivilDateRangeSet>(), builder,
+                [](const CivilDateRange &range,
+                   arrow::StructBuilder &ranges) {
+                    append_civil_date_range_value(range, ranges);
+                });
+        }
+
         Value read_bool(const Column &, const arrow::Array &array, std::int64_t row)
         {
             return Value{Bool{static_cast<const arrow::BooleanArray &>(array).Value(row)}};
@@ -157,6 +380,190 @@ namespace hgraph
             return Value{Time{static_cast<const arrow::Time64Array &>(array).Value(row)}};
         }
 
+        Value read_civil_datetime(const Column &, const arrow::Array &array,
+                                  std::int64_t row)
+        {
+            const auto micros =
+                static_cast<const arrow::TimestampArray &>(array).Value(row);
+            return Value{
+                CivilDateTime::from_epoch_microseconds(micros)};
+        }
+
+        Value read_period(const Column &, const arrow::Array &array,
+                          std::int64_t row)
+        {
+            const auto value =
+                static_cast<const arrow::MonthDayNanoIntervalArray &>(array)
+                    .Value(row);
+            if (value.nanoseconds != 0)
+            {
+                throw std::invalid_argument(
+                    "table codec: period interval nanoseconds must be zero");
+            }
+            return Value{Period::from_total(value.months, value.days)};
+        }
+
+        Value read_zone_id(const Column &, const arrow::Array &array,
+                           std::int64_t row)
+        {
+            if (array.type_id() == arrow::Type::LARGE_STRING)
+            {
+                return Value{ZoneId{
+                    static_cast<const arrow::LargeStringArray &>(array)
+                        .GetView(row)}};
+            }
+            return Value{ZoneId{
+                static_cast<const arrow::StringArray &>(array).GetView(row)}};
+        }
+
+        Value read_zoned_datetime(const Column &, const arrow::Array &array,
+                                  std::int64_t row)
+        {
+            const auto &structure =
+                static_cast<const arrow::StructArray &>(array);
+            const auto instant = static_cast<const arrow::TimestampArray &>(
+                                     *structure.field(0))
+                                     .Value(row);
+            const auto zone_text =
+                static_cast<const arrow::StringArray &>(*structure.field(1))
+                    .GetView(row);
+            const auto offset =
+                static_cast<const arrow::Int32Array &>(*structure.field(2))
+                    .Value(row);
+            const ZoneId zone{zone_text};
+            static const auto provider = make_time_zone_provider();
+            const auto value =
+                at_zone(Instant{Duration{instant}}, zone, *provider);
+            if (value.offset_seconds() != offset)
+            {
+                throw std::invalid_argument(
+                    "table codec: zoned datetime offset disagrees with provider");
+            }
+            return Value{value};
+        }
+
+        template <typename Range, typename ReadEndpoint>
+        [[nodiscard]] Range read_range_value(
+            const arrow::StructArray &structure, std::int64_t row,
+            ReadEndpoint &&read_endpoint)
+        {
+            const auto &empty =
+                static_cast<const arrow::BooleanArray &>(*structure.field(4));
+            if (empty.Value(row)) { return Range::make_empty(); }
+            const auto &lower =
+                static_cast<const arrow::BooleanArray &>(*structure.field(2));
+            const auto &upper =
+                static_cast<const arrow::BooleanArray &>(*structure.field(3));
+            const Boundary lower_boundary =
+                lower.Value(row) ? Boundary::Closed : Boundary::Open;
+            const Boundary upper_boundary =
+                upper.Value(row) ? Boundary::Closed : Boundary::Open;
+            const auto &start = *structure.field(0);
+            const auto &end = *structure.field(1);
+            if (!start.IsNull(row) && !end.IsNull(row))
+            {
+                return Range::bounded(
+                    read_endpoint(start, row), read_endpoint(end, row),
+                    lower_boundary, upper_boundary);
+            }
+            if (!start.IsNull(row))
+            {
+                return Range::from(read_endpoint(start, row),
+                                   lower_boundary);
+            }
+            if (!end.IsNull(row))
+            {
+                return Range::until(read_endpoint(end, row),
+                                    upper_boundary);
+            }
+            return Range::all();
+        }
+
+        [[nodiscard]] InstantRange read_instant_range_value(
+            const arrow::StructArray &structure, std::int64_t row)
+        {
+            return read_range_value<InstantRange>(
+                structure, row,
+                [](const arrow::Array &endpoint, std::int64_t index) {
+                    return Instant{Duration{
+                        static_cast<const arrow::TimestampArray &>(endpoint)
+                            .Value(index)}};
+                });
+        }
+
+        [[nodiscard]] CivilDateRange read_civil_date_range_value(
+            const arrow::StructArray &structure, std::int64_t row)
+        {
+            return read_range_value<CivilDateRange>(
+                structure, row,
+                [](const arrow::Array &endpoint, std::int64_t index) {
+                    return CivilDate{std::chrono::sys_days{
+                        std::chrono::days{
+                            static_cast<const arrow::Date32Array &>(endpoint)
+                                .Value(index)}}};
+                });
+        }
+
+        Value read_instant_range(const Column &, const arrow::Array &array,
+                                 std::int64_t row)
+        {
+            return Value{read_instant_range_value(
+                static_cast<const arrow::StructArray &>(array), row)};
+        }
+
+        Value read_civil_date_range(const Column &, const arrow::Array &array,
+                                    std::int64_t row)
+        {
+            return Value{read_civil_date_range_value(
+                static_cast<const arrow::StructArray &>(array), row)};
+        }
+
+        template <typename Range, typename RangeSet, typename ReadRange>
+        Value read_range_set_value(const arrow::Array &array,
+                                   std::int64_t row,
+                                   ReadRange &&read_range)
+        {
+            const auto &list =
+                static_cast<const arrow::FixedSizeListArray &>(array);
+            const auto &ranges =
+                static_cast<const arrow::StructArray &>(*list.values());
+            std::array<Range, 2> values{};
+            std::size_t size = 0;
+            const auto offset = list.value_offset(row);
+            for (std::int64_t index = offset;
+                 index < offset + list.value_length(row); ++index)
+            {
+                if (!ranges.IsNull(index))
+                {
+                    values[size++] = read_range(ranges, index);
+                }
+            }
+            return Value{RangeSet{
+                std::span<const Range>{values.data(), size}}};
+        }
+
+        Value read_instant_range_set(const Column &,
+                                     const arrow::Array &array,
+                                     std::int64_t row)
+        {
+            return read_range_set_value<InstantRange, InstantRangeSet>(
+                array, row,
+                [](const arrow::StructArray &ranges, std::int64_t index) {
+                    return read_instant_range_value(ranges, index);
+                });
+        }
+
+        Value read_civil_date_range_set(const Column &,
+                                        const arrow::Array &array,
+                                        std::int64_t row)
+        {
+            return read_range_set_value<CivilDateRange, CivilDateRangeSet>(
+                array, row,
+                [](const arrow::StructArray &ranges, std::int64_t index) {
+                    return read_civil_date_range_value(ranges, index);
+                });
+        }
+
         struct LeafOps
         {
             std::shared_ptr<arrow::DataType> type;
@@ -189,7 +596,8 @@ namespace hgraph
             }
             if (meta == scalar_descriptor<DateTime>::value_meta())
             {
-                return {arrow::timestamp(arrow::TimeUnit::MICRO), &append_datetime, &read_datetime};
+                return {arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"),
+                        &append_datetime, &read_datetime};
             }
             if (meta == scalar_descriptor<TimeDelta>::value_meta())
             {
@@ -198,6 +606,48 @@ namespace hgraph
             if (meta == scalar_descriptor<Time>::value_meta())
             {
                 return {arrow::time64(arrow::TimeUnit::MICRO), &append_time, &read_time};
+            }
+            if (meta == scalar_descriptor<CivilDateTime>::value_meta())
+            {
+                return {arrow::timestamp(arrow::TimeUnit::MICRO),
+                        &append_civil_datetime, &read_civil_datetime};
+            }
+            if (meta == scalar_descriptor<Period>::value_meta())
+            {
+                return {arrow::month_day_nano_interval(), &append_period,
+                        &read_period};
+            }
+            if (meta == scalar_descriptor<ZoneId>::value_meta())
+            {
+                return {arrow::utf8(), &append_zone_id, &read_zone_id};
+            }
+            if (meta == scalar_descriptor<ZonedDateTime>::value_meta())
+            {
+                return {zoned_datetime_type(), &append_zoned_datetime,
+                        &read_zoned_datetime};
+            }
+            if (meta == scalar_descriptor<InstantRange>::value_meta())
+            {
+                return {instant_range_type(), &append_instant_range,
+                        &read_instant_range};
+            }
+            if (meta == scalar_descriptor<CivilDateRange>::value_meta())
+            {
+                return {civil_date_range_type(), &append_civil_date_range,
+                        &read_civil_date_range};
+            }
+            if (meta == scalar_descriptor<InstantRangeSet>::value_meta())
+            {
+                return {
+                    arrow::fixed_size_list(instant_range_type(), 2),
+                    &append_instant_range_set, &read_instant_range_set};
+            }
+            if (meta == scalar_descriptor<CivilDateRangeSet>::value_meta())
+            {
+                return {
+                    arrow::fixed_size_list(civil_date_range_type(), 2),
+                    &append_civil_date_range_set,
+                    &read_civil_date_range_set};
             }
             if ((meta->value_kind() == ValueTypeKind::List ||
                  (meta->value_kind() == ValueTypeKind::Tuple && meta->has(ValueTypeFlags::VariadicTuple))) &&
@@ -217,6 +667,10 @@ namespace hgraph
             const LeafOps ops = leaf_ops_for(leaf);
             const auto actual = array.type();
             const bool compatible = actual->Equals(ops.type) ||
+                                    (leaf ==
+                                         scalar_descriptor<DateTime>::value_meta() &&
+                                     actual->Equals(arrow::timestamp(
+                                         arrow::TimeUnit::MICRO))) ||
                                     (ops.type->id() == arrow::Type::STRING &&
                                      actual->id() == arrow::Type::LARGE_STRING) ||
                                     (ops.type->id() == arrow::Type::BINARY &&
@@ -229,6 +683,61 @@ namespace hgraph
                     leaf != nullptr && !leaf->name().empty()
                         ? leaf->name()
                         : std::string_view{"?"}));
+            }
+        }
+
+        [[nodiscard]] bool temporal_version_two(
+            const arrow::Schema &schema) noexcept
+        {
+            const auto &metadata = schema.metadata();
+            if (!metadata) { return false; }
+            const int index =
+                metadata->FindKey("hgraph.temporal.version");
+            return index >= 0 && metadata->value(index) == "2";
+        }
+
+        void validate_versioned_array_type(
+            const arrow::Array &array, const ValueTypeMetaData *leaf,
+            const arrow::Schema &schema, std::string_view source)
+        {
+            validate_array_type(array, leaf, source);
+            if (leaf == scalar_descriptor<DateTime>::value_meta() &&
+                temporal_version_two(schema))
+            {
+                const auto &timestamp =
+                    static_cast<const arrow::TimestampType &>(*array.type());
+                if (timestamp.timezone() != "UTC")
+                {
+                    throw std::invalid_argument(fmt::format(
+                        "table codec: {} is a version-2 Instant but has "
+                        "timezone-free Arrow type '{}'",
+                        source, array.type()->ToString()));
+                }
+            }
+            if (leaf == scalar_descriptor<ZonedDateTime>::value_meta())
+            {
+                const auto &metadata = schema.metadata();
+                const int version_index =
+                    metadata != nullptr
+                        ? metadata->FindKey("hgraph.tzdb.version")
+                        : -1;
+                if (version_index < 0)
+                {
+                    throw std::invalid_argument(fmt::format(
+                        "table codec: {} is a ZonedDateTime but the Arrow "
+                        "schema has no hgraph.tzdb.version",
+                        source));
+                }
+                static const auto provider = make_time_zone_provider();
+                const std::string_view encoded_version =
+                    metadata->value(version_index);
+                if (encoded_version != provider->version())
+                {
+                    throw std::invalid_argument(fmt::format(
+                        "table codec: {} uses TZDB version '{}', but the "
+                        "active provider uses '{}'",
+                        source, encoded_version, provider->version()));
+                }
             }
         }
 
@@ -365,10 +874,31 @@ namespace hgraph
 
             arrow::FieldVector fields;
             fields.reserve(converter->columns.size() + 2);
-            fields.push_back(arrow::field(converter->date_key, arrow::timestamp(arrow::TimeUnit::MICRO)));
-            fields.push_back(arrow::field(converter->as_of_key, arrow::timestamp(arrow::TimeUnit::MICRO)));
+            fields.push_back(arrow::field(
+                converter->date_key,
+                arrow::timestamp(arrow::TimeUnit::MICRO, "UTC")));
+            fields.push_back(arrow::field(
+                converter->as_of_key,
+                arrow::timestamp(arrow::TimeUnit::MICRO, "UTC")));
             for (const auto &column : converter->columns) { fields.push_back(arrow::field(column.name, column.type)); }
-            converter->arrow_schema = arrow::schema(std::move(fields));
+            std::vector<std::string> metadata_keys{
+                "hgraph.temporal.version"};
+            std::vector<std::string> metadata_values{"2"};
+            if (std::any_of(
+                    converter->columns.begin(), converter->columns.end(),
+                    [](const Column &column) {
+                        return column.leaf_meta ==
+                               scalar_descriptor<ZonedDateTime>::value_meta();
+                    }))
+            {
+                metadata_keys.emplace_back("hgraph.tzdb.version");
+                metadata_values.emplace_back(
+                    make_time_zone_provider()->version());
+            }
+            auto metadata = arrow::key_value_metadata(
+                std::move(metadata_keys), std::move(metadata_values));
+            converter->arrow_schema =
+                arrow::schema(std::move(fields), std::move(metadata));
 
             const auto *raw = converter.get();
             g_converters.emplace(ConverterKey{meta, std::string{date_key}, std::string{as_of_key}},
@@ -413,8 +943,10 @@ namespace hgraph
     FrameRecorder::FrameRecorder(const TableConverter &converter) : impl_(std::make_unique<Impl>())
     {
         impl_->converter     = &converter;
-        impl_->date_builder  = make_builder(arrow::timestamp(arrow::TimeUnit::MICRO));
-        impl_->as_of_builder = make_builder(arrow::timestamp(arrow::TimeUnit::MICRO));
+        impl_->date_builder  = make_builder(
+            arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"));
+        impl_->as_of_builder = make_builder(
+            arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"));
         impl_->column_builders.reserve(converter.columns.size());
         for (const auto &column : converter.columns) { impl_->column_builders.push_back(make_builder(column.type)); }
     }
@@ -457,6 +989,10 @@ namespace hgraph
         {
             throw std::invalid_argument("table codec: frame is missing its value-time column");
         }
+        validate_versioned_array_type(
+            *chunked->chunk(0),
+            scalar_descriptor<DateTime>::value_meta(),
+            *frame.table->schema(), "value-time column");
         const auto &array = static_cast<const arrow::TimestampArray &>(*chunked->chunk(0));
         return DateTime{std::chrono::microseconds{array.Value(row)}};
     }
@@ -481,7 +1017,8 @@ namespace hgraph
         arrays.reserve(converter.columns.size() + 2);
 
         const auto append_timestamp = [&](DateTime when) {
-            auto builder = make_builder(arrow::timestamp(arrow::TimeUnit::MICRO));
+            auto builder = make_builder(
+                arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"));
             check(static_cast<arrow::TimestampBuilder &>(*builder).Append(when.time_since_epoch().count()),
                   "append timestamp");
             arrays.push_back(finish(*builder));
@@ -508,7 +1045,8 @@ namespace hgraph
         arrow::FieldVector fields;
         fields.reserve(columns.size());
         for (const auto &column : columns) { fields.push_back(arrow::field(column.name, column.type)); }
-        const auto schema = arrow::schema(std::move(fields));
+        const auto schema = arrow::schema(
+            std::move(fields), converter.arrow_schema->metadata());
 
         std::vector<std::unique_ptr<arrow::ArrayBuilder>> builders;
         builders.reserve(columns.size());
@@ -536,7 +1074,8 @@ namespace hgraph
         arrow::FieldVector fields;
         fields.reserve(columns.size());
         for (const auto &column : columns) { fields.push_back(arrow::field(column.name, column.type)); }
-        const auto schema = arrow::schema(std::move(fields));
+        const auto schema = arrow::schema(
+            std::move(fields), converter.arrow_schema->metadata());
 
         std::vector<std::unique_ptr<arrow::ArrayBuilder>> builders;
         builders.reserve(columns.size());
@@ -615,7 +1154,9 @@ namespace hgraph
             array = *combined;
         }
         else { array = chunked->chunk(0); }
-        validate_array_type(*array, leaf, fmt::format("column '{}'", column));
+        validate_versioned_array_type(
+            *array, leaf, *frame.table->schema(),
+            fmt::format("column '{}'", column));
         return array_cell(*array, leaf, row);
     }
 
@@ -672,6 +1213,9 @@ namespace hgraph
         {
             const auto &column = converter.columns.front();
             auto array = column_array(column.name);
+            validate_versioned_array_type(
+                *array, column.leaf_meta, *table.schema(),
+                fmt::format("column '{}'", column.name));
             if (array->IsNull(row)) { return Value{*converter.meta}; }
             return column.read(column, *array, row);
         }
@@ -681,6 +1225,9 @@ namespace hgraph
         for (const auto &column : converter.columns)
         {
             auto array = column_array(column.name);
+            validate_versioned_array_type(
+                *array, column.leaf_meta, *table.schema(),
+                fmt::format("column '{}'", column.name));
             if (array->IsNull(row)) { continue; }
             builder.set(column.path.front(), column.read(column, *array, row));
         }

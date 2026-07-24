@@ -985,7 +985,7 @@ TEST_CASE("std operators: add_ supports datetime + timedelta -> datetime")
                  values<DateTime>(dt(1'500'000), dt(3'500'000)));
 }
 
-TEST_CASE("std operators: add_ supports date + timedelta -> date (whole days)")
+TEST_CASE("std operators: date and timedelta arithmetic matches Python normalized days")
 {
     stdlib::register_standard_operators();
     const TimeDelta two_days  = duration_cast<TimeDelta>(days{2});
@@ -994,6 +994,17 @@ TEST_CASE("std operators: add_ supports date + timedelta -> date (whole days)")
     CHECK_OUTPUT(eval_node<stdlib::add_>(values<Date>(ymd(2020, 1, 1), ymd(2020, 1, 10)),
                                          values<TimeDelta>(two_days, five_days)),
                  values<Date>(ymd(2020, 1, 3), ymd(2020, 1, 15)));
+
+    CHECK_OUTPUT(
+        eval_node<stdlib::add_>(
+            values<Date>(ymd(2020, 1, 2), ymd(2020, 1, 2)),
+            values<TimeDelta>(hours{23}, microseconds{-1})),
+        values<Date>(ymd(2020, 1, 2), ymd(2020, 1, 1)));
+    CHECK_OUTPUT(
+        eval_node<stdlib::sub_>(
+            values<Date>(ymd(2020, 1, 2), ymd(2020, 1, 2)),
+            values<TimeDelta>(hours{23}, microseconds{-1})),
+        values<Date>(ymd(2020, 1, 2), ymd(2020, 1, 3)));
 }
 
 TEST_CASE("std operators: div_ produces a different result type (int / int -> float)")

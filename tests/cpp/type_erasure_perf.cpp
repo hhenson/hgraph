@@ -8,6 +8,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
+#include <hgraph/types/temporal.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/value_builder.h>
 
@@ -242,6 +243,31 @@ namespace
                   << " median_bytes=" << median(bytes)
                   << " median_bytes_per_op=" << static_cast<double>(median(bytes)) / static_cast<double>(iterations)
                   << " checksum=" << checksum << '\n';
+    }
+
+    template <typename Operation>
+    void require_no_allocations(std::string_view name,
+                                std::size_t iterations,
+                                Operation &&operation)
+    {
+        retain(operation());
+        std::uint64_t checksum = 0;
+        {
+            AllocationScope allocations;
+            for (std::size_t index = 0; index < iterations; ++index)
+            {
+                checksum += operation();
+            }
+        }
+        retain(checksum);
+        const auto allocations =
+            g_allocations.load(std::memory_order_relaxed);
+        if (allocations != 0)
+        {
+            throw std::runtime_error(
+                std::string{name} + " allocated " +
+                std::to_string(allocations) + " times");
+        }
     }
 
     struct Doubler
@@ -573,6 +599,76 @@ int main()
     // the access path being measured. A local volatile result is insufficient
     // because the compiler can still fold the source-side checked_as work.
     g_atomic_value_view_input.store(&atomic_view, std::memory_order_release);
+
+    const Instant temporal_instant{Duration{41}};
+    const InstantRange temporal_range =
+        InstantRange::bounded(Instant{Duration{0}},
+                              Instant{Duration{100}});
+    const InstantRange temporal_middle =
+        InstantRange::bounded(Instant{Duration{25}},
+                              Instant{Duration{75}});
+    const auto temporal_provider = make_time_zone_provider();
+    const ZoneId temporal_zone{"UTC"};
+    (void)hgraph::at_zone(
+        temporal_instant, temporal_zone, *temporal_provider);
+
+    const auto checked_add_operation = [&] {
+        return static_cast<std::uint64_t>(
+            checked_add(temporal_instant, Duration{1})
+                .time_since_epoch()
+                .count());
+    };
+    require_no_allocations(
+        "temporal_checked_add", 10'000, checked_add_operation);
+    run_benchmark(
+        "temporal_checked_add", 200'000, samples, warmup,
+        checked_add_operation,
+        [](std::uint64_t value) {
+            if (value != 42)
+            {
+                throw std::runtime_error(
+                    "temporal checked add failed");
+            }
+        });
+
+    const auto range_operation = [&] {
+        const auto value =
+            temporal_range.difference(temporal_middle);
+        return static_cast<std::uint64_t>(
+            value.size() + value[0].contains(Instant{Duration{1}}));
+    };
+    require_no_allocations(
+        "temporal_range_difference", 10'000, range_operation);
+    run_benchmark(
+        "temporal_range_difference", 100'000, samples, warmup,
+        range_operation,
+        [](std::uint64_t value) {
+            if (value != 3)
+            {
+                throw std::runtime_error(
+                    "temporal range difference failed");
+            }
+        });
+
+    const auto cached_zone_operation = [&] {
+        return static_cast<std::uint64_t>(
+            hgraph::at_zone(
+                temporal_instant, temporal_zone, *temporal_provider)
+                .offset_seconds());
+    };
+    require_no_allocations(
+        "temporal_cached_zone", 10'000, cached_zone_operation);
+    run_benchmark(
+        "temporal_cached_zone", 50'000, samples, warmup,
+        cached_zone_operation,
+        [](std::uint64_t value) {
+            if (value != 0)
+            {
+                throw std::runtime_error(
+                    "temporal cached zone projection failed");
+            }
+        });
+
     run_benchmark(
         "atomic_value_read", 200000, samples, warmup,
         [&] {

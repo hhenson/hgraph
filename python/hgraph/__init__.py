@@ -39,6 +39,7 @@ from ._wiring import _PyNode as PythonWiringNodeClass  # upstream-parity name ke
 from ._wiring import _GraphFn as GraphWiringNodeClass
 from ._wiring import _Generator as PythonGeneratorWiringNodeClass
 from ._wiring import GlobalContext, GlobalState, set_record_replay_config, set_as_of, set_table_schema_date_key, set_table_schema_as_of_key, evaluate_const, utc_now, get_recorded_value, get_recorder_api, get_recording_label, set_recorder_api, set_recording_label, EvaluationClock, TSW_OUT, get_context, equal_lambdas, callable_shape_key
+from ._wiring._state import set_time_zone_provider
 from ._wiring import WiringPort, WiringGraphContext, graph, run_graph, eval_node, wire, operator_function, map_, reduce, mesh_, MeshWiringPort, get_mesh, REMOVE, REMOVE_IF_EXISTS, feedback, delayed_binding, switch_, passive, compute_node, sink_node, generator, lift, lower, STATE, SCHEDULER, CLOCK, EvaluationEngineApi, LOGGER, NODE, Node, DebugContext, component, record_replay_scope, RecordReplayEnum, comparison_summary, push_queue, EvaluationMode, context, WiringError, reference_service, subscription_service, request_reply_service, register_service, service_impl, adaptor, adaptor_impl, service_adaptor, service_adaptor_impl, register_adaptor, from_graph, to_graph, impl_input, impl_output, get_service_inputs, set_service_output
 
 MIN_ST = _hgraph.MIN_ST
@@ -78,6 +79,20 @@ from ._table import (ToTableMode, TableSchema, make_table_schema, table_schema,
 
 from ._wiring import Removed
 
+CivilDateTime = _hgraph.CivilDateTime
+Period = _hgraph.Period
+ZoneId = _hgraph.ZoneId
+ZonedDateTime = _hgraph.ZonedDateTime
+InstantRange = _hgraph.InstantRange
+CivilDateRange = _hgraph.CivilDateRange
+InstantRangeSet = _hgraph.InstantRangeSet
+CivilDateRangeSet = _hgraph.CivilDateRangeSet
+MonthEndPolicy = _hgraph.MonthEndPolicy
+AmbiguousTimePolicy = _hgraph.AmbiguousTimePolicy
+NonexistentTimePolicy = _hgraph.NonexistentTimePolicy
+Boundary = _hgraph.Boundary
+from . import temporal
+
 _OPERATOR_NAMES = frozenset(_hgraph.operator_names())
 drop_dups = operator_function("dedup")
 
@@ -107,7 +122,10 @@ __all__ = [
     "date", "datetime", "time", "timedelta", "default_path",
     "utc_now", "get_recorded_value", "get_recorder_api", "get_recording_label", "set_recorder_api", "set_recording_label", "EvaluationClock", "TSW_OUT", "get_context", "equal_lambdas", "is_feature_enabled",
     "GlobalContext", "GlobalState", "set_as_of", "set_table_schema_date_key", "set_table_schema_as_of_key",
-    "set_record_replay_config", "frame_store_contains", "frame_store_read", "evaluate_const",
+    "set_record_replay_config", "set_time_zone_provider", "frame_store_contains", "frame_store_read", "evaluate_const",
+    "CivilDateTime", "Period", "ZoneId", "ZonedDateTime", "InstantRange", "CivilDateRange",
+    "InstantRangeSet", "CivilDateRangeSet", "MonthEndPolicy", "AmbiguousTimePolicy",
+    "NonexistentTimePolicy", "Boundary", "temporal",
     "Frame", "with_frame_metadata", "frame_metadata", "has_frame_metadata", "without_frame_metadata", "register_native_scalar_type", "register_python_object_type", "TABLE", "COMPOUND_SCALAR", "COMPOUND_SCALAR_1", "ToTableMode", "TableSchema", "make_table_schema", "table_schema",
     "table_shape", "table_shape_from_schema", "shape_of_table_type", "drop_dups",
     "get_table_schema_date_key", "get_table_schema_as_of_key",

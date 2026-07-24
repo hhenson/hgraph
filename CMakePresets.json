@@ -15,6 +15,7 @@
         "HGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS": "OFF",
         "HGRAPH_USE_PYARROW_ARROW": "ON",
         "HGRAPH_FETCH_SIMDJSON": "ON",
+        "HGRAPH_FETCH_DATE": "ON",
         "HGRAPH_WARNINGS_AS_ERRORS": "ON",
         "Python_EXECUTABLE": "${sourceDir}/.venv/bin/python"
       }

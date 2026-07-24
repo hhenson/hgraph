@@ -4,8 +4,10 @@
 #    pa.concat_tables, .sort(...) -> .sort_by(...), assert_frame_equal ->
 #    Table.equals. The empty frame gets explicit column types (pyarrow cannot
 #    infer from []).
+#  - deviation: RFC 0002 version-2 Instant columns are timestamp[us, "UTC"],
+#    so Arrow returns timezone-aware UTC datetime values.
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Tuple
 
 import pyarrow as pa
@@ -16,6 +18,10 @@ from hgraph import from_data_frame, TS, MIN_ST, MIN_TD, TSB, ts_schema, TSD, Fra
     compound_scalar, to_data_frame, CompoundScalar, REMOVE
 from hgraph.adaptors.data_frame import group_by
 from hgraph.test import eval_node
+
+
+def _instant(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc)
 
 
 def test_data_frame_ts():
@@ -37,7 +43,11 @@ def test_to_data_frame_tsb():
         return to_data_frame(tsb)
 
     actual = eval_node(g, tsb=[fd(a=1, b=4), fd(a=2, b=5), fd(a=3, b=6)])
-    expected = pa.table({"date": [MIN_ST, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD], "a": [1, 2, 3], "b": [4, 5, 6]})
+    expected = pa.table({
+        "date": [_instant(MIN_ST), _instant(MIN_ST + MIN_TD), _instant(MIN_ST + 2 * MIN_TD)],
+        "a": [1, 2, 3],
+        "b": [4, 5, 6],
+    })
     assert pa.concat_tables(actual).equals(expected)
 
 
@@ -60,7 +70,10 @@ def test_to_data_frame_ts():
         return to_data_frame(ts)
 
     actual = pa.concat_tables(eval_node(g, ts=[1, 2, 3]))
-    expected = pa.table({"date": [MIN_ST, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD], "value": [1, 2, 3]})
+    expected = pa.table({
+        "date": [_instant(MIN_ST), _instant(MIN_ST + MIN_TD), _instant(MIN_ST + 2 * MIN_TD)],
+        "value": [1, 2, 3],
+    })
     assert actual.equals(expected)
 
 
@@ -71,7 +84,13 @@ def test_to_data_frame_tsd_k_v():
 
     actual = pa.concat_tables(eval_node(g, ts=[fd({1: 1}), fd({2: 2}), fd({2: 3})]))
     expected = pa.table({
-        "date": [MIN_ST, MIN_ST + MIN_TD, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD, MIN_ST + 2 * MIN_TD],
+        "date": [
+            _instant(MIN_ST),
+            _instant(MIN_ST + MIN_TD),
+            _instant(MIN_ST + MIN_TD),
+            _instant(MIN_ST + 2 * MIN_TD),
+            _instant(MIN_ST + 2 * MIN_TD),
+        ],
         "key": [1, 1, 2, 1, 2],
         "value": [1, 1, 2, 1, 3]}).sort_by([("date", "ascending"), ("key", "ascending"), ("value", "ascending")])
     actual = actual.sort_by([("date", "ascending"), ("key", "ascending"), ("value", "ascending")])
@@ -84,7 +103,13 @@ def test_to_data_frame_tsd_k_tsb():
 
     actual = pa.concat_tables(eval_node(g, ts=[fd({1: fd(a=1, b=4)}), fd({2: fd(a=2, b=5)}), fd({2: fd(a=3, b=6)})]))
     expected = pa.table({
-        "date": [MIN_ST, MIN_ST + MIN_TD, MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD, MIN_ST + 2 * MIN_TD],
+        "date": [
+            _instant(MIN_ST),
+            _instant(MIN_ST + MIN_TD),
+            _instant(MIN_ST + MIN_TD),
+            _instant(MIN_ST + 2 * MIN_TD),
+            _instant(MIN_ST + 2 * MIN_TD),
+        ],
         "key": [1, 1, 2, 1, 2],
         "a": [1, 1, 2, 1, 3],
         "b": [4, 4, 5, 4, 6]}).sort_by([("date", "ascending"), ("key", "ascending"), ("a", "ascending"), ("b", "ascending")])

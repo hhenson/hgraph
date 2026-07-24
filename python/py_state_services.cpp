@@ -130,6 +130,9 @@ namespace hgraph::python_bridge
                                         : std::optional<DateTime>{nb::cast<DateTime>(value)};
         record_replay::set_config(state.view(), std::move(config));
     }, nb::arg("state"), nb::arg("value").none());
+    m.def("_set_time_zone_provider", [](GlobalState &state) {
+        set_time_zone_provider(state.view(), make_time_zone_provider());
+    });
     m.def("_set_table_schema_date_key", [](GlobalState &state, const std::string &key) {
         auto config = record_replay::config(state.view());
         config.date_key = key;
@@ -506,6 +509,66 @@ namespace hgraph::python_bridge
             }
             return result;
         });
+    m.def("_temporal_at_zone",
+          [](GlobalState &state, Instant instant, ZoneId zone) {
+              return at_zone(
+                  instant, zone, time_zone_provider(state.view()));
+          });
+    m.def("_temporal_at_zone",
+          [](const PyRuntimeGlobalState &state, Instant instant,
+             ZoneId zone) {
+              const GlobalStateView view = state.checked();
+              return at_zone(
+                  instant, zone, time_zone_provider(view));
+          });
+    m.def("_temporal_resolve",
+          [](GlobalState &state, CivilDateTime local, ZoneId zone,
+             AmbiguousTimePolicy ambiguous,
+             NonexistentTimePolicy nonexistent) {
+              return resolve(
+                  local, zone, time_zone_provider(state.view()),
+                  ambiguous, nonexistent);
+          },
+          nb::arg("state"), nb::arg("local"), nb::arg("zone"),
+          nb::arg("ambiguous") = AmbiguousTimePolicy::Reject,
+          nb::arg("nonexistent") = NonexistentTimePolicy::Reject);
+    m.def("_temporal_resolve",
+          [](const PyRuntimeGlobalState &state, CivilDateTime local,
+             ZoneId zone, AmbiguousTimePolicy ambiguous,
+             NonexistentTimePolicy nonexistent) {
+              const GlobalStateView view = state.checked();
+              return resolve(
+                  local, zone, time_zone_provider(view),
+                  ambiguous, nonexistent);
+          },
+          nb::arg("state"), nb::arg("local"), nb::arg("zone"),
+          nb::arg("ambiguous") = AmbiguousTimePolicy::Reject,
+          nb::arg("nonexistent") = NonexistentTimePolicy::Reject);
+    m.def("_temporal_convert_zone",
+          [](GlobalState &state, ZonedDateTime value, ZoneId zone) {
+              return convert_zone(
+                  value, zone, time_zone_provider(state.view()));
+          });
+    m.def("_temporal_convert_zone",
+          [](const PyRuntimeGlobalState &state, ZonedDateTime value,
+             ZoneId zone) {
+              const GlobalStateView view = state.checked();
+              return convert_zone(
+                  value, zone, time_zone_provider(view));
+          });
+    m.def("_temporal_checked_add_zoned",
+          [](GlobalState &state, ZonedDateTime value,
+             Duration delta) {
+              return checked_add(
+                  value, delta, time_zone_provider(state.view()));
+          });
+    m.def("_temporal_checked_add_zoned",
+          [](const PyRuntimeGlobalState &state, ZonedDateTime value,
+             Duration delta) {
+              const GlobalStateView view = state.checked();
+              return checked_add(
+                  value, delta, time_zone_provider(view));
+          });
     nb::class_<PyTimeSeries>(m, "TimeSeries")
         .def_prop_ro("value", &PyTimeSeries::value)
         .def_prop_ro("_kind", [](const PyTimeSeries &self) { return static_cast<int>(self.kind()); })
