@@ -188,6 +188,66 @@ TEST_CASE("real-time NodeScheduler supports wall-clock alarms")
     CHECK(graph.node_at(0).output(evaluation_time).value().checked_as<Int>() == Int{1});
 }
 
+TEST_CASE("real-time NodeScheduler delivers a wall-clock alarm that became due while scheduling")
+{
+    using namespace hgraph;
+
+    // A polling node computes its next wall-clock boundary and then calls
+    // schedule(); the wall clock may cross that boundary in between (the
+    // boundary distance is arbitrarily small for interval polls). A due
+    // alarm must deliver on the next evaluatable cycle — dropping it kills
+    // the self-rescheduling chain (observed as the intermittent
+    // test_sql_subscription_polling_reissues_rendered_request CI failure).
+    constexpr int target_evaluations = 3;
+
+    std::atomic_int eval_count{0};
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<Int>("int");
+    const auto *ts_int   = registry.ts(int_meta);
+
+    NodeTypeMetaData schema;
+    schema.display_name      = "due_wall_alarm_source";
+    schema.output_schema     = ts_int;
+    schema.node_kind         = NodeKind::PullSource;
+    schema.schedule_on_start = true;
+    schema.uses_scheduler    = true;
+
+    NodeCallbacks callbacks;
+    callbacks.evaluate = [&eval_count](const NodeView &view, DateTime evaluation_time) {
+        ++eval_count;
+        testing::set_output_value(view, evaluation_time, Int{eval_count.load()});
+        if (eval_count.load() >= target_evaluations) { return; }
+        const NodeScheduler scheduler{view.scheduler_state(), view.graph_value(),
+                                      view.node_index(), evaluation_time,
+                                      view.started(), view.evaluation_clock(),
+                                      /*supports_wall_clock=*/true};
+        // Aim just past now, then let the wall clock overtake the target
+        // before schedule() re-reads it.
+        const DateTime target = hgraph::testing::wall_now() + TimeDelta{200};
+        std::this_thread::sleep_for(std::chrono::milliseconds{2});
+        scheduler.schedule(target, "wall", /*on_wall_clock=*/true);
+    };
+
+    GraphBuilder graph_builder;
+    graph_builder.add_node(NodeBuilder::native(std::move(schema), std::move(callbacks)));
+
+    const DateTime start_time = hgraph::testing::wall_now();
+
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph_builder))
+        .mode(GraphExecutorMode::RealTime)
+        .start_time(start_time)
+        .end_time(start_time + TimeDelta{5'000'000});
+
+    GraphExecutorValue executor = executor_builder.make_executor();
+    executor.view().run();
+
+    CHECK(eval_count.load() == target_evaluations);
+    // The chain never waits for end_time: each due alarm fires next cycle.
+    CHECK(hgraph::testing::wall_now() - start_time < TimeDelta{4'000'000});
+}
+
 TEST_CASE("real-time executor stop request wakes a sleeping executor")
 {
     using namespace hgraph;
