@@ -102,6 +102,41 @@ TEST_CASE("json: temporal version 2 scalar and range forms round-trip")
           "\"upper\": \"open\"}]");
 }
 
+TEST_CASE("json: schema-directed temporal reads accept legacy version 1 text")
+{
+    using namespace std::chrono;
+    const DateTime expected_instant{
+        sys_days{Date{year{2024}, month{6}, day{13}}}.time_since_epoch() +
+        hours{10} + minutes{15} + seconds{30} + microseconds{42}};
+    const Value instant = from_json_string(
+        scalar_descriptor<DateTime>::value_meta(),
+        "\"2024-06-13 10:15:30.000042\"");
+    CHECK(instant.view().checked_as<DateTime>() == expected_instant);
+    CHECK(to_json_string(instant.view()) ==
+          "\"2024-06-13T10:15:30.000042Z\"");
+
+    const Value positive_duration = from_json_string(
+        scalar_descriptor<TimeDelta>::value_meta(),
+        "\"10:0:0:15.000042\"");
+    CHECK(positive_duration.view().checked_as<TimeDelta>() ==
+          TimeDelta{10 * 86'400'000'000LL + 15'000'042});
+    CHECK(to_json_string(positive_duration.view()) ==
+          "\"864015000042us\"");
+
+    const Value negative_duration = from_json_string(
+        scalar_descriptor<TimeDelta>::value_meta(),
+        "\"-1:23:59:59.999999\"");
+    CHECK(negative_duration.view().checked_as<TimeDelta>() ==
+          TimeDelta{-1});
+    CHECK(to_json_string(negative_duration.view()) == "\"-1us\"");
+
+    const Value early_native_negative = from_json_string(
+        scalar_descriptor<TimeDelta>::value_meta(),
+        "\"0:0:0:0.-00001\"");
+    CHECK(early_native_negative.view().checked_as<TimeDelta>() ==
+          TimeDelta{-1});
+}
+
 TEST_CASE("json: containers round-trip (list, set, map with string and int keys)")
 {
     const Value list = stdlib::make_list<Int>({1, 2, 3});

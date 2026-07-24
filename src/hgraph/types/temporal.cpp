@@ -1,6 +1,8 @@
 #include <hgraph/types/temporal.h>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <charconv>
 #include <cmath>
 #include <cstdio>
@@ -151,6 +153,7 @@ namespace hgraph
         struct ZoneRecord
         {
             std::string name;
+            std::uint32_t slot{0};
             std::uint16_t generation{1};
             std::uint16_t tag{0};
             bool active{true};
@@ -175,6 +178,14 @@ namespace hgraph
         class ZoneNameRegistry
         {
           public:
+            ZoneNameRegistry()
+            {
+                for (auto &entry : front_)
+                {
+                    entry.store(nullptr, std::memory_order_relaxed);
+                }
+            }
+
             [[nodiscard]] ZoneIdPayload intern(std::string_view name)
             {
                 if (!ZoneId::valid_syntax(name))
@@ -186,14 +197,14 @@ namespace hgraph
                     std::shared_lock lock{mutex_};
                     if (const auto found = by_name_.find(name); found != by_name_.end())
                     {
-                        return payload(found->second);
+                        return publish(found->second);
                     }
                 }
 
                 std::unique_lock lock{mutex_};
                 if (const auto found = by_name_.find(name); found != by_name_.end())
                 {
-                    return payload(found->second);
+                    return publish(found->second);
                 }
                 for (std::size_t index = 0; index < records_.size(); ++index)
                 {
@@ -205,7 +216,7 @@ namespace hgraph
                         const std::uint32_t slot =
                             static_cast<std::uint32_t>(index + 1);
                         by_name_.emplace(record.name, slot);
-                        return payload(slot);
+                        return publish(slot);
                     }
                 }
                 if (records_.size() >= std::numeric_limits<std::uint32_t>::max())
@@ -213,14 +224,14 @@ namespace hgraph
                     throw std::overflow_error("time-zone name registry is full");
                 }
 
+                const std::uint32_t slot =
+                    static_cast<std::uint32_t>(records_.size() + 1);
                 records_.push_back(
                     ZoneRecord{
-                        std::string{name}, 1, zone_name_tag(name), true,
-                        false});
-                const std::uint32_t slot =
-                    static_cast<std::uint32_t>(records_.size());
+                        std::string{name}, slot, 1, zone_name_tag(name),
+                        true, false});
                 by_name_.emplace(records_.back().name, slot);
-                return payload(slot);
+                return publish(slot);
             }
 
             [[nodiscard]] bool valid(ZoneIdPayload candidate) const noexcept
@@ -230,34 +241,26 @@ namespace hgraph
                 {
                     return false;
                 }
-                std::shared_lock lock{mutex_};
-                if (candidate.slot > records_.size()) { return false; }
-                const ZoneRecord &record = records_[candidate.slot - 1];
-                return record.active && !record.retired &&
-                       record.generation == candidate.generation &&
-                       record.tag == candidate.name_tag;
+                return find(candidate) != nullptr;
             }
 
             [[nodiscard]] std::string_view name(ZoneIdPayload candidate) const
             {
-                std::shared_lock lock{mutex_};
-                if (candidate.slot == 0 || candidate.slot > records_.size())
-                {
-                    throw std::invalid_argument("invalid time-zone handle");
-                }
-                const ZoneRecord &record = records_[candidate.slot - 1];
-                if (!record.active || record.retired ||
-                    record.generation != candidate.generation ||
-                    record.tag != candidate.name_tag)
+                const ZoneRecord *record = find(candidate);
+                if (record == nullptr)
                 {
                     throw std::invalid_argument("stale or corrupt time-zone handle");
                 }
-                return record.name;
+                return record->name;
             }
 
             void reset() noexcept
             {
                 std::unique_lock lock{mutex_};
+                for (auto &entry : front_)
+                {
+                    entry.store(nullptr, std::memory_order_relaxed);
+                }
                 by_name_.clear();
                 for (ZoneRecord &record : records_)
                 {
@@ -276,11 +279,69 @@ namespace hgraph
             }
 
           private:
+            static constexpr std::size_t front_size = 4096;
+
+            [[nodiscard]] static constexpr std::size_t cache_index(
+                ZoneIdPayload candidate) noexcept
+            {
+                return static_cast<std::size_t>(candidate.slot) &
+                       (front_size - 1U);
+            }
+
+            [[nodiscard]] static bool matches(
+                const ZoneRecord &record,
+                ZoneIdPayload candidate) noexcept
+            {
+                return record.slot == candidate.slot &&
+                       record.active && !record.retired &&
+                       record.generation == candidate.generation &&
+                       record.tag == candidate.name_tag;
+            }
+
+            [[nodiscard]] const ZoneRecord *find(
+                ZoneIdPayload candidate) const noexcept
+            {
+                if (candidate.slot == 0 || candidate.generation == 0 ||
+                    candidate.name_tag == 0)
+                {
+                    return nullptr;
+                }
+                const std::size_t index = cache_index(candidate);
+                if (const ZoneRecord *cached =
+                        front_[index].load(std::memory_order_acquire);
+                    cached != nullptr && matches(*cached, candidate))
+                {
+                    return cached;
+                }
+
+                std::shared_lock lock{mutex_};
+                if (candidate.slot > records_.size()) { return nullptr; }
+                const ZoneRecord *record =
+                    &records_[candidate.slot - 1];
+                if (!matches(*record, candidate)) { return nullptr; }
+                front_[index].store(
+                    record, std::memory_order_release);
+                return record;
+            }
+
+            [[nodiscard]] ZoneIdPayload publish(
+                std::uint32_t slot) const noexcept
+            {
+                const ZoneIdPayload result = payload(slot);
+                front_[cache_index(result)].store(
+                    &records_[slot - 1], std::memory_order_release);
+                return result;
+            }
+
             [[nodiscard]] ZoneIdPayload payload(std::uint32_t slot) const noexcept
             {
                 const ZoneRecord &record = records_[slot - 1];
                 return ZoneIdPayload{slot, record.generation, record.tag};
             }
+
+            static_assert(
+                std::atomic<const ZoneRecord *>::is_always_lock_free,
+                "supported 64-bit targets require lock-free pointer atomics");
 
             mutable std::shared_mutex mutex_;
             // deque preserves the backing storage of names returned as
@@ -289,6 +350,9 @@ namespace hgraph
             std::unordered_map<std::string, std::uint32_t,
                                TransparentStringHash, std::equal_to<>>
                 by_name_;
+            mutable std::array<
+                std::atomic<const ZoneRecord *>, front_size>
+                front_{};
         };
 
         [[nodiscard]] ZoneNameRegistry &zone_registry()

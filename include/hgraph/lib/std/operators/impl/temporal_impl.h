@@ -52,14 +52,10 @@ namespace hgraph::stdlib
 
         static void eval(In<"lhs", TS<Date>> lhs, In<"rhs", TS<TimeDelta>> rhs, Out<TS<Date>> out)
         {
-            constexpr std::int64_t day_microseconds = 86'400'000'000;
-            if (rhs.value().count() % day_microseconds != 0)
-            {
-                throw std::invalid_argument(
-                    "subtracting a duration from a civil date requires whole days");
-            }
             out.set(checked_add_days(
-                lhs.value(), -(rhs.value().count() / day_microseconds)));
+                lhs.value(),
+                -std::chrono::floor<std::chrono::days>(
+                    rhs.value()).count()));
         }
     };
 

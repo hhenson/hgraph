@@ -15,8 +15,12 @@ import pytest
         [sub_, datetime(2020, 1, 2), datetime(2020, 1, 1), timedelta(days=1)],
         [sub_, date(2020, 1, 2), timedelta(days=1), date(2020, 1, 1)],
         [sub_, datetime(2020, 1, 2), timedelta(days=1), datetime(2020, 1, 1)],
+        [sub_, date(2020, 1, 2), timedelta(hours=23), date(2020, 1, 2)],
+        [sub_, date(2020, 1, 2), timedelta(microseconds=-1), date(2020, 1, 3)],
         [add_, date(2020, 1, 2), timedelta(days=1), date(2020, 1, 3)],
         [add_, datetime(2020, 1, 2), timedelta(days=1), datetime(2020, 1, 3)],
+        [add_, date(2020, 1, 2), timedelta(hours=23), date(2020, 1, 2)],
+        [add_, date(2020, 1, 2), timedelta(microseconds=-1), date(2020, 1, 1)],
         [add_, timedelta(hours=1), timedelta(seconds=1), timedelta(seconds=3601)],
     ],
 )

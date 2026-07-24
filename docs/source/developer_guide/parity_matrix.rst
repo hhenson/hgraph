@@ -136,7 +136,11 @@ after the release-hardening audit; the counts come from comparing
      - 2
      - 0
      - 0
-     - equiv-API: to_json_builder, from_json_builder
+     - equiv-API: to_json_builder, from_json_builder. **Recorded divergence:**
+       RFC 0002 version-2 writers emit RFC 3339 UTC instants and canonical
+       signed-microsecond durations instead of upstream's legacy text.
+       Schema-directed readers accept both formats and normalize legacy input
+       before any subsequent write.
    * - Table (``to_table``)
      - 3
      - 0
@@ -487,7 +491,11 @@ Types and scalars
        ``hgraph.numpy_`` catalogue plus the NumPy helpers exported from
        ``hgraph.nodes``. Fixed shapes use inline capacity with a stored logical
        extent; unbounded dimensions
-       use compact list storage.
+       use compact list storage. **Recorded temporal divergence:** RFC 0002
+       version-2 ``Instant`` fields use Arrow ``timestamp[us, "UTC"]`` rather
+       than upstream's timezone-free timestamp. Legacy timezone-free fields
+       remain readable only at a schema-declared Instant boundary and are
+       normalized to the version-2 representation on output.
    * - Generics (``TypeVar``, ``AUTO_RESOLVE``, ``Type[...]``)
      - Re-architected
      - ``TsVar``/``ScalarVar``/``SizeVar`` + wiring ``ResolutionMap`` +

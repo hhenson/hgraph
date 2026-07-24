@@ -2,6 +2,7 @@
 
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/utils/intern_table.h>
 #include <hgraph/types/value/value.h>
 
 #if defined(HGRAPH_TIME_ZONE_BACKEND_STD)
@@ -13,10 +14,9 @@
 #endif
 
 #include <array>
+#include <atomic>
 #include <fstream>
 #include <limits>
-#include <mutex>
-#include <shared_mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -182,6 +182,95 @@ namespace hgraph
         };
 
 #if defined(HGRAPH_TIME_ZONE_BACKEND_STD)
+        using NativeTimeZone = std::chrono::time_zone;
+#elif defined(HGRAPH_TIME_ZONE_BACKEND_DATE)
+        using NativeTimeZone = date::time_zone;
+#endif
+
+        struct BoundNativeTimeZone
+        {
+            std::uint64_t key{0};
+            const NativeTimeZone *record{nullptr};
+        };
+
+        [[nodiscard]] constexpr std::uint64_t zone_cache_key(
+            ZoneId zone) noexcept
+        {
+            const ZoneIdPayload payload = zone.payload();
+            return static_cast<std::uint64_t>(payload.slot) |
+                   (static_cast<std::uint64_t>(payload.generation) << 32U) |
+                   (static_cast<std::uint64_t>(payload.name_tag) << 48U);
+        }
+
+        class NativeTimeZoneCache
+        {
+          public:
+            template <typename Resolve>
+            [[nodiscard]] const NativeTimeZone *locate(
+                ZoneId zone, Resolve &&resolve)
+            {
+                const std::uint64_t key = zone_cache_key(zone);
+                const std::size_t index = cache_index(key);
+                if (const BoundNativeTimeZone *cached =
+                        front_[index].load(std::memory_order_acquire);
+                    cached != nullptr && cached->key == key)
+                {
+                    return cached->record;
+                }
+
+                const BoundNativeTimeZone &bound = records_.intern(
+                    key,
+                    [&] {
+                        return BoundNativeTimeZone{
+                            key, resolve(zone.name())};
+                    });
+                front_[index].store(
+                    &bound, std::memory_order_release);
+                return bound.record;
+            }
+
+            void clear() noexcept
+            {
+                // reset_all_registries() is test-only and cannot race an
+                // evaluation.  Withdraw every lock-free borrower before the
+                // intern table releases its stable records.
+                for (auto &entry : front_)
+                {
+                    entry.store(nullptr, std::memory_order_relaxed);
+                }
+                records_.clear();
+            }
+
+          private:
+            static constexpr std::size_t front_size = 4096;
+
+            [[nodiscard]] static constexpr std::size_t cache_index(
+                std::uint64_t key) noexcept
+            {
+                key ^= key >> 33U;
+                key *= 0xff51afd7ed558ccdULL;
+                key ^= key >> 33U;
+                return static_cast<std::size_t>(key) &
+                       (front_size - 1U);
+            }
+
+            static_assert(
+                std::atomic<const BoundNativeTimeZone *>::is_always_lock_free,
+                "supported 64-bit targets require lock-free pointer atomics");
+
+            InternTable<std::uint64_t, BoundNativeTimeZone> records_;
+            std::array<
+                std::atomic<const BoundNativeTimeZone *>, front_size>
+                front_{};
+        };
+
+        [[nodiscard]] NativeTimeZoneCache &native_time_zone_cache()
+        {
+            static NativeTimeZoneCache cache;
+            return cache;
+        }
+
+#if defined(HGRAPH_TIME_ZONE_BACKEND_STD)
         class StdChronoTimeZoneProvider final : public TimeZoneProvider
         {
           public:
@@ -255,38 +344,24 @@ namespace hgraph
             [[nodiscard]] const std::chrono::time_zone *locate(
                 ZoneId zone) const
             {
-                const std::string_view name = zone.name();
-                {
-                    std::shared_lock lock{cache_mutex_};
-                    if (const auto found = cache_.find(name);
-                        found != cache_.end())
-                    {
-                        return found->second;
-                    }
-                }
-                try
-                {
-                    const auto *record =
-                        std::chrono::get_tzdb().locate_zone(
-                        std::string{name});
-                    std::unique_lock lock{cache_mutex_};
-                    cache_.emplace(std::string{name}, record);
-                    return record;
-                }
-                catch (const std::exception &error)
-                {
-                    throw std::invalid_argument(
-                        "unknown time-zone '" + std::string{name} +
-                        "': " + error.what());
-                }
+                return native_time_zone_cache().locate(
+                    zone, [](std::string_view name) {
+                        try
+                        {
+                            return std::chrono::get_tzdb().locate_zone(
+                                std::string{name});
+                        }
+                        catch (const std::exception &error)
+                        {
+                            throw std::invalid_argument(
+                                "unknown time-zone '" +
+                                std::string{name} + "': " +
+                                error.what());
+                        }
+                    });
             }
 
             std::string version_;
-            mutable std::shared_mutex cache_mutex_;
-            mutable std::unordered_map<
-                std::string, const std::chrono::time_zone *,
-                TransparentStringHash, std::equal_to<>>
-                cache_;
         };
 #elif defined(HGRAPH_TIME_ZONE_BACKEND_DATE)
         class DateTzTimeZoneProvider final : public TimeZoneProvider
@@ -305,8 +380,14 @@ namespace hgraph
 
             [[nodiscard]] bool contains(ZoneId zone) const noexcept override
             {
-                try { return locate(zone) != nullptr; }
-                catch (...) { return false; }
+                try
+                {
+                    return locate(zone) != nullptr;
+                }
+                catch (...)
+                {
+                    return false;
+                }
             }
 
             [[nodiscard]] OffsetInfo at(
@@ -362,49 +443,39 @@ namespace hgraph
           private:
             [[nodiscard]] const date::time_zone *locate(ZoneId zone) const
             {
-                const std::string_view name = zone.name();
-                {
-                    std::shared_lock lock{cache_mutex_};
-                    if (const auto found = cache_.find(name);
-                        found != cache_.end())
-                    {
-                        return found->second;
-                    }
-                }
-                std::string candidate{name};
-                std::string direct_error;
-                constexpr std::size_t max_alias_depth = 16;
-                for (std::size_t depth = 0; depth <= max_alias_depth; ++depth)
-                {
-                    try
-                    {
-                        const auto *record =
-                            date::get_tzdb().locate_zone(candidate);
-                        std::unique_lock lock{cache_mutex_};
-                        cache_.emplace(std::string{name}, record);
-                        return record;
-                    }
-                    catch (const std::exception &error)
-                    {
-                        if (depth == 0) { direct_error = error.what(); }
-                    }
+                return native_time_zone_cache().locate(
+                    zone, [this](std::string_view name) {
+                        std::string candidate{name};
+                        std::string direct_error;
+                        constexpr std::size_t max_alias_depth = 16;
+                        for (std::size_t depth = 0;
+                             depth <= max_alias_depth; ++depth)
+                        {
+                            try
+                            {
+                                return date::get_tzdb().locate_zone(
+                                    candidate);
+                            }
+                            catch (const std::exception &error)
+                            {
+                                if (depth == 0)
+                                {
+                                    direct_error = error.what();
+                                }
+                            }
 
-                    const auto alias = aliases_.find(candidate);
-                    if (alias == aliases_.end()) { break; }
-                    candidate = alias->second;
-                }
-                throw std::invalid_argument(
-                    "unknown time-zone '" + std::string{name} +
-                    "': " + direct_error);
+                            const auto alias = aliases_.find(candidate);
+                            if (alias == aliases_.end()) { break; }
+                            candidate = alias->second;
+                        }
+                        throw std::invalid_argument(
+                            "unknown time-zone '" + std::string{name} +
+                            "': " + direct_error);
+                    });
             }
 
             std::string version_;
             const ZoneAliasMap aliases_;
-            mutable std::shared_mutex cache_mutex_;
-            mutable std::unordered_map<
-                std::string, const date::time_zone *,
-                TransparentStringHash, std::equal_to<>>
-                cache_;
         };
 #endif
     }  // namespace
@@ -425,6 +496,11 @@ namespace hgraph
 #else
         return std::make_shared<DateTzTimeZoneProvider>();
 #endif
+    }
+
+    void clear_time_zone_provider_cache() noexcept
+    {
+        native_time_zone_cache().clear();
     }
 
     void set_time_zone_provider(

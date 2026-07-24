@@ -17,9 +17,10 @@ namespace hgraph
     /**
      * Reset every process-wide registry/factory, in dependency order:
      *
-     * 1. ``OperatorRegistry``, converter registries, and the test-only zone
-     *    name generation — candidates borrow schemas, their owned Values
-     *    retain common type records, and stale ``ZoneId`` handles must be
+     * 1. ``OperatorRegistry``, converter registries, interned native-zone
+     *    bindings, and the test-only zone-name generation — candidates borrow
+     *    schemas, their owned Values retain common type records, native-zone
+     *    bindings borrow ``ZoneId`` handles, and stale handles must be
      *    invalidated between tests.
      * 2. ``TypeRecordRegistry`` — records borrow plan and ops contexts from the
      *    time-series and value factories below. Cached record handles are

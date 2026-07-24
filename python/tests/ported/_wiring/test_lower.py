@@ -3,6 +3,8 @@ from datetime import timezone
 import pyarrow as pa
 import pytest
 
+# deviation: RFC 0002 version-2 Instant columns are timestamp[us, "UTC"];
+# Arrow therefore returns timezone-aware UTC datetime values.
 from hgraph import (
     GlobalContext,
     GlobalState,

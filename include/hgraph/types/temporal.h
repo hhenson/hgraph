@@ -280,6 +280,8 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT TimeZoneBackend configured_time_zone_backend() noexcept;
     [[nodiscard]] HGRAPH_EXPORT std::shared_ptr<const TimeZoneProvider>
     make_time_zone_provider();
+    /** Test-only reset of the process-wide interned native-zone bindings. */
+    HGRAPH_EXPORT void clear_time_zone_provider_cache() noexcept;
     /** Test-only registry reset; production zone-name storage is append-only. */
     HGRAPH_EXPORT void clear_zone_name_registry() noexcept;
     inline constexpr std::string_view TIME_ZONE_PROVIDER_STATE_KEY =

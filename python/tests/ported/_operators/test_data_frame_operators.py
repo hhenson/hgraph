@@ -4,6 +4,8 @@
 #    pa.concat_tables, .sort(...) -> .sort_by(...), assert_frame_equal ->
 #    Table.equals. The empty frame gets explicit column types (pyarrow cannot
 #    infer from []).
+#  - deviation: RFC 0002 version-2 Instant columns are timestamp[us, "UTC"],
+#    so Arrow returns timezone-aware UTC datetime values.
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Tuple

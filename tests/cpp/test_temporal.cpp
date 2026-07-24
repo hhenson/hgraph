@@ -226,6 +226,25 @@ TEST_CASE("zone identifiers are compact interned exact-name values")
     CHECK(reloaded.name() == "UTC");
 }
 
+TEST_CASE("native zone bindings are withdrawn before zone generations reset")
+{
+    const auto provider = make_time_zone_provider();
+    const ZoneId original{"UTC"};
+    const Instant sample{Duration{0}};
+    CHECK(at_zone(sample, original, *provider).offset_seconds() == 0);
+    CHECK(at_zone(sample, original, *provider).offset_seconds() == 0);
+
+    clear_time_zone_provider_cache();
+    clear_zone_name_registry();
+    CHECK_FALSE(original.valid());
+
+    const ZoneId reloaded{"UTC"};
+    CHECK(reloaded.slot() == original.slot());
+    CHECK(reloaded.generation() ==
+          static_cast<std::uint16_t>(original.generation() + 1));
+    CHECK(at_zone(sample, reloaded, *provider).offset_seconds() == 0);
+}
+
 TEST_CASE("range algebra preserves endpoint topology and fixed capacity")
 {
     using R = InstantRange;

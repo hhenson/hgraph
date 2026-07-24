@@ -243,15 +243,19 @@ form avoids padding and repeated field conversion in time-series storage.
 Civil values support equality, lexicographic/chronological civil ordering,
 hashing, field access, and the following operations:
 
-* ``CivilDate + days -> CivilDate``;
+* ``CivilDate +/- Duration -> CivilDate`` using the duration's normalized
+  floor-based day component, matching Python ``date`` arithmetic;
 * ``CivilDate - CivilDate -> Duration`` containing a whole number of days;
 * ``CivilDate + CivilTime -> CivilDateTime``;
 * ``CivilDateTime +/- Duration -> CivilDateTime``; and
 * ``CivilDateTime - CivilDateTime -> Duration``.
 
-Adding a sub-day ``Duration`` directly to ``CivilDate`` is rejected rather
-than silently truncating.  Adding a duration to ``CivilTime`` alone is not a
-core operator because crossing midnight needs a date or an explicit
+A positive sub-day ``Duration`` therefore leaves a ``CivilDate`` unchanged,
+while a negative sub-day duration advances the normalized day component
+backward before addition.  This compatibility rule preserves the shipped
+Python/hgraph behaviour.  New APIs that require whole-day input must validate
+that precondition explicitly.  Adding a duration to ``CivilTime`` alone is
+not a core operator because crossing midnight needs a date or an explicit
 day-carry result.
 
 ``Period``
@@ -330,6 +334,15 @@ does not change during ordinary operation.  A reset or recycled slot
 increments the generation and a slot is retired rather than allowing
 generation to wrap.  Lookup validates all three fields before returning the
 name.
+
+Validated zone-name records and backend-native zone bindings are interned
+process resources.  Stable records are owned until the canonical registry
+reset, like type metadata.  A small atomic direct cache fronts each intern
+table, so repeated validation and provider binding for an already-seen
+``ZoneId`` require no mutex.  A miss may lock while interning one stable
+record; reset first withdraws every atomic borrower, then releases backend
+bindings, and only then advances the zone-name generation.  Reset remains a
+test-only, non-concurrent operation.
 
 Names are case-sensitive ASCII strings using the TZDB identifier vocabulary.
 Validation rejects:
@@ -1026,10 +1039,19 @@ this exact ASCII grammar:
 
 Positive values have no leading ``+``; non-zero values have no leading zeroes;
 and ``-0us`` is invalid.  Examples are ``"0us"``, ``"1us"``, and
-``"-86400000000us"``.  Writers emit only this form.  A separate,
-explicitly-selected non-canonical ingestion parser may accept ISO 8601 duration
-strings, but the canonical decoder and all hgraph writers do not treat those
-strings as a second interchange representation.
+``"-86400000000us"``.  Writers emit only this form, and the public canonical
+``parse_duration`` API remains strict.
+
+The schema-directed JSON reader is a compatibility boundary and also accepts
+the legacy hgraph version-1
+``days:hours:minutes:seconds.microseconds`` duration form.  Likewise, an
+``Instant`` JSON reader accepts both the version-2 RFC 3339 form with ``T`` and
+``Z`` and the legacy space-separated, suffix-free UTC form.  Values normalize
+to ``Duration``/``Instant`` immediately, and every subsequent write uses the
+version-2 form.  This leniency is deliberately confined to schema-directed
+ingest; it does not create a second canonical representation.  The reader also
+recognizes signed remainder fields emitted for negative values by the early
+native version-1 writer.
 
 ``timestamp[us, "UTC"]`` is the canonical Arrow ``Instant`` representation,
 introduced as temporal encoding version 2.  Arrow schema metadata records
@@ -1080,8 +1102,9 @@ The performance contract is:
 * ``Instant -> ZonedDateTime`` and civil resolution perform no heap allocation
   once a zone is bound.  Lookup is amortized ``O(1)`` for values within the
   cached transition and at worst ``O(log transitions)``.
-* A static-zone graph node binds its zone record once at ``start``.  A dynamic
-  zone node repeats lookup only when the intern key changes.
+* Backend-native zone records are process-interned until registry reset and
+  reached through a lock-free atomic fast cache.  Repeated static-zone access
+  and already-bound dynamic zones do not acquire the cold interning mutex.
 * Loading and indexing one TZDB data set occurs once per provider, not once per
   graph or scalar value.
 * Pure C++ temporal graphs contain no Python calls or Python object storage.
@@ -1216,8 +1239,9 @@ Zone tests
 * Pinned integration vectors cover ordinary transitions, both sides of a fold,
   both edges of a gap, a 30-minute transition, a skipped civil day, historical
   second offsets, and TZDB links.
-* Static-zone resolution binds once; dynamic-zone resolution rebinds only when
-  its ``ZoneId`` changes.
+* Static and dynamic zone resolution reuse reset-owned interned backend
+  bindings; tests cover hot-cache reuse, dynamic-zone changes, and cache
+  withdrawal before zone generations advance at reset.
 * Registry tests cover duplicate interning, invalid slot, stale generation,
   bad name tag, generation exhaustion, and re-interning names from serialized
   text rather than copying raw handles.
@@ -1256,6 +1280,9 @@ Serialization tests
 * Duration golden vectors enforce the canonical signed-microsecond grammar,
   including rejection of leading ``+``, leading zeroes, ``-0us``, missing
   suffixes, and overflow.
+* Schema-directed JSON readers accept legacy space-separated UTC datetimes
+  and normalized ``days:hours:minutes:seconds.microseconds`` durations, then
+  rewrite them in the version-2 canonical form.
 * New-version ``Instant`` writers emit ``timestamp[us, "UTC"]``; readers
   accept schema-identified legacy UTC ``timestamp[us]``, reject ambiguous
   unqualified input without a schema/policy, and normalize legacy values on

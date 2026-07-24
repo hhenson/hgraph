@@ -333,21 +333,176 @@ namespace hgraph
         }
 
         [[nodiscard]] CivilDateTime parse_civil_datetime(
-            std::string_view text, Reader &reader, bool require_z)
+            std::string_view text, Reader &reader, bool instant_syntax)
         {
             std::size_t position = 0;
             const CivilDate date = parse_date_body(text, position, reader);
-            expect_char(text, position, 'T', reader);
-            const auto micros = parse_time_body_micros(text, position, reader);
-            if (require_z)
+            if (position >= text.size() ||
+                (text[position] != 'T' && text[position] != ' '))
             {
-                expect_char(text, position, 'Z', reader);
+                reader.fail("bad date/time separator");
+            }
+            ++position;
+            const auto micros = parse_time_body_micros(text, position, reader);
+            // Version-2 instants end in Z.  Version-1 recordings used a
+            // space separator and no suffix; accept both on ingest and
+            // normalize through the native Instant representation.
+            if (instant_syntax && position < text.size() &&
+                text[position] == 'Z')
+            {
+                ++position;
             }
             if (position != text.size())
             {
                 reader.fail("trailing civil datetime content");
             }
             return CivilDateTime{date, CivilTime{micros}};
+        }
+
+        [[nodiscard]] Duration parse_json_duration(
+            std::string_view text, Reader &reader)
+        {
+            if (text.ends_with("us"))
+            {
+                return parse_duration(text);
+            }
+
+            // Legacy hgraph JSON used
+            // ``days:hours:minutes:seconds.microseconds``. Python producers
+            // normalize a negative value into a signed day plus a
+            // non-negative remainder. Early native writers instead used
+            // signed, truncation-based components; accept both shapes.
+            std::array<std::string_view, 4> components{};
+            std::size_t component_start = 0;
+            for (std::size_t index = 0; index < 3; ++index)
+            {
+                const std::size_t separator =
+                    text.find(':', component_start);
+                if (separator == std::string_view::npos ||
+                    separator == component_start)
+                {
+                    reader.fail("invalid duration");
+                }
+                components[index] =
+                    text.substr(component_start,
+                                separator - component_start);
+                component_start = separator + 1;
+            }
+            components[3] = text.substr(component_start);
+            if (components[3].empty() ||
+                components[3].find(':') != std::string_view::npos)
+            {
+                reader.fail("invalid duration");
+            }
+
+            const auto parse_component =
+                [&](std::string_view component,
+                    std::string_view label) {
+                    bool positive_sign = false;
+                    if (component.starts_with('+'))
+                    {
+                        positive_sign = true;
+                        component.remove_prefix(1);
+                    }
+                    if (component.empty())
+                    {
+                        reader.fail(
+                            std::string{"invalid duration "} +
+                            std::string{label});
+                    }
+                    std::int64_t result{};
+                    const auto [end, error] = std::from_chars(
+                        component.data(),
+                        component.data() + component.size(), result);
+                    if (error != std::errc{} ||
+                        end != component.data() + component.size() ||
+                        (positive_sign && result < 0))
+                    {
+                        reader.fail(
+                            std::string{"invalid duration "} +
+                            std::string{label});
+                    }
+                    return result;
+                };
+
+            const std::int64_t days =
+                parse_component(components[0], "day field");
+            const std::int64_t hours =
+                parse_component(components[1], "hour field");
+            const std::int64_t minutes =
+                parse_component(components[2], "minute field");
+
+            std::int64_t seconds{};
+            std::int64_t micros{};
+            const std::size_t decimal = components[3].find('.');
+            if (decimal == std::string_view::npos)
+            {
+                seconds = parse_component(
+                    components[3], "second field");
+            }
+            else
+            {
+                seconds = parse_component(
+                    components[3].substr(0, decimal),
+                    "second field");
+                std::string_view fraction =
+                    components[3].substr(decimal + 1);
+                if (fraction.empty())
+                {
+                    reader.fail("invalid duration fraction");
+                }
+                const bool signed_fraction =
+                    fraction.front() == '-' ||
+                    fraction.front() == '+';
+                micros = parse_component(
+                    fraction, "fraction");
+                const std::size_t digits =
+                    fraction.size() - (signed_fraction ? 1U : 0U);
+                if (digits > 6)
+                {
+                    reader.fail(
+                        "duration fractions support at most six digits");
+                }
+                // Normal v1 text is a decimal fraction and is padded on the
+                // right. Early native v1 writers could emit a signed
+                // microsecond remainder such as ``.-00001``; preserve that
+                // exact integer interpretation as a compatibility path.
+                if (!signed_fraction)
+                {
+                    for (std::size_t index = digits; index < 6; ++index)
+                    {
+                        micros *= 10;
+                    }
+                }
+            }
+
+            constexpr auto minimum =
+                std::numeric_limits<std::int64_t>::min();
+            constexpr auto maximum =
+                std::numeric_limits<std::int64_t>::max();
+            std::int64_t result = 0;
+            const auto accumulate =
+                [&](std::int64_t component,
+                    std::int64_t scale) {
+                    if (component < minimum / scale ||
+                        component > maximum / scale)
+                    {
+                        reader.fail("duration overflow");
+                    }
+                    const std::int64_t value = component * scale;
+                    if ((value > 0 && result > maximum - value) ||
+                        (value < 0 && result < minimum - value))
+                    {
+                        reader.fail("duration overflow");
+                    }
+                    result += value;
+                };
+            accumulate(days, 86'400'000'000);
+            accumulate(hours, 3'600'000'000);
+            accumulate(minutes, 60'000'000);
+            accumulate(seconds, 1'000'000);
+            accumulate(micros, 1);
+            return Duration{result};
         }
 
         [[nodiscard]] Boundary parse_boundary(std::string_view value,
@@ -753,7 +908,8 @@ namespace hgraph
                 }
                 case AtomicTag::TimeDelta: {
                     return Value{
-                        parse_duration(reader.parse_string())};
+                        json_detail::parse_json_duration(
+                            reader.parse_string(), reader)};
                 }
                 case AtomicTag::Time: {
                     const std::string s = reader.parse_string();
