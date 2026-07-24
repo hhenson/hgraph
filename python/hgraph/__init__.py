@@ -91,6 +91,7 @@ MonthEndPolicy = _hgraph.MonthEndPolicy
 AmbiguousTimePolicy = _hgraph.AmbiguousTimePolicy
 NonexistentTimePolicy = _hgraph.NonexistentTimePolicy
 Boundary = _hgraph.Boundary
+from . import temporal
 
 _OPERATOR_NAMES = frozenset(_hgraph.operator_names())
 drop_dups = operator_function("dedup")
@@ -124,7 +125,7 @@ __all__ = [
     "set_record_replay_config", "set_time_zone_provider", "frame_store_contains", "frame_store_read", "evaluate_const",
     "CivilDateTime", "Period", "ZoneId", "ZonedDateTime", "InstantRange", "CivilDateRange",
     "InstantRangeSet", "CivilDateRangeSet", "MonthEndPolicy", "AmbiguousTimePolicy",
-    "NonexistentTimePolicy", "Boundary",
+    "NonexistentTimePolicy", "Boundary", "temporal",
     "Frame", "with_frame_metadata", "frame_metadata", "has_frame_metadata", "without_frame_metadata", "register_native_scalar_type", "register_python_object_type", "TABLE", "COMPOUND_SCALAR", "COMPOUND_SCALAR_1", "ToTableMode", "TableSchema", "make_table_schema", "table_schema",
     "table_shape", "table_shape_from_schema", "shape_of_table_type", "drop_dups",
     "get_table_schema_date_key", "get_table_schema_as_of_key",

@@ -103,6 +103,27 @@ namespace hgraph::python_bridge
                           const CivilDateTime &other) {
             return self <= other;
         })
+        .def("__add__", [](CivilDateTime self, Duration delta) {
+            return checked_add(self, delta);
+        })
+        .def("__add__", [](CivilDateTime self, Period period) {
+            return apply_period(self, period);
+        })
+        .def("__radd__", [](CivilDateTime self, Duration delta) {
+            return checked_add(self, delta);
+        })
+        .def("__radd__", [](CivilDateTime self, Period period) {
+            return apply_period(self, period);
+        })
+        .def("__sub__", [](CivilDateTime self, Duration delta) {
+            return checked_subtract(self, delta);
+        })
+        .def("__sub__", [](CivilDateTime self, Period period) {
+            return apply_period(self, checked_negate(period));
+        })
+        .def("__sub__", [](CivilDateTime self, CivilDateTime other) {
+            return checked_subtract(self, other);
+        })
         .def("__hash__", [](const CivilDateTime &self) {
             return std::hash<CivilDateTime>{}(self);
         })
@@ -119,6 +140,51 @@ namespace hgraph::python_bridge
         .def_prop_ro("years", &Period::years)
         .def_prop_ro("months", &Period::months)
         .def_prop_ro("days", &Period::days)
+        .def("__add__", [](Period self, Period other) {
+            return checked_add(self, other);
+        })
+        .def("__sub__", [](Period self, Period other) {
+            return checked_subtract(self, other);
+        })
+        .def("__neg__", [](Period self) {
+            return checked_negate(self);
+        })
+        .def("__mul__", [](Period self, std::int64_t factor) {
+            return checked_multiply(self, factor);
+        })
+        .def("__rmul__", [](Period self, std::int64_t factor) {
+            return checked_multiply(self, factor);
+        })
+        .def("__radd__", [](Period self, nb::handle value) {
+            const nb::object datetime_type =
+                nb::module_::import_("datetime").attr("datetime");
+            if (nb::isinstance(value, datetime_type))
+            {
+                throw nb::type_error(
+                    "Period cannot be added to an Instant");
+            }
+            return apply_period(
+                nb::cast<CivilDate>(value),
+                self);
+        })
+        .def("__radd__", [](Period self, CivilDateTime value) {
+            return apply_period(value, self);
+        })
+        .def("__rsub__", [](Period self, nb::handle value) {
+            const nb::object datetime_type =
+                nb::module_::import_("datetime").attr("datetime");
+            if (nb::isinstance(value, datetime_type))
+            {
+                throw nb::type_error(
+                    "Period cannot be subtracted from an Instant");
+            }
+            return apply_period(
+                nb::cast<CivilDate>(value),
+                checked_negate(self));
+        })
+        .def("__rsub__", [](Period self, CivilDateTime value) {
+            return apply_period(value, checked_negate(self));
+        })
         .def("__eq__", [](const Period &self, const Period &other) {
             return self == other;
         })
@@ -292,6 +358,166 @@ namespace hgraph::python_bridge
         "InstantRangeSet");
     bind_range_set.template operator()<CivilDateRangeSet>(
         "CivilDateRangeSet");
+
+    m.def("_temporal_checked_add",
+          [](Duration lhs, Duration rhs) {
+              return checked_add(lhs, rhs);
+          });
+    m.def("_temporal_checked_add",
+          [](Instant value, Duration delta) {
+              return checked_add(value, delta);
+          });
+    m.def("_temporal_checked_add",
+          [](Duration delta, Instant value) {
+              return checked_add(value, delta);
+          });
+    m.def("_temporal_checked_add",
+          [](CivilDateTime value, Duration delta) {
+              return checked_add(value, delta);
+          });
+    m.def("_temporal_checked_add",
+          [](Duration delta, CivilDateTime value) {
+              return checked_add(value, delta);
+          });
+    m.def("_temporal_checked_add",
+          [](Period lhs, Period rhs) {
+              return checked_add(lhs, rhs);
+          });
+    m.def("_temporal_checked_add",
+          [](CivilDate value, Period period, MonthEndPolicy policy) {
+              return apply_period(value, period, policy);
+          },
+          nb::arg("value"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+    m.def("_temporal_checked_add",
+          [](CivilDateTime value, Period period,
+             MonthEndPolicy policy) {
+              return apply_period(value, period, policy);
+          },
+          nb::arg("value"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+
+    m.def("_temporal_checked_subtract",
+          [](Duration lhs, Duration rhs) {
+              return checked_subtract(lhs, rhs);
+          });
+    m.def("_temporal_checked_subtract",
+          [](Instant value, Duration delta) {
+              return checked_subtract(value, delta);
+          });
+    m.def("_temporal_checked_subtract",
+          [](Instant lhs, Instant rhs) {
+              return checked_subtract(lhs, rhs);
+          });
+    m.def("_temporal_checked_subtract",
+          [](CivilDateTime value, Duration delta) {
+              return checked_subtract(value, delta);
+          });
+    m.def("_temporal_checked_subtract",
+          [](CivilDateTime lhs, CivilDateTime rhs) {
+              return checked_subtract(lhs, rhs);
+          });
+    m.def("_temporal_checked_subtract",
+          [](Period lhs, Period rhs) {
+              return checked_subtract(lhs, rhs);
+          });
+    m.def("_temporal_checked_subtract",
+          [](CivilDate value, Period period, MonthEndPolicy policy) {
+              return apply_period(value, checked_negate(period), policy);
+          },
+          nb::arg("value"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+    m.def("_temporal_checked_subtract",
+          [](CivilDateTime value, Period period,
+             MonthEndPolicy policy) {
+              return apply_period(value, checked_negate(period), policy);
+          },
+          nb::arg("value"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+
+    m.def("_temporal_checked_negate",
+          [](Duration value) {
+              return checked_negate(value);
+          });
+    m.def("_temporal_checked_negate",
+          [](Period value) {
+              return checked_negate(value);
+          });
+    m.def("_temporal_checked_multiply",
+          [](Duration value, std::int64_t factor) {
+              return checked_multiply(value, factor);
+          });
+    m.def("_temporal_checked_multiply",
+          [](Duration value, double factor) {
+              return checked_multiply(value, factor);
+          });
+    m.def("_temporal_checked_multiply",
+          [](Period value, std::int64_t factor) {
+              return checked_multiply(value, factor);
+          });
+    m.def("_temporal_checked_divide",
+          [](Duration value, std::int64_t divisor) {
+              return checked_divide(value, divisor);
+          });
+    m.def("_temporal_checked_divide",
+          [](Duration value, double divisor) {
+              return checked_divide(value, divisor);
+          });
+    m.def("_temporal_apply_period",
+          nb::overload_cast<CivilDate, Period, MonthEndPolicy>(
+              &apply_period),
+          nb::arg("value"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+    m.def("_temporal_apply_period",
+          nb::overload_cast<CivilDateTime, Period, MonthEndPolicy>(
+              &apply_period),
+          nb::arg("value"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+    m.def("_temporal_shift",
+          nb::overload_cast<InstantRange, Duration>(&shift),
+          nb::arg("range"), nb::arg("delta"));
+    m.def("_temporal_shift",
+          nb::overload_cast<CivilDateRange, Period, MonthEndPolicy>(
+              &shift),
+          nb::arg("range"), nb::arg("period"),
+          nb::arg("month_end_policy") = MonthEndPolicy::Reject);
+    m.def("_temporal_extent", &extent, nb::arg("range"));
+    m.def("_temporal_floor",
+          nb::overload_cast<Duration, Duration>(&floor),
+          nb::arg("value"), nb::arg("quantum"));
+    m.def("_temporal_floor",
+          nb::overload_cast<Instant, Duration, Instant>(&floor),
+          nb::arg("value"), nb::arg("quantum"),
+          nb::arg("origin") = Instant{});
+    m.def("_temporal_ceil",
+          nb::overload_cast<Duration, Duration>(&ceil),
+          nb::arg("value"), nb::arg("quantum"));
+    m.def("_temporal_ceil",
+          nb::overload_cast<Instant, Duration, Instant>(&ceil),
+          nb::arg("value"), nb::arg("quantum"),
+          nb::arg("origin") = Instant{});
+    m.def("_temporal_round",
+          nb::overload_cast<Duration, Duration>(&round),
+          nb::arg("value"), nb::arg("quantum"));
+    m.def("_temporal_round",
+          nb::overload_cast<Instant, Duration, Instant>(&round),
+          nb::arg("value"), nb::arg("quantum"),
+          nb::arg("origin") = Instant{});
+    m.def("_temporal_bucket", &bucket,
+          nb::arg("value"), nb::arg("width"),
+          nb::arg("origin") = Instant{});
+    m.def("_temporal_parse_duration", &parse_duration,
+          nb::arg("value"));
+    m.def("_temporal_format_duration", &format_duration,
+          nb::arg("value"));
+    m.def("_temporal_format_instant", &format_instant,
+          nb::arg("value"));
+    m.def("_temporal_format_civil_date", &format_civil_date,
+          nb::arg("value"));
+    m.def("_temporal_format_civil_time", &format_civil_time,
+          nb::arg("value"));
+    m.def("_temporal_format_civil_datetime",
+          &format_civil_datetime, nb::arg("value"));
 
     const auto register_temporal_type =
         [&](const char *python_name,

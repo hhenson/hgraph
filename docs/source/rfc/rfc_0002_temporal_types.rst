@@ -720,6 +720,23 @@ range normalization match C++ exactly.  Python wrappers must not expose
 writable fields that can invalidate a value after it has been hashed or
 published on a time series.
 
+Python value code, including code executing inside a ``compute_node``, uses
+``hgraph.temporal`` for the direct-value form of the temporal graph operators.
+The module is a thin binding to the same native C++ functions used by the
+operator implementations; it is not a second Python implementation.
+``CivilDateTime`` and ``Period`` additionally expose their natural checked
+arithmetic through Python's ``+``, ``-``, unary ``-``, and integer ``*``
+protocols.  Built-in ``datetime`` and ``timedelta`` retain their normal Python
+value protocols.
+
+Provider-backed value functions such as ``hgraph.temporal.at_zone``,
+``resolve``, ``convert_zone``, and checked zoned-duration addition obtain the
+provider from the active ``GlobalState``.  This is the same state consulted by
+the corresponding graph operator, so a value operation inside a compute node
+and a graph operator resolve against one provider version and policy contract.
+Calling one of these functions without first installing a provider fails
+rather than silently constructing an unrelated process-global provider.
+
 For compatibility, a naïve Python ``datetime`` at an ``Instant`` boundary is
 interpreted as UTC.  An aware ``datetime`` is normalized to UTC.  No local
 zone is inferred.  ``CivilDateTime`` remains a distinct class because a naïve
@@ -773,9 +790,11 @@ uses its stored offset and does not query the provider.
 Operator and dispatch semantics
 -------------------------------
 
-Temporal scalar functions are exposed as ordinary C++ functions and as native
-hgraph operator overloads.  Python graphs call those overloads; Python does
-not implement a second temporal runtime.
+Temporal scalar functions are exposed as ordinary C++ functions, direct
+Python value functions under ``hgraph.temporal``, and native hgraph operator
+overloads.  Python graphs call the overloads while Python compute nodes may
+apply the value functions to ``input.value``.  Both paths execute the same
+native implementation.
 
 The operator matrix is:
 
