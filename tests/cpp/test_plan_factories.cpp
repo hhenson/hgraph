@@ -1221,6 +1221,7 @@ TEST_CASE("TSDataPlanFactory: tick TSW stores a fixed cyclic current window")
     const auto retained_capacity = window.capacity();
     const auto t5 = t4 + TimeDelta{1};
     Value five{5};
+    auto  replacement = stdlib::make_list<std::int32_t>({7, 8});
     {
         auto mutation = window.begin_mutation(t5);
         mutation.clear();
@@ -1228,10 +1229,15 @@ TEST_CASE("TSDataPlanFactory: tick TSW stores a fixed cyclic current window")
         REQUIRE(mutation.modified(t5));
         REQUIRE_FALSE(mutation.delta_value(t5).has_value());
         REQUIRE_FALSE(mutation.has_removed_value(t5));
+        REQUIRE_THROWS_AS(mutation.copy_value_from(replacement.view()), std::logic_error);
+        REQUIRE(mutation.empty());
 
         // Reset and a source tick in one node evaluation are atomic: clear
         // first, then retain only the current source value.
         mutation.push(five.view());
+        REQUIRE(mutation.size() == 1);
+        REQUIRE(mutation.back().checked_as<std::int32_t>() == 5);
+        REQUIRE_THROWS_AS(mutation.copy_value_from(replacement.view()), std::logic_error);
         REQUIRE(mutation.size() == 1);
         REQUIRE(mutation.back().checked_as<std::int32_t>() == 5);
         REQUIRE_THROWS_AS(mutation.push(five.view()), std::logic_error);
@@ -1246,6 +1252,10 @@ TEST_CASE("TSDataPlanFactory: tick TSW stores a fixed cyclic current window")
         mutation.clear();
         REQUIRE(mutation.empty());
         REQUIRE_THROWS_AS(mutation.clear(), std::logic_error);
+    }
+    {
+        auto replacement_mutation = window.begin_mutation(t6);
+        REQUIRE_THROWS_AS(replacement_mutation.copy_value_from(replacement.view()), std::logic_error);
     }
     REQUIRE(window.capacity() == retained_capacity);
     REQUIRE(window.empty());
@@ -1368,6 +1378,7 @@ TEST_CASE("TSDataPlanFactory: duration TSW stores a timestamped queue current wi
     const auto retained_capacity = window.capacity();
     const auto t4 = t3 + TimeDelta{1};
     Value four{4};
+    auto  replacement = stdlib::make_list<std::int32_t>({7, 8});
     {
         auto mutation = window.begin_mutation(t4);
         mutation.clear();
@@ -1375,8 +1386,13 @@ TEST_CASE("TSDataPlanFactory: duration TSW stores a timestamped queue current wi
         REQUIRE(mutation.modified(t4));
         REQUIRE_FALSE(mutation.delta_value(t4).has_value());
         REQUIRE_FALSE(mutation.has_removed_value(t4));
+        REQUIRE_THROWS_AS(mutation.copy_value_from(replacement.view()), std::logic_error);
+        REQUIRE(mutation.empty());
 
         mutation.push(four.view());
+        REQUIRE(mutation.size() == 1);
+        REQUIRE(mutation.back().checked_as<std::int32_t>() == 4);
+        REQUIRE_THROWS_AS(mutation.copy_value_from(replacement.view()), std::logic_error);
         REQUIRE(mutation.size() == 1);
         REQUIRE(mutation.back().checked_as<std::int32_t>() == 4);
         REQUIRE_THROWS_AS(mutation.push(four.view()), std::logic_error);
@@ -1391,6 +1407,10 @@ TEST_CASE("TSDataPlanFactory: duration TSW stores a timestamped queue current wi
         mutation.clear();
         REQUIRE(mutation.empty());
         REQUIRE_THROWS_AS(mutation.clear(), std::logic_error);
+    }
+    {
+        auto replacement_mutation = window.begin_mutation(t5);
+        REQUIRE_THROWS_AS(replacement_mutation.copy_value_from(replacement.view()), std::logic_error);
     }
     REQUIRE(window.modified(t5));
     REQUIRE(window.capacity() == retained_capacity);

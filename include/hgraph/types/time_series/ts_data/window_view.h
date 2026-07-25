@@ -131,7 +131,12 @@ namespace hgraph
          */
         void clear();
 
-        /** Replace the window from a value-layer window/list representation. */
+        /**
+         * Replace the window from a value-layer window/list representation.
+         *
+         * A replacement is rejected after clear has participated in the same
+         * evaluation cycle, including through a different mutation view.
+         */
         [[nodiscard]] bool copy_value_from(const ValueView &source);
 
       private:

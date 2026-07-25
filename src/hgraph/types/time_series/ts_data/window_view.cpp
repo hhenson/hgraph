@@ -379,6 +379,11 @@ namespace hgraph
 
     bool TSWDataMutationView::copy_value_from(const ValueView &source)
     {
+        if (cleared(current_mutation_time()))
+        {
+            throw std::logic_error(
+                "TSWDataMutationView::copy_value_from cannot replace a window after clear in the same evaluation time");
+        }
         return mutation_.copy_value_from(source);
     }
 }  // namespace hgraph
