@@ -21,6 +21,7 @@ from hgraph import (
 from ._data_frame_source import DATA_FRAME_SOURCE, DataStore, _as_arrow_table
 
 __all__ = (
+    "SIZE_1",
     "schema_from_frame",
     "ts_from_data_source",
     "tsb_from_data_source",
@@ -33,6 +34,12 @@ __all__ = (
     "ts_of_matrix_from_data_source",
     "ts_of_frames_from_data_source",
 )
+
+# hgraph parity: the second Array size variable used in matrix-shaped
+# signatures (upstream clones it from SIZE in this module).
+import typing as _typing
+
+SIZE_1 = _typing.TypeVar("SIZE_1")
 
 
 def _python_type(arrow_type: pa.DataType):

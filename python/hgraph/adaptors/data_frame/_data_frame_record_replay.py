@@ -11,6 +11,8 @@ from hgraph import GlobalState, operator_function
 
 __all__ = (
     "DATA_FRAME_RECORD_REPLAY",
+    "DATA_FRAME_RECORD_REPLAY_PATH",
+    "DATA_FRAME_RECORD_OVERRIDES",
     "set_data_frame_record_path",
     "set_data_frame_overrides",
     "get_data_frame_record_overrides",
@@ -27,8 +29,12 @@ __all__ = (
 
 
 DATA_FRAME_RECORD_REPLAY = ":data_frame:__data_frame_record_replay__"
-_PATH_KEY = ":data_frame:__path__"
-_OVERRIDES_KEY = ":data_frame:__overrides__"
+# The GlobalState keys are public upstream surface (imported by user code);
+# the private aliases below are retained for the existing internal call sites.
+DATA_FRAME_RECORD_REPLAY_PATH = ":data_frame:__path__"
+DATA_FRAME_RECORD_OVERRIDES = ":data_frame:__overrides__"
+_PATH_KEY = DATA_FRAME_RECORD_REPLAY_PATH
+_OVERRIDES_KEY = DATA_FRAME_RECORD_OVERRIDES
 _STORAGE_KEY = ":data_frame:__storage__"
 
 
