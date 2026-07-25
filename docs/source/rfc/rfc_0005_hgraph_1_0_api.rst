@@ -97,8 +97,9 @@ extension → core):
    The language: time-series types, scalar type system, wiring DSL, and
    generic resolution. The runtime: graph execution, scheduling,
    services/adaptor machinery, error handling, record/replay. The operator
-   standard library, including the dependency-free domain operator sets
-   (temporal, stream, arrow-combinators, numpy-shaped operators). The
+   standard library, including the dependency-free kernel operator sets
+   (temporal, stream — the kernel calibration in the Python API contract
+   defines the boundary). The
    serialization contracts (JSON, Arrow/Frame/TABLE). The testing harness
    (``eval_node`` and friends). The extension SDK (C++ shared-library SDK and
    the Python registration surfaces). Core dependencies are exactly
@@ -179,6 +180,16 @@ First-party extension packages at 1.0:
      - ``hgraph_polars``
      - Polars producers/consumers beyond the core Arrow contract
        (``dataframe`` extra today)
+   * - ``hgraph-analytics``
+     - ``hgraph_analytics``
+     - Statistical estimators and ``Array``-shaped analytics moved out of
+       the kernel (0.4 ``numpy_`` module + scalar statistics operators)
+   * - ``hgraph-compose``
+     - ``hgraph_compose``
+     - The composition-combinator DSL (0.4 ``hgraph.arrow``, renamed)
+   * - ``hgraph-notebook``
+     - ``hgraph_notebook``
+     - Interactive notebook graph sessions (0.4 ``hgraph.notebook``)
 
 **Naming.** Extension import packages are flat top-level packages
 (``hgraph_<name>``), not submodules of ``hgraph``. A dotted namespace under
@@ -255,6 +266,42 @@ against every first-party consumer before anything ships.
 Python API contract
 -------------------
 
+Kernel calibration
+~~~~~~~~~~~~~~~~~~
+
+The core operator library is sized like a language runtime's standard
+library, not like a framework: the calibration reference is the C standard
+library and the C++ STL — a compact kernel of operations that are *truly
+necessary to write anything useful*, with everything opinionated left to
+libraries. The evidence base:
+
+* ``libc`` exposes on the order of a dozen headers of everyday operations
+  (arithmetic in the language, ``math.h``, ``string.h``, ``time.h``); the
+  C++ ``<algorithm>``/``<numeric>`` libraries define roughly a hundred
+  generic algorithms — and famously contain **no statistics**: mean,
+  variance, and correlation live in domain libraries, not the kernel.
+* ReactiveX's canonical operator catalogue is roughly seventy operators in
+  ten categories (creation, transformation, filtering, combination, error
+  handling, utility, conditional, aggregation, connectable, conversion) —
+  and the categories map almost one-to-one onto the hgraph kernel families
+  below.
+* csp's in-tree ``baselib`` follows the same instinct: a small
+  flow-control/conversion/timing kernel, with analytics (``csp.stats``)
+  and integrations layered on top.
+
+Measured against that bar, the 0.4 surface is close but not clean: the
+kernel families below (arithmetic, comparison, string, flow control,
+conversion, collections, temporal, serialization, lifecycle) are exactly
+stdlib-shaped, while the statistical estimators and array analytics that
+accreted alongside them (``ewma``, ``corrcoef``, ``quantile``, ``std``,
+...) are precisely what the STL leaves out of the kernel. 1.0 draws that
+line explicitly: they move to an extension. Testing support, by contrast,
+is deliberately **in** the core — the test harness is what gives users the
+direction and tooling to build correct graphs, and a kernel you cannot
+verify against is not compact, it is merely small. Logging likewise stays
+core: emitting diagnostics is generic to any application, so the logging
+operators and a native implementation are part of the kernel.
+
 Module topology
 ~~~~~~~~~~~~~~~
 
@@ -267,47 +314,544 @@ Module topology
      - Contents
    * - ``hgraph``
      - stable
-     - The curated flat surface: types (``TS``/``TSS``/``TSD``/``TSL``/
-       ``TSB``/``TSW``, scalars, schema classes), authoring decorators
-       (``graph``, ``compute_node``, ``sink_node``, ``generator``,
-       ``operator``, ``component``, ``service_impl``, ...), wiring
-       combinators (``map_``, ``reduce``, ``switch_``, ``mesh_``,
-       ``feedback``, ...), run/eval entry points, injectable markers,
-       services, record/replay, engine constants — plus the operator
-       registry surface (below)
+     - The curated flat surface and operator registry (enumerated name by
+       name below)
    * - ``hgraph.temporal``
      - stable
      - Value-level temporal operations (RFC 0002)
    * - ``hgraph.stream``
      - stable
-     - Stream status framework
-   * - ``hgraph.arrow``
-     - stable
-     - Arrow-style combinator DSL
-   * - ``hgraph.numpy_ops``
-     - stable
-     - NumPy-shaped operators (**renamed** from ``numpy_``)
+     - Stream status framework (``Data``/``Stream``/``StreamStatus`` and
+       status-aware combine/merge/reduce) — the interop contract extension
+       adaptors build on
    * - ``hgraph.testing``
      - stable
-     - Test harness: ``eval_node``, profiler/trace, wiring tools
-       (**renamed** from ``test``)
+     - Test harness: ``eval_node``, evaluation profiler/trace, wiring
+       tools (**renamed** from ``test``)
    * - ``hgraph.reflection``
      - stable
-     - Structural decomposition of TS types
+     - Structural decomposition of TS types (``fields``, ``scalar_type``,
+       ``element_type``, predicates)
    * - ``hgraph.nodes``
      - stable
-     - Helper node library
+     - Helper node library (collection/window conveniences without
+       external dependencies)
    * - ``hgraph.debug``
      - provisional
      - Inspection snapshots and inspector surface
-   * - ``hgraph.notebook``
-     - provisional
-     - Interactive notebook graph sessions
+
+Moved out of core (see the extension table and the moves list below):
+``hgraph.numpy_`` (analytics extension, renamed — the implementation is
+hgraph's own ``Array`` type, not NumPy, so the NumPy-derived name goes
+with the move), ``hgraph.arrow`` (composition-combinator extension,
+renamed to shed the Apache-Arrow name collision), ``hgraph.notebook``
+(a specific use case of the engine, not kernel).
 
 Renamed modules get an import shim under the old name — emitting a
 ``DeprecationWarning`` — **in hg_cpp 0.9 only**; 1.0 carries the new names
 exclusively. The ``hgraph.adaptors`` namespace exists in 0.9 as warning
 shims and does not exist in 1.0.
+
+The 1.0 surface, name by name
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The tables below are the proposed contract: every public name with its
+behaviour in one line. Names are grouped where one description covers the
+family; a ``(0.4: name)`` annotation marks a rename; unannotated names are
+unchanged from 0.4. The generated API inventory (appendix) is the
+machine-checked form of these tables.
+
+**Types and schema**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``TS``, ``TSS``, ``TSD``, ``TSL``, ``TSB``, ``TSW``
+     - The time-series types: scalar value, set, keyed dictionary, fixed
+       list, bundle, and window over a schema
+   * - ``TimeSeries``, ``Graph``, ``Node``
+     - Runtime handles for a wired time series, graph, and node
+   * - ``TimeSeriesSchema``, ``CompoundScalar``, ``Size``, ``REF``
+     - Bundle schema base, structured scalar base, TSL size marker, and
+       reference-typed time series
+   * - ``Frame``, ``TABLE``, ``TableSchema``, ``ToTableMode``,
+       ``make_table_schema``, ``table_schema``, ``table_shape``,
+       ``table_shape_from_schema``, ``shape_of_table_type``
+     - Arrow-backed frame type and the TABLE tuple-row protocol (RFC 0001)
+   * - ``Array``
+     - The native fixed/variable-shape array scalar (operators over it
+       live in the analytics extension)
+   * - ``SCALAR``, ``NUMBER``, ``NUMBER_2``, ``COMPOUND_SCALAR``,
+       ``COMPOUND_SCALAR_1``, ``SCHEMA``, ``K``, ``V``, ``OUT``
+     - Wiring type variables for generic operator signatures
+   * - ``CivilDateTime``, ``Period``, ``ZoneId``, ``ZonedDateTime``,
+       ``InstantRange``, ``InstantRangeSet``, ``CivilDateRange``,
+       ``CivilDateRangeSet``, ``MonthEndPolicy``, ``AmbiguousTimePolicy``,
+       ``NonexistentTimePolicy``, ``Boundary``
+     - The RFC 0002 temporal value types and policies
+   * - ``CmpResult``, ``DivideByZero``, ``RecordReplayEnum``
+     - Result/policy enums used by comparison, division, and record/replay
+       operators
+   * - ``NodeError``, ``TryExceptResult``, ``TryExceptTsdMapResult``
+     - Error-capture value types produced by ``exception_time_series`` /
+       ``try_except``
+   * - ``REMOVE``, ``REMOVE_IF_EXISTS``
+     - Delta sentinels marking key removal in TSD/TSS ticks (strict and
+       tolerant forms)
+   * - ``MIN_ST``, ``MIN_DT``, ``MIN_TD``, ``MAX_DT``, ``MAX_ET``
+     - Engine time constants (start/never-modified sentinel/tick quantum/
+       idle/end)
+   * - ``IN_MEMORY``, ``IN_MEMORY_DENSE``, ``DATA_FRAME``
+     - Record/replay storage-mode constants
+   * - ``WiringError``, ``ParseError``, ``IncorrectTypeBinding``,
+       ``RequirementsNotMetWiringError``
+     - Wiring-time error hierarchy
+   * - ``WiringPort``, ``MeshWiringPort``, ``WiringGraphContext``,
+       ``WiringNodeSignature``, ``WiringNodeType``
+     - Wiring-time introspection: ports, graph context, and node
+       signature/kind descriptors
+
+**Authoring and wiring**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``graph``, ``compute_node``, ``sink_node``, ``generator``,
+       ``push_queue``
+     - Authoring decorators: composition graph, computed node, terminal
+       node, pull-source generator, and thread-safe push source
+   * - ``operator``, ``dispatch_``, ``component``
+     - Overloadable operator declaration, runtime value dispatch, and
+       recordable component graphs
+   * - ``map_``, ``reduce``, ``switch_``, ``mesh_``
+     - Higher-order wiring: keyed mapping, associative reduction, sampled
+       branch selection, and on-demand instance meshes
+   * - ``feedback``, ``delayed_binding``
+     - Cycle-breaking: next-cycle feedback and late-bound ports
+   * - ``lift``, ``lower``
+     - Move ordinary functions into the graph and graphs into callables
+   * - ``pass_through``, ``no_key``, ``passive``, ``REQUIRED``,
+       ``default_path``
+     - Wiring argument markers (multiplex pass-through, key exclusion,
+       passive inputs, required-input marker, default service path)
+   * - ``try_except``, ``exception_time_series``
+     - Error capture: wrap a sub-graph / expose a node's error stream
+   * - ``downcast_ref``, ``get_mesh``, ``context``, ``get_context``
+     - Reference downcast, mesh handle lookup, and context scoping
+       (publish/consume wiring-scoped ports)
+
+**Run, evaluate, and observe**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``run_graph``, ``GraphConfiguration``, ``EvaluationMode``
+     - **The single way to run a graph** in simulation or real time:
+       ``run_graph(graph, *args, config=None, **kwargs)`` accepts either a
+       ``GraphConfiguration`` *or* the individual run keywords (which
+       build one — passing both is an error); the 0.4 dunder keywords
+       (``__trace__``, ``__profile__``, ...) become ordinary
+       ``GraphConfiguration`` fields
+   * - ``evaluate_const``
+     - Evaluate a const-foldable expression at wiring time (unrelated to
+       running a graph)
+
+   * - ``EvaluationLifeCycleObserver``
+     - Lifecycle hook interface for graph/node start/stop/evaluate events
+   * - ``EvaluationClock``, ``EvaluationEngineApi``
+     - Injectable engine clock and engine-control API (request stop, ...)
+   * - ``STATE``, ``SCHEDULER``, ``CLOCK``, ``LOGGER``, ``NODE``,
+       ``CONTEXT``, ``TSB_OUT``, ``TSD_OUT``, ``TSS_OUT``, ``TSW_OUT``
+     - Injectable markers for node state, scheduling, clock, logging, the
+       node handle, context, and typed output views
+   * - ``GlobalState``, ``GlobalContext``
+     - Process/global key-value state seedable at wiring and readable at
+       runtime
+   * - ``is_feature_enabled``
+     - Feature-switch query (the experimental-tier gate)
+   * - ``utc_now``
+     - Engine-consistent wall-clock now
+
+0.4 exposed two run entry points — ``run_graph`` (keyword convenience)
+and ``evaluate_graph`` (config-object form). 1.0 keeps exactly one:
+``run_graph``, which absorbs the config-object calling style, so the
+cleanliness that motivated ``evaluate_graph`` survives without the
+duplicate. The name choice follows both the ecosystem and hgraph's own
+vocabulary: the cross-framework verb for whole-lifecycle execution is
+*run* (``csp.run``, ``bytewax.run``, Beam ``pipeline.run()``), while in
+hgraph *evaluate* names what the engine does once per cycle
+(``EvaluationMode``, ``EvaluationClock``, ``eval_node``) — a graph is
+evaluated many times in one run, so "evaluate the graph" is the wrong
+description of the whole. ``evaluate_graph`` is a 0.9 warning shim and
+absent in 1.0.
+
+**Services and adaptors (the extension wiring contract)**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``reference_service``, ``subscription_service``,
+       ``request_reply_service``
+     - The three service flavours (shared output, keyed subscription,
+       request/reply)
+   * - ``service_impl``, ``register_service``, ``get_service_inputs``,
+       ``set_service_output``, ``impl_input``, ``impl_output``
+     - Implement and register services; access flavour inputs/outputs from
+       an implementation
+   * - ``adaptor``, ``adaptor_impl``, ``service_adaptor``,
+       ``service_adaptor_impl``, ``register_adaptor``
+     - Adaptor interfaces (graph↔external exchange) and per-client keyed
+       service adaptors
+   * - ``from_graph``, ``to_graph``
+     - Impl-side ports of an adaptor interface; accept an ordinary
+       ``client_id=`` keyword to split one adaptor client across calls
+   * - ``service_client_id`` (new; 0.4: ``request_id`` +
+       ``__request_id__=``)
+     - Allocate the process-unique client token used to correlate a split
+       service-adaptor client — replaces the generic-sounding top-level
+       ``request_id`` operator and its dunder keyword
+   * - ``register_native_scalar_type``, ``register_python_object_type``
+     - The RFC 0003/0004 scalar registration surface for extensions
+
+**Record, replay, and state**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``record_replay_scope``, ``RecordReplayContext``,
+       ``set_record_replay_config``
+     - Scope and configure record/replay for a run
+   * - ``get_recorded_value``, ``set_recorder_api``, ``get_recorder_api``,
+       ``set_recording_label``, ``get_recording_label``
+     - Access recordings and bind recorder implementations/labels
+   * - ``set_as_of``, ``get_table_schema_date_key``,
+       ``set_table_schema_date_key``, ``get_table_schema_as_of_key``,
+       ``set_table_schema_as_of_key``
+     - Bitemporal as-of and table key configuration
+   * - ``frame_metadata``, ``with_frame_metadata``,
+       ``without_frame_metadata``, ``has_frame_metadata``,
+       ``frame_store_contains``, ``frame_store_read``
+     - RFC 0001 frame-metadata accessors and the frame store
+   * - ``set_time_zone_provider``
+     - Install the named-zone provider for a run (RFC 0002)
+
+**Operator kernel — arithmetic and math**
+(``libc``/STL analogues; element-wise over ticking values)
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``add_``, ``sub_``, ``mul_``, ``div_``, ``floordiv_``, ``mod_``,
+       ``divmod_``, ``pow_``
+     - Binary arithmetic with the documented division-by-zero policy
+   * - ``neg_``, ``pos_``, ``abs_``, ``sign``, ``round_``, ``clip``
+     - Unary numeric operations and clamping
+   * - ``ln``
+     - Natural logarithm (see the new-surface list for ``exp_``/``sqrt_``)
+   * - ``min_``, ``max_``, ``sum_``, ``count``, ``mean``, ``zero``
+     - Running fold aggregations over a ticking value or collection, and
+       the additive-identity source used by ``reduce``
+   * - ``diff``
+     - Difference between consecutive ticks (STL
+       ``adjacent_difference``)
+
+**Operator kernel — comparison and logic**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``eq_``, ``ne_``, ``lt_``, ``le_``, ``gt_``, ``ge_``
+     - Element-wise comparisons
+   * - ``cmp_``
+     - Three-way comparison producing ``CmpResult``
+   * - ``and_``, ``or_``, ``not_``, ``all_``, ``any_``
+     - Boolean logic and quantifiers over collections
+   * - ``bit_and``, ``bit_or``, ``bit_xor``, ``invert_``, ``lshift_``,
+       ``rshift_``
+     - Bitwise operations
+
+**Operator kernel — string**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``str_``, ``format_``
+     - Stringify a value; format with a template
+   * - ``concat``, ``join``, ``split``, ``substr``, ``replace``,
+       ``match_``
+     - String manipulation and regular-expression matching (see the
+       new-surface list for case/trim completions)
+
+**Operator kernel — flow control and timing**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``const``, ``nothing``, ``default``
+     - Constant source, never-ticking source, and fallback-until-valid
+   * - ``filter_``, ``if_``, ``if_true``, ``if_then_else``, ``if_cmp``,
+       ``route_by_index``
+     - Conditional gating and routing of ticks
+   * - ``merge``, ``race``
+     - One selection family, two selector conditions: ``merge`` forwards
+       the first input to *tick* each cycle (with ``disjoint=True`` as a
+       wiring-time parameter for non-overlapping TSD keys); ``race``
+       forwards the first input to be *valid*, holding until it
+       invalidates. Input shape (variadic, TSL, TSD entries) is
+       overload-selected — no shape-specific public names
+   * - ``sample``, ``dedup``, ``drop_dups``, ``lag``, ``gate``, ``batch``,
+       ``throttle``, ``drop``, ``take``, ``step``, ``until_true``
+     - Sampling, duplicate suppression, tick delay, flow gating, batching,
+       rate limiting, and prefix/suffix stream slicing
+   * - ``to_window``
+     - Convert a stream into a ``TSW`` window of the last ``period`` ticks,
+       valid once ``min_window_period`` ticks have arrived (the sole
+       windowing entry point; the legacy bundle-shaped ``window`` is
+       retired — see demotions)
+   * - ``schedule``
+     - Periodic/alarm tick source (wall-clock capable in real time)
+   * - ``modified``, ``valid``, ``last_modified_time``,
+       ``last_modified_date``, ``last_modified_wall_clock_time``,
+       ``evaluation_time_in_range``
+     - Tick/validity observation and evaluation-time predicates
+   * - ``stop_engine``
+     - Request an orderly engine stop from within the graph
+   * - ``assert_``, ``debug_print``, ``print_``, ``log_``, ``null_sink``
+     - Diagnostics kernel: assertion, debug/console output, logging
+       through the native logger, and a swallow-everything sink
+
+**Operator kernel — conversion and structure**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``convert``, ``combine``, ``collect``, ``emit``
+     - Generic type conversion; build structures from parts (the target
+       type selects the kernel: ``combine[TS[MyCS]](...)``,
+       ``combine[TSD[...]]``, ...); accumulate ticks into collections;
+       emit collection elements as ticks
+   * - ``explode``, ``freeze``
+     - Expand a collection tick into keyed ticks; snapshot a collection
+       into its frozen scalar
+   * - ``apply``, ``call``
+     - Apply a wired callable / call a value-level callable per tick
+   * - ``type_``, ``downcast_``
+     - Runtime type observation and checked downcast
+   * - ``getattr_``, ``setattr_``, ``getitem_``, ``get_item``, ``slice_``,
+       ``index_of``, ``len_``, ``is_empty``, ``contains_``, ``sorted_``
+     - Structural access and interrogation over ticking values and
+       collections
+
+**Operator kernel — keyed and set collections**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``keys_``, ``values_``, ``rekey``, ``flip``, ``flip_keys``,
+       ``collapse_keys``, ``uncollapse_keys``
+     - TSD key/value views and key-structure transforms
+   * - ``group_by``, ``ungroup``, ``partition``, ``unpartition``
+     - Grouping and partitioning of keyed streams
+   * - ``union``, ``intersection``, ``difference``,
+       ``symmetric_difference``
+     - Set algebra over TSS (and set-valued ticks)
+   * - ``make_tsd``, ``filter_tsd_by_matches``
+     - Build a TSD from parts; filter by key matches
+   * - ``min_ts_list``, ``max_ts_list``
+     - Element-wise min/max across a TSL
+
+**Operator kernel — temporal and calendar** (RFC 0002)
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``at_zone``, ``convert_zone``, ``resolve_civil``, ``to_instant``,
+       ``to_civil``
+     - Zone resolution and instant↔civil conversion via the installed
+       provider
+   * - ``temporal_floor``, ``temporal_ceil``, ``temporal_round``,
+       ``temporal_bucket``
+     - Quantize instants/durations; bucket an instant into its interval
+   * - ``range_contains``, ``range_intersection``, ``range_overlaps``,
+       ``range_touches``, ``range_adjacent``, ``range_mergeable``,
+       ``range_difference``, ``range_union``, ``range_merge``,
+       ``range_hull``, ``range_shift``, ``range_extent``
+     - The normalized range algebra over instant/civil-date ranges
+   * - ``day``, ``month``, ``year``, ``weekday``, ``isoweekday``,
+       ``day_of_month``, ``month_of_year``, ``isoformat``
+     - Calendar field extraction and ISO formatting
+
+**Operator kernel — serialization and persistence**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``to_json``, ``from_json``, ``json_encode``, ``json_decode``,
+       ``json_as_bool``, ``json_as_int``, ``json_as_float``,
+       ``json_as_str``
+     - Schema-directed JSON conversion and JSON-value access
+   * - ``to_table``, ``from_table``, ``from_table_const``
+     - The TABLE tuple-row protocol over graph values
+   * - ``to_data_frame``, ``from_data_frame``, ``filter_frame``,
+       ``with_columns``
+     - Frame construction, filtering, and column derivation over the core
+       Arrow contract
+   * - ``record``, ``replay``, ``replay_const``
+     - Record a stream / replay a recording as a source
+   * - ``record_compare`` (0.4: ``compare``)
+     - Backtesting comparison sink: records per-tick equality of two
+       streams through the frame store (record/replay COMPARE mode);
+       renamed to end the collision with the three-way comparison
+       ``cmp_``
+
+Demotions from the flat namespace
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The following 0.4 ``__all__`` members are implementation or convenience
+surface, not contract, and leave the flat namespace at 1.0 (0.9 keeps them
+with a warning):
+
+* ``date``, ``datetime``, ``time``, ``timedelta`` — re-exports of the
+  standard library; users import these from ``datetime``.
+* ``WiringNodeClass``, ``PythonWiringNodeClass``,
+  ``PythonGeneratorWiringNodeClass``, ``OperatorWiringNodeClass``,
+  ``GraphWiringNodeClass`` — concrete wiring implementation classes; the
+  public introspection story is ``WiringNodeSignature``/``WiringNodeType``
+  and ``hgraph.reflection``.
+* ``extract_kwargs``, ``extract_signature``, ``equal_lambdas``,
+  ``comparison_summary``, ``pass_through_node`` — internal helpers that
+  leaked into the surface (``pass_through`` the operator remains).
+* ``evaluate_graph`` — folded into ``run_graph``, which now accepts a
+  ``GraphConfiguration`` directly (rationale under *Run, evaluate, and
+  observe*).
+* ``window`` — the legacy bundle-shaped trailing window (buffer +
+  timestamps), superseded by the first-class ``TSW`` produced by
+  ``to_window``; one windowing surface remains.
+* ``compare`` — renamed ``record_compare`` (it is the record/replay
+  comparison sink, not a comparison operator; the old name collided with
+  ``cmp_``).
+* ``combine_cs``, ``combine_map``, ``combine_tsd``,
+  ``combine_tss_from_tsl``, ``combine_json``, ``filter_cs`` — erased
+  dispatch kernels that the ``combine``/``filter_`` wiring sugar targets
+  internally; they are implementation, not contract, and move to
+  underscore-prefixed registry names (joining the excluded internal
+  operators). The public surface is ``combine`` subscripted by its target
+  type.
+* ``wire`` — the string-named erased invocation primitive the sugar is
+  built on (``wire("combine_tsd", ...)``); implementation, not contract.
+  Dynamic by-name invocation of *public* operators remains supported
+  through the registry itself — ``getattr(hgraph, name)(...)`` — without
+  exposing the erased contract's resolution knobs.
+* ``request_id`` — the client-token allocator behind service adaptors;
+  privatized as an operator. Its one public use (splitting an adaptor
+  client across ``from_graph``/``to_graph``) gets the first-class
+  ``service_client_id`` + ``client_id=`` surface in the services table,
+  retiring the ``__request_id__`` dunder keyword.
+* ``reduce_tsd_with_race``, ``reduce_tsd_of_bundles_with_race``,
+  ``merge_tsd_disjoint`` — shape specializations of the ``merge``/``race``
+  selection family (upstream keeps the race forms in its ``_impl`` package;
+  upstream's own ``merge`` docstring frames disjointness as a
+  ``disjoint=True`` parameter). Per the rfc_0000 policy-selector rule,
+  wiring-time overload resolution selects these kernels; the public verbs
+  are ``merge`` and ``race`` alone, and the kernels move to underscore
+  registry names.
+
+Surface moved out of core
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Applying the kernel calibration, the following leaves the core
+distribution for the analytics extension (``hgraph-analytics``, import
+``hgraph_analytics``): the statistical estimators ``std``, ``var``,
+``ewma``, ``corrcoef``, ``quantile``, ``pct_change``,
+``rolling_average``, ``resample``, and the ``Array``-shaped operators
+formerly in ``hgraph.numpy_`` (``as_array``, ``cumsum``, ``np_std`` →
+``array_std``, ``rolling_window_arrays``). (``mean`` stays in core as a
+plain fold beside ``sum_``/``count``.) These need domain policy (estimator
+parameters, windowing conventions) that the kernel deliberately does not
+own — the same line the STL draws. The ``Array`` *type* remains core; only
+the analytics over it move. The NumPy-derived module name is retired with
+the move: the implementation is hgraph's native array machinery, and the
+extension's names say what they are rather than what they resemble.
+
+``hgraph.arrow`` (the composition-combinator DSL) moves to
+``hgraph-compose`` (import ``hgraph_compose``): expressive but not
+necessary, and its 0.4 name collides with Apache Arrow — which core
+otherwise uses to mean columnar data — so the move takes the rename with
+it. ``hgraph.notebook`` moves to ``hgraph-notebook``: a specific
+interactive use case of the engine, cleanly built on public surface.
+
+New surface
+~~~~~~~~~~~
+
+Gaps identified while enumerating the contract; each ships in 0.9 marked
+**new** (provisional until proven):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Name(s)
+     - Behaviour
+   * - ``hgraph.__version__``
+     - The installed distribution version (currently absent; standard
+       expectation)
+   * - ``hgraph.extensions``
+     - Enumerate installed extension distributions via the
+       ``hgraph.extensions`` entry-point group (tooling/inspector support;
+       never imports)
+   * - ``configure_logging``
+     - Bind the native (spdlog-backed) runtime logger from Python: level,
+       sink, format — the implementation half of the core logging story
+       (``log_``/``LOGGER`` are the operator half)
+   * - ``exp_``, ``sqrt_``
+     - Complete the kernel math family alongside ``ln``/``pow_``
+       (``math.h`` calibration); the wider transcendental set stays out
+       until demonstrated
+   * - ``lower_``, ``upper_``, ``strip_``
+     - Complete the kernel string family (case conversion and trimming)
+   * - ``hgraph.testing.assert_ticks``
+     - Compare a recorded output against an expected tick sequence with
+       aligned, readable failure diffs (today's tests hand-roll list
+       comparison)
 
 Public-name rules
 ~~~~~~~~~~~~~~~~~
@@ -657,8 +1201,8 @@ Unresolved questions
 * The extension ABI identity check (load-time diagnostic) — designated
   follow-up RFC per :doc:`../developer_guide/extension_policy`.
 * A stable C ABI subset for long-lived native extensions — deferred.
-* Whether ``hgraph.notebook`` and ``hgraph.debug`` promote to stable in 1.x
-  or move to extension distributions — revisit once 1.0 usage exists.
+* Whether ``hgraph.debug`` promotes to stable in 1.x or moves to an
+  extension distribution — revisit once 1.0 usage exists.
 * The upstream repository's non-ported assets (docs history, issue archive)
   — what carries into the monorepo beyond code history.
 * A **conformance test kit**: the upstream roadmap's "valid hgraph
@@ -771,9 +1315,10 @@ Baseline (measured on the 0.4 line at this RFC's creation):
 * Operator registry: **216 names**, of which **~14 underscore/dunder
   internals** (``__py_compute``, ``__harness_record``, ``__json_object``,
   ...) are excluded from the public enumeration at 1.0.
-* Public modules: ``temporal``, ``stream``, ``arrow``, ``numpy_``→
-  ``numpy_ops``, ``test``→``testing``, ``reflection``, ``nodes``,
-  ``debug``, ``notebook`` (tiers per the topology table).
+* Public modules: core ``temporal``, ``stream``, ``test``→``testing``,
+  ``reflection``, ``nodes``, ``debug``; moved out: ``numpy_`` (analytics
+  extension), ``arrow`` (compose extension), ``notebook`` (extension) —
+  tiers per the topology table.
 
 Dispositions other than *kept, stable*:
 
@@ -788,8 +1333,46 @@ Dispositions other than *kept, stable*:
      - renamed → ``hgraph.testing``
      - warning shim in hg_cpp 0.9; absent in 1.0
    * - ``hgraph.numpy_``
-     - renamed → ``hgraph.numpy_ops``
-     - warning shim in hg_cpp 0.9; absent in 1.0
+     - moved → ``hgraph-analytics`` (with the scalar statistics operators)
+     - warning shim in hg_cpp 0.9; absent in 1.0; ``Array`` type stays core
+   * - ``hgraph.arrow``
+     - moved → ``hgraph-compose``
+     - renamed with the move (Apache Arrow collision); 0.9 shim only
+   * - ``hgraph.notebook``
+     - moved → ``hgraph-notebook``
+     - 0.9 shim only
+   * - stdlib re-exports (``date``/``datetime``/``time``/``timedelta``),
+       concrete ``*WiringNodeClass`` classes, ``extract_kwargs``/
+       ``extract_signature``/``equal_lambdas``/``comparison_summary``/
+       ``pass_through_node``
+     - demoted from ``__all__``
+     - warning in 0.9; private (or reflection-hosted) in 1.0
+   * - ``evaluate_graph``
+     - folded into ``run_graph(config=...)``
+     - warning shim in 0.9; absent in 1.0
+   * - ``window``
+     - retired (superseded by ``to_window`` → ``TSW``)
+     - warning shim in 0.9; absent in 1.0
+   * - ``compare``
+     - renamed → ``record_compare``
+     - warning shim in 0.9; absent in 1.0
+   * - ``combine_cs`` / ``combine_map`` / ``combine_tsd`` /
+       ``combine_tss_from_tsl`` / ``combine_json`` / ``filter_cs``
+     - privatized (underscore registry names; dispatch kernels of
+       ``combine``/``filter_``)
+     - public names warn in 0.9; underscore-only in 1.0
+   * - ``wire``
+     - privatized (erased invocation primitive; use
+       ``getattr(hgraph, name)`` for dynamic invocation)
+     - warning in 0.9; private ``_wire`` in 1.0
+   * - ``request_id`` / ``__request_id__=``
+     - replaced → ``service_client_id`` + ``client_id=`` keyword
+     - warning shims in 0.9; absent in 1.0
+   * - ``reduce_tsd_with_race`` / ``reduce_tsd_of_bundles_with_race`` /
+       ``merge_tsd_disjoint``
+     - privatized (``merge``/``race`` shape specializations;
+       overload-selected, disjointness via ``merge(..., disjoint=True)``)
+     - public names warn in 0.9; underscore-only in 1.0
    * - ``hgraph.adaptors.sql`` / ``.kafka`` / ``.delta`` /
        ``.perspective`` / ``.tornado``
      - moved → ``hgraph_<name>`` extension distributions
@@ -807,6 +1390,11 @@ Dispositions other than *kept, stable*:
    * - dunder registry operators
      - privatized
      - removed from the public operator enumeration
-   * - ``hgraph.debug``, ``hgraph.notebook``
+   * - ``hgraph.debug``
      - kept, provisional
      - promotion decision deferred (unresolved questions)
+   * - ``exp_``, ``sqrt_``, ``lower_``, ``upper_``, ``strip_``,
+       ``configure_logging``, ``hgraph.__version__``,
+       ``hgraph.extensions``, ``testing.assert_ticks``
+     - new, provisional
+     - kernel completions and tooling surface (see New surface)
