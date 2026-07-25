@@ -99,181 +99,56 @@ behaviour. Memory: `reference_branches`.
 
 ## 5. Current state (honest) & current milestone
 
-**Works today** (verified, green): the **simple TS[T] path executes a real graph in
-simulation mode**. `tests/cpp/test_runtime_value_view.cpp` builds `source → add_one`,
-runs it through `GraphExecutorValue` (Simulation), gets correct values. The runtime has
-node/graph/executor builders+views (`runtime/`), **notification-driven scheduling**
-(output tick → `TSDataObserverSet::notify` → input notifier → `graph->schedule_node`,
-wired via `NodeRuntimeStorage : Notifiable` in `node.cpp`), readiness/active-input gating
-(`ready_to_evaluate`, `active_input_modified`), and a single-loop simulation executor.
+**The runtime is feature-complete against the upstream Python reference for the
+0.4 line** and ships as the `hg_cpp` 0.4.0rc1 wheel (cp312-abi3; Linux
+manylinux_2_28 / macOS arm64 / Windows). The release contract lives in
+`docs/source/developer_guide/release_readiness.rst`; accepted upstream
+deviations in `parity_matrix.rst`; direction in `roadmap.rst`.
 
-**Multi-cycle, data-driven evaluation now works** (the former milestone gap, closed):
-a source that reschedules itself via the **`NodeScheduler`** injectable drives the graph
-over successive simulated times, and downstream nodes re-evaluate each cycle. Proven by
-`tests/cpp/test_simulation_execution.cpp` ("a self-rescheduling source drives multiple
-cycles over time") — the old `[!shouldfail]` placeholder is retired and the suite is fully
-green with no expected-failures. The foundation for the testing toolkit is also in place:
-`Any` value kind, mutable `List`/`Map` (slot-store-backed), and the **`GlobalState`**
-injectable (owning value on the graph + `GlobalStateView`; seedable at wiring via
-`Wiring::global_state()`/`GraphBuilder`, read/written at runtime).
+**Capability areas — all DONE, each with an authoritative design record:**
 
-**Design decision (recorded):** the 2603-style separate `EvaluationEngine` /
-`EvaluationClock` is **not** the chosen direction — with the type-erased design,
-run-level state and the evaluation loop fold into the **executor ops**
-(`runtime/executor.h`). A separate engine/clock is a recorded alternative to revisit
-only if that proves insufficient.
+- **Execution**: simulation + real-time executors (`runtime/executor.h`; state
+  folds into executor ops — no separate engine/clock, recorded decision), push
+  sources, wall-clock scheduler alarms (due alarms deliver next cycle, never
+  drop), end-of-run drain bounded by logical progress, opt-in recursion guard
+  (`max_consecutive_immediate_cycles` → `RecursiveEvaluationError`). Records:
+  `data_structures/overview/execution_layer.rst`, `services.rst` (alarms).
+- **Nested graphs & higher-order ops**: `map_`/`switch_`/`reduce`/`mesh_`,
+  variadic + named args/defaults/kwargs, Python call-shape parity. Records:
+  `nested_graphs.rst`, `mesh.rst`.
+- **Services, adaptors, contexts**: all three service flavours, service
+  adaptors, shared outputs, `context::scope`/`Context<>`. Record:
+  `services.rst`.
+- **Error handling**: per-node capture, `exception_time_series`, `try_except_`.
+  Record: `error_handling.rst`.
+- **Temporal types (RFC 0002)**: Instant/Duration/CivilDateTime/Period/ZoneId/
+  ZonedDateTime/ranges, checked arithmetic, dual TZ backends (std chrono vs
+  date/tz by conformance probe), JSON/Arrow v2 codecs with v1 ingest.
+- **Python bridge & DSL**: `python/hgraph` IS the future hgraph package —
+  types/operators/@graph/eval_node/map_/switch_/services/components all work
+  from Python; 162-name curated `__all__` + PEP 562 operator registry; ported
+  upstream suites green (operator tests 48/48 files; ts/wiring tiers besides).
+  Records: `python_bridge.rst`, `parity_matrix.rst`.
+- **Frames & serialization**: typed frame metadata (RFC 0001), TABLE protocol +
+  data-frame operators, record/replay. Record: `record_replay_table.rst`.
+- **Extension SDK**: downstream native extensions (shared-lib SDK,
+  `hgraphConfig.cmake`, `hgraph_add_python_module`), Python scalar registration
+  (RFC 0003), python-owned structured scalars (RFC 0004). Record:
+  `extension_policy.rst`.
+- **Adaptor families** (`python/hgraph/adaptors/`): sql (+snowflake), delta,
+  kafka, perspective, tornado/web, data_frame, json, data_catalogue — each with
+  a pyproject extra; heavy deps lazy-imported.
 
-**Graph unit-testing toolkit — DONE.** Built on the above: `replay<T>`/`record<T>`
-nodes over a cycle-aligned `List<Any>` buffer in `GlobalState`, the `eval_node<NodeT>`
-harness (tests deal in `vector<optional<T>>`; supports **multiple TS inputs and scalar
-params**, and an **operator overload** `eval_node<Op>(...)` that dispatches the operator
-at wiring time and returns type-erased `vector<optional<Value>>` checked with `Value`
-equality — write the expected with the same `values<T>(...)` helper used for inputs),
-and a small `lib/std`. `const_`/`debug_print`/`null_sink` are now **operators** (catalogue
-`operators/` + impls `operators/impl/`, registered via `register_standard_operators()`),
-matching the Python target API; `pass_through_node` stays a plain node in `std_nodes.h`.
-Sources are
-**not scheduled by default** — they initiate via `schedule_on_start = true` (declarative),
-`SingleShotScheduler` (lightweight one-shot in `start`), or `NodeScheduler` (full,
-stateful). See `docs/.../testing_graphs_cpp.rst` + memory `value-any-globalstate-testing-plan`.
-The current implementation and tests are the working reference.
+**RFC catalogue** (`docs/source/rfc/`, process in `rfc_0000.rst`): 0001 frame
+metadata, 0002 temporal, 0003 scalar registration, 0004 python-owned structured
+scalars — all Accepted and implemented. New structural/API proposals go through
+an RFC first.
 
-**Real-time execution + push sources — DONE.** The executor now runs in
-`GraphExecutorMode::RealTime`: wall-clock waiting on a condition variable,
-`request_stop()` wakes a sleeping executor, and **push-source nodes** deliver values
-from external threads (`runtime/push_source_node.{h,cpp}`): `PushSourcePolicy` with
-**Queue** (FIFO, drains one value per cycle) and **Conflating** (delta-merging
-accumulator) policies, a thread-safe `PushSourceSender` handed to user code at `start`,
-schema validation on send, and executor wake-up via the push-pending signal. Push
-sources require a real-time **root** graph (rejected in simulation mode and in nested
-graphs). Tests: `tests/cpp/test_realtime_execution.cpp`. Docs: `architecture.rst`
-(push-source subsection), `data_structures/overview/execution_layer.rst`, `wiring.rst`,
-`python_integration.rst`. The single-threaded rule stands: senders are the only
-cross-thread entry point.
-
-**Non-flattening nested graphs — core DONE** (design record:
-`docs/source/developer_guide/nested_graphs.rst`, authoritative). Landed, ASAN-verified:
-sub-graph compilation (`CompiledSubGraph`/`compile_subgraph<G>`/`nested_<G>`, boundary
-placeholders — no stub nodes), `alias_parent_input` pass-through, structural boundary
-args, scheduling delegation (pull + idle-push), and the **higher-order operators** —
-all ordinary registry operators (ext/main pattern; callable arg = the `WiredFn` scalar,
-`fn<X>()`, which both inlines and compiles): `reduce` over fixed TSL (leaves =
-`default(ts[i], zero)`, op-aware `zero_`, explicit-zero arity), `switch_` (one branch
-child, sampled retarget, key as ordinary boundary input), `map_` over TSD (keyed child
-instances from the dict delta; per-key elements instantiated in the owned TSD output,
-child terminals re-homed as forwarding outputs that write them directly — no copy). Catalogue:
-`lib/std/operators/higher_order.h` + `impl/higher_order_impl.h`; runtime nodes
-`runtime/{nested_graph,switch,map}_node.*` on shared `runtime/nested_bindings.h`.
-Also landed: **dynamic-TSD `reduce`** (2603 design ported into the doc first;
-`runtime/reduce_node.*` — alias leaves, minimal combiner tree, zero = empty-result only,
-sampled root re-publication). Also: `map_` over fixed
-TSL (wiring-time expansion, Python `_map_no_index` parity) and `reload_on_ticked`
-exposed on `SwitchCases` (`switch_cases({…}).reload()`). **Variadic operator args — DONE** (`VarIn<Pattern>` trailing
-compose param; runtime-matcher capability — tail args matched per-arg in a throwaway
-binding scope, fixed-arity candidates preferred; `switch_`/`map_` are single variadic
-overloads now; Python-port constraint recorded in memory `python-port-operator-compat`).
-**Multi-multiplexed `map_` — DONE** (Python parity:
-every TSD in the tail multiplexes, union key set, absent-key inputs stay invalid;
-same-size TSLs multiplex per index). **Named args + defaults + kwargs — DONE** (Python
-calling rules as call normalisation in `OperatorRegistry::resolve`; `arg<"name">(v)`
-sugar, `defaults()` hook, `VarKwIn<"kwargs">` collector; see *Operators > Named
-arguments, defaults and kwargs*). Graph-overload ports are named via
-`NamedPort<"name",S>` (port-like everywhere, incl. sub-graphs/WiredFn funcs); TS
-defaults convert Python-style (value → `const`, empty/None → null source). `map_` /
-`switch_` take the full Python call shape — `map_(func, *args, **kwargs)` (no anchor
-param; kwargs resolve onto func's parameter names via `WiredFn::param_names`; TSD/TSL
-kernel selection uses the resolved function-parameter order),
-`switch_(key, cases, *ts, **kwargs)` (kwargs resolve per branch). `map_` supports the
-Python specials: `__keys__` (explicit TSS key set), name-based key detection +
-`__key_arg__` (keyword-only rename, `""` disables), and `pass_through`/`no_key`
-(wiring-time `WiringPortRef::ArgTag` port tags, folded into node identity via the
-`MapCallConfig` scalar). Remaining (deferred — see the doc's roadmap + non-goals):
-dynamic-TSL multiplexing/reduce, non-associative reduce, sink maps/switches.
-**C++ only for
-now** — keep Python out of the configure/build/run path.
-
-**Python operator-test port — DONE (2026-07-11).** All **48** upstream
-`hgraph_unit_tests/_operators` files are ported into `python/tests/ported`
-(ctest gate `hgraph_python_ported_suite`, ~790 tests green). En route the
-runtime gained: real py-node input activity, first-class **enums**, the
-**TABLE tuple-row protocol** + data-frame operators (`record_replay_table.rst`
-step 6), `exception_time_series` bridged, `type_`, TSW `std`, tuple-of-CS
-`getattr_`, strict unnamed-TSB combine, and **map value holes** (None-valued
-entries; scalar.rst). Calling conventions are REGISTRY-driven (scalar kwargs
-lift to const in call normalisation; subscript meaning via
-`operator_output_is_selective`; generic targets via
-`resolve_convert/collect/combine_target` — never label/name tests in the
-bridge). Standing residue (marked precisely in the tests, see
-`parity_matrix.rst`): 3 accepted gaps (TSS rebind removals, sparse TSB
-deltas, `hgraph.stream` generics) + recorded deviations. Follow-on tiers
-(not planned): upstream `ts_tests/` (215), `_wiring/` (244).
-
-**Mesh, services & shared outputs — DONE** (design records:
-`docs/source/developer_guide/mesh.rst` and `docs/source/developer_guide/services.rst`,
-authoritative). `mesh_` over TSD executes (on-demand instances via
-`mesh_subscribe`/`mesh_ref`, dependency ranking + cycle detection;
-`runtime/mesh_node.*`, `tests/cpp/test_mesh.cpp`; dynamic-TSL mesh still deferred).
-All three service flavours execute end-to-end with path-aware addressing —
-reference (client reads the impl output by REF), subscription (TSS key set via
-source/capture, ref-counted), request/reply (`TSD<int,request>` cumulative request
-dictionary) — `types/service_wiring.h`, `runtime/service_node.*`,
-`tests/cpp/test_service_wiring.cpp`. Service descriptors are **flavour-tagged by
-their schema aliases** (`output_schema` / `key_type`+`value_schema` /
-`request_schema`+`response_schema`, mutually exclusive, concept-checked); clients
-consume through the ordinary **`wire<Service>(w[, service::path(…)][, port])`**
-verb (path first) via a `wire_customization` extension point; impl registration
-(`register_*_service<Service,Impl>`) is separate from client wiring. **Impl side:**
-an impl is an ordinary node/graph (first TS param = flavour input, output captured;
-optional `Scalar<"path",Str>` receives the path); one graph can implement several
-interfaces via `register_services<Impl, Services…>` + `impl_input<S>`/`impl_output<S>`.
-**Adaptor foundations landed** (first pass): descriptors derive from
-`adaptor::interface` (+ `input_schema`/`output_schema`; omit one for sink/source-only),
-`register_adaptor(s)`, client `wire<Interface>(w[, path][, in])`, impl-side
-`from_graph<I>`/`to_graph<I>` (`types/adaptor_wiring.h`, `test_adaptor_wiring.cpp`;
-built on the shared-output substrate). **Service adaptors** (per-client keyed
-exchange): `service_adaptor::interface`; impl sees `TSD<Int, input_schema>` via
-`from_graph` and replies keyed by the same client id via `to_graph`. Paths may be
-scalar-qualified (`path("p", arg<"k">(v))`), descriptors may set `default_path`,
-service descriptors may be templates (instantiations bind as concrete interfaces),
-and duplicate registrations on one path throw at build time. Shared outputs
-(`runtime/shared_output_node.*`) and the context **runtime primitive**
-(`runtime/context_node.*`) use the same feedback-style source/capture model.
-**Contexts — user wiring API DONE** (approved 2026-07-04; `types/context_wiring.h`,
-design record services.rst *Contexts*): `context::scope<"name"> ctx{w, port}`
-publishes for a wiring scope (stack on `OperatorRegistry`, mesh-scope
-precedent); `Context<"name", S>` is an In alias tagged `InputBinding::Context`
-— auto-wired from the nearest scope, keyword-overridable
-(`arg<"name">(port)`), no positional slot (`call_args` auto-param machinery);
-`context::get`/`has` are the function forms. Same-Wiring only: cross-wiring
-lookups throw (nested import/export deferred). Real-time wall-clock scheduler
-alarms landed (`NodeScheduler(..., on_wall_clock=true)`, real-time executors only).
-TSW (tick-based windows) also executes end-to-end; duration-based windows have
-registry+runtime ops but no compile-time marker yet. Remaining at the boundary:
-request/reply + subscription adaptor flows and concrete adaptor families,
-`@component`, nested context import/export, `Context<>` on registered operator
-impls.
-
-**Error handling — DONE** (design record:
-`docs/source/developer_guide/error_handling.rst`, authoritative). `NodeError` is a
-value-layer compound scalar (a `bundle` of `str` fields; `TS<NodeError>` now resolves —
-the runtime gained whole-value `TS` over a `Bundle` value, via
-`is_compact_atomic_ts_data`). **Per-node capture**: `evaluate_impl` wraps the user
-eval in try/catch when `captures_errors`, writes a `NodeError` to the node error
-output, and uses `error_msg = "unknown error"` for non-`std::exception` throws;
-ordinary output on an error cycle is intentionally unspecified because writes
-before the throw are not rolled back. `exception_time_series(port)` activates
-capture by re-binding the node (`NodeBuilder::with_error_capture`,
-`Wiring::activate_error_capture`) and returns `Port<TS<NodeError>>`. **`try_except_<G>`**
-wraps a sub-graph on the `single_nested_graph_node` substrate (custom start/evaluate,
-`manage_output_externally`): runs the child under try/catch, output is an owned
-`TSB{exception, out}` (sink → bare `TS<NodeError>`), copying the child output into `out`
-on success and writing `exception` on a throw. `runtime/{node_error,try_except_node}.*`,
-`exception_time_series`/`try_except_` in `types/subgraph_wiring.h`. Tests:
-`tests/cpp/test_error_handling.cpp`. ASAN/UBSAN-verified. Deferred: `map_` error variant
-(`TSD[K, TS[NodeError]]`), `__trace_back_depth__`/`__capture_values__` + richer traces,
-zero-copy `out` forwarding, capture on custom-ops nodes.
-
----
+**Current milestone: hgraph 1.0.** Migrate this C++-first runtime back into the
+main `hgraph` package (PyPI name + `hhenson/hgraph` repo) as a clean-break 1.0:
+compact trusted core + opt-in extension packages from a monorepo. RFC 0005
+(`rfc_0005_hgraph_1_0_api.rst`) proposes the package structure, API surface,
+stability tiers, and release process — read it before any 1.0-directed work.
 
 ## 6. Build & test
 
