@@ -12,13 +12,14 @@ Summary
 
 Define the implementation plan for duration-based time-series windows to evict
 expired observations at their actual expiry time, even when the source remains
-silent.  Scheduler interaction belongs to the node producing the duration
-``TSW``, or to a reusable producer-side facility acting on that node's behalf;
-it does not belong to the output or storage object.  ``to_window`` is the first
-producer to use this mechanism, not its exclusive owner.  The work also
-replaces the singular removal surface and scalar-only TSW delta with
-representations capable of describing multiple evictions, reset-only ticks,
-and removal-only scheduled ticks.
+silent.  A graph containing one or more owned duration ``TSW`` outputs receives
+one graph-local pull source.  Duration windows subscribe to that source, which
+schedules the earliest expiry and mutates every due window when evaluated.
+This covers ``to_window`` and any other node whose output is, or contains, a
+duration TSW without giving each producer its own scheduling implementation.
+The work also replaces the singular removal surface and scalar-only TSW delta
+with representations capable of describing multiple evictions, reset-only
+ticks, and removal-only scheduled ticks.
 
 This RFC is a design plan.  No scheduler-driven eviction or persistence-format
 change is supplied with RFC 0006.
@@ -41,42 +42,63 @@ they expired earlier.  At ``t=20s`` several values leave together, while the
 current C++ surface preserves only the last removed element.  Incremental
 consumers cannot update correctly from that delta.
 
-Scheduler ownership
--------------------
+Graph-local expiry source
+-------------------------
 
 TSW value storage remains independent of graph execution and scheduling.  It
 must be usable in values, tests, record/replay materialisation, and extension
-code without owning a node or graph.
+code without requiring a graph.  A standalone duration window continues to
+prune on explicit mutation; scheduled eviction is an execution-layer service.
 
-A node producing a duration ``TSW`` is the execution-layer owner that can bring
-together the required parties:
+During graph assembly, core recursively inspects resolved, owned output
+schemas.  If at least one output is, or contains, a duration TSW, it adds
+exactly one special pull source to that runtime graph.  This must apply to both
+normal ``Wiring`` construction and the supported direct C++ graph-builder path.
+Layout-only dependencies rank the source before every node owning such an
+output.  It is the first normal-rank source, after the root graph's mandatory
+push-source phase.  Each dynamically instantiated nested graph has its own
+expiry source because rank, evaluation time, and scheduling are graph-local.
 
-* the duration and closure rule;
-* the output TSW;
-* the current evaluation time; and
-* its injected ``NodeScheduler``.
+When an owning node starts, the framework attaches each duration TSW in its
+output tree to the graph's expiry source.  The relationship is subscription
+based:
 
-This applies to ``to_window`` and to any other node that constructs a duration
-TSW.  It would be incorrect to hard-code expiry scheduling as a special
-property of ``to_window``: a custom adaptor, replay source, aggregation node, or
-extension node can also be a TSW producer and must be able to provide the same
-time-range guarantee.
+* the TSW output retains an opaque subscription/callback to the source through
+  the existing execution-time notification machinery;
+* the source retains a stable handle to the TSW and its next expiry;
+* a TSW mutation notifies the source, which inserts, updates, or removes that
+  window's expiry entry; and
+* source invalidation or graph stop removes the subscription before either
+  endpoint is destroyed.
 
-Core should therefore provide a reusable producer-side expiry facility.  The
-exact C++ shape is subject to implementation review; it may be a small
-controller, node policy, or shared eval utility.  It must:
+The source is shared by ``to_window``, custom adaptors, replay sources,
+aggregation nodes, and extension nodes.  Producers neither inject
+``NodeScheduler`` for this purpose nor implement expiry callbacks themselves.
 
-* operate on an explicitly supplied duration TSW output and ``NodeScheduler``;
-* provide due-expiry processing plus cancel/re-arm operations after mutation;
-* keep any alarm identity and lifecycle state with the producer node;
-* support a distinct alarm for each duration TSW output when one node produces
-  several windows; and
-* be usable by installed C++ extensions without depending on ``to_window``.
+Rank order also gives the required lifecycle order.  The expiry source starts
+before producer nodes, so it is available when their outputs attach.  Stop runs
+in reverse rank while all node storage remains alive, so producers complete
+their stop hooks before the source releases its remaining subscriptions.  The
+source must release every subscription before graph storage destruction.
 
-The duration ``to_window`` overload will inject ``NodeScheduler`` and use this
-facility for its output.  Other producers use the same contract.  The output
-view will not retain a scheduler or producer pointer and will not call back
-into its owning node.
+Output-tree coverage
+--------------------
+
+The subscription pass must cover owned duration TSWs at any fixed path,
+including fields beneath ``TSB`` and fixed ``TSL`` outputs.  A node with several
+duration windows creates several subscriptions to the same pull source.
+
+Dynamic output trees require incremental attachment.  When a duration TSW is
+created beneath a dynamic ``TSL`` or ``TSD``, the output-tree lifecycle attaches
+it before or as part of publishing that structural change.  Erasure detaches it
+before its storage is destroyed.  This should reuse the existing slot-observer
+and source-invalidation patterns rather than rescan the complete output tree on
+every tick.
+
+Forwarding outputs and ``REF`` values do not create a second subscription to an
+upstream window: only the output that owns the duration TSW storage registers
+it.  Alternative views over the same storage likewise resolve to one
+subscription identity.
 
 Proposed execution algorithm
 ----------------------------
@@ -89,18 +111,41 @@ The storage/view layer will provide operations equivalent to:
    TSWRemovalView evict_expired(DateTime now);
 
 The exact names and return representation are subject to implementation review.
-For ``to_window``, the producer algorithm is:
+The graph-level algorithm is:
 
-1. On reset, cancel ``"expiry"`` and clear the window.
-2. On a due ``"expiry"`` alarm, evict every value outside the time range.
-3. On a valid source tick, append it after reset/expiry processing.
-4. If the window is non-empty, schedule ``"expiry"`` for the oldest retained
-   value's expiry time; otherwise leave the tag unscheduled.
-5. Mark the TSW modified once when any clear, removal, or append occurred.
+1. Graph assembly creates one expiry pull source when the graph owns at least
+   one duration TSW and ranks it before all corresponding producer nodes.
+2. Start-time attachment registers each live window.  Registration reads its
+   current oldest timestamp, so a restored or pre-seeded window is armed
+   without persisting an alarm handle.
+3. After a push, clear, restore, or removal, the TSW subscription reports its
+   new ``next_expiry_time``.  An empty window removes its entry.
+4. The source maintains all entries and schedules its node for the earliest
+   expiry across the graph.  Updating one window does not create another pull
+   source or poll the other windows.
+5. When evaluated, the source visits every entry due at or before the current
+   evaluation time, calls ``evict_expired(now)``, and marks each changed TSW
+   modified.  Normal output notification then schedules downstream consumers.
+6. The resulting mutation notification supplies the window's next expiry, and
+   the source arms itself for the new global minimum.
 
-When an input and alarm coincide, expiry is processed before append.  This
-gives one deterministic TSW delta for the evaluation cycle and avoids
-transiently exceeding the duration contract.
+The source's queue should use a stable subscription identifier plus a
+generation to reject stale entries after reschedule, reset, dynamic erasure, or
+address reuse.
+
+Eviction marks the TSW modified and therefore notifies its expiry subscription
+while the source is itself evaluating.  Queue updates must be re-entrant safe:
+the entry being processed is identified by subscription and generation, and
+the callback records its replacement deadline without invalidating the due-set
+iteration.
+
+When a producer tick and expiry coincide, graph rank evaluates the expiry
+source first.  The producer can then append or clear-and-append in the same
+cycle, and downstream consumers observe one final window value and one
+structured delta containing all removals and additions.  Stage 1 must therefore
+allow scheduler removal followed by an owner mutation through separate mutation
+scopes at the same evaluation time; the present singular-delta guard is not
+sufficient.
 
 Window closure
 --------------
@@ -175,11 +220,13 @@ A checkpoint for a duration TSW must preserve retained values and their
 original evaluation timestamps.  Replaying values without timestamps changes
 their future expiry and is not recovery.
 
-Scheduled alarm handles are not persisted.  Recovery restores the TSW current
-state and then derives the next alarm from the oldest value.  The implementation
-must verify graph-start ordering so re-arming occurs after output seeding.  If
-the existing lifecycle cannot guarantee that ordering, add an explicit
-post-recovery/re-arm hook rather than persisting scheduler internals.
+The expiry-source queue, subscription generations, and graph alarm are derived
+execution state and are not persisted.  Start-time subscription reads the
+restored TSW and derives its next alarm from the oldest value.  If recovery
+seeding occurs during the owning node's start hook, attachment must happen
+first so the seed mutation updates the source.  A start-completion invariant
+check must prove that every non-empty owned duration TSW has one live source
+entry.
 
 Recovery conformance is defined by comparing uninterrupted and recovered runs:
 they must emit the same append, reset, and scheduled-removal cycles at the same
@@ -188,13 +235,18 @@ evaluation times.
 Runtime and performance goals
 -----------------------------
 
-* Maintain at most one pending expiry alarm per live duration TSW output.
+* Create at most one expiry pull source per runtime graph and one subscription
+  per live, owned duration TSW.
+* Keep one graph alarm for the earliest window expiry; the source owns the
+  remaining per-window deadlines.
 * Perform no polling ticks while the window is empty.
-* Make each alarm ``O(k)`` for the ``k`` values actually evicted, plus ``O(1)``
-  rescheduling.
+* For ``w`` live windows, update a deadline in ``O(log w)`` without scanning
+  unrelated windows.  Evicting ``r`` observations from ``d`` due windows should
+  cost ``O(r + d log w)``.
 * Keep ordinary fixed-count TSW push and singular eviction allocation-free.
-* Avoid an output-to-node pointer, scheduler pointer in TSW storage, or
-  process-global scheduler registry.
+* Add no scheduler state to producer nodes and no process-global scheduler
+  registry.  Standalone TSW value storage remains usable without a source
+  subscription.
 * Bound transient removal storage by the number of values evicted in the
   current evaluation cycle and release it after observers have run.
 
@@ -203,24 +255,24 @@ Implementation stages
 
 Stage 1: delta and mutation semantics
    Specify and implement the structured delta, multi-value removal storage,
-   clear capture/apply, legacy scalar reads, and direct native tests.  Do not
-   schedule expiry yet.
+   clear capture/apply, legacy scalar reads, and same-cycle removal followed by
+   owner mutation.  Add direct native tests.  Do not schedule expiry yet.
 
-Stage 2: node scheduling
-   Define the reusable producer-side expiry facility, integrate it with
-   duration ``to_window``, and exercise it from a second test producer to prove
-   that the mechanism is not tied to ``to_window``.  Implement expiry-only and
-   coincident input/expiry cycles in simulation; retain existing fixed-window
-   behaviour.
+Stage 2: graph-local expiry source
+   Add automatic source creation, rank dependencies, static output-tree
+   subscriptions, deadline management, and due eviction.  Exercise direct TSW
+   output, a TSW nested in a bundle, multiple producers, and coincident
+   producer/expiry cycles.  Retain existing fixed-window behaviour.
 
 Stage 3: recording and recovery
    Version the Arrow/JSON recording representation, preserve timestamps in
-   checkpoints, restore TSW state, re-arm the derived alarm, and compare
-   uninterrupted with recovered execution.
+   checkpoints, restore TSW state, rebuild source subscriptions and deadlines,
+   and compare uninterrupted with recovered execution.
 
-Stage 4: real-time and nested lifecycle
-   Exercise wall-clock lateness, graph stop/start boundaries, nested graph
-   teardown, reset cancellation, and no callbacks after node destruction.
+Stage 4: dynamic, real-time, and nested lifecycle
+   Add dynamic-child attachment and detachment.  Exercise wall-clock lateness,
+   graph stop/start boundaries, nested graph teardown, reset cancellation, and
+   no callbacks after node destruction.
 
 Test plan
 ---------
@@ -231,6 +283,10 @@ Native and Python tests must cover:
 * exact closed-left boundary behaviour;
 * multiple and duplicate-timestamp evictions;
 * input, reset, and expiry coinciding in one cycle;
+* one expiry source shared by multiple producer nodes and multiple TSW fields;
+* a direct TSW output, a bundle-contained TSW, and dynamically created TSW
+  children;
+* source rank before producers and downstream same-cycle notification order;
 * incremental sum/mean consumers using ``removed_values``;
 * old scalar-delta recordings read by the new implementation;
 * clear-only and removal-only delta record/replay;
@@ -238,8 +294,8 @@ Native and Python tests must cover:
 * recovery with an already-overdue oldest value;
 * simulation, real-time, nested graph stop, and teardown;
 * no scheduler or transient-removal allocation on fixed-count push; and
-* installed C++ extension use of both the producer-side expiry facility and
-  the new removal surface.
+* an installed C++ extension node whose output contains a duration TSW, without
+  depending on ``to_window``.
 
 Unresolved questions
 --------------------
@@ -248,7 +304,10 @@ Unresolved questions
 * The exact structured value schema used for zero-or-one ``added``.
 * Whether the delta migration belongs in the next major wire version or can be
   introduced under a TSW-specific metadata version.
-* Which lifecycle hook should re-arm derived alarms after recovery seeding.
+* Whether the expiry source should use an indexed heap or a lazy heap with
+  subscription generations.
+* The exact output-tree hook used to attach dynamic duration TSW children
+  without a full-tree scan.
 * Whether scheduler lateness should expose the scheduled expiry time in
   addition to the actual evaluation time.
 
