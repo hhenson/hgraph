@@ -1,18 +1,21 @@
 import itertools
 import logging
+import types
+import typing
 from abc import abstractmethod
 from collections.abc import Mapping, Set
+from dataclasses import MISSING as DATACLASS_MISSING, fields, is_dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from functools import partial
 from statistics import fmean
 from types import GenericAlias
-from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List, TYPE_CHECKING
+from typing import TypeVar, Type, Optional, Sequence, _GenericAlias, cast, List, TYPE_CHECKING, get_args, get_origin
 
 import numpy as np
 from frozendict import frozendict
 
-from hgraph._types._schema_type import SchemaRecurseContext
+from hgraph._types._schema_type import AbstractSchema, SchemaRecurseContext
 from hgraph._types._typing_utils import class_or_instance_method
 from hgraph._types._scalar_types import WindowSize
 from hgraph._types._generic_rank_util import scale_rank, combine_ranks
@@ -100,6 +103,139 @@ class HgScalarTypeMetaData(HgTypeMetaData):
         cls._parsers().insert(-1, new_parser)  # Insert before the HgObjectType which is catch-all
 
 
+_DATACLASS_SCALAR_SCHEMA_CACHE = {}
+_DATACLASS_ATTRIBUTE_MISSING = object()
+
+
+def _dataclass_scalar_origin(tp):
+    origin = get_origin(tp) or tp
+    return (
+        origin if isinstance(origin, type) and is_dataclass(origin) and not issubclass(origin, AbstractSchema) else None
+    )
+
+
+def _is_dataclass_scalar_type(tp) -> bool:
+    return _dataclass_scalar_origin(tp) is not None
+
+
+def _set_dataclass_hgraph_attributes(origin, attributes):
+    for name, value in attributes.items():
+        existing = vars(origin).get(name, _DATACLASS_ATTRIBUTE_MISSING)
+        if existing is not _DATACLASS_ATTRIBUTE_MISSING and existing != value:
+            raise ParseError(
+                f"Dataclass '{origin.__qualname__}' defines reserved hgraph attribute '{name}' "
+                "with an incompatible value"
+            )
+    for name, value in attributes.items():
+        setattr(origin, name, value)
+
+
+def _substitute_type_vars(tp, substitutions):
+    if isinstance(tp, list):
+        return [_substitute_type_vars(arg, substitutions) for arg in tp]
+    try:
+        if tp in substitutions:
+            return substitutions[tp]
+    except TypeError:
+        pass
+
+    origin = get_origin(tp)
+    if origin is None:
+        return tp
+
+    args = tuple(_substitute_type_vars(arg, substitutions) for arg in get_args(tp))
+    if hasattr(tp, "copy_with"):
+        return tp.copy_with(args)
+    if origin in (typing.Union, types.UnionType):
+        return typing.Union[args]
+    try:
+        return origin[args[0] if len(args) == 1 else args]
+    except TypeError:
+        return tp
+
+
+def _dataclass_scalar_schema(tp):
+    if tp in _DATACLASS_SCALAR_SCHEMA_CACHE:
+        return _DATACLASS_SCALAR_SCHEMA_CACHE[tp]
+
+    origin = _dataclass_scalar_origin(tp)
+    if origin is None:
+        raise ParseError(f"'{tp}' is not a dataclass scalar type")
+
+    parameters = tuple(getattr(origin, "__parameters__", ()))
+    substitutions = dict(zip(parameters, get_args(tp)))
+    try:
+        resolved_annotations = typing.get_type_hints(origin)
+    except (NameError, TypeError):
+        resolved_annotations = {}
+
+    schema = {}
+    for field in fields(origin):
+        annotation = _substitute_type_vars(
+            resolved_annotations.get(field.name, field.type),
+            substitutions,
+        )
+        field_type = (
+            HgScalarTypeVar(annotation)
+            if isinstance(annotation, TypeVar) and not annotation.__bound__ and not annotation.__constraints__
+            else HgScalarTypeMetaData.parse_type(annotation)
+        )
+        if field_type is None:
+            raise ParseError(
+                f"When parsing dataclass '{origin.__qualname__}', unable to parse field "
+                f"'{field.name}' with value {annotation}"
+            )
+        schema[field.name] = field_type
+
+    schema = frozendict(schema)
+    constructor_fields = tuple(field.name for field in fields(origin) if field.init)
+    required_fields = tuple(
+        field.name
+        for field in fields(origin)
+        if field.init and field.default is DATACLASS_MISSING and field.default_factory is DATACLASS_MISSING
+    )
+
+    # A few integrations inspect concrete scalar classes directly. Keep those
+    # paths working without replacing or wrapping the user's class, and reject
+    # incompatible user-defined values instead of silently overwriting them.
+    attributes = {
+        "__hgraph_bundle_constructor_fields__": constructor_fields,
+        "__hgraph_bundle_required_fields__": required_fields,
+    }
+    if tp is origin:
+        attributes["__meta_data_schema__"] = schema
+
+    _set_dataclass_hgraph_attributes(origin, attributes)
+    _DATACLASS_SCALAR_SCHEMA_CACHE[tp] = schema
+    return schema
+
+
+def _dataclass_scalar_is_instance(value) -> bool:
+    return not isinstance(value, type) and is_dataclass(value) and _is_dataclass_scalar_type(type(value))
+
+
+def _structured_scalar_origin_and_args(tp):
+    return get_origin(tp) or tp, get_args(tp)
+
+
+def _inherits_dataclass_specialization(candidate, target_origin, target_args):
+    candidate_origin = get_origin(candidate) or candidate
+    if candidate_origin is target_origin:
+        return get_args(candidate) == target_args
+    if not isinstance(candidate_origin, type):
+        return False
+
+    for base in getattr(candidate_origin, "__orig_bases__", ()):
+        base_origin = get_origin(base) or base
+        if base_origin is target_origin and get_args(base) == target_args:
+            return True
+        if _is_dataclass_scalar_type(base_origin) and _inherits_dataclass_specialization(
+            base, target_origin, target_args
+        ):
+            return True
+    return False
+
+
 class HgScalarTypeVar(HgScalarTypeMetaData):
     is_resolved = False
     is_generic = True
@@ -140,10 +276,13 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
         if tp.is_scalar:
             # Get effective py_type for matching - unwrap CppNative wrappers
             from hgraph._types._cpp_native_meta_data import HgCppNativeScalarType
+
             effective_py_type = tp.wrapped_type.py_type if isinstance(tp, HgCppNativeScalarType) else tp.py_type
 
             for c in self.constraints():
                 if isinstance(c, HgScalarTypeMetaData) and c.matches(tp):
+                    return True
+                elif c is CompoundScalar and isinstance(tp, HgCompoundScalarType):
                     return True
                 else:
                     if issubclass(getattr(effective_py_type, "__origin__", effective_py_type), c):
@@ -180,7 +319,7 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
             )
         elif self.py_type.__bound__:
             return (self.py_type.__bound__,)
-        raise RuntimeError("Unexpected item in the bagging areas")
+        return (object,)
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if tp := resolution_dict.get(self.py_type):
@@ -213,7 +352,7 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
             elif value_tp.__bound__:
                 constraints = (value_tp.__bound__,)
             else:
-                return None
+                constraints = ()
 
             from hgraph._types._time_series_types import TimeSeries
 
@@ -364,7 +503,7 @@ class HgInjectableType(HgScalarTypeMetaData):
         from hgraph._runtime._node import SCHEDULER, NODE
         from hgraph._runtime._traits import Traits
 
-        return {
+        injectables = {
             EvaluationClock: lambda: HgEvaluationClockType(),
             EvaluationClockInjector: lambda: HgEvaluationClockType(),
             EvaluationEngineApi: lambda: HgEvaluationEngineApiType(),
@@ -376,7 +515,14 @@ class HgInjectableType(HgScalarTypeMetaData):
             Traits: lambda: HgTraitsType(),
             GlobalState: lambda: HgGlobalStateType(),
             GlobalStateInjector: lambda: HgGlobalStateType(),
-        }.get(value_tp, lambda: None)()
+        }
+        try:
+            factory = injectables.get(value_tp)
+        except TypeError:
+            # Some valid typing annotations, notably Callable[[...], ...],
+            # contain a list of arguments and are therefore unhashable.
+            return None
+        return factory() if factory else None
 
     @classmethod
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
@@ -1113,6 +1259,8 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
 
     @property
     def meta_data_schema(self) -> dict[str, "HgScalarTypeMetaData"]:
+        if _is_dataclass_scalar_type(self.py_type):
+            return _dataclass_scalar_schema(self.py_type)
         return self.py_type.__meta_data_schema__
 
     def __init__(self, py_type: Type):
@@ -1123,8 +1271,8 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         # Detect recursion - for recursive compound scalars, fall back to Python handling
         if SchemaRecurseContext.is_in_context(self.py_type):
             return None
-        # Check if this CompoundScalar should use C++ field expansion
-        if getattr(self.py_type, '__cpp_native__', False):
+        # Plain dataclasses retain their Python identity and always use opaque storage.
+        if not _is_dataclass_scalar_type(self.py_type) and getattr(self.py_type, "__cpp_native__", False):
             return self._get_expanded_cpp_type()
         else:
             return self._get_opaque_cpp_type()
@@ -1137,6 +1285,7 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         """
         try:
             import hgraph._hgraph as _hgraph
+
             # Build the fields list with (name, type_meta) pairs
             with SchemaRecurseContext(self.py_type):
                 fields = []
@@ -1147,9 +1296,7 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
                         return None  # Fall back to nb::object if any field type is not supported
                     fields.append((field_name, field_cpp))
                 # Create CompoundScalar TypeMeta with Python class for reconstruction
-                return _hgraph.value.get_compound_scalar_type_meta(
-                    fields, self.py_type, self.py_type.__name__
-                )
+                return _hgraph.value.get_compound_scalar_type_meta(fields, self.py_type, self.py_type.__name__)
         except (ImportError, AttributeError):
             return None
 
@@ -1162,6 +1309,7 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         """
         try:
             import hgraph._hgraph as _hgraph
+
             return _hgraph.value.get_scalar_type_meta(object)
         except (ImportError, AttributeError):
             return None
@@ -1171,16 +1319,18 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
             return True
 
         with SchemaRecurseContext(self.py_type):
-            return type(o) is HgCompoundScalarType and (
-                self.py_type is o.py_type
-                or (
-                    (issubclass(self.py_type, UnNamedCompoundScalar) or issubclass(o.py_type, UnNamedCompoundScalar))
-                    and self.py_type.__meta_data_schema__ == o.py_type.__meta_data_schema__
-                )
-            )
+            if type(o) is not HgCompoundScalarType:
+                return False
+            if self.py_type is o.py_type or self.py_type == o.py_type:
+                return True
+            if _is_dataclass_scalar_type(self.py_type) or _is_dataclass_scalar_type(o.py_type):
+                return False
+            return (
+                issubclass(self.py_type, UnNamedCompoundScalar) or issubclass(o.py_type, UnNamedCompoundScalar)
+            ) and self.meta_data_schema == o.meta_data_schema
 
     def __str__(self) -> str:
-        return f"{self.py_type.__name__}"
+        return getattr(self.py_type, "__name__", str(self.py_type))
 
     def __repr__(self) -> str:
         return f"HgCompoundScalarType({repr(self.py_type)})"
@@ -1194,7 +1344,12 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
             return set()
 
         with SchemaRecurseContext(self.py_type):
-            return set().union(*(t.type_vars for t in self.py_type.__meta_data_schema__.values())) | set(
+            if _is_dataclass_scalar_type(self.py_type):
+                # Only TypeVars declared by Generic[...] can form a nominal
+                # dataclass specialization. Free TypeVars in annotations are
+                # descriptive (STATE schemas use this pattern).
+                return set(getattr(self.py_type, "__parameters__", ()))
+            return set().union(*(t.type_vars for t in self.meta_data_schema.values())) | set(
                 getattr(self.py_type, "__parameters__", ())
             )
 
@@ -1204,8 +1359,18 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
             return {}
 
         with SchemaRecurseContext(self.py_type):
-            inheritance_depth = self.py_type.__mro__.index(CompoundScalar)
-            hierarchy_root = self.py_type.__mro__[inheritance_depth - 1]
+            if _is_dataclass_scalar_type(self.py_type):
+                origin = _dataclass_scalar_origin(self.py_type)
+                hierarchy = [
+                    cls
+                    for cls in origin.__mro__
+                    if cls is not object and is_dataclass(cls) and not issubclass(cls, AbstractSchema)
+                ]
+                inheritance_depth = len(hierarchy)
+                hierarchy_root = hierarchy[-1]
+            else:
+                inheritance_depth = self.py_type.__mro__.index(CompoundScalar)
+                hierarchy_root = self.py_type.__mro__[inheritance_depth - 1]
             hierarchy_rank = {hierarchy_root: 1e-10 / inheritance_depth}
 
             generic_rank = combine_ranks((HgScalarTypeVar.parse_type(tp).generic_rank for tp in self.type_vars), 0.01)
@@ -1213,7 +1378,24 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
             return generic_rank | hierarchy_rank
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
-        return type(tp) is HgCompoundScalarType and (issubclass(tp.py_type, self.py_type) or self.__eq__(tp))
+        if type(tp) is not HgCompoundScalarType:
+            return False
+        if self.__eq__(tp):
+            return True
+        if _is_dataclass_scalar_type(self.py_type) and _is_dataclass_scalar_type(tp.py_type):
+            self_origin, self_args = _structured_scalar_origin_and_args(self.py_type)
+            tp_origin, _ = _structured_scalar_origin_and_args(tp.py_type)
+            if self_args:
+                if any(isinstance(argument, TypeVar) for argument in self_args):
+                    return issubclass(tp_origin, self_origin) and all(
+                        field_type.matches(tp.meta_data_schema[name])
+                        for name, field_type in self.meta_data_schema.items()
+                    )
+                return _inherits_dataclass_specialization(tp.py_type, self_origin, self_args)
+            return issubclass(tp_origin, self_origin)
+        if _is_dataclass_scalar_type(self.py_type) or _is_dataclass_scalar_type(tp.py_type):
+            return False
+        return issubclass(tp.py_type, self.py_type)
 
     @property
     def is_resolved(self) -> bool:
@@ -1224,8 +1406,11 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
             return True
 
         with SchemaRecurseContext(self.py_type):
-            resolved = all(tp.is_resolved for tp in self.meta_data_schema.values()) and not getattr(
-                self.py_type, "__parameters__", False
+            resolved = (
+                not getattr(self.py_type, "__parameters__", ())
+                if _is_dataclass_scalar_type(self.py_type)
+                else all(tp.is_resolved for tp in self.meta_data_schema.values())
+                and not getattr(self.py_type, "__parameters__", False)
             )
             object.__setattr__(self, "_is_resolved", resolved)
             return resolved
@@ -1234,19 +1419,34 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:
         from hgraph._types._scalar_types import CompoundScalar
 
-        if type(value_tp) is type and issubclass(value_tp, CompoundScalar):
+        if (type(value_tp) is type and issubclass(value_tp, CompoundScalar)) or _is_dataclass_scalar_type(value_tp):
             return HgCompoundScalarType(value_tp)
 
     @classmethod
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
         from hgraph._types._scalar_types import CompoundScalar
 
-        if isinstance(value, CompoundScalar):
+        if isinstance(value, CompoundScalar) or _dataclass_scalar_is_instance(value):
             return HgCompoundScalarType(type(value))
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:
             return self
+        elif _is_dataclass_scalar_type(self.py_type):
+            origin, current_args = _structured_scalar_origin_and_args(self.py_type)
+            parameters = tuple(getattr(origin, "__parameters__", ()))
+            if not parameters:
+                return self
+            arguments = current_args or parameters
+            resolved_arguments = []
+            for argument in arguments:
+                argument_meta = HgScalarTypeMetaData.parse_type(argument)
+                resolved = argument_meta.resolve(resolution_dict, weak)
+                resolved_arguments.append(resolved.py_type)
+            if weak and any(isinstance(argument, TypeVar) for argument in resolved_arguments):
+                return self
+            item = resolved_arguments[0] if len(resolved_arguments) == 1 else tuple(resolved_arguments)
+            return HgCompoundScalarType(origin[item])
         else:
             return HgCompoundScalarType(self.py_type._resolve(resolution_dict))
 

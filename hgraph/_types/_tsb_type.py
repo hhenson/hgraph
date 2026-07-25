@@ -66,6 +66,8 @@ __all__ = (
     "ts_schema",
 )
 
+_DATACLASS_BUNDLE_SCHEMAS = {}
+
 
 class TimeSeriesSchema(AbstractSchema):
     """
@@ -129,7 +131,11 @@ class TimeSeriesSchema(AbstractSchema):
 
     @classmethod
     def _schema_convert_base(cls, base_py):
-        return cls.from_scalar_schema(base_py) if issubclass(base_py, CompoundScalar) else base_py
+        return (
+            cls.from_scalar_schema(base_py)
+            if isinstance(base_py, type) and issubclass(base_py, CompoundScalar)
+            else base_py
+        )
 
     @staticmethod
     def from_scalar_schema(schema: Type[AbstractSchema]) -> Type["TimeSeriesSchema"]:
@@ -137,6 +143,43 @@ class TimeSeriesSchema(AbstractSchema):
         Creates a new time-series schema from the scalar schema provided.
         This has some limitations since it is hard to distinguish between TS[frozendict] and TSD[...,...].
         """
+        from hgraph._types._scalar_type_meta_data import (
+            HgCompoundScalarType,
+            HgScalarTypeMetaData,
+            _dataclass_scalar_origin,
+            _is_dataclass_scalar_type,
+        )
+
+        if _is_dataclass_scalar_type(schema):
+            if tsc_schema := _DATACLASS_BUNDLE_SCHEMAS.get(schema):
+                return tsc_schema
+
+            scalar_meta = HgScalarTypeMetaData.parse_type(schema)
+            assert isinstance(scalar_meta, HgCompoundScalarType)
+
+            from hgraph._types._ts_type import TS
+
+            annotations = {k: TS[v.py_type] for k, v in scalar_meta.meta_data_schema.items()}
+            origin = _dataclass_scalar_origin(schema)
+            schema_name = origin.__name__
+            if schema_args := getattr(schema, "__args__", ()):
+                schema_name += "_" + "_".join(
+                    getattr(argument, "__name__", str(argument).replace(".", "_")) for argument in schema_args
+                )
+            namespace = {
+                "__annotations__": annotations,
+                "__module__": origin.__module__,
+            }
+            tsc_schema = types.new_class(
+                f"{schema_name}Bundle",
+                (TimeSeriesSchema,),
+                None,
+                lambda ns: ns.update(namespace),
+            )
+            tsc_schema.__scalar_type__ = schema
+            _DATACLASS_BUNDLE_SCHEMAS[schema] = tsc_schema
+            return tsc_schema
+
         if schema is CompoundScalar:
             return TimeSeriesSchema
 
@@ -345,7 +388,9 @@ class TimeSeriesBundle(
                 # We have a dynamic declaration of type
                 item = ts_schema(**{i.start: i.stop for i in item})
             elif HgTypeMetaData.parse_type(item).is_scalar:
-                if isinstance(item, type) and issubclass(item, CompoundScalar):
+                from hgraph._types._scalar_type_meta_data import HgCompoundScalarType
+
+                if isinstance(HgTypeMetaData.parse_type(item), HgCompoundScalarType):
                     item = TimeSeriesSchema.from_scalar_schema(item)
                 else:
                     raise ParseError(
