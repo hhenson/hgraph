@@ -102,7 +102,6 @@ def _dispatch_impl(
         nth,
         compute_node,
         TS,
-        CompoundScalar,
         extract_kwargs,
     )
     from hgraph import downcast_ref
@@ -130,11 +129,21 @@ def _dispatch_impl(
         o_dispatch_types = {
             k: t
             for k, t in o.signature.input_types.items()
-            if k in dispatch_args and (isinstance(t, HgTSTypeMetaData) or (isinstance(t, HgTsTypeVarTypeMetaData) and all(isinstance(i, HgTSTypeMetaData) for i in t.constraints)))
+            if k in dispatch_args
+            and (
+                isinstance(t, HgTSTypeMetaData)
+                or (
+                    isinstance(t, HgTsTypeVarTypeMetaData)
+                    and all(isinstance(i, HgTSTypeMetaData) for i in t.constraints)
+                )
+            )
         }
-        for dispatch_values in product(*((t.value_scalar_tp,) if isinstance(t, HgTSTypeMetaData) else (i.value_scalar_tp for i in t.constraints) for t in o_dispatch_types.values())):
+        for dispatch_values in product(*(
+            (t.value_scalar_tp,) if isinstance(t, HgTSTypeMetaData) else (i.value_scalar_tp for i in t.constraints)
+            for t in o_dispatch_types.values()
+        )):
             ox_dispatch_types = dict(zip(o_dispatch_types.keys(), dispatch_values))
-        
+
             if len(o_dispatch_types) != len(dispatch_args):
                 raise CustomMessageWiringError(
                     f"Cannot dispatch with signatures of different lengths:\n{dispatch_args}\n{o_dispatch_types}"
@@ -186,18 +195,17 @@ def _dispatch_impl(
     if len(dispatch_args) == 1:
 
         @compute_node
-        def adjust_dispatch_key(
-            key: TS[Type[CompoundScalar]], available_keys: Tuple[Type[CompoundScalar], ...]
-        ) -> TS[Type[CompoundScalar]]:
+        def adjust_dispatch_key(key: TS[Type[object]], available_keys: Tuple[Type[object], ...]) -> TS[Type[object]]:
             if key.value in available_keys:
                 return key.value
             else:
                 candidates = []
                 for a_key in available_keys:
                     if issubclass(key.value, a_key):
-                        candidates.append((a_key, a_key.__mro__.index(CompoundScalar)))
+                        candidates.append((a_key, key.value.__mro__.index(a_key)))
                 if not candidates:
                     raise RuntimeError(f"No suitable overload found for {key.value}")
+                candidates.sort(key=lambda candidate: candidate[1])
                 if len(candidates) > 1 and candidates[0][1] == candidates[1][1]:
                     raise RuntimeError(f"Ambiguous dispatch for {key.value}")
                 return candidates[0][0]
@@ -212,18 +220,18 @@ def _dispatch_impl(
 
         @compute_node
         def adjust_dispatch_keys(
-            key: TS[Tuple[Type[CompoundScalar], ...]], available_keys: Tuple[Tuple[Type[CompoundScalar], ...], ...]
-        ) -> TS[Tuple[Type[CompoundScalar], ...]]:
+            key: TS[Tuple[Type[object], ...]], available_keys: Tuple[Tuple[Type[object], ...], ...]
+        ) -> TS[Tuple[Type[object], ...]]:
             if key.value in available_keys:
                 return key.value
             else:
                 candidates = []
                 for a_keys in available_keys:
                     if all(issubclass(k, ak) for ak, k in zip(a_keys, key.value)):
-                        candidates.append((a_keys, sum(ak.__mro__.index(CompoundScalar) for ak in a_keys)))
+                        candidates.append((a_keys, sum(k.__mro__.index(ak) for ak, k in zip(a_keys, key.value))))
                 if not candidates:
                     raise RuntimeError(f"No suitable overload found for {key.value}")
-                candidates.sort(key=lambda x: x[1], reverse=True)
+                candidates.sort(key=lambda candidate: candidate[1])
                 if len(candidates) > 1 and candidates[0][1] == candidates[1][1]:
                     raise RuntimeError(f"Ambiguous dispatch for {key.value}")
                 return candidates[0][0]
@@ -231,7 +239,7 @@ def _dispatch_impl(
         from hgraph import type_
 
         key = adjust_dispatch_keys(
-            flatten_tsl_values[SCALAR : Type[CompoundScalar]](
+            flatten_tsl_values[SCALAR : Type[object]](
                 TSL.from_ts(*[type_(kwargs_[k]) for k in dispatch_args]), all_valid=True
             ),
             tuple(dispatch_map.keys()),

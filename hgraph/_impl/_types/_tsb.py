@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from datetime import datetime
 from typing import Any, Mapping, Generic, TYPE_CHECKING, cast, Union
 
@@ -6,12 +6,27 @@ from hgraph._runtime._constants import MIN_DT
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
 from hgraph._types._time_series_types import TimeSeriesOutput, TimeSeriesInput
+from hgraph._types._scalar_types import CompoundScalar
 from hgraph._types._tsb_type import TimeSeriesBundleInput, TS_SCHEMA, TimeSeriesBundleOutput
 
 if TYPE_CHECKING:
     from hgraph._runtime._node import Node
 
 __all__ = ("PythonTimeSeriesBundleOutput", "PythonTimeSeriesBundleInput")
+
+
+def _python_dataclass_constructor_fields(scalar_type):
+    origin = getattr(scalar_type, "__origin__", None) or scalar_type
+    if isinstance(origin, type) and is_dataclass(origin) and not issubclass(origin, CompoundScalar):
+        return {field.name for field in fields(origin) if field.init}
+
+
+def _bundle_scalar_value(schema, items):
+    scalar_type = schema.scalar_type()
+    constructor_fields = _python_dataclass_constructor_fields(scalar_type)
+    if constructor_fields is not None:
+        return scalar_type(**{name: ts.value for name, ts in items if name in constructor_fields and ts.valid})
+    return scalar_type(**{name: ts.value for name, ts in items})
 
 
 # With Bundles there are two implementation types, namely bound and un-bound.
@@ -32,7 +47,7 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
     @property
     def value(self):
         if s := self.__schema__.scalar_type():
-            return s(**{k: ts.value for k, ts in self.items()})
+            return _bundle_scalar_value(self.__schema__, self.items())
         else:
             return {k: ts.value for k, ts in self.items() if ts.valid}
 
@@ -146,6 +161,8 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
             return super().value
         else:
             if s := self.__schema__.scalar_type():
+                if _python_dataclass_constructor_fields(s) is not None:
+                    return _bundle_scalar_value(self.__schema__, self.items())
                 v = {k: ts.value for k, ts in self.items() if ts.valid or getattr(s, k, None) is None}
                 return s(**v)
             else:

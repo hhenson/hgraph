@@ -2,7 +2,7 @@ import json
 from datetime import datetime, date, time, timedelta
 from enum import Enum
 from itertools import chain
-from typing import Callable, Any
+from typing import Callable, Any, get_origin
 
 from multimethod import multimethod
 
@@ -51,17 +51,19 @@ def to_json_converter(value: HgTypeMetaData, delta=False) -> Callable[[Any], str
 
 
 def _compound_scalar_parent_encode(value: HgCompoundScalarType, delta: bool):
-    switches = {v: to_json_converter(HgCompoundScalarType(v)) for v in value.py_type.__serialise_children__.values()}
+    tp = get_origin(value.py_type) or value.py_type
+    switches = {v: to_json_converter(HgCompoundScalarType(v)) for v in tp.__serialise_children__.values()}
     return lambda v: "null" if v is None else switches[type(v)](v)
 
 
 @to_json_converter.register
 def _(value: HgCompoundScalarType, delta=False) -> Callable[[Any], str]:
     tp = value.py_type
-    if tp.__serialise_base__:
+    origin = get_origin(tp) or tp
+    if origin.__serialise_base__:
         return _compound_scalar_parent_encode(value, delta)
     to_json = []
-    if (f := tp.__serialise_discriminator_field__) is not None and f not in tp.__meta_data_schema__:
+    if (f := origin.__serialise_discriminator_field__) is not None and f not in value.meta_data_schema:
         to_json.append(
             error_wrapper(
                 lambda v: (
@@ -237,14 +239,15 @@ def _(value: HgTSTypeMetaData, delta=False) -> Callable[[Any], Any]:
 
 def _compound_scalar_parent_decode(value: HgCompoundScalarType, delta: bool):
     tp = value.py_type
-    switches = {k: from_json_converter(HgCompoundScalarType(v)) for k, v in tp.__serialise_children__.items()}
-    discriminator = tp.__serialise_discriminator_field__
+    origin = get_origin(tp) or tp
+    switches = {k: from_json_converter(HgCompoundScalarType(v)) for k, v in origin.__serialise_children__.items()}
+    discriminator = origin.__serialise_discriminator_field__
     return lambda v, switches_=switches, d=discriminator: switches_[v.get(d)](v) if v is not None else None
 
 
 @from_json_converter.register
 def _(value: HgCompoundScalarType, delta=False) -> Callable[[Any], Any]:
-    if value.py_type.__serialise_base__:
+    if (get_origin(value.py_type) or value.py_type).__serialise_base__:
         return _compound_scalar_parent_decode(value, delta)
     fns = []
     for k, tp in value.meta_data_schema.items():

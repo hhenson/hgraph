@@ -60,8 +60,8 @@ Schema Based Types
 
 Besides the standard types listed above there are two special types that are derived from the ``AbstractSchema``
 type, namely: ``CompoundScalar`` and ``TimeSeriesSchema``. These types support the ability to define
-named collection types, the ``CompoundScalar`` class supports defining scalar values made up of simple types
-including ``CompoundScalar`` types.
+named collection types. ``CompoundScalar`` supports defining scalar values made up of simple types, including
+other ``CompoundScalar`` types.
 
 This is an example of it's use:
 
@@ -75,12 +75,40 @@ This is an example of it's use:
         p1: str
         p2: int
 
-This type defines it's constituents in much the same way as for a dataclass. In fact it is generally a good practice
-to wrap the class with the ``dataclass`` wrapper.
+This type defines its constituents in much the same way as a dataclass. It is generally good practice to wrap the
+class with the ``dataclass`` decorator.
 
-The reason for using this and not a standard dataclass is that this type will perform validation of the types and
-maintains the type schema that can be used to perform type-checking and for implementing useful library functions
-such as ``getattr_`` and other useful functions.
+Standard-library dataclasses can also be used directly as nominal scalar schemas without inheriting from
+``CompoundScalar``:
+
+::
+
+    from dataclasses import dataclass
+    from hgraph import TS, combine, graph
+
+    @dataclass(frozen=True)
+    class Quote:
+        instrument: str
+        bid: float
+        ask: float = 0.0
+
+    @graph
+    def make_quote(bid: TS[float]) -> TS[Quote]:
+        return combine[TS[Quote]](instrument="ABC", bid=bid)
+
+The original dataclass instance is retained as the time-series value. Its ordered fields form the schema used for
+wiring, reflection, field access, generic resolution, conversion, and dispatch. Dataclass defaults and default
+factories are honoured when constructing a value. ``TSB[Quote]`` provides the corresponding field-expanded
+time-series form.
+
+Dataclass annotations describe the wiring schema; assigning a whole dataclass does not recursively validate or
+replace the object's fields. Frozen dataclasses are recommended because mutating a retained object in place does not
+produce a new time-series tick.
+
+Use ``CompoundScalar`` when its hgraph-specific helpers, serialisation hierarchy, or C++ field-expanded storage are
+required. Use a plain dataclass when preserving the application's Python class, constructor, properties, equality,
+and object identity is the priority. The legacy ``CS[Model]`` adaptor remains useful when a distinct
+``CompoundScalar`` must be generated from a dataclass, Pydantic model, or annotated plain class.
 
 The ``TimeSeriesSchema`` is the parallel for time-series collections. In this paradigm, it's use is to define a schema
 describing a collection of named time-series values. For example:
@@ -223,4 +251,3 @@ Then prior to the use of the type the type should be registered with the type sy
 The advantage of registering the type is that it can become a fully functioning type including being able to participate
 in type resolution. This is as apposed to the python object type which has very limited ability to integrate into the
 type system.
-

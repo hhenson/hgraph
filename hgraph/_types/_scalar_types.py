@@ -1,4 +1,4 @@
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum
@@ -405,6 +405,8 @@ class STATE(Generic[COMPOUND_SCALAR]):
             else:
                 raise AttributeError(item)
         else:
+            if is_dataclass(schema) and not issubclass(schema, AbstractSchema):
+                return getattr(values, item)
             if not hasattr(schema, "__meta_data_schema__") or item in schema.__meta_data_schema__:
                 return getattr(values, item)
             else:

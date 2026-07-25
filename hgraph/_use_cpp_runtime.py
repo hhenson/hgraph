@@ -20,6 +20,8 @@ if is_feature_enabled("use_cpp"):
           "\n<<<<<<<<<<<<<<<<<<<")
     try:
         from datetime import date, datetime, timedelta
+        from typing import get_origin
+
         import hgraph._hgraph as _hgraph
         import hgraph
 
@@ -84,6 +86,11 @@ if is_feature_enabled("use_cpp"):
             raise NotImplementedError(f"Missing builder for {value_tp}")
 
 
+        def _cpp_scalar_type(tp):
+            """Nanobind accepts classes, while parameterised Python aliases construct through their origin."""
+            return get_origin(tp) or tp
+
+
         class HgCppFactory(hgraph.TimeSeriesBuilderFactory):
             def make_error_builder(self, value_tp):
                 return self.make_output_builder(value_tp)
@@ -104,7 +111,8 @@ if is_feature_enabled("use_cpp"):
                     ),
                     hgraph.HgTSBTypeMetaData: lambda: _hgraph.InputBuilder_TSB(
                         _hgraph.TimeSeriesSchema(
-                            keys=tuple(value_tp.bundle_schema_tp.meta_data_schema.keys()), scalar_type=tp
+                            keys=tuple(value_tp.bundle_schema_tp.meta_data_schema.keys()),
+                            scalar_type=_cpp_scalar_type(tp),
                         )
                         if (tp := value_tp.bundle_schema_tp.py_type.scalar_type())
                         else _hgraph.TimeSeriesSchema(keys=tuple(value_tp.bundle_schema_tp.meta_data_schema.keys())),
@@ -146,7 +154,8 @@ if is_feature_enabled("use_cpp"):
                     ),
                     hgraph.HgTSBTypeMetaData: lambda: _hgraph.OutputBuilder_TSB(
                         schema=_hgraph.TimeSeriesSchema(
-                            keys=tuple(value_tp.bundle_schema_tp.meta_data_schema.keys()), scalar_type=tp
+                            keys=tuple(value_tp.bundle_schema_tp.meta_data_schema.keys()),
+                            scalar_type=_cpp_scalar_type(tp),
                         )
                         if (tp := value_tp.bundle_schema_tp.py_type.scalar_type())
                         else _hgraph.TimeSeriesSchema(keys=tuple(value_tp.bundle_schema_tp.meta_data_schema.keys())),
@@ -193,7 +202,7 @@ if is_feature_enabled("use_cpp"):
                     return _hgraph.InputBuilder_TSB_Ref(
                         _hgraph.TimeSeriesSchema(
                             tuple(referenced_tp.bundle_schema_tp.meta_data_schema.keys()),
-                            tp
+                            _cpp_scalar_type(tp),
                         ) if (tp := referenced_tp.bundle_schema_tp.py_type.scalar_type()) is not None
                         else _hgraph.TimeSeriesSchema(tuple(referenced_tp.bundle_schema_tp.meta_data_schema.keys())),
                         [_make_child_ref_builder(tp) for tp in referenced_tp.bundle_schema_tp.meta_data_schema.values()]
@@ -251,7 +260,7 @@ if is_feature_enabled("use_cpp"):
                     return _hgraph.OutputBuilder_TSB_Ref(
                         _hgraph.TimeSeriesSchema(
                             tuple(referenced_tp.bundle_schema_tp.meta_data_schema.keys()),
-                            tp
+                            _cpp_scalar_type(tp),
                         ) if (tp := referenced_tp.bundle_schema_tp.py_type.scalar_type()) is not None
                         else _hgraph.TimeSeriesSchema(tuple(referenced_tp.bundle_schema_tp.meta_data_schema.keys())),
                         [_make_child_ref_builder(tp) for tp in referenced_tp.bundle_schema_tp.meta_data_schema.values()]

@@ -218,11 +218,15 @@ const std::function < bool(const ts_type &) > &constraint)
         // valid before calling us, so this still yields a fully-populated instance.
         if constexpr (!is_delta) {
             if (schema().scalar_type().is_valid() && !schema().scalar_type().is_none()) {
-                nb::dict kwargs;
+                const bool python_owned{nb::hasattr(schema().scalar_type(), "__hgraph_bundle_constructor_fields__")};
+                nb::object constructor_fields{python_owned ? schema().scalar_type().attr("__hgraph_bundle_constructor_fields__")
+                                                           : nb::none()};
+                nb::dict   kwargs;
                 for (const auto &k : schema().keys()) {
+                    if (python_owned && !nb::cast<bool>(constructor_fields.attr("__contains__")(k))) { continue; }
                     if (out.contains(k.c_str())) {
                         kwargs[k.c_str()] = out[k.c_str()];
-                    } else {
+                    } else if (!python_owned) {
                         kwargs[k.c_str()] = nb::none();
                     }
                 }
