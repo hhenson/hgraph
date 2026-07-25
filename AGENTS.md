@@ -17,6 +17,29 @@ C++. A feature exposed to Python must also have an equivalent, first-class C++
 wiring path and comparable C++ tests. Python should adapt Python values and
 callables to that path rather than become a second runtime implementation.
 
+## Downstream Extensions And Promotion
+
+- Treat downstream libraries as the normal incubation boundary for
+  domain-specific types, nodes, graphs, policies, and adapters. Generality of
+  an algorithm alone is not evidence that its current API belongs in hgraph.
+- Add a facility to `hg_cpp` only when it is useful across domains or is
+  required to let independently built extensions participate safely in the
+  shared runtime.
+- A capability promoted from a downstream library requires implementation
+  experience, a numbered core RFC, a first-class public C++ contract, matching
+  Python exposure where applicable, performance evidence for hot paths, and an
+  installed-SDK consumer test.
+- Promotion is a migration, not duplication. The linked downstream change
+  removes or delegates the former implementation, documents compatibility,
+  and coordinates the dependency and release transition.
+- Core code must never import, link against, or otherwise depend on a
+  downstream package. Public core documentation must not disclose a private
+  downstream design; describe the generic requirement and evidence instead.
+- Wiring-time scalar policies should select concrete overloads. Use a
+  graph-level switch for a genuinely dynamic policy. Do not add per-tick
+  strings or policy branches to a generic node without an accepted RFC and
+  measured justification.
+
 ## Working Method
 
 - Read the relevant implementation, tests, and nearby documentation before

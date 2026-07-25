@@ -110,4 +110,5 @@ Open Design Items
 - Decide when to split runtime, system nodes, schema, and Python bridge into separate targets.
 - Decide whether tests should use a bundled test framework or depend on system packages.
 - Decide whether the shared extension ABI needs an explicit compatibility
-  version independent of the Python distribution version.
+  version independent of the Python distribution version; this is assessed in
+  :doc:`extension_policy`.

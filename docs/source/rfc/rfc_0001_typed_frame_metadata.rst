@@ -1,7 +1,7 @@
 RFC 0001: Typed Frame Metadata
 ==============================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-07-23
 :Target: Next ``hg_cpp`` minor release
@@ -112,12 +112,11 @@ Acceptance criteria
 Implementation status
 ---------------------
 
-The implementation is complete on its implementation PR. It covers the
+The accepted implementation covers the
 two-parameter C++ and Python Frame type, field-wise Arrow schema codec,
 marker-bearing and markerless decoding, Python conversion validation,
 metadata-aware table overloads, installed-SDK use, and C++/Python conformance
-tests. The RFC remains ``Proposed`` until that implementation is accepted for
-merge, at which point this status changes to ``Accepted`` in the same PR.
+tests.
 
 Versioned-dataset proof
 -----------------------
