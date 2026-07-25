@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Type
 
 from frozendict import frozendict
@@ -42,6 +43,7 @@ from hgraph.test import eval_node
 
 
 import pytest
+
 pytestmark = pytest.mark.smoke
 
 
@@ -98,6 +100,32 @@ def test_subscription_service():
             "subscription_topic1",
         ],
     ) == [None, {0: "subscription_topic1", 1: "subscription_topic2"}, {2: "subscription_topic1"}]
+
+
+def test_subscription_service_accepts_frozen_dataclass_keys():
+    @dataclass(frozen=True)
+    class Request:
+        instrument: str
+
+    @subscription_service
+    def request_service(request: TS[Request], path: str) -> TS[str]:
+        """A service keyed by a frozen Python dataclass."""
+
+    @graph
+    def subscription_instance(request: TS[Request]) -> TS[str]:
+        return request.instrument
+
+    @service_impl(interfaces=request_service)
+    def request_service_impl(request: TSS[Request]) -> TSD[Request, TS[str]]:
+        return map_(subscription_instance, __keys__=request, __key_arg__="request")
+
+    @graph
+    def main(request: TS[Request]) -> TS[str]:
+        register_service(default_path, request_service_impl)
+        return pass_through_node(request_service(request, default_path))
+
+    request = Request("ABC")
+    assert eval_node(main, [request, None]) == [None, "ABC"]
 
 
 def test_request_reply_service():

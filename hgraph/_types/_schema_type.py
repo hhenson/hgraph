@@ -19,6 +19,7 @@ from typing import (
     ClassVar,
     Generic,
     Mapping,
+    get_origin,
 )
 
 from frozendict import frozendict
@@ -235,7 +236,9 @@ class AbstractSchema:
                 suffix_map = b.__parameters_meta_data__
             elif issubclass(b, cls._root_cls()):
                 arg_map = {k: cls._parse_type(v) for k, v in zip(suffix_map.keys(), b.__args__)}
-                suffix_map = {k: cls._parse_type(v).resolve(arg_map, weak=True).py_type for k, v in root_suffix_map.items()}
+                suffix_map = {
+                    k: cls._parse_type(v).resolve(arg_map, weak=True).py_type for k, v in root_suffix_map.items()
+                }
 
         suffix_map = {k: cls._parse_type(v).resolve(resolution_dict, weak=True).py_type for k, v in suffix_map.items()}
         if all(k is v for k, v in suffix_map.items()):
@@ -261,10 +264,16 @@ class AbstractSchema:
                 base = cls._parse_type(base_py)
                 if (base := base.resolve(resolution_dict, weak=True)).is_resolved:
                     base_py = cls._schema_convert_base(base.py_type)
-                    cls = base_py._schema_convert_base(cls)
-                    bases = (cls, base_py)
-                    type_dict["__base_meta_data_schema__"] = base_py.__meta_data_schema__
-                    type_dict["__base_resolution_meta__"] = cls._parse_type(base_py)
+                    base_origin = get_origin(base_py) or base_py
+                    if isinstance(base_origin, type) and issubclass(base_origin, AbstractSchema):
+                        cls = base_py._schema_convert_base(cls)
+                        bases = (cls, base_py)
+                        type_dict["__base_meta_data_schema__"] = base_py.__meta_data_schema__
+                        type_dict["__base_resolution_meta__"] = cls._parse_type(base_py)
+                    else:
+                        bases = (cls, base_origin)
+                        type_dict["__base_meta_data_schema__"] = base.meta_data_schema
+                        type_dict["__base_resolution_meta__"] = base
                 else:
                     type_dict["__base_typevar_meta__"] = base
                     type_dict["__base_typevar__"] = base.py_type
@@ -276,6 +285,18 @@ class AbstractSchema:
                     parameters.extend(r.type_vars)
 
             r_cls = type(cls_name, bases, type_dict)
+            if base_schema := type_dict.get("__base_meta_data_schema__"):
+                from hgraph._types._type_meta_data import ParseError
+
+                for key, field_type in base_schema.items():
+                    if (existing := r_cls.__meta_data_schema__.get(key)) is not None and not existing.matches(
+                        field_type
+                    ):
+                        raise ParseError(
+                            f"Attribute: '{key}' in '{r_cls}' is already defined as '{existing}' "
+                            f"but attempted to be redefined as '{field_type}'"
+                        )
+                r_cls.__meta_data_schema__ = frozendict(r_cls.__meta_data_schema__ | base_schema)
             r_cls.__root__ = cls._root_cls()
             r_cls.__parameters__ = tuple(parameters)
             r_cls.__parameters_meta_data__ = {p: cls._parse_type(p) for p in parameters}
@@ -364,15 +385,25 @@ class Base:
             if len(item) != 1:
                 raise TypeError(f"Base accepts only a single type parameter, got {len(item)}: {item}")
             item = item[0]
-            
+
         if cls is Base and isinstance(item, TypeVar):
             assert item.__bound__ is not None
             return cls(item)
-        elif isinstance(item, type) and item._root_cls() is not item and item.__args__:  # Base[C[int]] is a resolution of Base[C]
+        elif (
+            isinstance(item, type)
+            and issubclass(item, AbstractSchema)
+            and item._root_cls() is not item
+            and item.__args__
+        ):  # Base[C[int]] is a resolution of Base[C]
             from hgraph._types._type_meta_data import HgTypeMetaData
-            return super().__class_getitem__(item._root_cls())._resolve(
-                {k: HgTypeMetaData.parse_type(v) for k, v in zip(item._root_cls().__parameters__, item.__args__)}
-            )    
+
+            return (
+                super()
+                .__class_getitem__(item._root_cls())
+                ._resolve(
+                    {k: HgTypeMetaData.parse_type(v) for k, v in zip(item._root_cls().__parameters__, item.__args__)}
+                )
+            )
         else:
             return super().__class_getitem__(item)
 

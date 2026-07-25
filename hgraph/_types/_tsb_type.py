@@ -131,9 +131,11 @@ class TimeSeriesSchema(AbstractSchema):
 
     @classmethod
     def _schema_convert_base(cls, base_py):
+        from hgraph._types._scalar_type_meta_data import _is_dataclass_scalar_type
+
         return (
             cls.from_scalar_schema(base_py)
-            if isinstance(base_py, type) and issubclass(base_py, CompoundScalar)
+            if _is_dataclass_scalar_type(base_py) or (isinstance(base_py, type) and issubclass(base_py, CompoundScalar))
             else base_py
         )
 
