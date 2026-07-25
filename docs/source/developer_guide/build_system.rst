@@ -104,6 +104,39 @@ relative runtime search path to the wheel's platform-selected library directory
 (``lib`` or ``lib64``), using ``@loader_path`` on macOS and ``$ORIGIN`` on ELF
 systems.
 
+Conan package
+-------------
+
+``conanfile.py`` at the repository root packages the shared-library SDK for
+Conan 2 consumers: the shared hgraph libraries, public headers, debugger
+support, and the project's own ``hgraphConfig.cmake``. Conan does not
+generate a competing CMake config (``cmake_find_mode`` is ``none``);
+consumers call ``find_package(hgraph CONFIG)`` against the packaged config,
+so the SDK helpers (``hgraph_add_python_module``, dependency pinning)
+behave identically to a plain CMake install. Dependencies (fmt, spdlog,
+simdjson, date/tz, Arrow 24 with compute + acero, all shared) come from
+Conan Center; the named-zone backend is pinned to ``date`` for
+deterministic behaviour across platforms, and the Python bridge is out of
+scope — wheels remain the Python distribution channel.
+
+Build and test the package locally with::
+
+   CMAKE_POLICY_VERSION_MINIMUM=3.5 conan create . --build=missing \
+       -s "arrow/*:compiler.cppstd=gnu20" -s "&:compiler.cppstd=gnu23"
+
+The per-package standards matter: hgraph itself requires C++23, Arrow's
+recipe requires (and is only validated at) C++20, and the remaining
+dependencies build at the profile default. ``CMAKE_POLICY_VERSION_MINIMUM``
+works around transitive recipes (bzip2) whose ``cmake_minimum_required``
+predates CMake 4. The version is derived from the latest ``v_`` git tag
+(the version authority; commits past the tag get a ``.dev<n>`` suffix, and
+``pyproject.toml`` is only the no-git fallback); native consumers pin the
+exact version, per the compatibility policy in :doc:`release_readiness`. ``test_package/`` holds the consumer exercised by
+``conan create``. Both the build and the generated config guard the split
+``ArrowCompute``/``ArrowAcero`` packages behind target-existence checks
+because Conan's Arrow defines all three target namespaces from the single
+``Arrow`` config.
+
 Open Design Items
 -----------------
 
