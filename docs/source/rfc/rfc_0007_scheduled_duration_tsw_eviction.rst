@@ -12,14 +12,16 @@ Summary
 
 Define the implementation plan for duration-based time-series windows to evict
 expired observations at their actual expiry time, even when the source remains
-silent.  A graph containing one or more owned duration ``TSW`` outputs receives
-one graph-local pull source.  Duration windows subscribe to that source, which
-schedules the earliest expiry and mutates every due window when evaluated.
-This covers ``to_window`` and any other node whose output is, or contains, a
-duration TSW without giving each producer its own scheduling implementation.
-The work also replaces the singular removal surface and scalar-only TSW delta
-with representations capable of describing multiple evictions, reset-only
-ticks, and removal-only scheduled ticks.
+silent.  A root graph containing one or more owned duration ``TSW`` outputs,
+including outputs inside nested graph instances, receives one root-owned pull
+source.  A runtime-only forward reference to that source is published in the
+root ``GlobalState`` shared by every nested graph.  Duration windows subscribe
+to the source, which schedules the earliest expiry and mutates every due window
+when evaluated.  This covers ``to_window`` and any other node whose output is,
+or contains, a duration TSW without giving each producer or nested graph its
+own scheduling implementation.  The work also replaces the singular removal
+surface and scalar-only TSW delta with representations capable of describing
+multiple evictions, reset-only ticks, and removal-only scheduled ticks.
 
 This RFC is a design plan.  No scheduler-driven eviction or persistence-format
 change is supplied with RFC 0006.
@@ -42,26 +44,38 @@ they expired earlier.  At ``t=20s`` several values leave together, while the
 current C++ surface preserves only the last removed element.  Incremental
 consumers cannot update correctly from that delta.
 
-Graph-local expiry source
--------------------------
+Root-graph expiry source
+------------------------
 
 TSW value storage remains independent of graph execution and scheduling.  It
 must be usable in values, tests, record/replay materialisation, and extension
 code without requiring a graph.  A standalone duration window continues to
 prune on explicit mutation; scheduled eviction is an execution-layer service.
 
-During graph assembly, core recursively inspects resolved, owned output
-schemas.  If at least one output is, or contains, a duration TSW, it adds
-exactly one special pull source to that runtime graph.  This must apply to both
-normal ``Wiring`` construction and the supported direct C++ graph-builder path.
-Layout-only dependencies rank the source before every node owning such an
-output.  It is the first normal-rank source, after the root graph's mandatory
-push-source phase.  Each dynamically instantiated nested graph has its own
-expiry source because rank, evaluation time, and scheduling are graph-local.
+During root graph assembly, core recursively inspects resolved, owned output
+schemas, including the output requirements of nested graph definitions.  If at
+least one output is, or contains, a duration TSW, it adds exactly one special
+pull source to the root graph.  This must apply to both normal ``Wiring``
+construction and the supported direct C++ graph-builder path.
+
+The root source publishes a typed, runtime-only forward reference under a
+reserved internal ``GlobalState`` key.  Nested ``GraphView::global_state()``
+already resolves to the root store, so a TSW at any nesting depth finds the
+same source.  The concrete representation should follow the existing
+type-erasure pattern: a reference to a private control output resolves its
+owning node, and that node exposes a typed expiry-source view.  It must not
+expose or persist a raw ``NodePtr``.  Root construction binds the forward
+reference after node storage is attached and before any node start hook; root
+stop removes it.
+
+Layout-only dependencies place the source before every normal root node that
+can own or host a duration TSW.  It is the first normal-rank source, after the
+root graph's mandatory push-source phase.  A nested graph does not create
+another expiry source.
 
 When an owning node starts, the framework attaches each duration TSW in its
-output tree to the graph's expiry source.  The relationship is subscription
-based:
+output tree to the root expiry source resolved from ``GlobalState``.  The
+relationship is subscription based:
 
 * the TSW output retains an opaque subscription/callback to the source through
   the existing execution-time notification machinery;
@@ -71,15 +85,17 @@ based:
 * source invalidation or graph stop removes the subscription before either
   endpoint is destroyed.
 
-The source is shared by ``to_window``, custom adaptors, replay sources,
-aggregation nodes, and extension nodes.  Producers neither inject
-``NodeScheduler`` for this purpose nor implement expiry callbacks themselves.
+The root source is shared by ``to_window``, custom adaptors, replay sources,
+aggregation nodes, extension nodes, and dynamically created nested graph
+instances.  Producers neither inject ``NodeScheduler`` for this purpose nor
+implement expiry callbacks themselves.
 
-Rank order also gives the required lifecycle order.  The expiry source starts
-before producer nodes, so it is available when their outputs attach.  Stop runs
-in reverse rank while all node storage remains alive, so producers complete
-their stop hooks before the source releases its remaining subscriptions.  The
-source must release every subscription before graph storage destruction.
+The forward reference is bound before start, so even a root push-source output
+can attach although push-source start hooks precede normal nodes.  Nested
+producers start later through their root parent and resolve the same reference.
+Stop and dynamic graph teardown detach subscriptions while both endpoints are
+alive.  The root source must release every remaining subscription and erase the
+reserved ``GlobalState`` entry before root graph storage destruction.
 
 Output-tree coverage
 --------------------
@@ -111,22 +127,29 @@ The storage/view layer will provide operations equivalent to:
    TSWRemovalView evict_expired(DateTime now);
 
 The exact names and return representation are subject to implementation review.
-The graph-level algorithm is:
+The root-level algorithm is:
 
-1. Graph assembly creates one expiry pull source when the graph owns at least
-   one duration TSW and ranks it before all corresponding producer nodes.
-2. Start-time attachment registers each live window.  Registration reads its
-   current oldest timestamp, so a restored or pre-seeded window is armed
-   without persisting an alarm handle.
-3. After a push, clear, restore, or removal, the TSW subscription reports its
+1. Root graph assembly creates one expiry pull source when the complete graph
+   can own at least one duration TSW and ranks it before corresponding normal
+   root producers and nested-graph host nodes.
+2. Root construction binds the source's typed forward reference into the
+   reserved ``GlobalState`` entry before start.
+3. Start-time attachment at any graph depth resolves that reference and
+   registers each live window.  Registration reads its current oldest
+   timestamp, so a restored or pre-seeded window is armed without persisting an
+   alarm handle.
+4. After a push, clear, restore, or removal, the TSW subscription reports its
    new ``next_expiry_time``.  An empty window removes its entry.
-4. The source maintains all entries and schedules its node for the earliest
-   expiry across the graph.  Updating one window does not create another pull
-   source or poll the other windows.
-5. When evaluated, the source visits every entry due at or before the current
+5. The root source maintains all entries and schedules itself for the earliest
+   expiry across the complete graph.  Updating one window does not create
+   another source or poll the other windows.
+6. When evaluated, the source visits every entry due at or before the current
    evaluation time, calls ``evict_expired(now)``, and marks each changed TSW
-   modified.  Normal output notification then schedules downstream consumers.
-6. The resulting mutation notification supplies the window's next expiry, and
+   modified.
+7. For a nested TSW, normal output notification schedules local consumers; the
+   existing nested schedule propagation wakes each parent until the
+   later-ranked root host node is scheduled in the same cycle.
+8. The resulting mutation notification supplies the window's next expiry, and
    the source arms itself for the new global minimum.
 
 The source's queue should use a stable subscription identifier plus a
@@ -139,13 +162,15 @@ the entry being processed is identified by subscription and generation, and
 the callback records its replacement deadline without invalidating the due-set
 iteration.
 
-When a producer tick and expiry coincide, graph rank evaluates the expiry
-source first.  The producer can then append or clear-and-append in the same
-cycle, and downstream consumers observe one final window value and one
-structured delta containing all removals and additions.  Stage 1 must therefore
-allow scheduler removal followed by an owner mutation through separate mutation
-scopes at the same evaluation time; the present singular-delta guard is not
-sufficient.
+When a normal producer tick and expiry coincide, root or nested rank evaluates
+the expiry effect before the producer.  The producer can then append or
+clear-and-append in the same cycle, and downstream consumers observe one final
+window value and one structured delta containing all removals and additions.
+Stage 1 must therefore allow scheduler removal followed by an owner mutation
+through separate mutation scopes at the same evaluation time; the present
+singular-delta guard is not sufficient.  A direct root push-source TSW producer
+runs in the mandatory push phase before the expiry source; its structured delta
+must normalize push/removal into the same final per-cycle result.
 
 Window closure
 --------------
@@ -235,9 +260,9 @@ evaluation times.
 Runtime and performance goals
 -----------------------------
 
-* Create at most one expiry pull source per runtime graph and one subscription
-  per live, owned duration TSW.
-* Keep one graph alarm for the earliest window expiry; the source owns the
+* Create at most one expiry pull source per root graph execution and one
+  subscription per live, owned duration TSW across all nested graphs.
+* Keep one root graph alarm for the earliest window expiry; the source owns the
   remaining per-window deadlines.
 * Perform no polling ticks while the window is empty.
 * For ``w`` live windows, update a deadline in ``O(log w)`` without scanning
@@ -258,11 +283,12 @@ Stage 1: delta and mutation semantics
    clear capture/apply, legacy scalar reads, and same-cycle removal followed by
    owner mutation.  Add direct native tests.  Do not schedule expiry yet.
 
-Stage 2: graph-local expiry source
-   Add automatic source creation, rank dependencies, static output-tree
-   subscriptions, deadline management, and due eviction.  Exercise direct TSW
-   output, a TSW nested in a bundle, multiple producers, and coincident
-   producer/expiry cycles.  Retain existing fixed-window behaviour.
+Stage 2: root-graph expiry source
+   Add automatic root source creation, the reserved ``GlobalState`` forward
+   reference, rank dependencies, static output-tree subscriptions, deadline
+   management, and due eviction.  Exercise direct TSW output, a TSW nested in a
+   bundle, root and nested producers, and coincident producer/expiry cycles.
+   Retain existing fixed-window behaviour.
 
 Stage 3: recording and recovery
    Version the Arrow/JSON recording representation, preserve timestamps in
@@ -283,10 +309,12 @@ Native and Python tests must cover:
 * exact closed-left boundary behaviour;
 * multiple and duplicate-timestamp evictions;
 * input, reset, and expiry coinciding in one cycle;
-* one expiry source shared by multiple producer nodes and multiple TSW fields;
+* one root expiry source shared by multiple producer nodes, nested graph
+  instances, and multiple TSW fields;
 * a direct TSW output, a bundle-contained TSW, and dynamically created TSW
   children;
-* source rank before producers and downstream same-cycle notification order;
+* root-source rank, nested schedule propagation, and downstream same-cycle
+  notification order;
 * incremental sum/mean consumers using ``removed_values``;
 * old scalar-delta recordings read by the new implementation;
 * clear-only and removal-only delta record/replay;
