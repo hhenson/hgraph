@@ -15,3 +15,5 @@ benchmarks/.venv-hg-cpp*/
 /reports/
 
 python/_hgraph.abi3.so
+test_package/build/
+test_package/CMakeUserPresets.json

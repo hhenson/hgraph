@@ -459,8 +459,18 @@ for path in (root, root / "include", arrow_link, compute_link, acero_link,
         "Directory containing pyarrow's bundled Arrow libraries" FORCE)
 else()
     find_package(Arrow CONFIG REQUIRED)
-    find_package(ArrowCompute CONFIG REQUIRED)  # Arrow 24 splits compute into its own lib
-    find_package(ArrowAcero CONFIG REQUIRED)
+    # Arrow 24 splits compute/acero into their own CMake packages; some
+    # packagers (Conan's Arrow recipe) define all three target namespaces
+    # from the single Arrow config, in which case the separate packages do
+    # not exist and must not be required.
+    if(NOT TARGET ArrowCompute::arrow_compute_shared AND
+       NOT TARGET ArrowCompute::arrow_compute_static)
+        find_package(ArrowCompute CONFIG REQUIRED)
+    endif()
+    if(NOT TARGET ArrowAcero::arrow_acero_shared AND
+       NOT TARGET ArrowAcero::arrow_acero_static)
+        find_package(ArrowAcero CONFIG REQUIRED)
+    endif()
 endif()
 if(HGRAPH_BUILD_SHARED AND HGRAPH_BUILD_PYTHON_BINDINGS)
     target_link_libraries(hgraph_private_dependencies INTERFACE
@@ -768,8 +778,15 @@ if(NOT HGRAPH_BUILD_SHARED OR NOT HGRAPH_BUILD_PYTHON_BINDINGS)
     list(APPEND _hgraph_config_dependencies
         "find_dependency(fmt 11 CONFIG)\n"
         "find_dependency(Arrow CONFIG)\n"
-        "find_dependency(ArrowCompute CONFIG)\n"
-        "find_dependency(ArrowAcero CONFIG)\n"
+        # Some packagers (Conan's Arrow) define the compute/acero targets
+        # from the single Arrow config; only find the split packages when
+        # the targets are still missing, mirroring the build-side guard.
+        "if(NOT TARGET ArrowCompute::arrow_compute_shared AND NOT TARGET ArrowCompute::arrow_compute_static)\n"
+        "  find_dependency(ArrowCompute CONFIG)\n"
+        "endif()\n"
+        "if(NOT TARGET ArrowAcero::arrow_acero_shared AND NOT TARGET ArrowAcero::arrow_acero_static)\n"
+        "  find_dependency(ArrowAcero CONFIG)\n"
+        "endif()\n"
         "find_dependency(spdlog 1.15 CONFIG)\n"
         # Static consumers link these implementation dependencies. The
         # simdjson floor is explicit because its package version file uses
