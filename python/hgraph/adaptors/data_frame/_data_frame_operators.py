@@ -35,6 +35,7 @@ from hgraph import (
 
 
 __all__ = (
+    "ON_TYPE",
     "join",
     "filter_frame",
     "filter_cs",
@@ -42,16 +43,31 @@ __all__ = (
     "filter_exp_ts",
     "filter_exp_seq",
     "group_by",
+    "group_by_single",
+    "group_by_tuple",
+    "tuple_resolver",
     "ungroup",
+    "ungroup_default",
+    "ungroup_with_key",
+    "ungroup_with_keys",
+    "ungroup_from_items",
     "sorted_",
     "concat",
+    "concat_frames",
     "with_columns",
+    "with_columns_default",
+    "with_columns_typed",
 )
 
 
 ROW = TypeVar("ROW")
 ROW_1 = TypeVar("ROW_1")
 ROW_2 = TypeVar("ROW_2")
+
+# hgraph parity: the join-key type variable. Upstream constrains the
+# expression form to a polars expression; this port's expression dialect is
+# ``pyarrow.compute.Expression`` throughout.
+ON_TYPE = TypeVar("ON_TYPE", str, tuple, pc.Expression)
 
 
 join = operator_function("join")
@@ -133,7 +149,56 @@ def filter_exp_seq(ts: TS[Frame[ROW]], predicate: tuple[pc.Expression, ...]) -> 
 group_by = operator_function("group_by")
 
 
+def tuple_resolver(m, by):
+    """hgraph parity: resolve the grouped-key tuple type for a tuple ``by``.
+
+    The native ``group_by`` performs this resolution itself; the callable is
+    retained so upstream-compatible code (custom overloads copying the
+    upstream pattern) keeps importing and working.
+    """
+    if by.__class__ is tuple:
+        from hgraph.reflection import fields
+
+        row = m.get("ROW", m.get("COMPOUND_SCALAR"))
+        schema = fields(row)
+        return tuple[tuple(schema[b] for b in by)]
+
+
+def group_by_single(ts, by):
+    """hgraph parity: ``group_by`` keyed by one column (native dispatch)."""
+    return group_by(ts, by)
+
+
+def group_by_tuple(ts, by):
+    """hgraph parity: ``group_by`` keyed by a column tuple (native dispatch)."""
+    return group_by(ts, by)
+
+
 ungroup = operator_function("ungroup")
+
+
+def ungroup_default(ts):
+    """hgraph parity: ``ungroup`` discarding the keys (native dispatch)."""
+    return ungroup(ts)
+
+
+def ungroup_with_key(ts, key_col, _tp_out=None):
+    """hgraph parity: ``ungroup`` materializing the key into ``key_col``."""
+    if _tp_out is not None:
+        return ungroup[TS[Frame[_tp_out]]](ts, key_col)
+    return ungroup(ts, key_col)
+
+
+def ungroup_with_keys(ts, key_col, _tp_out=None):
+    """hgraph parity: ``ungroup`` materializing a tuple key into ``key_col``."""
+    if _tp_out is not None:
+        return ungroup[TS[Frame[_tp_out]]](ts, key_col)
+    return ungroup(ts, key_col)
+
+
+def ungroup_from_items(ts):
+    """hgraph parity: build a frame from a TSD of compound-scalar items."""
+    return ungroup(ts)
 
 
 def _explicit_output_type(mapping, _tp_out):
@@ -160,7 +225,24 @@ sorted_ = operator_function("sorted_")
 concat = operator_function("concat")
 
 
+def concat_frames(ts1, ts2):
+    """hgraph parity: append the rows of two same-schema frames."""
+    return concat(ts1, ts2)
+
+
 with_columns = operator_function("with_columns")
+
+
+def with_columns_default(ts, **columns):
+    """hgraph parity: replace/add columns keeping the input row schema."""
+    return with_columns(ts, **columns)
+
+
+def with_columns_typed(ts, _tp_out=None, **columns):
+    """hgraph parity: replace/add columns projecting to ``_tp_out``."""
+    if _tp_out is not None:
+        return with_columns(ts, _tp_out=_tp_out, **columns)
+    return with_columns(ts, **columns)
 
 
 def _columns_output_type(mapping, _tp_out):
