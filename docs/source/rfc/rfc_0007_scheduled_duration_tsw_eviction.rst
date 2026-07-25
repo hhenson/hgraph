@@ -12,10 +12,13 @@ Summary
 
 Define the implementation plan for duration-based time-series windows to evict
 expired observations at their actual expiry time, even when the source remains
-silent.  The ``to_window`` node, not the output or storage object, owns the
-scheduler interaction.  The work also replaces the singular removal surface
-and scalar-only TSW delta with representations capable of describing multiple
-evictions, reset-only ticks, and removal-only scheduled ticks.
+silent.  Scheduler interaction belongs to the node producing the duration
+``TSW``, or to a reusable producer-side facility acting on that node's behalf;
+it does not belong to the output or storage object.  ``to_window`` is the first
+producer to use this mechanism, not its exclusive owner.  The work also
+replaces the singular removal surface and scalar-only TSW delta with
+representations capable of describing multiple evictions, reset-only ticks,
+and removal-only scheduled ticks.
 
 This RFC is a design plan.  No scheduler-driven eviction or persistence-format
 change is supplied with RFC 0006.
@@ -45,16 +48,35 @@ TSW value storage remains independent of graph execution and scheduling.  It
 must be usable in values, tests, record/replay materialisation, and extension
 code without owning a node or graph.
 
-``to_window`` is the node that knows all required parties:
+A node producing a duration ``TSW`` is the execution-layer owner that can bring
+together the required parties:
 
 * the duration and closure rule;
 * the output TSW;
 * the current evaluation time; and
 * its injected ``NodeScheduler``.
 
-The duration overload will therefore inject ``NodeScheduler`` and manage one
-tagged ``"expiry"`` alarm.  The output view will not retain a scheduler pointer
-or call back into its owning node.
+This applies to ``to_window`` and to any other node that constructs a duration
+TSW.  It would be incorrect to hard-code expiry scheduling as a special
+property of ``to_window``: a custom adaptor, replay source, aggregation node, or
+extension node can also be a TSW producer and must be able to provide the same
+time-range guarantee.
+
+Core should therefore provide a reusable producer-side expiry facility.  The
+exact C++ shape is subject to implementation review; it may be a small
+controller, node policy, or shared eval utility.  It must:
+
+* operate on an explicitly supplied duration TSW output and ``NodeScheduler``;
+* provide due-expiry processing plus cancel/re-arm operations after mutation;
+* keep any alarm identity and lifecycle state with the producer node;
+* support a distinct alarm for each duration TSW output when one node produces
+  several windows; and
+* be usable by installed C++ extensions without depending on ``to_window``.
+
+The duration ``to_window`` overload will inject ``NodeScheduler`` and use this
+facility for its output.  Other producers use the same contract.  The output
+view will not retain a scheduler or producer pointer and will not call back
+into its owning node.
 
 Proposed execution algorithm
 ----------------------------
@@ -67,7 +89,7 @@ The storage/view layer will provide operations equivalent to:
    TSWRemovalView evict_expired(DateTime now);
 
 The exact names and return representation are subject to implementation review.
-The node algorithm is:
+For ``to_window``, the producer algorithm is:
 
 1. On reset, cancel ``"expiry"`` and clear the window.
 2. On a due ``"expiry"`` alarm, evict every value outside the time range.
@@ -166,7 +188,7 @@ evaluation times.
 Runtime and performance goals
 -----------------------------
 
-* Maintain at most one pending expiry alarm per duration ``to_window`` node.
+* Maintain at most one pending expiry alarm per live duration TSW output.
 * Perform no polling ticks while the window is empty.
 * Make each alarm ``O(k)`` for the ``k`` values actually evicted, plus ``O(1)``
   rescheduling.
@@ -185,7 +207,9 @@ Stage 1: delta and mutation semantics
    schedule expiry yet.
 
 Stage 2: node scheduling
-   Add the tagged scheduler to duration ``to_window``; implement expiry-only and
+   Define the reusable producer-side expiry facility, integrate it with
+   duration ``to_window``, and exercise it from a second test producer to prove
+   that the mechanism is not tied to ``to_window``.  Implement expiry-only and
    coincident input/expiry cycles in simulation; retain existing fixed-window
    behaviour.
 
@@ -214,7 +238,8 @@ Native and Python tests must cover:
 * recovery with an already-overdue oldest value;
 * simulation, real-time, nested graph stop, and teardown;
 * no scheduler or transient-removal allocation on fixed-count push; and
-* installed C++ extension use of the new removal surface.
+* installed C++ extension use of both the producer-side expiry facility and
+  the new removal surface.
 
 Unresolved questions
 --------------------
