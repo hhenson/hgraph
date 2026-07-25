@@ -1938,9 +1938,11 @@ namespace hgraph
     {
         if (!has_child(slot) || !source_available()) { return; }
         // LAZY delta-window roll: updated bits describe the CURRENT window
-        // only - a record at a new time clears the previous window's bits
-        // (they otherwise over-report the Modified surface forever).
-        if (modified_time != MIN_DT && modified_time != updated_window_)
+        // only - a record at a NEWER time clears the previous window's bits
+        // (they otherwise over-report the Modified surface forever). Older
+        // times (replayed source history on a fresh bind) join the current
+        // window instead of rebasing it.
+        if (modified_time != MIN_DT && modified_time > updated_window_)
         {
             for (std::size_t index = 0; index < built_times_.size(); ++index)
             {

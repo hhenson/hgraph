@@ -1578,6 +1578,44 @@ TEST_CASE("TSDataPlanFactory: TSS uses slot storage with added and removed delta
     REQUIRE(view.last_modified_time() == t3);
 }
 
+TEST_CASE("TSDataPlanFactory: TSS stale mutations join the current delta window")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *tss      = registry.tss(int_meta);
+    const auto  type     = TSDataPlanFactory::instance().data_type_for(tss);
+
+    TSData data{type};
+    auto   view = data.view();
+    auto   set  = view.as_set();
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+    Value      one{1};
+    Value      two{2};
+    Value      three{3};
+
+    {
+        auto mutation = set.begin_mutation(t2);
+        REQUIRE(mutation.add(one.view()));
+        REQUIRE(mutation.add(two.view()));
+    }
+    {
+        auto mutation = set.begin_mutation(t1);
+        REQUIRE(mutation.add(three.view()));
+    }
+
+    REQUIRE(view.last_modified_time() == t2);
+    REQUIRE(view.modified(t2));
+    auto delta = view.delta_value(t2).as_bundle();
+    auto added = delta.at("added").as_set();
+    REQUIRE(added.contains(one.view()));
+    REQUIRE(added.contains(two.view()));
+    REQUIRE(added.contains(three.view()));
+    REQUIRE(delta.at("removed").as_set().empty());
+}
+
 TEST_CASE("TSDataPlanFactory: TSD uses slot storage with key-set and modified deltas")
 {
     using namespace hgraph;
@@ -1884,6 +1922,42 @@ TEST_CASE("TSDataPlanFactory: dynamic TSL stores grow-only child TSData")
     }
     REQUIRE_FALSE(view.modified(t3));
     REQUIRE(view.as_list().size() == 3);
+}
+
+TEST_CASE("TSDataPlanFactory: dynamic TSL stale child records preserve the current modified ring")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *tsl      = registry.tsl(registry.ts(int_meta), 0);
+    const auto  type     = TSDataPlanFactory::instance().data_type_for(tsl);
+
+    TSData data{type};
+    auto   view = data.view();
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+    {
+        auto source = stdlib::make_list<std::int32_t>({11, 22});
+        auto mutation = view.begin_mutation(t2);
+        REQUIRE(mutation.copy_value_from(source.view()));
+    }
+
+    auto list = view.as_list();
+    REQUIRE(std::vector<std::size_t>(list.modified_indices().begin(), list.modified_indices().end()) ==
+            std::vector<std::size_t>{0, 1});
+
+    const auto &table = *view.storage_type().ops();
+    table.record_child_modified_impl(table.context, const_cast<void *>(view.data()), 0, t1);
+
+    REQUIRE(view.last_modified_time() == t2);
+    REQUIRE(std::vector<std::size_t>(list.modified_indices().begin(), list.modified_indices().end()) ==
+            std::vector<std::size_t>{0, 1});
+    Value key_zero{std::int64_t{0}};
+    Value key_one{std::int64_t{1}};
+    auto  delta = view.delta_value(t2).as_map();
+    REQUIRE(delta.contains(key_zero.view()));
+    REQUIRE(delta.contains(key_one.view()));
 }
 
 TEST_CASE("TSDataPlanFactory: failed first dynamic TSL growth restores unbound element identity")

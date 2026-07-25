@@ -291,7 +291,11 @@ namespace hgraph
     bool TSDataTracking::record_modified(DateTime modified_time)
     {
         if (modified_time == MIN_DT) { throw std::invalid_argument("TSDataTracking requires a concrete evaluation time"); }
-        if (last_modified_time == modified_time) { return false; }
+        // Delta clocks are monotonic. A record carrying an older time (e.g. a
+        // freshly bound link replaying its source's historical timestamp)
+        // must not rewind state already recorded this cycle, nor re-notify
+        // observers with a stale time.
+        if (modified_time <= last_modified_time) { return false; }
 
         last_modified_time = modified_time;
         observers.notify(modified_time);

@@ -11,6 +11,7 @@
 
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/std/std_nodes.h>
+#include <hgraph/lib/std/value_util.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/record_replay.h>
@@ -486,6 +487,80 @@ namespace
         static_cast<void>(w.add_node(std::type_index(typeid(SwitchStorageRecorderTag)),
                                      std::move(builder), inputs, Value{}));
     }
+
+    using Issue38Dict = TSD<Str, TS<Int>>;
+    using Issue38Position =
+        TSB<"Issue38Position", Field<"units", Issue38Dict>, Field<"unit_values", Issue38Dict>>;
+
+    struct Issue38SelectPrice
+    {
+        static constexpr auto name = "issue_38_select_price";
+
+        static Port<TS<Int>> compose(Wiring &, Port<TS<Int>>, Port<TS<Int>> price)
+        {
+            return price;
+        }
+    };
+
+    struct Issue38UpdatePosition
+    {
+        static constexpr auto name = "issue_38_update_position";
+
+        static Port<Issue38Position> compose(Wiring &w, Port<Issue38Position>, Port<Issue38Dict> prices)
+        {
+            auto units = wire<stdlib::const_, Issue38Dict>(
+                w, stdlib::make_map<Str, Int>({{Str{"next"}, Int{1}}}));
+            auto unit_values = wire<stdlib::map_>(w, fn<Issue38SelectPrice>(), units, prices).as<Issue38Dict>();
+            auto position = stdlib::to_tsb<Issue38Position>(w, units, unit_values);
+            return wire<stdlib::pass_through_node>(w, position).as<Issue38Position>();
+        }
+    };
+
+    struct Issue38KeepPosition
+    {
+        static constexpr auto name = "issue_38_keep_position";
+
+        static Port<Issue38Position> compose(Wiring &w, Port<Issue38Position> current, Port<Issue38Dict>)
+        {
+            auto deduplicated = wire<stdlib::dedup>(w, current).as<Issue38Position>();
+            return wire<stdlib::pass_through_node>(w, deduplicated).as<Issue38Position>();
+        }
+    };
+
+    struct Issue38FeedbackGraph
+    {
+        static constexpr auto name = "issue_38_feedback_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Bool>> roll, Port<Issue38Dict> prices,
+                                     Port<TS<Int>> trigger)
+        {
+            auto position_feedback = stdlib::feedback<Issue38Position>(w);
+            auto lagged = wire<stdlib::lag>(w, position_feedback(), Int{1}, trigger).as<Issue38Position>();
+
+            auto initial_units = wire<stdlib::const_, Issue38Dict>(
+                w, stdlib::make_map<Str, Int>({{Str{"old"}, Int{1}}, {Str{"next"}, Int{1}}}));
+            auto initial_values = wire<stdlib::const_, Issue38Dict>(
+                w, stdlib::make_map<Str, Int>({{Str{"old"}, Int{10}}, {Str{"next"}, Int{10}}}));
+            auto initial_position = stdlib::to_tsb<Issue38Position>(w, initial_units, initial_values);
+            auto position = wire<stdlib::dedup>(
+                                w, wire<stdlib::default_>(w, lagged, initial_position))
+                                .as<Issue38Position>();
+
+            auto output = wire<stdlib::switch_, Issue38Position>(
+                              w, roll,
+                              stdlib::switch_cases(
+                                  {{Value{Bool{true}}, fn<Issue38UpdatePosition>()},
+                                   {Value{Bool{false}}, fn<Issue38KeepPosition>()}}),
+                              position, prices)
+                              .as<Issue38Position>();
+            position_feedback(wire<stdlib::dedup>(w, output).as<Issue38Position>());
+
+            auto unit_values =
+                wire<stdlib::getitem_>(w, position, Str{"unit_values"}).as<Issue38Dict>();
+            auto next = wire<stdlib::getitem_>(w, unit_values, Str{"next"}).as<TS<Int>>();
+            return wire<stdlib::sample>(w, trigger, next).as<TS<Int>>();
+        }
+    };
 }  // namespace
 
 TEST_CASE("switch_: the key selects the branch and a swap samples the held input")
@@ -607,6 +682,23 @@ TEST_CASE("switch_: a direct structural branch samples held list values on activ
                                list_delta<TS<Int>>({20, -20}),
                                list_delta<TS<Int>>({1, 2}),
                                list_delta<TS<Int>>({40, -40})));
+}
+
+TEST_CASE("switch_: nested TSD update survives the feedback round-trip")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    using namespace std::string_literals;
+
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<Issue38FeedbackGraph>(
+            values<Bool>(false, true, false, false),
+            values<Value>(dict_delta<Str, TS<Int>>({{"old"s, Int{10}}, {"next"s, Int{10}}}),
+                          dict_delta<Str, TS<Int>>({{"next"s, Int{20}}}), none, none),
+            values<Int>(0, 1, 2, 3)),
+        values<Int>(10, 10, 10, 20));
 }
 
 TEST_CASE("switch_: a branch may consume the key as its first argument (mixed arities)")

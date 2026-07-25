@@ -94,7 +94,14 @@ namespace hgraph::ts_data_plan_factory_detail
             void record_child_modified(std::size_t index, DateTime modified_time)
             {
                 auto &header = ordinal_keys_.front();
-                if (DateTime{std::chrono::microseconds{header.ordinal_key}} != modified_time)
+                const DateTime window{std::chrono::microseconds{header.ordinal_key}};
+                // Monotonic delta window: a record carrying an older time (a
+                // freshly bound link replaying source history) must not
+                // rebase the ring and erase sibling marks recorded this
+                // cycle. It cannot join the ring either (re-appending an
+                // already-linked entry would corrupt it), so it is dropped.
+                if (modified_time < window) { return; }
+                if (modified_time != window)
                 {
                     header.ordinal_key = modified_time.time_since_epoch().count();
                     header.next_modified = 0;

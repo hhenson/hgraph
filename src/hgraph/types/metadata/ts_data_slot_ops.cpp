@@ -281,7 +281,12 @@ namespace hgraph::ts_data_plan_factory_detail
 
             void prepare_delta(DateTime modified_time)
             {
-                if (delta_time_ == modified_time)
+                // Delta windows are monotonic: only a NEWER time rolls the
+                // window. A record carrying an older time (a freshly bound
+                // link replaying its source's history) joins the current
+                // window — rebasing on it would erase sibling marks already
+                // recorded this cycle.
+                if (modified_time <= delta_time_)
                 {
                     ensure_delta_capacity();
                     return;
@@ -584,7 +589,8 @@ namespace hgraph::ts_data_plan_factory_detail
 
             void prepare_delta(DateTime modified_time)
             {
-                if (delta_time_ == modified_time)
+                // Monotonic delta window — see the slot-set variant above.
+                if (modified_time <= delta_time_)
                 {
                     ensure_delta_capacity();
                     return;

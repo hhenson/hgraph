@@ -1448,12 +1448,28 @@ The split of responsibility is deliberate:
 There is **no end-of-cycle cleanup sweep**. Physical reclamation is lazy and
 happens on the structure's **next mutation**: the slot-store ``prepare_delta``
 resets a collection's ``added`` / ``removed`` / ``modified`` bitsets and erases
-pending-removed keys the first time it is touched at a new ``delta_time_``
-(the ``delta_time_ != t`` guard, which is also the per-collection optimisation
-that skips re-clearing a delta already reset at ``t``). Because reads are
-cycle-gated, a stale delta is never observable in the window between the cycle
-it was produced and the producer's next mutation, so no eager reclamation pass
-is required. There is deliberately **no** ``cleanup_delta`` ops entry on
+pending-removed keys the first time it is touched at a **newer**
+``delta_time_`` (the ``modified_time <= delta_time_`` no-op guard, which is
+also the per-collection optimisation that skips re-clearing a delta already
+reset at ``t``). Because reads are cycle-gated, a stale delta is never
+observable in the window between the cycle it was produced and the producer's
+next mutation, so no eager reclamation pass is required.
+
+Delta clocks and delta windows are **monotonic**. A record that carries an
+*older* time than the current window — the canonical producer is a freshly
+bound link replaying its source's historical timestamp (plain ``bind``
+semantics), e.g. a re-homed child terminal aliasing an already-ticked source —
+**joins the current window instead of rebasing it**: ``prepare_delta`` treats
+``modified_time <= delta_time_`` as the current window, and
+``TSDataTracking::record_modified`` ignores older-than-recorded times (no
+rewind, no stale re-notification of observers). Rebasing on a stale record
+would erase sibling marks already recorded this cycle — the failure mode
+behind issue #38, where a switch branch-flip's sampled structural transition
+and a sibling key's added/modified marks were wiped by exactly such a replay,
+losing the delta downstream (dedup saw "no change") while the value read
+correctly. The dynamic-TSL modified ring drops stale records instead of
+joining (re-appending an already-linked entry would corrupt the ring); the
+``TSDProxy`` updated-window roll follows the same newer-only rule. There is deliberately **no** ``cleanup_delta`` ops entry on
 ``TSDataView`` / ``TSOutput`` / ``NodeView`` and **no** ``TSOutput::dirty_``
 flag: the earlier eager-sweep apparatus has been removed in favour of this
 read-gated, mutation-driven model.

@@ -287,7 +287,8 @@ namespace hgraph
         /**
          * Record the first modification for ``modified_time`` and notify local
          * observers once. Returns false when this level was already marked for
-         * the same evaluation time.
+         * the same or a later evaluation time — delta clocks are monotonic, so
+         * a record replaying an older source timestamp never rewinds state.
          */
         [[nodiscard]] bool record_modified(DateTime modified_time);
 
