@@ -1,7 +1,7 @@
 import re
 import types
 import typing
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, is_dataclass
 from datetime import datetime
 from enum import Enum
 from itertools import chain
@@ -72,10 +72,18 @@ class Stream:
         is_ts_schema = (
             isinstance(origin, type) and issubclass(origin, TimeSeriesSchema)
         )
-        if not is_open_compound and not is_compound and not is_ts_schema:
+        # RFC 0004 python-owned structured scalars: a plain (frozen)
+        # dataclass is a structured payload too; its fields resolve through
+        # the public reflection layer exactly like a CompoundScalar's.
+        is_python_owned = (
+            not is_compound and not is_ts_schema
+            and isinstance(origin, type) and is_dataclass(origin)
+        )
+        if (not is_open_compound and not is_compound and not is_ts_schema
+                and not is_python_owned):
             raise TypeError(
-                "Stream[...] requires a CompoundScalar or TimeSeriesSchema "
-                f"payload, got {payload!r}"
+                "Stream[...] requires a CompoundScalar, TimeSeriesSchema, or "
+                f"structured dataclass payload, got {payload!r}"
             )
         parameters = tuple(getattr(origin, "__parameters__", ())) if not is_open_compound else ()
         arguments = tuple(typing.get_args(payload))
@@ -96,7 +104,7 @@ class Stream:
                     _substitute_typevars(
                         resolved_annotations.get(item.name, item.type), substitutions)
                 ]
-        elif is_ts_schema:
+        elif is_ts_schema or is_python_owned:
             from hgraph.reflection import fields as reflected_fields
 
             annotations.update(reflected_fields(TSB[payload]))
