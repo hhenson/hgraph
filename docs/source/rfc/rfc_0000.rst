@@ -1,7 +1,7 @@
 RFC 0000: RFC Process
 =====================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-07-23
 :Target: Project governance
@@ -36,6 +36,37 @@ requirement that may need a generic hgraph facility is first explored in its
 own repository. Once proposed for the core, its core RFC is placed here and the
 downstream document links to it rather than maintaining a second normative
 specification.
+
+Core promotion is a migration rather than a copy. The downstream
+implementation is removed, deprecated in favour of the core, or reduced to a
+domain composition over the new core contract. The core never imports or links
+against the downstream package. A public core RFC describes the generic
+requirement and evidence without disclosing private downstream designs.
+
+Promotion gate
+--------------
+
+An algorithm being mathematically general is not enough to establish core
+ownership. A capability promoted from a downstream extension must provide:
+
+* implementation experience from at least one real downstream use;
+* a domain-independent contract with domain policy kept outside the core;
+* one native C++ implementation and first-class C++ value, node, or graph
+  authoring as appropriate;
+* matching Python exposure and behavioural tests when the feature is visible
+  to Python;
+* wiring-time overload selection for static policies, or a graph composition
+  for a demonstrated dynamic policy;
+* representation, allocation, and latency evidence for any per-tick path;
+* an installed-SDK fixture proving use from a separately built extension;
+* compatibility, serialization, ABI, and migration rules; and
+* linked core and downstream pull requests with an explicit dependency and
+  release transition.
+
+The generic core change and the downstream migration use separate branches and
+pull requests. The downstream document may remain as motivation and
+domain-specific guidance, but it links to the accepted core RFC rather than
+retaining a second normative definition.
 
 Numbering and filenames
 -----------------------
@@ -96,6 +127,9 @@ Each feature RFC contains, as applicable:
 * runtime representation and operator/dispatch semantics;
 * compatibility, migration, and serialization consequences;
 * performance and memory considerations;
+* downstream incubation evidence and the promotion/removal plan, when
+  applicable;
+* installed-extension and ABI consequences for extension facilities;
 * alternatives considered and unresolved questions;
 * acceptance criteria and test plan;
 * implementation status after work begins; and

@@ -7,6 +7,7 @@ The developer guide describes the internal design of the C++ implementation. The
    :maxdepth: 2
 
    build_system
+   extension_policy
    debugging
    documentation_conventions
    roadmap

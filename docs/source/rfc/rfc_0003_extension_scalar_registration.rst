@@ -1,7 +1,7 @@
 RFC 0003: Downstream Python Scalar Registration
 ================================================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-07-23
 :Target: Unscheduled
@@ -97,10 +97,8 @@ Acceptance criteria
 Implementation status
 ---------------------
 
-The implementation is complete on its implementation PR. A separately built
-test extension uses only the installed SDK to register a custom native scalar,
-resolve ``TS[ExtensionType]``, reflect its Python class, and round-trip a value
-through a Python-authored graph. It also verifies harmless duplicate
-registration and deterministic conflicts on both sides. This RFC remains
-``Proposed`` until the implementation is accepted for merge, when it changes
-to ``Accepted`` in the same PR.
+The accepted implementation includes a separately built test extension that
+uses only the installed SDK to register a custom native scalar, resolve
+``TS[ExtensionType]``, reflect its Python class, and round-trip a value through
+a Python-authored graph. It also verifies harmless duplicate registration and
+deterministic conflicts on both sides.
