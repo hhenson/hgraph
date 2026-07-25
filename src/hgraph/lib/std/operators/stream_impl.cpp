@@ -29,7 +29,9 @@ namespace hgraph::stdlib
         register_graph_overload<freeze, freeze_fn_compose>();
         register_overload<gate, gate_impl>();
         register_overload<to_window, stream_impl_detail::to_window_impl>();
+        register_overload<to_window, stream_impl_detail::to_window_reset_impl>();
         register_overload<to_window, stream_impl_detail::to_window_duration_impl>();
+        register_overload<to_window, stream_impl_detail::to_window_duration_reset_impl>();
         register_overload<abs_, stream_impl_detail::abs_tsw_impl<Int>>();
         register_overload<abs_, stream_impl_detail::abs_tsw_impl<Float>>();
         register_overload<sum_, stream_impl_detail::tsw_numeric_aggregate_impl<false, Int>>();

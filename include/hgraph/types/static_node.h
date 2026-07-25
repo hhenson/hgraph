@@ -1520,6 +1520,8 @@ namespace hgraph
             TSWOutputView::begin_mutation(evaluation_time()).push(wrapped.view());
         }
 
+        void clear() const { TSWOutputView::begin_mutation(evaluation_time()).clear(); }
+
         void apply(const ValueView &value) const { TSWOutputView::begin_mutation(evaluation_time()).push(value); }
     };
 

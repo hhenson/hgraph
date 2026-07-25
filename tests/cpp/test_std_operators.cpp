@@ -183,6 +183,42 @@ namespace
         }
     };
 
+    struct WindowSnapshot
+    {
+        static constexpr auto name = "window_snapshot";
+
+        static void eval(In<"window", TsVar<"W">, InputValidity::Unchecked> input,
+                         Out<TS<Int>> out)
+        {
+            auto window = input.base().as_window();
+            Int  total  = 0;
+            for (const ValueView value : window.values()) { total += value.checked_as<Int>(); }
+            out.set(static_cast<Int>(window.size()) * 100 + total);
+        }
+    };
+
+    struct ResettableTickWindowGraph
+    {
+        static constexpr auto name = "resettable_tick_window_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts, Port<SIGNAL> reset)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{3}, Int{1}, reset);
+            return wire<WindowSnapshot, TS<Int>>(w, window);
+        }
+    };
+
+    struct ResettableDurationWindowGraph
+    {
+        static constexpr auto name = "resettable_duration_window_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts, Port<SIGNAL> reset)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, MIN_TD * 10, MIN_TD, reset);
+            return wire<WindowSnapshot, TS<Int>>(w, window);
+        }
+    };
+
     // Scalar-container TS schemas are runtime metadata today. The wrapper graph
     // pins the output type expectation while eval_runtime_schema_graph supplies
     // the input schema at replay.
@@ -1882,6 +1918,18 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
     CHECK_OUTPUT(eval_node<stdlib::to_window>(values<Int>(1, 2, 3, 4, 5), MIN_TD * 2),
                  values<Value>(Value{Int{1}}, Value{Int{2}}, Value{Int{3}},
                                Value{Int{4}}, Value{Int{5}}));
+    CHECK_OUTPUT(eval_node<ResettableTickWindowGraph>(
+                     values<Int>(1, 2, none, 3, 4),
+                     values<Bool>(none, none, true, none, none)),
+                 values<Int>(101, 203, 0, 103, 207));
+    CHECK_OUTPUT(eval_node<ResettableTickWindowGraph>(
+                     values<Int>(1, 2, 3),
+                     values<Bool>(none, true, none)),
+                 values<Int>(101, 102, 205));
+    CHECK_OUTPUT(eval_node<ResettableDurationWindowGraph>(
+                     values<Int>(1, 2, none, 3),
+                     values<Bool>(none, none, true, none)),
+                 values<Int>(101, 203, 0, 103));
 
     CHECK_OUTPUT(eval_node<stdlib::count>(values<Int>(3, none, 2, 1)), values<Int>(1, none, 2, 3));
     CHECK_OUTPUT(eval_node<stdlib::dedup>(values<Int>(1, 2, 2, 3, 3, 3, 4)),

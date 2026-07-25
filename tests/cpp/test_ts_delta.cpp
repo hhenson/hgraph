@@ -461,6 +461,62 @@ TEST_CASE("ts_delta: capture/apply round-trip a TSW scalar push delta") {
                {Value{Int{1}}, Value{Int{2}}, Value{Int{3}}});
 }
 
+TEST_CASE("ts_delta: legacy TSW delta capture rejects a clear-only tick") {
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+  const auto *schema = schema_descriptor<TSW<Int, 3, 1>>::ts_meta();
+  TSOutput output{schema};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(
+      *schema, TSEndpointSchema::peered(schema))};
+
+  const auto t1 = MIN_ST;
+  const auto t2 = t1 + MIN_TD;
+  input.view(nullptr, t1).bind_output(output.view(t1));
+
+  {
+    auto data = output.data_view();
+    auto window = data.as_window();
+    auto mutation = window.begin_mutation(t1);
+    Value one{Int{1}};
+    mutation.push(one.view());
+  }
+  {
+    auto data = output.data_view();
+    auto window = data.as_window();
+    auto mutation = window.begin_mutation(t2);
+    mutation.clear();
+  }
+
+  auto cleared = input.view(nullptr, t2);
+  REQUIRE(cleared.modified());
+  REQUIRE_FALSE(cleared.delta_value().has_value());
+  REQUIRE_THROWS_AS(capture_delta(cleared), std::logic_error);
+}
+
+TEST_CASE("ts_delta: legacy TSW delta capture rejects clear followed by push") {
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+  const auto *schema = schema_descriptor<TSW<Int, 3, 1>>::ts_meta();
+  TSOutput output{schema};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(
+      *schema, TSEndpointSchema::peered(schema))};
+
+  const auto t1 = MIN_ST;
+  input.view(nullptr, t1).bind_output(output.view(t1));
+
+  {
+    auto data = output.data_view();
+    auto window = data.as_window();
+    auto mutation = window.begin_mutation(t1);
+    Value one{Int{1}};
+    mutation.clear();
+    mutation.push(one.view());
+  }
+
+  auto reset_and_pushed = input.view(nullptr, t1);
+  REQUIRE(reset_and_pushed.modified());
+  REQUIRE(reset_and_pushed.delta_value().checked_as<Int>() == 1);
+  REQUIRE_THROWS_AS(capture_delta(reset_and_pushed), std::logic_error);
+}
+
 TEST_CASE("ts_delta: capture/apply round-trip a SIGNAL tick delta") {
   (void)TypeRegistry::instance().register_scalar<bool>("bool");
   const std::vector<std::optional<Value>> deltas{Value{true}, Value{true},

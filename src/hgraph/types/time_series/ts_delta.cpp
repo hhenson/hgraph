@@ -384,7 +384,18 @@ namespace hgraph
 
         Value capture_delta_tsw(const TSInputView &in)
         {
-            return Value{in.delta_value()};
+            if (in.data_view().as_window().cleared(in.evaluation_time()))
+            {
+                throw std::logic_error(
+                    "capture_delta: TSW clear ticks are not representable by the legacy scalar delta");
+            }
+            const ValueView delta = in.delta_value();
+            if (!delta.has_value())
+            {
+                throw std::logic_error(
+                    "capture_delta: TSW clear/removal-only ticks are not representable by the legacy scalar delta");
+            }
+            return Value{delta};
         }
 
         Value capture_delta_tss(const TSInputView &in)

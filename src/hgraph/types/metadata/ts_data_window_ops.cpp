@@ -120,6 +120,18 @@ namespace hgraph::ts_data_plan_factory_detail
                 removed_value) and the evaluation time it fell out. */
             [[nodiscard]] const Value &evicted_element() const noexcept { return evicted_; }
             [[nodiscard]] DateTime evicted_time() const noexcept { return evicted_time_; }
+            [[nodiscard]] DateTime cleared_time() const noexcept
+            {
+                return evicted_.has_value() ? MIN_DT : evicted_time_;
+            }
+
+            /** Clear the logical window while retaining its allocation. */
+            void clear_values(DateTime modified_time) noexcept
+            {
+                clear();
+                evicted_.reset();
+                evicted_time_ = modified_time;
+            }
 
             [[nodiscard]] const void *element_at(std::size_t index) const
             {
@@ -819,6 +831,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 ops.capacity_impl    = nullptr;
                 ops.full_impl        = nullptr;
                 ops.push_impl        = &window_push;
+                ops.clear_impl       = &window_clear;
+                ops.cleared_time_impl = &window_cleared_time;
                 ops.evicted_time_impl    = &window_evicted_time;
                 ops.evicted_element_impl = &window_evicted_element;
             }
@@ -826,6 +840,11 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static DateTime window_evicted_time(const void *context, const void *memory) noexcept
             {
                 return storage<Storage>(window_value_memory(context, memory)).evicted_time();
+            }
+
+            [[nodiscard]] static DateTime window_cleared_time(const void *context, const void *memory) noexcept
+            {
+                return storage<Storage>(window_value_memory(context, memory)).cleared_time();
             }
 
             [[nodiscard]] static const void *window_evicted_element(const void *context, const void *memory) noexcept
@@ -950,6 +969,11 @@ namespace hgraph::ts_data_plan_factory_detail
                                     DateTime modified_time)
             {
                 storage<Storage>(window_mutable_value_memory(context, memory)).push(source, modified_time);
+            }
+
+            static void window_clear(const void *context, void *memory, DateTime modified_time)
+            {
+                storage<Storage>(window_mutable_value_memory(context, memory)).clear_values(modified_time);
             }
 
             [[nodiscard]] static bool window_copy_value_from(const void *context, void *memory,
