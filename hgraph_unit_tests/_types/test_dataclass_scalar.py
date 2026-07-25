@@ -271,6 +271,14 @@ def test_generic_dataclass_specializations_are_distinct_and_resolve_fields():
     assert from_json_builder(Box[int])(json.loads(encoded)) == Box[int](3)
 
 
+def test_parameterized_dataclass_can_be_assigned_to_bundle_output():
+    @compute_node
+    def echo(box: TSB[Box[int]]) -> TSB[Box[int]]:
+        return box.value
+
+    assert eval_node(echo, [Box(1), Box(2)]) == [{"value": 1}, {"value": 2}]
+
+
 def test_recursive_dataclass_schema_is_lazy():
     assert fields(Recursive) == {"child": Recursive}
 

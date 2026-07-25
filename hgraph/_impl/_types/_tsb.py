@@ -1,6 +1,6 @@
 from dataclasses import MISSING as DATACLASS_MISSING, dataclass, fields, is_dataclass
 from datetime import datetime
-from typing import Any, Mapping, Generic, TYPE_CHECKING, cast, Union
+from typing import Any, Mapping, Generic, TYPE_CHECKING, cast, Union, get_origin
 
 from hgraph._runtime._constants import MIN_DT
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
@@ -39,6 +39,10 @@ def _bundle_scalar_value(schema, items):
     return scalar_type(**{name: ts.value for name, ts in items})
 
 
+def _is_bundle_scalar_value(value, scalar_type) -> bool:
+    return type(value) is (get_origin(scalar_type) or scalar_type)
+
+
 # With Bundles there are two implementation types, namely bound and un-bound.
 # Bound bundles are those that are bound to a specific output, and un-bound bundles are those that are not.
 # A bound bundle has a peer output of the same shape that this bundle can map directly to. A bound bundle
@@ -66,7 +70,7 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
         if v is None:
             self.invalidate()
         else:
-            if type(v) is self.__schema__.scalar_type():
+            if _is_bundle_scalar_value(v, self.__schema__.scalar_type()):
                 for k in self.__schema__._schema_keys():
                     if (i := getattr(v, k, None)) is not None:
                         cast(TimeSeriesOutput, self[k]).value = i
@@ -93,7 +97,7 @@ class PythonTimeSeriesBundleOutput(PythonTimeSeriesOutput, TimeSeriesBundleOutpu
         if result is None:
             return True
         else:
-            if type(result) is self.__schema__.scalar_type():
+            if _is_bundle_scalar_value(result, self.__schema__.scalar_type()):
                 return self.modified
             else:
                 for k, v_ in result.items():
