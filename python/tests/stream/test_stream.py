@@ -98,3 +98,44 @@ def test_reduce_stream_statuses_and_messages_use_current_tsd_state():
         _reduce_message_dict,
         [{1: "failed a", 2: "failed b"}, {1: hg.REMOVE}],
     ) == ["failed a; failed b", "failed b"]
+
+
+def test_stream_accepts_python_owned_dataclass_payload():
+    # Issue #36: a frozen python-owned dataclass is a structured payload and
+    # flattens exactly like a CompoundScalar payload.
+    from dataclasses import dataclass
+
+    from hgraph.reflection import fields
+
+    @dataclass(frozen=True)
+    class Payload:
+        value: int
+
+    assert fields(TSB[Stream[Payload]]) == {
+        "value": TS[int],
+        "status": TS[StreamStatus],
+        "status_msg": TS[str],
+    }
+
+    stream_type = TSB[Stream[Payload]]
+
+    @graph
+    def make_stream(value: TS[int]) -> stream_type:
+        return combine[stream_type](
+            status=StreamStatus.OK,
+            status_msg="",
+            value=value,
+        )
+
+    assert eval_node(make_stream, [7]) == [{
+        "status": StreamStatus.OK,
+        "status_msg": "",
+        "value": 7,
+    }]
+
+
+def test_stream_still_rejects_unstructured_payloads():
+    import pytest
+
+    with pytest.raises(TypeError, match="structured dataclass"):
+        Stream[int]
