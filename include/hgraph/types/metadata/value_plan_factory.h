@@ -116,6 +116,16 @@ namespace hgraph
             const ValueTypeMetaData *schema,
             std::span<const ValueTypeRef> field_bindings);
 
+        /**
+         * Build a structural Tuple/Bundle projection from explicit field
+         * bindings while retaining ``schema`` as the binding's nominal
+         * identity. Unlike ``realized_composite_type_for``, this accepts
+         * Owned schemas whose canonical storage is non-composite.
+         */
+        [[nodiscard]] ValueTypeRef projected_composite_type_for(
+            const ValueTypeMetaData *schema,
+            std::span<const ValueTypeRef> field_bindings);
+
         /** Binding lookup only; never synthesises. Returns ``nullptr`` when missing. */
         [[nodiscard]] ValueTypeRef find_type(const ValueTypeMetaData *schema) const;
 

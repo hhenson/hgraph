@@ -287,6 +287,32 @@ TEST_CASE("ValuePlanFactory: tuple synthesis matches MemoryUtils::tuple_plan")
     REQUIRE(&plan->component(2).plan->array_element_plan() == &MemoryUtils::plan_for<std::uint64_t>());
 }
 
+TEST_CASE("ValuePlanFactory projects an Owned Bundle onto structural storage")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    auto       &factory  = ValuePlanFactory::instance();
+    const auto *integer = registry.value_type("int");
+    REQUIRE(integer != nullptr);
+    const auto *bundle =
+        registry.bundle("tests.plan", "ProjectedBundle", {{"value", integer}});
+    const auto *owned = registry.owned(bundle);
+    const auto integer_binding = factory.type_for(integer);
+
+    const std::array fields{integer_binding};
+    const auto projected = factory.projected_composite_type_for(owned, fields);
+
+    REQUIRE(projected.schema() == owned);
+    REQUIRE(projected.checked_plan().is_composite());
+    REQUIRE(projected.checked_plan().component_count() == 2);
+    const auto *indexed = checked_value_ops<IndexedValueOps>(
+        projected, "projected Owned Bundle");
+    REQUIRE(indexed->size(indexed->context, nullptr) == 1);
+    REQUIRE(indexed->element_binding(indexed->context, nullptr, 0) ==
+            integer_binding);
+}
+
 TEST_CASE("ValuePlanFactory: bundle synthesis preserves field names and shape")
 {
     using namespace hgraph;

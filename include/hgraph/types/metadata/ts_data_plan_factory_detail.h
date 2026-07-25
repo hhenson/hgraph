@@ -27,6 +27,9 @@ namespace hgraph::ts_data_plan_factory_detail
     [[nodiscard]] const MemoryUtils::StoragePlan &ts_data_aux_plan(const TSValueTypeMetaData &schema);
     [[nodiscard]] const MemoryUtils::StoragePlan &ts_data_aux_plan(const TSValueTypeMetaData &schema,
                                                                   TypeRole role);
+    [[nodiscard]] ValueTypeRef fixed_value_storage_binding(
+        const TSValueTypeMetaData &schema,
+        ValueTypeRef value_binding);
     [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_fixed_plan(const TSValueTypeMetaData &schema);
     [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_dynamic_list_plan(const TSValueTypeMetaData &schema);
     [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_window_plan(const TSValueTypeMetaData &schema);

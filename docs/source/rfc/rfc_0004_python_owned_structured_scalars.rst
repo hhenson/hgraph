@@ -777,7 +777,12 @@ binding. Its complete read-only ``IndexedValueOps`` surface projects declared
 attributes lazily, so ``BundleView`` and generic Bundle operators do not need
 to know which storage policy owns the value. ``TSB`` continues to hold the
 anonymous structural field representation and constructs the Python object
-only when converted to the scalar form.
+only when converted to the scalar form. Realised ``TSB`` output storage keeps
+that structural field layout even when the owning binding is a non-composite
+closed polymorphic union. The projection is recursive, so named Python-owned
+bundles nested inside anonymous structural bundles keep the same layout
+contract. This applies equally to standalone bundles and bundles held in
+``TSD`` slots.
 
 One representation-neutral capability was added to erased value operations:
 an owning binding may decide whether a partially valid indexed source contains

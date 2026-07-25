@@ -1975,6 +1975,36 @@ ValueTypeRef ValuePlanFactory::realized_composite_type_for(
   return realized_composite_cache().get(*schema, std::move(fields));
 }
 
+ValueTypeRef ValuePlanFactory::projected_composite_type_for(
+    const ValueTypeMetaData *schema,
+    std::span<const ValueTypeRef> field_bindings) {
+  if (schema == nullptr ||
+      (schema->value_kind() != ValueTypeKind::Tuple &&
+       schema->value_kind() != ValueTypeKind::Bundle)) {
+    throw std::invalid_argument(
+        "projected_composite_type_for requires a Tuple or Bundle schema");
+  }
+  if (field_bindings.size() != schema->field_count) {
+    throw std::invalid_argument(
+        "projected_composite_type_for field count does not match its schema");
+  }
+  std::vector<ValueTypeRef> fields{field_bindings.begin(),
+                                   field_bindings.end()};
+  for (std::size_t index = 0; index < fields.size(); ++index) {
+    const auto *field_schema = fields[index] ? fields[index].schema() : nullptr;
+    const auto *declared = schema->fields[index].type;
+    const bool cycle_owner = field_schema != nullptr &&
+                             field_schema->is_owned() &&
+                             field_schema->element_type == declared;
+    if (field_schema != declared && !cycle_owner) {
+      throw std::invalid_argument(
+          "projected_composite_type_for received an incompatible field "
+          "binding");
+    }
+  }
+  return realized_composite_cache().get(*schema, std::move(fields));
+}
+
 void ValuePlanFactory::reset() noexcept {
   std::lock_guard<std::mutex> lock(mutex_);
   cache_.clear();

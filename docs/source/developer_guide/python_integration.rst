@@ -439,7 +439,10 @@ Recorded divergences / gaps (the morning-summary list):
   frame-local resolution), and a ``CONTEXT[TS[X]] = None`` parameter on a
   user node resolves by type/name — ``REQUIRED`` / ``REQUIRED["name"]`` /
   a call-site ``context="name"`` override, ``WiringError`` on failure; the
-  resolved context VALUE is entered (context-manager protocol) around each
+  type-based compatibility check normalises parameterised Python aliases to
+  their origin class, so a published ``TSB[Price[float]]`` satisfies a context
+  requested through a non-generic base class of ``Price``; the resolved
+  context VALUE is entered (context-manager protocol) around each
   eval, exactly hgraph's semantics. The C++-design-record API also stands:
   ``with hg.context("name", port)`` + ``hg.context.get/has`` over the
   string-keyed scope stack. Underpinning both: **arbitrary python objects
