@@ -97,7 +97,9 @@ namespace hgraph::stdlib
     };
 
     /** ``to_window`` — convert ``ts`` into a ``TSW`` time-series window of
-        ``period`` ticks, valid once ``min_window_period`` ticks arrived. */
+        ``period`` ticks, valid once ``min_window_period`` ticks arrived.
+        An optional ``reset`` SIGNAL overload clears retained ticks before
+        admitting a source tick from the same evaluation cycle. */
     struct to_window : Operator<"to_window", In<"ts", TsVar<"S">>, Scalar<"period", Int>,
                                 Scalar<"min_window_period", Int>, Out<TsVar<"O">>>
     {

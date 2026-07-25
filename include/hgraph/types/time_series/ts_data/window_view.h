@@ -61,6 +61,9 @@ namespace hgraph
         [[nodiscard]] bool has_removed_value(DateTime evaluation_time) const;
         [[nodiscard]] ValueView removed_value(DateTime evaluation_time) const;
 
+        /** True when clear participated in the supplied evaluation cycle. */
+        [[nodiscard]] bool cleared(DateTime evaluation_time) const;
+
         /** Time associated with the oldest element, or ``MIN_DT`` when empty. */
         [[nodiscard]] DateTime first_modified_time() const;
 
@@ -119,6 +122,15 @@ namespace hgraph
         /** Append one window tick. Only one tick is accepted per evaluation time. */
         void push(const ValueView &source);
 
+        /**
+         * Remove every retained tick and mark the window modified.
+         *
+         * One push may follow through this same mutation scope, allowing
+         * reset-before-current-value semantics without exposing an
+         * intermediate window state.
+         */
+        void clear();
+
         /** Replace the window from a value-layer window/list representation. */
         [[nodiscard]] bool copy_value_from(const ValueView &source);
 
@@ -128,6 +140,7 @@ namespace hgraph
         TSWDataMutationView(TSWDataStorageRef storage, DateTime evaluation_time, TrustedStorageTag);
 
         TSDataMutationView mutation_;
+        bool               cleared_{false};
     };
 }  // namespace hgraph
 

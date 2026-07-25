@@ -78,6 +78,28 @@ namespace hgraph::stdlib
             }
         };
 
+        /**
+         * Resettable tick-count TSW. Reset is processed before a simultaneous
+         * source tick, so the resulting window begins with the current value.
+         */
+        struct to_window_reset_impl : to_window_impl
+        {
+            static constexpr auto name = "to_window_reset";
+
+            static void eval(In<"ts", TS<ScalarVar<"T">>, InputValidity::Unchecked> ts,
+                             Scalar<"period", Int>,
+                             Scalar<"min_window_period", Int>,
+                             In<"reset", SIGNAL, InputValidity::Unchecked> reset,
+                             Out<TsVar<"__out__">> out)
+            {
+                const auto &erased   = static_cast<const TSOutputView &>(out);
+                auto        window   = erased.as_window();
+                auto        mutation = window.begin_mutation(erased.evaluation_time());
+                if (reset.modified()) { mutation.clear(); }
+                if (ts.modified() && ts.valid()) { mutation.push(ts.base().value()); }
+            }
+        };
+
         /** Window readiness: size windows need min_period elements, duration
             windows need the newest-oldest span to reach min_time_range
             (mirrors the data layer's all_valid). */
@@ -128,6 +150,25 @@ namespace hgraph::stdlib
                 auto        window   = erased.as_window();
                 auto        mutation = window.begin_mutation(erased.evaluation_time());
                 mutation.push(ts.base().value());
+            }
+        };
+
+        /** Resettable duration TSW with the same reset-before-source ordering. */
+        struct to_window_duration_reset_impl : to_window_duration_impl
+        {
+            static constexpr auto name = "to_window_duration_reset";
+
+            static void eval(In<"ts", TS<ScalarVar<"T">>, InputValidity::Unchecked> ts,
+                             Scalar<"period", TimeDelta>,
+                             Scalar<"min_window_period", TimeDelta>,
+                             In<"reset", SIGNAL, InputValidity::Unchecked> reset,
+                             Out<TsVar<"__out__">> out)
+            {
+                const auto &erased   = static_cast<const TSOutputView &>(out);
+                auto        window   = erased.as_window();
+                auto        mutation = window.begin_mutation(erased.evaluation_time());
+                if (reset.modified()) { mutation.clear(); }
+                if (ts.modified() && ts.valid()) { mutation.push(ts.base().value()); }
             }
         };
 

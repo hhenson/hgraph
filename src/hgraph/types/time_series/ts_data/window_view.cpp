@@ -162,6 +162,13 @@ namespace hgraph
         return ValueView{data_layout.element_binding, ops.evicted_element_impl(ops.context, memory)};
     }
 
+    bool TSWDataView::cleared(DateTime evaluation_time) const
+    {
+        const auto &ops = window_ops();
+        return evaluation_time != MIN_DT && ops.cleared_time_impl != nullptr &&
+               ops.cleared_time_impl(ops.context, storage_.data()) == evaluation_time;
+    }
+
     DateTime TSWDataView::first_modified_time() const
     {
         const auto &ops = window_ops();
@@ -341,7 +348,7 @@ namespace hgraph
     void TSWDataMutationView::push(const ValueView &source)
     {
         const auto &ops = window_ops();
-        if (mutation_.modified(ops, current_mutation_time()))
+        if (mutation_.modified(ops, current_mutation_time()) && !cleared_)
         {
             throw std::logic_error("TSWDataMutationView::push allows only one window tick per evaluation time");
         }
@@ -351,6 +358,23 @@ namespace hgraph
         }
         ops.push_impl(ops.context, mutation_.mutable_data(ops), source, current_mutation_time());
         mutation_.mark_modified(ops);
+        cleared_ = false;
+    }
+
+    void TSWDataMutationView::clear()
+    {
+        const auto &ops = window_ops();
+        if (mutation_.modified(ops, current_mutation_time()))
+        {
+            throw std::logic_error("TSWDataMutationView::clear allows only one reset per evaluation time");
+        }
+        if (ops.clear_impl == nullptr)
+        {
+            throw std::logic_error("TSWDataMutationView::clear is not supported by this TSW ops");
+        }
+        ops.clear_impl(ops.context, mutation_.mutable_data(ops), current_mutation_time());
+        mutation_.mark_modified(ops);
+        cleared_ = true;
     }
 
     bool TSWDataMutationView::copy_value_from(const ValueView &source)
