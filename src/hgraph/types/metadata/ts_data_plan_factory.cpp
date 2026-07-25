@@ -359,9 +359,12 @@ namespace hgraph
             }
         }
 
+        const auto storage_binding =
+            fixed ? plan_detail::fixed_value_storage_binding(*schema, value_binding)
+                  : value_binding;
         auto builder = MemoryUtils::named_tuple();
         builder.reserve(2);
-        builder.add_field("value", value_binding.checked_plan());
+        builder.add_field("value", storage_binding.checked_plan());
         if (scalar) { builder.add_field("tracking", MemoryUtils::plan_for<TSDataTracking>()); }
         else
         {

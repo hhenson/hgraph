@@ -14,6 +14,7 @@ from hgraph import (
     TimeSeriesSchema,
     combine,
     compute_node,
+    const,
     convert,
     dispatch_,
     drop_dups,
@@ -211,6 +212,10 @@ def test_tsb_round_trip_preserves_a_python_owned_polymorphic_field():
         expiry: str
 
     @dataclass(frozen=True)
+    class Cash(Instrument):
+        currency: str
+
+    @dataclass(frozen=True)
     class Envelope:
         instrument: Instrument
 
@@ -223,6 +228,69 @@ def test_tsb_round_trip_preserves_a_python_owned_polymorphic_field():
     result = eval_node(round_trip, [future])
     assert result == [Envelope(future)]
     assert type(result[0].instrument) is Future
+
+    cash = Cash("USD", "USD")
+    assert eval_node(round_trip, [future, cash, future]) == [
+        Envelope(future),
+        Envelope(cash),
+        Envelope(future),
+    ]
+
+
+def test_tsd_of_generic_python_dataclass_bundles_tears_down_cleanly():
+    T = TypeVar("T")
+
+    @dataclass(frozen=True)
+    class Unit:
+        name: str
+
+    @dataclass(frozen=True)
+    class PrimaryUnit(Unit):
+        dimension: str
+
+    @dataclass(frozen=True)
+    class Price(Generic[T]):
+        qty: T
+        currency_unit: Unit
+        unit: Unit
+
+    @dataclass(frozen=True)
+    class Submission:
+        instrument: str
+        price: Price[float]
+
+    @graph
+    def ignore(values: TSD[str, TSB[Price[float]]]) -> TS[int]:
+        return const(1)
+
+    @graph
+    def ignore_nested(values: TSD[int, TSB[Submission]]) -> TS[int]:
+        return const(1)
+
+    gbp_usd = Price(
+        1.25,
+        PrimaryUnit("USD", "currency"),
+        PrimaryUnit("GBP", "currency"),
+    )
+    usd_gbp = Price(
+        0.8,
+        PrimaryUnit("GBP", "currency"),
+        PrimaryUnit("USD", "currency"),
+    )
+    assert eval_node(
+        ignore,
+        [
+            None,
+            {
+                "GBPUSD": gbp_usd,
+                "USDGBP": usd_gbp,
+            },
+        ],
+    ) == [1, None]
+    assert eval_node(
+        ignore_nested,
+        [None, {1: Submission("GBPUSD", gbp_usd)}],
+    ) == [1, None]
 
 
 def test_combine_and_tsb_round_trip_use_the_python_constructor():

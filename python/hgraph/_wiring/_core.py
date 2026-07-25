@@ -427,6 +427,8 @@ def _resolve_context(ctx_expr, name=None, resolution_scope=None):
     Generic annotations bind through the caller's native ResolutionScope so
     repeated uses of one type variable remain consistent.
     """
+    import typing
+
     from .._types import (
         _GenericTsExpr,
         _TSB_SCHEMA_CLASSES,
@@ -456,6 +458,8 @@ def _resolve_context(ctx_expr, name=None, resolution_scope=None):
                     _hgraph.tsb_value_vt(candidate))
                 if published_class is None:
                     published_class = _TSB_SCHEMA_CLASSES.get(candidate)
+            requested_class = typing.get_origin(requested_class) or requested_class
+            published_class = typing.get_origin(published_class) or published_class
             matches = (
                 isinstance(requested_class, type)
                 and isinstance(published_class, type)

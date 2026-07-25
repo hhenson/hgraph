@@ -1,9 +1,13 @@
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 import pytest
 
 import hgraph as hg
 from hgraph.test import eval_node
+
+
+T = TypeVar("T")
 
 
 class _TestContext:
@@ -204,3 +208,82 @@ def test_compound_context_selects_a_compatible_base_type():
             return read_context(trigger)
 
     assert eval_node(app, [True, None, False]) == ["bundle", None, "bundle"]
+
+
+def test_parameterized_dataclass_context_selects_a_compatible_base_type():
+    @dataclass(frozen=True)
+    class ContextValue(_TestContext, Generic[T]):
+        value: T
+        msg: str = "generic bundle"
+
+    @hg.compute_node(valid=("trigger", "context"))
+    def read_context(
+        trigger: hg.TS[bool], context: hg.CONTEXT[_TestContext] = None,
+    ) -> hg.TS[str]:
+        return _TestContext.instance().msg
+
+    @hg.graph
+    def app(trigger: hg.TS[bool]) -> hg.TS[str]:
+        with hg.combine[hg.TSB[ContextValue[int]]](
+            value=1, msg="generic bundle"
+        ):
+            return hg.switch_(
+                trigger,
+                {
+                    True: lambda selected: read_context(selected),
+                    False: lambda selected: hg.format_(
+                        "{} false", read_context(selected)
+                    ),
+                },
+                trigger,
+            )
+
+    assert eval_node(app, [True, None, False]) == [
+        "generic bundle",
+        None,
+        "generic bundle false",
+    ]
+
+
+def test_parameterized_dataclass_context_from_service_crosses_switch_boundary():
+    @dataclass(frozen=True)
+    class ContextValue(_TestContext, Generic[T]):
+        value: T
+        msg: str
+
+    @hg.subscription_service
+    def lookup(key: hg.TS[str]) -> hg.TSB[ContextValue[int]]: ...
+
+    @hg.service_impl(interfaces=lookup)
+    def lookup_impl(keys: hg.TSS[str]) -> hg.TSD[str, hg.TSB[ContextValue[int]]]:
+        return hg.map_(
+            lambda key: hg.TSB[ContextValue[int]].from_ts(value=1, msg=key),
+            __keys__=keys,
+        )
+
+    @hg.compute_node(valid=("trigger", "context"))
+    def read_context(
+        trigger: hg.TS[bool], context: hg.CONTEXT[_TestContext] = None,
+    ) -> hg.TS[str]:
+        return _TestContext.instance().msg
+
+    @hg.graph
+    def app(trigger: hg.TS[bool], key: hg.TS[str]) -> hg.TS[str]:
+        hg.register_service(hg.default_path, lookup_impl)
+        with lookup(key):
+            return hg.switch_(
+                trigger,
+                {
+                    True: lambda selected: read_context(selected),
+                    False: lambda selected: hg.format_(
+                        "{} false", read_context(selected)
+                    ),
+                },
+                trigger,
+            )
+
+    assert eval_node(app, [True, None, False], ["context"]) == [
+        None,
+        "context",
+        "context false",
+    ]
