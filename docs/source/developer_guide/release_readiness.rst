@@ -3,7 +3,10 @@ Release readiness
 
 This is the operational release contract for the ``hg_cpp 0.4`` line. The
 distribution validates the C++ runtime and Python compatibility package in the
-wild; it is not the upstream ``hgraph`` distribution.
+wild; it is not the upstream ``hgraph`` distribution. The successor contract —
+the ``hgraph 1.x`` line this distribution graduates into — is proposed by
+:doc:`../rfc/rfc_0005_hgraph_1_0_api`; this page is rewritten to the 1.x
+contract when that RFC is accepted.
 
 Compatibility policy
 --------------------
