@@ -201,7 +201,7 @@ class CompoundScalar(AbstractSchema):
         super().__init_subclass__(**kwargs)
         if cpp_native is CompoundScalar._CPP_NATIVE_NOT_SET:
             # Not explicitly set - inherit from parent class
-            cls.__cpp_native__ = getattr(cls, '__cpp_native__', False)
+            cls.__cpp_native__ = getattr(cls, "__cpp_native__", False)
         else:
             # Explicitly set - use the provided value
             cls.__cpp_native__ = cpp_native
@@ -448,7 +448,7 @@ class STATE(Generic[COMPOUND_SCALAR]):
 
     def __delattr__(self, key):
         if key in ["_value", "__schema__", "_updated"]:
-            pass # can't remove those
+            pass  # can't remove those
         else:
             value_ = self.__dict__["_value"]
             schema = self.__dict__["__schema__"]
@@ -484,7 +484,8 @@ def is_keyable_scalar(value) -> bool:
     This is not a substitute for HgScalarType.parse.
     """
     return (
-        isinstance(
+        (is_dataclass(value) and (value if isinstance(value, type) else type(value)).__hash__ is not None)
+        or isinstance(
             value,
             (
                 bool,

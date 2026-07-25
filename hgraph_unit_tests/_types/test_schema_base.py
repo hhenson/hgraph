@@ -9,12 +9,20 @@ from hgraph import (
     HgTypeMetaData,
     TimeSeriesSchema,
     TS,
+    TSB,
     HgCompoundScalarType,
     from_json_builder,
 )
 from hgraph._impl._operators._to_json import to_json_converter, from_json_converter
 from hgraph._types._scalar_types import COMPOUND_SCALAR_1
+from hgraph.reflection import fields
+from hgraph.stream import Stream, StreamStatus
 from frozendict import frozendict as fd
+
+
+@dataclass(frozen=True)
+class PlainDataclassPayload:
+    value: int
 
 
 def test_schema_base():
@@ -32,6 +40,21 @@ def test_schema_base():
     assert "p2" in tp.__meta_data_schema__
     assert issubclass(tp, SimpleCompoundScalar)
     assert issubclass(tp, GenericallyDerivedCompoundScalar)
+
+
+def test_schema_base_supports_plain_dataclasses():
+    stream = Stream[PlainDataclassPayload]
+
+    assert fields(stream) == {
+        "status": StreamStatus,
+        "status_msg": str,
+        "value": int,
+    }
+    assert fields(TSB[stream]) == {
+        "status": TS[StreamStatus],
+        "status_msg": TS[str],
+        "value": TS[int],
+    }
 
 
 def test_schema_base_generic():
@@ -103,7 +126,7 @@ def test_schema_base_generic():
     meta6 = meta4.resolve(resolution_dict)
     assert meta6 == meta5
     assert meta6.scalar_type() == meta5.scalar_type()
-    
+
     assert meta4.matches(meta6)
 
 
