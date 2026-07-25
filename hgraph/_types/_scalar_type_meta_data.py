@@ -4,7 +4,7 @@ import types
 import typing
 from abc import abstractmethod
 from collections.abc import Mapping, Set
-from dataclasses import fields, is_dataclass
+from dataclasses import MISSING as DATACLASS_MISSING, fields, is_dataclass
 from datetime import date, datetime, time, timedelta
 from enum import Enum
 from functools import partial
@@ -104,6 +104,7 @@ class HgScalarTypeMetaData(HgTypeMetaData):
 
 
 _DATACLASS_SCALAR_SCHEMA_CACHE = {}
+_DATACLASS_ATTRIBUTE_MISSING = object()
 
 
 def _dataclass_scalar_origin(tp):
@@ -115,6 +116,18 @@ def _dataclass_scalar_origin(tp):
 
 def _is_dataclass_scalar_type(tp) -> bool:
     return _dataclass_scalar_origin(tp) is not None
+
+
+def _set_dataclass_hgraph_attributes(origin, attributes):
+    for name, value in attributes.items():
+        existing = vars(origin).get(name, _DATACLASS_ATTRIBUTE_MISSING)
+        if existing is not _DATACLASS_ATTRIBUTE_MISSING and existing != value:
+            raise ParseError(
+                f"Dataclass '{origin.__qualname__}' defines reserved hgraph attribute '{name}' "
+                "with an incompatible value"
+            )
+    for name, value in attributes.items():
+        setattr(origin, name, value)
 
 
 def _substitute_type_vars(tp, substitutions):
@@ -175,18 +188,25 @@ def _dataclass_scalar_schema(tp):
         schema[field.name] = field_type
 
     schema = frozendict(schema)
-    _DATACLASS_SCALAR_SCHEMA_CACHE[tp] = schema
+    constructor_fields = tuple(field.name for field in fields(origin) if field.init)
+    required_fields = tuple(
+        field.name
+        for field in fields(origin)
+        if field.init and field.default is DATACLASS_MISSING and field.default_factory is DATACLASS_MISSING
+    )
 
-    # A few older integrations still inspect concrete scalar classes directly.
-    # Keep those paths working without replacing or wrapping the user's class.
-    origin.__serialise_discriminator_field__ = None
-    origin.__serialise_children__ = {}
-    origin.__serialise_base__ = False
-    origin.__cpp_native__ = False
-    origin.__hgraph_bundle_constructor_fields__ = tuple(field.name for field in fields(origin) if field.init)
+    # A few integrations inspect concrete scalar classes directly. Keep those
+    # paths working without replacing or wrapping the user's class, and reject
+    # incompatible user-defined values instead of silently overwriting them.
+    attributes = {
+        "__hgraph_bundle_constructor_fields__": constructor_fields,
+        "__hgraph_bundle_required_fields__": required_fields,
+    }
     if tp is origin:
-        origin.__meta_data_schema__ = schema
+        attributes["__meta_data_schema__"] = schema
 
+    _set_dataclass_hgraph_attributes(origin, attributes)
+    _DATACLASS_SCALAR_SCHEMA_CACHE[tp] = schema
     return schema
 
 
@@ -1251,8 +1271,8 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         # Detect recursion - for recursive compound scalars, fall back to Python handling
         if SchemaRecurseContext.is_in_context(self.py_type):
             return None
-        # Check if this CompoundScalar should use C++ field expansion
-        if getattr(self.py_type, "__cpp_native__", False):
+        # Plain dataclasses retain their Python identity and always use opaque storage.
+        if not _is_dataclass_scalar_type(self.py_type) and getattr(self.py_type, "__cpp_native__", False):
             return self._get_expanded_cpp_type()
         else:
             return self._get_opaque_cpp_type()

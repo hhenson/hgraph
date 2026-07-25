@@ -77,14 +77,16 @@ def _construct_dataclass_from_bundle(tp, bundle, strict):
     return tp(**values)
 
 
-def _structured_scalar_to_dict(value):
+def _structured_scalar_to_dict(value, *, include_none=False):
     if isinstance(value, CompoundScalar):
         return value.to_dict()
     scalar = HgScalarTypeMetaData.parse_type(type(value))
     if not isinstance(scalar, HgCompoundScalarType):
         raise TypeError(f"{type(value)} is not a structured scalar")
     return {
-        name: field_value for name in scalar.meta_data_schema if (field_value := getattr(value, name, None)) is not None
+        name: getattr(value, name, None)
+        for name in scalar.meta_data_schema
+        if include_none or getattr(value, name, None) is not None
     }
 
 
@@ -139,7 +141,7 @@ def combine_compound_scalars(orig: TS[COMPOUND_SCALAR], delta: TS[COMPOUND_SCALA
     """
     if not delta.valid:
         return orig.value
-    original_values = _structured_scalar_to_dict(o_v := orig.value)
+    original_values = _structured_scalar_to_dict(o_v := orig.value, include_none=True)
     items = [(key, value, original_values) for key, value in _structured_scalar_to_dict(delta.value).items()]
     while items:
         key, value, orig_values = items.pop()
@@ -170,7 +172,7 @@ def combine_cs_with(
     """
     if not bundle.valid:
         return orig.value
-    original_values = _structured_scalar_to_dict(o_v := orig.value)
+    original_values = _structured_scalar_to_dict(o_v := orig.value, include_none=True)
     items = [(key, value.value, original_values) for key, value in bundle.items()]
     while items:
         key, value, orig_values = items.pop()

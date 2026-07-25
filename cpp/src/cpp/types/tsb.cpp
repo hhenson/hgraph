@@ -190,14 +190,12 @@ namespace hgraph {
         return _schema->keys()[index];
     }
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
-    template<bool is_delta>
-    nb::object TimeSeriesBundle<T_TS>::py_value_with_constraint(
-const std::function < bool(const ts_type &) > &constraint)
-    const
- {
+    template <bool is_delta>
+    nb::object TimeSeriesBundle<T_TS>::py_value_with_constraint(const std::function<bool(const ts_type &)> &constraint) const {
         nb::dict out;
+        nb::dict present;
         for (size_t i = 0, l = ts_values().size(); i < l; ++i) {
             const auto &key = _schema->keys()[i];
             const auto &ts  = ts_values()[i];
@@ -208,8 +206,12 @@ const std::function < bool(const ts_type &) > &constraint)
                 } else {
                     val = ts->py_value();
                 }
-                // Only include entries that have an actual value. Some TS can be marked valid but carry no value.
-                if (val.is_valid() && !val.is_none()) { out[key.c_str()] = std::move(val); }
+                if (val.is_valid()) {
+                    present[key.c_str()] = nb::none();
+                    // Keep the existing dict representation compact, while
+                    // retaining enough information to reconstruct explicit None.
+                    if (!val.is_none()) { out[key.c_str()] = std::move(val); }
+                }
             }
         }
         // is_delta always returns dicts. For non-delta and when a scalar_type exists,
@@ -221,12 +223,15 @@ const std::function < bool(const ts_type &) > &constraint)
                 const bool python_owned{nb::hasattr(schema().scalar_type(), "__hgraph_bundle_constructor_fields__")};
                 nb::object constructor_fields{python_owned ? schema().scalar_type().attr("__hgraph_bundle_constructor_fields__")
                                                            : nb::none()};
+                nb::object required_fields{python_owned ? schema().scalar_type().attr("__hgraph_bundle_required_fields__")
+                                                        : nb::none()};
                 nb::dict   kwargs;
                 for (const auto &k : schema().keys()) {
                     if (python_owned && !nb::cast<bool>(constructor_fields.attr("__contains__")(k))) { continue; }
                     if (out.contains(k.c_str())) {
                         kwargs[k.c_str()] = out[k.c_str()];
-                    } else if (!python_owned) {
+                    } else if (!python_owned || present.contains(k.c_str()) ||
+                               nb::cast<bool>(required_fields.attr("__contains__")(k))) {
                         kwargs[k.c_str()] = nb::none();
                     }
                 }

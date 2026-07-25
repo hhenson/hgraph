@@ -105,6 +105,10 @@ Dataclass annotations describe the wiring schema; assigning a whole dataclass do
 replace the object's fields. Frozen dataclasses are recommended because mutating a retained object in place does not
 produce a new time-series tick.
 
+Schema discovery lazily attaches reserved ``__hgraph_bundle_*__`` and ``__meta_data_schema__`` metadata to the
+dataclass itself for compatibility with the Python and C++ runtimes. Defining incompatible values for these reserved
+attributes raises a type parsing error instead of being silently overwritten.
+
 Use ``CompoundScalar`` when its hgraph-specific helpers, serialisation hierarchy, or C++ field-expanded storage are
 required. Use a plain dataclass when preserving the application's Python class, constructor, properties, equality,
 and object identity is the priority. The legacy ``CS[Model]`` adaptor remains useful when a distinct

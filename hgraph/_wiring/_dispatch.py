@@ -9,6 +9,12 @@ from hgraph._wiring._wiring_node_class import extract_resolution_dict, PreResolv
 __all__ = ("dispatch", "dispatch_")
 
 
+def _inheritance_distance(candidate: type, target: type) -> int:
+    if candidate is target:
+        return 0
+    return 1 + min(_inheritance_distance(base, target) for base in candidate.__bases__ if issubclass(base, target))
+
+
 def dispatch(fn: Callable = None, *, on: Tuple[str, ...] = None):
     """
     Decorator that converts a graph into a single or multiple dispatch graph. See dispatch_ for more details.
@@ -202,7 +208,7 @@ def _dispatch_impl(
                 candidates = []
                 for a_key in available_keys:
                     if issubclass(key.value, a_key):
-                        candidates.append((a_key, key.value.__mro__.index(a_key)))
+                        candidates.append((a_key, _inheritance_distance(key.value, a_key)))
                 if not candidates:
                     raise RuntimeError(f"No suitable overload found for {key.value}")
                 candidates.sort(key=lambda candidate: candidate[1])
@@ -228,7 +234,9 @@ def _dispatch_impl(
                 candidates = []
                 for a_keys in available_keys:
                     if all(issubclass(k, ak) for ak, k in zip(a_keys, key.value)):
-                        candidates.append((a_keys, sum(k.__mro__.index(ak) for ak, k in zip(a_keys, key.value))))
+                        candidates.append(
+                            (a_keys, sum(_inheritance_distance(k, ak) for ak, k in zip(a_keys, key.value)))
+                        )
                 if not candidates:
                     raise RuntimeError(f"No suitable overload found for {key.value}")
                 candidates.sort(key=lambda candidate: candidate[1])

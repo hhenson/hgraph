@@ -2,9 +2,13 @@ from dataclasses import dataclass, field
 import json
 from typing import Generic, TypeVar
 
+import pytest
+
 from hgraph import (
     HgCompoundScalarType,
     HgTypeMetaData,
+    NodeException,
+    ParseError,
     TS,
     TSB,
     combine,
@@ -71,6 +75,38 @@ class Recursive:
     child: "Recursive"
 
 
+@dataclass(frozen=True)
+class RequiredPair:
+    left: int
+    right: int
+
+
+@dataclass(frozen=True)
+class MaybeValue:
+    label: str | None
+    count: int
+
+
+@dataclass(frozen=True)
+class DispatchRoot:
+    pass
+
+
+@dataclass(frozen=True)
+class DispatchLeft(DispatchRoot):
+    pass
+
+
+@dataclass(frozen=True)
+class DispatchRight(DispatchRoot):
+    pass
+
+
+@dataclass(frozen=True)
+class DispatchBoth(DispatchLeft, DispatchRight):
+    pass
+
+
 def test_dataclass_is_a_nominal_compound_scalar():
     metadata = HgTypeMetaData.parse_type(TS[Quote]).value_scalar_tp
 
@@ -86,6 +122,10 @@ def test_dataclass_is_a_nominal_compound_scalar():
     assert scalar_type(TS[Quote]) is Quote
     assert is_compound_scalar(Quote)
     assert is_compound_scalar(TS[Quote])
+    assert "__serialise_discriminator_field__" not in vars(Quote)
+    assert "__serialise_children__" not in vars(Quote)
+    assert "__serialise_base__" not in vars(Quote)
+    assert "__cpp_native__" not in vars(Quote)
 
 
 def test_dataclass_value_and_field_projection_preserve_the_object():
@@ -159,6 +199,41 @@ def test_dataclass_reconstruction_honours_init_false_and_post_init():
     assert eval_node(read_bundle, [3]) == [Computed(3)]
 
 
+def test_partial_dataclass_bundle_value_supplies_none_for_missing_required_fields():
+    @compute_node
+    def bundle_value(bundle: TSB[RequiredPair]) -> TS[RequiredPair]:
+        return bundle.value
+
+    @graph
+    def read_bundle(left: TS[int], right: TS[int]) -> TS[RequiredPair]:
+        return bundle_value(combine[TSB[RequiredPair]](left=left, right=right))
+
+    assert eval_node(read_bundle, [1], [None]) == [RequiredPair(1, None)]
+
+
+def test_nonstrict_dataclass_conversion_supplies_none_for_missing_required_fields():
+    @graph
+    def from_partial_bundle(right: TS[int]) -> TS[RequiredPair]:
+        bundle = combine[TSB[RequiredPair]](right=right)
+        return convert[TS[RequiredPair]](bundle, __strict__=False)
+
+    assert eval_node(from_partial_bundle, [2]) == [RequiredPair(None, 2)]
+
+
+def test_dataclass_merge_preserves_required_none_values():
+    @graph
+    def merge_values(orig: TS[MaybeValue], delta: TS[MaybeValue]) -> TS[MaybeValue]:
+        return combine(orig, delta)
+
+    @graph
+    def update_count(orig: TS[MaybeValue], count: TS[int]) -> TS[MaybeValue]:
+        return combine[TS[MaybeValue]](orig, count=count)
+
+    original = MaybeValue(None, 1)
+    assert eval_node(merge_values, [original], [MaybeValue(None, 2)]) == [MaybeValue(None, 2)]
+    assert eval_node(update_count, [original], [3]) == [MaybeValue(None, 3)]
+
+
 def test_generic_dataclass_specializations_are_distinct_and_resolve_fields():
     integer_box = HgTypeMetaData.parse_type(TS[Box[int]]).value_scalar_tp
     string_box = HgTypeMetaData.parse_type(TS[Box[str]]).value_scalar_tp
@@ -213,6 +288,37 @@ def test_dataclass_hierarchy_supports_runtime_dispatch():
         return dispatch_(sound, animal)
 
     assert eval_node(app, [Dog("Fido", 3)]) == ["Fido:3"]
+
+
+def test_dataclass_multiple_inheritance_dispatch_reports_ambiguity():
+    @operator
+    def choose(value: TS[DispatchRoot]) -> TS[str]: ...
+
+    @compute_node(overloads=choose)
+    def choose_left(value: TS[DispatchLeft]) -> TS[str]:
+        return "left"
+
+    @compute_node(overloads=choose)
+    def choose_right(value: TS[DispatchRight]) -> TS[str]:
+        return "right"
+
+    @graph
+    def app(value: TS[DispatchRoot]) -> TS[str]:
+        return dispatch_(choose, value)
+
+    with pytest.raises(NodeException, match="Ambiguous dispatch"):
+        eval_node(app, [DispatchBoth()])
+
+
+def test_dataclass_reserved_metadata_is_not_silently_overwritten():
+    @dataclass(frozen=True)
+    class ReservedMetadata:
+        value: int
+
+        __hgraph_bundle_constructor_fields__ = ("different",)
+
+    with pytest.raises(ParseError, match="reserved hgraph attribute"):
+        HgTypeMetaData.parse_type(TS[ReservedMetadata]).value_scalar_tp.meta_data_schema
 
 
 def test_dataclass_json_round_trip_reconstructs_the_original_class():

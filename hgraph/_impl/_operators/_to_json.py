@@ -52,7 +52,9 @@ def to_json_converter(value: HgTypeMetaData, delta=False) -> Callable[[Any], str
 
 def _compound_scalar_parent_encode(value: HgCompoundScalarType, delta: bool):
     tp = get_origin(value.py_type) or value.py_type
-    switches = {v: to_json_converter(HgCompoundScalarType(v)) for v in tp.__serialise_children__.values()}
+    switches = {
+        v: to_json_converter(HgCompoundScalarType(v)) for v in getattr(tp, "__serialise_children__", {}).values()
+    }
     return lambda v: "null" if v is None else switches[type(v)](v)
 
 
@@ -60,16 +62,15 @@ def _compound_scalar_parent_encode(value: HgCompoundScalarType, delta: bool):
 def _(value: HgCompoundScalarType, delta=False) -> Callable[[Any], str]:
     tp = value.py_type
     origin = get_origin(tp) or tp
-    if origin.__serialise_base__:
+    if getattr(origin, "__serialise_base__", False):
         return _compound_scalar_parent_encode(value, delta)
     to_json = []
-    if (f := origin.__serialise_discriminator_field__) is not None and f not in value.meta_data_schema:
+    if (
+        f := getattr(origin, "__serialise_discriminator_field__", None)
+    ) is not None and f not in value.meta_data_schema:
         to_json.append(
             error_wrapper(
-                lambda v: (
-                    f'"{v.__serialise_discriminator_field__}":'
-                    f' "{getattr(v, v.__serialise_discriminator_field__, v.__class__.__name__)}"'
-                ),
+                lambda v, f_=f: f'"{f_}": "{getattr(v, f_, v.__class__.__name__)}"',
                 f"{str(value)}: __serialise_discriminator_field__",
             )
         )
@@ -240,14 +241,17 @@ def _(value: HgTSTypeMetaData, delta=False) -> Callable[[Any], Any]:
 def _compound_scalar_parent_decode(value: HgCompoundScalarType, delta: bool):
     tp = value.py_type
     origin = get_origin(tp) or tp
-    switches = {k: from_json_converter(HgCompoundScalarType(v)) for k, v in origin.__serialise_children__.items()}
-    discriminator = origin.__serialise_discriminator_field__
+    switches = {
+        k: from_json_converter(HgCompoundScalarType(v))
+        for k, v in getattr(origin, "__serialise_children__", {}).items()
+    }
+    discriminator = getattr(origin, "__serialise_discriminator_field__", None)
     return lambda v, switches_=switches, d=discriminator: switches_[v.get(d)](v) if v is not None else None
 
 
 @from_json_converter.register
 def _(value: HgCompoundScalarType, delta=False) -> Callable[[Any], Any]:
-    if (get_origin(value.py_type) or value.py_type).__serialise_base__:
+    if getattr(get_origin(value.py_type) or value.py_type, "__serialise_base__", False):
         return _compound_scalar_parent_decode(value, delta)
     fns = []
     for k, tp in value.meta_data_schema.items():
