@@ -49,6 +49,7 @@ test = [
     "connectorx>=0.4.5",
     "deltalake>=1.0",
     "duckdb>=1.4",
+    "hypothesis>=6",
     "pandas>=2.0",
     "packaging>=24",
     "polars[rtcompat]>=1.32",

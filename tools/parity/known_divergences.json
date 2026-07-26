@@ -12,15 +12,64 @@
       "issue": "https://github.com/hhenson/hg_cpp/issues/46",
       "reason": "Accepted deviation (same family as issue #44): a never-ticking TSD reduce with a non-identity zero publishes 2*zero in released hgraph (empty node tree, both leaves bound to zero) and exactly zero in hg_cpp. See the documented reduce deviation in docs/source/developer_guide/parity_matrix.rst.",
       "review_after": "2027-07-26"
+    },
+    {
+      "fingerprint": "e64b8a5662c389c92396ef0805a60bb97e109ee943222ed1e22fadbae88eb28e",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/64",
+      "reason": "Designed service-boundary timing (services.rst scheduling matrix): a service_adaptor request forwards next cycle by design, so the round trip lands one cycle after released hgraph's same-cycle adaptor wiring. Pinned by test_service_wiring.cpp service-adaptor cases.",
+      "review_after": "2027-07-26"
+    },
+    {
+      "fingerprint": "6d05f5590cc2ff1d6ff45fa63f5189771924d30b9df7d754569979a3d2718b0b",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/66",
+      "reason": "Designed service-boundary timing (services.rst scheduling matrix): a late/duplicate subscription samples the existing shared output in the same cycle, one cycle earlier than released hgraph's re-delivery. Pinned by test_service_wiring.cpp 'late duplicate subscription samples the existing value'.",
+      "review_after": "2027-07-26"
+    },
+    {
+      "fingerprint": "7834fe8ecb1c87ca79cd6ef4229a20376622857e8b1b7b56b6a76d02e4613182",
+      "issue": "https://github.com/hhenson/hg_cpp/pull/67",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst): a mesh over an initially empty key set emits no tick in hg_cpp where released hgraph ticks an empty map. Fingerprint pinned by test_parity_harness.py against the corpus recipe mesh-empty-initial-no-tick.",
+      "review_after": "2027-07-26"
     }
   ],
   "families": [
+    {
+      "family": "service-adaptor-transport-cycle",
+      "template": "service_adaptor_roundtrip",
+      "parameters_not_equal": {},
+      "relation": "service-adaptor-one-cycle",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/64",
+      "reason": "The designed service_adaptor request hop adds exactly one leading no-tick cycle to the hg_cpp trace. Suppress only when removing that cycle makes the complete payload trace equal to released hgraph.",
+      "review_after": "2027-07-26"
+    },
+    {
+      "family": "key-set-size-no-retick",
+      "template": "tsd_key_set_pipeline",
+      "parameters_not_equal": {
+        "dedup_size": true
+      },
+      "relation": "key-set-size-no-retick",
+      "float_abs_tolerance": 1e-12,
+      "issue": "https://github.com/hhenson/hg_cpp/issues/65",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst): suppress only when removing size fields from both dedup_size=false traces makes every other field equal within the template tolerance.",
+      "review_after": "2027-07-26"
+    },
+    {
+      "family": "service-resubscription-sampling",
+      "template": "service_subscription",
+      "parameters_not_equal": {},
+      "relation": "subscription-resample-one-cycle",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/66",
+      "reason": "Designed service-boundary timing: for a repeated non-null subscription key, hg_cpp samples the existing value in the repeat cycle while released hgraph re-delivers it one cycle later. Suppress only when inserting those delay cycles makes the payload traces equal.",
+      "review_after": "2027-07-26"
+    },
     {
       "family": "reduce-non-identity-zero",
       "template": "tsd_map_reduce",
       "parameters_not_equal": {
         "zero": 0
       },
+      "relation": "trace-value",
       "issue": "https://github.com/hhenson/hg_cpp/issues/44",
       "reason": "Released hgraph applies a non-identity reduce zero a capacity-history-dependent number of times; any mismatch with zero != 0 is the documented reduce deviation, not a candidate defect.",
       "review_after": "2027-07-26"

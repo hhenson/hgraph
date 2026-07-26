@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "issue-66-resubscribe-sampling",
+  "description": "Track the designed late-subscription sampling timing: re-subscribing a previously computed symbol delivers the existing value in the same cycle, one cycle earlier than released hgraph (known deviation, services.rst scheduling matrix).",
+  "template": "service_subscription",
+  "inputs": {
+    "symbol": [
+      "rates",
+      null,
+      "fx",
+      "rates"
+    ]
+  },
+  "parameters": {
+    "multiplier": 7,
+    "path": "live"
+  },
+  "features": [
+    "binding:non-peered",
+    "framework:service",
+    "lifecycle:keyed",
+    "lifecycle:transport-delay",
+    "reference:REF",
+    "service:subscription",
+    "shape:TS",
+    "shape:TSD",
+    "shape:TSL",
+    "shape:TSS"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/66"
+}

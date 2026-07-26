@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "issue-64-service-adaptor-cycle",
+  "description": "Track the designed service_adaptor transport timing: the round trip lands one cycle after released hgraph's same-cycle adaptor wiring (known deviation, services.rst scheduling matrix).",
+  "template": "service_adaptor_roundtrip",
+  "inputs": {
+    "value": [
+      1
+    ]
+  },
+  "parameters": {
+    "increment": 0
+  },
+  "features": [
+    "adaptor:multi-client",
+    "adaptor:service",
+    "binding:non-peered",
+    "framework:adaptor",
+    "implementation:path-injection",
+    "lifecycle:transport-delay",
+    "reference:REF",
+    "shape:TS",
+    "shape:TSD",
+    "shape:TSL"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/64"
+}
