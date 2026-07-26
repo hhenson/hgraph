@@ -4,8 +4,8 @@
     {
       "fingerprint": "81c998bdb8bbd40abf634dc8285a79830b5996564c52996222c2443110a35d89",
       "issue": "https://github.com/hhenson/hg_cpp/issues/44",
-      "reason": "TSD map/reduce empty transition applies a non-zero seed differently.",
-      "review_after": "2026-08-26"
+      "reason": "Accepted deviation: released hgraph applies a non-identity reduce zero a capacity-history-dependent number of times (tree leaves re-bound to zero); hg_cpp applies it deterministically. See the documented reduce deviation in docs/source/developer_guide/parity_matrix.rst.",
+      "review_after": "2027-07-26"
     }
   ]
 }

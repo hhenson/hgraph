@@ -173,6 +173,24 @@ namespace
         }
     };
 
+    struct MinusThreeInt
+    {
+        static constexpr auto name = "reduce_minus_three_int";
+
+        static void eval(In<"value", TS<Int>> value, Out<TS<Int>> out) { out.set(value.value() - 3); }
+    };
+
+    struct MappedReduceNonIdentityZeroGraph
+    {
+        static constexpr auto name = "mapped_reduce_non_identity_zero_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> values)
+        {
+            auto mapped = wire<stdlib::map_, TSD<Str, TS<Int>>>(w, fn<MinusThreeInt>(), values);
+            return wire<stdlib::reduce_>(w, fn<stdlib::add_>(), mapped, Int{-3}).as<TS<Int>>();
+        }
+    };
+
     using ReduceBundle = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Int>>>;
 
     struct SumBundleCombiner
@@ -858,6 +876,23 @@ TEST_CASE("reduce over TSD: a live time-series zero drives the empty result")
                                    dict_delta<Str, TS<Int>>({}, {"a"s})),
                      values<Int>(10, 20, none, 30, none, 40, none, none)),
                  values<Int>(10, 20, 25, 35, 7, none, 45, 40));
+}
+
+TEST_CASE("reduce over TSD: a mapped dictionary emptying publishes exactly zero (issue #44 recipe)")
+{
+    using namespace hgraph;
+    using namespace std::string_literals;
+    stdlib::register_standard_operators();
+
+    // The issue #44 minimized parity recipe: map_(v - 3) then reduce with the
+    // non-identity zero -3. The singleton evaluates add(-5, -3) = -8; the
+    // emptied dictionary publishes zero itself. Released hgraph publishes
+    // 2*zero here (a capacity-history artifact of its node tree) — a
+    // documented deviation; see parity_matrix.rst.
+    CHECK_OUTPUT(eval_node<MappedReduceNonIdentityZeroGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, -2}}),
+                                   dict_delta<Str, TS<Int>>({}, {"a"s}))),
+                 values<Int>(-8, -3));
 }
 
 TEST_CASE("reduce over TSD: fixed composite results remain projectable and follow structural changes")

@@ -143,6 +143,16 @@ public Python wiring coverage and add equivalent native C++ ``eval_node``
 coverage.  The differential harness does not replace the C++-first testing
 contract.
 
+A divergence may instead resolve as an **accepted deviation** when the
+reference behavior is an implementation artifact rather than a contract —
+for example, a value that depends on the reference's internal capacity
+history and that upstream's own suite never pins.  The resolution then
+records the deviation in ``parity_matrix.rst``, keeps the fingerprint in
+``known_divergences.json`` (pointing at that record), and still adds the
+same two tiers of coverage — asserting the ``hg_cpp`` behavior, so the
+intended semantics are pinned even though the traces intentionally differ.
+The corpus recipe remains a permanently known mismatch.
+
 CI and Security
 ---------------
 

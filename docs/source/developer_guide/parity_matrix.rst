@@ -538,7 +538,19 @@ Wiring and node-authoring surface
        inferred. Empty input remains invalid and a singleton bypasses the
        combiner. A supplied zero is the empty result and the singleton's second
        operand, but is ignored for two or more live values; unset ``TSL`` slots
-       do not participate.
+       do not participate. When the supplied zero is **not** the combiner's
+       identity, released hgraph's results are capacity-history-dependent: its
+       node tree re-binds freed and padding leaves to ``zero``, so with
+       ``add_`` and ``zero=-3`` three live keys publish ``sum + zero``
+       (capacity-4 tree, one padded leaf) and an emptied TSD publishes
+       ``2*zero`` or ``4*zero`` depending on how many keys the tree previously
+       held. Upstream's own suite only exercises identity zeros, so that
+       behaviour is an implementation artifact, not a contract; hg_cpp instead
+       applies zero the fixed number of times stated above, which coincides
+       with upstream everywhere the zero is an identity. Accepted deviation —
+       issue #44; pinned by ``python/tests/test_reduce_zero_semantics.py`` and
+       ``tests/cpp/test_reduce.cpp`` (issue-44 recipe case), suppressed by
+       fingerprint in ``tools/parity/known_divergences.json``.
    * - ``dispatch_``
      - Full for Bundle values
      - Native ``dispatch_cases`` / ``dispatch_case`` wiring builds a closed
