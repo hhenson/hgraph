@@ -310,6 +310,108 @@ def test_campaign_classifies_known_family_without_verification(monkeypatch, tmp_
     assert known["reduction"]["attempts"] == 0
 
 
+def test_family_suppression_covers_only_the_documented_difference(
+    monkeypatch, tmp_path
+):
+    # The reduce family's accepted deviation is a completed-run trace-value
+    # difference. A candidate crash inside the same parameter space is NOT
+    # the deviation and must continue through verification and publish as a
+    # verified failure. Likewise a recipe that omits the parameter runs at
+    # the template default (the identity), so it is outside the family.
+    families = [
+        {
+            "family": "reduce-non-identity-zero",
+            "template": "tsd_map_reduce",
+            "parameters_not_equal": {"zero": 0},
+        }
+    ]
+    known_path = tmp_path / "known_divergences.json"
+    known_path.write_text(
+        json.dumps(
+            {"schema_version": 1, "divergences": [], "families": families}
+        )
+    )
+    reference = {
+        "status": "ok",
+        "phase": "complete",
+        "trace": [-4, None],
+        "implementation": {"distribution": "hgraph", "version": "1"},
+    }
+
+    def campaign_for(recipe, candidate):
+        class Cache:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def run(self, *_args, **_kwargs):
+                return reference, False
+
+        monkeypatch.setattr("tools.parity.campaign.ReferenceTraceCache", Cache)
+        monkeypatch.setattr(
+            "tools.parity.campaign.run_recipe",
+            lambda interpreter, *_args, **_kwargs: (
+                reference if str(interpreter) == "reference" else candidate
+            ),
+        )
+        environments = ParityEnvironments(
+            reference_python=Path("reference"),
+            candidate_python=Path("candidate"),
+            reference_identity=reference["implementation"],
+            candidate_identity={"distribution": "hg_cpp", "version": "1"},
+            candidate_fingerprint="candidate-sha",
+        )
+        return run_campaign(
+            [recipe],
+            environments,
+            verify_replays=3,
+            reduce_failures=False,
+            known_divergences_path=known_path,
+            cache_path=tmp_path / "cache",
+        )
+
+    crashing_candidate = {
+        "status": "error",
+        "phase": "runtime",
+        "exception": {"category": "runtime", "type": "AttributeError"},
+        "implementation": {"distribution": "hg_cpp", "version": "1"},
+    }
+    in_family = Recipe.from_dict(
+        {
+            "schema_version": 1,
+            "id": "test-family-crash",
+            "description": "test",
+            "template": "tsd_map_reduce",
+            "inputs": {"values": [None, None]},
+            "parameters": {"increment": 1, "zero": -2},
+            "features": ["shape:TSD"],
+        }
+    )
+    report = campaign_for(in_family, crashing_candidate)
+    assert report["summary"]["verified_failures"] == 1
+    assert report["summary"]["known_failures"] == 0
+
+    value_candidate = {
+        "status": "ok",
+        "phase": "complete",
+        "trace": [-2, None],
+        "implementation": {"distribution": "hg_cpp", "version": "1"},
+    }
+    omitted_zero = Recipe.from_dict(
+        {
+            "schema_version": 1,
+            "id": "test-family-omitted-zero",
+            "description": "test",
+            "template": "tsd_map_reduce",
+            "inputs": {"values": [None, None]},
+            "parameters": {"increment": 1},
+            "features": ["shape:TSD"],
+        }
+    )
+    report = campaign_for(omitted_zero, value_candidate)
+    assert report["summary"]["verified_failures"] == 1
+    assert report["summary"]["known_failures"] == 0
+
+
 def test_generated_tsd_map_reduce_recipes_use_identity_zero():
     # Non-identity zeros are the documented reduce deviation: the generator
     # must not explore that space (differential results there measure the

@@ -50,13 +50,41 @@ def _matches_known_family(
     recipe: dict[str, Any], families: list[dict[str, Any]]
 ) -> bool:
     parameters = recipe.get("parameters") or {}
+    # A missing parameter resolves to the template default, which is the
+    # stated identity (e.g. tsd_map_reduce defaults zero to 0), so an omitted
+    # parameter never places a recipe inside a deviation family.
     return any(
         recipe.get("template") == family["template"]
         and all(
-            parameters.get(name) != identity
+            parameters.get(name, identity) != identity
             for name, identity in family["parameters_not_equal"].items()
         )
         for family in families
+    )
+
+
+def _is_known_family_failure(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    families: list[dict[str, Any]],
+) -> bool:
+    """True when a mismatch is the documented deviation itself.
+
+    Family suppression covers only the deviation's shape: both
+    implementations completed and disagreed on a trace value (for the reduce
+    family, the capacity-history-dependent application of a non-identity
+    zero). Anything else inside the parameter space — a candidate crash, a
+    status or shape difference — is not the documented deviation and must
+    continue through the normal verification and publishing pipeline.
+    """
+    return (
+        reference.get("status") == "ok"
+        and candidate.get("status") == "ok"
+        and difference.get("classification") == "value"
+        and str(difference.get("path", "")).startswith("$.trace")
+        and _matches_known_family(recipe, families)
     )
 
 
@@ -170,11 +198,17 @@ def run_campaign(
             )
             continue
 
-        if _matches_known_family(recipe.to_dict(), known_families):
-            # First-pass sanity check: a mismatch inside a documented
-            # deviation's parameter space is a known failure; do not spend
-            # verification replays or reduction budget minting a new
-            # fingerprint for it.
+        if _is_known_family_failure(
+            recipe.to_dict(),
+            difference.to_dict(),
+            reference,
+            candidate,
+            known_families,
+        ):
+            # First-pass sanity check: a completed-run trace-value mismatch
+            # inside a documented deviation's parameter space is a known
+            # failure; do not spend verification replays or reduction budget
+            # minting a new fingerprint for it.
             failure = {
                 "original_recipe": recipe.to_dict(),
                 "minimized_recipe": recipe.to_dict(),
@@ -334,8 +368,12 @@ def run_campaign(
             "reduction": reduction_payload,
         }
         failure["failure_fingerprint"] = failure_fingerprint(failure)
-        if failure["failure_fingerprint"] in known or _matches_known_family(
-            failure["minimized_recipe"], known_families
+        if failure["failure_fingerprint"] in known or _is_known_family_failure(
+            failure["minimized_recipe"],
+            failure["difference"],
+            failure["reference"],
+            failure["candidate"],
+            known_families,
         ):
             known_failures.append(failure)
         else:

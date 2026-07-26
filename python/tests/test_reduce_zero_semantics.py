@@ -15,8 +15,14 @@ hg_cpp instead applies ``zero`` deterministically:
 - one live value  -> the result is ``func(value, zero)``
 - two or more     -> ``zero`` is not an operand
 
+When ``zero`` is OMITTED the two implementations differ only on empty input:
+released hgraph always applies an inferred identity zero (an empty TSD ticks
+``0`` for int add), while hg_cpp never infers one — with no live values the
+output simply does not tick (stays invalid, or keeps its last value once it
+has ticked). For any non-empty input both produce identical results.
+
 With an identity ``zero`` the two implementations agree everywhere. These
-tests pin the hg_cpp behaviour for non-identity zeros. See issue #44 and the
+tests pin the hg_cpp behaviour for both arities. See issue #44 and the
 documented reduce deviation in ``docs/source/developer_guide/parity_matrix.rst``.
 """
 
@@ -76,3 +82,41 @@ def test_identity_zero_matches_upstream():
         [{"a": 1, "b": 2, "c": 3}, {"a": hg.REMOVE, "b": hg.REMOVE, "c": hg.REMOVE}],
     )
     assert out == [6, 0]
+
+
+def _map_reduce_no_zero(increment: int):
+    @graph
+    def map_reduce(values: TSD[str, TS[int]]) -> TS[int]:
+        mapped = hg.map_(lambda value: value + increment, values)
+        return hg.reduce(lambda lhs, rhs: lhs + rhs, mapped)
+
+    return map_reduce
+
+
+def test_omitted_zero_never_ticking_tsd_stays_invalid():
+    # Documented deviation (empty input only): released hgraph infers an
+    # identity zero and ticks 0 immediately; hg_cpp never infers a zero, so
+    # with no live values the output remains invalid and never ticks.
+    out = eval_node(_map_reduce_no_zero(increment=3), [None, None, None])
+    assert out is None
+
+
+def test_omitted_zero_emptied_tsd_does_not_tick():
+    # Documented deviation (empty input only): on emptying, released hgraph
+    # ticks the inferred zero (0); hg_cpp emits no tick and the output keeps
+    # its last value.
+    out = eval_node(
+        _map_reduce_no_zero(increment=0),
+        [{"a": 1}, {"b": 2}, {"a": hg.REMOVE, "b": hg.REMOVE}],
+    )
+    assert out == [1, 3, None]
+
+
+def test_omitted_zero_matches_upstream_while_values_are_live():
+    # Outside the empty case the omitted-zero arity matches released hgraph
+    # exactly: live values fold with no zero operand.
+    out = eval_node(
+        _map_reduce_no_zero(increment=0),
+        [{"a": 1, "b": 2, "c": 3}, {"a": 5}, {"c": hg.REMOVE}],
+    )
+    assert out == [6, 10, 7]
