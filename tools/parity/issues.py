@@ -202,10 +202,6 @@ def publish_failures(
                 issue
                 for issue in existing
                 if marker in (issue.get("body") or "")
-                or (
-                    issue.get("state", "").upper() == "OPEN"
-                    and issue.get("title") == title
-                )
             ),
             None,
         )

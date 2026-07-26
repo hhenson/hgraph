@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -294,6 +295,55 @@ def test_issue_payload_is_deterministic_and_dry_run_has_no_github_write():
             "body": issue_body(failure),
         }
     ]
+
+
+def test_issue_publisher_does_not_deduplicate_distinct_same_template_failures(
+    monkeypatch,
+):
+    failure = {
+        "failure_fingerprint": "new-fingerprint",
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace[1]",
+            "reference": 1,
+            "candidate": 2,
+        },
+        "reference": {"status": "ok", "trace": [1]},
+        "candidate": {"status": "ok", "trace": [2]},
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    existing = {
+        "number": 44,
+        "state": "OPEN",
+        "title": "[parity] scalar_expression differs from released hgraph",
+        "body": "<!-- hgraph-parity:other-fingerprint -->",
+        "url": "https://github.com/hhenson/hg_cpp/issues/44",
+    }
+    calls = []
+
+    monkeypatch.setattr(
+        "tools.parity.issues._existing_issues", lambda _repo: [existing]
+    )
+
+    def fake_gh(arguments, *, repo, capture=False):
+        calls.append((arguments, repo, capture))
+        return SimpleNamespace(
+            stdout="https://github.com/hhenson/hg_cpp/issues/45\n"
+        )
+
+    monkeypatch.setattr("tools.parity.issues._gh", fake_gh)
+
+    assert publish_failures(
+        [failure], repo="hhenson/hg_cpp", publish=True
+    ) == [
+        {
+            "action": "created",
+            "url": "https://github.com/hhenson/hg_cpp/issues/45",
+            "fingerprint": "new-fingerprint",
+        }
+    ]
+    assert any(arguments[:2] == ["issue", "create"] for arguments, _, _ in calls)
 
 
 def test_coverage_reports_operator_frontier_and_semantic_pairs():
