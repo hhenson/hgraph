@@ -38,6 +38,7 @@ from hgraph import (
     step,
     slice_,
     TSD,
+    len_,
     REMOVE,
     MIN_DT,
     Removed,
@@ -448,6 +449,24 @@ def test_drop_dups_tsd():
         return dedup(ts)
 
     assert eval_node(g, [{1: 1, 2: 2}, {1: 1, 2: 3}, {1: REMOVE, 2: 3}]) == [{1: 1, 2: 2}, {2: 3}, {1: REMOVE}]
+
+
+def test_drop_dups_tsd_preserves_initial_empty_value():
+    @graph
+    def g(ts: TSD[int, TS[int]]) -> TS[int]:
+        return len_(dedup(ts))
+
+    assert eval_node(g, [fd()]) == [0]
+
+
+def test_drop_dups_tsb_preserves_initial_empty_tsd_child():
+    schema = ts_schema(items=TSD[int, TS[int]], marker=TS[int])
+
+    @graph
+    def g(ts: TSB[schema]) -> TS[int]:
+        return len_(dedup(ts).items)
+
+    assert eval_node(g, [fd(items=fd(), marker=1)]) == [0]
 
 
 def test_drop_dups_tsl():
