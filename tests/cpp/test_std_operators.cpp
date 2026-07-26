@@ -559,6 +559,119 @@ namespace
         }
     };
 
+    using RebasedDict = TSD<Str, TS<Int>>;
+    using RebasedBundle =
+        TSB<"RebasedBundle",
+            Field<"unit_values", RebasedDict>,
+            Field<"target_units", RebasedDict>>;
+    using RebasedList = TSL<RebasedDict, std::size_t{2}>;
+
+    struct SelectRebasedPrice
+    {
+        static constexpr auto name = "select_rebased_price";
+
+        static Port<TS<Int>> compose(Wiring &, Port<TS<Int>>, Port<TS<Int>> price)
+        {
+            return price;
+        }
+    };
+
+    struct TsbNestedTsdProxyLagFeedbackGraph
+    {
+        static constexpr auto name = "tsb_nested_tsd_proxy_lag_feedback_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<RebasedDict> target,
+                                     Port<TS<Bool>> rebase, Port<RebasedDict> prices,
+                                     Port<TS<Int>> trigger)
+        {
+            auto state_feedback = stdlib::feedback<RebasedBundle>(w);
+            auto empty_values = wire<stdlib::const_, RebasedDict>(
+                w, stdlib::make_map<Str, Int>({}));
+            auto empty_targets = wire<stdlib::const_, RebasedDict>(
+                w, stdlib::make_map<Str, Int>({}));
+            auto initial_state =
+                stdlib::to_tsb<RebasedBundle>(w, empty_values, empty_targets);
+            auto state =
+                wire<stdlib::default_>(
+                    w,
+                    wire<stdlib::lag>(w, state_feedback(), Int{1}, trigger),
+                    initial_state)
+                    .as<RebasedBundle>();
+
+            auto prior_target =
+                wire<stdlib::getitem_>(w, state, Str{"target_units"})
+                    .as<RebasedDict>();
+            auto target_units =
+                wire<stdlib::if_then_else>(w, rebase, target, prior_target)
+                    .as<RebasedDict>();
+            auto unit_values =
+                wire<stdlib::map_>(w, fn<SelectRebasedPrice>(), target_units,
+                                   stdlib::no_key(prices))
+                    .as<RebasedDict>();
+            auto next_state =
+                stdlib::to_tsb<RebasedBundle>(w, unit_values, target_units);
+            state_feedback(next_state);
+
+            auto prior_values =
+                wire<stdlib::getitem_>(w, state, Str{"unit_values"})
+                    .as<RebasedDict>();
+            auto next =
+                wire<stdlib::getitem_>(w, prior_values, Str{"next"}).as<TS<Int>>();
+            auto missing = wire<stdlib::const_, TS<Int>>(w, Int{-1});
+            return wire<stdlib::sample>(
+                       w, trigger, wire<stdlib::default_>(w, next, missing))
+                .as<TS<Int>>();
+        }
+    };
+
+    struct TslNestedTsdProxyLagFeedbackGraph
+    {
+        static constexpr auto name = "tsl_nested_tsd_proxy_lag_feedback_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<RebasedDict> target,
+                                     Port<TS<Bool>> rebase, Port<RebasedDict> prices,
+                                     Port<TS<Int>> trigger)
+        {
+            auto state_feedback = stdlib::feedback<RebasedList>(w);
+            auto empty_values = wire<stdlib::const_, RebasedDict>(
+                w, stdlib::make_map<Str, Int>({}));
+            auto empty_targets = wire<stdlib::const_, RebasedDict>(
+                w, stdlib::make_map<Str, Int>({}));
+            auto initial_state =
+                stdlib::to_tsl<RebasedList>(w, empty_values, empty_targets);
+            auto state =
+                wire<stdlib::default_>(
+                    w,
+                    wire<stdlib::lag>(w, state_feedback(), Int{1}, trigger),
+                    initial_state)
+                    .as<RebasedList>();
+
+            auto target_index = wire<stdlib::const_, TS<Int>>(w, Int{1});
+            auto prior_target =
+                wire<stdlib::getitem_>(w, state, target_index).as<RebasedDict>();
+            auto target_units =
+                wire<stdlib::if_then_else>(w, rebase, target, prior_target)
+                    .as<RebasedDict>();
+            auto unit_values =
+                wire<stdlib::map_>(w, fn<SelectRebasedPrice>(), target_units,
+                                   stdlib::no_key(prices))
+                    .as<RebasedDict>();
+            auto next_state =
+                stdlib::to_tsl<RebasedList>(w, unit_values, target_units);
+            state_feedback(next_state);
+
+            auto values_index = wire<stdlib::const_, TS<Int>>(w, Int{0});
+            auto prior_values =
+                wire<stdlib::getitem_>(w, state, values_index).as<RebasedDict>();
+            auto next =
+                wire<stdlib::getitem_>(w, prior_values, Str{"next"}).as<TS<Int>>();
+            auto missing = wire<stdlib::const_, TS<Int>>(w, Int{-1});
+            return wire<stdlib::sample>(
+                       w, trigger, wire<stdlib::default_>(w, next, missing))
+                .as<TS<Int>>();
+        }
+    };
+
     struct NamedTsbDedupGraph
     {
         static constexpr auto name = "named_tsb_dedup_graph";
@@ -1969,6 +2082,30 @@ TEST_CASE("std operators: TSB proxy lag preserves sparse field deltas")
                  values<Value>(none, none, none,
                                bundle_delta(Int{2}, Float{2.0}),
                                bundle_delta(Int{3}, std::nullopt)));
+}
+
+TEST_CASE("std operators: structural proxy lag recursively preserves nested TSD keys")
+{
+    using namespace std::string_literals;
+
+    stdlib::register_standard_operators();
+
+    const auto target =
+        values<Value>(dict_delta<Str, TS<Int>>({{"next"s, Int{1}}}), none, none, none);
+    const auto rebase = values<Bool>(true, false, false, false);
+    const auto prices =
+        values<Value>(dict_delta<Str, TS<Int>>({{"next"s, Int{10}}}), none, none, none);
+    const auto trigger = values<Int>(0, 1, 2, 3);
+    const auto feedback_expected = values<Int>(-1, -1, 10, 10);
+
+    CHECK_OUTPUT(
+        eval_node<TsbNestedTsdProxyLagFeedbackGraph>(
+            target, rebase, prices, trigger),
+        feedback_expected);
+    CHECK_OUTPUT(
+        eval_node<TslNestedTsdProxyLagFeedbackGraph>(
+            target, rebase, prices, trigger),
+        feedback_expected);
 }
 
 TEST_CASE("std operators: schedule and resample are bounded by executor end time")
