@@ -85,9 +85,8 @@ wheel_dir="$(mktemp -d)"
 test_env="$(mktemp -d)"
 uv build --wheel --python 3.12 --out-dir "$wheel_dir"
 uv venv --python 3.14 "$test_env"
-uv pip install --python "$test_env/bin/python" \
-  "$wheel_dir"/*.whl "pytest>=8" "frozendict>=2.4" "tornado>=6.5" \
-  "polars[rtcompat]>=1.32" trove-classifiers
+wheel_path="$(find "$wheel_dir" -maxdepth 1 -name '*.whl' -print -quit)"
+uv pip install --python "$test_env/bin/python" "${wheel_path}[test]"
 "$test_env/bin/python" -m pytest python/tests -q -m "not wip"
 ```
 

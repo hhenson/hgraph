@@ -445,6 +445,7 @@ dataframe = [
 delta = [
     { name = "boto3" },
     { name = "deltalake" },
+    { name = "polars" },
 ]
 dev = [
     { name = "cmake" },
@@ -482,12 +483,19 @@ sql = [
     { name = "connectorx" },
     { name = "duckdb" },
     { name = "pandas" },
+    { name = "polars" },
     { name = "sqlalchemy" },
 ]
 test = [
+    { name = "boto3" },
+    { name = "connectorx" },
+    { name = "deltalake" },
+    { name = "duckdb" },
     { name = "packaging" },
+    { name = "pandas" },
     { name = "polars", extra = ["rtcompat"] },
     { name = "pytest" },
+    { name = "sqlalchemy" },
     { name = "tornado" },
     { name = "trove-classifiers" },
 ]
@@ -499,10 +507,14 @@ web = [
 requires-dist = [
     { name = "adbc-driver-snowflake", marker = "extra == 'snowflake'", specifier = ">=1.8" },
     { name = "boto3", marker = "extra == 'delta'", specifier = ">=1.34" },
+    { name = "boto3", marker = "extra == 'test'", specifier = ">=1.34" },
     { name = "cmake", marker = "extra == 'dev'", specifier = ">=3.26" },
     { name = "connectorx", marker = "extra == 'sql'", specifier = ">=0.4.5" },
+    { name = "connectorx", marker = "extra == 'test'", specifier = ">=0.4.5" },
     { name = "deltalake", marker = "extra == 'delta'", specifier = ">=1.0" },
+    { name = "deltalake", marker = "extra == 'test'", specifier = ">=1.0" },
     { name = "duckdb", marker = "extra == 'sql'", specifier = ">=1.4" },
+    { name = "duckdb", marker = "extra == 'test'", specifier = ">=1.4" },
     { name = "frozendict", specifier = ">=2.4" },
     { name = "kafka-python", marker = "extra == 'kafka'", specifier = ">=2.2" },
     { name = "myst-parser", marker = "extra == 'dev'", specifier = ">=2.0" },
@@ -514,8 +526,11 @@ requires-dist = [
     { name = "packaging", marker = "extra == 'dev'", specifier = ">=24" },
     { name = "packaging", marker = "extra == 'test'", specifier = ">=24" },
     { name = "pandas", marker = "extra == 'sql'", specifier = ">=2.0" },
+    { name = "pandas", marker = "extra == 'test'", specifier = ">=2.0" },
     { name = "perspective-python", marker = "extra == 'perspective'", specifier = ">=3.8" },
     { name = "polars", marker = "extra == 'dataframe'", specifier = ">=1.32" },
+    { name = "polars", marker = "extra == 'delta'", specifier = ">=1.32" },
+    { name = "polars", marker = "extra == 'sql'", specifier = ">=1.32" },
     { name = "polars", extras = ["rtcompat"], marker = "extra == 'test'", specifier = ">=1.32" },
     { name = "pyarrow", specifier = ">=24,<25" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
@@ -528,6 +543,7 @@ requires-dist = [
     { name = "sphinxcontrib-mermaid", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "sphinxcontrib-mermaid", marker = "extra == 'docs'", specifier = ">=1.0" },
     { name = "sqlalchemy", marker = "extra == 'sql'", specifier = ">=2.0" },
+    { name = "sqlalchemy", marker = "extra == 'test'", specifier = ">=2.0" },
     { name = "tornado", marker = "extra == 'perspective'", specifier = ">=6.5" },
     { name = "tornado", marker = "extra == 'test'", specifier = ">=6.5" },
     { name = "tornado", marker = "extra == 'web'", specifier = ">=6.5" },

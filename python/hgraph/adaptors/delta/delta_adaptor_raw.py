@@ -3,10 +3,7 @@ from concurrent.futures import Executor
 from datetime import datetime, timedelta
 from enum import Enum
 
-import boto3
-import polars as pl
 import pyarrow as pa
-from deltalake import DeltaTable, QueryBuilder, write_deltalake
 
 from hgraph import (
     AUTO_RESOLVE, MIN_DT, SCHEMA, STATE, Frame, TS, TSB, TSD,
@@ -28,6 +25,32 @@ __all__ = (
 
 _RAW_FRAME_STREAM = TSB[Stream[Data[Frame]]]
 _TIME_STREAM = TSB[Stream[Data[datetime]]]
+
+
+def _require_delta_lake():
+    try:
+        from deltalake import DeltaTable, QueryBuilder, write_deltalake
+    except ModuleNotFoundError as error:
+        raise RuntimeError("Delta adaptors require the 'delta' extra") from error
+    return DeltaTable, QueryBuilder, write_deltalake
+
+
+def _require_polars():
+    try:
+        import polars
+    except ModuleNotFoundError as error:
+        raise RuntimeError("Delta adaptors require the 'delta' extra") from error
+    return polars
+
+
+def _require_boto3():
+    try:
+        import boto3
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "Delta S3 storage requires the 'delta' extra"
+        ) from error
+    return boto3
 
 
 class DeltaWriteMode(Enum):
@@ -86,6 +109,7 @@ def delta_read_adaptor_raw_impl(
         if previous is not None:
             previous.result()
         try:
+            DeltaTable, _, _ = _require_delta_lake()
             logger.info("Will read delta table %s with filters %s", table_path, filters)
             delta_table = DeltaTable(table_path, storage_options=credentials or None)
             result = delta_table.to_pyarrow_table(
@@ -154,6 +178,7 @@ def delta_query_adaptor_raw_impl(
         if previous is not None:
             previous.result()
         try:
+            DeltaTable, QueryBuilder, _ = _require_delta_lake()
             builder = QueryBuilder()
             for table in tables:
                 builder.register(
@@ -225,6 +250,8 @@ def delta_write_adaptor_raw_impl(
         if previous is not None:
             previous.result()
         try:
+            pl = _require_polars()
+            _, _, write_deltalake = _require_delta_lake()
             frame = pl.from_arrow(data)
             predicate = None
             if keys:
@@ -296,6 +323,7 @@ def delta_table_maintenance(
         def run():
             table_path = base + table
             try:
+                DeltaTable, _, _ = _require_delta_lake()
                 delta_table = DeltaTable(
                     table_path, storage_options=options or None)
                 logger.info("Compaction for %s: %s", table_path,
@@ -315,6 +343,7 @@ def delta_table_maintenance(
 @generator
 def delta_storage_options(path: str, _state: STATE = None) -> TS[object]:
     if path.startswith("s3://"):
+        boto3 = _require_boto3()
         credentials = boto3.Session().get_credentials()
         _state.storage_options = {
             "aws_access_key_id": credentials.access_key,

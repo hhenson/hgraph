@@ -3,10 +3,7 @@ import re
 from datetime import timedelta
 from urllib.parse import quote
 
-import adbc_driver_snowflake.dbapi
-import polars as pl
 import pyarrow as pa
-from sqlalchemy import QueuePool, create_engine, event
 
 from hgraph import STATE, TS, generator
 
@@ -23,8 +20,35 @@ class SqlAdaptorConnection:
     ...
 
 
+def _require_polars():
+    try:
+        import polars
+    except ModuleNotFoundError as error:
+        raise RuntimeError("SQL adaptors require the 'sql' extra") from error
+    return polars
+
+
+def _require_sqlalchemy():
+    try:
+        from sqlalchemy import QueuePool, create_engine, event
+    except ModuleNotFoundError as error:
+        raise RuntimeError("SQL connections require the 'sql' extra") from error
+    return QueuePool, create_engine, event
+
+
+def _require_snowflake():
+    try:
+        import adbc_driver_snowflake.dbapi
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "Snowflake connections require the 'snowflake' extra"
+        ) from error
+    return adbc_driver_snowflake.dbapi
+
+
 class SqlAdaptorConnectionSQLServer(SqlAdaptorConnection):
     def __init__(self, path, connection_params: dict[str, object]):
+        _, create_engine, event = _require_sqlalchemy()
         self.path = path
         self.connection = create_engine(path, **connection_params)
 
@@ -36,20 +60,22 @@ class SqlAdaptorConnectionSQLServer(SqlAdaptorConnection):
                 connection.rollback()
 
     def read_database(self, query: str) -> pa.Table:
+        pl = _require_polars()
         return pl.read_database_uri(query=query, uri=self.path).to_arrow()
 
 
 class SqlAdaptorConnectionSnowflake(SqlAdaptorConnection):
     def __init__(self, connection_params: dict[str, object]):
+        snowflake = _require_snowflake()
         self.lowercase_columns = (
             connection_params.pop(
                 "hgraph.sql_adaptor.lowercase_columns", "false"
             ).lower() == "true"
         )
-        self.connection = adbc_driver_snowflake.dbapi.connect(
-            db_kwargs=connection_params)
+        self.connection = snowflake.connect(db_kwargs=connection_params)
 
     def read_database(self, query: str) -> pa.Table:
+        pl = _require_polars()
         frame = pl.read_database(connection=self.connection, query=query)
         if self.lowercase_columns:
             frame = frame.rename({column: column.lower() for column in frame.columns})
@@ -124,6 +150,7 @@ def stop_sql_server_adaptor(_state: STATE = None):
 def create_sql_db_connection(
     path: str, connection_params: dict[str, object], _state: STATE,
 ) -> SqlAdaptorConnection:
+    QueuePool, _, _ = _require_sqlalchemy()
     default_params = {
         "poolclass": QueuePool,
         "pool_size": 5,

@@ -1,9 +1,15 @@
 """Packaging contract checks for the optional Python bridge."""
 
+import os
 from pathlib import Path
 import re
+import subprocess
+import sys
+import textwrap
 import tomllib
 
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 from packaging.version import Version
 from trove_classifiers import classifiers as valid_classifiers
 
@@ -113,6 +119,99 @@ def test_full_suite_dependencies_include_the_dataframe_runtime():
     assert "polars[rtcompat]>=1.32" in test_dependencies
 
 
+def _dependency_names(requirements):
+    return {
+        canonicalize_name(Requirement(requirement).name)
+        for requirement in requirements
+    }
+
+
+def test_adaptor_extras_include_their_runtime_dependencies():
+    extras = load_project()["project"]["optional-dependencies"]
+
+    assert "polars>=1.32" in extras["sql"]
+    assert "polars>=1.32" in extras["delta"]
+    assert (
+        _dependency_names(extras["sql"]) | _dependency_names(extras["delta"])
+    ) <= _dependency_names(extras["test"])
+
+
+def test_full_suite_gate_installs_the_wheel_test_extra():
+    instructions = (ROOT / "AGENTS.md").read_text()
+
+    assert 'wheel_path="$(find "$wheel_dir"' in instructions
+    assert (
+        'uv pip install --python "$test_env/bin/python" '
+        '"${wheel_path}[test]"'
+    ) in instructions
+
+
+def test_optional_adaptor_namespaces_import_without_client_dependencies():
+    script = textwrap.dedent(
+        """
+        import sys
+
+        blocked = {
+            "adbc_driver_snowflake", "boto3", "connectorx", "deltalake",
+            "duckdb", "pandas", "polars", "sqlalchemy",
+        }
+
+        class BlockOptionalImports:
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname.partition(".")[0] in blocked:
+                    raise ModuleNotFoundError(
+                        f"blocked optional dependency: {fullname}",
+                        name=fullname,
+                    )
+                return None
+
+        sys.meta_path.insert(0, BlockOptionalImports())
+
+        import hgraph.adaptors.delta
+        import hgraph.adaptors.sql
+
+        from hgraph.adaptors.delta.delta_adaptor_raw import (
+            _require_boto3,
+            _require_delta_lake,
+            _require_polars as require_delta_polars,
+        )
+        from hgraph.adaptors.sql.sql_connection import (
+            _require_polars as require_sql_polars,
+            _require_snowflake,
+            _require_sqlalchemy,
+        )
+
+        helpers = (
+            (_require_boto3, "delta"),
+            (_require_delta_lake, "delta"),
+            (require_delta_polars, "delta"),
+            (require_sql_polars, "sql"),
+            (_require_sqlalchemy, "sql"),
+            (_require_snowflake, "snowflake"),
+        )
+        for helper, extra in helpers:
+            try:
+                helper()
+            except RuntimeError as error:
+                assert f"'{extra}' extra" in str(error), str(error)
+            else:
+                raise AssertionError(f"{helper.__name__} imported a blocked client")
+        """
+    )
+    python_path = os.pathsep.join(
+        filter(None, (str(ROOT / "python"), os.environ.get("PYTHONPATH")))
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        env={**os.environ, "PYTHONPATH": python_path},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_release_workflow_targets_supported_platforms():
     workflow = (ROOT / ".github/workflows/build.yml").read_text()
 
@@ -169,6 +268,9 @@ def main():
     test_wheel_uses_shared_runtime_for_downstream_native_extensions()
     test_source_distribution_excludes_private_release_evidence()
     test_full_suite_dependencies_include_the_dataframe_runtime()
+    test_adaptor_extras_include_their_runtime_dependencies()
+    test_full_suite_gate_installs_the_wheel_test_extra()
+    test_optional_adaptor_namespaces_import_without_client_dependencies()
     test_release_workflow_targets_supported_platforms()
     test_release_workflow_reuses_tested_commit_artifacts()
     test_release_workflow_audits_distribution_contents()
@@ -181,6 +283,9 @@ def main():
     print("PASS test_wheel_uses_shared_runtime_for_downstream_native_extensions")
     print("PASS test_source_distribution_excludes_private_release_evidence")
     print("PASS test_full_suite_dependencies_include_the_dataframe_runtime")
+    print("PASS test_adaptor_extras_include_their_runtime_dependencies")
+    print("PASS test_full_suite_gate_installs_the_wheel_test_extra")
+    print("PASS test_optional_adaptor_namespaces_import_without_client_dependencies")
     print("PASS test_release_workflow_targets_supported_platforms")
     print("PASS test_release_workflow_reuses_tested_commit_artifacts")
     print("PASS test_release_workflow_audits_distribution_contents")

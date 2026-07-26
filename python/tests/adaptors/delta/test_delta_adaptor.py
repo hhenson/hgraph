@@ -161,7 +161,9 @@ def test_delta_table_maintenance_compacts_and_vacuums(monkeypatch):
             calls.append(("vacuum", kwargs))
 
     monkeypatch.setattr(
-        "hgraph.adaptors.delta.delta_adaptor_raw.DeltaTable", _DeltaTable)
+        "hgraph.adaptors.delta.delta_adaptor_raw._require_delta_lake",
+        lambda: (_DeltaTable, None, None),
+    )
 
     @hg.graph
     def app() -> hg.TS[bool]:
