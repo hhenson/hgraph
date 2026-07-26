@@ -183,7 +183,13 @@ never called when no inspector is registered.
 Python Compatibility Tests
 --------------------------
 
-Python tests live under ``tests/python`` and should be used where Python wiring or Python user nodes cross into the C++ runtime.
+Python tests live under ``python/tests`` and should be used where Python wiring
+or Python user nodes cross into the C++ runtime.
+
+The continuously evolving released-hgraph comparison is documented in
+:doc:`parity_testing`.  It generates bounded, multi-tick recipes and promotes a
+verified mismatch into the ordinary Python and native C++ regression layers;
+it does not replace either acceptance suite.
 
 Commands
 --------

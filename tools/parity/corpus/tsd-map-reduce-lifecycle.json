@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "id": "tsd-map-reduce-lifecycle",
+  "description": "A keyed map and reduction spans additions, updates, removals, idle cycles, clear, and repopulation.",
+  "template": "tsd_map_reduce",
+  "inputs": {
+    "values": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": 3
+      },
+      {
+        "c": 4
+      },
+      null,
+      {
+        "b": {
+          "$remove": true
+        }
+      },
+      {
+        "a": -1,
+        "c": 5
+      },
+      {
+        "a": {
+          "$remove": true
+        }
+      },
+      null,
+      {
+        "c": {
+          "$remove": true
+        }
+      },
+      {
+        "b": 8
+      },
+      {
+        "a": 2
+      },
+      {
+        "b": 9
+      }
+    ]
+  },
+  "parameters": {
+    "increment": 1,
+    "zero": 0
+  },
+  "features": [
+    "lifecycle:key-removal",
+    "lifecycle:keyed",
+    "operator:map_",
+    "operator:reduce",
+    "shape:TSD",
+    "ticks:medium",
+    "topology:map",
+    "type:int"
+  ]
+}

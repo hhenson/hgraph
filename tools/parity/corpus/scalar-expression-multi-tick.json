@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "id": "scalar-expression-multi-tick",
+  "description": "A nested arithmetic and dedup composition over twelve sparse ticks.",
+  "template": "scalar_expression",
+  "inputs": {
+    "lhs": [
+      1,
+      2,
+      null,
+      4,
+      4,
+      -3,
+      null,
+      8,
+      0,
+      5,
+      null,
+      13
+    ],
+    "rhs": [
+      3,
+      null,
+      5,
+      6,
+      6,
+      2,
+      1,
+      null,
+      9,
+      -5,
+      4,
+      1
+    ]
+  },
+  "parameters": {
+    "input_types": {
+      "lhs": "int",
+      "rhs": "int"
+    },
+    "output_type": "int",
+    "expression": {
+      "op": "dedup",
+      "args": [
+        {
+          "op": "sub",
+          "args": [
+            {
+              "op": "mul",
+              "args": [
+                {
+                  "input": "lhs"
+                },
+                {
+                  "const": 2
+                }
+              ]
+            },
+            {
+              "input": "rhs"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "features": [
+    "operator:dedup",
+    "operator:mul",
+    "operator:sub",
+    "shape:TS",
+    "ticks:medium",
+    "topology:expression",
+    "type:int"
+  ]
+}

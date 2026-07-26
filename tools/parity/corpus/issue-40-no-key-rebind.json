@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "issue-40-no-key-rebind",
+  "description": "A no_key map retains validity after if_then_else feedback rebinding.",
+  "template": "issue_40_no_key_rebind",
+  "inputs": {
+    "target": [
+      {
+        "next": 1.0
+      },
+      null,
+      null,
+      null
+    ],
+    "rebase": [
+      true,
+      false,
+      false,
+      false
+    ],
+    "prices": [
+      {
+        "next": 10.5
+      },
+      null,
+      null,
+      null
+    ],
+    "trigger": [
+      0,
+      1,
+      2,
+      3
+    ]
+  },
+  "parameters": {},
+  "features": [
+    "lifecycle:keyed",
+    "lifecycle:reference-rebind",
+    "shape:TSB",
+    "shape:TSD",
+    "topology:feedback",
+    "topology:map"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/40"
+}

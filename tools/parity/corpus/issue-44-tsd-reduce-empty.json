@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "issue-44-tsd-reduce-empty",
+  "description": "Track released-hgraph parity for a non-zero TSD reduction seed when the mapped dictionary becomes empty.",
+  "template": "tsd_map_reduce",
+  "inputs": {
+    "values": [
+      {
+        "a": -2
+      },
+      {
+        "a": {
+          "$remove": true
+        }
+      }
+    ]
+  },
+  "parameters": {
+    "increment": -3,
+    "zero": -3
+  },
+  "features": [
+    "lifecycle:key-removal",
+    "lifecycle:keyed",
+    "operator:map_",
+    "operator:reduce",
+    "shape:TSD",
+    "ticks:short",
+    "topology:map",
+    "type:int"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/44"
+}

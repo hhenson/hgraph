@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "id": "issue-38-nested-tsd-feedback",
+  "description": "A mapped nested TSD update survives switch, dedup, feedback, lag, and sibling-key removal.",
+  "template": "issue_38_nested_tsd_feedback",
+  "inputs": {
+    "roll": [
+      false,
+      true,
+      false,
+      false
+    ],
+    "prices": [
+      {
+        "next": 10.0,
+        "old": 10.0
+      },
+      {
+        "next": 20.0
+      },
+      null,
+      null
+    ],
+    "trigger": [
+      0,
+      1,
+      2,
+      3
+    ]
+  },
+  "parameters": {},
+  "features": [
+    "lifecycle:branch-rebind",
+    "lifecycle:key-removal",
+    "shape:TSB",
+    "shape:TSD",
+    "topology:feedback",
+    "topology:map",
+    "topology:switch"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/38"
+}

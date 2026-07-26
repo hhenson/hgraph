@@ -1,0 +1,123 @@
+name: Nightly differential parity campaign
+
+on:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: parity-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-candidate:
+    name: Build candidate wheel
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Enable shared compiler cache
+        uses: mozilla-actions/sccache-action@v0.0.10
+        with:
+          version: v0.15.0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install build tools
+        run: python -m pip install --upgrade uv
+      - name: Build the stable-ABI candidate wheel
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: "2"
+        run: >-
+          uv build
+          --wheel
+          --python 3.12
+          --config-setting cmake.build-type=Release
+          --out-dir dist
+          --no-build-logs
+      - uses: actions/upload-artifact@v7
+        with:
+          name: parity-candidate-wheel
+          path: dist/*.whl
+          if-no-files-found: error
+
+  campaign:
+    name: Campaign shard ${{ matrix.shard }}
+    needs: build-candidate
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install parity controller
+        run: python -m pip install --upgrade uv hypothesis
+      - uses: actions/download-artifact@v7
+        with:
+          name: parity-candidate-wheel
+          path: dist
+      - name: Restore released-hgraph traces
+        uses: actions/cache@v5
+        with:
+          path: |
+            .parity/envs/reference-*
+            .parity/cache/reference-traces
+          key: parity-reference-${{ runner.os }}-py314-${{ matrix.shard }}-${{ hashFiles('tools/parity/**/*.py') }}
+          restore-keys: |
+            parity-reference-${{ runner.os }}-py314-${{ matrix.shard }}-
+      - name: Run bounded nightly campaign
+        run: >-
+          python -m tools.parity campaign
+          --profile nightly
+          --seed ${{ github.run_number }}
+          --shard-index ${{ matrix.shard }}
+          --shard-count 4
+          --candidate-wheel dist/*.whl
+          --exit-zero
+          --output-dir parity-results
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: parity-report-${{ matrix.shard }}
+          path: parity-results
+          if-no-files-found: error
+
+  publish:
+    name: Publish verified parity issues
+    needs: campaign
+    if: always() && needs.campaign.result != 'cancelled'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: parity-report-*
+          path: parity-reports
+      - name: Create or update deduplicated issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python -m tools.parity publish-issues
+          parity-reports/*/report.json
+          --repo ${{ github.repository }}
+          --publish

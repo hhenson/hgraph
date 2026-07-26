@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "divergences": [
+    {
+      "fingerprint": "81c998bdb8bbd40abf634dc8285a79830b5996564c52996222c2443110a35d89",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/44",
+      "reason": "TSD map/reduce empty transition applies a non-zero seed differently.",
+      "review_after": "2026-08-26"
+    }
+  ]
+}

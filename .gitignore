@@ -13,6 +13,7 @@
 benchmarks/.venv-upstream*/
 benchmarks/.venv-hg-cpp*/
 /reports/
+/.parity/
 
 python/_hgraph.abi3.so
 test_package/build/
