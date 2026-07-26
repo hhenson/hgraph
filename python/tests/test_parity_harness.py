@@ -930,6 +930,118 @@ def test_publisher_suppresses_stale_resubscription_variants(monkeypatch):
     )
 
 
+def test_resample_relation_permits_subset_delays(monkeypatch):
+    # Issue #71: only the repeats that actually sample an existing value
+    # delay; inserting a cycle for EVERY repeat is too rigid. Uses the
+    # committed known_divergences.json family records.
+    from tools.parity.known import (
+        is_known_family_failure,
+        load_known_divergences,
+    )
+
+    _fingerprints, families = load_known_divergences()
+    ok = lambda trace: {"status": "ok", "trace": trace}
+
+    def classify(symbols, reference_trace, candidate_trace):
+        recipe = {
+            "template": "service_subscription",
+            "inputs": {"symbol": symbols},
+            "parameters": {"multiplier": 7, "path": "live"},
+        }
+        reference, candidate = ok(reference_trace), ok(candidate_trace)
+        difference = compare_outcomes(reference, candidate)
+        assert difference is not None
+        return is_known_family_failure(
+            recipe, difference.to_dict(), reference, candidate, families
+        )
+
+    # The representative stale case: fx and long_symbol both repeat, but
+    # only the final long_symbol repeat emits the existing value.
+    representative_symbols = [
+        "rates", None, "fx", None, None, "long_symbol", None, "fx", "long_symbol",
+    ]
+    representative_reference = [None, 35, None, 14, None, None, 77, None, None, 77]
+    representative_candidate = [None, 35, None, 14, None, None, 77, None, 77]
+    assert classify(
+        representative_symbols,
+        representative_reference,
+        representative_candidate,
+    )
+
+    # More than one emitting repeat aligns.
+    assert classify(
+        ["fx", None, "fx", None, "fx"],
+        [None, 14, None, 14, None, 14],
+        [None, 14, 14, None, 14],
+    )
+
+    # A first-subscription difference remains reportable (no repeats).
+    assert not classify(
+        ["rates", None, "fx"],
+        [None, 35, None, 14],
+        [None, 35, None, 15],
+    )
+
+    # Payload corruption at the aligned repeat remains reportable.
+    assert not classify(
+        representative_symbols,
+        representative_reference,
+        [None, 35, None, 14, None, None, 77, None, 78],
+    )
+
+    # An unrelated missing tick (not at an emitting repeat) remains
+    # reportable.
+    assert not classify(
+        representative_symbols,
+        representative_reference,
+        [None, 35, None, None, None, 77, None, 77],
+    )
+
+    # The representative case flows through the publisher as a known
+    # mismatch: no create, no reopen.
+    recipe = {
+        "schema_version": 1,
+        "id": "stale-partial-delay-variant",
+        "description": "Stale report where only one of two repeats emits.",
+        "template": "service_subscription",
+        "inputs": {"symbol": representative_symbols},
+        "parameters": {"multiplier": 7, "path": "live"},
+        "features": [],
+    }
+    reference = ok(representative_reference)
+    candidate = ok(representative_candidate)
+    failure = {
+        "minimized_recipe": recipe,
+        "difference": compare_outcomes(reference, candidate).to_dict(),
+        "reference": reference,
+        "candidate": candidate,
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    failure["failure_fingerprint"] = failure_fingerprint(failure)
+
+    calls = []
+    monkeypatch.setattr(
+        "tools.parity.issues._existing_issues", lambda _repo: []
+    )
+
+    def fake_gh(arguments, *, repo, capture=False):
+        calls.append(arguments)
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr("tools.parity.issues._gh", fake_gh)
+    actions = publish_failures([failure], repo="hhenson/hg_cpp", publish=True)
+    assert actions == [
+        {
+            "action": "known-divergence",
+            "fingerprint": failure["failure_fingerprint"],
+        }
+    ]
+    assert not any(
+        arguments[:2] in (["issue", "create"], ["issue", "reopen"])
+        for arguments in calls
+    )
+
+
 def test_mesh_empty_initial_fingerprint_is_pinned_and_suppressed(monkeypatch):
     # 3. mesh_key_set minimized to one initial empty map: released hgraph
     # ticks an empty map, hg_cpp emits no tick (no-change ruling). The

@@ -180,8 +180,21 @@ def _subscription_resample_one_cycle_relation(
     candidate: dict[str, Any],
     _family: dict[str, Any],
 ) -> bool:
-    repeated = _repeated_non_null_positions(
-        (recipe.get("inputs") or {}).get("symbol")
+    """Issue #66/#71: only the repeats that actually sample delay.
+
+    The documented deviation inserts one no-tick cycle immediately before
+    the payload of an EMITTING repeated subscription — a repeat that emits
+    nothing (e.g. its value never arrived) shifts nothing. Align the traces
+    with a two-pointer walk that may consume one reference ``None`` before
+    the candidate payload at any emitting repeat position; the walk is
+    deterministic because the delay branch only opens where the direct
+    comparison fails. At least one repeat must account for the mismatch and
+    the complete payload traces must be equal after alignment, so corrupt
+    values, unrelated missing ticks, and first-subscription differences
+    remain reportable.
+    """
+    repeated = set(
+        _repeated_non_null_positions((recipe.get("inputs") or {}).get("symbol"))
     )
     reference_trace = reference.get("trace")
     candidate_trace = candidate.get("trace")
@@ -192,13 +205,24 @@ def _subscription_resample_one_cycle_relation(
     ):
         return False
 
-    expected_reference = list(candidate_trace)
-    for inserted, position in enumerate(repeated):
-        index = position + inserted
-        if index >= len(expected_reference) or expected_reference[index] is None:
-            return False
-        expected_reference.insert(index, None)
-    return expected_reference == reference_trace
+    inserted = 0
+    j = 0
+    for i, item in enumerate(candidate_trace):
+        if j < len(reference_trace) and reference_trace[j] == item:
+            j += 1
+            continue
+        if (
+            i in repeated
+            and item is not None
+            and j + 1 < len(reference_trace)
+            and reference_trace[j] is None
+            and reference_trace[j + 1] == item
+        ):
+            j += 2
+            inserted += 1
+            continue
+        return False
+    return j == len(reference_trace) and inserted >= 1
 
 
 RELATIONS = {

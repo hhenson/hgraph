@@ -1815,7 +1815,14 @@ namespace hgraph::stdlib
     struct dedup_float_tol_impl
     {
         /* ``dedup(ts, abs_tol=...)``: floats within ``abs_tol`` of the last
-           emitted value count as duplicates. */
+           emitted value count as duplicates. The default matches upstream's
+           float overload (abs_tol=1e-15), so a plain ``dedup(TS[float])``
+           is tolerance-based, not exact (parity issue #69). */
+        static std::vector<std::pair<std::string_view, Value>> defaults()
+        {
+            return {{"abs_tol", Value{Float{1e-15}}}};
+        }
+
         static void eval(In<"ts", TS<Float>> ts, In<"abs_tol", TS<Float>> abs_tol,
                          RecordableState<TS<Float>> last, Out<TS<Float>> out)
         {

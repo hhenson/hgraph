@@ -308,6 +308,33 @@ namespace
         }
     };
 
+    struct FormatRefArgumentGraph
+    {
+        static constexpr auto name = "format_ref_argument_graph";
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Bool>> choose_minimum, Port<TS<Int>> lhs,
+                                     Port<TS<Int>> rhs)
+        {
+            auto minimum   = wire<stdlib::min_>(w, lhs, rhs);
+            auto maximum   = wire<stdlib::max_>(w, lhs, rhs);
+            auto selected  = wire<stdlib::if_then_else>(w, choose_minimum, minimum, maximum);
+            auto remainder = wire<stdlib::mod_>(w, lhs, rhs);
+            return wire<stdlib::format_>(w, Str{"{}:{}"}, selected, remainder).as<TS<Str>>();
+        }
+    };
+
+    struct ValidOverRefSelectionGraph
+    {
+        static constexpr auto name = "valid_over_ref_selection_graph";
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Bool>> choose_minimum, Port<TS<Int>> lhs,
+                                      Port<TS<Int>> rhs)
+        {
+            auto minimum  = wire<stdlib::min_>(w, lhs, rhs);
+            auto maximum  = wire<stdlib::max_>(w, lhs, rhs);
+            auto selected = wire<stdlib::if_then_else>(w, choose_minimum, minimum, maximum);
+            return wire<stdlib::valid>(w, selected).as<TS<Bool>>();
+        }
+    };
+
     struct FormatKwargsGraph
     {
         static constexpr auto name = "format_kwargs_graph";
@@ -2320,6 +2347,40 @@ TEST_CASE("std operators: time-series property operators report valid modified a
     CHECK_FALSE(wall_clock[1].has_value());
     REQUIRE(wall_clock[2].has_value());
     CHECK(wall_clock[2]->view().checked_as<DateTime>() != MIN_DT);
+}
+
+TEST_CASE("std operators: float dedup applies the upstream default tolerance")
+{
+    stdlib::register_standard_operators();
+
+    // parity issue #69: upstream's float dedup overload defaults
+    // abs_tol=1e-15, so a sub-tolerance change from the last emitted value
+    // does not tick; a real change still does.
+    CHECK_OUTPUT(eval_node<stdlib::dedup>(values<Float>(0.0, 9.395605309808467e-37, 1.0)),
+                 values<Float>(0.0, none, 1.0));
+}
+
+TEST_CASE("std operators: format renders REF arguments dereferenced")
+{
+    stdlib::register_standard_operators();
+
+    // parity issue #72: a REF-valued argument (if_then_else selection)
+    // formats its referenced VALUE, never the reference itself.
+    CHECK_OUTPUT(eval_node<FormatRefArgumentGraph>(values<Bool>(true), values<Int>(8), values<Int>(-6)),
+                 values<Str>("-6:-4"));
+}
+
+TEST_CASE("std operators: valid over a REF source stays silent until the reference arrives")
+{
+    stdlib::register_standard_operators();
+
+    // parity issue #70: upstream's valid_impl requires the REF input valid,
+    // so a REF-valued source that never ticks produces NO output; once the
+    // selection resolves, validity publishes.
+    CHECK_OUTPUT(eval_node<ValidOverRefSelectionGraph>(values<Bool>(none), values<Int>(none), values<Int>(none)),
+                 values<Bool>(none));
+    CHECK_OUTPUT(eval_node<ValidOverRefSelectionGraph>(values<Bool>(true), values<Int>(8), values<Int>(-6)),
+                 values<Bool>(true));
 }
 
 TEST_CASE("std operators: an operand combination with no registered implementation raises")

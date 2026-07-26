@@ -60,7 +60,7 @@
       "parameters_not_equal": {},
       "relation": "subscription-resample-one-cycle",
       "issue": "https://github.com/hhenson/hg_cpp/issues/66",
-      "reason": "Designed service-boundary timing: for a repeated non-null subscription key, hg_cpp samples the existing value in the repeat cycle while released hgraph re-delivers it one cycle later. Suppress only when inserting those delay cycles makes the payload traces equal.",
+      "reason": "Designed service-boundary timing: a repeated non-null subscription key that samples an existing value emits in the repeat cycle while released hgraph re-delivers one cycle later; repeats that emit nothing shift nothing. Suppress only when delaying the subset of emitting repeats makes the complete payload traces equal (issue #71).",
       "review_after": "2027-07-26"
     },
     {

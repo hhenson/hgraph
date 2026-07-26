@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "issue-70-valid-silent-ref",
+  "description": "valid over a never-ticking REF-valued selection produces no tick; the bundle publishes only the modified start value.",
+  "template": "operator_pipeline",
+  "inputs": {
+    "choose_minimum": [
+      null
+    ],
+    "lhs": [
+      null
+    ],
+    "rhs": [
+      null
+    ]
+  },
+  "parameters": {
+    "format_ref": true
+  },
+  "features": [
+    "binding:non-peered",
+    "reference:REF",
+    "shape:TS",
+    "shape:TSB",
+    "shape:TSL",
+    "topology:operator-composition",
+    "type:bool",
+    "type:int",
+    "type:str"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/70"
+}
