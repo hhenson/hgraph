@@ -168,7 +168,12 @@ def test_release_workflow_targets_supported_platforms():
     # shared compiler cache never fires under MSBuild.
     assert "Visual Studio 18 2026" not in workflow
     assert "ilammy/msvc-dev-cmd@v1" in workflow
-    assert "CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded" in workflow
+    # Embedded (/Z7) debug info only for debug-carrying configurations: the
+    # Release wheel emits no debug info, and sccache cannot cache /Zi.
+    assert (
+        "CMAKE_MSVC_DEBUG_INFORMATION_FORMAT="
+        "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>" in workflow
+    )
     assert 'python-version: "3.12"' in workflow
     assert '- "3.13"' in workflow
     assert '- "3.14"' in workflow
