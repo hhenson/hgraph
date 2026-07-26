@@ -80,6 +80,8 @@ parameters, and records semantic coverage tags:
 ``null`` means no tick.  Tagged objects represent identity-sensitive deltas,
 for example ``{"$remove": true}`` for a TSD removal and
 ``{"$set_delta": {"added": [...], "removed": [...]}}`` for a TSS delta.
+``{"$map": [[key, value], ...]}`` represents a mapping whose keys cannot be
+expressed as JSON object strings, including integer-keyed TSD input.
 Input names, tick counts, scalar types, expression operations, and template
 parameters are validated before either runtime imports hgraph.
 
@@ -92,9 +94,26 @@ Generation and Coverage
 -----------------------
 
 Hypothesis recursively composes validated scalar expressions and produces
-stateful multi-cycle sequences for feedback, switching, and keyed TSD
-lifecycle.  Generated exploration uses 8--32 ticks by default; a reducer may
-shrink a failure below that range.
+stateful multi-cycle sequences for feedback, switching, keyed TSD lifecycle,
+reference, subscription, and request/reply services, automatic and
+multi-client adaptors, context capture across switching branches, grouped
+operator pipelines, and mesh lifecycle driven by a TSD key set.  TSD key-set
+recipes include value-only updates,
+same-cycle replacement, removal, repopulation, and empty transitions.
+
+Twelve of the thirteen generated families pass their inputs through a fixed
+structural ``TSL`` projection before use.  This intentionally combines a
+non-peered container with a ``REF``-producing child projection, so ordinary
+operators and framework boundaries must consume REF-transparent sources.
+The remaining scalar-expression family retains direct inputs to preserve an
+independent baseline.
+
+The pull-request profile generates 48 cases of 8--32 ticks in addition to the
+curated corpus.  The nightly profile generates 5,000 cases of 8--64 ticks and
+may shrink a failure below that range.  Nightly-only parameter variants retain
+known high-value stress points, such as direct formatting of a selected REF,
+unchanged TSD key-set cardinality, and service-adaptor transport timing,
+without turning the merge smoke profile into a permanent failure.
 
 Coverage is semantic rather than only line-based.  Reports count templates,
 time-series shapes, scalar types, operator families, topology, lifecycle
@@ -178,8 +197,12 @@ generated matrix against its already-built Linux wheel under Python 3.14.
 This pull-request job has read-only permissions, makes no model calls, and
 never creates issues.
 
-The nightly workflow builds one candidate wheel, runs four bounded shards, and
-uploads complete reports.  Campaign jobs have read-only permissions.  A
+The nightly workflow builds one candidate wheel, runs eight bounded shards
+over a deterministic 5,000-example matrix, and uploads complete reports.  Each
+shard has a one-hour campaign budget and a 90-minute job ceiling; the example
+limit remains the normal stopping condition, while the time budget prevents a
+slow or pathological family from monopolizing a runner.  Campaign jobs have
+read-only permissions.  A
 separate default-branch publisher receives only the validated report artifacts
 and has ``issues: write`` permission.  It creates or reopens deduplicated
 ``bug``/``parity`` issues and then exits; individual crashes and mismatches do

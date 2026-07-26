@@ -194,11 +194,212 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
             ],
         }
 
+    def sparse_ticks(draw, count, values):
+        return [draw(values)] + [
+            draw(st.one_of(st.none(), values)) for _ in range(count - 1)
+        ]
+
+    @st.composite
+    def service_reference(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        return {
+            "template": "service_reference",
+            "inputs": {
+                "value": sparse_ticks(
+                    draw, count, st.integers(min_value=-20, max_value=20)
+                )
+            },
+            "parameters": {
+                "base": draw(st.integers(min_value=-20, max_value=20)),
+                "path": draw(st.sampled_from(("desk", "rates", "reference"))),
+            },
+            "features": [*CATALOG["service_reference"].features],
+        }
+
+    @st.composite
+    def service_request_reply(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        return {
+            "template": "service_request_reply",
+            "inputs": {
+                "value": sparse_ticks(
+                    draw, count, st.integers(min_value=-20, max_value=20)
+                )
+            },
+            "parameters": {
+                "increment": draw(st.integers(min_value=-5, max_value=5)),
+                "path": draw(st.sampled_from(("requests", "adjust", "reply"))),
+            },
+            "features": [*CATALOG["service_request_reply"].features],
+        }
+
+    @st.composite
+    def service_subscription(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        symbols = st.sampled_from(("a", "fx", "rates", "EURUSD", "long_symbol"))
+        return {
+            "template": "service_subscription",
+            "inputs": {"symbol": sparse_ticks(draw, count, symbols)},
+            "parameters": {
+                "multiplier": draw(st.integers(min_value=-3, max_value=10)),
+                "path": draw(st.sampled_from(("quotes", "prices", "live"))),
+            },
+            "features": [*CATALOG["service_subscription"].features],
+        }
+
+    @st.composite
+    def adaptor_loopback(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        return {
+            "template": "adaptor_loopback",
+            "inputs": {
+                "value": sparse_ticks(
+                    draw, count, st.integers(min_value=-20, max_value=20)
+                )
+            },
+            "parameters": {
+                "factor": draw(st.integers(min_value=-5, max_value=5)),
+                "path": draw(st.sampled_from(("loopback", "io", "duplex"))),
+            },
+            "features": [*CATALOG["adaptor_loopback"].features],
+        }
+
+    @st.composite
+    def service_adaptor_roundtrip(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        return {
+            "template": "service_adaptor_roundtrip",
+            "inputs": {
+                "value": sparse_ticks(
+                    draw, count, st.integers(min_value=-20, max_value=20)
+                )
+            },
+            "parameters": {
+                "increment": draw(st.integers(min_value=-5, max_value=5)),
+            },
+            "features": [*CATALOG["service_adaptor_roundtrip"].features],
+        }
+
+    @st.composite
+    def context_switch(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        selector = sparse_ticks(
+            draw, count, st.sampled_from(("add", "subtract"))
+        )
+        value = sparse_ticks(
+            draw, count, st.integers(min_value=-20, max_value=20)
+        )
+        offset = sparse_ticks(
+            draw, count, st.integers(min_value=-20, max_value=20)
+        )
+        return {
+            "template": "context_switch",
+            "inputs": {
+                "selector": selector,
+                "value": value,
+                "offset": offset,
+            },
+            "features": [*CATALOG["context_switch"].features],
+        }
+
+    @st.composite
+    def operator_pipeline(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        nonzero = st.one_of(
+            st.integers(min_value=-9, max_value=-1),
+            st.integers(min_value=1, max_value=9),
+        )
+        return {
+            "template": "operator_pipeline",
+            "inputs": {
+                "lhs": sparse_ticks(
+                    draw, count, st.integers(min_value=-50, max_value=50)
+                ),
+                "rhs": sparse_ticks(draw, count, nonzero),
+                "choose_minimum": sparse_ticks(draw, count, st.booleans()),
+            },
+            "parameters": {"format_ref": draw(st.booleans())},
+            "features": [*CATALOG["operator_pipeline"].features],
+        }
+
+    @st.composite
+    def tsd_key_set_pipeline(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        universe = tuple(range(-4, 5))
+        initial = set(draw(st.sets(st.sampled_from(universe), max_size=4)))
+        active = set(initial)
+        ticks: list[Any] = [
+            {
+                "$map": [
+                    [key, draw(st.integers(min_value=-20, max_value=20))]
+                    for key in sorted(initial)
+                ]
+            }
+        ]
+        for _ in range(count - 1):
+            action = draw(
+                st.sampled_from(("none", "update", "add", "remove", "replace"))
+            )
+            if action == "none":
+                ticks.append(None)
+                continue
+            available = [item for item in universe if item not in active]
+            removable = sorted(active)
+            entries: list[list[Any]] = []
+            if action == "update" and removable:
+                key = draw(st.sampled_from(removable))
+                entries.append(
+                    [key, draw(st.integers(min_value=-20, max_value=20))]
+                )
+            if action in {"add", "replace"} and available:
+                key = draw(st.sampled_from(available))
+                active.add(key)
+                entries.append(
+                    [key, draw(st.integers(min_value=-20, max_value=20))]
+                )
+            if action in {"remove", "replace"} and removable:
+                key = draw(st.sampled_from(removable))
+                active.remove(key)
+                entries.append([key, {"$remove": True}])
+            ticks.append({"$map": entries})
+        return {
+            "template": "tsd_key_set_pipeline",
+            "inputs": {
+                "values": ticks,
+                "probe": sparse_ticks(
+                    draw, count, st.integers(min_value=-4, max_value=4)
+                ),
+            },
+            "parameters": {"dedup_size": draw(st.booleans())},
+            "features": [*CATALOG["tsd_key_set_pipeline"].features],
+        }
+
+    @st.composite
+    def mesh_key_set(draw):
+        source = draw(tsd_key_set_pipeline())
+        return {
+            "template": "mesh_key_set",
+            "inputs": {"values": source["inputs"]["values"]},
+            "parameters": {
+                "factor": draw(st.integers(min_value=-5, max_value=5))
+            },
+            "features": [*CATALOG["mesh_key_set"].features],
+        }
+
     return st.one_of(
         scalar_expression(),
         feedback_accumulate(),
         switch_arithmetic(),
         tsd_map_reduce(),
+        service_reference(),
+        service_request_reply(),
+        service_subscription(),
+        adaptor_loopback(),
+        service_adaptor_roundtrip(),
+        context_switch(),
+        operator_pipeline(),
+        tsd_key_set_pipeline(),
+        mesh_key_set(),
     )
 
 
