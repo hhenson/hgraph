@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "issue-65-key-set-size-no-retick",
+  "description": "Track the no-change-means-no-tick ruling for an undeduped key-set size: a delta netting to an unchanged length re-ticks in released hgraph and does not tick in hg_cpp (known deviation, ruling 2026-07-17).",
+  "template": "tsd_key_set_pipeline",
+  "inputs": {
+    "probe": [
+      null,
+      null
+    ],
+    "values": [
+      {
+        "$map": [
+          [-2, -13],
+          [-1, -7],
+          [0, 20],
+          [2, 11]
+        ]
+      },
+      {
+        "$map": [
+          [-3, -16],
+          [-1, {"$remove": true}]
+        ]
+      }
+    ]
+  },
+  "parameters": {
+    "dedup_size": false
+  },
+  "features": [
+    "binding:non-peered",
+    "lifecycle:keyed",
+    "reference:REF",
+    "shape:TSB",
+    "shape:TSD",
+    "shape:TSL",
+    "shape:TSS",
+    "topology:key-set-projection",
+    "topology:operator-composition",
+    "type:bool",
+    "type:float",
+    "type:int"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/65"
+}

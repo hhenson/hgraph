@@ -16,6 +16,16 @@
   ],
   "families": [
     {
+      "family": "key-set-size-no-retick",
+      "template": "tsd_key_set_pipeline",
+      "parameters_not_equal": {
+        "dedup_size": true
+      },
+      "issue": "https://github.com/hhenson/hg_cpp/issues/65",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst): an undeduped len_ over the key set does not re-tick an unchanged length in hg_cpp, while released hgraph re-ticks the equal value. Value mismatches for dedup_size=false recipes are the ruled deviation, not candidate defects.",
+      "review_after": "2027-07-26"
+    },
+    {
       "family": "reduce-non-identity-zero",
       "template": "tsd_map_reduce",
       "parameters_not_equal": {
