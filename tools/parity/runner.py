@@ -64,6 +64,22 @@ def _exception_category(error: BaseException) -> str:
     return "runtime"
 
 
+def _is_public_operator(value) -> bool:
+    return any(
+        cls.__name__ == "OperatorWiringNodeClass"
+        for cls in type(value).__mro__
+    )
+
+
+def _fallback_operator_names(hg) -> set[str]:
+    return {
+        name
+        for name in dir(hg)
+        if not name.startswith("_")
+        and _is_public_operator(getattr(hg, name, None))
+    }
+
+
 def _operator_inventory(hg) -> list[str]:
     names: set[str] = set()
     try:
@@ -79,11 +95,7 @@ def _operator_inventory(hg) -> list[str]:
     except ImportError:
         pass
     if not names:
-        names.update(
-            name
-            for name in dir(hg)
-            if not name.startswith("_") and callable(getattr(hg, name, None))
-        )
+        names.update(_fallback_operator_names(hg))
     return sorted(names)
 
 

@@ -12,12 +12,14 @@ from tools.artifact_fingerprint import hg_cpp_source_fingerprint
 from tools.parity.campaign import run_campaign
 from tools.parity.canonical import canonicalize
 from tools.parity.catalog import validate_recipe
+from tools.parity.cli import CAMPAIGN_PROFILES
 from tools.parity.compare import compare_outcomes
 from tools.parity.coverage import coverage_report, recipe_features
 from tools.parity.environments import ParityEnvironments
 from tools.parity.issues import failure_fingerprint, issue_body, publish_failures
 from tools.parity.model import Recipe, RecipeError, load_corpus
 from tools.parity.reduce import reduce_recipe
+from tools.parity.runner import _fallback_operator_names
 
 
 CORPUS = Path(__file__).parents[2] / "tools" / "parity" / "corpus"
@@ -44,7 +46,7 @@ def _scalar_recipe(ticks=None):
 
 def test_committed_parity_corpus_is_valid_and_unique():
     recipes = load_corpus(CORPUS)
-    assert len(recipes) >= 7
+    assert len(recipes) >= 19
     for recipe in recipes:
         validate_recipe(recipe)
     assert len({recipe.fingerprint for recipe in recipes}) == len(recipes)
@@ -98,11 +100,15 @@ def test_canonicalization_preserves_tick_sensitive_value_semantics():
         def removed(self):
             return {3}
 
+    Sentinel = type("Sentinel", (), {})
+    remove = Sentinel()
+    remove.name = "REMOVE"
     value = {
         "mapping": {"b": -0.0, "a": float("nan")},
         "tuple": (1, 2),
         "delta": FakeSetDelta(),
         "removed": Removed("old"),
+        "remove": remove,
     }
     assert canonicalize(value) == {
         "$map": [
@@ -116,6 +122,7 @@ def test_canonicalization_preserves_tick_sensitive_value_semantics():
                     ]
                 },
             ],
+            ["remove", {"$remove": True}],
             ["removed", {"$set_removed": "old"}],
             ["tuple", {"$tuple": [1, 2]}],
         ]
@@ -156,6 +163,57 @@ def test_generated_recipes_are_deterministic_typed_and_multi_tick():
     assert all(recipe.tick_count >= 8 for recipe in first)
     for recipe in first:
         validate_recipe(recipe)
+
+
+def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
+    pytest.importorskip("hypothesis")
+    from tools.parity.generate import generate_recipes
+
+    recipes = generate_recipes(240, seed=29)
+    templates = {recipe.template for recipe in recipes}
+    assert {
+        "service_reference",
+        "service_request_reply",
+        "service_subscription",
+        "adaptor_loopback",
+        "service_adaptor_roundtrip",
+        "context_switch",
+        "operator_pipeline",
+        "tsd_key_set_pipeline",
+        "mesh_key_set",
+    } <= templates
+    assert sum(
+        "reference:REF" in recipe.features
+        and "binding:non-peered" in recipe.features
+        for recipe in recipes
+    ) >= len(recipes) * 0.8
+    assert any(
+        recipe.template == "operator_pipeline"
+        and recipe.parameters["format_ref"]
+        for recipe in recipes
+    )
+    assert any(
+        recipe.template == "tsd_key_set_pipeline"
+        and not recipe.parameters["dedup_size"]
+        for recipe in recipes
+    )
+
+
+def test_campaign_profiles_scale_nightly_breadth_and_tick_depth():
+    assert CAMPAIGN_PROFILES["pr"]["examples"] == 48
+    assert CAMPAIGN_PROFILES["nightly"]["examples"] == 5000
+    assert CAMPAIGN_PROFILES["nightly"]["max_ticks"] == 64
+    assert CAMPAIGN_PROFILES["nightly"]["time_budget"] == 3600.0
+
+
+def test_operator_inventory_fallback_excludes_callable_types_and_helpers():
+    operator_type = type("OperatorWiringNodeClass", (), {})
+    namespace = SimpleNamespace(
+        add_=operator_type(),
+        TS=type("TS", (), {}),
+        helper=lambda: None,
+    )
+    assert _fallback_operator_names(namespace) == {"add_"}
 
 
 def test_reducer_shrinks_ticks_values_and_expression_while_preserving_failure():

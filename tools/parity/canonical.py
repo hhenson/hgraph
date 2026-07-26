@@ -60,6 +60,13 @@ def canonicalize(value: Any) -> Any:
         }
 
     type_name = type(value).__name__
+    if type_name == "Sentinel" and getattr(value, "name", None) == "REMOVE":
+        return {"$remove": True}
+    if (
+        type_name == "Sentinel"
+        and getattr(value, "name", None) == "REMOVE_IF_EXISTS"
+    ):
+        return {"$remove_if_exists": True}
     if type_name in {"_Removed", "Removed"} and repr(value) == "REMOVE":
         return {"$remove": True}
     if type_name in {"_RemovedIfExists", "RemovedIfExists"} and repr(value) == "REMOVE_IF_EXISTS":

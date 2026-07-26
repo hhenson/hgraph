@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "id": "mesh-key-set-lifecycle",
+  "description": "A REF-transparent TSD key-set projection creates and removes keyed mesh graphs across value-only and membership updates.",
+  "template": "mesh_key_set",
+  "inputs": {
+    "values": [
+      {"$map": [[1, 10], [2, 20]]},
+      null,
+      {"$map": [[1, 11]]},
+      {"$map": [[3, 30], [1, {"$remove": true}]]},
+      null,
+      {"$map": [[2, {"$remove": true}]]},
+      {"$map": [[-1, -10], [4, 40]]},
+      {"$map": [[3, 33]]},
+      {"$map": [[3, {"$remove": true}], [-1, {"$remove": true}]]},
+      {"$map": [[4, {"$remove": true}]]}
+    ]
+  },
+  "parameters": {
+    "factor": 3
+  },
+  "features": [
+    "shape:TSD",
+    "shape:TSS",
+    "topology:mesh",
+    "topology:key-set-projection",
+    "lifecycle:key-removal",
+    "lifecycle:value-only-update",
+    "lifecycle:nested-graph",
+    "reference:REF",
+    "binding:non-peered"
+  ]
+}

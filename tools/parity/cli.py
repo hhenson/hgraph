@@ -22,6 +22,29 @@ from .reduce import reduce_recipe
 
 CORPUS = Path(__file__).with_name("corpus")
 
+CAMPAIGN_PROFILES = {
+    "pr": {
+        "examples": 48,
+        "time_budget": 900.0,
+        "reduce": False,
+        "min_ticks": 8,
+        "max_ticks": 32,
+        "templates": (
+            "scalar_expression",
+            "feedback_accumulate",
+            "switch_arithmetic",
+        ),
+    },
+    "nightly": {
+        "examples": 5000,
+        "time_budget": 3600.0,
+        "reduce": True,
+        "min_ticks": 8,
+        "max_ticks": 64,
+        "templates": None,
+    },
+}
+
 
 def _path(value: str | None) -> Path | None:
     return Path(value).resolve() if value else None
@@ -167,18 +190,7 @@ def command_coverage(args) -> int:
 
 
 def command_campaign(args) -> int:
-    profile_defaults = {
-        "pr": {
-            "examples": 24,
-            "time_budget": 600.0,
-            "reduce": False,
-        },
-        "nightly": {
-            "examples": 100,
-            "time_budget": 2700.0,
-            "reduce": True,
-        },
-    }[args.profile]
+    profile_defaults = CAMPAIGN_PROFILES[args.profile]
     examples = (
         args.max_examples
         if args.max_examples is not None
@@ -194,23 +206,25 @@ def command_campaign(args) -> int:
         if args.reduce is not None
         else profile_defaults["reduce"]
     )
+    min_ticks = (
+        args.min_ticks
+        if args.min_ticks is not None
+        else profile_defaults["min_ticks"]
+    )
+    max_ticks = (
+        args.max_ticks
+        if args.max_ticks is not None
+        else profile_defaults["max_ticks"]
+    )
     recipes = _load_selected_recipes(args.paths)
     if examples:
         recipes.extend(
             generate_recipes(
                 examples,
                 seed=args.seed,
-                min_ticks=args.min_ticks,
-                max_ticks=args.max_ticks,
-                templates=(
-                    (
-                        "scalar_expression",
-                        "feedback_accumulate",
-                        "switch_arithmetic",
-                    )
-                    if args.profile == "pr"
-                    else None
-                ),
+                min_ticks=min_ticks,
+                max_ticks=max_ticks,
+                templates=profile_defaults["templates"],
             )
         )
     unique = {recipe.fingerprint: recipe for recipe in recipes}
@@ -324,8 +338,8 @@ def build_parser() -> argparse.ArgumentParser:
     campaign.add_argument("--profile", choices=("pr", "nightly"), default="pr")
     campaign.add_argument("--seed", type=int, default=20260726)
     campaign.add_argument("--max-examples", type=int)
-    campaign.add_argument("--min-ticks", type=int, default=8)
-    campaign.add_argument("--max-ticks", type=int, default=32)
+    campaign.add_argument("--min-ticks", type=int)
+    campaign.add_argument("--max-ticks", type=int)
     campaign.add_argument("--timeout", type=float, default=30.0)
     campaign.add_argument("--time-budget", type=float)
     campaign.add_argument("--reduction-budget", type=float, default=120.0)

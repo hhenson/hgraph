@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "operator-pipeline-multi-tick",
+  "description": "Composes integer, comparison, conditional, logical, string, validity, and modification operators.",
+  "template": "operator_pipeline",
+  "inputs": {
+    "lhs": [17, -8, null, 0, 25, null, -31, 9, null, 4, -2, 13],
+    "rhs": [5, null, -3, 2, null, 7, -4, null, 3, -2, null, 6],
+    "choose_minimum": [true, null, false, null, true, false, null, true, false, null, true, false]
+  },
+  "parameters": {
+    "format_ref": false
+  },
+  "features": [
+    "topology:operator-composition",
+    "operator:arithmetic",
+    "operator:conditional",
+    "operator:logical",
+    "operator:string",
+    "reference:REF",
+    "binding:non-peered",
+    "lifecycle:multi-cycle"
+  ]
+}
