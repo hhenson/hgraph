@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "issue-36-stream-dataclass",
+  "description": "Frozen Python-owned dataclasses retain their public Stream bundle shape.",
+  "template": "stream_dataclass",
+  "inputs": {
+    "probe": [
+      true
+    ]
+  },
+  "parameters": {},
+  "features": [
+    "boundary:python-owned",
+    "shape:TSB",
+    "type:dataclass"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/36"
+}

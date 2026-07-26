@@ -24,6 +24,7 @@ The developer guide describes the internal design of the C++ implementation. The
    services
    operators
    parity_matrix
+   parity_testing
    record_replay_table
    python_integration
    python_bridge

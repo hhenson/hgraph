@@ -368,6 +368,51 @@ jobs:
         if: matrix.python-version == '3.12'
         run: uv run --no-sync python tests/python_extension_consumer/check.py
 
+  parity-smoke:
+    name: Differential parity smoke / Python 3.14
+    needs:
+      - reuse-build
+      - build-linux-wheel
+    if: needs.reuse-build.outputs.run-id == ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install parity controller
+        run: python -m pip install --upgrade uv hypothesis
+      - uses: actions/download-artifact@v7
+        with:
+          name: distribution-wheel-ubuntu-latest
+          path: dist
+      - name: Restore released-hgraph traces
+        uses: actions/cache@v5
+        with:
+          path: |
+            .parity/envs/reference-*
+            .parity/cache/reference-traces
+          key: parity-reference-${{ runner.os }}-py314-${{ hashFiles('tools/parity/**/*.py') }}
+          restore-keys: |
+            parity-reference-${{ runner.os }}-py314-
+      - name: Run fixed corpus and deterministic generated matrix
+        run: >-
+          python -m tools.parity campaign
+          --profile pr
+          --seed 20260726
+          --candidate-wheel dist/*.whl
+          --output-dir parity-results
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: parity-smoke
+          path: parity-results
+          if-no-files-found: error
+
   native-cpp:
     name: Native C++ / ${{ matrix.os }}
     needs:

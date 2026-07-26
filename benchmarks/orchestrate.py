@@ -18,7 +18,6 @@ force a refresh). Results land in benchmarks/results/.
 """
 import argparse
 import datetime as dt
-import hashlib
 import json
 import os
 import platform
@@ -31,6 +30,10 @@ from pathlib import Path
 
 BENCH_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BENCH_DIR.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+from tools.artifact_fingerprint import hg_cpp_source_fingerprint as _source_fingerprint
+
 ENVIRONMENT_KEY = (
     f"{sys.version_info.major}.{sys.version_info.minor}-"
     f"{sys.platform}-{platform.machine().lower()}"
@@ -54,30 +57,7 @@ def hg_cpp_python() -> Path:
 
 
 def hg_cpp_source_fingerprint() -> str:
-    digest = hashlib.sha256()
-    roots = (
-        REPO_ROOT / "CMakeLists.txt",
-        REPO_ROOT / "pyproject.toml",
-        REPO_ROOT / "include",
-        REPO_ROOT / "src",
-        REPO_ROOT / "python" / "CMakeLists.txt",
-        REPO_ROOT / "python" / "hgraph",
-    )
-    files = []
-    for root in roots:
-        if root.is_file():
-            files.append(root)
-        elif root.is_dir():
-            files.extend(path for path in root.rglob("*") if path.is_file() and "__pycache__" not in path.parts)
-    files.extend((REPO_ROOT / "python").glob("*.cpp"))
-    files.extend((REPO_ROOT / "python").glob("*.h"))
-    for path in sorted(files):
-        digest.update(path.relative_to(REPO_ROOT).as_posix().encode())
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    digest.update(f"python-{sys.version_info.major}.{sys.version_info.minor}".encode())
-    return digest.hexdigest()
+    return _source_fingerprint(REPO_ROOT)
 
 
 def _first_line(command: list[str]) -> str:

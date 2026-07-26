@@ -57,6 +57,9 @@ test = [
     "tornado>=6.5",
     "trove-classifiers",
 ]
+parity = [
+    "hypothesis>=6",
+]
 web = [
     "tornado>=6.5",
 ]
