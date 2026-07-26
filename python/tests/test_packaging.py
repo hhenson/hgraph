@@ -4,6 +4,8 @@ from pathlib import Path
 import re
 import tomllib
 
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 from packaging.version import Version
 from trove_classifiers import classifiers as valid_classifiers
 
@@ -113,6 +115,33 @@ def test_full_suite_dependencies_include_the_dataframe_runtime():
     assert "polars[rtcompat]>=1.32" in test_dependencies
 
 
+def _dependency_names(requirements):
+    return {
+        canonicalize_name(Requirement(requirement).name)
+        for requirement in requirements
+    }
+
+
+def test_adaptor_extras_include_their_runtime_dependencies():
+    extras = load_project()["project"]["optional-dependencies"]
+
+    assert "polars>=1.32" in extras["sql"]
+    assert "polars>=1.32" in extras["delta"]
+    assert (
+        _dependency_names(extras["sql"]) | _dependency_names(extras["delta"])
+    ) <= _dependency_names(extras["test"])
+
+
+def test_full_suite_gate_installs_the_wheel_test_extra():
+    instructions = (ROOT / "AGENTS.md").read_text()
+
+    assert 'wheel_path="$(find "$wheel_dir"' in instructions
+    assert (
+        'uv pip install --python "$test_env/bin/python" '
+        '"${wheel_path}[test]"'
+    ) in instructions
+
+
 def test_release_workflow_targets_supported_platforms():
     workflow = (ROOT / ".github/workflows/build.yml").read_text()
 
@@ -169,6 +198,8 @@ def main():
     test_wheel_uses_shared_runtime_for_downstream_native_extensions()
     test_source_distribution_excludes_private_release_evidence()
     test_full_suite_dependencies_include_the_dataframe_runtime()
+    test_adaptor_extras_include_their_runtime_dependencies()
+    test_full_suite_gate_installs_the_wheel_test_extra()
     test_release_workflow_targets_supported_platforms()
     test_release_workflow_reuses_tested_commit_artifacts()
     test_release_workflow_audits_distribution_contents()
@@ -181,6 +212,8 @@ def main():
     print("PASS test_wheel_uses_shared_runtime_for_downstream_native_extensions")
     print("PASS test_source_distribution_excludes_private_release_evidence")
     print("PASS test_full_suite_dependencies_include_the_dataframe_runtime")
+    print("PASS test_adaptor_extras_include_their_runtime_dependencies")
+    print("PASS test_full_suite_gate_installs_the_wheel_test_extra")
     print("PASS test_release_workflow_targets_supported_platforms")
     print("PASS test_release_workflow_reuses_tested_commit_artifacts")
     print("PASS test_release_workflow_audits_distribution_contents")

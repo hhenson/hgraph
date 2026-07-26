@@ -4,7 +4,6 @@ from concurrent.futures import Executor
 from datetime import datetime, timezone
 from enum import Enum
 
-import polars as pl
 import pyarrow as pa
 import pyarrow.compute as pc
 
@@ -25,7 +24,11 @@ from hgraph import (
 from hgraph.adaptors.executor import adaptor_executor
 from hgraph.stream import Data, Stream, StreamStatus
 
-from .sql_connection import SqlAdaptorConnection, start_sql_adaptor
+from .sql_connection import (
+    SqlAdaptorConnection,
+    _require_polars,
+    start_sql_adaptor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +167,7 @@ def sql_write_adaptor_raw_impl(
             previous.result()
         start = time.perf_counter_ns()
         try:
+            pl = _require_polars()
             with connection.connection.connect() as query_connection:
                 autocommit = query_connection.execution_options(autocommit=True)
                 data_frame = pl.from_arrow(frame)
