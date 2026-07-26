@@ -236,10 +236,25 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
     @st.composite
     def service_subscription(draw):
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
-        symbols = st.sampled_from(("a", "fx", "rates", "EURUSD", "long_symbol"))
+        # Each symbol subscribes at most once: re-subscribing a previously
+        # computed symbol is the designed same-cycle sampling deviation
+        # (services.rst scheduling matrix; issue #66), so differential
+        # exploration there measures the deviation, not candidate defects.
+        # The corpus tracks the re-subscription case explicitly.
+        pool = list(
+            draw(
+                st.permutations(("a", "fx", "rates", "EURUSD", "long_symbol"))
+            )
+        )
+        ticks = [pool.pop(0)]
+        for _ in range(count - 1):
+            if pool and draw(st.booleans()):
+                ticks.append(pool.pop(0))
+            else:
+                ticks.append(None)
         return {
             "template": "service_subscription",
-            "inputs": {"symbol": sparse_ticks(draw, count, symbols)},
+            "inputs": {"symbol": ticks},
             "parameters": {
                 "multiplier": draw(st.integers(min_value=-3, max_value=10)),
                 "path": draw(st.sampled_from(("quotes", "prices", "live"))),

@@ -162,11 +162,35 @@ def publish_failures(
     *,
     repo: str,
     publish: bool,
+    known_divergences_path: Path | None = None,
 ) -> list[dict[str, Any]]:
+    from .known import is_known_family_failure, load_known_divergences
+
     failures = list(failures)
+    known_fingerprints, known_families = load_known_divergences(
+        known_divergences_path
+    )
+
+    def known_action(failure: dict[str, Any]) -> dict[str, Any] | None:
+        # The publisher re-checks the known-divergence records so a stale or
+        # concurrently produced report can never file — or reopen — an issue
+        # for a documented deviation.
+        fingerprint = failure.get("failure_fingerprint") or failure_fingerprint(
+            failure
+        )
+        if fingerprint not in known_fingerprints and not is_known_family_failure(
+            failure.get("minimized_recipe") or {},
+            failure.get("difference") or {},
+            failure.get("reference") or {},
+            failure.get("candidate") or {},
+            known_families,
+        ):
+            return None
+        return {"action": "known-divergence", "fingerprint": fingerprint}
     if not publish:
         return [
-            {
+            known_action(failure)
+            or {
                 "action": "dry-run",
                 "title": issue_title(failure),
                 "fingerprint": failure.get("failure_fingerprint")
@@ -198,6 +222,10 @@ def publish_failures(
         )
         marker = f"<!-- {FINGERPRINT_PREFIX}{fingerprint} -->"
         title = issue_title(failure)
+        known = known_action(failure)
+        if known is not None:
+            actions.append(known)
+            continue
         if fingerprint in handled_this_run:
             # One issue per fingerprint per publish: later failures in the
             # same run (e.g. from other shards) fold into the first.

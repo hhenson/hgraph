@@ -169,7 +169,7 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
     pytest.importorskip("hypothesis")
     from tools.parity.generate import generate_recipes
 
-    recipes = generate_recipes(240, seed=29)
+    recipes = generate_recipes(320, seed=29)
     templates = {recipe.template for recipe in recipes}
     assert {
         "service_reference",
@@ -655,6 +655,114 @@ def test_issue_publisher_deduplicates_same_fingerprint_within_one_run(
         sum(1 for arguments, _, _ in calls if arguments[:2] == ["issue", "create"])
         == 1
     )
+
+
+def test_publisher_consults_known_divergences_and_never_reopens(
+    monkeypatch, tmp_path
+):
+    # The consolidation step takes the known-divergence records into account:
+    # a failure whose fingerprint (or family) is known is reported as
+    # "known-divergence" — it is neither created nor REOPENED, even when a
+    # closed issue with the matching marker exists.
+    failure = {
+        "failure_fingerprint": "ruled-fingerprint",
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace[0]",
+            "reference": 1,
+            "candidate": 2,
+        },
+        "reference": {"status": "ok", "trace": [1]},
+        "candidate": {"status": "ok", "trace": [2]},
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    known_path = tmp_path / "known_divergences.json"
+    known_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "divergences": [{"fingerprint": "ruled-fingerprint"}],
+                "families": [],
+            }
+        )
+    )
+    closed = {
+        "number": 99,
+        "state": "CLOSED",
+        "title": "[parity] scalar_expression differs from released hgraph",
+        "body": "<!-- hgraph-parity:ruled-fingerprint -->",
+        "url": "https://github.com/hhenson/hg_cpp/issues/99",
+    }
+    calls = []
+
+    monkeypatch.setattr(
+        "tools.parity.issues._existing_issues", lambda _repo: [closed]
+    )
+
+    def fake_gh(arguments, *, repo, capture=False):
+        calls.append((arguments, repo, capture))
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr("tools.parity.issues._gh", fake_gh)
+
+    actions = publish_failures(
+        [failure],
+        repo="hhenson/hg_cpp",
+        publish=True,
+        known_divergences_path=known_path,
+    )
+    assert actions == [
+        {"action": "known-divergence", "fingerprint": "ruled-fingerprint"}
+    ]
+    assert not any(
+        arguments[:2] in (["issue", "create"], ["issue", "reopen"])
+        for arguments, _, _ in calls
+    )
+
+    # Dry-run reports the same classification.
+    dry = publish_failures(
+        [failure],
+        repo="hhenson/hg_cpp",
+        publish=False,
+        known_divergences_path=known_path,
+    )
+    assert dry == [
+        {"action": "known-divergence", "fingerprint": "ruled-fingerprint"}
+    ]
+
+
+def test_empty_family_parameter_map_matches_the_whole_template():
+    from tools.parity.known import matches_known_family
+
+    families = [
+        {
+            "family": "whole-template",
+            "template": "service_adaptor_roundtrip",
+            "parameters_not_equal": {},
+        }
+    ]
+    assert matches_known_family(
+        {"template": "service_adaptor_roundtrip", "parameters": {"increment": 3}},
+        families,
+    )
+    assert not matches_known_family(
+        {"template": "service_subscription", "parameters": {}}, families
+    )
+
+
+def test_generated_subscription_recipes_never_resubscribe():
+    # Re-subscribing a previously computed symbol is the designed same-cycle
+    # sampling deviation (issue #66): the generator must not explore it.
+    pytest.importorskip("hypothesis")
+    from tools.parity.generate import generate_recipes
+
+    recipes = generate_recipes(240, seed=29)
+    subs = [r for r in recipes if r.template == "service_subscription"]
+    assert subs, "expected generated service_subscription recipes"
+    for recipe in subs:
+        symbols = [s for s in recipe.inputs["symbol"] if s is not None]
+        assert len(symbols) == len(set(symbols))
 
 
 def test_coverage_reports_operator_frontier_and_semantic_pairs():

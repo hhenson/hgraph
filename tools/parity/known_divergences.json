@@ -12,9 +12,29 @@
       "issue": "https://github.com/hhenson/hg_cpp/issues/46",
       "reason": "Accepted deviation (same family as issue #44): a never-ticking TSD reduce with a non-identity zero publishes 2*zero in released hgraph (empty node tree, both leaves bound to zero) and exactly zero in hg_cpp. See the documented reduce deviation in docs/source/developer_guide/parity_matrix.rst.",
       "review_after": "2027-07-26"
+    },
+    {
+      "fingerprint": "e64b8a5662c389c92396ef0805a60bb97e109ee943222ed1e22fadbae88eb28e",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/64",
+      "reason": "Designed service-boundary timing (services.rst scheduling matrix): a service_adaptor request forwards next cycle by design, so the round trip lands one cycle after released hgraph's same-cycle adaptor wiring. Pinned by test_service_wiring.cpp service-adaptor cases.",
+      "review_after": "2027-07-26"
+    },
+    {
+      "fingerprint": "6d05f5590cc2ff1d6ff45fa63f5189771924d30b9df7d754569979a3d2718b0b",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/66",
+      "reason": "Designed service-boundary timing (services.rst scheduling matrix): a late/duplicate subscription samples the existing shared output in the same cycle, one cycle earlier than released hgraph's re-delivery. Pinned by test_service_wiring.cpp 'late duplicate subscription samples the existing value'.",
+      "review_after": "2027-07-26"
     }
   ],
   "families": [
+    {
+      "family": "service-adaptor-transport-cycle",
+      "template": "service_adaptor_roundtrip",
+      "parameters_not_equal": {},
+      "issue": "https://github.com/hhenson/hg_cpp/issues/64",
+      "reason": "The designed one-cycle service_adaptor request hop shifts every trace of this template relative to released hgraph, so every completed-run value mismatch here is the documented timing deviation. The empty parameters map matches the whole template.",
+      "review_after": "2027-07-26"
+    },
     {
       "family": "key-set-size-no-retick",
       "template": "tsd_key_set_pipeline",

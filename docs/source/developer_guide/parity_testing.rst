@@ -162,13 +162,18 @@ Two mechanisms keep an accepted deviation from re-filing as noise.  Exact
 suppress the deviation's whole parameter space — a template plus a
 ``parameters_not_equal`` map matching every recipe whose named parameters
 differ from the stated identity (an omitted parameter runs at the template
-default — the identity — and is outside the family).  Family suppression
+default — the identity — and is outside the family; an **empty** map matches
+every recipe of the template, used when a designed deviation shifts every
+trace, e.g. the ``service_adaptor`` transport cycle).  Family suppression
 covers only the deviation's own shape: both implementations completed and
 disagreed on a trace value.  A candidate crash or status difference inside
 the same parameter space still verifies and publishes normally.  A mismatch
 matching a family is classified as a known failure on first detection,
 before any verification replays or reduction budget is spent, because each
-new minimized variant would otherwise mint a fresh fingerprint.  For the same reason the generator does not explore
+new minimized variant would otherwise mint a fresh fingerprint.  The
+publisher re-checks the same records (``tools/parity/known.py``) before
+creating or reopening an issue, so a stale or concurrently produced report
+can never re-file a documented deviation.  For the same reason the generator does not explore
 documented-unspecified space at all (e.g. ``tsd_map_reduce`` recipes are
 generated with the identity zero only); the corpus keeps explicit deviation
 recipes as permanently known mismatches.  The publisher additionally files at
