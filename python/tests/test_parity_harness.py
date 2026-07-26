@@ -340,10 +340,11 @@ def test_campaign_classifies_known_family_without_verification(monkeypatch, tmp_
                 "divergences": [],
                 "families": [
                     {
-                        "family": "reduce-non-identity-zero",
-                        "template": "tsd_map_reduce",
-                        "parameters_not_equal": {"zero": 0},
-                    }
+                            "family": "reduce-non-identity-zero",
+                            "template": "tsd_map_reduce",
+                            "parameters_not_equal": {"zero": 0},
+                            "relation": "trace-value",
+                        }
                 ],
             }
         )
@@ -734,13 +735,10 @@ def test_publisher_consults_known_divergences_and_never_reopens(
     ]
 
 
-def test_family_gate_covers_the_actual_ruled_length_outcomes():
-    # PR #67 review reproductions (base 0a6df5b7): the ruled deviations
-    # surface as LENGTH differences, not value differences — a shifted
-    # adaptor trace, a missing unchanged size field, and a missing
-    # empty-map tick. The family gate must classify these real comparator
-    # outcomes as known while still excluding crashes and status
-    # differences. Uses the committed known_divergences.json records.
+def test_family_gate_requires_the_documented_trace_relation():
+    # PR #67 review reproductions (base 0a6df5b7). Parameter membership
+    # selects a possible deviation, but the complete traces must also satisfy
+    # that family's relation so payload regressions remain differential.
     from tools.parity.known import (
         is_known_family_failure,
         load_known_divergences,
@@ -760,16 +758,37 @@ def test_family_gate_covers_the_actual_ruled_length_outcomes():
     assert is_known_family_failure(
         adaptor_recipe, difference.to_dict(), ok([2]), ok([None, 2]), families
     )
+    corrupted = ok([None, 3])
+    difference = compare_outcomes(ok([2]), corrupted)
+    assert not is_known_family_failure(
+        adaptor_recipe,
+        difference.to_dict(),
+        ok([2]),
+        corrupted,
+        families,
+    )
 
     # 2. tsd_key_set_pipeline dedup_size=false: the unchanged size field is
-    # republished by the reference and omitted by the candidate.
+    # republished by the reference and omitted by the candidate. The float
+    # difference is inside the template tolerance and is not a second defect.
     pipeline_recipe = {
         "template": "tsd_key_set_pipeline",
         "inputs": {"values": [None]},
         "parameters": {"dedup_size": False},
     }
-    ref_tick = {"$map": [["size", 4], ["total", -1]]}
-    cand_tick = {"$map": [["total", -1]]}
+    ref_tick = {
+        "$map": [
+            ["size", 4],
+            ["total", -1],
+            ["variance", {"$float": "0x1.caaaaaaaaaaabp+3"}],
+        ]
+    }
+    cand_tick = {
+        "$map": [
+            ["total", -1],
+            ["variance", {"$float": "0x1.caaaaaaaaaaaap+3"}],
+        ]
+    }
     difference = compare_outcomes(ok([ref_tick]), ok([cand_tick]))
     assert difference.to_dict()["classification"] == "length"
     assert difference.to_dict()["path"].startswith("$.trace")
@@ -780,12 +799,134 @@ def test_family_gate_covers_the_actual_ruled_length_outcomes():
         ok([cand_tick]),
         families,
     )
+    missing_payload = ok([{"$map": [["size", 4]]}])
+    difference = compare_outcomes(ok([ref_tick]), missing_payload)
+    assert not is_known_family_failure(
+        pipeline_recipe,
+        difference.to_dict(),
+        ok([ref_tick]),
+        missing_payload,
+        families,
+    )
+
+    # 3. A different subscription key samples normally; a repeated key is
+    # same-cycle in hg_cpp and delayed one cycle in released hgraph. Payload
+    # values and every other tick must remain equal.
+    subscription_recipe = {
+        "template": "service_subscription",
+        "inputs": {"symbol": ["rates", None, "long_symbol", "rates"]},
+        "parameters": {"multiplier": 10, "path": "live"},
+    }
+    reference = ok([None, 50, None, None, 50])
+    candidate = ok([None, 50, None, 50])
+    difference = compare_outcomes(reference, candidate)
+    assert is_known_family_failure(
+        subscription_recipe,
+        difference.to_dict(),
+        reference,
+        candidate,
+        families,
+    )
+    corrupted = ok([None, 50, None, 51])
+    difference = compare_outcomes(reference, corrupted)
+    assert not is_known_family_failure(
+        subscription_recipe,
+        difference.to_dict(),
+        reference,
+        corrupted,
+        families,
+    )
+    first_subscriptions_only = {
+        **subscription_recipe,
+        "inputs": {"symbol": ["rates", None, "long_symbol"]},
+    }
+    assert not is_known_family_failure(
+        first_subscriptions_only,
+        difference.to_dict(),
+        reference,
+        corrupted,
+        families,
+    )
+
+    # 4. The non-identity reduce ruling covers a value difference only. A
+    # length difference in the same parameter space remains reportable.
+    reduce_recipe = {
+        "template": "tsd_map_reduce",
+        "inputs": {"values": [None]},
+        "parameters": {"zero": 2},
+    }
+    difference = compare_outcomes(ok([4]), ok([2]))
+    assert is_known_family_failure(
+        reduce_recipe,
+        difference.to_dict(),
+        ok([4]),
+        ok([2]),
+        families,
+    )
+    difference = compare_outcomes(ok([4]), ok([2, 2]))
+    assert not is_known_family_failure(
+        reduce_recipe,
+        difference.to_dict(),
+        ok([4]),
+        ok([2, 2]),
+        families,
+    )
 
     # A candidate crash in the same parameter space is NOT the deviation.
     crash = {"status": "error", "phase": "runtime"}
     difference = compare_outcomes(ok([2]), crash)
     assert not is_known_family_failure(
         adaptor_recipe, difference.to_dict(), ok([2]), crash, families
+    )
+
+
+def test_publisher_suppresses_stale_resubscription_variants(monkeypatch):
+    # Symbols and path deliberately differ from the exact issue-66 corpus
+    # fingerprint. The input-aware relation must still prevent a stale report
+    # from creating or reopening the documented deviation.
+    recipe = {
+        "schema_version": 1,
+        "id": "stale-resubscription-variant",
+        "description": "Stale report with a different repeated symbol.",
+        "template": "service_subscription",
+        "inputs": {"symbol": ["fx", None, "long_symbol", "fx"]},
+        "parameters": {"multiplier": 0, "path": "quotes"},
+        "features": [],
+    }
+    reference = {"status": "ok", "trace": [None, 0, None, None, 0]}
+    candidate = {"status": "ok", "trace": [None, 0, None, 0]}
+    failure = {
+        "minimized_recipe": recipe,
+        "difference": compare_outcomes(reference, candidate).to_dict(),
+        "reference": reference,
+        "candidate": candidate,
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    failure["failure_fingerprint"] = failure_fingerprint(failure)
+    assert failure["failure_fingerprint"] != (
+        "6d05f5590cc2ff1d6ff45fa63f5189771924d30b9df7d754569979a3d2718b0b"
+    )
+
+    calls = []
+    monkeypatch.setattr(
+        "tools.parity.issues._existing_issues", lambda _repo: []
+    )
+
+    def fake_gh(arguments, *, repo, capture=False):
+        calls.append(arguments)
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr("tools.parity.issues._gh", fake_gh)
+    actions = publish_failures([failure], repo="hhenson/hg_cpp", publish=True)
+    assert actions == [
+        {
+            "action": "known-divergence",
+            "fingerprint": failure["failure_fingerprint"],
+        }
+    ]
+    assert not any(
+        arguments[:2] in (["issue", "create"], ["issue", "reopen"])
+        for arguments in calls
     )
 
 
@@ -799,7 +940,7 @@ def test_mesh_empty_initial_fingerprint_is_pinned_and_suppressed(monkeypatch):
     fingerprints, _families = load_known_divergences()
     recipe = Recipe.load(CORPUS / "mesh-empty-initial-no-tick.json")
     reference = {"status": "ok", "trace": [{"$map": []}]}
-    candidate = {"status": "ok", "trace": []}
+    candidate = {"status": "ok", "trace": None}
     difference = compare_outcomes(reference, candidate)
     failure = {
         "minimized_recipe": recipe.to_dict(),
@@ -809,6 +950,9 @@ def test_mesh_empty_initial_fingerprint_is_pinned_and_suppressed(monkeypatch):
         "reduction": {"attempts": 0, "accepted": 0},
     }
     fingerprint = failure_fingerprint(failure)
+    assert fingerprint == (
+        "7834fe8ecb1c87ca79cd6ef4229a20376622857e8b1b7b56b6a76d02e4613182"
+    )
     assert fingerprint in fingerprints
 
     calls = []
@@ -853,7 +997,10 @@ def test_generated_key_set_recipes_avoid_ruled_no_tick_space():
 
 
 def test_empty_family_parameter_map_matches_the_whole_template():
-    from tools.parity.known import matches_known_family
+    from tools.parity.known import (
+        is_known_family_failure,
+        matches_known_family,
+    )
 
     families = [
         {
@@ -868,6 +1015,19 @@ def test_empty_family_parameter_map_matches_the_whole_template():
     )
     assert not matches_known_family(
         {"template": "service_subscription", "parameters": {}}, families
+    )
+    difference = {
+        "classification": "value",
+        "path": "$.trace[0]",
+        "reference": 1,
+        "candidate": 2,
+    }
+    assert not is_known_family_failure(
+        {"template": "service_adaptor_roundtrip", "parameters": {}},
+        difference,
+        {"status": "ok", "trace": [1]},
+        {"status": "ok", "trace": [2]},
+        [{**families[0], "relation": "not-a-supported-relation"}],
     )
 
 

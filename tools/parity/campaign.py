@@ -141,10 +141,9 @@ def run_campaign(
             candidate,
             known_families,
         ):
-            # First-pass sanity check: a completed-run trace-value mismatch
-            # inside a documented deviation's parameter space is a known
-            # failure; do not spend verification replays or reduction budget
-            # minting a new fingerprint for it.
+            # The shared matcher proved both parameter membership and the
+            # family's documented trace relation. Do not spend verification
+            # replays or reduction budget minting another fingerprint for it.
             failure = {
                 "original_recipe": recipe.to_dict(),
                 "minimized_recipe": recipe.to_dict(),

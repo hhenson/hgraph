@@ -111,9 +111,10 @@ independent baseline.
 The pull-request profile generates 48 cases of 8--32 ticks in addition to the
 curated corpus.  The nightly profile generates 5,000 cases of 8--64 ticks and
 may shrink a failure below that range.  Nightly-only parameter variants retain
-known high-value stress points, such as direct formatting of a selected REF,
-unchanged TSD key-set cardinality, and service-adaptor transport timing,
-without turning the merge smoke profile into a permanent failure.
+known high-value stress points, such as direct formatting of a selected REF
+and service-adaptor transport timing, without turning the merge smoke profile
+into a permanent failure.  Ruled parameter spaces which carry no differential
+signal, such as undeduplicated key-set cardinality, remain corpus-only.
 
 Coverage is semantic rather than only line-based.  Reports count templates,
 time-series shapes, scalar types, operator families, topology, lifecycle
@@ -163,23 +164,36 @@ suppress the deviation's whole parameter space — a template plus a
 ``parameters_not_equal`` map matching every recipe whose named parameters
 differ from the stated identity (an omitted parameter runs at the template
 default — the identity — and is outside the family; an **empty** map matches
-every recipe of the template, used when a designed deviation shifts every
-trace, e.g. the ``service_adaptor`` transport cycle).  Family suppression
-covers only the deviation's own shape: both implementations completed and
-disagreed on trace content — a differing value or a differing tick/field
-count, since ruled no-tick and timing deviations surface as missing ticks or
-missing map fields.  A candidate crash or status difference inside the same
-parameter space still verifies and publishes normally.  A mismatch
-matching a family is classified as a known failure on first detection,
-before any verification replays or reduction budget is spent, because each
-new minimized variant would otherwise mint a fresh fingerprint.  The
-publisher re-checks the same records (``tools/parity/known.py``) before
-creating or reopening an issue, so a stale or concurrently produced report
-can never re-file a documented deviation.  For the same reason the generator does not explore
-documented-unspecified space at all (e.g. ``tsd_map_reduce`` recipes are
-generated with the identity zero only); the corpus keeps explicit deviation
-recipes as permanently known mismatches.  The publisher additionally files at
-most one issue per fingerprint per run.
+every recipe of the template).  Parameter membership is necessary but not
+sufficient.  Each family also names a bounded ``relation`` which proves that
+the complete reference and candidate traces differ in exactly the documented
+way:
+
+* ``trace-value`` accepts only a trace value difference, used by the
+  non-identity reduce-zero deviation;
+* ``service-adaptor-one-cycle`` requires the candidate trace to equal one
+  leading no-tick cycle followed by the complete reference trace;
+* ``key-set-size-no-retick`` removes only ``size`` fields and then requires
+  every remaining field to compare within the template's float tolerance; and
+* ``subscription-resample-one-cycle`` requires repeated non-null subscription
+  keys and proves that inserting the reference's re-delivery cycles makes the
+  complete payload traces equal.
+
+An unknown relation, payload corruption, unrelated missing field, candidate
+crash, or status difference does not match and therefore continues through
+normal verification and publishing.  A mismatch satisfying both the parameter
+and trace relation is classified as a known failure on first detection, before
+any verification replays or reduction budget is spent, because each new
+minimized variant would otherwise mint a fresh fingerprint.  The publisher
+re-checks the same records (``tools/parity/known.py``) before creating or
+reopening an issue, so a stale or concurrently produced report cannot re-file
+a documented deviation.
+
+For the same reason the generator does not explore ruled parameter spaces which
+carry no independent signal (for example non-identity reduce zeros or
+undeduplicated key-set size); the corpus keeps explicit deviation recipes as
+permanently known mismatches.  The publisher additionally files at most one
+issue per fingerprint per run.
 
 A fix for Python-visible behavior must promote the minimized case to ordinary
 public Python wiring coverage and add equivalent native C++ ``eval_node``
