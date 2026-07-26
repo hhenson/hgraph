@@ -839,8 +839,9 @@ namespace hgraph::stdlib
         }
     };
 
-    /** ``lag(ts, period, proxy)`` over a fixed TSL: per-element proxy lag
-        (map_'s wiring-time TSL expansion). */
+    /** ``lag(ts, period, proxy)`` over a fixed TSL: recursively dispatch lag
+        for every element so nested structural kinds retain their specialised
+        lifecycle semantics. */
     struct lag_proxy_tsl_compose
     {
         static constexpr auto name = "lag_proxy_tsl";
@@ -856,17 +857,29 @@ namespace hgraph::stdlib
             stream_impl_detail::bind_lag_proxy_output(resolution, context);
         }
 
-        static auto compose(Wiring &w, NamedPort<"ts", TSL<TsVar<"V">>> ts, Scalar<"period", Int> period,
-                            NamedPort<"proxy", SIGNAL> proxy)
+        static WiringPortRef compose(Wiring &w, NamedPort<"ts", TSL<TsVar<"V">>> ts,
+                                     Scalar<"period", Int> period,
+                                     NamedPort<"proxy", SIGNAL> proxy)
         {
-            auto ticks  = wire<count>(w, proxy);
-            auto lagged = wire<lag>(w, ticks, period.value());
-            return wire<map_>(w, fn<lag_proxy_node>(), ts, ticks, lagged);
+            WiringPortRef source = ts.erased();
+            const auto   *schema = source.schema;
+            std::vector<WiringPortRef> children;
+            children.reserve(schema->fixed_size());
+            for (std::size_t index = 0; index < schema->fixed_size(); ++index)
+            {
+                WiringPortRef element = subgraph_wiring_detail::tsl_element_ref(
+                    source, index, schema->element_ts());
+                Port<void> lagged_element = wire<lag>(
+                    w, Port<void>{w, std::move(element)}, period.value(), proxy);
+                children.push_back(lagged_element.erased());
+            }
+            return WiringPortRef::structural_source(schema, std::move(children));
         }
     };
 
-    /** ``lag(ts, period, proxy)`` over a TSB: per-field proxy lag assembled
-        back into the SAME named bundle shape (upstream's lag_proxy_tsb). */
+    /** ``lag(ts, period, proxy)`` over a TSB: recursively dispatch lag for
+        every field and assemble the SAME named bundle shape (upstream's
+        lag_proxy_tsb). */
     struct lag_proxy_tsb_compose
     {
         static constexpr auto name = "lag_proxy_tsb";
@@ -885,8 +898,6 @@ namespace hgraph::stdlib
         static WiringPortRef compose(Wiring &w, NamedPort<"ts", TsVar<"S">> ts, Scalar<"period", Int> period,
                                      NamedPort<"proxy", SIGNAL> proxy)
         {
-            auto ticks  = wire<count>(w, proxy);
-            auto lagged = wire<lag>(w, ticks, period.value());
             WiringPortRef source = ts.erased();
             const auto *schema = source.schema;
             std::vector<WiringPortRef> children;
@@ -896,7 +907,7 @@ namespace hgraph::stdlib
                 WiringPortRef field =
                     subgraph_wiring_detail::tsb_field_ref(source, index, schema->fields()[index].type);
                 Port<void> lagged_field =
-                    wire<lag_proxy_node>(w, Port<void>{w, std::move(field)}, ticks, lagged);
+                    wire<lag>(w, Port<void>{w, std::move(field)}, period.value(), proxy);
                 children.push_back(lagged_field.erased());
             }
             return WiringPortRef::structural_source(schema, std::move(children));

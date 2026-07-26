@@ -65,9 +65,13 @@ namespace hgraph
             // through the already-planned source state avoids constructing an
             // intermediate Value on every feedback tick. A sampled rebind can
             // expose the current-value schema instead of the delta schema, so
-            // retain capture_delta as the general fallback.
-            auto state = source_node.state().begin_mutation();
-            if (!state.try_copy_from(ts.delta_value()))
+            // retain capture_delta as the general fallback. That fallback may
+            // replace the planned state with immutable compact storage, in
+            // which case a later tick must capture again rather than request a
+            // mutation view.
+            const ValueView state = source_node.state();
+            if (!state.can_begin_mutation() ||
+                !state.begin_mutation().try_copy_from(ts.delta_value()))
             {
                 source_node.replace_state(capture_delta(ts));
             }

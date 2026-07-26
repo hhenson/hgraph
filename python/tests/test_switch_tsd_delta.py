@@ -1,5 +1,7 @@
-"""Regression tests for GitHub issue #38: a nested TSD update was lost
-through switch_/feedback when a sibling TSD removed a key.
+"""Regression tests for nested TSD deltas crossing structural references.
+
+GitHub issue #38 lost a nested TSD update through switch_/feedback when a
+sibling TSD removed a key.
 
 Root cause (two layers, both delta-clock monotonicity violations):
 
@@ -17,13 +19,17 @@ Root cause (two layers, both delta-clock monotonicity violations):
 
 Delta clocks and delta windows are monotonic: an older record joins the
 current window; only a newer one rolls it.
+
+GitHub issue #40 exposed a separate structural-lag bug: TSB and fixed TSL
+children bypassed kind-specific lag dispatch, so a nested TSD could lose its
+key during an ``if_then_else`` feedback rebind.
 """
 
 from frozendict import frozendict
 
 from hgraph import (
     TS, TSB, TSD, TimeSeriesSchema, combine, compute_node, const, dedup,
-    default, feedback, graph, lag, map_, sample, switch_,
+    default, feedback, graph, if_then_else, lag, map_, no_key, sample, switch_,
 )
 from hgraph.test import eval_node
 
@@ -198,3 +204,59 @@ def test_issue_38_nested_tsd_update_through_switch_feedback():
         trigger=[0, 1, 2, 3],
     )
     assert result == [10.0, 10.0, 10.0, 20.0]
+
+
+class _RebasedFeedbackState(TimeSeriesSchema):
+    unit_values: TSD[str, TS[float]]
+    target_units: TSD[str, TS[float]]
+
+
+def test_issue_40_feedback_preserves_no_key_map_after_if_then_else_rebind():
+    """Nested TSD lag keeps mapped keys alive across a reference rebind."""
+
+    @graph
+    def rebased_feedback_graph(
+        target: TSD[str, TS[float]],
+        rebase: TS[bool],
+        prices: TSD[str, TS[float]],
+        trigger: TS[int],
+    ) -> TS[float]:
+        state_feedback = feedback(TSB[_RebasedFeedbackState])
+        initial_state = combine[TSB[_RebasedFeedbackState]](
+            unit_values=const(frozendict(), TSD[str, TS[float]]),
+            target_units=const(frozendict(), TSD[str, TS[float]]),
+        )
+        state = default(
+            lag(state_feedback(), 1, trigger),
+            initial_state,
+        )
+        target_units = if_then_else(
+            rebase,
+            target,
+            state.target_units,
+        )
+        unit_values = map_(
+            lambda unit, price: price,
+            target_units,
+            no_key(prices),
+        )
+        state_feedback(
+            combine[TSB[_RebasedFeedbackState]](
+                unit_values=unit_values,
+                target_units=target_units,
+            )
+        )
+        return sample(
+            trigger,
+            default(state.unit_values["next"], -1.0),
+        )
+
+    result = eval_node(
+        rebased_feedback_graph,
+        target=[{"next": 1.0}, None, None, None],
+        rebase=[True, False, False, False],
+        prices=[{"next": 10.5}, None, None, None],
+        trigger=[0, 1, 2, 3],
+    )
+
+    assert result == [-1.0, -1.0, 10.5, 10.5]
