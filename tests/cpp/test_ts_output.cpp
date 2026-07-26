@@ -1468,3 +1468,68 @@ TEST_CASE("TSOutputView delegates window all_valid through TSData ops")
     REQUIRE(range_count(time_values) == 2);
     REQUIRE(range_count(value_times) == 2);
 }
+
+// Delta clocks are monotonic (GitHub issue #38): a record carrying an older
+// time — a freshly bound link replaying its source's historical timestamp —
+// must neither rewind tracking state nor rebase a slot store's delta window
+// (that would erase sibling marks already recorded this cycle).
+TEST_CASE("TSDataTracking ignores records older than the current time")
+{
+    using namespace hgraph;
+
+    TSDataTracking tracking{};
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+
+    REQUIRE(tracking.record_modified(t2));
+    REQUIRE(tracking.last_modified_time == t2);
+    REQUIRE_FALSE(tracking.record_modified(t1));
+    REQUIRE(tracking.last_modified_time == t2);
+    REQUIRE_FALSE(tracking.record_modified(t2));
+}
+
+TEST_CASE("TSD delta window survives a stale child record within the cycle")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *key_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int   = registry.ts(key_meta);
+    const auto *tsd_meta = registry.tsd(key_meta, ts_int);
+
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+
+    TSOutput output{*tsd_meta};
+    Value    key_a{10};
+    Value    key_b{20};
+    Value    one{1};
+    Value    two{2};
+    {
+        auto output_view = output.view(t2);
+        auto dict = output_view.as_dict();
+        auto mutation = dict.begin_mutation(t2);
+        mutation.set(key_a.view(), one.view());
+        mutation.set(key_b.view(), two.view());
+    }
+
+    auto data = output.data_view();
+    auto dict = data.as_dict();
+    const auto slot_a = dict.find_slot(key_a.view());
+    const auto slot_b = dict.find_slot(key_b.view());
+    REQUIRE(dict.slot_added(slot_a));
+    REQUIRE(dict.slot_added(slot_b));
+    REQUIRE(dict.slot_modified(slot_a));
+    REQUIRE(dict.slot_modified(slot_b));
+
+    // Replay a stale (t1) child record into the t2 window — the pre-fix
+    // behaviour rebased the delta window and wiped the sibling marks.
+    const auto &table = *data.storage_type().ops();
+    table.record_child_modified_impl(table.context, const_cast<void *>(data.data()), slot_a, t1);
+
+    REQUIRE(dict.slot_added(slot_a));
+    REQUIRE(dict.slot_added(slot_b));
+    REQUIRE(dict.slot_modified(slot_a));
+    REQUIRE(dict.slot_modified(slot_b));
+    REQUIRE(data.modified(t2));
+}

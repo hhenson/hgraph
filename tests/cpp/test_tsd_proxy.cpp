@@ -646,6 +646,56 @@ TEST_CASE("TSDProxy same-time identity reconciliation builds once and repeat rea
     REQUIRE(counts.matches == matches_after_reconcile + 2);
 }
 
+TEST_CASE("TSDProxy stale child records join the current updated window")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer  = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts       = registry.ts(integer);
+    const auto *tsd      = registry.tsd(integer, ts);
+    const auto  source_type = TSDataPlanFactory::instance().data_type_for(tsd);
+    const auto  element_type = TSDataPlanFactory::instance().data_type_for(ts);
+
+    TSData source{source_type};
+    TSData proxy{tsd_proxy_data_type_for(*tsd, TSRoleTypeRef{element_type.as_role()})};
+    Value key_one{1};
+    Value key_two{2};
+    Value value_one{11};
+    Value value_two{22};
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+    {
+        auto source_view = source.view();
+        auto mutation = source_view.as_dict().begin_mutation(t1);
+        mutation.set(key_one.view(), value_one.view());
+        mutation.set(key_two.view(), value_two.view());
+    }
+
+    auto proxy_view = proxy.view();
+    auto source_view = source.view();
+    bind_tsd_proxy(proxy_view, source_view.as_dict(), &key_value_ops, nullptr, t1);
+
+    proxy_view = proxy.view();
+    auto proxy_dict = proxy_view.as_dict();
+    const auto slot_one = proxy_dict.find_slot(key_one.view());
+    const auto slot_two = proxy_dict.find_slot(key_two.view());
+    REQUIRE(slot_one != TS_DATA_NO_CHILD_ID);
+    REQUIRE(slot_two != TS_DATA_NO_CHILD_ID);
+
+    auto &storage = *static_cast<TSDProxy *>(const_cast<void *>(proxy_view.data()));
+    storage.record_child_modified(slot_one, t2);
+    REQUIRE(storage.tracking().record_modified(t2));
+    REQUIRE(storage.child_updated(slot_one));
+    REQUIRE_FALSE(storage.child_updated(slot_two));
+
+    storage.record_child_modified(slot_two, t1);
+    REQUIRE_FALSE(storage.tracking().record_modified(t1));
+    REQUIRE(storage.tracking().last_modified_time == t2);
+    REQUIRE(storage.child_updated(slot_one));
+    REQUIRE(storage.child_updated(slot_two));
+}
+
 TEST_CASE("TSDProxy announced insertion retries a failed build without a second insert")
 {
     using namespace hgraph;
