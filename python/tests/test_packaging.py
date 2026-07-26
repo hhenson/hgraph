@@ -163,7 +163,12 @@ def test_release_workflow_targets_supported_platforms():
     assert "libarrow-acero=24" in workflow
     assert "g++-13 --version" in workflow
     assert "runs-on: ubuntu-24.04" in workflow
-    assert "Visual Studio 18 2026" in workflow
+    # Windows builds with Ninja over cl (vcvars via msvc-dev-cmd): the
+    # Visual Studio generator ignores CMAKE_CXX_COMPILER_LAUNCHER, so the
+    # shared compiler cache never fires under MSBuild.
+    assert "Visual Studio 18 2026" not in workflow
+    assert "ilammy/msvc-dev-cmd@v1" in workflow
+    assert "CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded" in workflow
     assert 'python-version: "3.12"' in workflow
     assert '- "3.13"' in workflow
     assert '- "3.14"' in workflow
