@@ -95,6 +95,13 @@ if(HGRAPH_ENABLE_COMPILER_CACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
     endif()
 endif()
 
+if(MSVC AND HGRAPH_ENABLE_PCH AND CMAKE_CXX_COMPILER_LAUNCHER MATCHES "sccache")
+    # sccache cannot cache MSVC /Yc-/Yu compilations; with a warm shared
+    # cache, hits beat the PCH speedup, so the cache wins.
+    message(STATUS "hgraph: disabling PCH (sccache cannot cache MSVC PCH compilations)")
+    set(HGRAPH_ENABLE_PCH OFF)
+endif()
+
 function(hgraph_enable_private_pch target_name)
     if(HGRAPH_ENABLE_PCH)
         target_precompile_headers(${target_name} PRIVATE
