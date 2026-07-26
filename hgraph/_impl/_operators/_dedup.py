@@ -50,6 +50,12 @@ def _(tp: HgTSDTypeMetaData) -> Callable[[Any, Any], Any]:
     v_builder = dedup_converter(tp.value_tp)
 
     def _fn(input_ts, output_ts):
+        if not output_ts.valid:
+            # An empty dictionary is still a valid first value. Returning the
+            # full state also avoids comparing children against an invalid
+            # paired output on the initial tick.
+            return input_ts.value
+
         out = {}
         # Handle modified items
         for k, v_in in input_ts.modified_items():

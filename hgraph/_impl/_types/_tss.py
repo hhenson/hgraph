@@ -113,9 +113,9 @@ class PythonTimeSeriesSetOutput(PythonTimeSeriesOutput, TimeSeriesSetOutput[SCAL
         elif isinstance(v, frozenset):
             # Lets make the value be v, will create an appropriate delta
             old_value = self._value
-            self._value = v
-            self._added = frozenset(v - old_value)
-            self._removed = frozenset(old_value - v)
+            self._value = set(v)
+            self._added = self._value - old_value
+            self._removed = old_value - self._value
         else:
             # Assume that the result is a set, and then we are adding all the elements that are not marked Removed
             self._added = {r for r in v if type(r) is not Removed and r not in self._value}
