@@ -15,8 +15,15 @@ hg_cpp instead applies ``zero`` deterministically:
 - one live value  -> the result is ``func(value, zero)``
 - two or more     -> ``zero`` is not an operand
 
+When ``zero`` is OMITTED the two implementations differ only on empty input:
+released hgraph always applies an inferred identity zero (an empty TSD ticks
+``0`` for int add), while hg_cpp never infers one — with no live values the
+output is INVALID: it never becomes valid if the collection never ticks, and
+it is invalidated (not merely left un-ticked) when the collection empties.
+For any non-empty input both produce identical results.
+
 With an identity ``zero`` the two implementations agree everywhere. These
-tests pin the hg_cpp behaviour for non-identity zeros. See issue #44 and the
+tests pin the hg_cpp behaviour for both arities. See issue #44 and the
 documented reduce deviation in ``docs/source/developer_guide/parity_matrix.rst``.
 """
 
@@ -61,6 +68,14 @@ def test_emptied_result_is_zero_regardless_of_history():
     assert out == [10, -3]
 
 
+def test_never_ticking_tsd_publishes_zero():
+    # Issue #46 family: a TSD that never becomes valid still publishes zero
+    # once. Released hgraph publishes 2*zero (both leaves of its initial
+    # capacity-2 tree are bound to zero).
+    out = eval_node(_map_reduce(increment=3, zero=-2), [None, None, None])
+    assert out == [-2, None, None]
+
+
 def test_identity_zero_matches_upstream():
     # With the combiner's identity, both implementations agree on every tick.
     out = eval_node(
@@ -68,3 +83,65 @@ def test_identity_zero_matches_upstream():
         [{"a": 1, "b": 2, "c": 3}, {"a": hg.REMOVE, "b": hg.REMOVE, "c": hg.REMOVE}],
     )
     assert out == [6, 0]
+
+
+def _map_reduce_no_zero(increment: int):
+    @graph
+    def map_reduce(values: TSD[str, TS[int]]) -> TS[int]:
+        mapped = hg.map_(lambda value: value + increment, values)
+        return hg.reduce(lambda lhs, rhs: lhs + rhs, mapped)
+
+    return map_reduce
+
+
+def test_omitted_zero_never_ticking_tsd_stays_invalid():
+    # Documented deviation (empty input only): released hgraph infers an
+    # identity zero and ticks 0 immediately; hg_cpp never infers a zero, so
+    # with no live values the output remains invalid and never ticks.
+    out = eval_node(_map_reduce_no_zero(increment=3), [None, None, None])
+    assert out is None
+
+
+def test_omitted_zero_emptied_tsd_becomes_invalid():
+    # Documented deviation (empty input only): on emptying, released hgraph
+    # ticks the inferred zero (0); hg_cpp invalidates the output instead (no
+    # tick appears in the trace, and the value is gone, not retained).
+    out = eval_node(
+        _map_reduce_no_zero(increment=0),
+        [{"a": 1}, {"b": 2}, {"a": hg.REMOVE, "b": hg.REMOVE}],
+    )
+    assert out == [1, 3, None]
+
+    # Pin the invalidation itself, not just the missing tick.
+    @hg.compute_node(valid=("trigger",), active=("trigger",))
+    def probe(trigger: TS[int], value: TS[int]) -> TS[str]:
+        return f"valid={value.valid}" + (
+            f" value={value.value}" if value.valid else ""
+        )
+
+    @graph
+    def probed(values: TSD[str, TS[int]], trigger: TS[int]) -> TS[str]:
+        reduced = hg.reduce(lambda lhs, rhs: lhs + rhs, values)
+        return probe(trigger, reduced)
+
+    out = eval_node(
+        probed,
+        [{"a": 1}, {"b": 2}, {"a": hg.REMOVE, "b": hg.REMOVE}, None],
+        [1, 2, 3, 4],
+    )
+    assert out == [
+        "valid=True value=1",
+        "valid=True value=3",
+        "valid=False",
+        "valid=False",
+    ]
+
+
+def test_omitted_zero_matches_upstream_while_values_are_live():
+    # Outside the empty case the omitted-zero arity matches released hgraph
+    # exactly: live values fold with no zero operand.
+    out = eval_node(
+        _map_reduce_no_zero(increment=0),
+        [{"a": 1, "b": 2, "c": 3}, {"a": 5}, {"c": hg.REMOVE}],
+    )
+    assert out == [6, 10, 7]

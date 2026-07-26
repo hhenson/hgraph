@@ -6,6 +6,24 @@
       "issue": "https://github.com/hhenson/hg_cpp/issues/44",
       "reason": "Accepted deviation: released hgraph applies a non-identity reduce zero a capacity-history-dependent number of times (tree leaves re-bound to zero); hg_cpp applies it deterministically. See the documented reduce deviation in docs/source/developer_guide/parity_matrix.rst.",
       "review_after": "2027-07-26"
+    },
+    {
+      "fingerprint": "00d2af4c324e8d88fe70e229b9f8fbc993424deee930006b60df260f0c5dac74",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/46",
+      "reason": "Accepted deviation (same family as issue #44): a never-ticking TSD reduce with a non-identity zero publishes 2*zero in released hgraph (empty node tree, both leaves bound to zero) and exactly zero in hg_cpp. See the documented reduce deviation in docs/source/developer_guide/parity_matrix.rst.",
+      "review_after": "2027-07-26"
+    }
+  ],
+  "families": [
+    {
+      "family": "reduce-non-identity-zero",
+      "template": "tsd_map_reduce",
+      "parameters_not_equal": {
+        "zero": 0
+      },
+      "issue": "https://github.com/hhenson/hg_cpp/issues/44",
+      "reason": "Released hgraph applies a non-identity reduce zero a capacity-history-dependent number of times; any mismatch with zero != 0 is the documented reduce deviation, not a candidate defect.",
+      "review_after": "2027-07-26"
     }
   ]
 }
