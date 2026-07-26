@@ -18,8 +18,9 @@ hg_cpp instead applies ``zero`` deterministically:
 When ``zero`` is OMITTED the two implementations differ only on empty input:
 released hgraph always applies an inferred identity zero (an empty TSD ticks
 ``0`` for int add), while hg_cpp never infers one — with no live values the
-output simply does not tick (stays invalid, or keeps its last value once it
-has ticked). For any non-empty input both produce identical results.
+output is INVALID: it never becomes valid if the collection never ticks, and
+it is invalidated (not merely left un-ticked) when the collection empties.
+For any non-empty input both produce identical results.
 
 With an identity ``zero`` the two implementations agree everywhere. These
 tests pin the hg_cpp behaviour for both arities. See issue #44 and the
@@ -101,15 +102,39 @@ def test_omitted_zero_never_ticking_tsd_stays_invalid():
     assert out is None
 
 
-def test_omitted_zero_emptied_tsd_does_not_tick():
+def test_omitted_zero_emptied_tsd_becomes_invalid():
     # Documented deviation (empty input only): on emptying, released hgraph
-    # ticks the inferred zero (0); hg_cpp emits no tick and the output keeps
-    # its last value.
+    # ticks the inferred zero (0); hg_cpp invalidates the output instead (no
+    # tick appears in the trace, and the value is gone, not retained).
     out = eval_node(
         _map_reduce_no_zero(increment=0),
         [{"a": 1}, {"b": 2}, {"a": hg.REMOVE, "b": hg.REMOVE}],
     )
     assert out == [1, 3, None]
+
+    # Pin the invalidation itself, not just the missing tick.
+    @hg.compute_node(valid=("trigger",), active=("trigger",))
+    def probe(trigger: TS[int], value: TS[int]) -> TS[str]:
+        return f"valid={value.valid}" + (
+            f" value={value.value}" if value.valid else ""
+        )
+
+    @graph
+    def probed(values: TSD[str, TS[int]], trigger: TS[int]) -> TS[str]:
+        reduced = hg.reduce(lambda lhs, rhs: lhs + rhs, values)
+        return probe(trigger, reduced)
+
+    out = eval_node(
+        probed,
+        [{"a": 1}, {"b": 2}, {"a": hg.REMOVE, "b": hg.REMOVE}, None],
+        [1, 2, 3, 4],
+    )
+    assert out == [
+        "valid=True value=1",
+        "valid=True value=3",
+        "valid=False",
+        "valid=False",
+    ]
 
 
 def test_omitted_zero_matches_upstream_while_values_are_live():
