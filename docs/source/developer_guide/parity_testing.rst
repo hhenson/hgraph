@@ -166,8 +166,10 @@ default — the identity — and is outside the family; an **empty** map matches
 every recipe of the template, used when a designed deviation shifts every
 trace, e.g. the ``service_adaptor`` transport cycle).  Family suppression
 covers only the deviation's own shape: both implementations completed and
-disagreed on a trace value.  A candidate crash or status difference inside
-the same parameter space still verifies and publishes normally.  A mismatch
+disagreed on trace content — a differing value or a differing tick/field
+count, since ruled no-tick and timing deviations surface as missing ticks or
+missing map fields.  A candidate crash or status difference inside the same
+parameter space still verifies and publishes normally.  A mismatch
 matching a family is classified as a known failure on first detection,
 before any verification replays or reduction budget is spent, because each
 new minimized variant would otherwise mint a fresh fingerprint.  The

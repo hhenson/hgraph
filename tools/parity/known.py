@@ -10,9 +10,11 @@
   transport-timing difference).
 
 Family suppression covers only the documented deviation's shape: both
-implementations completed and disagreed on a trace value. Anything else — a
-candidate crash, a status or shape difference — is not the documented
-deviation and must continue through the normal pipeline.
+implementations completed and disagreed on trace content — a differing value
+or a differing tick/field count (``value`` or ``length``), since ruled
+no-tick/timing deviations surface as missing ticks or missing map fields.
+Anything else — a candidate crash or a status difference — is not the
+documented deviation and must continue through the normal pipeline.
 """
 
 from __future__ import annotations
@@ -76,7 +78,7 @@ def is_known_family_failure(
     return (
         reference.get("status") == "ok"
         and candidate.get("status") == "ok"
-        and difference.get("classification") == "value"
+        and difference.get("classification") in ("value", "length")
         and str(difference.get("path", "")).startswith("$.trace")
         and matches_known_family(recipe, families)
     )

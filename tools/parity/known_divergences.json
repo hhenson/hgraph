@@ -24,6 +24,12 @@
       "issue": "https://github.com/hhenson/hg_cpp/issues/66",
       "reason": "Designed service-boundary timing (services.rst scheduling matrix): a late/duplicate subscription samples the existing shared output in the same cycle, one cycle earlier than released hgraph's re-delivery. Pinned by test_service_wiring.cpp 'late duplicate subscription samples the existing value'.",
       "review_after": "2027-07-26"
+    },
+    {
+      "fingerprint": "4f76383d8d5b01e2f31d2005cbf44bd67ebd89912f887b909c834fc73314699f",
+      "issue": "https://github.com/hhenson/hg_cpp/pull/67",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst): a mesh over an initially empty key set emits no tick in hg_cpp where released hgraph ticks an empty map. Fingerprint pinned by test_parity_harness.py against the corpus recipe mesh-empty-initial-no-tick.",
+      "review_after": "2027-07-26"
     }
   ],
   "families": [

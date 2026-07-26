@@ -192,10 +192,12 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
         and recipe.parameters["format_ref"]
         for recipe in recipes
     )
-    assert any(
-        recipe.template == "tsd_key_set_pipeline"
-        and not recipe.parameters["dedup_size"]
+    # dedup_size=false is the ruled no-change space and is corpus-only now
+    # (PR #67 review); generated recipes always dedup.
+    assert all(
+        recipe.parameters["dedup_size"] is True
         for recipe in recipes
+        if recipe.template == "tsd_key_set_pipeline"
     )
 
 
@@ -730,6 +732,124 @@ def test_publisher_consults_known_divergences_and_never_reopens(
     assert dry == [
         {"action": "known-divergence", "fingerprint": "ruled-fingerprint"}
     ]
+
+
+def test_family_gate_covers_the_actual_ruled_length_outcomes():
+    # PR #67 review reproductions (base 0a6df5b7): the ruled deviations
+    # surface as LENGTH differences, not value differences — a shifted
+    # adaptor trace, a missing unchanged size field, and a missing
+    # empty-map tick. The family gate must classify these real comparator
+    # outcomes as known while still excluding crashes and status
+    # differences. Uses the committed known_divergences.json records.
+    from tools.parity.known import (
+        is_known_family_failure,
+        load_known_divergences,
+    )
+
+    _fingerprints, families = load_known_divergences()
+    ok = lambda trace: {"status": "ok", "trace": trace}
+
+    # 1. service_adaptor_roundtrip: ref [2] vs cand [None, 2].
+    adaptor_recipe = {
+        "template": "service_adaptor_roundtrip",
+        "inputs": {"value": [0]},
+        "parameters": {"increment": 2},
+    }
+    difference = compare_outcomes(ok([2]), ok([None, 2]))
+    assert difference.to_dict()["classification"] == "length"
+    assert is_known_family_failure(
+        adaptor_recipe, difference.to_dict(), ok([2]), ok([None, 2]), families
+    )
+
+    # 2. tsd_key_set_pipeline dedup_size=false: the unchanged size field is
+    # republished by the reference and omitted by the candidate.
+    pipeline_recipe = {
+        "template": "tsd_key_set_pipeline",
+        "inputs": {"values": [None]},
+        "parameters": {"dedup_size": False},
+    }
+    ref_tick = {"$map": [["size", 4], ["total", -1]]}
+    cand_tick = {"$map": [["total", -1]]}
+    difference = compare_outcomes(ok([ref_tick]), ok([cand_tick]))
+    assert difference.to_dict()["classification"] == "length"
+    assert difference.to_dict()["path"].startswith("$.trace")
+    assert is_known_family_failure(
+        pipeline_recipe,
+        difference.to_dict(),
+        ok([ref_tick]),
+        ok([cand_tick]),
+        families,
+    )
+
+    # A candidate crash in the same parameter space is NOT the deviation.
+    crash = {"status": "error", "phase": "runtime"}
+    difference = compare_outcomes(ok([2]), crash)
+    assert not is_known_family_failure(
+        adaptor_recipe, difference.to_dict(), ok([2]), crash, families
+    )
+
+
+def test_mesh_empty_initial_fingerprint_is_pinned_and_suppressed(monkeypatch):
+    # 3. mesh_key_set minimized to one initial empty map: released hgraph
+    # ticks an empty map, hg_cpp emits no tick (no-change ruling). The
+    # committed fingerprint must equal the one computed from the real
+    # comparator outcome so stale reports can never re-file it.
+    from tools.parity.known import load_known_divergences
+
+    fingerprints, _families = load_known_divergences()
+    recipe = Recipe.load(CORPUS / "mesh-empty-initial-no-tick.json")
+    reference = {"status": "ok", "trace": [{"$map": []}]}
+    candidate = {"status": "ok", "trace": []}
+    difference = compare_outcomes(reference, candidate)
+    failure = {
+        "minimized_recipe": recipe.to_dict(),
+        "difference": difference.to_dict(),
+        "reference": reference,
+        "candidate": candidate,
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    fingerprint = failure_fingerprint(failure)
+    assert fingerprint in fingerprints
+
+    calls = []
+    monkeypatch.setattr(
+        "tools.parity.issues._existing_issues", lambda _repo: []
+    )
+
+    def fake_gh(arguments, *, repo, capture=False):
+        calls.append(arguments)
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr("tools.parity.issues._gh", fake_gh)
+    actions = publish_failures([failure], repo="hhenson/hg_cpp", publish=True)
+    assert actions == [
+        {"action": "known-divergence", "fingerprint": fingerprint}
+    ]
+    assert not any(arguments[:2] == ["issue", "create"] for arguments in calls)
+
+
+def test_generated_key_set_recipes_avoid_ruled_no_tick_space():
+    # The generator stays out of the ruled no-change space: dedup_size is
+    # always true, the initial map is never empty, and no delta nets to no
+    # entries (mesh_key_set inherits the same inputs).
+    pytest.importorskip("hypothesis")
+    from tools.parity.generate import generate_recipes
+
+    recipes = generate_recipes(320, seed=29)
+    keyed = [
+        r
+        for r in recipes
+        if r.template in ("tsd_key_set_pipeline", "mesh_key_set")
+    ]
+    assert keyed, "expected generated key-set recipes"
+    for recipe in keyed:
+        if recipe.template == "tsd_key_set_pipeline":
+            assert recipe.parameters["dedup_size"] is True
+        values = recipe.inputs["values"]
+        assert values[0]["$map"], "initial map must be non-empty"
+        for tick in values:
+            if tick is not None:
+                assert tick["$map"], "no delta may net to no entries"
 
 
 def test_empty_family_parameter_map_matches_the_whole_template():

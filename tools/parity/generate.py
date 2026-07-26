@@ -341,7 +341,13 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
     def tsd_key_set_pipeline(draw):
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
         universe = tuple(range(-4, 5))
-        initial = set(draw(st.sets(st.sampled_from(universe), max_size=4)))
+        # A non-empty initial map: an empty first delta is the ruled
+        # no-change-means-no-tick space (released hgraph ticks an empty map,
+        # hg_cpp emits no tick — mesh_key_set inherits these inputs). The
+        # corpus tracks the empty-initial case explicitly.
+        initial = set(
+            draw(st.sets(st.sampled_from(universe), min_size=1, max_size=4))
+        )
         active = set(initial)
         ticks: list[Any] = [
             {
@@ -376,7 +382,9 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
                 key = draw(st.sampled_from(removable))
                 active.remove(key)
                 entries.append([key, {"$remove": True}])
-            ticks.append({"$map": entries})
+            # An action that nets to no entries is the ruled empty-delta
+            # no-tick space; emit a quiet tick instead.
+            ticks.append({"$map": entries} if entries else None)
         return {
             "template": "tsd_key_set_pipeline",
             "inputs": {
@@ -385,7 +393,11 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
                     draw, count, st.integers(min_value=-4, max_value=4)
                 ),
             },
-            "parameters": {"dedup_size": draw(st.booleans())},
+            # dedup_size stays true: the undeduped size re-tick is the ruled
+            # no-change-means-no-tick deviation (issue #65); differential
+            # exploration there measures the deviation, not candidate
+            # defects. The corpus tracks the dedup_size=false case.
+            "parameters": {"dedup_size": True},
             "features": [*CATALOG["tsd_key_set_pipeline"].features],
         }
 
