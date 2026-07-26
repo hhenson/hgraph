@@ -61,6 +61,14 @@ def test_emptied_result_is_zero_regardless_of_history():
     assert out == [10, -3]
 
 
+def test_never_ticking_tsd_publishes_zero():
+    # Issue #46 family: a TSD that never becomes valid still publishes zero
+    # once. Released hgraph publishes 2*zero (both leaves of its initial
+    # capacity-2 tree are bound to zero).
+    out = eval_node(_map_reduce(increment=3, zero=-2), [None, None, None])
+    assert out == [-2, None, None]
+
+
 def test_identity_zero_matches_upstream():
     # With the combiner's identity, both implementations agree on every tick.
     out = eval_node(

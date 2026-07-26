@@ -191,12 +191,24 @@ def publish_failures(
     )
     existing = _existing_issues(repo)
     actions: list[dict[str, Any]] = []
+    handled_this_run: dict[str, str] = {}
     for failure in failures:
         fingerprint = failure.get("failure_fingerprint") or failure_fingerprint(
             failure
         )
         marker = f"<!-- {FINGERPRINT_PREFIX}{fingerprint} -->"
         title = issue_title(failure)
+        if fingerprint in handled_this_run:
+            # One issue per fingerprint per publish: later failures in the
+            # same run (e.g. from other shards) fold into the first.
+            actions.append(
+                {
+                    "action": "deduplicated",
+                    "url": handled_this_run[fingerprint],
+                    "fingerprint": fingerprint,
+                }
+            )
+            continue
         match = next(
             (
                 issue
@@ -222,6 +234,7 @@ def publish_failures(
                     "fingerprint": fingerprint,
                 }
             )
+            handled_this_run[fingerprint] = match["url"]
             continue
 
         with tempfile.NamedTemporaryFile(
@@ -248,11 +261,13 @@ def publish_failures(
             )
         finally:
             body_path.unlink(missing_ok=True)
+        url = completed.stdout.strip()
         actions.append(
             {
                 "action": "created",
-                "url": completed.stdout.strip(),
+                "url": url,
                 "fingerprint": fingerprint,
             }
         )
+        handled_this_run[fingerprint] = url
     return actions

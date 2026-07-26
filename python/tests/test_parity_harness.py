@@ -228,6 +228,100 @@ def test_campaign_verifies_reduces_and_fingerprints_a_stable_mismatch(monkeypatc
     assert failure["failure_fingerprint"] == failure_fingerprint(failure)
 
 
+def test_campaign_classifies_known_family_without_verification(monkeypatch, tmp_path):
+    # First-pass sanity check: a mismatch inside a documented deviation's
+    # parameter space is a known failure and spends no verification replays
+    # or reduction budget.
+    recipe = Recipe.from_dict(
+        {
+            "schema_version": 1,
+            "id": "test-tsd-reduce-family",
+            "description": "test",
+            "template": "tsd_map_reduce",
+            "inputs": {"values": [None, None]},
+            "parameters": {"increment": 1, "zero": -2},
+            "features": ["shape:TSD"],
+        }
+    )
+    reference = {
+        "status": "ok",
+        "phase": "complete",
+        "trace": [-4, None],
+        "implementation": {"distribution": "hgraph", "version": "1"},
+    }
+    candidate = {
+        "status": "ok",
+        "phase": "complete",
+        "trace": [-2, None],
+        "implementation": {"distribution": "hg_cpp", "version": "1"},
+    }
+
+    class Cache:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def run(self, *_args, **_kwargs):
+            return reference, False
+
+    def no_verification(*_args, **_kwargs):
+        raise AssertionError("family-known mismatch must not be re-verified")
+
+    monkeypatch.setattr("tools.parity.campaign.ReferenceTraceCache", Cache)
+    monkeypatch.setattr("tools.parity.campaign._verify_pair", no_verification)
+    monkeypatch.setattr(
+        "tools.parity.campaign.run_recipe",
+        lambda interpreter, *_args, **_kwargs: candidate,
+    )
+    known_path = tmp_path / "known_divergences.json"
+    known_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "divergences": [],
+                "families": [
+                    {
+                        "family": "reduce-non-identity-zero",
+                        "template": "tsd_map_reduce",
+                        "parameters_not_equal": {"zero": 0},
+                    }
+                ],
+            }
+        )
+    )
+    environments = ParityEnvironments(
+        reference_python=Path("reference"),
+        candidate_python=Path("candidate"),
+        reference_identity=reference["implementation"],
+        candidate_identity=candidate["implementation"],
+        candidate_fingerprint="candidate-sha",
+    )
+    report = run_campaign(
+        [recipe],
+        environments,
+        verify_replays=3,
+        reduce_failures=True,
+        known_divergences_path=known_path,
+        cache_path=tmp_path / "cache",
+    )
+    assert report["summary"]["verified_failures"] == 0
+    assert report["summary"]["known_failures"] == 1
+    assert report["summary"]["quarantined"] == 0
+    known = report["known_failures"][0]
+    assert known["reduction"]["attempts"] == 0
+
+
+def test_generated_tsd_map_reduce_recipes_use_identity_zero():
+    # Non-identity zeros are the documented reduce deviation: the generator
+    # must not explore that space (differential results there measure the
+    # deviation, not candidate defects).
+    from tools.parity.generate import generate_recipes
+
+    recipes = generate_recipes(200, seed=7)
+    tsd = [r for r in recipes if r.template == "tsd_map_reduce"]
+    assert tsd, "expected generated tsd_map_reduce recipes"
+    assert all(r.parameters["zero"] == 0 for r in tsd)
+
+
 def test_reference_failure_is_quarantined_not_promoted(monkeypatch, tmp_path):
     recipe = _scalar_recipe()
     reference = {
@@ -344,6 +438,63 @@ def test_issue_publisher_does_not_deduplicate_distinct_same_template_failures(
         }
     ]
     assert any(arguments[:2] == ["issue", "create"] for arguments, _, _ in calls)
+
+
+def test_issue_publisher_deduplicates_same_fingerprint_within_one_run(
+    monkeypatch,
+):
+    failure = {
+        "failure_fingerprint": "repeat-fingerprint",
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace[0]",
+            "reference": 1,
+            "candidate": 2,
+        },
+        "reference": {"status": "ok", "trace": [1]},
+        "candidate": {"status": "ok", "trace": [2]},
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    calls = []
+
+    monkeypatch.setattr(
+        "tools.parity.issues._existing_issues", lambda _repo: []
+    )
+
+    def fake_gh(arguments, *, repo, capture=False):
+        calls.append((arguments, repo, capture))
+        return SimpleNamespace(
+            stdout="https://github.com/hhenson/hg_cpp/issues/45\n"
+        )
+
+    monkeypatch.setattr("tools.parity.issues._gh", fake_gh)
+
+    assert publish_failures(
+        [failure, dict(failure), dict(failure)],
+        repo="hhenson/hg_cpp",
+        publish=True,
+    ) == [
+        {
+            "action": "created",
+            "url": "https://github.com/hhenson/hg_cpp/issues/45",
+            "fingerprint": "repeat-fingerprint",
+        },
+        {
+            "action": "deduplicated",
+            "url": "https://github.com/hhenson/hg_cpp/issues/45",
+            "fingerprint": "repeat-fingerprint",
+        },
+        {
+            "action": "deduplicated",
+            "url": "https://github.com/hhenson/hg_cpp/issues/45",
+            "fingerprint": "repeat-fingerprint",
+        },
+    ]
+    assert (
+        sum(1 for arguments, _, _ in calls if arguments[:2] == ["issue", "create"])
+        == 1
+    )
 
 
 def test_coverage_reports_operator_frontier_and_semantic_pairs():

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "issue-52-graph-const-return-int",
+  "description": "A graph body reducing to a bare int constant must lift to const rather than fail wiring.",
+  "template": "scalar_expression",
+  "inputs": {
+    "lhs": [
+      null
+    ],
+    "rhs": [
+      null
+    ]
+  },
+  "parameters": {
+    "expression": {
+      "const": 3
+    },
+    "input_types": {
+      "lhs": "int",
+      "rhs": "int"
+    },
+    "output_type": "int"
+  },
+  "features": [
+    "shape:TS",
+    "topology:expression",
+    "type:int"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/52"
+}

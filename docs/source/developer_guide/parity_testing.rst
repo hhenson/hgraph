@@ -138,6 +138,19 @@ Known differences live in ``tools/parity/known_divergences.json`` with their
 issue, rationale, and review date.  They remain in the corpus: once a fix lands,
 the same recipe changes from a known mismatch into a passing regression.
 
+Two mechanisms keep an accepted deviation from re-filing as noise.  Exact
+``divergences`` entries suppress a specific fingerprint.  ``families`` entries
+suppress the deviation's whole parameter space — a template plus a
+``parameters_not_equal`` map matching every recipe whose named parameters
+differ from the stated identity.  A mismatch matching a family is classified
+as a known failure on first detection, before any verification replays or
+reduction budget is spent, because each new minimized variant would otherwise
+mint a fresh fingerprint.  For the same reason the generator does not explore
+documented-unspecified space at all (e.g. ``tsd_map_reduce`` recipes are
+generated with the identity zero only); the corpus keeps explicit deviation
+recipes as permanently known mismatches.  The publisher additionally files at
+most one issue per fingerprint per run.
+
 A fix for Python-visible behavior must promote the minimized case to ordinary
 public Python wiring coverage and add equivalent native C++ ``eval_node``
 coverage.  The differential harness does not replace the C++-first testing

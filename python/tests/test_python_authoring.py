@@ -553,6 +553,25 @@ def test_collection_views_and_deltas_cross_both_directions():
           f"Python TSD output deltas: {out}")
 
 
+def test_graph_scalar_return_lifts_to_const():
+    # parity issues #48/#52: a plain value returned from a @graph with a
+    # time-series return annotation lifts to const of the annotated type,
+    # including at the eval_node top level.
+    @graph
+    def const_int(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        return 3
+
+    check(eval_node(const_int, [None], [None]) == [3],
+          "int scalar graph return lifts to const")
+
+    @graph
+    def const_float(lhs: TS[float], rhs: TS[float]) -> TS[float]:
+        return -19.2390193939209
+
+    check(eval_node(const_float, [None], [None]) == [-19.2390193939209],
+          "float scalar graph return lifts to const")
+
+
 def test_sink_only_graph_returns_none():
     seen = []
 

@@ -518,6 +518,12 @@ class _GraphFn:
             fields = [(k, _unwrap(v).ts_type) for k, v in result.items()]
             tsb_type = _hgraph.un_named_tsb_type(fields)
             return WiringPort(_hgraph.tsb_port(tsb_type, {k: _unwrap(v) for k, v in result.items()}))
+        if (result is not None and not isinstance(result, WiringPort)
+                and _is_time_series_annotation(self._signature.return_annotation)):
+            # hgraph parity: a plain value returned from a @graph with a
+            # time-series return annotation lifts to const of that type.
+            return _lift_time_series_argument(
+                result, self._signature.return_annotation)
         return result
 
 

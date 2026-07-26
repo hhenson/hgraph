@@ -18,16 +18,46 @@ from .process import ReferenceTraceCache, run_recipe
 from .reduce import reduce_recipe
 
 
-def _load_known_fingerprints(path: Path) -> set[str]:
+def _load_known_divergences(path: Path) -> tuple[set[str], list[dict[str, Any]]]:
+    """Exact fingerprints plus family rules from known_divergences.json.
+
+    A family rule classifies every failure inside a documented deviation's
+    parameter space as known, so new minimized variants (which mint new
+    fingerprints) do not publish as issues: ``{"template": ...,
+    "parameters_not_equal": {name: identity, ...}}`` matches a recipe of that
+    template whose named parameters all differ from the stated identity.
+    """
     try:
         raw = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
-        return set()
-    return {
+        return set(), []
+    fingerprints = {
         item["fingerprint"]
         for item in raw.get("divergences", ())
         if isinstance(item, dict) and isinstance(item.get("fingerprint"), str)
     }
+    families = [
+        item
+        for item in raw.get("families", ())
+        if isinstance(item, dict)
+        and isinstance(item.get("template"), str)
+        and isinstance(item.get("parameters_not_equal"), dict)
+    ]
+    return fingerprints, families
+
+
+def _matches_known_family(
+    recipe: dict[str, Any], families: list[dict[str, Any]]
+) -> bool:
+    parameters = recipe.get("parameters") or {}
+    return any(
+        recipe.get("template") == family["template"]
+        and all(
+            parameters.get(name) != identity
+            for name, identity in family["parameters_not_equal"].items()
+        )
+        for family in families
+    )
 
 
 def _stable(results: list[dict[str, Any]]) -> bool:
@@ -79,7 +109,7 @@ def run_campaign(
         cache_path or PARITY_ROOT / "cache" / "reference-traces",
         environments.reference_identity,
     )
-    known = _load_known_fingerprints(
+    known, known_families = _load_known_divergences(
         known_divergences_path
         or Path(__file__).with_name("known_divergences.json")
     )
@@ -138,6 +168,28 @@ def run_campaign(
                     "reference_cache_hit": cached,
                 }
             )
+            continue
+
+        if _matches_known_family(recipe.to_dict(), known_families):
+            # First-pass sanity check: a mismatch inside a documented
+            # deviation's parameter space is a known failure; do not spend
+            # verification replays or reduction budget minting a new
+            # fingerprint for it.
+            failure = {
+                "original_recipe": recipe.to_dict(),
+                "minimized_recipe": recipe.to_dict(),
+                "difference": difference.to_dict(),
+                "reference": reference,
+                "candidate": candidate,
+                "reduction": {
+                    "attempts": 0,
+                    "accepted": 0,
+                    "timed_out": False,
+                    "steps": [],
+                },
+            }
+            failure["failure_fingerprint"] = failure_fingerprint(failure)
+            known_failures.append(failure)
             continue
 
         reference_replays, candidate_replays = _verify_pair(
@@ -282,7 +334,9 @@ def run_campaign(
             "reduction": reduction_payload,
         }
         failure["failure_fingerprint"] = failure_fingerprint(failure)
-        if failure["failure_fingerprint"] in known:
+        if failure["failure_fingerprint"] in known or _matches_known_family(
+            failure["minimized_recipe"], known_families
+        ):
             known_failures.append(failure)
         else:
             failures.append(failure)

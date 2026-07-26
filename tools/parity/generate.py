@@ -179,7 +179,12 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
             "inputs": {"values": ticks},
             "parameters": {
                 "increment": draw(st.integers(-3, 3)),
-                "zero": draw(st.integers(-3, 3)),
+                # Identity zero only: with a non-identity zero the reference
+                # result is capacity-history-dependent (documented reduce
+                # deviation, parity_matrix.rst), so differential exploration
+                # there measures the deviation, not candidate defects. The
+                # corpus tracks the deviation cases explicitly.
+                "zero": 0,
             },
             "features": [
                 *CATALOG["tsd_map_reduce"].features,
