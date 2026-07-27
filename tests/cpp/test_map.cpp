@@ -1325,6 +1325,24 @@ TEST_CASE("map_: reduce observes a chained map phantom slot becoming valid")
         values<Int>(none, 43));
 }
 
+TEST_CASE("map_: reduce observes multiple phantom slots becoming valid together")
+{
+    using namespace hgraph;
+    using namespace std::string_literals;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<ReducedChainedLateMappedIdentityG>(
+            values<Value>(
+                set_delta<Str>({"first"s, "second"s}, {}),
+                none),
+            values<Value>(
+                none,
+                dict_delta<Str, TS<Int>>(
+                    {{"first"s, 42}, {"second"s, 43}}))),
+        values<Int>(none, 87));
+}
+
 TEST_CASE("map_: multiplexed dict add and remove rebind existing explicit-key children")
 {
     using namespace hgraph;

@@ -82,6 +82,21 @@
       "issue": "https://github.com/hhenson/hg_cpp/issues/65",
       "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst Accepted Deviations): a size/emptiness/membership recompute equal to the previously emitted value does not re-tick in hg_cpp where released hgraph re-emits it; suppress only when eliding upstream's equal re-ticks makes the traces identical.",
       "review_after": "2027-07-27"
+    },
+    {
+      "family": "mapped-subscription-valid-subset-reduce",
+      "template": "nested_higher_order",
+      "parameters_equal": {
+        "inner": "subscription",
+        "outer": "map",
+        "wrap_switch": false,
+        "reduce_output": true
+      },
+      "parameters_not_equal": {},
+      "relation": "valid-subset-reduce",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/95",
+      "reason": "Accepted reduce deviation: hg_cpp reduces currently-valid mapped values and may publish while another live keyed slot is still a phantom; released hgraph waits. Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal.",
+      "review_after": "2027-07-27"
     }
   ]
 }

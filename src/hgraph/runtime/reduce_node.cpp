@@ -654,7 +654,12 @@ namespace hgraph
         [[nodiscard]] bool dict_structure_modified(const TSInputView &input, DateTime evaluation_time)
         {
             static_cast<void>(evaluation_time);
-            return input.as_dict().structure_modified();
+            // A live TSD slot can acquire or lose its first value without a
+            // key-set change. Reduction is over currently-valid values, so
+            // every dictionary tick needs the sparse add/remove/modified
+            // reconciliation below; ordinary value updates return
+            // ``structural == false`` and do not rebuild the combiner tree.
+            return input.modified();
         }
 
         [[nodiscard]] bool list_structure_modified(const TSInputView &input, DateTime)

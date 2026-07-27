@@ -1141,6 +1141,128 @@ namespace
         }
     };
 
+    struct MappedServiceSwitchAlpha
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "mapped_service_switch_alpha";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value)
+        {
+            return wire<AddOneService>(
+                w, service::path("mapped_switch_request_reply"), value);
+        }
+    };
+
+    struct MappedServiceSwitchBeta
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "mapped_service_switch_beta";
+
+        static Port<TS<Int>> compose(Wiring &, Port<TS<Int>> value)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (value * Int{2} - Int{2}).as<TS<Int>>();
+        }
+    };
+
+    struct MappedServiceSwitchAddTwo
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "mapped_service_switch_add_two";
+
+        static Port<TS<Int>> compose(Wiring &, Port<TS<Int>> value)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (value + Int{2}).as<TS<Int>>();
+        }
+    };
+
+    struct MappedRequestReplySwitchFunction
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "mapped_request_reply_switch_function";
+
+        static Port<TS<Int>> compose(
+            Wiring &w, NamedPort<"key", TS<Int>>,
+            Port<TS<Int>> value, Port<TS<Str>> selector)
+        {
+            return wire<stdlib::switch_>(
+                       w, selector,
+                       stdlib::switch_cases(
+                           {{Value{Str{"alpha"}}, fn<MappedServiceSwitchAlpha>()},
+                            {Value{Str{"beta"}}, fn<MappedServiceSwitchBeta>()}}),
+                       value)
+                .as<TS<Int>>();
+        }
+    };
+
+    struct MappedRequestReplySwitchGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "mapped_request_reply_switch_graph";
+
+        static Port<TS<Int>> compose(
+            Wiring &w, Port<TSD<Int, TS<Int>>> values,
+            Port<TS<Str>> selector)
+        {
+            service::register_request_reply_service<AddOneService, AddOneImplNode>(
+                w, service::path("mapped_switch_request_reply"));
+            auto mapped = wire<stdlib::map_>(
+                              w, fn<MappedRequestReplySwitchFunction>(),
+                              values, selector)
+                              .as<TSD<Int, TS<Int>>>();
+            return wire<stdlib::reduce_>(
+                       w, fn<stdlib::add_>(), mapped, Int{0})
+                .as<TS<Int>>();
+        }
+    };
+
+    struct MappedSubscriptionSwitchFunction
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "mapped_subscription_switch_function";
+
+        static Port<TS<Int>> compose(
+            Wiring &w, NamedPort<"key", TS<Int>> key,
+            Port<TS<Int>> value, Port<TS<Str>> selector)
+        {
+            using namespace hgraph::stdlib::syntax;
+            auto quoted =
+                (wire<PricesService>(
+                     w, service::path("mapped_switch_subscription"), key) +
+                 value)
+                    .as<TS<Int>>();
+            return wire<stdlib::switch_>(
+                       w, selector,
+                       stdlib::switch_cases(
+                           {{Value{Str{"alpha"}}, fn<MappedServiceSwitchAddTwo>()},
+                            {Value{Str{"beta"}}, fn<MappedServiceSwitchBeta>()}}),
+                       quoted)
+                .as<TS<Int>>();
+        }
+    };
+
+    struct MappedSubscriptionSwitchGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "mapped_subscription_switch_graph";
+
+        static Port<TS<Int>> compose(
+            Wiring &w, Port<TSD<Int, TS<Int>>> values,
+            Port<TS<Str>> selector)
+        {
+            service::register_subscription_service<PricesService, MappedPricesImpl>(
+                w, service::path("mapped_switch_subscription"));
+            auto mapped = wire<stdlib::map_>(
+                              w, fn<MappedSubscriptionSwitchFunction>(),
+                              values, selector)
+                              .as<TSD<Int, TS<Int>>>();
+            return wire<stdlib::reduce_>(
+                       w, fn<stdlib::add_>(), mapped, Int{0})
+                .as<TS<Int>>();
+        }
+    };
+
     struct RecursiveAddOneMappedFunction
     {
         [[maybe_unused]] static constexpr auto name = "recursive_add_one_mapped_function";
@@ -1653,6 +1775,39 @@ TEST_CASE("service wiring: map and mesh children call an outer request/reply ser
         dict_delta<Int, TS<Int>>({{1, 12}, {2, 22}}));
     CHECK_OUTPUT(eval_node<MappedServiceClientGraph>(requests), expected);
     CHECK_OUTPUT(eval_node<MeshedServiceClientGraph>(requests), expected);
+}
+
+TEST_CASE("service wiring: request/reply under map switch retains late keys")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<MappedRequestReplySwitchGraph>(
+            values<Value>(
+                dict_delta<Int, TS<Int>>({{1, 3}}),
+                dict_delta<Int, TS<Int>>({{2, 4}}),
+                none,
+                dict_delta<Int, TS<Int>>({}, {1})),
+            values<Str>(Str{"alpha"}, none, Str{"beta"}, none)),
+        values<Int>(none, none, 10, 6));
+}
+
+TEST_CASE("service wiring: subscription under map switch retains late keys")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // Issue #95: key 1 becomes valid while key 2 is still a phantom mapped
+    // slot. Reduction is over the currently-valid subset, so the first quote
+    // publishes 15; later complete aggregates still match released hgraph.
+    CHECK_OUTPUT(
+        eval_node<MappedSubscriptionSwitchGraph>(
+            values<Value>(
+                dict_delta<Int, TS<Int>>({{1, 3}}),
+                dict_delta<Int, TS<Int>>({{2, 4}}),
+                none,
+                dict_delta<Int, TS<Int>>({}, {1})),
+            values<Str>(Str{"alpha"}, none, Str{"beta"}, none)),
+        values<Int>(none, 15, 70, 46));
 }
 
 TEST_CASE("service wiring: a mapped request/reply implementation can call itself recursively")

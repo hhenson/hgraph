@@ -3,10 +3,11 @@
 ``known_divergences.json`` carries two suppression shapes:
 
 - ``divergences``: exact failure fingerprints.
-- ``families``: a template plus a ``parameters_not_equal`` map matching every
-  recipe of that template whose named parameters all differ from the stated
-  identity. An empty map matches every recipe of the template (used when a
-  documented deviation applies to every recipe of a template).
+- ``families``: a template plus optional ``parameters_equal`` and required
+  ``parameters_not_equal`` maps. Named parameters must respectively equal the
+  stated value or differ from the stated identity. Empty maps match every
+  recipe of the template (used when a documented deviation applies to every
+  recipe of a template).
 
 Each family names a bounded ``relation`` which proves the observed traces are
 the documented deviation.  Parameter membership alone is insufficient: a
@@ -29,6 +30,7 @@ SERVICE_ADAPTOR_ONE_CYCLE = "service-adaptor-one-cycle"
 KEY_SET_SIZE_NO_RETICK = "key-set-size-no-retick"
 SUBSCRIPTION_RESAMPLE_ONE_CYCLE = "subscription-resample-one-cycle"
 NO_CHANGE_ELISION = "no-change-elision"
+VALID_SUBSET_REDUCE = "valid-subset-reduce"
 
 
 def load_known_divergences(
@@ -62,6 +64,9 @@ def _matches_family_parameters(
     # deviation family. An empty parameters_not_equal map matches the whole
     # template.
     return recipe.get("template") == family["template"] and all(
+        parameters.get(name, object()) == expected
+        for name, expected in family.get("parameters_equal", {}).items()
+    ) and all(
         parameters.get(name, identity) != identity
         for name, identity in family["parameters_not_equal"].items()
     )
@@ -264,9 +269,48 @@ def _no_change_elision_relation(
     return elided >= 1
 
 
+def _valid_subset_reduce_relation(
+    _recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Issue #95: hg_cpp may publish an aggregate of the currently-valid
+    mapped values while released hgraph remains invalid because another live
+    keyed slot is still a phantom.
+
+    Only additional candidate emissions are admitted. Every tick emitted by
+    released hgraph must match exactly, so payload corruption, missing
+    aggregates, shifted eventual values, and trace-length differences remain
+    reportable.
+    """
+    if difference.get("classification") != "value":
+        return False
+    reference_trace = reference.get("trace")
+    candidate_trace = candidate.get("trace")
+    if (
+        not isinstance(reference_trace, list)
+        or not isinstance(candidate_trace, list)
+        or len(reference_trace) != len(candidate_trace)
+    ):
+        return False
+
+    extra = 0
+    for ref, cand in zip(reference_trace, candidate_trace):
+        if ref == cand:
+            continue
+        if ref is None and cand is not None:
+            extra += 1
+            continue
+        return False
+    return extra >= 1
+
+
 RELATIONS = {
     TRACE_VALUE: _trace_value_relation,
     NO_CHANGE_ELISION: _no_change_elision_relation,
+    VALID_SUBSET_REDUCE: _valid_subset_reduce_relation,
     SERVICE_ADAPTOR_ONE_CYCLE: _service_adaptor_one_cycle_relation,
     KEY_SET_SIZE_NO_RETICK: _key_set_size_no_retick_relation,
     SUBSCRIPTION_RESAMPLE_ONE_CYCLE: (
