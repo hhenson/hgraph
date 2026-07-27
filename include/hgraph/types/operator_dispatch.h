@@ -813,29 +813,22 @@ namespace hgraph
             {
                 throw std::logic_error("operator auto-const target schema is not resolved");
             }
-            std::optional<Value> coerced;
-            if (const auto *source_schema = arg.scalar_value.schema();
-                source_schema != nullptr && current_value_schema_compatible(*target_schema, *source_schema))
+            const auto *source_schema = arg.scalar_value.schema();
+            if (source_schema == nullptr ||
+                !current_value_schema_compatible(*target_schema, *source_schema))
             {
-                coerced = arg.scalar_value;
-            }
-            else
-            {
-                coerced = coerce_scalar_value_to_meta(arg.scalar_value, target_schema->value_schema);
-            }
-            if (!coerced.has_value())
-            {
-                throw std::logic_error("operator scalar argument cannot be converted to the target time-series value");
+                throw std::logic_error(
+                    "operator scalar argument schema does not match the target time-series value");
             }
 
             ResolutionMap map;
-            map.bind_scalar("T", coerced->schema());
+            map.bind_scalar("T", source_schema);
             map.bind_ts("S", target_schema);
 
             const auto binding = value_type_for_wiring(
                 StaticNodeSignature<operator_auto_const>::scalar_schema(map));
             BundleBuilder bundle{binding};
-            bundle.set("value", std::move(*coerced));
+            bundle.set("value", arg.scalar_value.view());
 
             NodeBuilder builder;
             builder.implementation<operator_auto_const>(map);
