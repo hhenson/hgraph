@@ -687,9 +687,18 @@ The following are intentional unless separately re-opened:
   ``from_data_frame`` / ``to_data_frame`` operators. The Python facade is a
   value adapter: PyArrow remains the default result and a Polars input selects
   a Polars result without introducing a Polars runtime dependency.
-- ``GlobalState`` keeps C++ copy-in/copy-out ownership.  Python's thread-local
+- ``GlobalState`` keeps C++ copy ownership, with the copy taken at **graph
+  build** (ruling 2026-07-27): the WIRING phase reads/writes the LIVE selected
+  state — the same store the configuration setters
+  (``set_record_replay_model``/``set_as_of``/...) write, so configuration
+  applied during wiring (including inside a graph function) is honoured — and
+  the run's isolation copy is captured when the graph is built, with results
+  copied back at run end.  A construction-time copy previously split the two
+  stores and silently ignored in-graph configuration.  Python's thread-local
   seed and ``GlobalContext`` are authoring adapters, not alternate runtime
-  global state.
+  global state; nested ``GlobalState`` activation is a modeling error and
+  raises (upstream's layer-chaining is not emulated — configuration belongs
+  on the scope that owns the evaluation).
 - The ``Hg*TypeMetaData`` **type-reflection family is not supported** —
   ``HgTypeMetaData`` and every ``Hg*TypeMetaData`` subclass, plus
   ``parse_type``/``parse_value``, ``resolve``/``build_resolution_dict``,

@@ -107,9 +107,17 @@ namespace hgraph
     };
 
     /**
-     * Selects a pre-wiring seed on the current thread. New top-level Wiring
-     * and GraphBuilder instances copy the selected state using normal
-     * GlobalState value semantics. The context is not retained by a graph.
+     * Selects the LIVE global state on the current thread (lifecycle ruling
+     * 2026-07-27). A top-level Wiring created inside the context reads and
+     * writes the selected state THROUGH the context for the duration of the
+     * wiring — nothing copies it and nothing retains a pointer to it. The
+     * wiring end (graph build) FIXES the seed: the state is copied then, as
+     * it stands, into the graph as its initial state; the run works on that
+     * isolation copy (global to the runtime graph and all nested graphs)
+     * and results copy back at run end, after which no reference to the
+     * selected state is held anywhere. The selected state must span the
+     * wiring process — a wiring whose context exited early fails its build
+     * loudly rather than dereferencing a dead state.
      */
     class HGRAPH_EXPORT GlobalContext
     {

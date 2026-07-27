@@ -311,5 +311,31 @@ TEST_CASE("global context: seeds builders by copy and does not nest")
     executor.view().run();
 
     CHECK(executor.view().graph().global_state().get_as<std::int32_t>("counter") == 101);
-    CHECK_FALSE(seed.view().contains("counter"));
+    // The WIRING write ("counter" = 100 in compose) lands on the LIVE
+    // selected seed (ruling 2026-07-27); the RUNTIME bump to 101 happens on
+    // the graph's isolation copy taken at build and never reaches the seed.
+    CHECK(seed.view().get_as<std::int32_t>("counter") == 100);
+}
+
+TEST_CASE("global context: the selected state must span the wiring process")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    (void)registry.register_scalar<std::int32_t>("int32");
+
+    // A wiring whose selecting context exits early holds NO retained
+    // pointer: reads fall back to the internal store (no dangling), and
+    // fixing the seed at build fails loudly.
+    Wiring wiring;
+    {
+        GlobalState  seed;
+        seed.view().set("seed", Value{std::int32_t{7}});
+        GlobalContext context{seed};
+        Wiring        live_wiring;
+        CHECK(live_wiring.global_state().get_as<std::int32_t>("seed") == 7);
+        wiring = std::move(live_wiring);
+    }
+    CHECK_FALSE(wiring.global_state().contains("seed"));
+    CounterGraph::compose(wiring);
+    CHECK_THROWS_AS(std::move(wiring).finish(), std::logic_error);
 }
