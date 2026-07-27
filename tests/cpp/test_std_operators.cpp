@@ -1180,6 +1180,45 @@ TEST_CASE("std operators: add_ supports datetime + timedelta -> datetime")
                  values<DateTime>(dt(1'500'000), dt(3'500'000)));
 }
 
+namespace
+{
+    struct LenOverWindowGraph
+    {
+        static constexpr auto name = "len_over_window_graph";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{3});
+            return wire<stdlib::len_>(w, window).as<TS<Int>>();
+        }
+    };
+
+    struct LenOverTslOfTssGraph
+    {
+        static constexpr auto name = "len_over_tsl_of_tss_graph";
+        static Port<TS<Int>> compose(Wiring &w, Port<TSS<Int>> a, Port<TSS<Int>> b)
+        {
+            auto list = stdlib::to_tsl<TSL<TSS<Int>, 2>>(w, a, b);
+            return wire<stdlib::len_>(w, list).as<TS<Int>>();
+        }
+    };
+}  // namespace
+
+TEST_CASE("std operators: len_ covers windows and composite-element lists (issue #81)")
+{
+    stdlib::register_standard_operators();
+
+    // TSW: the current buffer length — grows until the window fills, then
+    // stays put (no-change means no tick).
+    CHECK_OUTPUT(eval_node<LenOverWindowGraph>(values<Int>(1, 2, 3, 4, 5)),
+                 values<Int>(1, 2, 3, none, none));
+
+    // A TSL whose element is composite (TSS children here) has a size too:
+    // len_tsl accepts any element kind.
+    CHECK_OUTPUT(eval_node<LenOverTslOfTssGraph>(values<Value>(set_delta<Int>({1}, {})),
+                                                 values<Value>(set_delta<Int>({2}, {}))),
+                 values<Int>(2));
+}
+
 TEST_CASE("std operators: date and timedelta arithmetic matches Python normalized days")
 {
     stdlib::register_standard_operators();

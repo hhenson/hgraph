@@ -191,7 +191,11 @@ the ``_hgraph`` bridge module (built from ``python/module.cpp``):
   a TSS value/delta and rejects loudly, except the empty ``{}`` which is
   upstream's empty-set stand-in — TSD from ``{key: value}`` dicts with
   ``None`` = lenient removal, TSL from per-index lists) and friendly delta
-  read-back (``REMOVE`` sentinel). No implicit run bound is injected — a
+  read-back (``REMOVE`` sentinel). A generic ``TSL[..., SIZE]`` parameter
+  annotation resolves its size from the samples (int-keyed dict → max key
+  + 1; list → length) and wires the REAL dynamic list shape (issue #81);
+  only annotations the size binding cannot fully resolve fall back to
+  sample-scalar inference. No implicit run bound is injected — a
   test that cannot quiesce sets ``__end_time__`` explicitly and says why.
 - **Higher-order**: ``map_``/``reduce``/``switch_`` over **named operator
   callables** — the bridge pre-instantiates ``fn<X>()`` erasures for the
