@@ -991,8 +991,12 @@ struct Wiring::Impl {
       // invoked during wiring (set_record_replay_model, set_as_of, ...)
       // write into the selected GlobalState, and wiring-time reads must see
       // the same store — a construction-time copy silently ignored them.
-      // The run's isolation copy is taken at graph build instead.
-      live_state = GlobalContext::active_state();
+      // NOTHING is retained: reads resolve through the active context per
+      // call, the seed is FIXED by copy at wiring end (graph build), and
+      // the selected state must span the wiring process (finish fails
+      // loudly if it exited early). Only whether this wiring was live-
+      // seeded is remembered.
+      live_seeded = GlobalContext::active_state() != nullptr;
     }
   }
 
@@ -1052,7 +1056,7 @@ struct Wiring::Impl {
   bool building_services{false};
   std::string service_materialization_path{};
   GlobalState global_state{};  // stateless-wiring fallback (no live context)
-  GlobalState *live_state{nullptr};
+  bool live_seeded{false};
   std::shared_ptr<WiringObserverRegistry> observers{};
   std::vector<std::string> wiring_path{};
   WiringKind kind{WiringKind::TopLevel};
@@ -2204,8 +2208,13 @@ Wiring::activate_error_capture(const WiringInstance *node,
 }
 
 GlobalStateView Wiring::global_state() noexcept {
-  if (impl_->live_state != nullptr) {
-    return impl_->live_state->view();
+  // Resolved LIVE through the wiring context on every call — never a
+  // retained pointer (which would dangle when a short-lived GlobalContext
+  // exits before the wiring is done).
+  if (impl_->kind == WiringKind::TopLevel && impl_->live_seeded) {
+    if (GlobalState *state = GlobalContext::active_state()) {
+      return state->view();
+    }
   }
   return impl_->global_state.view();
 }
@@ -2263,16 +2272,25 @@ GraphBuilder Wiring::finish_top_level(bool consume_state) {
   RankedGraphBuild build = build_ranked_graph(impl_->instances, nullptr);
   validate_same_cycle_pairs(build.index_of);
   build.graph_builder.type_realization(realization);
-  // The run's ISOLATION COPY is taken here, at graph build (ruling
-  // 2026-07-27): a live-seeded wiring copies the selected GlobalState as it
-  // stands NOW — wiring-time configuration and entries included — and the
-  // user's state object stays theirs (results copy back at run end). A
-  // stateless wiring keeps the internal store: moved on the consuming
-  // finish() path, copied on the snapshot() path so the wiring stays live.
+  // The wiring end FIXES the seed (ruling 2026-07-27): a live-seeded wiring
+  // copies the selected GlobalState as it stands NOW — wiring-time
+  // configuration and entries included — into the graph as its initial
+  // state; the user's state object stays theirs (results copy back at run
+  // end). The selected state must span the wiring process. A stateless
+  // wiring keeps the internal store: moved on the consuming finish() path,
+  // copied on the snapshot() path so the wiring stays live.
+  GlobalState *live = impl_->kind == WiringKind::TopLevel && impl_->live_seeded
+                          ? GlobalContext::active_state()
+                          : nullptr;
+  if (impl_->live_seeded && live == nullptr) {
+    throw std::logic_error(
+        "Wiring: the selected GlobalState exited before wiring finished — "
+        "the global state must span the wiring process");
+  }
   build.graph_builder.global_state(
-      impl_->live_state != nullptr ? GlobalState{*impl_->live_state}
-      : consume_state              ? std::move(impl_->global_state)
-                                   : GlobalState{impl_->global_state});
+      live != nullptr    ? GlobalState{*live}
+      : consume_state    ? std::move(impl_->global_state)
+                         : GlobalState{impl_->global_state});
   const ValueView traits_value = impl_->traits.as_value().view();
   const auto traits_map = traits_value.as_map();
   for (const auto [key, boxed] : traits_map) {
