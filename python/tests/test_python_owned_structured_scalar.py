@@ -1,6 +1,7 @@
 import json
-from dataclasses import dataclass, field
-from typing import Generic, Optional, TypeVar
+from collections.abc import Mapping
+from dataclasses import InitVar, dataclass, field
+from typing import ClassVar, Generic, Optional, TypeVar
 
 import pytest
 
@@ -503,6 +504,60 @@ def test_time_series_schema_can_be_lifted_from_python_owned_dataclass():
     assert schema.scalar_type() is Quote
     assert schema.__annotations__ == {"bid": TS[float], "ask": TS[float]}
     assert TSB[schema].handle.is_tsb
+    assert TSB[schema].handle == TSB[Quote].handle
+
+
+def test_dataclass_bundle_derivation_is_conservative_and_interned():
+    @dataclass(frozen=True)
+    class Child:
+        value: int
+
+    @dataclass(frozen=True)
+    class Model:
+        number: int
+        values: tuple[int, ...]
+        lookup: Mapping[str, float]
+        child: Child
+        constructor_only: InitVar[str] = "ignored"
+        class_value: ClassVar[int] = 1
+
+        @property
+        def computed(self):
+            return self.number * 2
+
+    first = TSB[Model]
+    second = TSB[Model]
+    explicit = TSB[TimeSeriesSchema.from_scalar_schema(Model)]
+
+    assert first.handle == second.handle == explicit.handle
+    assert fields(first) == {
+        "number": TS[int],
+        "values": TS[tuple[int, ...]],
+        "lookup": TS[Mapping[str, float]],
+        "child": TS[Child],
+    }
+
+
+def test_dataclass_bundle_rejects_non_scalar_and_unresolved_fields():
+    @dataclass(frozen=True)
+    class TimeSeriesField:
+        value: TS[int]
+
+    with pytest.raises(
+        TypeError,
+        match="field 'value' must resolve to a supported scalar type",
+    ):
+        TSB[TimeSeriesField]
+
+    @dataclass(frozen=True)
+    class UnresolvedField:
+        value: "MissingBundleField"
+
+    with pytest.raises(
+        TypeError,
+        match="field 'value' must resolve to a supported scalar type",
+    ):
+        TSB[UnresolvedField]
 
 
 def test_generic_typevar_resolution_and_nested_container_substitution():

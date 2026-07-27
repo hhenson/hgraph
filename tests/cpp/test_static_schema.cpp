@@ -213,6 +213,33 @@ TEST_CASE("static_schema: Bundle<\"Name\", ...> resolves to registry.bundle(name
     REQUIRE(got == registry.bundle("LabelledPoint", {{"x", int_meta}, {"label", str_meta}}));
 }
 
+TEST_CASE("static_schema: TSBFromScalar lifts named and structural Bundle fields")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+
+    using Child = Bundle<"LiftedChild", Field<"label", Str>>;
+    using Model = Bundle<"LiftedModel",
+                         Field<"number", Int>,
+                         Field<"items", HomogeneousTuple<Int>>,
+                         Field<"child", Child>>;
+    using Lifted = TSBFromScalar<Model>;
+    using Expected = TSB<"LiftedModel",
+                         Field<"number", TS<Int>>,
+                         Field<"items", TS<HomogeneousTuple<Int>>>,
+                         Field<"child", TS<Child>>>;
+    STATIC_REQUIRE(std::is_same_v<Lifted, Expected>);
+
+    using Structural = UnNamedBundle<Field<"number", Int>, Field<"label", Str>>;
+    using StructuralLifted = TSBFromScalar<Structural>;
+    using StructuralExpected =
+        UnNamedTSB<Field<"number", TS<Int>>, Field<"label", TS<Str>>>;
+    STATIC_REQUIRE(std::is_same_v<StructuralLifted, StructuralExpected>);
+
+    const auto *model = value_schema_descriptor<Model>::value_meta();
+    REQUIRE(schema_descriptor<Lifted>::ts_meta() == registry.tsb(model));
+}
+
 TEST_CASE("static_schema: TsVar / ScalarVar render schemas non-concrete")
 {
     using namespace hgraph;
