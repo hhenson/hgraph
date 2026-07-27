@@ -42,7 +42,8 @@ Supported platforms
      - ``cp312-abi3`` wheel, macOS 15+
      - Primary local and CI correctness gate; Intel macOS is not built
    * - Windows x86_64
-     - Latest Visual Studio generator
+     - Latest MSVC toolset over Ninja (vcvars via ``msvc-dev-cmd``; the
+       Visual Studio generator ignores the sccache launcher)
      - ``cp312-abi3`` wheel
      - Python compatibility suite gates the wheel; standalone native C++ is
        best effort

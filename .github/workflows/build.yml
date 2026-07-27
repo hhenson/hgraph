@@ -142,10 +142,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Ninja (not the Visual Studio generator): MSBuild ignores
+          # CMAKE_CXX_COMPILER_LAUNCHER, so sccache never fires under the VS
+          # generator. Debug-carrying configurations use /Z7 (embedded debug
+          # info) so they stay cacheable — sccache cannot cache /Zi's shared
+          # PDB; the Release wheel carries no debug info and no format flag.
           - os: windows-latest
-            parallel: "2"
-            cmake_generator: Visual Studio 18 2026
-            cmake_args: -DHGRAPH_WARNINGS_AS_ERRORS=OFF
+            parallel: "4"
+            cmake_generator: Ninja
+            cmake_args: >-
+              -DHGRAPH_WARNINGS_AS_ERRORS=OFF
+              -DCMAKE_POLICY_DEFAULT_CMP0141=NEW
+              "-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>"
           - os: macos-26
             parallel: "1"
             cmake_generator: Ninja
@@ -170,6 +178,12 @@ jobs:
           echo "CXX=/usr/bin/clang++" >> "$GITHUB_ENV"
           echo "MACOSX_DEPLOYMENT_TARGET=15.0" >> "$GITHUB_ENV"
           /usr/bin/clang++ --version
+      - name: Configure MSVC toolchain for Ninja
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Install Ninja
+        if: runner.os == 'Windows'
+        run: python -m pip install ninja
       - name: Install wheel build tools
         run: python -m pip install --upgrade build abi3audit
       - name: Build stable ABI wheel
