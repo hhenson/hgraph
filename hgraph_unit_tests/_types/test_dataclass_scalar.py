@@ -1,6 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 import json
-from typing import Generic, TypeVar
+from collections.abc import Mapping
+from typing import ClassVar, Generic, TypeVar
 
 import pytest
 
@@ -11,6 +12,7 @@ from hgraph import (
     ParseError,
     TS,
     TSB,
+    TimeSeriesSchema,
     combine,
     compute_node,
     convert,
@@ -79,6 +81,25 @@ class Recursive:
 class RequiredPair:
     left: int
     right: int
+
+
+@dataclass(frozen=True)
+class BundleChild:
+    value: int
+
+
+@dataclass(frozen=True)
+class ConservativeBundleShape:
+    number: int
+    values: tuple[int, ...]
+    lookup: Mapping[str, float]
+    child: BundleChild
+    constructor_only: InitVar[str] = "ignored"
+    class_value: ClassVar[int] = 1
+
+    @property
+    def computed(self) -> int:
+        return self.number * 2
 
 
 @dataclass(frozen=True)
@@ -175,6 +196,41 @@ def test_dataclass_converts_to_and_from_tsb():
     quote = Quote("ABC", 100.0, 101.0)
     assert eval_node(as_bundle, [quote]) == [{"instrument": "ABC", "bid": 100.0, "ask": 101.0, "tags": ()}]
     assert eval_node(from_bundle, ["ABC"], [100.0]) == [Quote("ABC", 100.0)]
+
+
+def test_dataclass_bundle_derivation_is_conservative_and_cached():
+    assert fields(TSB[ConservativeBundleShape]) == {
+        "number": TS[int],
+        "values": TS[tuple[int, ...]],
+        "lookup": TS[Mapping[str, float]],
+        "child": TS[BundleChild],
+    }
+
+    first_schema = TimeSeriesSchema.from_scalar_schema(ConservativeBundleShape)
+    second_schema = TimeSeriesSchema.from_scalar_schema(ConservativeBundleShape)
+    direct_meta = HgTypeMetaData.parse_type(TSB[ConservativeBundleShape])
+    explicit_meta = HgTypeMetaData.parse_type(TSB[first_schema])
+
+    assert first_schema is second_schema
+    assert direct_meta == explicit_meta
+    assert direct_meta.bundle_schema_tp.py_type is first_schema
+    assert first_schema.scalar_type() is ConservativeBundleShape
+
+
+def test_dataclass_bundle_rejects_non_scalar_and_unresolved_fields():
+    @dataclass(frozen=True)
+    class TimeSeriesField:
+        value: TS[int]
+
+    with pytest.raises(ParseError, match="field 'value' must be a scalar type"):
+        TSB[TimeSeriesField]
+
+    @dataclass(frozen=True)
+    class UnresolvedField:
+        value: "MissingBundleField"
+
+    with pytest.raises(ParseError, match="field 'value' has unresolved annotation"):
+        TSB[UnresolvedField]
 
 
 def test_dataclass_reconstruction_honours_init_false_and_post_init():
