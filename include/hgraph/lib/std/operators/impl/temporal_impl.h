@@ -478,6 +478,177 @@ namespace hgraph::stdlib
         }
     };
 
+    // ---- timedelta attributes (python's normalized (days, seconds,
+    //      microseconds) decomposition: days floors toward -inf, the
+    //      remainders are non-negative) ----
+
+    struct days_timedelta_impl
+    {
+        static void eval(In<"ts", TS<TimeDelta>> ts, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(std::chrono::floor<std::chrono::days>(ts.value()).count()));
+        }
+    };
+
+    struct seconds_timedelta_impl
+    {
+        static void eval(In<"ts", TS<TimeDelta>> ts, Out<TS<Int>> out)
+        {
+            const TimeDelta remainder = ts.value() - std::chrono::floor<std::chrono::days>(ts.value());
+            out.set(static_cast<Int>(std::chrono::floor<std::chrono::seconds>(remainder).count()));
+        }
+    };
+
+    struct microseconds_timedelta_impl
+    {
+        static void eval(In<"ts", TS<TimeDelta>> ts, Out<TS<Int>> out)
+        {
+            const TimeDelta remainder = ts.value() - std::chrono::floor<std::chrono::seconds>(ts.value());
+            out.set(static_cast<Int>(remainder.count()));
+        }
+    };
+
+    struct total_seconds_timedelta_impl
+    {
+        static void eval(In<"ts", TS<TimeDelta>> ts, Out<TS<Float>> out)
+        {
+            out.set(std::chrono::duration<Float>(ts.value()).count());
+        }
+    };
+
+    // ---- datetime component extraction (the datetime overloads of the
+    //      date attribute operators plus the time-of-day attributes) ----
+
+    namespace datetime_parts_detail
+    {
+        [[nodiscard]] inline Date civil_date(DateTime when)
+        {
+            return Date{std::chrono::floor<std::chrono::days>(when)};
+        }
+
+        [[nodiscard]] inline std::int64_t microseconds_of_day(DateTime when)
+        {
+            return time_of_day(when).microseconds;
+        }
+    }  // namespace datetime_parts_detail
+
+    struct year_datetime_impl
+    {
+        static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(static_cast<int>(datetime_parts_detail::civil_date(ts.value()).year())));
+        }
+    };
+
+    struct month_datetime_impl
+    {
+        static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(static_cast<unsigned>(datetime_parts_detail::civil_date(ts.value()).month())));
+        }
+    };
+
+    struct day_datetime_impl
+    {
+        static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(static_cast<unsigned>(datetime_parts_detail::civil_date(ts.value()).day())));
+        }
+    };
+
+    struct weekday_datetime_impl
+    {
+        static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Int>> out)
+        {
+            const std::chrono::weekday wd{std::chrono::floor<std::chrono::days>(ts.value())};
+            out.set(static_cast<Int>(wd.iso_encoding() - 1));
+        }
+    };
+
+    struct isoweekday_datetime_impl
+    {
+        static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Int>> out)
+        {
+            const std::chrono::weekday wd{std::chrono::floor<std::chrono::days>(ts.value())};
+            out.set(static_cast<Int>(wd.iso_encoding()));
+        }
+    };
+
+    struct hour_datetime_impl
+    {
+        static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(datetime_parts_detail::microseconds_of_day(ts.value()) / 3'600'000'000));
+        }
+    };
+
+    struct minute_datetime_impl
+    {
+        static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(datetime_parts_detail::microseconds_of_day(ts.value()) / 60'000'000 % 60));
+        }
+    };
+
+    struct second_datetime_impl
+    {
+        static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(datetime_parts_detail::microseconds_of_day(ts.value()) / 1'000'000 % 60));
+        }
+    };
+
+    struct microsecond_datetime_impl
+    {
+        static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(datetime_parts_detail::microseconds_of_day(ts.value()) % 1'000'000));
+        }
+    };
+
+    struct timestamp_datetime_impl
+    {
+        static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Float>> out)
+        {
+            // Python's datetime.timestamp(): fractional epoch seconds.
+            out.set(std::chrono::duration<Float>(ts.value().time_since_epoch()).count());
+        }
+    };
+
+    // ---- time-of-day attributes over TS<Time> (upstream's time table) ----
+
+    struct hour_time_impl
+    {
+        static void eval(In<"ts", TS<Time>> ts, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(ts.value().microseconds / 3'600'000'000));
+        }
+    };
+
+    struct minute_time_impl
+    {
+        static void eval(In<"ts", TS<Time>> ts, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(ts.value().microseconds / 60'000'000 % 60));
+        }
+    };
+
+    struct second_time_impl
+    {
+        static void eval(In<"ts", TS<Time>> ts, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(ts.value().microseconds / 1'000'000 % 60));
+        }
+    };
+
+    struct microsecond_time_impl
+    {
+        static void eval(In<"ts", TS<Time>> ts, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(ts.value().microseconds % 1'000'000));
+        }
+    };
+
     struct month_of_year_impl
     {
         static void eval(In<"ts", TS<Date>> ts, Out<TS<Int>> out)
