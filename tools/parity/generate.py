@@ -90,6 +90,10 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
                     visit(argument)
 
         visit(expression)
+        # mode:postponed-annotations (issue #83 class): the same expression
+        # occasionally runs from a PEP 563 module, so string annotations
+        # exercise the signature-resolution path on both distributions.
+        postponed = draw(st.sampled_from((False, False, False, True)))
         return {
             "template": "scalar_expression",
             "inputs": {"lhs": lhs, "rhs": rhs},
@@ -97,12 +101,14 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
                 "input_types": {"lhs": type_name, "rhs": type_name},
                 "output_type": type_name,
                 "expression": expression,
+                "postponed_annotations": postponed,
             },
             "features": [
                 *CATALOG["scalar_expression"].features,
                 f"type:{type_name}",
                 f"ticks:{'long' if count > 16 else 'medium'}",
                 *(f"operator:{operation}" for operation in sorted(operations)),
+                *(("mode:postponed-annotations",) if postponed else ()),
             ],
         }
 
@@ -413,6 +419,171 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
             "features": [*CATALOG["mesh_key_set"].features],
         }
 
+    # ---- templates targeted at the 2026-07 compatibility-issue classes ----
+
+    _TEMPORAL_PROPERTIES = {
+        "date": ("year", "month", "day"),
+        "datetime": ("year", "month", "day", "hour", "minute", "second",
+                     "microsecond"),
+        "timedelta": ("days", "seconds", "microseconds"),
+    }
+    _TEMPORAL_METHODS = {
+        "date": ("weekday", "isoweekday"),
+        "datetime": ("weekday", "isoweekday"),
+        "timedelta": ("total_seconds",),
+    }
+    _TEMPORAL_OUTPUT = {"total_seconds": "float"}
+
+    @st.composite
+    def temporal_expression(draw):
+        import datetime as dt
+
+        input_type = draw(st.sampled_from(("date", "datetime")))
+        target = draw(st.sampled_from(("difference", "shifted", "input")))
+        kind = "timedelta" if target == "difference" else input_type
+        accessor = draw(st.sampled_from(
+            _TEMPORAL_PROPERTIES[kind] + _TEMPORAL_METHODS[kind]))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        day = st.integers(min_value=0, max_value=36_500)
+        micro = st.integers(min_value=0, max_value=86_399_999_999)
+
+        def sample(with_none):
+            base = dt.datetime(1990, 1, 1)
+            offset = base + dt.timedelta(days=draw(day),
+                                         microseconds=draw(micro))
+            if input_type == "date":
+                encoded = {"$date": offset.date().isoformat()}
+            else:
+                encoded = {"$datetime": offset.isoformat()}
+            if with_none and draw(st.booleans()):
+                return None
+            return encoded
+
+        lhs = [sample(False)] + [sample(True) for _ in range(count - 1)]
+        inputs = {"lhs": lhs}
+        parameters = {
+            "input_type": input_type,
+            "target": target,
+            "accessor": accessor,
+            "output_type": _TEMPORAL_OUTPUT.get(accessor, "int"),
+            "postponed_annotations": draw(
+                st.sampled_from((False, False, False, True))),
+        }
+        if target == "difference":
+            inputs["rhs"] = [sample(False)] + [
+                sample(True) for _ in range(count - 1)]
+        elif target == "shifted":
+            parameters["delta"] = {
+                "days": draw(st.integers(min_value=-3_650, max_value=3_650)),
+                "seconds": draw(st.integers(min_value=-10_000, max_value=10_000)),
+                "microseconds": draw(
+                    st.integers(min_value=-10_000, max_value=10_000)),
+            }
+        return {
+            "template": "temporal_expression",
+            "inputs": inputs,
+            "parameters": parameters,
+            "features": [
+                *CATALOG["temporal_expression"].features,
+                f"type:{input_type}",
+                f"operator:{accessor}",
+                f"temporal:{target}",
+                *(("mode:postponed-annotations",)
+                  if parameters["postponed_annotations"] else ()),
+            ],
+        }
+
+    @st.composite
+    def collection_size(draw):
+        shape = draw(st.sampled_from(("str", "tss", "tsd", "tsl")))
+        operation = ("len" if shape == "tsl"
+                     else draw(st.sampled_from(("len", "is_empty", "contains"))))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        parameters = {"shape": shape, "operation": operation}
+        keys = st.sampled_from(("a", "b", "c", "d"))
+        small = st.integers(min_value=-5, max_value=5)
+        if shape == "str":
+            text = st.text(
+                alphabet="abcdef", min_size=0, max_size=6)
+            series = [draw(text)] + [
+                draw(st.one_of(st.none(), text)) for _ in range(count - 1)]
+            inputs = {"ts": series}
+            if operation == "contains":
+                parameters["probe"] = draw(st.sampled_from(("a", "cd", "")))
+        elif shape == "tss":
+            def delta():
+                added = draw(st.lists(small, max_size=3))
+                removed = draw(st.lists(small, max_size=2))
+                return {"$set_delta": {"added": added, "removed": removed}}
+            inputs = {"ts": [delta()] + [
+                None if draw(st.booleans()) else delta()
+                for _ in range(count - 1)]}
+            if operation == "contains":
+                parameters["probe"] = draw(small)
+        elif shape == "tsd":
+            def tick():
+                entries = draw(st.lists(
+                    st.tuples(keys, st.one_of(st.none(), small)),
+                    min_size=1, max_size=3, unique_by=lambda kv: kv[0]))
+                return {key: value for key, value in entries}
+            inputs = {"ts": [tick() for _ in range(count)]}
+            if operation == "contains":
+                parameters["probe"] = draw(keys)
+        else:
+            series = st.one_of(st.none(), small)
+            inputs = {
+                "a": [draw(small)] + [draw(series) for _ in range(count - 1)],
+                "b": [draw(small)] + [draw(series) for _ in range(count - 1)],
+            }
+        return {
+            "template": "collection_size",
+            "inputs": inputs,
+            "parameters": parameters,
+            "features": [
+                *CATALOG["collection_size"].features,
+                f"shape:{shape.upper() if shape != 'str' else 'TS'}",
+                f"operator:{operation}",
+            ],
+        }
+
+    @st.composite
+    def lifecycle_state(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        small = st.integers(min_value=-10, max_value=10)
+        values = [draw(small)] + [
+            draw(st.one_of(st.none(), small)) for _ in range(count - 1)]
+        spellings = ("default", "bare", "unannotated")
+        parameters = {
+            "start_spelling": draw(st.sampled_from(spellings)),
+            "stop_spelling": draw(st.sampled_from((None,) + spellings)),
+            "seed": draw(st.integers(min_value=-50, max_value=50)),
+        }
+        return {
+            "template": "lifecycle_state",
+            "inputs": {"value": values},
+            "parameters": parameters,
+            "features": [
+                *CATALOG["lifecycle_state"].features,
+                f"lifecycle:start-{parameters['start_spelling']}",
+                f"lifecycle:stop-{parameters['stop_spelling'] or 'absent'}",
+            ],
+        }
+
+    @st.composite
+    def data_frame_recording(draw):
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        small = st.integers(min_value=-20, max_value=20)
+        values = [draw(small)] + [
+            draw(st.one_of(st.none(), small)) for _ in range(count - 1)]
+        return {
+            "template": "data_frame_recording",
+            "inputs": {"ts": values},
+            "parameters": {
+                "as_of_offset": draw(st.integers(min_value=1, max_value=100)),
+            },
+            "features": [*CATALOG["data_frame_recording"].features],
+        }
+
     return st.one_of(
         scalar_expression(),
         feedback_accumulate(),
@@ -427,6 +598,10 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
         operator_pipeline(),
         tsd_key_set_pipeline(),
         mesh_key_set(),
+        temporal_expression(),
+        collection_size(),
+        lifecycle_state(),
+        data_frame_recording(),
     )
 
 

@@ -73,6 +73,15 @@
       "issue": "https://github.com/hhenson/hg_cpp/issues/44",
       "reason": "Released hgraph applies a non-identity reduce zero a capacity-history-dependent number of times; any mismatch with zero != 0 is the documented reduce deviation, not a candidate defect.",
       "review_after": "2027-07-26"
+    },
+    {
+      "family": "collection-size-no-retick",
+      "template": "collection_size",
+      "parameters_not_equal": {},
+      "relation": "no-change-elision",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/65",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst Accepted Deviations): a size/emptiness/membership recompute equal to the previously emitted value does not re-tick in hg_cpp where released hgraph re-emits it; suppress only when eliding upstream's equal re-ticks makes the traces identical.",
+      "review_after": "2027-07-27"
     }
   ]
 }

@@ -42,6 +42,14 @@ def _decode_value(hg, value):
         return [_decode_value(hg, item) for item in value]
     if not isinstance(value, dict):
         return value
+    if set(value) == {"$date"}:
+        import datetime as _dt
+
+        return _dt.date.fromisoformat(value["$date"])
+    if set(value) == {"$datetime"}:
+        import datetime as _dt
+
+        return _dt.datetime.fromisoformat(value["$datetime"])
     if set(value) == {"$remove"} and value["$remove"] is True:
         return hg.REMOVE
     if set(value) == {"$remove_if_exists"} and value["$remove_if_exists"] is True:
@@ -181,6 +189,9 @@ def _validate_scalar_expression(recipe):
         raise RecipeError(
             f"declared output_type {declared_output!r} does not match {output_type!r}"
         )
+    postponed = recipe.parameters.get("postponed_annotations", False)
+    if not isinstance(postponed, bool):
+        raise RecipeError("postponed_annotations must be a boolean")
 
 
 def _scalar_expression(hg, recipe):
@@ -191,7 +202,12 @@ def _scalar_expression(hg, recipe):
     arguments = ", ".join(
         f"{name}: hg.TS[{type_name}]" for name, type_name in input_types.items()
     )
+    # mode:postponed-annotations (issue #83 class): the generated module opts
+    # into PEP 563, so every annotation reaches the wiring layer as a STRING.
+    prefix = ("from __future__ import annotations\n"
+              if recipe.parameters.get("postponed_annotations", False) else "")
     source = (
+        f"{prefix}"
         "@hg.graph\n"
         f"def parity_graph({arguments}) -> hg.TS[{output_type}]:\n"
         f"    return {_expression_source(recipe.parameters['expression'])}\n"
@@ -203,6 +219,302 @@ def _scalar_expression(hg, recipe):
         namespace["parity_graph"],
         *(inputs[name] for name in input_types),
     )
+
+
+# --------------------------------------------------------------------------
+# Temporal accessor expressions (issue #82 class): date/datetime arithmetic
+# feeding the upstream getattr_ property/method tables.
+
+_TEMPORAL_PROPERTIES = {
+    "date": {"year": "int", "month": "int", "day": "int"},
+    "datetime": {
+        "year": "int", "month": "int", "day": "int",
+        "hour": "int", "minute": "int", "second": "int", "microsecond": "int",
+    },
+    "timedelta": {"days": "int", "seconds": "int", "microseconds": "int"},
+}
+
+_TEMPORAL_METHODS = {
+    "date": {"weekday": "int", "isoweekday": "int"},
+    "datetime": {"weekday": "int", "isoweekday": "int"},
+    "timedelta": {"total_seconds": "float"},
+}
+
+
+def _temporal_accessor_kind(recipe):
+    target = recipe.parameters.get("target")
+    if target == "difference":
+        return "timedelta"
+    return recipe.parameters.get("input_type")
+
+
+def _validate_temporal_expression(recipe):
+    parameters = recipe.parameters
+    input_type = parameters.get("input_type")
+    if input_type not in ("date", "datetime"):
+        raise RecipeError("temporal_expression input_type must be date or datetime")
+    target = parameters.get("target")
+    if target not in ("difference", "shifted", "input"):
+        raise RecipeError("temporal_expression target must be difference/shifted/input")
+    if set(recipe.inputs) != ({"lhs", "rhs"} if target == "difference" else {"lhs"}):
+        raise RecipeError("temporal_expression inputs do not match its target")
+    delta = parameters.get("delta")
+    if target == "shifted":
+        if (not isinstance(delta, dict)
+                or set(delta) - {"days", "seconds", "microseconds"}
+                or not all(isinstance(v, int) and not isinstance(v, bool)
+                           and -10_000 <= v <= 10_000 for v in delta.values())):
+            raise RecipeError("temporal_expression shifted target needs a bounded delta")
+    elif delta is not None:
+        raise RecipeError("temporal_expression delta applies to the shifted target only")
+    kind = _temporal_accessor_kind(recipe)
+    accessor = parameters.get("accessor")
+    table = {**_TEMPORAL_PROPERTIES[kind], **_TEMPORAL_METHODS[kind]}
+    if accessor not in table:
+        raise RecipeError(f"temporal_expression accessor {accessor!r} not valid for {kind}")
+    if parameters.get("output_type", table[accessor]) != table[accessor]:
+        raise RecipeError("temporal_expression output_type does not match the accessor")
+    postponed = parameters.get("postponed_annotations", False)
+    if not isinstance(postponed, bool):
+        raise RecipeError("postponed_annotations must be a boolean")
+
+
+def _temporal_expression(hg, recipe):
+    import datetime as dt_module
+
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    input_type = parameters["input_type"]
+    target = parameters["target"]
+    accessor = parameters["accessor"]
+    kind = _temporal_accessor_kind(recipe)
+    output_type = {**_TEMPORAL_PROPERTIES[kind], **_TEMPORAL_METHODS[kind]}[accessor]
+    call = "()" if accessor in _TEMPORAL_METHODS[kind] else ""
+    if target == "difference":
+        arguments = f"lhs: hg.TS[{input_type}], rhs: hg.TS[{input_type}]"
+        base = "(lhs - rhs)"
+    elif target == "shifted":
+        arguments = f"lhs: hg.TS[{input_type}]"
+        base = f"(lhs + timedelta(**{parameters['delta']!r}))"
+    else:
+        arguments = f"lhs: hg.TS[{input_type}]"
+        base = "lhs"
+    prefix = ("from __future__ import annotations\n"
+              if parameters.get("postponed_annotations", False) else "")
+    source = (
+        f"{prefix}"
+        "@hg.graph\n"
+        f"def parity_graph({arguments}) -> hg.TS[{output_type}]:\n"
+        "    lhs = hg.getitem_(hg.TSL.from_ts(lhs, lhs), 0)\n"
+        f"    return {base}.{accessor}{call}\n"
+    )
+    namespace = {
+        "hg": hg,
+        "date": dt_module.date,
+        "datetime": dt_module.datetime,
+        "timedelta": dt_module.timedelta,
+    }
+    exec(compile(source, f"<parity:{recipe.id}>", "exec"), namespace)
+    inputs = decoded_inputs(hg, recipe)
+    ordered = ("lhs", "rhs") if target == "difference" else ("lhs",)
+    return eval_node(namespace["parity_graph"], *(inputs[name] for name in ordered))
+
+
+# --------------------------------------------------------------------------
+# Collection sizes (issue #81 class): len_/is_empty/contains_ over every
+# upstream-supported sized shape.
+
+_COLLECTION_SHAPES = ("str", "tss", "tsd", "tsl")
+_COLLECTION_OPERATIONS = ("len", "is_empty", "contains")
+
+
+def _validate_collection_size(recipe):
+    parameters = recipe.parameters
+    shape = parameters.get("shape")
+    if shape not in _COLLECTION_SHAPES:
+        raise RecipeError(f"collection_size shape must be one of {_COLLECTION_SHAPES}")
+    operation = parameters.get("operation")
+    if operation not in _COLLECTION_OPERATIONS:
+        raise RecipeError(
+            f"collection_size operation must be one of {_COLLECTION_OPERATIONS}")
+    if shape == "tsl":
+        if operation != "len":
+            raise RecipeError("collection_size tsl covers len only")
+        if set(recipe.inputs) != {"a", "b"}:
+            raise RecipeError("collection_size tsl requires inputs a and b")
+    elif set(recipe.inputs) != {"ts"}:
+        raise RecipeError("collection_size requires the ts input")
+    probe = parameters.get("probe")
+    if operation == "contains":
+        expected = str if shape in ("str", "tsd") else int
+        if not isinstance(probe, expected) or isinstance(probe, bool):
+            raise RecipeError("collection_size contains needs a matching probe scalar")
+    elif probe is not None:
+        raise RecipeError("collection_size probe applies to contains only")
+
+
+def _collection_size(hg, recipe):
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    shape = parameters["shape"]
+    operation = parameters["operation"]
+    probe = parameters.get("probe")
+    inputs = decoded_inputs(hg, recipe)
+    if shape == "tsl":
+        @hg.graph
+        def parity_graph(a: hg.TS[int], b: hg.TS[int]) -> hg.TS[int]:
+            return hg.len_(hg.TSL.from_ts(_via_non_peered_ref(hg, a), b))
+
+        return eval_node(parity_graph, inputs["a"], inputs["b"])
+
+    annotation = {
+        "str": hg.TS[str],
+        "tss": hg.TSS[int],
+        "tsd": hg.TSD[str, hg.TS[int]],
+    }[shape]
+
+    if operation == "len":
+        @hg.graph
+        def parity_graph(ts: annotation) -> hg.TS[int]:
+            return hg.len_(_via_non_peered_ref(hg, ts))
+    elif operation == "is_empty":
+        @hg.graph
+        def parity_graph(ts: annotation) -> hg.TS[bool]:
+            return hg.is_empty(_via_non_peered_ref(hg, ts))
+    else:
+        @hg.graph
+        def parity_graph(ts: annotation) -> hg.TS[bool]:
+            return hg.contains_(_via_non_peered_ref(hg, ts), probe)
+
+    return eval_node(parity_graph, inputs["ts"])
+
+
+# --------------------------------------------------------------------------
+# Lifecycle signature spellings (issue #79 class): start/stop parameters
+# match the eval signature by name; every accepted spelling behaves alike.
+
+_LIFECYCLE_SPELLINGS = {
+    "default": "_state: hg.STATE = None",
+    "bare": "_state: hg.STATE",
+    "unannotated": "_state",
+}
+
+
+def _validate_lifecycle_state(recipe):
+    parameters = recipe.parameters
+    for phase in ("start_spelling", "stop_spelling"):
+        spelling = parameters.get(phase)
+        if spelling is not None and spelling not in _LIFECYCLE_SPELLINGS:
+            raise RecipeError(
+                f"lifecycle_state {phase} must be one of {tuple(_LIFECYCLE_SPELLINGS)}")
+    if parameters.get("start_spelling") is None:
+        raise RecipeError("lifecycle_state requires a start_spelling (state seeding)")
+    seed = parameters.get("seed", 0)
+    if not isinstance(seed, int) or isinstance(seed, bool) or not -100 <= seed <= 100:
+        raise RecipeError("lifecycle_state seed must be a bounded integer")
+    if set(recipe.inputs) != {"value"}:
+        raise RecipeError("lifecycle_state requires the value input")
+
+
+def _lifecycle_state(hg, recipe):
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    seed = parameters.get("seed", 0)
+    start_signature = _LIFECYCLE_SPELLINGS[parameters["start_spelling"]]
+    stop_spelling = parameters.get("stop_spelling")
+    stop_block = ""
+    if stop_spelling is not None:
+        stop_block = (
+            "@lifecycle_node.stop\n"
+            f"def lifecycle_stop({_LIFECYCLE_SPELLINGS[stop_spelling]}):\n"
+            "    pass\n"
+        )
+    source = (
+        "@hg.compute_node\n"
+        "def lifecycle_node(value: hg.TS[int], _state: hg.STATE = None) -> hg.TS[int]:\n"
+        "    _state.total = _state.total + value.value\n"
+        "    return _state.total\n"
+        "@lifecycle_node.start\n"
+        f"def lifecycle_start({start_signature}):\n"
+        f"    _state.total = {seed}\n"
+        f"{stop_block}"
+        "@hg.graph\n"
+        "def parity_graph(value: hg.TS[int]) -> hg.TS[int]:\n"
+        "    value = hg.getitem_(hg.TSL.from_ts(value, value), 0)\n"
+        "    return lifecycle_node(value)\n"
+    )
+    namespace = {"hg": hg}
+    exec(compile(source, f"<parity:{recipe.id}>", "exec"), namespace)
+    inputs = decoded_inputs(hg, recipe)
+    return eval_node(namespace["parity_graph"], inputs["value"])
+
+
+# --------------------------------------------------------------------------
+# Data-frame recording surface (issue #92 class): the frames the recorder
+# frameworks hand back to user code — column timezone presentation included.
+
+
+def _validate_data_frame_recording(recipe):
+    if set(recipe.inputs) != {"ts"}:
+        raise RecipeError("data_frame_recording requires the ts input")
+    as_of_offset = recipe.parameters.get("as_of_offset", 30)
+    if (not isinstance(as_of_offset, int) or isinstance(as_of_offset, bool)
+            or not 1 <= as_of_offset <= 10_000):
+        raise RecipeError("data_frame_recording as_of_offset must be a bounded integer")
+
+
+def _canonical_frame_surface(frame):
+    """A frame in a distribution-independent canonical shape.
+
+    Works for both boundary forms (upstream polars DataFrame, hg_cpp
+    pyarrow Table): column names with their timezone presentation, plus the
+    row values (datetimes canonicalize downstream via isoformat — a
+    tz-aware value renders with its offset, so an aware/naive divergence is
+    a trace difference)."""
+    if hasattr(frame, "to_pylist"):   # pyarrow.Table
+        columns = []
+        for field in frame.schema:
+            tz = getattr(field.type, "tz", None)
+            columns.append({"name": field.name, "tz": tz})
+        rows = [
+            [row[column["name"]] for column in columns]
+            for row in frame.to_pylist()
+        ]
+        return {"columns": columns, "rows": rows}
+    if hasattr(frame, "to_dicts"):   # polars.DataFrame
+        columns = []
+        for name, dtype in frame.schema.items():
+            tz = getattr(dtype, "time_zone", None)
+            columns.append({"name": name, "tz": tz})
+        rows = [
+            [row[column["name"]] for column in columns]
+            for row in frame.to_dicts()
+        ]
+        return {"columns": columns, "rows": rows}
+    raise RecipeError(f"unsupported frame surface {type(frame)!r}")
+
+
+def _data_frame_recording(hg, recipe):
+    from hgraph.test import eval_node
+    from hgraph.adaptors.data_frame import (
+        DATA_FRAME_RECORD_REPLAY,
+        MemoryDataFrameStorage,
+    )
+
+    as_of_offset = recipe.parameters.get("as_of_offset", 30)
+    inputs = decoded_inputs(hg, recipe)
+    with hg.GlobalState(), MemoryDataFrameStorage() as storage:
+        hg.set_record_replay_model(DATA_FRAME_RECORD_REPLAY)
+        hg.set_as_of(hg.MIN_ST + hg.MIN_TD * as_of_offset)
+        eval_node(hg.record[hg.TS[int]], ts=inputs["ts"], key="ts",
+                  recordable_id="parity")
+        frame = storage.read_frame("parity.ts")
+        replayed = eval_node(hg.replay[hg.TS[int]], key="ts",
+                             recordable_id="parity")
+    return {"frame": _canonical_frame_surface(frame), "replayed": replayed}
 
 
 def _feedback_accumulate(hg, recipe):
@@ -1050,6 +1362,58 @@ CATALOG = {
         operators=("convert",),
         execute=_stream_dataclass,
     ),
+    "temporal_expression": TemplateSpec(
+        name="temporal_expression",
+        required_inputs=None,
+        features=(
+            "shape:TS",
+            "topology:expression",
+            "domain:temporal",
+            "reference:REF",
+            "binding:non-peered",
+        ),
+        operators=("sub_", "add_", "getattr_"),
+        execute=_temporal_expression,
+    ),
+    "collection_size": TemplateSpec(
+        name="collection_size",
+        required_inputs=None,
+        features=(
+            "topology:expression",
+            "domain:collection-size",
+            "reference:REF",
+            "binding:non-peered",
+        ),
+        operators=("len_", "is_empty", "contains_"),
+        execute=_collection_size,
+    ),
+    "lifecycle_state": TemplateSpec(
+        name="lifecycle_state",
+        required_inputs=("value",),
+        features=(
+            "shape:TS",
+            "type:int",
+            "boundary:python-owned",
+            "domain:lifecycle-signature",
+            "reference:REF",
+            "binding:non-peered",
+        ),
+        operators=(),
+        execute=_lifecycle_state,
+    ),
+    "data_frame_recording": TemplateSpec(
+        name="data_frame_recording",
+        required_inputs=("ts",),
+        features=(
+            "shape:TS",
+            "type:int",
+            "boundary:python-owned",
+            "domain:frame-surface",
+            "topology:record-replay",
+        ),
+        operators=("record", "replay"),
+        execute=_data_frame_recording,
+    ),
 }
 
 
@@ -1092,6 +1456,14 @@ def validate_recipe(recipe):
         )
     if recipe.template == "scalar_expression":
         _validate_scalar_expression(recipe)
+    elif recipe.template == "temporal_expression":
+        _validate_temporal_expression(recipe)
+    elif recipe.template == "collection_size":
+        _validate_collection_size(recipe)
+    elif recipe.template == "lifecycle_state":
+        _validate_lifecycle_state(recipe)
+    elif recipe.template == "data_frame_recording":
+        _validate_data_frame_recording(recipe)
     elif recipe.template == "feedback_accumulate":
         initial = recipe.parameters.get("initial", 0)
         if not isinstance(initial, int) or isinstance(initial, bool):

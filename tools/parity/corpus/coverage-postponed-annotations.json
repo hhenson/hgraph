@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "coverage-postponed-annotations",
+  "description": "The issue #83 class: the generated module opts into PEP 563, so string annotations exercise signature resolution on both distributions.",
+  "template": "scalar_expression",
+  "inputs": {
+    "lhs": [1, null, 3],
+    "rhs": [2, 4, null]
+  },
+  "parameters": {
+    "input_types": {"lhs": "int", "rhs": "int"},
+    "output_type": "int",
+    "expression": {
+      "op": "add",
+      "args": [{"input": "lhs"}, {"input": "rhs"}]
+    },
+    "postponed_annotations": true
+  },
+  "features": [
+    "shape:TS",
+    "topology:expression",
+    "type:int",
+    "operator:add",
+    "mode:postponed-annotations"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/83"
+}

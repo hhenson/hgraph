@@ -169,7 +169,7 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
     pytest.importorskip("hypothesis")
     from tools.parity.generate import generate_recipes
 
-    recipes = generate_recipes(320, seed=29)
+    recipes = generate_recipes(480, seed=29)
     templates = {recipe.template for recipe in recipes}
     assert {
         "service_reference",
@@ -1091,7 +1091,7 @@ def test_generated_key_set_recipes_avoid_ruled_no_tick_space():
     pytest.importorskip("hypothesis")
     from tools.parity.generate import generate_recipes
 
-    recipes = generate_recipes(320, seed=29)
+    recipes = generate_recipes(480, seed=29)
     keyed = [
         r
         for r in recipes
@@ -1180,3 +1180,126 @@ def test_wheel_fingerprint_excludes_parity_tooling(tmp_path):
     )
     after = hg_cpp_source_fingerprint(tmp_path, python_version="3.12")
     assert before == after
+
+
+def test_generator_covers_the_2026_07_compat_issue_classes():
+    # The nightly generator must keep producing recipes in the spaces where
+    # the 2026-07 compatibility issues lived: temporal accessors (#82),
+    # collection sizes (#81), lifecycle signature spellings (#79), the
+    # recorded-frame surface (PR #92), and postponed annotations (#83).
+    from tools.parity.generate import generate_recipes
+
+    templates = set()
+    postponed = False
+    for recipe in generate_recipes(480, seed=29):
+        templates.add(recipe.template)
+        postponed = postponed or recipe.parameters.get(
+            "postponed_annotations", False)
+    assert {"temporal_expression", "collection_size", "lifecycle_state",
+            "data_frame_recording"} <= templates
+    assert postponed
+
+
+def test_coverage_corpus_recipes_execute_on_the_candidate():
+    from tools.parity.runner import run_recipe
+
+    for name in (
+        "coverage-temporal-accessors",
+        "coverage-collection-sizes",
+        "coverage-lifecycle-spellings",
+        "coverage-frame-recording",
+        "coverage-postponed-annotations",
+    ):
+        raw = json.loads(
+            (CORPUS / f"{name}.json").read_text(encoding="utf-8"))
+        result = run_recipe(raw)
+        assert result["status"] == "ok", (name, result)
+    # The recorded-frame surface reports column timezone presentation: the
+    # naive-UTC user boundary must hold (a tz-aware column is a trace diff).
+    raw = json.loads(
+        (CORPUS / "coverage-frame-recording.json").read_text(encoding="utf-8"))
+    frame = dict(run_recipe(raw)["trace"]["$map"])["frame"]
+    columns = dict(frame["$map"])["columns"]
+    assert all(dict(column["$map"])["tz"] is None for column in columns)
+
+
+def test_no_change_elision_relation_bounds_the_ruled_deviation():
+    from tools.parity.known import (
+        is_known_family_failure,
+        load_known_divergences,
+    )
+
+    _fingerprints, families = load_known_divergences()
+    ok = lambda trace: {"status": "ok", "trace": trace}
+    recipe = {
+        "template": "collection_size",
+        "inputs": {"ts": [None]},
+        "parameters": {"shape": "tss", "operation": "len"},
+    }
+
+    def classify(reference, candidate):
+        difference = compare_outcomes(ok(reference), ok(candidate))
+        assert difference is not None
+        return is_known_family_failure(
+            recipe, difference.to_dict(), ok(reference), ok(candidate),
+            families)
+
+    # The ruled shape: upstream re-ticks the unchanged size, hg_cpp elides.
+    assert classify([2, 2, 3], [2, None, 3])
+    # A changed value is NOT elidable.
+    assert not classify([2, 3, 3], [2, None, 3])
+    assert not classify([2, 2, 3], [2, None, 4])
+    # An extra candidate tick is reportable.
+    assert not classify([2, None, 3], [2, 2, 3])
+    # A first-tick difference is reportable (nothing emitted yet).
+    assert not classify([2, 3], [None, 3])
+    # Length differences remain reportable.
+    difference = compare_outcomes(ok([2, 2]), ok([2]))
+    assert not is_known_family_failure(
+        recipe, difference.to_dict(), ok([2, 2]), ok([2]), families)
+
+
+def test_new_template_validators_reject_malformed_recipes():
+    def rejects(raw, match):
+        with pytest.raises(RecipeError, match=match):
+            validate_recipe(Recipe.from_dict({
+                "schema_version": 1,
+                "id": "generated-validator-check",
+                "description": "validator check",
+                **raw,
+            }))
+
+    rejects(
+        {
+            "template": "temporal_expression",
+            "inputs": {"lhs": [None]},
+            "parameters": {
+                "input_type": "date", "target": "input", "accessor": "hour",
+            },
+        },
+        "accessor",
+    )
+    rejects(
+        {
+            "template": "collection_size",
+            "inputs": {"a": [1], "b": [2]},
+            "parameters": {"shape": "tsl", "operation": "contains"},
+        },
+        "tsl covers len only",
+    )
+    rejects(
+        {
+            "template": "lifecycle_state",
+            "inputs": {"value": [1]},
+            "parameters": {"start_spelling": "banana"},
+        },
+        "start_spelling",
+    )
+    rejects(
+        {
+            "template": "data_frame_recording",
+            "inputs": {"ts": [1]},
+            "parameters": {"as_of_offset": 0},
+        },
+        "as_of_offset",
+    )
