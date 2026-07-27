@@ -24,6 +24,12 @@ int main()
     static_assert(std::is_trivially_copyable_v<TypeRecord>);
     static_assert(std::is_standard_layout_v<AnyPtr>);
     static_assert(std::is_trivially_copyable_v<AnyPtr>);
+    using ConsumerScalar =
+        Bundle<"consumer::Scalar", Field<"number", Int>, Field<"label", Str>>;
+    using ConsumerBundle = TSBFromScalar<ConsumerScalar>;
+    static_assert(std::is_same_v<ConsumerBundle,
+                                 TSB<"consumer::Scalar", Field<"number", TS<Int>>,
+                                     Field<"label", TS<Str>>>>);
 
     auto &registry = TypeRegistry::instance();
     registry.register_scalar<std::int32_t>("int32");

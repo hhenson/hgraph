@@ -696,19 +696,42 @@ def _stream_dataclass(hg, recipe):
 
     from hgraph.reflection import fields, scalar_type
     from hgraph.stream import Stream
+    from hgraph.test import eval_node
 
     @dataclass(frozen=True)
     class Payload:
-        value: int
+        value: bool
 
     stream_fields = fields(hg.TSB[Stream[Payload]])
+    payload_fields = fields(hg.TSB[Payload])
+
+    @hg.graph
+    def round_trip(value: hg.TS[Payload]) -> hg.TS[Payload]:
+        return hg.convert[hg.TS[Payload]](hg.convert[hg.TSB](value))
+
+    values = eval_node(
+        round_trip,
+        [Payload(value) if value is not None else None
+         for value in decoded_inputs(hg, recipe)["probe"]],
+    )
     return {
-        name: (
-            scalar_type(field_type).__module__
-            + "."
-            + scalar_type(field_type).__qualname__
-        )
-        for name, field_type in sorted(stream_fields.items())
+        "stream_fields": {
+            name: (
+                scalar_type(field_type).__module__
+                + "."
+                + scalar_type(field_type).__qualname__
+            )
+            for name, field_type in sorted(stream_fields.items())
+        },
+        "payload_fields": {
+            name: (
+                scalar_type(field_type).__module__
+                + "."
+                + scalar_type(field_type).__qualname__
+            )
+            for name, field_type in sorted(payload_fields.items())
+        },
+        "round_trip": values,
     }
 
 
@@ -1018,8 +1041,13 @@ CATALOG = {
     "stream_dataclass": TemplateSpec(
         name="stream_dataclass",
         required_inputs=("probe",),
-        features=("boundary:python-owned", "shape:TSB", "type:dataclass"),
-        operators=(),
+        features=(
+            "boundary:python-owned",
+            "shape:TSB",
+            "type:dataclass",
+            "conversion:round-trip",
+        ),
+        operators=("convert",),
         execute=_stream_dataclass,
     ),
 }

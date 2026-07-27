@@ -1760,6 +1760,33 @@ namespace hgraph
         return &meta;
     }
 
+    const TSValueTypeMetaData *TypeRegistry::tsb(const ValueTypeMetaData *bundle_value)
+    {
+        if (bundle_value == nullptr ||
+            bundle_value->try_value_kind() != ValueTypeKind::Bundle ||
+            (!bundle_value->is_named_bundle() && !bundle_value->is_un_named_bundle()))
+        {
+            throw std::invalid_argument(
+                "tsb(Bundle) requires a named or structural Bundle value schema");
+        }
+
+        std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
+        fields.reserve(bundle_value->field_count);
+        for (std::size_t index = 0; index < bundle_value->field_count; ++index)
+        {
+            const ValueFieldMetaData &field = bundle_value->fields[index];
+            if (field.name == nullptr || field.type == nullptr)
+            {
+                throw std::invalid_argument(
+                    "tsb(Bundle) requires named fields with concrete scalar schemas");
+            }
+            fields.emplace_back(field.name, ts(field.type));
+        }
+
+        return bundle_value->is_named_bundle() ? tsb(bundle_value->name(), fields)
+                                               : un_named_tsb(fields);
+    }
+
     const TSValueTypeMetaData *TypeRegistry::ref(const TSValueTypeMetaData *referenced_ts)
     {
         const std::lock_guard lock(mutex_);

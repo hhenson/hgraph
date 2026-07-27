@@ -1037,6 +1037,40 @@ TEST_CASE("TypeRegistry::tsb reuses a qualified CompoundScalar value schema") {
   REQUIRE(std::string{tsb->name()} == std::string{bundle->name()});
 }
 
+TEST_CASE("TypeRegistry::tsb lifts Bundle value fields without inferring "
+          "time-series containers") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  const auto *string = registry.value_type("str");
+  const auto *items = registry.list(integer);
+  const auto *child =
+      registry.bundle("tests.tsb", "LiftedChild", {{"label", string}});
+  const auto *model = registry.bundle(
+      "tests.tsb", "LiftedModel",
+      {{"number", integer}, {"items", items}, {"child", child}});
+
+  const auto *lifted = registry.tsb(model);
+
+  REQUIRE(lifted == registry.tsb(model));
+  REQUIRE(lifted->is_named_tsb());
+  REQUIRE(lifted->value_schema == model);
+  REQUIRE(lifted->field_count() == 3);
+  REQUIRE(lifted->fields()[0].type == registry.ts(integer));
+  REQUIRE(lifted->fields()[1].type == registry.ts(items));
+  REQUIRE(lifted->fields()[2].type == registry.ts(child));
+  REQUIRE_FALSE(lifted->fields()[1].type->kind == TSTypeKind::TSL);
+  REQUIRE_FALSE(lifted->fields()[2].type->kind == TSTypeKind::TSB);
+
+  const auto *structural =
+      registry.un_named_bundle({{"number", integer}, {"items", items}});
+  REQUIRE(registry.tsb(structural)->is_un_named_tsb());
+  REQUIRE_THROWS_AS(registry.tsb(integer), std::invalid_argument);
+  REQUIRE_THROWS_AS(
+      registry.tsb(static_cast<const ValueTypeMetaData *>(nullptr)),
+      std::invalid_argument);
+}
+
 TEST_CASE("TypeRegistry: un_named_tsb and tsb distinguish structural vs "
           "nominal identity") {
   using namespace hgraph;

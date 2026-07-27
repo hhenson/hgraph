@@ -163,11 +163,22 @@ projection is lazy: assigning the whole object does not recursively validate
 its fields, while reading a declared field converts that attribute to the
 declared output type and reports an error if it is incompatible.
 
-``TSB[Quote]`` is the field-expanded time-series form. ``as_scalar_ts()``
-constructs ``Quote`` using keyword arguments and honours dataclass defaults,
-default factories, keyword-only fields, ``init=False``, and ``__post_init__``.
+``TSB[Quote]`` is the canonical field-expanded time-series form; callers do
+not need to publish a peer ``TimeSeriesSchema`` created with
+``TimeSeriesSchema.from_scalar_schema``. ``as_scalar_ts()`` constructs
+``Quote`` using keyword arguments and honours dataclass defaults, default
+factories, keyword-only fields, ``init=False``, and ``__post_init__``.
 Generic dataclasses such as ``Box[int]`` retain their concrete specialisation
 through storage, Bundle conversion, and runtime dispatch.
+
+The lift is deliberately conservative. Every stored dataclass field ``field:
+T`` becomes ``field: TS[T]``. Scalar collections remain scalar values, and a
+nested dataclass remains ``TS[Nested]`` rather than becoming a nested ``TSB``;
+the runtime does not infer ``TSL``, ``TSD``, ``TSS``, or another time-series
+topology from a scalar annotation. ``ClassVar``, ``InitVar``, and computed
+properties are not stored fields. Unresolved annotations and time-series
+annotations inside a scalar dataclass are rejected while constructing the
+schema.
 
 An annotated non-dataclass class must opt in:
 

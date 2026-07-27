@@ -333,6 +333,12 @@ namespace hgraph
         const TSValueTypeMetaData *tsb(std::string_view name,
                                        const std::vector<std::pair<std::string, const TSValueTypeMetaData *>> &fields);
         /**
+         * Lift a value-layer Bundle to its canonical TSB by wrapping each
+         * field schema in ``TS``. Named identity is preserved; structural
+         * Bundles produce structural TSBs.
+         */
+        const TSValueTypeMetaData *tsb(const ValueTypeMetaData *bundle_value);
+        /**
          * Look up a previously-registered *named* ``TSB`` by name. Returns
          * the canonical named-TSB metadata, or ``nullptr`` if no TS schema
          * is registered under ``name``, or if the schema registered under

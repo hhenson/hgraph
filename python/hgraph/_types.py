@@ -1008,11 +1008,15 @@ def _python_object_value_type(scalar, type_args=()):
             fields.append((field_name, None))
             has_self_recursion = True
         else:
-            fields.append((
-                field_name,
-                _python_object_field_value_type(
-                    field_type, scalar, substitutions),
-            ))
+            try:
+                value_type = _python_object_field_value_type(
+                    field_type, scalar, substitutions)
+            except (NameError, TypeError, ValueError) as error:
+                raise TypeError(
+                    f"Python structured scalar {scalar.__qualname__} field "
+                    f"{field_name!r} must resolve to a supported scalar type"
+                ) from error
+            fields.append((field_name, value_type))
 
     local_name = scalar.__name__
     if type_args:
@@ -2195,24 +2199,35 @@ class _TSBMeta(type):
             if isinstance(ts_argument, _TsExpr):
                 ts_replacements[_type_var_name(parameter)] = ts_argument.handle
 
-        # hgraph parity: schema INHERITANCE - base-class fields first (MRO
-        # reversed), subclass fields after; later duplicates override.
-        annotations = {}
-        for klass in reversed(origin.__mro__):
-            annotations.update(_evaluated_annotations(klass))
         is_cs = issubclass(origin, _CS)
         is_python_object = _is_python_object_class(origin)
         compound_meta = None
-        if is_cs or is_python_object:
+        scalar_schema = (
+            schema
+            if is_cs or is_python_object
+            else origin.scalar_type()
+            if issubclass(origin, TimeSeriesSchema)
+            else None
+        )
+        if scalar_schema is not None:
             # TSB[structured scalar]: scalar annotations LIFT to TS fields;
             # the bundle keeps the scalar Bundle name so conversion uses the
             # registered native or Python-owned construction policy.
             try:
-                compound_meta = _value_type(schema)
+                compound_meta = _value_type(scalar_schema)
             except _GenericType:
                 # Keep an unspecialized structured scalar as a C++ type
                 # pattern; its nominal Bundle is created after resolution.
                 compound_meta = None
+            if compound_meta is not None:
+                expression = _TsExpr(
+                    _hgraph.tsb(compound_meta), f"TSB[{origin.__name__}]")
+                _TSB_SCHEMA_CLASSES[expression.handle] = origin
+                _hgraph.register_tsb_compound_class(
+                    expression.handle, compound_meta)
+                return expression
+        annotations = {}
+        if is_cs or is_python_object:
             substitutions = dict(zip(parameters, type_args))
             annotations = {
                 name: TS[_substitute_typevars(tp, substitutions)]
@@ -2222,6 +2237,12 @@ class _TSBMeta(type):
                     else _python_object_python_field_types(origin)
                 ).items()
             }
+        else:
+            # hgraph parity: schema INHERITANCE - base-class fields first
+            # (MRO reversed), subclass fields after; later duplicates
+            # override.
+            for klass in reversed(origin.__mro__):
+                annotations.update(_evaluated_annotations(klass))
 
         field_names = []
         field_patterns = []

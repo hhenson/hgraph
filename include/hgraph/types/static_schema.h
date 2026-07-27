@@ -208,6 +208,30 @@ namespace hgraph
         static constexpr auto name_sv = Name;
     };
 
+    /** Derive a TSB schema from a value-layer Bundle by lifting each field to ``TS<Field>``. */
+    template <typename TValueBundle>
+    struct TimeSeriesBundleFromScalar
+    {
+        static_assert(!std::is_same_v<TValueBundle, TValueBundle>,
+                      "TimeSeriesBundleFromScalar requires Bundle or UnNamedBundle");
+    };
+
+    template <typename... TFields>
+    struct TimeSeriesBundleFromScalar<UnNamedBundle<TFields...>>
+    {
+        using type = UnNamedTSB<Field<TFields::name_sv, TS<typename TFields::schema>>...>;
+    };
+
+    template <fixed_string Name, typename... TFields>
+    struct TimeSeriesBundleFromScalar<Bundle<Name, TFields...>>
+    {
+        using type = TSB<Name, Field<TFields::name_sv, TS<typename TFields::schema>>...>;
+    };
+
+    /** Public shorthand for the canonical field-expanded form of a scalar Bundle. */
+    template <typename TValueBundle>
+    using TSBFromScalar = typename TimeSeriesBundleFromScalar<TValueBundle>::type;
+
     template <fixed_string Name, typename... TConstraints>
     struct TsVar
     {

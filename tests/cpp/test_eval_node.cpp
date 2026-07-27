@@ -226,6 +226,19 @@ namespace
             }
         }
     };
+
+    using LiftedPriceValue =
+        Bundle<"LiftedPriceValue", Field<"price", Float>, Field<"currency", Str>>;
+    using LiftedPriceBundle = TSBFromScalar<LiftedPriceValue>;
+
+    struct PassThroughLiftedPrice
+    {
+        static constexpr auto name = "eval_pass_through_lifted_price";
+        static void eval(In<"price", LiftedPriceBundle> price, Out<LiftedPriceBundle> out)
+        {
+            apply_delta(out.base(), price.delta());
+        }
+    };
 }  // namespace
 
 TEST_CASE("eval_node: maps each input tick through a compute node")
@@ -397,4 +410,15 @@ TEST_CASE("eval_node: a node can inspect its prior TSB output before emitting a 
                                    tsb_delta<OutputAccessBundle>(Int{2}, Str{"c"}))),
                  values<Value>(tsb_delta<OutputAccessBundle>(Int{1}, Str{"a"}), none,
                                tsb_delta<OutputAccessBundle>(Int{2}, Str{"c"})));
+}
+
+TEST_CASE("eval_node: TSBFromScalar is a first-class native wiring schema")
+{
+    using namespace hgraph;
+    CHECK_OUTPUT(
+        testing::eval_node<PassThroughLiftedPrice>(
+            values<Value>(tsb_delta<LiftedPriceBundle>(Float{1.25}, Str{"USD"}),
+                          tsb_delta<LiftedPriceBundle>(Float{2.5}, Str{"EUR"}))),
+        values<Value>(tsb_delta<LiftedPriceBundle>(Float{1.25}, Str{"USD"}),
+                      tsb_delta<LiftedPriceBundle>(Float{2.5}, Str{"EUR"})));
 }

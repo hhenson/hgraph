@@ -924,6 +924,9 @@ namespace hgraph::python_bridge
         }
         return PyTsType{TypeRegistry::instance().tsb(name, entries)};
     });
+    m.def("tsb", [](PyValueType bundle) {
+        return PyTsType{TypeRegistry::instance().tsb(bundle.meta)};
+    });
 
     m.def("scalar_pattern_var", [](const std::string &name) {
         return PyScalarPattern{ScalarPattern::var(name)};
