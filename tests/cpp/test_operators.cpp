@@ -77,6 +77,22 @@ namespace
         }
     };
 
+    template <fixed_string Name, typename T>
+    struct exact_auto_const_ : Operator<Name, In<"ts", TS<T>>, Out<TS<T>>>
+    {
+    };
+
+    template <typename T>
+    struct exact_auto_const_impl
+    {
+        static void eval(In<"ts", TS<T>> ts, Out<TS<T>> out) { out.set(ts.value()); }
+    };
+
+    using exact_int_auto_const_ = exact_auto_const_<"exact_int_auto_const", Int>;
+    using exact_int8_auto_const_ = exact_auto_const_<"exact_int8_auto_const", std::int8_t>;
+    using exact_float_auto_const_ = exact_auto_const_<"exact_float_auto_const", Float>;
+    using exact_float32_auto_const_ = exact_auto_const_<"exact_float32_auto_const", float>;
+
     // --- a scalar-argument operator: in * factor (exercises scalar matching + bundle) ---
     struct scale_ : Operator<"scale", In<"in", TsVar<"S">>, Scalar<"factor", ScalarVar<"T">>, Out<TsVar<"S">>>
     {
@@ -782,6 +798,65 @@ TEST_CASE("operators: scalar values auto-wire as const inputs for TS parameters"
     // The Int{3} second argument is a scalar where add_ expects a TS input; it auto-wires as
     // a const TS<Int> and is added per cycle.
     CHECK_OUTPUT(eval_node<add_>(values<Int>(1, 2, 3), Int{3}), values<Int>(4, 5, 6));
+}
+
+TEST_CASE("operators: scalar auto-const inputs require exact atomic schemas")
+{
+    register_overload<exact_int_auto_const_, exact_auto_const_impl<Int>>();
+    register_overload<exact_int8_auto_const_, exact_auto_const_impl<std::int8_t>>();
+    register_overload<exact_float_auto_const_, exact_auto_const_impl<Float>>();
+    register_overload<exact_float32_auto_const_, exact_auto_const_impl<float>>();
+
+    CHECK_OUTPUT(eval_node<exact_int_auto_const_>(Int{7}), values<Int>(7));
+    CHECK_OUTPUT(eval_node<exact_float32_auto_const_>(float{1.25F}), values<float>(1.25F));
+
+    // Numeric family membership is irrelevant to template matching: neither
+    // widening nor narrowing may change the scalar's atomic schema.
+    REQUIRE_THROWS_AS(eval_node<exact_int_auto_const_>(std::int32_t{7}), OperatorResolutionError);
+    REQUIRE_THROWS_AS(eval_node<exact_int8_auto_const_>(Int{7}), OperatorResolutionError);
+    REQUIRE_THROWS_AS(eval_node<exact_float_auto_const_>(float{1.25F}), OperatorResolutionError);
+    REQUIRE_THROWS_AS(eval_node<exact_float32_auto_const_>(Float{1.25}), OperatorResolutionError);
+}
+
+TEST_CASE("operators: a scalar must exactly match an already-bound time-series variable")
+{
+    register_overload<add_, add_generic>();
+
+    CHECK_OUTPUT(eval_node<add_>(values<Int>(1), Int{2}), values<Int>(1));
+    REQUIRE_THROWS_AS(eval_node<add_>(values<Int>(1), std::int32_t{2}), OperatorResolutionError);
+}
+
+TEST_CASE("operators: runtime concrete patterns require exact scalar auto-const schemas")
+{
+    OperatorImpl impl;
+    impl.name = "runtime_concrete_auto_const";
+    impl.label = "runtime_concrete_auto_const";
+    impl.params.push_back(ParamPattern{
+        .kind = ParamPattern::Kind::Input,
+        .name = "ts",
+        .ts = TypePattern::concrete(ts_type<TS<Int>>()),
+    });
+    impl.rank = operator_dispatch_detail::operator_rank(impl.params);
+    OperatorRegistry::instance().register_overload(std::move(impl));
+
+    WiringArg exact;
+    exact.kind = WiringArg::Kind::Scalar;
+    exact.scalar_value = Value{Int{7}};
+    exact.scalar_meta = exact.scalar_value.schema();
+    std::array<WiringArg, 1> exact_args{std::move(exact)};
+    CHECK(OperatorRegistry::instance()
+              .resolve("runtime_concrete_auto_const", std::span<const WiringArg>{exact_args})
+              .impl != nullptr);
+
+    WiringArg widened;
+    widened.kind = WiringArg::Kind::Scalar;
+    widened.scalar_value = Value{std::int32_t{7}};
+    widened.scalar_meta = widened.scalar_value.schema();
+    std::array<WiringArg, 1> widened_args{std::move(widened)};
+    REQUIRE_THROWS_AS(
+        OperatorRegistry::instance().resolve(
+            "runtime_concrete_auto_const", std::span<const WiringArg>{widened_args}),
+        OperatorResolutionError);
 }
 
 TEST_CASE("operators: sink operators return void and do not expose a null output port")

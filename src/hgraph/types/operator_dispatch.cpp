@@ -66,86 +66,34 @@ namespace hgraph
             return false;
         }
 
-        enum class NumericFamily : std::uint8_t { integral, floating, other };
-
-        [[nodiscard]] NumericFamily numeric_family(const ValueTypeMetaData *schema)
-        {
-            if (schema == scalar_descriptor<std::int8_t>::value_meta() ||
-                schema == scalar_descriptor<std::int16_t>::value_meta() ||
-                schema == scalar_descriptor<std::int32_t>::value_meta() ||
-                schema == scalar_descriptor<Int>::value_meta() ||
-                schema == scalar_descriptor<std::uint8_t>::value_meta() ||
-                schema == scalar_descriptor<std::uint16_t>::value_meta() ||
-                schema == scalar_descriptor<std::uint32_t>::value_meta() ||
-                schema == scalar_descriptor<std::uint64_t>::value_meta())
-            {
-                return NumericFamily::integral;
-            }
-            if (schema == scalar_descriptor<float>::value_meta() || schema == scalar_descriptor<Float>::value_meta())
-            {
-                return NumericFamily::floating;
-            }
-            return NumericFamily::other;
-        }
-
-        /* Auto-const coercion is SPELLING, not conversion: a scalar may widen
-           into the candidate's current-value schema within the same numeric
-           family (an ``int32`` literal supplied for ``Int``, ``float`` for
-           ``Float``), but a CROSS-FAMILY value is NOT a match — upstream never
-           matches an int into ``TS[float]``, so ``dedup(2)`` selects the
-           generic overload, never the float-tolerance one (issue #74). Bool
-           is its own family and does not coerce. */
-        [[nodiscard]] bool scalar_coerces_to(const Value &value, const ValueTypeMetaData *target)
-        {
-            const NumericFamily family = numeric_family(value.schema());
-            if (family == NumericFamily::other || family != numeric_family(target)) { return false; }
-            return operator_dispatch_detail::coerce_scalar_value_to_meta(value, target).has_value();
-        }
-
         [[nodiscard]] bool scalar_value_matches_ts_pattern(const TypePattern &pattern,
                                                            const Value &value,
-                                                           ResolutionMap &map,
-                                                           int &rank_adjustment)
+                                                           ResolutionMap &map)
         {
             if (pattern.kind == TypePattern::Kind::REF && !pattern.children.empty())
             {
                 // A scalar promoting into a REF input: the const it lifts to
                 // adapts through the to-REF binding, so match the TARGET.
-                return scalar_value_matches_ts_pattern(pattern.children[0], value, map, rank_adjustment);
+                return scalar_value_matches_ts_pattern(pattern.children[0], value, map);
             }
             if (pattern.kind == TypePattern::Kind::Var)
             {
                 if (const TSValueTypeMetaData *bound = map.find_ts(pattern.name))
                 {
-                    if (const auto *schema = value.schema();
-                        schema != nullptr && current_value_schema_compatible(*bound, *schema))
-                    {
-                        return true;
-                    }
-                    const bool coerced = scalar_coerces_to(value, bound->value_schema);
-                    if (coerced) { ++rank_adjustment; }
-                    return coerced;
+                    const auto *schema = value.schema();
+                    return schema != nullptr && current_value_schema_compatible(*bound, *schema);
                 }
             }
             if (pattern.kind == TypePattern::Kind::Concrete)
             {
                 if (pattern.meta == nullptr) { return false; }
-                if (const auto *schema = value.schema();
-                    schema != nullptr && current_value_schema_compatible(*pattern.meta, *schema))
-                {
-                    return true;
-                }
-                const bool coerced = scalar_coerces_to(value, pattern.meta->value_schema);
-                if (coerced) { ++rank_adjustment; }
-                return coerced;
+                const auto *schema = value.schema();
+                return schema != nullptr && current_value_schema_compatible(*pattern.meta, *schema);
             }
             if (pattern.kind == TypePattern::Kind::TS &&
                 pattern.scalar.kind == ScalarPattern::Kind::Concrete)
             {
-                if (value.schema() == pattern.scalar.meta) { return true; }
-                const bool coerced = scalar_coerces_to(value, pattern.scalar.meta);
-                if (coerced) { ++rank_adjustment; }
-                return coerced;
+                return value.schema() == pattern.scalar.meta;
             }
             return value_schema_matches_ts_pattern(pattern, value.schema(), map);
         }
@@ -419,8 +367,7 @@ namespace hgraph
                     else
                     {
                         ++rank_adjustment;
-                        matched = scalar_value_matches_ts_pattern(
-                            param.ts, arg.scalar_value, tail_scope, rank_adjustment);
+                        matched = scalar_value_matches_ts_pattern(param.ts, arg.scalar_value, tail_scope);
                     }
                     if (!matched)
                     {
@@ -461,7 +408,7 @@ namespace hgraph
                         // specific than a candidate taking it as a true
                         // scalar parameter (python's overload rule).
                         ++rank_adjustment;
-                        if (!scalar_value_matches_ts_pattern(param.ts, arg.scalar_value, map, rank_adjustment))
+                        if (!scalar_value_matches_ts_pattern(param.ts, arg.scalar_value, map))
                         {
                             why = fmt::format("scalar argument {} cannot be promoted to {}", i,
                                               ts_pattern_to_string(param.ts));
