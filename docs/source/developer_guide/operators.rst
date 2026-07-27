@@ -34,7 +34,9 @@ chosen implementation is baked into the graph.
    in ``include/hgraph/lib/std/std_operators.h`` — covering scalar arithmetic,
    comparison, logical / bitwise, string operators (``match_`` / ``replace`` /
    ``substr`` / ``split`` / ``join`` / ``format_``), ``str_``, const / zero,
-   collection container basics and TSS set algebra, stream basics
+   collection container basics and TSS set algebra (``len_`` covers every
+   sized shape — str / TSS / TSD / TSL of any element kind / TSB field count
+   / TSW buffer length / sized container scalars; issue #81), stream basics
    (``sample`` / ``filter_`` / ``take`` / ``drop`` / ``step`` / ``slice_`` /
    ``dedup`` / ``diff`` / ``count`` / ``clip`` / ``ewma``),
    flow-control basics (``merge`` / ``all_`` / ``any_`` / ``if_true`` /
