@@ -453,6 +453,236 @@ def _lifecycle_state(hg, recipe):
 
 
 # --------------------------------------------------------------------------
+# Deeply nested higher-order structures: map_/mesh_ over a CHURNING key set,
+# a per-key switch_ FLIPPING branches (nested graphs start/stop), services
+# (request-reply / subscription) and adaptors living INSIDE those branches,
+# optionally the whole pipeline under an outer switch_ that tears it down and
+# rebuilds it. This composition space is where production issues breed.
+
+_NESTED_INNER = ("arithmetic", "request_reply", "subscription", "adaptor")
+_NESTED_OUTER = ("map", "mesh")
+
+
+def _keys_re_added(ticks):
+    removed = set()
+    for tick in ticks:
+        if not isinstance(tick, dict):
+            continue
+        for key, value in tick.items():
+            if isinstance(value, dict) and value.get("$remove") is True:
+                removed.add(key)
+            elif key in removed:
+                return True
+    return False
+
+
+def _validate_nested_higher_order(recipe):
+    parameters = recipe.parameters
+    inner = parameters.get("inner")
+    if inner not in _NESTED_INNER:
+        raise RecipeError(f"nested_higher_order inner must be one of {_NESTED_INNER}")
+    outer = parameters.get("outer")
+    if outer not in _NESTED_OUTER:
+        raise RecipeError(f"nested_higher_order outer must be one of {_NESTED_OUTER}")
+    wrap_switch = parameters.get("wrap_switch", False)
+    reduce_output = parameters.get("reduce_output", True)
+    if not isinstance(wrap_switch, bool) or not isinstance(reduce_output, bool):
+        raise RecipeError("nested_higher_order wrap_switch/reduce_output must be booleans")
+    if wrap_switch and not reduce_output:
+        raise RecipeError(
+            "nested_higher_order wrap_switch requires reduce_output (one output shape)")
+    increment = parameters.get("increment", 1)
+    if (not isinstance(increment, int) or isinstance(increment, bool)
+            or not -20 <= increment <= 20):
+        raise RecipeError("nested_higher_order increment must be a bounded integer")
+    expected = {"values", "selector"}
+    if wrap_switch:
+        expected.add("outer_selector")
+    if set(recipe.inputs) != expected:
+        raise RecipeError(f"nested_higher_order requires inputs {sorted(expected)}")
+    for name, allowed in (("selector", ("alpha", "beta")),
+                          ("outer_selector", ("on", "off"))):
+        for tick in recipe.inputs.get(name, ()):
+            if tick is not None and tick not in allowed:
+                raise RecipeError(f"nested_higher_order {name} ticks must be in {allowed}")
+    if inner == "adaptor" and not reduce_output:
+        raise RecipeError(
+            "nested_higher_order adaptor inner requires reduce_output "
+            "(the adaptor consumes the reduced pipeline output)")
+    if inner == "subscription":
+        # The service re-subscription timing deviation is RULED (roadmap.rst):
+        # generated recipes stay out of that space — a removed key is never
+        # re-added, and the outer switch (which would re-subscribe every key
+        # on re-entry) is excluded.
+        if wrap_switch:
+            raise RecipeError(
+                "nested_higher_order subscription inner excludes wrap_switch")
+        if _keys_re_added(recipe.inputs["values"]):
+            raise RecipeError(
+                "nested_higher_order subscription inner must not re-add removed keys")
+
+
+def _nested_higher_order(hg, recipe):
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    inner = parameters["inner"]
+    outer = parameters["outer"]
+    wrap_switch = parameters.get("wrap_switch", False)
+    reduce_output = parameters.get("reduce_output", True)
+    increment = parameters.get("increment", 1)
+    path = f"nested_{inner}"
+
+    # ---- the service/adaptor leaf living inside the alpha branch ----
+    if inner == "request_reply":
+        @hg.request_reply_service
+        def adjust(path: str, request: hg.TS[int]) -> hg.TS[int]: ...
+
+        @hg.service_impl(interfaces=adjust)
+        def adjust_impl(request: hg.TSD[int, hg.TS[int]]) -> hg.TSD[int, hg.TS[int]]:
+            return hg.map_(lambda value: value + increment, request)
+
+        def register(): hg.register_service(path, adjust_impl)
+        def alpha_leaf(value): return adjust(path, value)
+    elif inner == "subscription":
+        @hg.subscription_service
+        def quote(path: str, symbol: hg.TS[str]) -> hg.TS[int]: ...
+
+        @hg.graph
+        def quote_value(symbol: hg.TS[str]) -> hg.TS[int]:
+            return hg.len_(symbol) * increment
+
+        @hg.service_impl(interfaces=quote)
+        def quote_impl(symbol: hg.TSS[str]) -> hg.TSD[str, hg.TS[int]]:
+            return hg.map_(quote_value, __keys__=symbol, __key_arg__="symbol")
+
+        def register(): hg.register_service(path, quote_impl)
+        def alpha_leaf(value, key): return quote(path, key) + value
+    elif inner == "adaptor":
+        @hg.adaptor
+        def loopback(path: str, value: hg.TS[int]) -> hg.TS[int]: ...
+
+        @hg.adaptor_impl(interfaces=loopback)
+        def loopback_impl(path: str, value: hg.TS[int]) -> hg.TS[int]:
+            return value + increment
+
+        def register(): hg.register_adaptor(path, loopback_impl)
+        def alpha_leaf(value): return loopback(path, value)
+    else:
+        def register(): pass
+        def alpha_leaf(value): return value + increment
+
+    # ---- the per-key graph: a switch_ flipping between the service-backed
+    #      alpha branch and plain arithmetic (branch flips start/stop the
+    #      nested graphs and their service/adaptor clients) ----
+    # Upstream-supported composition space only (the generator does not
+    # explore upstream-broken shapes): a per-key ADAPTOR client cycles
+    # released hgraph's toposort, so the adaptor consumes the reduced
+    # pipeline output instead; the SUBSCRIPTION subscribes per key OUTSIDE
+    # the switch (key churn still subscribes/unsubscribes) while the switch
+    # flips the arithmetic around it.
+    if inner == "subscription":
+        @hg.graph
+        def alpha_branch(value: hg.TS[int]) -> hg.TS[int]:
+            return value + increment
+
+        @hg.graph
+        def beta_branch(value: hg.TS[int]) -> hg.TS[int]:
+            return value * 2 - increment
+
+        @hg.graph
+        def per_key_graph(key: hg.TS[str], value: hg.TS[int],
+                          selector: hg.TS[str]) -> hg.TS[int]:
+            quoted = alpha_leaf(value, key)
+            return hg.switch_(
+                selector,
+                {"alpha": alpha_branch, "beta": beta_branch},
+                quoted,
+            )
+    else:
+        if inner == "adaptor":
+            @hg.graph
+            def alpha_branch(value: hg.TS[int]) -> hg.TS[int]:
+                return value + increment
+        else:
+            @hg.graph
+            def alpha_branch(value: hg.TS[int]) -> hg.TS[int]:
+                return alpha_leaf(value)
+
+        @hg.graph
+        def beta_branch(value: hg.TS[int]) -> hg.TS[int]:
+            return value * 2 - increment
+
+        @hg.graph
+        def per_key_graph(key: hg.TS[str], value: hg.TS[int],
+                          selector: hg.TS[str]) -> hg.TS[int]:
+            del key
+            return hg.switch_(
+                selector,
+                {"alpha": alpha_branch, "beta": beta_branch},
+                value,
+            )
+
+    @hg.graph
+    def mesh_keyed(key: hg.TS[str], selector: hg.TS[str]) -> hg.TS[int]:
+        return per_key_graph(key, hg.len_(key), selector)
+
+    def pipeline(values, selector):
+        if outer == "mesh":
+            mapped = hg.mesh_(
+                mesh_keyed, selector,
+                __keys__=hg.keys_(values), __key_arg__="key",
+            )
+        else:
+            mapped = hg.map_(per_key_graph, values, selector)
+        if reduce_output:
+            reduced = hg.reduce(lambda lhs, rhs: lhs + rhs, mapped, 0)
+            if inner == "adaptor":
+                # The adaptor consumes the churning nested pipeline's output.
+                return alpha_leaf(reduced)
+            return reduced
+        return mapped
+
+    if wrap_switch:
+        @hg.graph
+        def parity_graph(values: hg.TSD[str, hg.TS[int]], selector: hg.TS[str],
+                         outer_selector: hg.TS[str]) -> hg.TS[int]:
+            register()
+            values = _via_non_peered_ref(hg, values)
+            return hg.switch_(
+                outer_selector,
+                {
+                    "on": lambda values, selector: pipeline(values, selector),
+                    "off": lambda values, selector: hg.len_(values) * 0,
+                },
+                values,
+                selector,
+            )
+    elif reduce_output:
+        @hg.graph
+        def parity_graph(values: hg.TSD[str, hg.TS[int]],
+                         selector: hg.TS[str]) -> hg.TS[int]:
+            register()
+            values = _via_non_peered_ref(hg, values)
+            return pipeline(values, selector)
+    else:
+        @hg.graph
+        def parity_graph(values: hg.TSD[str, hg.TS[int]],
+                         selector: hg.TS[str]) -> hg.TSD[str, hg.TS[int]]:
+            register()
+            values = _via_non_peered_ref(hg, values)
+            return pipeline(values, selector)
+
+    inputs = decoded_inputs(hg, recipe)
+    ordered = ["values", "selector"] + (["outer_selector"] if wrap_switch else [])
+    return eval_node(
+        parity_graph,
+        *(inputs[name] for name in ordered),
+        __end_time__=hg.MIN_ST + (recipe.tick_count + 6) * hg.MIN_TD,
+    )
+
+
+# --------------------------------------------------------------------------
 # Data-frame recording surface (issue #92 class): the frames the recorder
 # frameworks hand back to user code — column timezone presentation included.
 
@@ -1401,6 +1631,20 @@ CATALOG = {
         operators=(),
         execute=_lifecycle_state,
     ),
+    "nested_higher_order": TemplateSpec(
+        name="nested_higher_order",
+        required_inputs=None,
+        features=(
+            "topology:nested-higher-order",
+            "shape:TSD",
+            "type:int",
+            "reference:REF",
+            "binding:non-peered",
+            "lifecycle:multi-cycle",
+        ),
+        operators=("map_", "mesh_", "switch_", "reduce", "len_", "keys_"),
+        execute=_nested_higher_order,
+    ),
     "data_frame_recording": TemplateSpec(
         name="data_frame_recording",
         required_inputs=("ts",),
@@ -1462,6 +1706,8 @@ def validate_recipe(recipe):
         _validate_collection_size(recipe)
     elif recipe.template == "lifecycle_state":
         _validate_lifecycle_state(recipe)
+    elif recipe.template == "nested_higher_order":
+        _validate_nested_higher_order(recipe)
     elif recipe.template == "data_frame_recording":
         _validate_data_frame_recording(recipe)
     elif recipe.template == "feedback_accumulate":

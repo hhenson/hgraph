@@ -570,6 +570,79 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
         }
 
     @st.composite
+    def nested_higher_order(draw):
+        # The composition breeding ground: churning key sets under map_/mesh_,
+        # per-key switch_ branches flipping (nested graphs start/stop),
+        # services/adaptors INSIDE the branches, optionally the whole
+        # pipeline under an outer switch_ tearing it down and rebuilding it.
+        inner = draw(st.sampled_from(
+            ("arithmetic", "request_reply", "request_reply",
+             "subscription", "adaptor")))
+        outer = draw(st.sampled_from(("map", "map", "mesh")))
+        subscription = inner == "subscription"
+        wrap = False if subscription else draw(st.booleans())
+        reduce_output = (True if wrap or inner == "adaptor"
+                         else draw(st.sampled_from((True, True, False))))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        keys = ("k1", "k2", "k3")
+        active: set = set()
+        retired: set = set()
+        first_key = draw(st.sampled_from(keys))
+        active.add(first_key)
+        values: list = [{first_key: draw(st.integers(-10, 10))}]
+        for _ in range(count - 1):
+            action = draw(st.sampled_from(("none", "update", "add", "remove")))
+            if action == "none" or (action != "add" and not active):
+                values.append(None)
+                continue
+            if action == "remove":
+                key = draw(st.sampled_from(sorted(active)))
+                values.append({key: {"$remove": True}})
+                active.remove(key)
+                retired.add(key)
+                continue
+            if action == "add":
+                # The re-subscription timing deviation is ruled: with a
+                # subscription leaf a removed key is never re-added.
+                pool = [key for key in keys if key not in active
+                        and not (subscription and key in retired)]
+                if not pool:
+                    values.append(None)
+                    continue
+                key = draw(st.sampled_from(pool))
+                active.add(key)
+            else:
+                key = draw(st.sampled_from(sorted(active)))
+            values.append({key: draw(st.integers(-10, 10))})
+        selector = ["alpha"] + [
+            draw(st.sampled_from((None, "alpha", "beta", "beta")))
+            for _ in range(count - 1)]
+        inputs = {"values": values, "selector": selector}
+        parameters = {
+            "inner": inner,
+            "outer": outer,
+            "wrap_switch": wrap,
+            "reduce_output": reduce_output,
+            "increment": draw(st.integers(min_value=-5, max_value=5)),
+        }
+        if wrap:
+            inputs["outer_selector"] = ["on"] + [
+                draw(st.sampled_from((None, "on", "off")))
+                for _ in range(count - 1)]
+        return {
+            "template": "nested_higher_order",
+            "inputs": inputs,
+            "parameters": parameters,
+            "features": [
+                *CATALOG["nested_higher_order"].features,
+                f"nested:{outer}",
+                f"nested-leaf:{inner}",
+                *(("nested:outer-switch",) if wrap else ()),
+                *(("topology:reduce",) if reduce_output else ()),
+            ],
+        }
+
+    @st.composite
     def data_frame_recording(draw):
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
         small = st.integers(min_value=-20, max_value=20)
@@ -602,6 +675,8 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
         collection_size(),
         lifecycle_state(),
         data_frame_recording(),
+        nested_higher_order(),
+        nested_higher_order(),
     )
 
 

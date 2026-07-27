@@ -169,7 +169,7 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
     pytest.importorskip("hypothesis")
     from tools.parity.generate import generate_recipes
 
-    recipes = generate_recipes(480, seed=29)
+    recipes = generate_recipes(640, seed=29)
     templates = {recipe.template for recipe in recipes}
     assert {
         "service_reference",
@@ -1196,7 +1196,7 @@ def test_generator_covers_the_2026_07_compat_issue_classes():
         postponed = postponed or recipe.parameters.get(
             "postponed_annotations", False)
     assert {"temporal_expression", "collection_size", "lifecycle_state",
-            "data_frame_recording"} <= templates
+            "data_frame_recording", "nested_higher_order"} <= templates
     assert postponed
 
 
@@ -1209,6 +1209,8 @@ def test_coverage_corpus_recipes_execute_on_the_candidate():
         "coverage-lifecycle-spellings",
         "coverage-frame-recording",
         "coverage-postponed-annotations",
+        "coverage-nested-adaptor-pipeline",
+        "coverage-nested-outer-switch",
     ):
         raw = json.loads(
             (CORPUS / f"{name}.json").read_text(encoding="utf-8"))
@@ -1302,4 +1304,23 @@ def test_new_template_validators_reject_malformed_recipes():
             "parameters": {"as_of_offset": 0},
         },
         "as_of_offset",
+    )
+    rejects(
+        {
+            "template": "nested_higher_order",
+            "inputs": {"values": [{"k1": 1}], "selector": ["alpha"]},
+            "parameters": {"inner": "adaptor", "outer": "map",
+                           "wrap_switch": False, "reduce_output": False},
+        },
+        "adaptor inner requires reduce_output",
+    )
+    rejects(
+        {
+            "template": "nested_higher_order",
+            "inputs": {"values": [{"k1": 1}, {"k1": {"$remove": True}}, {"k1": 2}],
+                       "selector": ["alpha", None, None]},
+            "parameters": {"inner": "subscription", "outer": "map",
+                           "wrap_switch": False, "reduce_output": True},
+        },
+        "must not re-add removed keys",
     )
