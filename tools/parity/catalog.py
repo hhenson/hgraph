@@ -248,6 +248,39 @@ def _temporal_accessor_kind(recipe):
     return recipe.parameters.get("input_type")
 
 
+def _validate_temporal_ticks(recipe, name):
+    """Reject malformed temporal tick encodings at the trusted boundary.
+
+    A curated or model-proposed recipe must not defer ``{"$date": 123}`` to
+    a runtime decode failure: every non-null tick carries exactly the tag
+    matching ``input_type`` and a valid ISO string (datetimes NAIVE — the
+    UTC convention)."""
+    import datetime as dt_module
+
+    input_type = recipe.parameters.get("input_type")
+    tag = "$date" if input_type == "date" else "$datetime"
+    decoder = (dt_module.date.fromisoformat if input_type == "date"
+               else dt_module.datetime.fromisoformat)
+    for tick in recipe.inputs.get(name, ()):
+        if tick is None:
+            continue
+        if (not isinstance(tick, dict) or set(tick) != {tag}
+                or not isinstance(tick[tag], str)):
+            raise RecipeError(
+                f"temporal_expression {name} ticks must be "
+                f'{{"{tag}": "<iso-string>"}} or null')
+        try:
+            decoded = decoder(tick[tag])
+        except ValueError as error:
+            raise RecipeError(
+                f"temporal_expression {name} tick {tick[tag]!r} is not a "
+                f"valid ISO {input_type}") from error
+        if input_type == "datetime" and decoded.tzinfo is not None:
+            raise RecipeError(
+                f"temporal_expression {name} datetime ticks must be naive "
+                "(the UTC convention)")
+
+
 def _validate_temporal_expression(recipe):
     parameters = recipe.parameters
     input_type = parameters.get("input_type")
@@ -258,6 +291,8 @@ def _validate_temporal_expression(recipe):
         raise RecipeError("temporal_expression target must be difference/shifted/input")
     if set(recipe.inputs) != ({"lhs", "rhs"} if target == "difference" else {"lhs"}):
         raise RecipeError("temporal_expression inputs do not match its target")
+    for name in recipe.inputs:
+        _validate_temporal_ticks(recipe, name)
     delta = parameters.get("delta")
     if target == "shifted":
         if (not isinstance(delta, dict)

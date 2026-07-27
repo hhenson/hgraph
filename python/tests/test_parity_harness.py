@@ -1281,6 +1281,48 @@ def test_new_template_validators_reject_malformed_recipes():
         },
         "accessor",
     )
+    # Malformed temporal tick encodings reject at the trusted boundary
+    # (PR #93 review): never deferred to a runtime decode failure.
+    rejects(
+        {
+            "template": "temporal_expression",
+            "inputs": {"lhs": [{"$date": 123}]},
+            "parameters": {
+                "input_type": "date", "target": "input", "accessor": "year",
+            },
+        },
+        "iso-string",
+    )
+    rejects(
+        {
+            "template": "temporal_expression",
+            "inputs": {"lhs": [{"$datetime": "2026-07-27T12:00:00+02:00"}]},
+            "parameters": {
+                "input_type": "datetime", "target": "input", "accessor": "hour",
+            },
+        },
+        "must be naive",
+    )
+    rejects(
+        {
+            "template": "temporal_expression",
+            "inputs": {"lhs": [{"$date": "not-a-date"}]},
+            "parameters": {
+                "input_type": "date", "target": "input", "accessor": "year",
+            },
+        },
+        "not a valid ISO",
+    )
+    rejects(
+        {
+            "template": "temporal_expression",
+            "inputs": {"lhs": [{"$datetime": "2026-07-27T12:00:00"}]},
+            "parameters": {
+                "input_type": "date", "target": "input", "accessor": "year",
+            },
+        },
+        "ticks must be",
+    )
     rejects(
         {
             "template": "collection_size",
