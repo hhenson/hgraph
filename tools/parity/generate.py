@@ -32,7 +32,8 @@ def _recipe_from_payload(payload: dict[str, Any], seed: int) -> Recipe:
     return recipe
 
 
-def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
+def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
+                            templates: tuple[str, ...] | None = None):
     from hypothesis import strategies as st
 
     if not 1 <= min_ticks <= max_ticks <= 256:
@@ -657,27 +658,42 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32):
             "features": [*CATALOG["data_frame_recording"].features],
         }
 
-    return st.one_of(
-        scalar_expression(),
-        feedback_accumulate(),
-        switch_arithmetic(),
-        tsd_map_reduce(),
-        service_reference(),
-        service_request_reply(),
-        service_subscription(),
-        adaptor_loopback(),
-        service_adaptor_roundtrip(),
-        context_switch(),
-        operator_pipeline(),
-        tsd_key_set_pipeline(),
-        mesh_key_set(),
-        temporal_expression(),
-        collection_size(),
-        lifecycle_state(),
-        data_frame_recording(),
-        nested_higher_order(),
-        nested_higher_order(),
+    # (name, factory) pairs; a repeated name WEIGHTS that template in the
+    # unrestricted draw (nested_higher_order is the composition breeding
+    # ground and draws double).
+    weighted = (
+        ("scalar_expression", scalar_expression),
+        ("feedback_accumulate", feedback_accumulate),
+        ("switch_arithmetic", switch_arithmetic),
+        ("tsd_map_reduce", tsd_map_reduce),
+        ("service_reference", service_reference),
+        ("service_request_reply", service_request_reply),
+        ("service_subscription", service_subscription),
+        ("adaptor_loopback", adaptor_loopback),
+        ("service_adaptor_roundtrip", service_adaptor_roundtrip),
+        ("context_switch", context_switch),
+        ("operator_pipeline", operator_pipeline),
+        ("tsd_key_set_pipeline", tsd_key_set_pipeline),
+        ("mesh_key_set", mesh_key_set),
+        ("temporal_expression", temporal_expression),
+        ("collection_size", collection_size),
+        ("lifecycle_state", lifecycle_state),
+        ("data_frame_recording", data_frame_recording),
+        ("nested_higher_order", nested_higher_order),
+        ("nested_higher_order", nested_higher_order),
     )
+    if templates is None:
+        return st.one_of(*(factory() for _, factory in weighted))
+    # A restricted profile draws ONLY the allowed strategies — selecting at
+    # the source, never filtering the union (a post-hoc filter discards most
+    # draws and trips hypothesis's filter_too_much health check).
+    allowed = frozenset(templates)
+    unknown = allowed - {name for name, _ in weighted}
+    if unknown:
+        raise ValueError(
+            f"unknown generated template(s): {', '.join(sorted(unknown))}")
+    return st.one_of(*(factory() for name, factory in weighted
+                       if name in allowed))
 
 
 def generate_recipes(
@@ -698,18 +714,8 @@ def generate_recipes(
         payloads.append(payload)
 
     strategy = recipe_payload_strategy(
-        min_ticks=min_ticks, max_ticks=max_ticks
+        min_ticks=min_ticks, max_ticks=max_ticks, templates=templates
     )
-    if templates is not None:
-        allowed = frozenset(templates)
-        unknown = allowed - frozenset(CATALOG)
-        if unknown:
-            raise ValueError(
-                f"unknown generated template(s): {', '.join(sorted(unknown))}"
-            )
-        strategy = strategy.filter(
-            lambda payload: payload["template"] in allowed
-        )
     generated = given(strategy)(collect)
     generated = settings(
         max_examples=count,
