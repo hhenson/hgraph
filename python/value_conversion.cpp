@@ -544,11 +544,36 @@ namespace hgraph::python_bridge
         }));
     }
 
+    bool &polars_frames_enabled()
+    {
+        static bool enabled = false;
+        return enabled;
+    }
+
+    namespace
+    {
+        [[nodiscard]] nb::object import_polars()
+        {
+            try
+            {
+                return nb::module_::import_("polars");
+            }
+            catch (nb::python_error &)
+            {
+                throw std::runtime_error(
+                    "the polars_frames feature switch is enabled (HGRAPH_POLARS_FRAMES) "
+                    "but polars is not installed; install polars or disable the switch");
+            }
+        }
+    }  // namespace
+
     nb::object frame_to_py(const Frame &frame)
     {
         if (!frame.has_value()) { return nb::none(); }
         nb::object stream = nb::cast(PyArrowStream{frame});
-        return nb::module_::import_("pyarrow").attr("table")(stream);
+        nb::object table  = nb::module_::import_("pyarrow").attr("table")(stream);
+        if (!polars_frames_enabled()) { return table; }
+        return import_polars().attr("from_arrow")(table);
     }
 
     Value py_arrow_to_frame(nb::handle object)
@@ -593,7 +618,9 @@ namespace hgraph::python_bridge
     {
         if (!series.has_value()) { return nb::none(); }
         nb::object holder = nb::cast(PySeriesArray{series});
-        return nb::module_::import_("pyarrow").attr("array")(holder);
+        nb::object array  = nb::module_::import_("pyarrow").attr("array")(holder);
+        if (!polars_frames_enabled()) { return array; }
+        return import_polars().attr("from_arrow")(array);
     }
 
     Value py_arrow_to_series(nb::handle object)

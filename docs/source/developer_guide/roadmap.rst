@@ -629,7 +629,13 @@ The following are intentional unless separately re-opened:
   at the boundary only: producing a ``Frame`` accepts anything exposing
   ``__arrow_c_stream__`` (a polars ``DataFrame`` converts on ingest);
   consuming a ``Frame`` yields ``pyarrow.Table`` and callers convert with
-  ``pl.from_arrow``.  Upstream tests asserting polars-native values against
+  ``pl.from_arrow``.  The **polars_frames compatibility switch** (issue #80;
+  feature flag ``polars_frames`` / ``HGRAPH_POLARS_FRAMES``) flips the
+  OUTBOUND boundary only: ``Frame``/``Series`` values surface as
+  ``polars.DataFrame``/``polars.Series`` (``pl.from_arrow``, zero-copy) to
+  reduce migration cost for polars-era user code.  Default off; polars stays
+  a lazy optional dependency (a clear error if the switch is on without it);
+  the runtime substrate and record/replay artifacts remain Arrow either way.  Upstream tests asserting polars-native values against
   frame reads (pyarrow scalars do not compare equal to python scalars, and
   arrow schema iteration yields ``Field`` objects, not names) are ported with
   that boundary conversion; the conversions themselves are exercised
