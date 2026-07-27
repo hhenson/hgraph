@@ -22,7 +22,7 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None):
     user_fn = gfn.fn if isinstance(gfn, _GraphFn) else gfn
     # Introspect the REAL signature (unwrap @compute_node/@graph wrappers);
     # injectable/context parameters are not wired inputs.
-    sig = inspect.signature(getattr(user_fn, "fn", user_fn))
+    sig = inspect.signature(getattr(user_fn, "fn", user_fn), eval_str=True)
     names = list(input_names) if input_names is not None else [
         p.name for p in sig.parameters.values()
         if p.annotation not in _INJECTABLE_MARKERS and not isinstance(p.annotation, _ContextExpr)
@@ -122,7 +122,7 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):
         return _as_wired(func), args, kwargs
 
     user_fn = func.fn if isinstance(func, (_GraphFn, _PyNode)) else func
-    signature = inspect.signature(getattr(user_fn, "fn", user_fn))
+    signature = inspect.signature(getattr(user_fn, "fn", user_fn), eval_str=True)
     parameters = [
         parameter for parameter in signature.parameters.values()
         if parameter.annotation not in _INJECTABLE_MARKERS
@@ -189,7 +189,7 @@ def _as_wired(func):
     if isinstance(func, _Dispatch):
         return _wrap_graph_fn(func)
     if isinstance(func, _Operator):
-        output = inspect.signature(func.fn).return_annotation
+        output = inspect.signature(func.fn, eval_str=True).return_annotation
         output_handle = output.handle if isinstance(output, _TsExpr) else None
         return _hgraph.wired_op(func._registry_name, output_handle)
     if callable(func) and not isinstance(func, str):
@@ -247,7 +247,7 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
     }
     if resolvers:
         for sentinel, resolver in resolvers.items():
-            params = list(inspect.signature(resolver).parameters)
+            params = list(inspect.signature(resolver, eval_str=True).parameters)
             call = {name: scalar_values.get(name) for name in params[1:]}
             _PyNode._bind_resolved(
                 scope, _type_var_name(sentinel), resolver(scope.bindings, **call))
