@@ -66,6 +66,42 @@ namespace hgraph
             return false;
         }
 
+        enum class NumericFamily : std::uint8_t { integral, floating, other };
+
+        [[nodiscard]] NumericFamily numeric_family(const ValueTypeMetaData *schema)
+        {
+            if (schema == scalar_descriptor<std::int8_t>::value_meta() ||
+                schema == scalar_descriptor<std::int16_t>::value_meta() ||
+                schema == scalar_descriptor<std::int32_t>::value_meta() ||
+                schema == scalar_descriptor<Int>::value_meta() ||
+                schema == scalar_descriptor<std::uint8_t>::value_meta() ||
+                schema == scalar_descriptor<std::uint16_t>::value_meta() ||
+                schema == scalar_descriptor<std::uint32_t>::value_meta() ||
+                schema == scalar_descriptor<std::uint64_t>::value_meta())
+            {
+                return NumericFamily::integral;
+            }
+            if (schema == scalar_descriptor<float>::value_meta() || schema == scalar_descriptor<Float>::value_meta())
+            {
+                return NumericFamily::floating;
+            }
+            return NumericFamily::other;
+        }
+
+        /* Auto-const coercion is SPELLING, not conversion: a scalar may widen
+           into the candidate's current-value schema within the same numeric
+           family (an ``int32`` literal supplied for ``Int``, ``float`` for
+           ``Float``), but a CROSS-FAMILY value is NOT a match — upstream never
+           matches an int into ``TS[float]``, so ``dedup(2)`` selects the
+           generic overload, never the float-tolerance one (issue #74). Bool
+           is its own family and does not coerce. */
+        [[nodiscard]] bool scalar_coerces_to(const Value &value, const ValueTypeMetaData *target)
+        {
+            const NumericFamily family = numeric_family(value.schema());
+            if (family == NumericFamily::other || family != numeric_family(target)) { return false; }
+            return operator_dispatch_detail::coerce_scalar_value_to_meta(value, target).has_value();
+        }
+
         [[nodiscard]] bool scalar_value_matches_ts_pattern(const TypePattern &pattern,
                                                            const Value &value,
                                                            ResolutionMap &map,
@@ -86,8 +122,7 @@ namespace hgraph
                     {
                         return true;
                     }
-                    const bool coerced =
-                        operator_dispatch_detail::coerce_scalar_value_to_meta(value, bound->value_schema).has_value();
+                    const bool coerced = scalar_coerces_to(value, bound->value_schema);
                     if (coerced) { ++rank_adjustment; }
                     return coerced;
                 }
@@ -100,8 +135,7 @@ namespace hgraph
                 {
                     return true;
                 }
-                const bool coerced =
-                    operator_dispatch_detail::coerce_scalar_value_to_meta(value, pattern.meta->value_schema).has_value();
+                const bool coerced = scalar_coerces_to(value, pattern.meta->value_schema);
                 if (coerced) { ++rank_adjustment; }
                 return coerced;
             }
@@ -109,8 +143,7 @@ namespace hgraph
                 pattern.scalar.kind == ScalarPattern::Kind::Concrete)
             {
                 if (value.schema() == pattern.scalar.meta) { return true; }
-                const bool coerced =
-                    operator_dispatch_detail::coerce_scalar_value_to_meta(value, pattern.scalar.meta).has_value();
+                const bool coerced = scalar_coerces_to(value, pattern.scalar.meta);
                 if (coerced) { ++rank_adjustment; }
                 return coerced;
             }

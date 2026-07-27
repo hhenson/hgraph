@@ -199,6 +199,17 @@ the selected candidate wires an internal one-shot const source to supply that in
 For example ``wire<add_>(w, price, Int{3})`` selects the same ``TS<Int>`` overload as
 ``wire<add_>(w, price, const_3)``.
 
+The auto-const coercion is **spelling, not conversion**: a scalar may widen into
+the candidate's current-value schema within the same numeric family (an ``int32``
+literal supplied for ``Int``, a ``float`` for ``Float`` — the C++ narrowing
+convenience), at one rank point. A **cross-family** value is **not a match** —
+an int supplied where a candidate wants ``TS<Float>`` rejects that candidate
+outright, exactly as upstream, which never matches an int into ``TS[float]``.
+``dedup(2)`` therefore selects the generic overload at ``TS[int]`` and can never
+reach the float-tolerance overload (issue #74). Bool is its own family and does
+not coerce. Scalar (configuration) parameters are unaffected: they keep the full
+standard numeric conversions of the ordinary ``wire<>`` scalar path.
+
 
 ``OperatorImpl`` — a type-erased candidate
 ------------------------------------------
