@@ -608,10 +608,10 @@ namespace hgraph::stdlib
 
     struct timestamp_datetime_impl
     {
-        static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Int>> out)
+        static void eval(In<"ts", TS<DateTime>> ts, Out<TS<Float>> out)
         {
-            out.set(static_cast<Int>(
-                std::chrono::floor<std::chrono::seconds>(ts.value().time_since_epoch()).count()));
+            // Python's datetime.timestamp(): fractional epoch seconds.
+            out.set(std::chrono::duration<Float>(ts.value().time_since_epoch()).count());
         }
     };
 

@@ -85,6 +85,19 @@ def test_timedelta_and_datetime_accessors():
 
     assert eval_node(time_parts, [time(13, 5, 9)]) == [130509]
 
+    # timestamp(): fractional UTC epoch seconds (TS[float]) — the recorded
+    # deviation from upstream's local-tz-dependent naive timestamp.
+    from datetime import timezone
+
+    @graph
+    def dt_timestamp(dt: TS[datetime]) -> TS[float]:
+        return dt.timestamp()
+
+    half_second = datetime(1970, 1, 1, 0, 0, 0, 500000)
+    assert eval_node(dt_timestamp, [half_second]) == [0.5]
+    assert eval_node(dt_timestamp, [stamp]) == [
+        stamp.replace(tzinfo=timezone.utc).timestamp()]
+
 
 def _selection(choose_minimum, lhs, rhs):
     return hg.if_then_else(choose_minimum, hg.min_(lhs, rhs), hg.max_(lhs, rhs))

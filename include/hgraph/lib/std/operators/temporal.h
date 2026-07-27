@@ -92,10 +92,11 @@ namespace hgraph::stdlib
     {
     };
 
-    /** ``timestamp`` — seconds since the Unix epoch. hgraph datetimes are
-        UTC by convention, so this is the UTC epoch count (upstream's naive
+    /** ``timestamp`` — FRACTIONAL seconds since the Unix epoch (Python's
+        ``datetime.timestamp()`` returns a float). hgraph datetimes are UTC
+        by convention, so this is the UTC epoch count (upstream's naive
         ``datetime.timestamp()`` is local-tz dependent; recorded deviation). */
-    struct timestamp : Operator<"timestamp", In<"ts", TS<DateTime>>, Out<TS<Int>>>
+    struct timestamp : Operator<"timestamp", In<"ts", TS<DateTime>>, Out<TS<Float>>>
     {
     };
 

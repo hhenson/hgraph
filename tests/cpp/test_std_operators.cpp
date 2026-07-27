@@ -1206,8 +1206,14 @@ TEST_CASE("std operators: timedelta and datetime attribute operators (issue #82)
     CHECK_OUTPUT(eval_node<stdlib::microsecond>(values<DateTime>(stamp)), values<Int>(123'456));
     CHECK_OUTPUT(eval_node<stdlib::weekday>(values<DateTime>(stamp)), values<Int>(0));
     CHECK_OUTPUT(eval_node<stdlib::isoweekday>(values<DateTime>(stamp)), values<Int>(1));
+    // timestamp(): FRACTIONAL epoch seconds (python parity) — the half
+    // second survives, before and after the epoch.
+    CHECK_OUTPUT(eval_node<stdlib::timestamp>(values<DateTime>(DateTime{microseconds{500'000}})),
+                 values<Float>(0.5));
+    CHECK_OUTPUT(eval_node<stdlib::timestamp>(values<DateTime>(DateTime{microseconds{-500'000}})),
+                 values<Float>(-0.5));
     CHECK_OUTPUT(eval_node<stdlib::timestamp>(values<DateTime>(stamp)),
-                 values<Int>(duration_cast<seconds>(stamp.time_since_epoch()).count()));
+                 values<Float>(std::chrono::duration<Float>(stamp.time_since_epoch()).count()));
 
     CHECK_OUTPUT(eval_node<stdlib::hour>(values<Time>(time_of_day(13, 5, 9))), values<Int>(13));
     CHECK_OUTPUT(eval_node<stdlib::minute>(values<Time>(time_of_day(13, 5, 9))), values<Int>(5));
