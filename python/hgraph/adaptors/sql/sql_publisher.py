@@ -27,7 +27,9 @@ def _render_frame(
     data_sink: TS[SqlDataSink], data: TS[Frame[SCHEMA]],
     scope: TS[Mapping[str, Scope]], options: TS[dict[str, object]],
 ) -> TS[Frame[SCHEMA]]:
-    frame = data.value
+    from hgraph._frame import as_arrow_table
+
+    frame = as_arrow_table(data.value)
     values = options.value or {}
     for name, item in (scope.value or {}).items():
         if name not in frame.column_names:

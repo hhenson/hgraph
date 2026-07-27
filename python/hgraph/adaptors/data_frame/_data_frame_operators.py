@@ -6,6 +6,8 @@ from typing import TypeVar
 import _hgraph
 import pyarrow.compute as pc
 
+from hgraph._frame import as_arrow_table
+
 from hgraph import (
     AUTO_RESOLVE,
     SCALAR,
@@ -101,17 +103,17 @@ def filter_cs(ts: TS[Frame[ROW]], predicate: TS[ROW]) -> TS[Frame[ROW]]:
 
 @compute_node
 def filter_exp(ts: TS[Frame[ROW]], predicate: pc.Expression) -> TS[Frame[ROW]]:
-    return ts.value.filter(predicate)
+    return as_arrow_table(ts.value).filter(predicate)
 
 
 @compute_node
 def filter_exp_ts(ts: TS[Frame[ROW]], predicate: TS[pc.Expression]) -> TS[Frame[ROW]]:
-    return ts.value.filter(predicate.value)
+    return as_arrow_table(ts.value).filter(predicate.value)
 
 
 @compute_node(overloads=filter_)
 def filter_exp_ts_(condition: TS[pc.Expression], ts: TS[Frame[ROW]]) -> TS[Frame[ROW]]:
-    return ts.value.filter(condition.value)
+    return as_arrow_table(ts.value).filter(condition.value)
 
 
 for _op, _impl in (
@@ -143,7 +145,8 @@ def filter_exp_seq(ts: TS[Frame[ROW]], predicate: tuple[pc.Expression, ...]) -> 
     expression = None
     for term in predicate:
         expression = term if expression is None else expression & term
-    return ts.value if expression is None else ts.value.filter(expression)
+    frame = as_arrow_table(ts.value)
+    return frame if expression is None else frame.filter(expression)
 
 
 group_by = operator_function("group_by")

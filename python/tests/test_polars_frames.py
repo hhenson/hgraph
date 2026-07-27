@@ -84,6 +84,25 @@ def test_series_surface_as_polars_series(polars_frames):
     assert result.to_list() == [1.0, 2.5]
 
 
+def test_shipped_frame_consumers_survive_the_switch(polars_frames):
+    # Shipped python nodes keep their pyarrow internals: inputs normalize
+    # through as_arrow_table, so a polars-surfaced frame still filters with
+    # a pyarrow.compute expression (review finding on issue #80).
+    import pyarrow.compute as pc
+    from hgraph import TSB, TS_SCHEMA  # noqa: F401  (adaptor import needs hgraph loaded)
+    from hgraph.adaptors.data_frame import filter_exp
+
+    from hgraph import graph
+
+    @graph
+    def filtered(ts: TS[Frame[PriceRow]]) -> TS[Frame[PriceRow]]:
+        return filter_exp(ts, pc.field("value") > 10.0)
+
+    result = eval_node(filtered, [_price_table()])[0]
+    assert isinstance(result, polars.DataFrame)
+    assert result["instrument"].to_list() == ["A"]
+
+
 def test_enabled_without_polars_raises_clearly(polars_frames):
     saved = {name: module for name, module in sys.modules.items()
              if name == "polars" or name.startswith("polars.")}
