@@ -98,6 +98,12 @@ NB_MODULE(_hgraph, m)
         }
     });
     m.def("_set_requirements_error", [](nb::object cls) { requirements_error_slot() = std::move(cls); });
+    // The polars-frames compatibility switch (issue #80): outbound Frame /
+    // Series surface as polars objects when set. Driven by the hgraph
+    // feature-switch mechanism at package import; runtime-togglable for
+    // tests. The C++ value substrate stays Arrow either way.
+    m.def("set_polars_frames", [](bool enabled) { polars_frames_enabled() = enabled; });
+    m.def("polars_frames", [] { return polars_frames_enabled(); });
     m.doc() = "hgraph C++ runtime bridge (slice 1: wire and run graphs by operator name)";
 
     // The graph-callable records are immortal by design (WiredFn contexts

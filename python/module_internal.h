@@ -92,6 +92,12 @@ namespace hgraph::python_bridge
 
     [[nodiscard]] Value      py_to_value(nb::handle object);
     [[nodiscard]] nb::object value_to_py(const ValueView &view);
+    /** The polars-frames compatibility switch (issue #80): when set, the
+        OUTBOUND boundary surfaces Frame as ``polars.DataFrame`` and Series
+        as ``polars.Series`` (via ``polars.from_arrow``, zero-copy). Inbound
+        already accepts anything exposing ``__arrow_c_stream__``. Arrow stays
+        the canonical substrate; record/replay artifacts are unaffected. */
+    [[nodiscard]] bool      &polars_frames_enabled();
     [[nodiscard]] nb::object frame_to_py(const Frame &frame);
     [[nodiscard]] Value      py_arrow_to_frame(nb::handle object);
     [[nodiscard]] nb::object series_to_py(const Series &series);

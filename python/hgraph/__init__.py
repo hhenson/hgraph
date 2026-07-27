@@ -32,6 +32,14 @@ from ._wiring import RecordReplayContext, set_record_replay_model, RECORDABLE_ST
 from .nodes import pass_through_node
 from ._wiring import pass_through, no_key
 from ._feature_switch import is_feature_enabled
+
+# The polars-frames compatibility switch (issue #80): when the feature flag
+# is set (HGRAPH_POLARS_FRAMES=true or the hgraph_features config file),
+# outbound Frame/Series values surface as polars DataFrame/Series instead of
+# pyarrow Table/Array. Inbound polars is always accepted (anything exposing
+# __arrow_c_stream__). Arrow remains the canonical runtime substrate.
+if is_feature_enabled("polars_frames"):
+    _hgraph.set_polars_frames(True)
 from ._signature import (WiringNodeType, WiringNodeSignature, extract_signature,
                          extract_kwargs)
 from ._wiring import _PyNode as WiringNodeClass
