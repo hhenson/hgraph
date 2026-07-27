@@ -175,15 +175,23 @@ def _dataclass_scalar_schema(tp):
             resolved_annotations.get(field.name, field.type),
             substitutions,
         )
-        field_type = (
-            HgScalarTypeVar(annotation)
-            if isinstance(annotation, TypeVar) and not annotation.__bound__ and not annotation.__constraints__
-            else HgScalarTypeMetaData.parse_type(annotation)
-        )
-        if field_type is None:
+        if isinstance(annotation, (str, typing.ForwardRef)):
+            raise ParseError(
+                f"When parsing dataclass '{origin.__qualname__}', field '{field.name}' "
+                f"has unresolved annotation {annotation!r}"
+            )
+
+        try:
+            field_type = HgTypeMetaData.parse_type(annotation)
+        except ParseError as error:
             raise ParseError(
                 f"When parsing dataclass '{origin.__qualname__}', unable to parse field "
                 f"'{field.name}' with value {annotation}"
+            ) from error
+        if not isinstance(field_type, HgScalarTypeMetaData):
+            raise ParseError(
+                f"When parsing dataclass '{origin.__qualname__}', field '{field.name}' "
+                f"must be a scalar type, not {annotation}"
             )
         schema[field.name] = field_type
 

@@ -99,7 +99,15 @@ Standard-library dataclasses can also be used directly as nominal scalar schemas
 The original dataclass instance is retained as the time-series value. Its ordered fields form the schema used for
 wiring, reflection, field access, generic resolution, conversion, and dispatch. Dataclass defaults and default
 factories are honoured when constructing a value. ``TSB[Quote]`` provides the corresponding field-expanded
-time-series form.
+time-series form and is the canonical public spelling; downstream code does not need to create a peer
+``TimeSeriesSchema`` with ``TimeSeriesSchema.from_scalar_schema``.
+
+The lift from a dataclass to a bundle is deliberately conservative. Each stored dataclass field ``field: T`` becomes
+``field: TS[T]``. Collection values remain scalar values (for example, ``items: tuple[int, ...]`` becomes
+``items: TS[tuple[int, ...]]``), and a nested dataclass remains ``TS[Nested]`` rather than becoming a nested ``TSB``.
+HGraph does not infer ``TSL``, ``TSD``, ``TSS``, or another time-series topology from scalar annotations. ``ClassVar``,
+``InitVar``, and computed properties are not stored fields. An unresolved field annotation or a time-series annotation
+inside the scalar dataclass is rejected when the schema is constructed.
 
 Dataclass annotations describe the wiring schema; assigning a whole dataclass does not recursively validate or
 replace the object's fields. Frozen dataclasses are recommended because mutating a retained object in place does not
