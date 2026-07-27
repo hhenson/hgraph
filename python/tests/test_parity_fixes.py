@@ -1,4 +1,4 @@
-"""Public Python wiring regressions for fixed parity issues #69, #70, #72.
+"""Public Python wiring regressions for fixed parity issues #69, #70, #72, #74.
 
 Each test pins the released-hgraph trace the differential harness verified;
 the corpus retains the minimized recipes as passing regressions.
@@ -25,6 +25,19 @@ def test_float_dedup_applies_default_tolerance():
         return hg.dedup(v, 0.5)
 
     assert eval_node(dedup_tol, [1.0, 1.4, 2.0]) == [1.0, None, 2.0]
+
+
+def test_dedup_int_const_stays_int():
+    # Issue #74: an int scalar auto-const selects the generic dedup overload;
+    # it must not coerce into the float-tolerance overload (a regression from
+    # the #69 fix making that overload single-arg callable).
+    @graph
+    def dedup_const(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        return hg.dedup(2)
+
+    out = eval_node(dedup_const, [0], [None])
+    assert out == [2]
+    assert all(type(v) is int for v in out)
 
 
 def _selection(choose_minimum, lhs, rhs):

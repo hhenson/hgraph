@@ -335,6 +335,25 @@ namespace
         }
     };
 
+    struct DedupIntConstGraph
+    {
+        static constexpr auto name = "dedup_int_const_graph";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> driver)
+        {
+            (void)driver;
+            return wire<stdlib::dedup>(w, Int{2}).as<TS<Int>>();
+        }
+    };
+
+    struct DedupIntToleranceGraph
+    {
+        static constexpr auto name = "dedup_int_tolerance_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Float>> ts)
+        {
+            return wire<stdlib::dedup>(w, ts, Int{1}).as<TS<Float>>();
+        }
+    };
+
     struct FormatKwargsGraph
     {
         static constexpr auto name = "format_kwargs_graph";
@@ -2381,6 +2400,21 @@ TEST_CASE("std operators: valid over a REF source stays silent until the referen
                  values<Bool>(none));
     CHECK_OUTPUT(eval_node<ValidOverRefSelectionGraph>(values<Bool>(true), values<Int>(8), values<Int>(-6)),
                  values<Bool>(true));
+}
+
+TEST_CASE("std operators: an int const dedup stays int")
+{
+    stdlib::register_standard_operators();
+
+    // parity issue #74: an int scalar auto-const is NOT a match for a
+    // ``TS<Float>`` input (cross-family coercion), so the generic dedup
+    // overload wins; the float-tolerance overload (single-arg callable since
+    // the #69 fix) can never capture it.
+    CHECK_OUTPUT(eval_node<DedupIntConstGraph>(values<Int>(none)), values<Int>(2));
+
+    // The same rule as a hard reject: an int tolerance for the float
+    // overload's ``TS<Float>`` abs_tol leaves no matching candidate.
+    REQUIRE_THROWS_AS(eval_node<DedupIntToleranceGraph>(values<Float>(1.0)), OperatorResolutionError);
 }
 
 TEST_CASE("std operators: an operand combination with no registered implementation raises")
