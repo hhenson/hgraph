@@ -561,16 +561,19 @@ namespace hgraph::stdlib
         transitions. Ticks only when the answer changes. */
     struct valid_ref_impl
     {
-        static constexpr auto name              = "valid_ref";
-        static constexpr bool schedule_on_start = true;
+        static constexpr auto name = "valid_ref";
 
         static void eval(In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
                          In<"ts_value", TsVar<"S">, InputValidity::Unchecked> ts_value,
                          DateTime now,
                          Out<TS<Bool>> out)
         {
+            // Active reference inputs force a start evaluation
+            // (static_node.h); publish nothing until the reference first
+            // arrives — upstream's valid_impl requires the REF valid, so a
+            // REF-valued source that never ticks produces NO output.
+            if (!ts.valid()) { return; }
             Bool value = false;
-            if (ts.valid())
             {
                 const auto reference = ts.value();
                 if (reference.is_empty())

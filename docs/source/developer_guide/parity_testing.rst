@@ -176,8 +176,10 @@ way:
 * ``key-set-size-no-retick`` removes only ``size`` fields and then requires
   every remaining field to compare within the template's float tolerance; and
 * ``subscription-resample-one-cycle`` requires repeated non-null subscription
-  keys and proves that inserting the reference's re-delivery cycles makes the
-  complete payload traces equal.
+  keys and proves that delaying the **subset** of repeats that actually emit
+  an existing value — a repeat that emits nothing shifts nothing — makes the
+  complete payload traces equal, with at least one repeat accounting for the
+  mismatch.
 
 An unknown relation, payload corruption, unrelated missing field, candidate
 crash, or status difference does not match and therefore continues through
