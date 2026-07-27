@@ -311,5 +311,8 @@ TEST_CASE("global context: seeds builders by copy and does not nest")
     executor.view().run();
 
     CHECK(executor.view().graph().global_state().get_as<std::int32_t>("counter") == 101);
-    CHECK_FALSE(seed.view().contains("counter"));
+    // The WIRING write ("counter" = 100 in compose) lands on the LIVE
+    // selected seed (ruling 2026-07-27); the RUNTIME bump to 101 happens on
+    // the graph's isolation copy taken at build and never reaches the seed.
+    CHECK(seed.view().get_as<std::int32_t>("counter") == 100);
 }

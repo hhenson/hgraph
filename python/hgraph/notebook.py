@@ -116,6 +116,14 @@ class NotebookSession:
     def run(self):
         """Evaluate the whole graph as it currently stands (simulation)."""
         self._require_open()
+        # Each eval re-runs the grown graph from the configured start time,
+        # and the wiring seeds from the LIVE session state (the 2026-07-27
+        # GlobalState lifecycle) — so the prior run's recordings, copied back
+        # into the session state, must not re-seed and accumulate.
+        for _, key in self._recorded.values():
+            state_key = _RECORD_STATE_PREFIX + key
+            if state_key in self._state:
+                del self._state[state_key]
         return self._wiring.run(
             start_time=self._start_time, end_time=self._end_time, snapshot=True
         )

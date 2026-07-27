@@ -139,12 +139,13 @@ function; a const source is ``const_``. For the two roles that remain:
 
 **P2 — configuration in graph GlobalState.** The record/replay model,
 date/as-of keys, and as-of override are one typed **RecordReplayConfig** value
-in the top-level graph's ``GlobalState``.  Operator resolution receives the
-wiring state's copy, while runtime nodes receive the root graph's normal copy.
-Configuration is installed before wiring and must not change between wiring
-and execution.  Python's imperative setters update its thread-local seed; the
-normal bridge copy-in/copy-out lifecycle carries that configuration without a
-second process-global store.
+in the top-level graph's ``GlobalState``.  Operator resolution reads the LIVE
+selected state during wiring (ruling 2026-07-27) — the same store Python's
+imperative setters write, so configuration applied during wiring, including
+inside a graph function, is honoured — while runtime nodes receive the root
+graph's isolation copy, captured at graph build.  Configuration must not
+change between graph build and execution.  There is no second process-global
+store.
 
 **P3 — modes via the context machinery, folded into identity.** The
 ``RecordReplayContext`` maps onto the landed wiring-scope machinery (a
