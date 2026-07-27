@@ -340,6 +340,25 @@ WiringPort.as_dict = _port_as_dict
 WiringPort.as_scalar_ts = _port_as_scalar_ts
 
 
+class _CallableWiringPort(WiringPort):
+    """A wiring port that tolerates a no-arg call: upstream's method-style
+    accessors (``td.total_seconds()``, ``dt.weekday()``) spell an attribute
+    THEN a call, while hgraph attribute sugar also allows the bare form —
+    this port serves both (issue #82)."""
+
+    __slots__ = ()
+
+    def __call__(self):
+        return self
+
+
+# Upstream getattr_ *method* tables (date/datetime/time/timedelta): names the
+# DSL may spell with trailing parentheses.
+_METHOD_STYLE_ACCESSORS = frozenset({
+    "weekday", "isoweekday", "isoformat", "total_seconds", "timestamp",
+})
+
+
 def _port_getattr(self, name):
     if name.startswith("_"):
         raise AttributeError(name)
@@ -356,7 +375,16 @@ def _port_getattr(self, name):
         # hgraph attribute sugar: port.year / .month / .weekday ... resolve
         # as unary operators when no bundle field matches.
         if name in _hgraph.operator_names():
-            return wire(name, self)
+            try:
+                port = wire(name, self)
+            except WiringError as error:
+                # No overload for this port's type either: surface the
+                # Python attribute protocol (upstream raises AttributeError).
+                raise AttributeError(
+                    f"{_unwrap(self).ts_type} has no attribute '{name}'") from error
+            if name in _METHOD_STYLE_ACCESSORS:
+                return _CallableWiringPort(_unwrap(port))
+            return port
         raise
 
 

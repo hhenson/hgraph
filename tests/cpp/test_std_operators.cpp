@@ -1180,6 +1180,40 @@ TEST_CASE("std operators: add_ supports datetime + timedelta -> datetime")
                  values<DateTime>(dt(1'500'000), dt(3'500'000)));
 }
 
+TEST_CASE("std operators: timedelta and datetime attribute operators (issue #82)")
+{
+    stdlib::register_standard_operators();
+
+    // Python's normalized decomposition: -1 day + 1s + 5us has days=-1,
+    // seconds=1, microseconds=5; total_seconds is the exact float.
+    const TimeDelta negative = duration_cast<TimeDelta>(days{-1}) + seconds{1} + microseconds{5};
+    CHECK_OUTPUT(eval_node<stdlib::days>(values<TimeDelta>(negative)), values<Int>(-1));
+    CHECK_OUTPUT(eval_node<stdlib::seconds>(values<TimeDelta>(negative)), values<Int>(1));
+    CHECK_OUTPUT(eval_node<stdlib::microseconds>(values<TimeDelta>(negative)), values<Int>(5));
+    CHECK_OUTPUT(eval_node<stdlib::total_seconds>(
+                     values<TimeDelta>(duration_cast<TimeDelta>(days{1}) + seconds{30})),
+                 values<Float>(86430.0));
+
+    // 2026-07-27T13:05:09.123456 is a Monday.
+    const DateTime stamp = DateTime{sys_days{ymd(2026, 7, 27)}} + hours{13} + minutes{5} +
+                           seconds{9} + microseconds{123'456};
+    CHECK_OUTPUT(eval_node<stdlib::year>(values<DateTime>(stamp)), values<Int>(2026));
+    CHECK_OUTPUT(eval_node<stdlib::month>(values<DateTime>(stamp)), values<Int>(7));
+    CHECK_OUTPUT(eval_node<stdlib::day>(values<DateTime>(stamp)), values<Int>(27));
+    CHECK_OUTPUT(eval_node<stdlib::hour>(values<DateTime>(stamp)), values<Int>(13));
+    CHECK_OUTPUT(eval_node<stdlib::minute>(values<DateTime>(stamp)), values<Int>(5));
+    CHECK_OUTPUT(eval_node<stdlib::second>(values<DateTime>(stamp)), values<Int>(9));
+    CHECK_OUTPUT(eval_node<stdlib::microsecond>(values<DateTime>(stamp)), values<Int>(123'456));
+    CHECK_OUTPUT(eval_node<stdlib::weekday>(values<DateTime>(stamp)), values<Int>(0));
+    CHECK_OUTPUT(eval_node<stdlib::isoweekday>(values<DateTime>(stamp)), values<Int>(1));
+    CHECK_OUTPUT(eval_node<stdlib::timestamp>(values<DateTime>(stamp)),
+                 values<Int>(duration_cast<seconds>(stamp.time_since_epoch()).count()));
+
+    CHECK_OUTPUT(eval_node<stdlib::hour>(values<Time>(time_of_day(13, 5, 9))), values<Int>(13));
+    CHECK_OUTPUT(eval_node<stdlib::minute>(values<Time>(time_of_day(13, 5, 9))), values<Int>(5));
+    CHECK_OUTPUT(eval_node<stdlib::second>(values<Time>(time_of_day(13, 5, 9))), values<Int>(9));
+}
+
 TEST_CASE("std operators: date and timedelta arithmetic matches Python normalized days")
 {
     stdlib::register_standard_operators();

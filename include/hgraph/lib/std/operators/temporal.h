@@ -51,6 +51,54 @@ namespace hgraph::stdlib
     {
     };
 
+    /** hgraph's timedelta ATTRIBUTES (port.days / .seconds / .microseconds)
+        and ``total_seconds()`` — issue #82. Python's normalization: ``days``
+        floors toward -inf; ``seconds`` / ``microseconds`` are the
+        non-negative remainders. */
+    struct days : Operator<"days", In<"ts", TS<TimeDelta>>, Out<TS<Int>>>
+    {
+    };
+
+    struct seconds : Operator<"seconds", In<"ts", TS<TimeDelta>>, Out<TS<Int>>>
+    {
+    };
+
+    struct microseconds : Operator<"microseconds", In<"ts", TS<TimeDelta>>, Out<TS<Int>>>
+    {
+    };
+
+    struct total_seconds : Operator<"total_seconds", In<"ts", TS<TimeDelta>>, Out<TS<Float>>>
+    {
+    };
+
+    /** hgraph's datetime / time ATTRIBUTES (port.hour / .minute / .second /
+        .microsecond) plus the datetime methods (``weekday()`` /
+        ``isoweekday()`` / ``timestamp()``) — issue #82. The datetime
+        overloads register under the existing ``year`` / ``month`` / ``day``
+        / ``weekday`` / ``isoweekday`` markers. */
+    struct hour : Operator<"hour", In<"ts", TS<DateTime>>, Out<TS<Int>>>
+    {
+    };
+
+    struct minute : Operator<"minute", In<"ts", TS<DateTime>>, Out<TS<Int>>>
+    {
+    };
+
+    struct second : Operator<"second", In<"ts", TS<DateTime>>, Out<TS<Int>>>
+    {
+    };
+
+    struct microsecond : Operator<"microsecond", In<"ts", TS<DateTime>>, Out<TS<Int>>>
+    {
+    };
+
+    /** ``timestamp`` — seconds since the Unix epoch. hgraph datetimes are
+        UTC by convention, so this is the UTC epoch count (upstream's naive
+        ``datetime.timestamp()`` is local-tz dependent; recorded deviation). */
+    struct timestamp : Operator<"timestamp", In<"ts", TS<DateTime>>, Out<TS<Int>>>
+    {
+    };
+
     /** ``evaluation_time_in_range`` — where the evaluation time sits
         relative to [start, end]: LT / EQ / GT, self-scheduling at the
         boundaries (datetime / date / daily-recurring time overloads). */

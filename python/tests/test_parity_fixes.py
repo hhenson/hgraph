@@ -1,4 +1,4 @@
-"""Public Python wiring regressions for fixed parity issues #69, #70, #72, #74.
+"""Public Python wiring regressions for fixed parity issues #69, #70, #72, #74, #82.
 
 Each test pins the released-hgraph trace the differential harness verified;
 the corpus retains the minimized recipes as passing regressions.
@@ -38,6 +38,52 @@ def test_dedup_int_const_stays_int():
     out = eval_node(dedup_const, [0], [None])
     assert out == [2]
     assert all(type(v) is int for v in out)
+
+
+def test_timedelta_and_datetime_accessors():
+    # Issue #82: the upstream getattr_ tables for timedelta/datetime/time.
+    from datetime import date, datetime, time, timedelta
+
+    @graph
+    def day_count(a: TS[date], b: TS[date]) -> TS[int]:
+        return (a - b).days
+
+    assert eval_node(day_count, [date(2026, 7, 27)], [date(2026, 7, 20)]) == [7]
+
+    @graph
+    def td_parts(td: TS[timedelta]) -> TS[int]:
+        return td.days * 1_000_000_000_000 + td.seconds * 1_000_000 + td.microseconds
+
+    # Python normalization: -1 day + 1s + 5us → days=-1, seconds=1, microseconds=5.
+    negative = timedelta(days=-1, seconds=1, microseconds=5)
+    assert eval_node(td_parts, [negative]) == [-1 * 1_000_000_000_000 + 1 * 1_000_000 + 5]
+
+    @graph
+    def td_total(td: TS[timedelta]) -> TS[float]:
+        return td.total_seconds()
+
+    assert eval_node(td_total, [timedelta(days=1, seconds=30)]) == [86430.0]
+
+    @graph
+    def dt_parts(dt: TS[datetime]) -> TS[int]:
+        return (dt.year * 10_000 + dt.month * 100 + dt.day) * 1_000_000 + (
+            dt.hour * 10_000 + dt.minute * 100 + dt.second)
+
+    stamp = datetime(2026, 7, 27, 13, 5, 9, 123456)
+    assert eval_node(dt_parts, [stamp]) == [20260727_130509]
+
+    @graph
+    def dt_micro_weekday(dt: TS[datetime]) -> TS[int]:
+        return dt.microsecond + dt.weekday() * 10_000_000 + dt.isoweekday() * 100_000_000
+
+    # 2026-07-27 is a Monday: weekday()=0, isoweekday()=1.
+    assert eval_node(dt_micro_weekday, [stamp]) == [123456 + 0 + 100_000_000]
+
+    @graph
+    def time_parts(t: TS[time]) -> TS[int]:
+        return t.hour * 10_000 + t.minute * 100 + t.second
+
+    assert eval_node(time_parts, [time(13, 5, 9)]) == [130509]
 
 
 def _selection(choose_minimum, lhs, rhs):

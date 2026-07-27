@@ -18,6 +18,28 @@ namespace hgraph::stdlib
         register_overload<isoweekday, isoweekday_impl>();
         register_overload<month_of_year, month_of_year_impl>();
         register_overload<year, year_impl>();
+        // Issue #82: timedelta attributes and the datetime/time overloads of
+        // the attribute operators (upstream's getattr_ tables).
+        register_overload<days, days_timedelta_impl>();
+        register_overload<seconds, seconds_timedelta_impl>();
+        register_overload<microseconds, microseconds_timedelta_impl>();
+        register_overload<total_seconds, total_seconds_timedelta_impl>();
+        register_overload<year, year_datetime_impl>();
+        register_overload<month, month_datetime_impl>();
+        register_overload<month_of_year, month_datetime_impl>();
+        register_overload<day, day_datetime_impl>();
+        register_overload<day_of_month, day_datetime_impl>();
+        register_overload<weekday, weekday_datetime_impl>();
+        register_overload<isoweekday, isoweekday_datetime_impl>();
+        register_overload<hour, hour_datetime_impl>();
+        register_overload<minute, minute_datetime_impl>();
+        register_overload<second, second_datetime_impl>();
+        register_overload<microsecond, microsecond_datetime_impl>();
+        register_overload<timestamp, timestamp_datetime_impl>();
+        register_overload<hour, hour_time_impl>();
+        register_overload<minute, minute_time_impl>();
+        register_overload<second, second_time_impl>();
+        register_overload<microsecond, microsecond_time_impl>();
         register_overload<explode, explode_date_impl>();
         register_overload<valid, valid_impl>();
         register_graph_overload<valid, valid_ref_graph_impl>();

@@ -637,6 +637,13 @@ The following are intentional unless separately re-opened:
   record/replay model are Arrow-native
   (``hgraph.adaptors.data_frame._to_frame_converters`` /
   ``_data_frame_record_replay``).
+- ``datetime.timestamp()`` (the ``timestamp`` attribute operator, issue #82)
+  is the **UTC** epoch second count: hgraph datetimes are UTC by convention,
+  where upstream's naive ``datetime.timestamp()`` is local-timezone
+  dependent.  The two agree whenever the process timezone is UTC (CI); a
+  local-tz-dependent result is not a compatibility target.  Upstream's
+  deprecated ``datepart`` custom accessor and the ``date``/``time``
+  conversion methods stay on ``convert[...]``.
 - C++ contexts are name-based.  The Python bridge preserves the compatible
   type/name authoring syntax by lowering it onto that model.
 - Arbitrary Python object-class dispatch is a bridge adaptation; native

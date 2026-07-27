@@ -38,7 +38,13 @@ chosen implementation is baked into the graph.
    (``sample`` / ``filter_`` / ``take`` / ``drop`` / ``step`` / ``slice_`` /
    ``dedup`` / ``diff`` / ``count`` / ``clip`` / ``ewma``),
    flow-control basics (``merge`` / ``all_`` / ``any_`` / ``if_true`` /
-   ``if_then_else`` / ``if_cmp``), date / time-series-property operators, and
+   ``if_then_else`` / ``if_cmp``), date / datetime / time / timedelta
+   attribute operators (the upstream ``getattr_`` tables — ``year`` /
+   ``month`` / ``day`` / ``hour`` / ``minute`` / ``second`` /
+   ``microsecond`` / ``weekday`` / ``isoweekday`` / ``timestamp`` over
+   ``TS<Date>`` / ``TS<DateTime>`` / ``TS<Time>``, ``days`` / ``seconds`` /
+   ``microseconds`` / ``total_seconds`` over ``TS<TimeDelta>``; issue #82),
+   time-series-property operators, and
    simple IO sink overloads, including
    homogeneous, mixed, heterogeneous-temporal, result-differs and optional-scalar
    (``DivideByZero`` policy) overloads — proven by
