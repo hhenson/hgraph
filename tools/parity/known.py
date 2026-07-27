@@ -28,6 +28,7 @@ TRACE_VALUE = "trace-value"
 SERVICE_ADAPTOR_ONE_CYCLE = "service-adaptor-one-cycle"
 KEY_SET_SIZE_NO_RETICK = "key-set-size-no-retick"
 SUBSCRIPTION_RESAMPLE_ONE_CYCLE = "subscription-resample-one-cycle"
+NO_CHANGE_ELISION = "no-change-elision"
 
 
 def load_known_divergences(
@@ -225,8 +226,47 @@ def _subscription_resample_one_cycle_relation(
     return j == len(reference_trace) and inserted >= 1
 
 
+def _no_change_elision_relation(
+    _recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """No-change-means-no-tick (ruling 2026-07-17): the candidate trace is
+    the reference trace with re-ticks of an UNCHANGED value elided. Every
+    position must either match exactly, or be a candidate ``None`` where the
+    reference re-emitted the value it had already emitted; at least one
+    elision must account for the difference. Extra candidate ticks, changed
+    values, and length differences remain reportable."""
+    if difference.get("classification") != "value":
+        return False
+    reference_trace = reference.get("trace")
+    candidate_trace = candidate.get("trace")
+    if (
+        not isinstance(reference_trace, list)
+        or not isinstance(candidate_trace, list)
+        or len(reference_trace) != len(candidate_trace)
+    ):
+        return False
+    last: Any = object()   # nothing emitted yet — never equal to a value
+    elided = 0
+    for ref, cand in zip(reference_trace, candidate_trace):
+        unchanged = ref is not None and ref == last
+        if ref is not None:
+            last = ref
+        if cand == ref:
+            continue
+        if cand is None and unchanged:
+            elided += 1
+            continue
+        return False
+    return elided >= 1
+
+
 RELATIONS = {
     TRACE_VALUE: _trace_value_relation,
+    NO_CHANGE_ELISION: _no_change_elision_relation,
     SERVICE_ADAPTOR_ONE_CYCLE: _service_adaptor_one_cycle_relation,
     KEY_SET_SIZE_NO_RETICK: _key_set_size_no_retick_relation,
     SUBSCRIPTION_RESAMPLE_ONE_CYCLE: (

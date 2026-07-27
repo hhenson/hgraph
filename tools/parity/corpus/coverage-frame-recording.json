@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "coverage-frame-recording",
+  "description": "The PR #92 class: the frame a recorder hands back to user code, including the timezone presentation of engine timestamp columns.",
+  "template": "data_frame_recording",
+  "inputs": {
+    "ts": [1, null, 2, 3]
+  },
+  "parameters": {
+    "as_of_offset": 30
+  },
+  "features": [
+    "shape:TS",
+    "type:int",
+    "boundary:python-owned",
+    "domain:frame-surface",
+    "topology:record-replay"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/pull/92"
+}

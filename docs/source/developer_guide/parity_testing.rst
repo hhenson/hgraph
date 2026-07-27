@@ -122,6 +122,46 @@ events, tick lengths, and feature pairs.  They also compare the template
 catalogue with the runtime's public operator inventory, so unsupported
 generation surface remains visible.
 
+The catalogue is deliberately targeted at the compatibility-issue classes
+production triage has actually produced (the 2026-07 batch, issues #74-#92):
+
+- ``scalar_expression`` const arguments exercise scalar auto-const overload
+  selection (the #74/#78 exact-matching class);
+- ``temporal_expression`` drives date/datetime arithmetic into the upstream
+  ``getattr_`` accessor tables — properties and method-call spellings, the
+  ``(date - date).days`` shape included (the #82 class);
+- ``collection_size`` covers ``len_``/``is_empty``/``contains_`` over every
+  upstream-supported sized shape (the #81 class); its no-change re-tick
+  elision is the ruled deviation, bounded by the ``no-change-elision``
+  relation in ``known_divergences.json``;
+- ``lifecycle_state`` generates start/stop lifecycle functions across the
+  accepted signature spellings — strict, bare-injectable, and unannotated
+  name-match (the #79 class);
+- ``data_frame_recording`` records through the DATA_FRAME model and emits
+  the frame a ``DataFrameStorage`` hands back to user code — column names,
+  **timezone presentation**, and row values — so a tz-aware engine column or
+  a changed frame surface is a trace difference (the PR #92 class);
+- ``postponed_annotations`` is a generation MODE on the source-built
+  templates: the generated module opts into PEP 563, so string annotations
+  exercise signature resolution on both distributions (the #83 class);
+- ``nested_higher_order`` targets the composition breeding ground directly:
+  a key set GROWING AND SHRINKING under ``map_``/``mesh_``, a per-key
+  ``switch_`` FLIPPING branches (nested graphs start/stop), request-reply
+  and subscription services and adaptors living inside that structure, and
+  optionally the whole pipeline under an outer ``switch_`` that tears it
+  down and rebuilds it. Weighted double in the generator. Composition is
+  restricted to upstream-supported space (a per-key adaptor client cycles
+  released hgraph's toposort, so the adaptor consumes the reduced pipeline
+  output; subscriptions subscribe per key outside the flipping switch), and
+  the subscription variant stays out of the ruled re-subscription timing
+  space (no key re-adds, no outer switch). Its first differential replays
+  surfaced issues #94 and #95.
+
+When a new compatibility issue is fixed, extend this list: either an
+existing template's generated space must provably contain the issue's
+minimized shape, or a new template/mode is added alongside a
+``coverage-*`` corpus recipe pinning it.
+
 Add a template when a behavior cannot be represented by the existing bounded
 language:
 

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "id": "coverage-nested-adaptor-pipeline",
+  "description": "Adaptor consuming the reduced output of a churning map+switch pipeline (verified matching released hgraph).",
+  "template": "nested_higher_order",
+  "inputs": {
+    "values": [
+      {
+        "k1": 3
+      },
+      {
+        "k2": 4
+      },
+      null,
+      {
+        "k1": {
+          "$remove": true
+        }
+      }
+    ],
+    "selector": [
+      "alpha",
+      null,
+      "beta",
+      null
+    ]
+  },
+  "parameters": {
+    "inner": "adaptor",
+    "outer": "map",
+    "wrap_switch": false,
+    "reduce_output": true,
+    "increment": 2
+  },
+  "features": [
+    "topology:nested-higher-order"
+  ]
+}

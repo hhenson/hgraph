@@ -42,6 +42,14 @@ def _decode_value(hg, value):
         return [_decode_value(hg, item) for item in value]
     if not isinstance(value, dict):
         return value
+    if set(value) == {"$date"}:
+        import datetime as _dt
+
+        return _dt.date.fromisoformat(value["$date"])
+    if set(value) == {"$datetime"}:
+        import datetime as _dt
+
+        return _dt.datetime.fromisoformat(value["$datetime"])
     if set(value) == {"$remove"} and value["$remove"] is True:
         return hg.REMOVE
     if set(value) == {"$remove_if_exists"} and value["$remove_if_exists"] is True:
@@ -181,6 +189,9 @@ def _validate_scalar_expression(recipe):
         raise RecipeError(
             f"declared output_type {declared_output!r} does not match {output_type!r}"
         )
+    postponed = recipe.parameters.get("postponed_annotations", False)
+    if not isinstance(postponed, bool):
+        raise RecipeError("postponed_annotations must be a boolean")
 
 
 def _scalar_expression(hg, recipe):
@@ -191,7 +202,12 @@ def _scalar_expression(hg, recipe):
     arguments = ", ".join(
         f"{name}: hg.TS[{type_name}]" for name, type_name in input_types.items()
     )
+    # mode:postponed-annotations (issue #83 class): the generated module opts
+    # into PEP 563, so every annotation reaches the wiring layer as a STRING.
+    prefix = ("from __future__ import annotations\n"
+              if recipe.parameters.get("postponed_annotations", False) else "")
     source = (
+        f"{prefix}"
         "@hg.graph\n"
         f"def parity_graph({arguments}) -> hg.TS[{output_type}]:\n"
         f"    return {_expression_source(recipe.parameters['expression'])}\n"
@@ -203,6 +219,567 @@ def _scalar_expression(hg, recipe):
         namespace["parity_graph"],
         *(inputs[name] for name in input_types),
     )
+
+
+# --------------------------------------------------------------------------
+# Temporal accessor expressions (issue #82 class): date/datetime arithmetic
+# feeding the upstream getattr_ property/method tables.
+
+_TEMPORAL_PROPERTIES = {
+    "date": {"year": "int", "month": "int", "day": "int"},
+    "datetime": {
+        "year": "int", "month": "int", "day": "int",
+        "hour": "int", "minute": "int", "second": "int", "microsecond": "int",
+    },
+    "timedelta": {"days": "int", "seconds": "int", "microseconds": "int"},
+}
+
+_TEMPORAL_METHODS = {
+    "date": {"weekday": "int", "isoweekday": "int"},
+    "datetime": {"weekday": "int", "isoweekday": "int"},
+    "timedelta": {"total_seconds": "float"},
+}
+
+
+def _temporal_accessor_kind(recipe):
+    target = recipe.parameters.get("target")
+    if target == "difference":
+        return "timedelta"
+    return recipe.parameters.get("input_type")
+
+
+def _validate_temporal_ticks(recipe, name):
+    """Reject malformed temporal tick encodings at the trusted boundary.
+
+    A curated or model-proposed recipe must not defer ``{"$date": 123}`` to
+    a runtime decode failure: every non-null tick carries exactly the tag
+    matching ``input_type`` and a valid ISO string (datetimes NAIVE — the
+    UTC convention)."""
+    import datetime as dt_module
+
+    input_type = recipe.parameters.get("input_type")
+    tag = "$date" if input_type == "date" else "$datetime"
+    decoder = (dt_module.date.fromisoformat if input_type == "date"
+               else dt_module.datetime.fromisoformat)
+    for tick in recipe.inputs.get(name, ()):
+        if tick is None:
+            continue
+        if (not isinstance(tick, dict) or set(tick) != {tag}
+                or not isinstance(tick[tag], str)):
+            raise RecipeError(
+                f"temporal_expression {name} ticks must be "
+                f'{{"{tag}": "<iso-string>"}} or null')
+        try:
+            decoded = decoder(tick[tag])
+        except ValueError as error:
+            raise RecipeError(
+                f"temporal_expression {name} tick {tick[tag]!r} is not a "
+                f"valid ISO {input_type}") from error
+        if input_type == "datetime" and decoded.tzinfo is not None:
+            raise RecipeError(
+                f"temporal_expression {name} datetime ticks must be naive "
+                "(the UTC convention)")
+
+
+def _validate_temporal_expression(recipe):
+    parameters = recipe.parameters
+    input_type = parameters.get("input_type")
+    if input_type not in ("date", "datetime"):
+        raise RecipeError("temporal_expression input_type must be date or datetime")
+    target = parameters.get("target")
+    if target not in ("difference", "shifted", "input"):
+        raise RecipeError("temporal_expression target must be difference/shifted/input")
+    if set(recipe.inputs) != ({"lhs", "rhs"} if target == "difference" else {"lhs"}):
+        raise RecipeError("temporal_expression inputs do not match its target")
+    for name in recipe.inputs:
+        _validate_temporal_ticks(recipe, name)
+    delta = parameters.get("delta")
+    if target == "shifted":
+        if (not isinstance(delta, dict)
+                or set(delta) - {"days", "seconds", "microseconds"}
+                or not all(isinstance(v, int) and not isinstance(v, bool)
+                           and -10_000 <= v <= 10_000 for v in delta.values())):
+            raise RecipeError("temporal_expression shifted target needs a bounded delta")
+    elif delta is not None:
+        raise RecipeError("temporal_expression delta applies to the shifted target only")
+    kind = _temporal_accessor_kind(recipe)
+    accessor = parameters.get("accessor")
+    table = {**_TEMPORAL_PROPERTIES[kind], **_TEMPORAL_METHODS[kind]}
+    if accessor not in table:
+        raise RecipeError(f"temporal_expression accessor {accessor!r} not valid for {kind}")
+    if parameters.get("output_type", table[accessor]) != table[accessor]:
+        raise RecipeError("temporal_expression output_type does not match the accessor")
+    postponed = parameters.get("postponed_annotations", False)
+    if not isinstance(postponed, bool):
+        raise RecipeError("postponed_annotations must be a boolean")
+
+
+def _temporal_expression(hg, recipe):
+    import datetime as dt_module
+
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    input_type = parameters["input_type"]
+    target = parameters["target"]
+    accessor = parameters["accessor"]
+    kind = _temporal_accessor_kind(recipe)
+    output_type = {**_TEMPORAL_PROPERTIES[kind], **_TEMPORAL_METHODS[kind]}[accessor]
+    call = "()" if accessor in _TEMPORAL_METHODS[kind] else ""
+    if target == "difference":
+        arguments = f"lhs: hg.TS[{input_type}], rhs: hg.TS[{input_type}]"
+        base = "(lhs - rhs)"
+    elif target == "shifted":
+        arguments = f"lhs: hg.TS[{input_type}]"
+        base = f"(lhs + timedelta(**{parameters['delta']!r}))"
+    else:
+        arguments = f"lhs: hg.TS[{input_type}]"
+        base = "lhs"
+    prefix = ("from __future__ import annotations\n"
+              if parameters.get("postponed_annotations", False) else "")
+    source = (
+        f"{prefix}"
+        "@hg.graph\n"
+        f"def parity_graph({arguments}) -> hg.TS[{output_type}]:\n"
+        "    lhs = hg.getitem_(hg.TSL.from_ts(lhs, lhs), 0)\n"
+        f"    return {base}.{accessor}{call}\n"
+    )
+    namespace = {
+        "hg": hg,
+        "date": dt_module.date,
+        "datetime": dt_module.datetime,
+        "timedelta": dt_module.timedelta,
+    }
+    exec(compile(source, f"<parity:{recipe.id}>", "exec"), namespace)
+    inputs = decoded_inputs(hg, recipe)
+    ordered = ("lhs", "rhs") if target == "difference" else ("lhs",)
+    return eval_node(namespace["parity_graph"], *(inputs[name] for name in ordered))
+
+
+# --------------------------------------------------------------------------
+# Collection sizes (issue #81 class): len_/is_empty/contains_ over every
+# upstream-supported sized shape.
+
+_COLLECTION_SHAPES = ("str", "tss", "tsd", "tsl")
+_COLLECTION_OPERATIONS = ("len", "is_empty", "contains")
+
+
+def _validate_collection_size(recipe):
+    parameters = recipe.parameters
+    shape = parameters.get("shape")
+    if shape not in _COLLECTION_SHAPES:
+        raise RecipeError(f"collection_size shape must be one of {_COLLECTION_SHAPES}")
+    operation = parameters.get("operation")
+    if operation not in _COLLECTION_OPERATIONS:
+        raise RecipeError(
+            f"collection_size operation must be one of {_COLLECTION_OPERATIONS}")
+    if shape == "tsl":
+        if operation != "len":
+            raise RecipeError("collection_size tsl covers len only")
+        if set(recipe.inputs) != {"a", "b"}:
+            raise RecipeError("collection_size tsl requires inputs a and b")
+    elif set(recipe.inputs) != {"ts"}:
+        raise RecipeError("collection_size requires the ts input")
+    probe = parameters.get("probe")
+    if operation == "contains":
+        expected = str if shape in ("str", "tsd") else int
+        if not isinstance(probe, expected) or isinstance(probe, bool):
+            raise RecipeError("collection_size contains needs a matching probe scalar")
+    elif probe is not None:
+        raise RecipeError("collection_size probe applies to contains only")
+
+
+def _collection_size(hg, recipe):
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    shape = parameters["shape"]
+    operation = parameters["operation"]
+    probe = parameters.get("probe")
+    inputs = decoded_inputs(hg, recipe)
+    if shape == "tsl":
+        @hg.graph
+        def parity_graph(a: hg.TS[int], b: hg.TS[int]) -> hg.TS[int]:
+            return hg.len_(hg.TSL.from_ts(_via_non_peered_ref(hg, a), b))
+
+        return eval_node(parity_graph, inputs["a"], inputs["b"])
+
+    annotation = {
+        "str": hg.TS[str],
+        "tss": hg.TSS[int],
+        "tsd": hg.TSD[str, hg.TS[int]],
+    }[shape]
+
+    if operation == "len":
+        @hg.graph
+        def parity_graph(ts: annotation) -> hg.TS[int]:
+            return hg.len_(_via_non_peered_ref(hg, ts))
+    elif operation == "is_empty":
+        @hg.graph
+        def parity_graph(ts: annotation) -> hg.TS[bool]:
+            return hg.is_empty(_via_non_peered_ref(hg, ts))
+    else:
+        @hg.graph
+        def parity_graph(ts: annotation) -> hg.TS[bool]:
+            return hg.contains_(_via_non_peered_ref(hg, ts), probe)
+
+    return eval_node(parity_graph, inputs["ts"])
+
+
+# --------------------------------------------------------------------------
+# Lifecycle signature spellings (issue #79 class): start/stop parameters
+# match the eval signature by name; every accepted spelling behaves alike.
+
+_LIFECYCLE_SPELLINGS = {
+    "default": "_state: hg.STATE = None",
+    "bare": "_state: hg.STATE",
+    "unannotated": "_state",
+}
+
+
+def _validate_lifecycle_state(recipe):
+    parameters = recipe.parameters
+    for phase in ("start_spelling", "stop_spelling"):
+        spelling = parameters.get(phase)
+        if spelling is not None and spelling not in _LIFECYCLE_SPELLINGS:
+            raise RecipeError(
+                f"lifecycle_state {phase} must be one of {tuple(_LIFECYCLE_SPELLINGS)}")
+    if parameters.get("start_spelling") is None:
+        raise RecipeError("lifecycle_state requires a start_spelling (state seeding)")
+    seed = parameters.get("seed", 0)
+    if not isinstance(seed, int) or isinstance(seed, bool) or not -100 <= seed <= 100:
+        raise RecipeError("lifecycle_state seed must be a bounded integer")
+    if set(recipe.inputs) != {"value"}:
+        raise RecipeError("lifecycle_state requires the value input")
+
+
+def _lifecycle_state(hg, recipe):
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    seed = parameters.get("seed", 0)
+    start_signature = _LIFECYCLE_SPELLINGS[parameters["start_spelling"]]
+    stop_spelling = parameters.get("stop_spelling")
+    stop_block = ""
+    if stop_spelling is not None:
+        stop_block = (
+            "@lifecycle_node.stop\n"
+            f"def lifecycle_stop({_LIFECYCLE_SPELLINGS[stop_spelling]}):\n"
+            "    pass\n"
+        )
+    source = (
+        "@hg.compute_node\n"
+        "def lifecycle_node(value: hg.TS[int], _state: hg.STATE = None) -> hg.TS[int]:\n"
+        "    _state.total = _state.total + value.value\n"
+        "    return _state.total\n"
+        "@lifecycle_node.start\n"
+        f"def lifecycle_start({start_signature}):\n"
+        f"    _state.total = {seed}\n"
+        f"{stop_block}"
+        "@hg.graph\n"
+        "def parity_graph(value: hg.TS[int]) -> hg.TS[int]:\n"
+        "    value = hg.getitem_(hg.TSL.from_ts(value, value), 0)\n"
+        "    return lifecycle_node(value)\n"
+    )
+    namespace = {"hg": hg}
+    exec(compile(source, f"<parity:{recipe.id}>", "exec"), namespace)
+    inputs = decoded_inputs(hg, recipe)
+    return eval_node(namespace["parity_graph"], inputs["value"])
+
+
+# --------------------------------------------------------------------------
+# Deeply nested higher-order structures: map_/mesh_ over a CHURNING key set,
+# a per-key switch_ FLIPPING branches (nested graphs start/stop), services
+# (request-reply / subscription) and adaptors living INSIDE those branches,
+# optionally the whole pipeline under an outer switch_ that tears it down and
+# rebuilds it. This composition space is where production issues breed.
+
+_NESTED_INNER = ("arithmetic", "request_reply", "subscription", "adaptor")
+_NESTED_OUTER = ("map", "mesh")
+
+
+def _keys_re_added(ticks):
+    removed = set()
+    for tick in ticks:
+        if not isinstance(tick, dict):
+            continue
+        for key, value in tick.items():
+            if isinstance(value, dict) and value.get("$remove") is True:
+                removed.add(key)
+            elif key in removed:
+                return True
+    return False
+
+
+def _validate_nested_higher_order(recipe):
+    parameters = recipe.parameters
+    inner = parameters.get("inner")
+    if inner not in _NESTED_INNER:
+        raise RecipeError(f"nested_higher_order inner must be one of {_NESTED_INNER}")
+    outer = parameters.get("outer")
+    if outer not in _NESTED_OUTER:
+        raise RecipeError(f"nested_higher_order outer must be one of {_NESTED_OUTER}")
+    wrap_switch = parameters.get("wrap_switch", False)
+    reduce_output = parameters.get("reduce_output", True)
+    if not isinstance(wrap_switch, bool) or not isinstance(reduce_output, bool):
+        raise RecipeError("nested_higher_order wrap_switch/reduce_output must be booleans")
+    if wrap_switch and not reduce_output:
+        raise RecipeError(
+            "nested_higher_order wrap_switch requires reduce_output (one output shape)")
+    increment = parameters.get("increment", 1)
+    if (not isinstance(increment, int) or isinstance(increment, bool)
+            or not -20 <= increment <= 20):
+        raise RecipeError("nested_higher_order increment must be a bounded integer")
+    expected = {"values", "selector"}
+    if wrap_switch:
+        expected.add("outer_selector")
+    if set(recipe.inputs) != expected:
+        raise RecipeError(f"nested_higher_order requires inputs {sorted(expected)}")
+    for name, allowed in (("selector", ("alpha", "beta")),
+                          ("outer_selector", ("on", "off"))):
+        for tick in recipe.inputs.get(name, ()):
+            if tick is not None and tick not in allowed:
+                raise RecipeError(f"nested_higher_order {name} ticks must be in {allowed}")
+    if inner == "adaptor" and not reduce_output:
+        raise RecipeError(
+            "nested_higher_order adaptor inner requires reduce_output "
+            "(the adaptor consumes the reduced pipeline output)")
+    if inner == "subscription":
+        # The service re-subscription timing deviation is RULED (roadmap.rst):
+        # generated recipes stay out of that space — a removed key is never
+        # re-added, and the outer switch (which would re-subscribe every key
+        # on re-entry) is excluded.
+        if wrap_switch:
+            raise RecipeError(
+                "nested_higher_order subscription inner excludes wrap_switch")
+        if _keys_re_added(recipe.inputs["values"]):
+            raise RecipeError(
+                "nested_higher_order subscription inner must not re-add removed keys")
+
+
+def _nested_higher_order(hg, recipe):
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    inner = parameters["inner"]
+    outer = parameters["outer"]
+    wrap_switch = parameters.get("wrap_switch", False)
+    reduce_output = parameters.get("reduce_output", True)
+    increment = parameters.get("increment", 1)
+    path = f"nested_{inner}"
+
+    # ---- the service/adaptor leaf living inside the alpha branch ----
+    if inner == "request_reply":
+        @hg.request_reply_service
+        def adjust(path: str, request: hg.TS[int]) -> hg.TS[int]: ...
+
+        @hg.service_impl(interfaces=adjust)
+        def adjust_impl(request: hg.TSD[int, hg.TS[int]]) -> hg.TSD[int, hg.TS[int]]:
+            return hg.map_(lambda value: value + increment, request)
+
+        def register(): hg.register_service(path, adjust_impl)
+        def alpha_leaf(value): return adjust(path, value)
+    elif inner == "subscription":
+        @hg.subscription_service
+        def quote(path: str, symbol: hg.TS[str]) -> hg.TS[int]: ...
+
+        @hg.graph
+        def quote_value(symbol: hg.TS[str]) -> hg.TS[int]:
+            return hg.len_(symbol) * increment
+
+        @hg.service_impl(interfaces=quote)
+        def quote_impl(symbol: hg.TSS[str]) -> hg.TSD[str, hg.TS[int]]:
+            return hg.map_(quote_value, __keys__=symbol, __key_arg__="symbol")
+
+        def register(): hg.register_service(path, quote_impl)
+        def alpha_leaf(value, key): return quote(path, key) + value
+    elif inner == "adaptor":
+        @hg.adaptor
+        def loopback(path: str, value: hg.TS[int]) -> hg.TS[int]: ...
+
+        @hg.adaptor_impl(interfaces=loopback)
+        def loopback_impl(path: str, value: hg.TS[int]) -> hg.TS[int]:
+            return value + increment
+
+        def register(): hg.register_adaptor(path, loopback_impl)
+        def alpha_leaf(value): return loopback(path, value)
+    else:
+        def register(): pass
+        def alpha_leaf(value): return value + increment
+
+    # ---- the per-key graph: a switch_ flipping between the service-backed
+    #      alpha branch and plain arithmetic (branch flips start/stop the
+    #      nested graphs and their service/adaptor clients) ----
+    # Upstream-supported composition space only (the generator does not
+    # explore upstream-broken shapes): a per-key ADAPTOR client cycles
+    # released hgraph's toposort, so the adaptor consumes the reduced
+    # pipeline output instead; the SUBSCRIPTION subscribes per key OUTSIDE
+    # the switch (key churn still subscribes/unsubscribes) while the switch
+    # flips the arithmetic around it.
+    if inner == "subscription":
+        @hg.graph
+        def alpha_branch(value: hg.TS[int]) -> hg.TS[int]:
+            return value + increment
+
+        @hg.graph
+        def beta_branch(value: hg.TS[int]) -> hg.TS[int]:
+            return value * 2 - increment
+
+        @hg.graph
+        def per_key_graph(key: hg.TS[str], value: hg.TS[int],
+                          selector: hg.TS[str]) -> hg.TS[int]:
+            quoted = alpha_leaf(value, key)
+            return hg.switch_(
+                selector,
+                {"alpha": alpha_branch, "beta": beta_branch},
+                quoted,
+            )
+    else:
+        if inner == "adaptor":
+            @hg.graph
+            def alpha_branch(value: hg.TS[int]) -> hg.TS[int]:
+                return value + increment
+        else:
+            @hg.graph
+            def alpha_branch(value: hg.TS[int]) -> hg.TS[int]:
+                return alpha_leaf(value)
+
+        @hg.graph
+        def beta_branch(value: hg.TS[int]) -> hg.TS[int]:
+            return value * 2 - increment
+
+        @hg.graph
+        def per_key_graph(key: hg.TS[str], value: hg.TS[int],
+                          selector: hg.TS[str]) -> hg.TS[int]:
+            del key
+            return hg.switch_(
+                selector,
+                {"alpha": alpha_branch, "beta": beta_branch},
+                value,
+            )
+
+    @hg.graph
+    def mesh_keyed(key: hg.TS[str], selector: hg.TS[str]) -> hg.TS[int]:
+        return per_key_graph(key, hg.len_(key), selector)
+
+    def pipeline(values, selector):
+        if outer == "mesh":
+            mapped = hg.mesh_(
+                mesh_keyed, selector,
+                __keys__=hg.keys_(values), __key_arg__="key",
+            )
+        else:
+            mapped = hg.map_(per_key_graph, values, selector)
+        if reduce_output:
+            reduced = hg.reduce(lambda lhs, rhs: lhs + rhs, mapped, 0)
+            if inner == "adaptor":
+                # The adaptor consumes the churning nested pipeline's output.
+                return alpha_leaf(reduced)
+            return reduced
+        return mapped
+
+    if wrap_switch:
+        @hg.graph
+        def parity_graph(values: hg.TSD[str, hg.TS[int]], selector: hg.TS[str],
+                         outer_selector: hg.TS[str]) -> hg.TS[int]:
+            register()
+            values = _via_non_peered_ref(hg, values)
+            return hg.switch_(
+                outer_selector,
+                {
+                    "on": lambda values, selector: pipeline(values, selector),
+                    "off": lambda values, selector: hg.len_(values) * 0,
+                },
+                values,
+                selector,
+            )
+    elif reduce_output:
+        @hg.graph
+        def parity_graph(values: hg.TSD[str, hg.TS[int]],
+                         selector: hg.TS[str]) -> hg.TS[int]:
+            register()
+            values = _via_non_peered_ref(hg, values)
+            return pipeline(values, selector)
+    else:
+        @hg.graph
+        def parity_graph(values: hg.TSD[str, hg.TS[int]],
+                         selector: hg.TS[str]) -> hg.TSD[str, hg.TS[int]]:
+            register()
+            values = _via_non_peered_ref(hg, values)
+            return pipeline(values, selector)
+
+    inputs = decoded_inputs(hg, recipe)
+    ordered = ["values", "selector"] + (["outer_selector"] if wrap_switch else [])
+    return eval_node(
+        parity_graph,
+        *(inputs[name] for name in ordered),
+        __end_time__=hg.MIN_ST + (recipe.tick_count + 6) * hg.MIN_TD,
+    )
+
+
+# --------------------------------------------------------------------------
+# Data-frame recording surface (issue #92 class): the frames the recorder
+# frameworks hand back to user code — column timezone presentation included.
+
+
+def _validate_data_frame_recording(recipe):
+    if set(recipe.inputs) != {"ts"}:
+        raise RecipeError("data_frame_recording requires the ts input")
+    as_of_offset = recipe.parameters.get("as_of_offset", 30)
+    if (not isinstance(as_of_offset, int) or isinstance(as_of_offset, bool)
+            or not 1 <= as_of_offset <= 10_000):
+        raise RecipeError("data_frame_recording as_of_offset must be a bounded integer")
+
+
+def _canonical_frame_surface(frame):
+    """A frame in a distribution-independent canonical shape.
+
+    Works for both boundary forms (upstream polars DataFrame, hg_cpp
+    pyarrow Table): column names with their timezone presentation, plus the
+    row values (datetimes canonicalize downstream via isoformat — a
+    tz-aware value renders with its offset, so an aware/naive divergence is
+    a trace difference)."""
+    if hasattr(frame, "to_pylist"):   # pyarrow.Table
+        columns = []
+        for field in frame.schema:
+            tz = getattr(field.type, "tz", None)
+            columns.append({"name": field.name, "tz": tz})
+        rows = [
+            [row[column["name"]] for column in columns]
+            for row in frame.to_pylist()
+        ]
+        return {"columns": columns, "rows": rows}
+    if hasattr(frame, "to_dicts"):   # polars.DataFrame
+        columns = []
+        for name, dtype in frame.schema.items():
+            tz = getattr(dtype, "time_zone", None)
+            columns.append({"name": name, "tz": tz})
+        rows = [
+            [row[column["name"]] for column in columns]
+            for row in frame.to_dicts()
+        ]
+        return {"columns": columns, "rows": rows}
+    raise RecipeError(f"unsupported frame surface {type(frame)!r}")
+
+
+def _data_frame_recording(hg, recipe):
+    from hgraph.test import eval_node
+    from hgraph.adaptors.data_frame import (
+        DATA_FRAME_RECORD_REPLAY,
+        MemoryDataFrameStorage,
+    )
+
+    as_of_offset = recipe.parameters.get("as_of_offset", 30)
+    inputs = decoded_inputs(hg, recipe)
+    with hg.GlobalState(), MemoryDataFrameStorage() as storage:
+        hg.set_record_replay_model(DATA_FRAME_RECORD_REPLAY)
+        hg.set_as_of(hg.MIN_ST + hg.MIN_TD * as_of_offset)
+        eval_node(hg.record[hg.TS[int]], ts=inputs["ts"], key="ts",
+                  recordable_id="parity")
+        frame = storage.read_frame("parity.ts")
+        replayed = eval_node(hg.replay[hg.TS[int]], key="ts",
+                             recordable_id="parity")
+    return {"frame": _canonical_frame_surface(frame), "replayed": replayed}
 
 
 def _feedback_accumulate(hg, recipe):
@@ -1050,6 +1627,72 @@ CATALOG = {
         operators=("convert",),
         execute=_stream_dataclass,
     ),
+    "temporal_expression": TemplateSpec(
+        name="temporal_expression",
+        required_inputs=None,
+        features=(
+            "shape:TS",
+            "topology:expression",
+            "domain:temporal",
+            "reference:REF",
+            "binding:non-peered",
+        ),
+        operators=("sub_", "add_", "getattr_"),
+        execute=_temporal_expression,
+    ),
+    "collection_size": TemplateSpec(
+        name="collection_size",
+        required_inputs=None,
+        features=(
+            "topology:expression",
+            "domain:collection-size",
+            "reference:REF",
+            "binding:non-peered",
+        ),
+        operators=("len_", "is_empty", "contains_"),
+        execute=_collection_size,
+    ),
+    "lifecycle_state": TemplateSpec(
+        name="lifecycle_state",
+        required_inputs=("value",),
+        features=(
+            "shape:TS",
+            "type:int",
+            "boundary:python-owned",
+            "domain:lifecycle-signature",
+            "reference:REF",
+            "binding:non-peered",
+        ),
+        operators=(),
+        execute=_lifecycle_state,
+    ),
+    "nested_higher_order": TemplateSpec(
+        name="nested_higher_order",
+        required_inputs=None,
+        features=(
+            "topology:nested-higher-order",
+            "shape:TSD",
+            "type:int",
+            "reference:REF",
+            "binding:non-peered",
+            "lifecycle:multi-cycle",
+        ),
+        operators=("map_", "mesh_", "switch_", "reduce", "len_", "keys_"),
+        execute=_nested_higher_order,
+    ),
+    "data_frame_recording": TemplateSpec(
+        name="data_frame_recording",
+        required_inputs=("ts",),
+        features=(
+            "shape:TS",
+            "type:int",
+            "boundary:python-owned",
+            "domain:frame-surface",
+            "topology:record-replay",
+        ),
+        operators=("record", "replay"),
+        execute=_data_frame_recording,
+    ),
 }
 
 
@@ -1092,6 +1735,16 @@ def validate_recipe(recipe):
         )
     if recipe.template == "scalar_expression":
         _validate_scalar_expression(recipe)
+    elif recipe.template == "temporal_expression":
+        _validate_temporal_expression(recipe)
+    elif recipe.template == "collection_size":
+        _validate_collection_size(recipe)
+    elif recipe.template == "lifecycle_state":
+        _validate_lifecycle_state(recipe)
+    elif recipe.template == "nested_higher_order":
+        _validate_nested_higher_order(recipe)
+    elif recipe.template == "data_frame_recording":
+        _validate_data_frame_recording(recipe)
     elif recipe.template == "feedback_accumulate":
         initial = recipe.parameters.get("initial", 0)
         if not isinstance(initial, int) or isinstance(initial, bool):
