@@ -4,10 +4,11 @@
 #    pa.concat_tables, .sort(...) -> .sort_by(...), assert_frame_equal ->
 #    Table.equals. The empty frame gets explicit column types (pyarrow cannot
 #    infer from []).
-#  - deviation: RFC 0002 version-2 Instant columns are timestamp[us, "UTC"],
-#    so Arrow returns timezone-aware UTC datetime values.
+#  - the user boundary presents NAIVE UTC datetimes (upstream-verbatim,
+#    issue #80): version-2 Instant columns strip their UTC timezone on the
+#    way out, so date expectations are upstream's naive values.
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Tuple
 
 import pyarrow as pa
@@ -21,7 +22,8 @@ from hgraph.test import eval_node
 
 
 def _instant(value: datetime) -> datetime:
-    return value.replace(tzinfo=timezone.utc)
+    # Upstream-verbatim: engine dates surface as naive UTC datetimes.
+    return value
 
 
 def test_data_frame_ts():
