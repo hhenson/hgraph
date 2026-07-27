@@ -137,6 +137,42 @@ def test_frame_store_read_presents_naive_utc_timestamps():
         hg.set_record_replay_config(hg.IN_MEMORY)
 
 
+def test_strip_presents_engine_columns_naive_even_in_zoned_frames():
+    # A frame carrying ZonedDateTime values (a STRUCT column + the
+    # hgraph.tzdb.version marker) still presents its top-level engine
+    # timestamp columns naive; the zoned struct's nested timestamp and the
+    # tzdb marker are untouched, and the temporal marker drops (v1 form).
+    from datetime import datetime, timezone
+
+    from hgraph._frame import _strip_utc_timestamps
+
+    zoned_type = pa.struct([
+        pa.field("instant", pa.timestamp("us", tz="UTC")),
+        pa.field("zone", pa.string()),
+        pa.field("offset_seconds", pa.int32()),
+    ])
+    when = datetime(2026, 7, 27, 12, 0, tzinfo=timezone.utc)
+    table = pa.table(
+        {
+            "__date_time__": pa.array([when], pa.timestamp("us", tz="UTC")),
+            "value": pa.array(
+                [{"instant": when, "zone": "Europe/London", "offset_seconds": 3600}],
+                zoned_type,
+            ),
+        },
+    ).replace_schema_metadata({
+        b"hgraph.temporal.version": b"2",
+        b"hgraph.tzdb.version": b"2026a",
+    })
+
+    stripped = _strip_utc_timestamps(table)
+    assert stripped.schema.field("__date_time__").type == pa.timestamp("us")
+    assert stripped.schema.field("value").type == zoned_type
+    metadata = stripped.schema.metadata
+    assert b"hgraph.temporal.version" not in metadata
+    assert metadata[b"hgraph.tzdb.version"] == b"2026a"
+
+
 def test_data_frame_storage_read_presents_user_form(polars_frames):
     # RecorderAPI/DataFrameStorage reads are a user-facing framework
     # surface: with the switch on the user reads polars, while internal

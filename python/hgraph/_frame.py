@@ -73,13 +73,14 @@ def _strip_utc_timestamps(table):
     the instants are UTC either way. The ``hgraph.temporal.version`` marker
     drops with the timezone — the result IS the version-1 form, which the
     codec re-ingests (a naive column under a version-2 marker is rejected).
-    Zoned frames (``hgraph.tzdb.version`` present — ZonedDateTime columns)
-    keep their timezone semantics untouched, as do non-UTC zones."""
+    Zoned values keep their timezone semantics untouched: ZonedDateTime and
+    the range kinds are STRUCT columns whose nested timestamps this
+    top-level strip never reaches, and the ``hgraph.tzdb.version`` marker
+    their ingest validation requires is preserved. Non-UTC zones are never
+    stripped."""
     import pyarrow as pa
 
     metadata = dict(table.schema.metadata or {})
-    if b"hgraph.tzdb.version" in metadata:
-        return table
     fields = [
         field.with_type(pa.timestamp(field.type.unit))
         if pa.types.is_timestamp(field.type) and field.type.tz == "UTC"
