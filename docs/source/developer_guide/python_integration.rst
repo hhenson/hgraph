@@ -218,7 +218,16 @@ components:
 - ``@compute_node`` and ``@sink_node`` with any practical arity, positional or
   keyword binding, scalar defaults, validity and activity gating, optional
   inputs, collection deltas, ``STATE``/``CLOCK``/``SCHEDULER``/``GlobalState``
-  injectables, and Python ``start``/``stop`` lifecycle callbacks. Input
+  injectables, and Python ``start``/``stop`` lifecycle callbacks. Lifecycle
+  parameters match the **eval signature by name and nothing else** (ruling
+  2026-07-27, issue #79): a name eval declares takes eval's definition — the
+  lifecycle function's own annotations and defaults are documentation, never
+  contract (``_state: STATE``, bare ``_state``, and ``_state: STATE = None``
+  are equivalent spellings); names eval does not declare keep their own
+  annotation (an extra injectable such as ``clock: CLOCK``); reading inputs
+  stays stop-only. Signature resolution evaluates string annotations
+  everywhere (``eval_str=True`` / ``inspect.get_annotations``, issue #83),
+  so ``from __future__ import annotations`` modules wire identically. Input
   activity is REAL at the per-child link level: the node's start hook
   activates each packed input child per its ``active=`` policy and drops the
   framework's root subscription; the stop hook passivates every child (a
