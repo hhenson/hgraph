@@ -18,18 +18,12 @@ __all__ = (
 
 
 def _as_arrow_table(value) -> pa.Table:
-    if isinstance(value, pa.Table):
-        return value
-    if isinstance(value, pa.RecordBatch):
-        return pa.Table.from_batches([value])
-    if isinstance(value, pa.RecordBatchReader):
-        return value.read_all()
-    to_arrow = getattr(value, "to_arrow", None)
-    if to_arrow is not None:
-        table = to_arrow()
-        if isinstance(table, pa.Table):
-            return table
-    raise TypeError(f"dataframe sources must produce an Arrow Table, got {type(value)!r}")
+    from hgraph._frame import as_arrow_table
+
+    table = as_arrow_table(value)
+    if not isinstance(table, pa.Table):
+        raise TypeError(f"dataframe sources must produce an Arrow Table, got {type(value)!r}")
+    return table
 
 
 class DataFrameSource(ABC):

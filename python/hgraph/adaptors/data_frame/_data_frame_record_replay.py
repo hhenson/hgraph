@@ -164,6 +164,8 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
         self._schema = {}
 
     def read_frame(self, path, start_time=None, end_time=None, as_of=None):
+        from hgraph._frame import as_user_frame
+
         frame = self._read(path)
         date_col, as_of_col = self._schema_info(path)
         mask = None
@@ -178,7 +180,10 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
         if as_of is not None and as_of_col is not None:
             as_of_mask = pc.less_equal(frame[as_of_col], pa.scalar(as_of))
             mask = as_of_mask if mask is None else pc.and_(mask, as_of_mask)
-        return frame.filter(mask) if mask is not None else frame
+        # A framework surface: user code reads recordings through this, so
+        # the result presents in the user-facing form (issue #80); internal
+        # replay normalizes back through _as_arrow.
+        return as_user_frame(frame.filter(mask) if mask is not None else frame)
 
     def write_frame(self, path, frame, mode=WriteMode.OVERWRITE, as_of=None):
         frame = _as_arrow(frame)
@@ -262,14 +267,12 @@ class MemoryDataFrameStorage(BaseDataFrameStorage):
 
 
 def _as_arrow(value):
-    if isinstance(value, pa.Table):
-        return value
-    if isinstance(value, pa.RecordBatch):
-        return pa.Table.from_batches([value])
-    to_arrow = getattr(value, "to_arrow", None)
-    if to_arrow is not None:
-        return _as_arrow(to_arrow())
-    raise TypeError(f"dataframe storage requires an Arrow-compatible frame, got {type(value)!r}")
+    from hgraph._frame import as_arrow_table
+
+    table = as_arrow_table(value)
+    if not isinstance(table, pa.Table):
+        raise TypeError(f"dataframe storage requires an Arrow-compatible frame, got {type(value)!r}")
+    return table
 
 
 # --------------------------------------------------------------------------
@@ -342,13 +345,16 @@ _LITERAL_FRAMES = {}
 
 
 def _storage_frame(key, recordable_id):
+    # Internal replay consumption: a user-implemented storage (or a
+    # user-supplied literal frame) may return the user-facing form —
+    # normalize back to the canonical Arrow representation (issue #80).
     literal = _LITERAL_FRAMES.get((key, recordable_id))
     if literal is not None:
-        return literal
+        return _as_arrow(literal)
     storage = DataFrameStorage.instance()
     if storage is None:
         raise RuntimeError("data-frame record/replay requires an active DataFrameStorage")
-    return storage.read_frame(f"{recordable_id}.{key}", as_of=_configured_as_of())
+    return _as_arrow(storage.read_frame(f"{recordable_id}.{key}", as_of=_configured_as_of()))
 
 
 _REPLAY_SCHEMAS = {}

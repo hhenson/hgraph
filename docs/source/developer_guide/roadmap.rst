@@ -635,7 +635,18 @@ The following are intentional unless separately re-opened:
   ``polars.DataFrame``/``polars.Series`` (``pl.from_arrow``, zero-copy) to
   reduce migration cost for polars-era user code.  Default off; polars stays
   a lazy optional dependency (a clear error if the switch is on without it);
-  the runtime substrate and record/replay artifacts remain Arrow either way.  Upstream tests asserting polars-native values against
+  the runtime substrate and record/replay artifacts remain Arrow either way.
+  The same boundary presents **naive UTC timestamps** (upstream parity — the
+  Python convention is tz-free datetimes throughout): version-2 Instant
+  columns (``timestamp[us, UTC]``) strip their timezone on the way out and
+  drop the ``hgraph.temporal.version`` marker, so the presented frame IS the
+  version-1 form and re-ingests cleanly; zoned frames (``hgraph.tzdb.version``
+  — ZonedDateTime columns) keep their timezone semantics.  Stored artifacts
+  stay version-2 tz-aware.  The presentation is a single Python-side hook
+  pair (``hgraph._frame._present_frame``/``_present_series``, called from
+  the bridge's outbound converters); user-facing framework returns route
+  through ``as_user_frame`` and shipped internals normalize back through
+  ``as_arrow_table``.  Upstream tests asserting polars-native values against
   frame reads (pyarrow scalars do not compare equal to python scalars, and
   arrow schema iteration yields ``Field`` objects, not names) are ported with
   that boundary conversion; the conversions themselves are exercised

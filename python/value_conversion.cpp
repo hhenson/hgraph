@@ -552,18 +552,22 @@ namespace hgraph::python_bridge
 
     namespace
     {
-        [[nodiscard]] nb::object import_polars()
+        /* The user-boundary frame/series presentation lives PYTHON-side
+           (hgraph._frame): naive-UTC timestamp columns and the optional
+           polars form (issue #80). The bridge stays usable without the
+           hgraph package (raw pyarrow passthrough). */
+        [[nodiscard]] nb::object present_through(const char *hook, nb::object value)
         {
+            nb::object presenter;
             try
             {
-                return nb::module_::import_("polars");
+                presenter = nb::module_::import_("hgraph._frame").attr(hook);
             }
             catch (nb::python_error &)
             {
-                throw std::runtime_error(
-                    "the polars_frames feature switch is enabled (HGRAPH_POLARS_FRAMES) "
-                    "but polars is not installed; install polars or disable the switch");
+                return value;
             }
+            return presenter(value);
         }
     }  // namespace
 
@@ -572,8 +576,7 @@ namespace hgraph::python_bridge
         if (!frame.has_value()) { return nb::none(); }
         nb::object stream = nb::cast(PyArrowStream{frame});
         nb::object table  = nb::module_::import_("pyarrow").attr("table")(stream);
-        if (!polars_frames_enabled()) { return table; }
-        return import_polars().attr("from_arrow")(table);
+        return present_through("_present_frame", std::move(table));
     }
 
     Value py_arrow_to_frame(nb::handle object)
@@ -619,8 +622,7 @@ namespace hgraph::python_bridge
         if (!series.has_value()) { return nb::none(); }
         nb::object holder = nb::cast(PySeriesArray{series});
         nb::object array  = nb::module_::import_("pyarrow").attr("array")(holder);
-        if (!polars_frames_enabled()) { return array; }
-        return import_polars().attr("from_arrow")(array);
+        return present_through("_present_series", std::move(array));
     }
 
     Value py_arrow_to_series(nb::handle object)
