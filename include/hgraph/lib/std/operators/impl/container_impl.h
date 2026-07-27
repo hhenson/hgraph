@@ -270,10 +270,35 @@ struct contains_tsd_key {
 struct len_tsl {
   static constexpr bool schedule_on_start = true;
 
+  // Any element kind (upstream: TSL[TIME_SERIES_TYPE, SIZE]) — a TSL of
+  // bundles or nested lists has a size too (issue #81).
   static void eval(
-      In<"ts", TSL<TS<ScalarVar<"T">>, SIZE<"N">>, InputValidity::Unchecked> ts,
+      In<"ts", TSL<TsVar<"E">, SIZE<"N">>, InputValidity::Unchecked> ts,
       Out<TS<Int>> out) {
     container_impl_detail::set_if_changed(out, static_cast<Int>(ts.size()));
+  }
+};
+
+/** len_ over a TSW: the CURRENT buffer length (grows until the window
+    fills, then stays put — no-change means no tick). */
+struct len_tsw {
+  static constexpr auto name = "len_tsw";
+  static constexpr bool schedule_on_start = true;
+
+  static bool requires_(const ResolutionMap &, OperatorCallContext context) {
+    return context.args.size() == 1 &&
+           time_series_arg_matches<AnyTSW>(context, 0);
+  }
+
+  static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                   Out<TS<Int>> out) {
+    if (!ts.valid()) {
+      container_impl_detail::set_if_changed(out, Int{0});
+      return;
+    }
+    const TSWInputView window_input{ts.base().borrowed_ref()};
+    container_impl_detail::set_if_changed(
+        out, static_cast<Int>(window_input.data_view().size()));
   }
 };
 

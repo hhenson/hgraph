@@ -277,6 +277,42 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
     return _times_for_sparse(run.recorded("__run_graph__", sparse=True))
 
 
+def _resolve_generic_annotation(annotation, samples):
+    """Resolve a generic annotation whose only free variable is SIZE.
+
+    ``TSL[X, SIZE]`` (nested children included) becomes the concrete TSL by
+    inferring the outer size from the samples (int-keyed dict → max key + 1;
+    list/tuple → length). Any annotation the size binding cannot fully
+    resolve (free scalar/ts variables, SIGNAL, ...) returns None and the
+    caller falls back to sample-scalar inference."""
+    pattern = getattr(annotation, "pattern", None)
+    if pattern is None:
+        return None
+    size = 0
+    for sample in samples:
+        if sample is None:
+            continue
+        if isinstance(sample, dict):
+            keys = [k for k in sample
+                    if isinstance(k, int) and not isinstance(k, bool)]
+            if len(keys) != len(sample):
+                return None
+            if keys:
+                size = max(size, max(keys) + 1)
+        elif isinstance(sample, (list, tuple)):
+            size = max(size, len(sample))
+        else:
+            return None
+    if size == 0:
+        return None
+    scope = _hgraph.ResolutionScope()
+    scope.bind_size("SIZE", size)
+    resolved = scope.resolve_ts(pattern)
+    if resolved is None:
+        return None
+    return _TsExpr(resolved, f"resolved[{annotation!r}]")
+
+
 def _infer_ts_type(series):
     """The TS type for an eval_node input vector, from its first non-None
     sample (hgraph's operators are driven without annotations)."""
@@ -491,7 +527,12 @@ def eval_node(fn, *inputs, output_type=None, resolution_dict=None,
             from .._types import _GenericTsExpr
             if isinstance(annotation, _GenericTsExpr):
                 samples = series if isinstance(series, (list, tuple)) else [series]
-                annotation = _infer_ts_type(samples)
+                # A generic collection annotation (TSL[..., SIZE]) resolves
+                # against the samples first — binding the size yields the
+                # REAL dynamic time-series shape (issue #81); only a still-
+                # generic annotation falls back to sample-scalar inference.
+                annotation = (_resolve_generic_annotation(annotation, samples)
+                              or _infer_ts_type(samples))
             annotation = _producer_annotation(annotation)
             import types as _pytypes
             import typing as _typing

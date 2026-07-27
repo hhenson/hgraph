@@ -34,7 +34,9 @@ chosen implementation is baked into the graph.
    in ``include/hgraph/lib/std/std_operators.h`` — covering scalar arithmetic,
    comparison, logical / bitwise, string operators (``match_`` / ``replace`` /
    ``substr`` / ``split`` / ``join`` / ``format_``), ``str_``, const / zero,
-   collection container basics and TSS set algebra, stream basics
+   collection container basics and TSS set algebra (``len_`` covers every
+   sized shape — str / TSS / TSD / TSL of any element kind / TSB field count
+   / TSW buffer length / sized container scalars; issue #81), stream basics
    (``sample`` / ``filter_`` / ``take`` / ``drop`` / ``step`` / ``slice_`` /
    ``dedup`` / ``diff`` / ``count`` / ``clip`` / ``ewma``),
    flow-control basics (``merge`` / ``all_`` / ``any_`` / ``if_true`` /
@@ -200,21 +202,21 @@ implementation's declared scalar type.
 
 When a candidate expects a time-series input and the call supplies a scalar value,
 the matcher tries the Python-style auto-const rule: the scalar value must match the
-candidate's current-value schema (with the same standard numeric coercions), and
+candidate's current-value schema, and
 the selected candidate wires an internal one-shot const source to supply that input.
 For example ``wire<add_>(w, price, Int{3})`` selects the same ``TS<Int>`` overload as
 ``wire<add_>(w, price, const_3)``.
 
-The auto-const coercion is **spelling, not conversion**: a scalar may widen into
-the candidate's current-value schema within the same numeric family (an ``int32``
-literal supplied for ``Int``, a ``float`` for ``Float`` — the C++ narrowing
-convenience), at one rank point. A **cross-family** value is **not a match** —
-an int supplied where a candidate wants ``TS<Float>`` rejects that candidate
-outright, exactly as upstream, which never matches an int into ``TS[float]``.
-``dedup(2)`` therefore selects the generic overload at ``TS[int]`` and can never
-reach the float-tolerance overload (issue #74). Bool is its own family and does
-not coerce. Scalar (configuration) parameters are unaffected: they keep the full
-standard numeric conversions of the ordinary ``wire<>`` scalar path.
+Atomic auto-const matches are exact: the scalar's interned schema must equal the
+candidate's current-value schema. Template matching performs no numeric widening
+or narrowing, so an ``int32`` does not match ``TS<Int>``, a ``Float`` does not
+match ``TS<float>``, and an int does not match ``TS<Float>``. This prevents a
+more-specific overload from changing the argument's type while it is being
+matched; for example ``dedup(2)`` selects the generic ``TS<Int>`` overload and
+cannot reach the float-tolerance overload. Existing structural current-value
+compatibility, including declared bundle inheritance, is preserved. Scalar
+(configuration) parameters are unaffected and keep the standard numeric
+conversions of the ordinary ``wire<>`` scalar path.
 
 
 ``OperatorImpl`` — a type-erased candidate

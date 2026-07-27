@@ -12,6 +12,7 @@ namespace hgraph::stdlib
         register_overload<len_, len_tss>();
         register_overload<len_, len_tsd>();
         register_overload<len_, len_tsl>();
+        register_overload<len_, len_tsw>();
 
         register_overload<is_empty, is_empty_tss>();
         register_overload<is_empty, is_empty_tsd>();

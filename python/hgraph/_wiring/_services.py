@@ -285,7 +285,7 @@ class _ServiceStub:
         self._registered_resolutions = (
             registered_resolutions if registered_resolutions is not None else []
         )
-        self._signature = inspect.signature(fn)
+        self._signature = inspect.signature(fn, eval_str=True)
         self._request_params = tuple(
             p for p in self._signature.parameters.values()
             if _is_ts_annotation(p.annotation)
@@ -598,7 +598,7 @@ class _AdaptorStub(_AdaptorClientStub):
             pending_registrations if pending_registrations is not None else [])
         self._registered_resolutions = (
             registered_resolutions if registered_resolutions is not None else [])
-        sig = inspect.signature(fn)
+        sig = inspect.signature(fn, eval_str=True)
         params = [p for p in sig.parameters.values() if _is_ts_annotation(p.annotation)]
         self._signature = sig
         self._request_params = tuple(params)
@@ -731,7 +731,7 @@ class _ServiceAdaptorStub(_AdaptorClientStub):
             pending_registrations if pending_registrations is not None else [])
         self._registered_resolutions = (
             registered_resolutions if registered_resolutions is not None else [])
-        sig = inspect.signature(fn)
+        sig = inspect.signature(fn, eval_str=True)
         params = [p for p in sig.parameters.values() if _is_ts_annotation(p.annotation)]
         if not params:
             raise TypeError(
@@ -1076,7 +1076,7 @@ class _ServiceImpl:
             interfaces = (interfaces,)
         self.interfaces = tuple(self._resolve(stub) for stub in interfaces)
         self.target = getattr(fn, "fn", fn)   # unwrap @graph/@compute_node wrappers
-        self.signature = inspect.signature(self.target)
+        self.signature = inspect.signature(self.target, eval_str=True)
         self.ts_parameters = tuple(
             p for p in self.signature.parameters.values()
             if p.name != "path"

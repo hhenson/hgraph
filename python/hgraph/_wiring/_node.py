@@ -9,7 +9,8 @@ from functools import partial
 import _hgraph
 
 from .._types import (_ContextExpr, _GenericTsExpr, _Required, _TsExpr,
-                      _TypeVarSentinel, _type_var_is_scalar, _type_var_name)
+                      _TypeVarSentinel, _evaluated_annotations,
+                      _type_var_is_scalar, _type_var_name)
 from ._core import (IncorrectTypeBinding, RequirementsNotMetWiringError,
                     WiringError, WiringPort, _current_wiring,
                     _resolve_context, _unwrap, wire)
@@ -172,28 +173,49 @@ class _PyNode:
             raise TypeError(f"{policy}= must contain only input names")
         return result
 
+    def _lifecycle_annotation(self, param):
+        """The governing annotation for a lifecycle parameter (issue #79).
+
+        Start/stop parameters match the EVAL signature by name and nothing
+        else — eval is the signature bearer, so a name it declares takes
+        eval's definition and the lifecycle function's own annotation and
+        default are documentation. Names eval does not declare (e.g. an
+        extra injectable such as a clock) keep their own annotation.
+        """
+        for eval_param in self._params:
+            if eval_param.name == param.name:
+                return eval_param.annotation
+        return param.annotation
+
     def _set_lifecycle(self, phase, fn):
-        for param in inspect.signature(fn).parameters.values():
+        eval_names = {p.name for p in self._params}
+        for param in inspect.signature(fn, eval_str=True).parameters.values():
+            if param.name == "_output":
+                raise TypeError(
+                    f"@{self.__name__}.{phase} supports wiring-time scalars and injectables only"
+                )
+            annotation = self._lifecycle_annotation(param)
             if (param.annotation in _INJECTABLE_MARKERS or
-                    isinstance(param.annotation, (_StateExpr, _RecordableStateExpr))):
-                if param.default is not None:
-                    raise TypeError(
-                        f"injectable parameter '{param.name}' of '{fn.__name__}' must default to None"
-                    )
-                if (isinstance(param.annotation, _RecordableStateExpr)
+                    isinstance(param.annotation, (_StateExpr, _RecordableStateExpr)) or
+                    param.name in eval_names):
+                if (isinstance(annotation, _RecordableStateExpr)
                         and self._recordable_state is None):
                     raise TypeError(
                         f"@{self.__name__}.{phase} cannot inject RECORDABLE_STATE "
                         "when the node does not declare one"
                     )
+                if ((isinstance(annotation, (_TsExpr, _ContextExpr))
+                     or _is_time_series_annotation(annotation)) and phase != "stop"):
+                    raise TypeError(
+                        f"@{self.__name__}.{phase} supports wiring-time scalars and injectables only"
+                    )
                 continue
-            if ((isinstance(param.annotation, (_TsExpr, _ContextExpr))
-                 and phase != "stop") or param.name == "_output"):
+            if (isinstance(param.annotation, (_TsExpr, _ContextExpr))
+                    and phase != "stop"):
                 raise TypeError(
                     f"@{self.__name__}.{phase} supports wiring-time scalars and injectables only"
                 )
-            if (_is_time_series_annotation(param.annotation)
-                    and param.name not in self._ts_names):
+            if _is_time_series_annotation(param.annotation):
                 raise TypeError(
                     f"@{self.__name__}.stop has no node input named '{param.name}'")
         setattr(self, f"_{phase}_fn", fn)
@@ -265,7 +287,7 @@ class _PyNode:
     def _eval_policy(policy, fn, scope, scalar_values):
         """Evaluate a wiring-time active=/valid= callable: (m, **scalars) ->
         None (all inputs) / iterable of input names."""
-        params = list(inspect.signature(fn).parameters)
+        params = list(inspect.signature(fn, eval_str=True).parameters)
         call = {name: scalar_values.get(name) for name in params[1:]}
         result = fn(scope.bindings, **call)
         if result is None:
@@ -376,7 +398,7 @@ class _PyNode:
         """resolvers={TYPEVAR: lambda mapping, <scalars...>: type}: bind the
         computed types into the scope (mapping = the scope's bindings)."""
         for sentinel, resolver in self._resolvers.items():
-            params = list(inspect.signature(resolver).parameters)
+            params = list(inspect.signature(resolver, eval_str=True).parameters)
             call = {name: scalar_values.get(name) for name in params[1:]}
             resolved = resolver(scope.bindings, **call)
             name = _type_var_name(sentinel)
@@ -401,7 +423,7 @@ class _PyNode:
 
         annotations = {}
         for klass in reversed(origin.__mro__):
-            annotations.update(getattr(klass, "__annotations__", {}))
+            annotations.update(_evaluated_annotations(klass))
         fields = []
         for name, field_type in annotations.items():
             if isinstance(field_type, _TsExpr):
@@ -429,7 +451,7 @@ class _PyNode:
             lifecycle_fn = getattr(self, f"_{phase}_fn")
             if lifecycle_fn is None:
                 continue
-            for param in inspect.signature(lifecycle_fn).parameters.values():
+            for param in inspect.signature(lifecycle_fn, eval_str=True).parameters.values():
                 injectable = (
                     param.annotation in _INJECTABLE_MARKERS
                     or isinstance(param.annotation, (_StateExpr, _RecordableStateExpr))
@@ -709,20 +731,23 @@ class _PyNode:
             lifecycle_fn = getattr(self, f"_{phase}_fn")
             lifecycle_layout, lifecycle_scalars = [], []
             if lifecycle_fn is not None:
-                for param in inspect.signature(lifecycle_fn).parameters.values():
-                    if (_is_time_series_annotation(param.annotation)
+                for param in inspect.signature(lifecycle_fn, eval_str=True).parameters.values():
+                    # Issue #79: eval is the signature bearer — an eval-named
+                    # parameter classifies by eval's annotation, not its own.
+                    annotation = self._lifecycle_annotation(param)
+                    if (_is_time_series_annotation(annotation)
                             and phase == "stop"):
                         lifecycle_layout.append("i")
                         lifecycle_scalars.append(input_index_by_name[param.name])
                         continue
-                    if isinstance(param.annotation, _RecordableStateExpr):
+                    if isinstance(annotation, _RecordableStateExpr):
                         lifecycle_layout.append("R")
                         continue
-                    if isinstance(param.annotation, _StateExpr):
+                    if isinstance(annotation, _StateExpr):
                         lifecycle_layout.append("Q")
-                        lifecycle_scalars.append(param.annotation.factory)
+                        lifecycle_scalars.append(annotation.factory)
                         continue
-                    marker = _INJECTABLE_MARKERS.get(param.annotation)
+                    marker = _INJECTABLE_MARKERS.get(annotation)
                     if marker is not None:
                         lifecycle_layout.append(marker)
                         continue
@@ -829,7 +854,7 @@ def lift(fn, inputs=None, output=None, active=None, valid=None, all_valid=None,
     values in this bridge, so the wrapped callable is the function itself."""
     from .._types import TS
 
-    sig = inspect.signature(fn)
+    sig = inspect.signature(fn, eval_str=True)
 
     def _scalar(arg):
         # python nodes receive live TimeSeries VIEWS; the lifted fn is a
@@ -892,26 +917,32 @@ class _Generator:
                  deprecated=False):
         self.fn = fn
         self.__name__ = fn.__name__
-        self._out_tp = inspect.signature(fn).return_annotation
+        self._out_tp = inspect.signature(fn, eval_str=True).return_annotation
         self._resolvers = dict(resolvers) if resolvers else None
         self._requires = requires
         self._label = label
         self._deprecated = deprecated
         self._stop_fn = None
 
+    def _stop_annotation(self, parameter):
+        """Issue #79: stop parameters match the generator signature by name
+        and nothing else — a name it declares takes the generator's
+        definition; other names keep their own annotation."""
+        for fn_param in inspect.signature(self.fn, eval_str=True).parameters.values():
+            if fn_param.name == parameter.name:
+                return fn_param.annotation
+        return parameter.annotation
+
     def stop(self, fn):
-        for parameter in inspect.signature(fn).parameters.values():
+        for parameter in inspect.signature(fn, eval_str=True).parameters.values():
+            annotation = self._stop_annotation(parameter)
             injectable = (
-                parameter.annotation in _INJECTABLE_MARKERS
-                or isinstance(parameter.annotation, _StateExpr)
+                annotation in _INJECTABLE_MARKERS
+                or isinstance(annotation, _StateExpr)
             )
             if injectable:
-                if parameter.default is not None:
-                    raise TypeError(
-                        f"injectable parameter '{parameter.name}' of "
-                        f"'{fn.__name__}' must default to None")
                 continue
-            if _is_time_series_annotation(parameter.annotation):
+            if _is_time_series_annotation(annotation):
                 raise TypeError(
                     f"@{self.__name__}.stop supports wiring-time scalars "
                     "and injectables only")
@@ -926,7 +957,7 @@ class _Generator:
 
     def __call__(self, *args, **kwargs):
         _warn_deprecated(self.__name__, self._deprecated)
-        signature = inspect.signature(self.fn)
+        signature = inspect.signature(self.fn, eval_str=True)
         user_parameters = [
             parameter
             for parameter in signature.parameters.values()
@@ -940,7 +971,7 @@ class _Generator:
         scope = _hgraph.ResolutionScope()
         if self._resolvers:
             for name, resolver in self._resolvers.items():
-                params = list(inspect.signature(resolver).parameters)
+                params = list(inspect.signature(resolver, eval_str=True).parameters)
                 call = {key: scalar_values.get(key) for key in params[1:]}
                 _PyNode._bind_resolved(
                     scope, _type_var_name(name), resolver(scope.bindings, **call))
@@ -980,12 +1011,13 @@ class _Generator:
         stop_layout = []
         stop_scalars = []
         if self._stop_fn is not None:
-            for parameter in inspect.signature(self._stop_fn).parameters.values():
-                if isinstance(parameter.annotation, _StateExpr):
+            for parameter in inspect.signature(self._stop_fn, eval_str=True).parameters.values():
+                annotation = self._stop_annotation(parameter)
+                if isinstance(annotation, _StateExpr):
                     stop_layout.append("Q")
-                    stop_scalars.append(parameter.annotation.factory)
+                    stop_scalars.append(annotation.factory)
                     continue
-                marker = _INJECTABLE_MARKERS.get(parameter.annotation)
+                marker = _INJECTABLE_MARKERS.get(annotation)
                 if marker is not None:
                     stop_layout.append(marker)
                     continue
@@ -1038,7 +1070,7 @@ class _PushQueue:
         self.tp = tp
         self.conflate = conflate
         self.__name__ = fn.__name__
-        signature = inspect.signature(fn)
+        signature = inspect.signature(fn, eval_str=True)
         parameters = list(signature.parameters.values())
         if not parameters:
             raise TypeError(f"@push_queue '{self.__name__}' requires a sender parameter")
@@ -1065,7 +1097,7 @@ class _PushQueue:
         scope = _hgraph.ResolutionScope()
         if self._resolvers:
             for name, resolver in self._resolvers.items():
-                params = list(inspect.signature(resolver).parameters)
+                params = list(inspect.signature(resolver, eval_str=True).parameters)
                 call = {key: scalar_values.get(key) for key in params[1:]}
                 _PyNode._bind_resolved(
                     scope, _type_var_name(name), resolver(scope.bindings, **call))

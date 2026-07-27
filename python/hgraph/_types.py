@@ -549,6 +549,19 @@ def _register_mutual_recursive_component(component):
         _COMPOUND_TYPE_CACHE[(generation, scalar, ())] = meta
 
 
+def _evaluated_annotations(klass):
+    """Class-local annotations with string/postponed references EVALUATED.
+
+    Raw ``__annotations__`` under ``from __future__ import annotations``
+    holds strings ('TS[int]'), which never resolve to time-series
+    expressions (issue #83); ``inspect.get_annotations(eval_str=True)``
+    evaluates them in the defining module's namespace and is PEP 649-aware
+    on 3.14."""
+    import inspect
+
+    return inspect.get_annotations(klass, eval_str=True)
+
+
 def _locally_declared_annotations(scalar):
     """Annotations declared on this class itself, excluding inherited ones.
 
@@ -1219,7 +1232,7 @@ def _compound_value_type(scalar, type_args=()):
             name: annotation
             for base in reversed(scalar.__mro__)
             if issubclass(base, CompoundScalar)
-            for name, annotation in getattr(base, "__annotations__", {}).items()
+            for name, annotation in _evaluated_annotations(base).items()
         }
         if annotations:
             # A field-bearing CompoundScalar declared without @dataclass is
@@ -2186,7 +2199,7 @@ class _TSBMeta(type):
         # reversed), subclass fields after; later duplicates override.
         annotations = {}
         for klass in reversed(origin.__mro__):
-            annotations.update(getattr(klass, "__annotations__", {}))
+            annotations.update(_evaluated_annotations(klass))
         is_cs = issubclass(origin, _CS)
         is_python_object = _is_python_object_class(origin)
         compound_meta = None
