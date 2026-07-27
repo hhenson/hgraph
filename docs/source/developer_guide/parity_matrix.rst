@@ -551,6 +551,14 @@ Wiring and node-authoring surface
        issue #44; pinned by ``python/tests/test_reduce_zero_semantics.py`` and
        ``tests/cpp/test_reduce.cpp`` (issue-44 recipe case), suppressed by
        fingerprint in ``tools/parity/known_divergences.json``.
+       A second accepted reduce deviation concerns **phantom mapped keys**:
+       hg_cpp reduces the currently-valid values and may publish an
+       intermediate aggregate while another live keyed slot is still invalid;
+       released hgraph waits for that slot. Subsequent aggregates agree. This
+       is the capacity- and latency-independent contract documented in
+       :doc:`nested_graphs`; issue #95 is pinned by the mapped-service Python
+       and C++ regressions and the bounded ``valid-subset-reduce`` parity
+       family.
    * - ``dispatch_``
      - Full for Bundle values
      - Native ``dispatch_cases`` / ``dispatch_case`` wiring builds a closed

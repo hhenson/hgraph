@@ -272,6 +272,15 @@ values**, not a collection's capacity, determines the result:
    slots do not participate. Code that requires an empty value must supply one
    explicitly and account for its documented singleton application.
 
+   The same valid-value rule applies to dynamic ``TSD`` inputs. A mapped key
+   can be live before its child has produced a valid value (a phantom slot).
+   hg_cpp reduces the valid subset and may therefore publish an intermediate
+   aggregate; released hgraph can remain invalid until every live keyed slot
+   has a value. Once those values are valid, the aggregates are identical.
+   This avoids making results depend on keyed capacity or service latency and
+   is an accepted deviation (issue #95), pinned by the mapped-service tests and
+   the bounded ``valid-subset-reduce`` parity-family relation.
+
 ``reduce(func, ts, zero_ts, is_associative=false)`` selects the ordered form.
 It requires a live time-series ``zero_ts`` and always lays out a left fold,
 including for four or more elements. Invalid positions still use

@@ -1143,6 +1143,48 @@ def test_empty_family_parameter_map_matches_the_whole_template():
     )
 
 
+def test_valid_subset_reduce_relation_is_narrowly_bounded():
+    from tools.parity.known import (
+        is_known_family_failure,
+        load_known_divergences,
+        matches_known_family,
+    )
+
+    _fingerprints, families = load_known_divergences()
+    recipe = {
+        "template": "nested_higher_order",
+        "parameters": {
+            "inner": "subscription",
+            "outer": "map",
+            "wrap_switch": False,
+            "reduce_output": True,
+            "increment": 2,
+        },
+    }
+    ok = lambda trace: {"status": "ok", "trace": trace}
+
+    assert matches_known_family(recipe, families)
+    assert not matches_known_family(
+        {
+            **recipe,
+            "parameters": {**recipe["parameters"], "inner": "request_reply"},
+        },
+        families,
+    )
+
+    def classify(reference, candidate):
+        difference = compare_outcomes(ok(reference), ok(candidate))
+        assert difference is not None
+        return is_known_family_failure(
+            recipe, difference.to_dict(), ok(reference), ok(candidate), families
+        )
+
+    assert classify([None, None, 26, 14], [None, 9, 26, 14])
+    assert not classify([None, None, 26, 14], [None, 9, 25, 14])
+    assert not classify([None, None, 26, 14], [None, None, None, 14])
+    assert not classify([None, None, 26, 14], [None, 9, 26])
+
+
 def test_generated_subscription_recipes_never_resubscribe():
     # Re-subscribing a previously computed symbol is the designed same-cycle
     # sampling deviation (issue #66): the generator must not explore it.
