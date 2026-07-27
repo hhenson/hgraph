@@ -220,7 +220,7 @@ publish = _Publish()
 
 def _publisher_function(fn):
     fn = fn if hasattr(fn, "signature") else graph(fn)
-    signature = inspect.signature(fn)
+    signature = inspect.signature(fn, eval_str=True)
     for name in ("dce", "data_sink", "options", "request_id", "data"):
         if name not in signature.parameters:
             raise TypeError(f"{fn.__name__} requires a '{name}' parameter")

@@ -330,7 +330,7 @@ class _HttpServerHandler:
         self.__name__ = getattr(fn, "__name__", "http_server_handler")
 
         target = getattr(fn, "fn", fn)
-        signature = inspect.signature(target)
+        signature = inspect.signature(target, eval_str=True)
         request = signature.parameters.get("request")
         if request is None:
             raise TypeError("HTTP handler requires a 'request' time-series input")

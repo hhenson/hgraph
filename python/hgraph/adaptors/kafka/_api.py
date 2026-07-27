@@ -94,7 +94,7 @@ def message_publisher_operator(msg, topic: str):
 
 def _decorator_signature(fn, excluded, topic):
     target = getattr(fn, "fn", fn)
-    signature = inspect.signature(target)
+    signature = inspect.signature(target, eval_str=True)
     parameters = [
         parameter
         for parameter in signature.parameters.values()

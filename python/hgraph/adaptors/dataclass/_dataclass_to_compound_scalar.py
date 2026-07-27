@@ -87,7 +87,7 @@ def _model_fields(model: type) -> tuple[dict[str, Any], dict[str, Any]]:
     init = getattr(model, "__init__", None)
     if init is not None:
         try:
-            signature = inspect.signature(init)
+            signature = inspect.signature(init, eval_str=True)
         except (TypeError, ValueError):
             signature = None
         if signature is not None:

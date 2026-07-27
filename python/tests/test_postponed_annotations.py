@@ -36,6 +36,31 @@ def test_postponed_compute_node_and_graph():
     assert eval_node(app, [1, 2]) == [2, 3]
 
 
+def test_postponed_annotation_types_inputs_without_samples():
+    # The annotation itself must type the replay source: an all-None input
+    # vector offers nothing to infer from, so this only wires if the string
+    # 'TS[int]' was evaluated (review finding on issue #83).
+    @hg.compute_node
+    def add_one(value: TS[int]) -> TS[int]:
+        return value.value + 1
+
+    @hg.graph
+    def app(value: TS[int]) -> TS[int]:
+        return add_one(value)
+
+    assert eval_node(app, [None, None]) is None
+
+
+def test_postponed_lower():
+    # Public lower() reads the raw signature too (review finding).
+    @hg.graph
+    def add_graph(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        return lhs + rhs
+
+    lowered = hg.lower(add_graph)
+    assert lowered is not None
+
+
 def test_postponed_tsb_schema():
     @hg.graph
     def bundle(a: TS[int], b: TS[int]) -> TSB[Pair]:

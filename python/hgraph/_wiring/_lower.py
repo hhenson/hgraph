@@ -30,7 +30,7 @@ def lower(fn, /, date_col="date", as_of_col="as_of", no_as_of_support=True):
         raise TypeError("lower expects a function decorated with @graph, @compute_node, or @sink_node")
 
     user_fn = fn.fn
-    signature = inspect.signature(getattr(user_fn, "fn", user_fn))
+    signature = inspect.signature(getattr(user_fn, "fn", user_fn), eval_str=True)
     parameters = tuple(signature.parameters.values())
     if any(parameter.kind in (
             inspect.Parameter.VAR_POSITIONAL,

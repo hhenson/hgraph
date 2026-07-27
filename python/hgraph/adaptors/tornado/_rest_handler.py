@@ -160,7 +160,7 @@ def rest_handler(fn=None, *, url: str, data_type: type[CompoundScalar]):
     if target is fn:
         fn = graph(fn)
         target = fn.fn
-    signature = inspect.signature(target)
+    signature = inspect.signature(target, eval_str=True)
     request = signature.parameters.get("request")
     if request is None:
         raise TypeError("REST handler requires a 'request' time-series input")

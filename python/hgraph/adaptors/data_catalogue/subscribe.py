@@ -191,7 +191,7 @@ subscribe = _Subscribe()
 
 def _subscriber_function(fn):
     fn = fn if hasattr(fn, "signature") else graph(fn)
-    signature = inspect.signature(fn)
+    signature = inspect.signature(fn, eval_str=True)
     for name in ("dce", "ds", "options", "request_id"):
         if name not in signature.parameters:
             raise TypeError(f"{fn.__name__} requires a '{name}' parameter")
