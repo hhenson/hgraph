@@ -492,9 +492,11 @@ def test_benchmark_set_churn_keeps_the_requested_live_size():
         [True],
         __end_time__=hg.MIN_ST + 6 * hg.MIN_TD,
     )
-    # hg_cpp deduplicates the unchanged length while upstream republishes it;
-    # both traces prove that every add/remove delta preserved four live keys.
-    assert actual in ([0, 4], [None, 4, 4, 4, 4])
+    # hg_cpp deduplicates the unchanged length while upstream republishes
+    # it, and a never-valid input stays silent until the first delta
+    # (upstream parity, issue #116 family); both traces prove that every
+    # add/remove delta preserved four live keys.
+    assert actual in ([None, 4], [None, 4, 4, 4, 4])
 
 
 def test_hg_cpp_benchmark_reduce_without_zero_tracks_cardinality():

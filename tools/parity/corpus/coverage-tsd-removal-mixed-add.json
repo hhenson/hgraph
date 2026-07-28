@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsd-removal-mixed-add",
+  "description": "Ruled deviation: upstream's TSD len family never subtracts removed keys, even on mixed deltas that re-evaluate; hg_cpp publishes the correct size. Fingerprint pinned in known_divergences.json.",
+  "template": "collection_size",
+  "inputs": {
+    "ts": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": null,
+        "c": 3
+      }
+    ]
+  },
+  "parameters": {
+    "shape": "tsd",
+    "operation": "len"
+  },
+  "features": [
+    "topology:expression",
+    "domain:collection-size",
+    "reference:REF",
+    "binding:non-peered",
+    "shape:TSD",
+    "operator:len"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/129"
+}

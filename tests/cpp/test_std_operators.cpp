@@ -1819,6 +1819,46 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
                                                                            dict_delta<Int, TS<Int>>({{0, 1}}),
                                                                            dict_delta<Int, TS<Int>>({}, {0})))),
                  values<Int>(0, 1, 0));
+
+    // A NEVER-VALID input never ticks (upstream parity, issue #116 family):
+    // len_ and contains_ stay silent until the first real delta; is_empty
+    // (above) deliberately keeps its True start tick per the upstream port.
+    CHECK_OUTPUT((eval_node<stdlib::len_, TSS<Int>>(values<Value>(none, set_delta<Int>({1}, {})))),
+                 values<Int>(none, 1));
+    CHECK_OUTPUT((eval_node<stdlib::len_, TSD<Int, TS<Int>>>(
+                     values<Value>(none, dict_delta<Int, TS<Int>>({{1, 1}})))),
+                 values<Int>(none, 1));
+    CHECK_OUTPUT((eval_node<stdlib::contains_, TSD<Int, TS<Int>>>(
+                     values<Value>(none, dict_delta<Int, TS<Int>>({{1, 10}})),
+                     values<Int>(1, none))),
+                 values<Bool>(none, true));
+    CHECK_OUTPUT((eval_node<stdlib::contains_, TSS<Int>, TSS<Int>>(
+                     values<Value>(none, set_delta<Int>({1, 2}, {})),
+                     values<Value>(set_delta<Int>({1}, {}), none))),
+                 values<Bool>(none, true));
+
+    // The ruled TSD-removal deviation (issues #120/#129): hg_cpp
+    // re-evaluates on removals — a partial removal shrinks len_, emptying
+    // flips is_empty, removing the probed key flips contains_ — where
+    // released hgraph never subtracts a removed key (mixed deltas included).
+    CHECK_OUTPUT((eval_node<stdlib::len_, TSD<Int, TS<Int>>>(
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 1}, {2, 2}}),
+                                   dict_delta<Int, TS<Int>>({}, {1})))),
+                 values<Int>(2, 1));
+    CHECK_OUTPUT((eval_node<stdlib::len_, TSD<Int, TS<Int>>>(
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 1}, {2, 2}}),
+                                   dict_delta<Int, TS<Int>>({{2, 5}}, {1})))),
+                 values<Int>(2, 1));
+    CHECK_OUTPUT((eval_node<stdlib::is_empty, TSD<Int, TS<Int>>>(
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 1}}),
+                                   dict_delta<Int, TS<Int>>({}, {1}),
+                                   dict_delta<Int, TS<Int>>({{2, 2}})))),
+                 values<Bool>(false, true, false));
+    CHECK_OUTPUT((eval_node<stdlib::contains_, TSD<Int, TS<Int>>>(
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 10}}),
+                                   dict_delta<Int, TS<Int>>({}, {1})),
+                     values<Int>(1, none))),
+                 values<Bool>(true, false));
     CHECK_OUTPUT((eval_node<stdlib::is_empty, TSD<Int, TS<Int>>>(values<Value>(none,
                                                                                dict_delta<Int, TS<Int>>({{1, 1}}),
                                                                                dict_delta<Int, TS<Int>>({{2, 2}}),
