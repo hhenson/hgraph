@@ -119,6 +119,21 @@
       "issue": "https://github.com/hhenson/hg_cpp/issues/95",
       "reason": "The same issue #95 semantics reached through a per-key switch_ flip: flipping to the request-reply-backed branch invalidates the switch output on both runtimes (upstream's own value=None reset) while the round trip is in flight; upstream's reduce tree stalls on the invalid input, hg_cpp recomputes the remaining valid subset down to the identity (issues #99/#101/#104/#108/#115/#130/#131/#147/#152/#154/#155). Scoped to the request_reply inner \u2014 only a service round trip opens the in-flight invalid window; a pure-arithmetic branch evaluates same-cycle under sampled semantics, so its extra ticks stay reportable. Suppress only extra candidate emissions inside a disturbance window (from a selector/values input tick until the next agreeing reference emission \u2014 the span a flip or in-flight round trip can cover) while every released-hgraph emission remains exactly equal.",
       "review_after": "2027-07-28"
+    },
+    {
+      "family": "request-reply-switch-map-removal",
+      "template": "nested_higher_order",
+      "parameters_equal": {
+        "inner": "request_reply",
+        "outer": "map",
+        "wrap_switch": false,
+        "reduce_output": false
+      },
+      "parameters_not_equal": {},
+      "relation": "switch-flip-map-removal",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/105",
+      "reason": "Accepted map-validity deviation (issues #105/#117/#119/#133/#145, nested_graphs.rst): a beta-to-request-reply-alpha switch flip transiently invalidates the mapped child while the response is in flight. Released hgraph publishes an empty TSD delta and retains the stale element; hg_cpp removes every currently-live invalid child output so the map contains exactly its valid outputs, then republishes the response normally. Suppress only an all-live-key, removal-only candidate delta opposite the reference's canonical empty-map delta on the exact beta-to-alpha flip; all other ticks and payloads must match.",
+      "review_after": "2027-07-28"
     }
   ]
 }

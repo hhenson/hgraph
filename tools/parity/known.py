@@ -31,6 +31,7 @@ KEY_SET_SIZE_NO_RETICK = "key-set-size-no-retick"
 SUBSCRIPTION_RESAMPLE_ONE_CYCLE = "subscription-resample-one-cycle"
 NO_CHANGE_ELISION = "no-change-elision"
 VALID_SUBSET_REDUCE = "valid-subset-reduce"
+SWITCH_FLIP_MAP_REMOVAL = "switch-flip-map-removal"
 
 
 def load_known_divergences(
@@ -361,6 +362,100 @@ def _switch_flip_valid_subset_relation(
     return extra >= 1
 
 
+def _canonical_map_entries(tick: Any) -> list[Any] | None:
+    if (
+        isinstance(tick, dict)
+        and set(tick) == {"$map"}
+        and isinstance(tick["$map"], list)
+    ):
+        return tick["$map"]
+    return None
+
+
+def _switch_flip_map_removal_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Issues #105/#117/#119/#133/#145: a ``beta`` -> request-reply
+    ``alpha`` flip makes the mapped child transiently invalid. Released
+    hgraph publishes an empty TSD delta while retaining its previous element;
+    hg_cpp publishes removals so the TSD contains exactly the currently-valid
+    child outputs.
+
+    Admit only removal-only candidate deltas for every currently-live output,
+    exactly on those flips, opposite a canonical empty reference delta.
+    Everything else must match, including later response payloads.
+    """
+    if difference.get("classification") not in ("value", "length"):
+        return False
+    reference_trace = reference.get("trace")
+    candidate_trace = candidate.get("trace")
+    if (
+        not isinstance(reference_trace, list)
+        or not isinstance(candidate_trace, list)
+        or len(reference_trace) != len(candidate_trace)
+    ):
+        return False
+
+    flip_to_alpha = set()
+    active_selector = None
+    for index, selector in enumerate(
+        (recipe.get("inputs") or {}).get("selector") or ()
+    ):
+        if selector is None:
+            continue
+        if selector == "alpha" and active_selector == "beta":
+            flip_to_alpha.add(index)
+        active_selector = selector
+
+    live_keys: set[str] = set()
+    admitted = 0
+    for index, (ref, cand) in enumerate(
+        zip(reference_trace, candidate_trace)
+    ):
+        candidate_entries = _canonical_map_entries(cand)
+        if ref != cand:
+            reference_entries = _canonical_map_entries(ref)
+            if (
+                index not in flip_to_alpha
+                or reference_entries != []
+                or not candidate_entries
+            ):
+                return False
+            removed_keys: set[str] = set()
+            for entry in candidate_entries:
+                if (
+                    not isinstance(entry, list)
+                    or len(entry) != 2
+                    or not isinstance(entry[0], str)
+                    or entry[1] != {"$remove": True}
+                    or entry[0] in removed_keys
+                ):
+                    return False
+                removed_keys.add(entry[0])
+            if removed_keys != live_keys:
+                return False
+            admitted += 1
+
+        if candidate_entries is None:
+            continue
+        for entry in candidate_entries:
+            if (
+                not isinstance(entry, list)
+                or len(entry) != 2
+                or not isinstance(entry[0], str)
+            ):
+                return False
+            if entry[1] == {"$remove": True}:
+                live_keys.discard(entry[0])
+            else:
+                live_keys.add(entry[0])
+    return admitted >= 1
+
+
 SWITCH_FLIP_VALID_SUBSET = "switch-flip-valid-subset-reduce"
 
 RELATIONS = {
@@ -368,6 +463,7 @@ RELATIONS = {
     NO_CHANGE_ELISION: _no_change_elision_relation,
     VALID_SUBSET_REDUCE: _valid_subset_reduce_relation,
     SWITCH_FLIP_VALID_SUBSET: _switch_flip_valid_subset_relation,
+    SWITCH_FLIP_MAP_REMOVAL: _switch_flip_map_removal_relation,
     SERVICE_ADAPTOR_ONE_CYCLE: _service_adaptor_one_cycle_relation,
     KEY_SET_SIZE_NO_RETICK: _key_set_size_no_retick_relation,
     SUBSCRIPTION_RESAMPLE_ONE_CYCLE: (

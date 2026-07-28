@@ -1266,6 +1266,107 @@ def test_switch_flip_valid_subset_relation_is_windowed():
                         with_recipe=parked)
 
 
+def test_switch_flip_map_removal_relation_is_narrowly_bounded():
+    from tools.parity.known import (
+        is_known_family_failure,
+        load_known_divergences,
+        matches_known_family,
+    )
+
+    _fingerprints, families = load_known_divergences()
+    removal_families = [
+        family
+        for family in families
+        if family["family"] == "request-reply-switch-map-removal"
+    ]
+    assert len(removal_families) == 1
+    recipe = {
+        "template": "nested_higher_order",
+        "inputs": {
+            "selector": ["beta", "alpha", None, None],
+            "values": [{"k1": 1, "k2": 2}, None, None, None],
+        },
+        "parameters": {
+            "inner": "request_reply",
+            "outer": "map",
+            "wrap_switch": False,
+            "reduce_output": False,
+            "increment": 3,
+        },
+    }
+    assert matches_known_family(recipe, removal_families)
+    assert not matches_known_family(
+        {
+            **recipe,
+            "parameters": {**recipe["parameters"], "reduce_output": True},
+        },
+        removal_families,
+    )
+
+    mapped = lambda entries: {"$map": entries}
+    removed = lambda key: [key, {"$remove": True}]
+    initial = mapped([["k1", -1], ["k2", 1]])
+    response = mapped([["k1", 4], ["k2", 5]])
+    reference = [initial, mapped([]), None, response]
+    candidate = [
+        initial,
+        mapped([removed("k1"), removed("k2")]),
+        None,
+        response,
+    ]
+    ok = lambda trace: {"status": "ok", "trace": trace}
+
+    def classify(ref, cand, with_recipe=None):
+        difference = compare_outcomes(ok(ref), ok(cand))
+        assert difference is not None
+        return is_known_family_failure(
+            with_recipe or recipe,
+            difference.to_dict(),
+            ok(ref),
+            ok(cand),
+            removal_families,
+        )
+
+    assert classify(reference, candidate)
+    # The removal must cover exactly every output live before the flip.
+    assert not classify(
+        reference,
+        [initial, mapped([removed("k1")]), None, response],
+    )
+    # Non-removal payloads and a changed eventual response remain defects.
+    assert not classify(
+        reference,
+        [initial, mapped([["k1", 99], removed("k2")]), None, response],
+    )
+    assert not classify(
+        reference,
+        [initial, candidate[1], None, mapped([["k1", 4], ["k2", 6]])],
+    )
+    # The released-hgraph side must be its canonical empty-map delta.
+    assert not classify(
+        [initial, None, None, response],
+        candidate,
+    )
+    # The same removal one cycle before the beta-to-alpha flip is unrelated.
+    delayed_flip = {
+        **recipe,
+        "inputs": {
+            "selector": ["beta", None, "alpha", None],
+            "values": recipe["inputs"]["values"],
+        },
+    }
+    assert not classify(reference, candidate, with_recipe=delayed_flip)
+    # Selecting alpha initially is startup, not a branch flip.
+    initial_alpha = {
+        **recipe,
+        "inputs": {
+            "selector": [None, "alpha", None, None],
+            "values": recipe["inputs"]["values"],
+        },
+    }
+    assert not classify(reference, candidate, with_recipe=initial_alpha)
+
+
 def test_nested_no_change_retick_family_is_elision_only():
     from tools.parity.known import (
         is_known_family_failure,

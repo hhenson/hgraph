@@ -647,6 +647,15 @@ The following are intentional unless separately re-opened:
   service round trip opens the in-flight invalid window, so an extra tick
   on a pure-arithmetic pipeline stays reportable — and permit only those
   extra candidate emissions; every released-hgraph emission must match.
+- **Map output contains only valid child outputs** (issues
+  #105/#117/#119/#133/#145; design record: :doc:`nested_graphs`): a
+  request/reply-backed ``switch_`` branch is transiently invalid while its
+  response is in flight. hg_cpp removes the previously valid mapped element
+  during that interval and adds it again when the response arrives. Released
+  hgraph publishes an empty TSD delta and retains the stale element. The
+  ``switch-flip-map-removal`` parity relation admits only an all-live-key,
+  removal-only candidate delta on the exact ``beta``-to-``alpha`` flip;
+  subsequent payloads and every other tick must match.
 - Python ``REF`` is an opaque value and does not expose ``.output``.
 - ``None`` in CompoundScalar/Bundle construction means an unset field.
 - TSB deltas are canonically dense; sparse-bundle delta parity is not required.
