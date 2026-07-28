@@ -218,6 +218,7 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
     missing = object()
     previous_logger = state.get(_GRAPH_LOGGER_KEY, missing)
     previous_formatter = state.get(_GRAPH_LOGGER_FORMATTER_KEY, missing)
+    previous_start_time = state.get("__start_time__", missing)
     state[_GRAPH_LOGGER_KEY] = config.graph_logger
     if config.logger_formatter is None:
         state.pop(_GRAPH_LOGGER_FORMATTER_KEY, None)
@@ -278,6 +279,13 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
             state.pop(_GRAPH_LOGGER_FORMATTER_KEY, None)
         else:
             state[_GRAPH_LOGGER_FORMATTER_KEY] = previous_formatter
+        # Restore the enclosing run's start mirror (a nested evaluate_graph
+        # during an outer wiring must not leak its bound into replay wired
+        # later by the outer graph).
+        if previous_start_time is missing:
+            state.pop("__start_time__", None)
+        else:
+            state["__start_time__"] = previous_start_time
     if profiler is not None:
         _log_evaluation_profile(config.graph_logger, profiler.snapshot())
     if out is None:

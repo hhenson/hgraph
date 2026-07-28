@@ -56,3 +56,20 @@ def test_data_frame_replay_keyed_history_before_start_via_evaluate_graph():
         # (removed/modified/removed_strict), not eval_node's friendly dict.
         assert [value["modified"] for _, value in out] == [{"a": 3.0}, {"a": 4.0}]
         assert all(not value["removed"] for _, value in out)
+
+
+def test_nested_evaluate_graph_restores_the_enclosing_start_mirror():
+    # A nested evaluate_graph (e.g. invoked synchronously while an outer
+    # graph is still wiring) must not leak its run start into replay wired
+    # later by the outer graph — the mirror restores like the logger keys.
+    with hg.GlobalState():
+        state = hg.GlobalState.instance()
+        outer = MIN_ST + 7 * MIN_TD
+        state["__start_time__"] = outer
+
+        @hg.graph
+        def g() -> TS[int]:
+            return hg.const(1)
+
+        hg.evaluate_graph(g, hg.GraphConfiguration(start_time=MIN_ST + 2 * MIN_TD))
+        assert state["__start_time__"] == outer
