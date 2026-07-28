@@ -14,8 +14,8 @@ namespace hgraph
     /**
      * ``mesh_`` runtime node — ``map_`` over a ``TSD`` whose per-key instances
      * may read each other's outputs by key (``mesh_(func)[k]``), create instances
-     * on demand when an absent key is referenced, and are evaluated in
-     * dependency-rank order each cycle (a cyclic dependency is a runtime error).
+     * on demand when an absent key is referenced, and are evaluated from a
+     * sparse, dependency-ranked worklist (a cyclic dependency is a runtime error).
      *
      * It reuses the ``map_`` per-key entry model (``MapArgSource`` for the child
      * boundary args, the child terminal forwarding into the owned ``TSD``

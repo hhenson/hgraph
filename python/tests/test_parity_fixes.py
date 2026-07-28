@@ -204,11 +204,12 @@ def test_mesh_with_never_valid_keys_never_ticks():
     assert eval_node(g, [None, None]) is None
 
 
-def test_map_child_response_survives_new_key_in_delivery_cycle():
-    # Issue #175: a map_ child scheduled by its own INTERNAL nodes (here a
+@pytest.mark.parametrize("use_mesh", [False, True], ids=["map", "mesh"])
+def test_keyed_child_response_survives_new_key_in_delivery_cycle(use_mesh):
+    # Issue #175: a keyed child scheduled by its own INTERNAL nodes (here a
     # request-reply response due for delivery) must evaluate even when an
-    # outer input ticks in the same cycle — the input-event fast path used
-    # to skip it and the wake-up was lost permanently.
+    # outer input ticks in the same cycle. Map originally lost that wake-up;
+    # mesh uses the same sparse child-schedule worklist.
     @hg.request_reply_service
     def adjust(path: str, request: TS[int]) -> TS[int]: ...
 
@@ -232,7 +233,8 @@ def test_map_child_response_survives_new_key_in_delivery_cycle():
     @graph
     def g(values: hg.TSD[str, TS[int]], selector: TS[str]) -> hg.TSD[str, TS[int]]:
         hg.register_service("issue-175-svc", adjust_impl)
-        return hg.map_(per_key, values, selector)
+        keyed_operator = hg.mesh_ if use_mesh else hg.map_
+        return keyed_operator(per_key, values, selector)
 
     # k2 arrives EXACTLY in k1's response-delivery cycle (t2).
     assert eval_node(g, [{"k1": 8}, None, {"k2": -2}], ["alpha", None, None]) == [

@@ -1235,6 +1235,24 @@ namespace
         }
     };
 
+    struct MeshedRequestReplySwitchGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "meshed_request_reply_switch_graph";
+
+        static Port<TSD<Int, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Int, TS<Int>>> values,
+            Port<TS<Str>> selector)
+        {
+            service::register_request_reply_service<AddOneService, AddOneImplNode>(
+                w, service::path("mapped_switch_request_reply"));
+            return wire<stdlib::mesh_>(
+                       w, fn<MappedRequestReplySwitchFunction>(),
+                       values, selector)
+                .as<TSD<Int, TS<Int>>>();
+        }
+    };
+
     struct MappedSubscriptionSwitchFunction
     {
         [[maybe_unused]] static constexpr auto name =
@@ -1844,6 +1862,27 @@ TEST_CASE("service wiring: a mapped response survives a new key in its delivery 
     // neighbouring test's shape and always worked.)
     CHECK_OUTPUT(
         eval_node<MappedRequestReplySwitchMapGraph>(
+            values<Value>(dict_delta<Int, TS<Int>>({{1, 4}}),
+                          none,
+                          dict_delta<Int, TS<Int>>({{2, 10}}),
+                          none,
+                          none),
+            values<Str>(Str{"alpha"}, none, none, none, none)),
+        values<Value>(dict_delta<Int, TS<Int>>({}),
+                      none,
+                      dict_delta<Int, TS<Int>>({{1, 5}}),
+                      none,
+                      dict_delta<Int, TS<Int>>({{2, 11}})));
+}
+
+TEST_CASE("service wiring: a meshed response survives a new key in its delivery cycle")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // The mesh worklist must merge a child due by its own internal schedule
+    // with a different child created by the outer key tick in the same cycle.
+    CHECK_OUTPUT(
+        eval_node<MeshedRequestReplySwitchGraph>(
             values<Value>(dict_delta<Int, TS<Int>>({{1, 4}}),
                           none,
                           dict_delta<Int, TS<Int>>({{2, 10}}),
