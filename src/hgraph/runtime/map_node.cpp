@@ -1026,7 +1026,6 @@ namespace hgraph
                     // evaluations.
                     storage.push_pulled_child_schedule(
                         next, entry->schedule_context);
-                    view.graph().schedule_node(view.node_index(), next);
                 }
                 else
                 {

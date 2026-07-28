@@ -484,7 +484,7 @@ map's node storage. Every map evaluation pops the due slots into the
 evaluation candidates before deciding between the sparse and full paths;
 the evaluation loop's own future child schedules push into the same queue
 (the pull half). At the end of each map evaluation the queue's minimum
-re-arms the parent, including deadlines belonging to children outside
+re-arms the parent once, including deadlines belonging to children outside
 that cycle's sparse candidate set. Repeated pull-side observations of the
 same child deadline are coalesced; push-side observations remain distinct
 because different internal nodes may schedule different times. Queue
