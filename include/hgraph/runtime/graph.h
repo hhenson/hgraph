@@ -155,6 +155,13 @@ struct HGRAPH_EXPORT GraphEdge
         RootGraphView (*root_impl)(const void *context, const GraphView &graph) = nullptr;
         GraphExecutorView (*graph_executor_impl)(const void *context, void *memory) = nullptr;
         NodeView (*parent_node_impl)(const void *context, void *memory) = nullptr;
+        /** Keyed-parent hook (nested graphs only): observe OUT-OF-BAND child
+            schedules — a notification or scheduler firing while the child is
+            idle — so the parent can track WHICH child is due without
+            scanning its slots. */
+        void (*set_child_schedule_observer_impl)(const void *context, void *memory,
+                                                 void (*observer)(void *, DateTime),
+                                                 void *observer_context) = nullptr;
         /** Cached pointer to the shared (executor-owned) lifecycle observer list; never null once constructed. */
         LifecycleObserverList *(*lifecycle_observers_impl)(const void *context, const void *memory) noexcept = nullptr;
         const TypeRealizationSnapshot *(*type_realization_impl)(const void *context,
@@ -239,6 +246,11 @@ struct HGRAPH_EXPORT GraphEdge
         /// calling evaluate again at the same time; the cursor is held in graph state).
         bool evaluate(DateTime evaluation_time) const;
         void schedule_node(std::size_t node_index, DateTime when) const;
+        /** Install the keyed-parent OUT-OF-BAND schedule observer on this
+            NESTED child graph (see GraphOps). Pass nullptrs to clear.
+            Throws for root graphs, which have no parent to notify. */
+        void set_child_schedule_observer(void (*observer)(void *, DateTime),
+                                         void *observer_context) const;
 
         /** The graph-schedule entry for one node (``MIN_DT`` = not scheduled). */
         [[nodiscard]] DateTime node_scheduled_time(std::size_t node_index) const noexcept;

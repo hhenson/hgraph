@@ -5,6 +5,7 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/utils/key_slot_store.h>
+#include <hgraph/types/utils/slot_bitmap.h>
 #include <hgraph/util/date_time.h>
 #include <hgraph/util/scope.h>
 
@@ -15,7 +16,9 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -58,14 +61,45 @@ struct ValueKeyEqual {
 using ValueSet =
     ankerl::unordered_dense::set<Value, ValueKeyHash, ValueKeyEqual>;
 
+struct MeshNodeStorage;
+
+/** Stable per-instance context for the out-of-band child schedule observer. */
+struct MeshChildScheduleContext {
+  MeshNodeStorage *storage{nullptr};
+  std::size_t slot{0};
+  NodePtr parent_node{};
+  // Coalesce repeated pull observations of the same retained child deadline.
+  // Push observations remain distinct because one child graph may schedule
+  // multiple internal nodes.
+  DateTime pulled_when{MAX_DT};
+};
+
+struct MeshChildSchedule {
+  DateTime when{MAX_DT};
+  std::size_t slot{0};
+  bool pulled{false};
+
+  [[nodiscard]] bool operator>(const MeshChildSchedule &other) const noexcept {
+    if (when != other.when) {
+      return when > other.when;
+    }
+    if (slot != other.slot) {
+      return slot > other.slot;
+    }
+    return pulled > other.pulled;
+  }
+};
+
 // One mesh instance. Declaration order is load-bearing (reverse
 // destruction): the child graph (a subscriber to key_source) tears down
-// before the key source it observes.
+// before the key source it observes and the schedule-observer context it
+// references.
 struct MeshEntry {
   explicit MeshEntry(Value key_) : key(std::move(key_)) {}
 
   Value key{};
   runtime_detail::MappedKeySource key_source{};
+  MeshChildScheduleContext schedule_context{};
   GraphValue graph{};
   int rank{0};
   // Pause/resume settle state, per cycle:
@@ -114,19 +148,60 @@ struct MeshNodeStorage final : SlotObserver {
   TSOutputHandle observed_requested_keys_source{};
   bool observing_requested_keys{false};
   bool requested_keys_source_cleared{false};
+  // Cached effective outer sources detect forwarding/repoint changes that
+  // require every surviving child boundary to be rebound.
+  std::vector<TSOutputHandle> outer_sources{};
+  bool refresh_all_bindings{false};
   // depends_on -> set of keys that depend on it (reverse edges).
   ankerl::unordered_dense::map<Value, ValueSet, ValueKeyHash, ValueKeyEqual>
       dependents{};
 
   std::vector<Value>
       graphs_to_remove{}; // lost a dependent; remove if unreferenced
+  // Ordinary input notifications and internal child schedules identify a
+  // sparse worklist. Only those slots need dependency-rank ordering.
+  SlotBitmap evaluation_candidates{};
   std::vector<std::pair<int, std::size_t>> evaluation_order{};
+  // Min-heap of child wake-ups, fed by the nested out-of-band observer and by
+  // the pull after mesh-driven child evaluation.
+  std::vector<MeshChildSchedule> child_schedule_queue{};
   int max_rank{0};
   bool primed{false};
   // The instance whose child graph is currently being evaluated; a
   // mesh_subscribe inside it reads this as its "my_key" (the requester).
   ValuePtr current_eval_key{};
   DateTime retirement_time{MIN_DT};
+
+  void push_child_schedule(MeshChildSchedule schedule) {
+    child_schedule_queue.push_back(schedule);
+    std::push_heap(child_schedule_queue.begin(), child_schedule_queue.end(),
+                   std::greater<>{});
+  }
+
+  void push_observed_child_schedule(DateTime when,
+                                    const MeshChildScheduleContext &schedule) {
+    if (schedule.storage != this) {
+      return;
+    }
+    const NodeView parent{schedule.parent_node};
+    if (parent.valid() && when <= parent.graph().evaluation_time()) {
+      // Current-cycle notifications already identify their slot. Recording
+      // them directly avoids two heap operations per child on broadcast
+      // ticks while future deadlines still use the priority queue.
+      evaluation_candidates.set(schedule.slot);
+      return;
+    }
+    push_child_schedule(MeshChildSchedule{when, schedule.slot, false});
+  }
+
+  void push_pulled_child_schedule(DateTime when,
+                                  MeshChildScheduleContext &schedule) {
+    if (schedule.storage != this || schedule.pulled_when == when) {
+      return;
+    }
+    schedule.pulled_when = when;
+    push_child_schedule(MeshChildSchedule{when, schedule.slot, true});
+  }
 
   void initialise(const ValueTypeRef &key_binding,
                   MemoryUtils::StorageLayout graph_layout) {
@@ -186,6 +261,11 @@ struct MeshNodeStorage final : SlotObserver {
     entries.destroy_all();
     dependents.clear();
     graphs_to_remove.clear();
+    outer_sources.clear();
+    refresh_all_bindings = false;
+    evaluation_candidates.reset();
+    evaluation_order.clear();
+    child_schedule_queue.clear();
     max_rank = 0;
     primed = false;
     current_eval_key = {};
@@ -213,6 +293,10 @@ struct MeshNodeStorage final : SlotObserver {
     if (!instance_keys.has_value() || !instance_keys->slot_live(slot)) {
       return;
     }
+    if (MeshEntry *entry = entries.entry_at(slot); entry != nullptr) {
+      entry->schedule_context.pulled_when = MAX_DT;
+    }
+    evaluation_candidates.reset(slot);
     retirement_time = evaluation_time;
     static_cast<void>(instance_keys->remove_slot(slot));
   }
@@ -228,12 +312,17 @@ struct MeshNodeStorage final : SlotObserver {
 
   void on_capacity(std::size_t, std::size_t new_capacity) override {
     entries.reserve_to(new_capacity);
+    evaluation_candidates.resize(new_capacity);
   }
 
   void on_insert(std::size_t) override {}
 
   void on_remove(std::size_t slot) override {
     MeshEntry *entry = entries.entry_at(slot);
+    evaluation_candidates.reset(slot);
+    if (entry != nullptr) {
+      entry->schedule_context.pulled_when = MAX_DT;
+    }
     if (entry != nullptr && entry->graph.has_value() &&
         entry->graph.view().started()) {
       static_cast<void>(fallback_on_exception(false, [&] {
@@ -244,7 +333,10 @@ struct MeshNodeStorage final : SlotObserver {
   }
 
   void on_erase(std::size_t slot) override { entries.destroy_at(slot); }
-  void on_clear() override { entries.destroy_all(); }
+  void on_clear() override {
+    evaluation_candidates.reset();
+    entries.destroy_all();
+  }
 };
 
 struct MeshNodeContext {
@@ -373,6 +465,177 @@ MeshNodeStorage &storage_of(const NodeView &view,
   return current;
 }
 
+[[nodiscard]] bool update_mesh_source_handles(const TSInputView &root_input,
+                                              MeshNodeStorage &storage,
+                                              std::size_t keys_input_index) {
+  const std::size_t outer_count = root_input.as_bundle().size();
+  const bool initialized = storage.outer_sources.size() == outer_count;
+  storage.outer_sources.resize(outer_count);
+
+  bool changed = false;
+  for (std::size_t index = 0; index < outer_count; ++index) {
+    TSOutputHandle current = effective_output_handle(
+        root_input.indexed_child_at(index).bound_output());
+    if (!current.same_as(storage.outer_sources[index])) {
+      storage.outer_sources[index] = current;
+      if (initialized && index != keys_input_index) {
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+void add_mesh_evaluation_slot(MeshNodeStorage &storage, std::size_t slot) {
+  if (!storage.instance_keys.has_value() || slot == KeySlotStore::npos ||
+      !storage.instance_keys->slot_live(slot) ||
+      storage.entries.entry_at(slot) == nullptr) {
+    return;
+  }
+  storage.evaluation_candidates.set(slot);
+}
+
+void collect_all_mesh_evaluation_slots(MeshNodeStorage &storage) {
+  if (!storage.instance_keys.has_value()) {
+    return;
+  }
+  for (std::size_t slot = 0; slot < storage.instance_keys->slot_capacity();
+       ++slot) {
+    add_mesh_evaluation_slot(storage, slot);
+  }
+}
+
+[[nodiscard]] bool drain_due_mesh_schedules(MeshNodeStorage &storage,
+                                            DateTime evaluation_time) {
+  bool added = false;
+  while (!storage.child_schedule_queue.empty() &&
+         storage.child_schedule_queue.front().when <= evaluation_time) {
+    std::pop_heap(storage.child_schedule_queue.begin(),
+                  storage.child_schedule_queue.end(), std::greater<>{});
+    const MeshChildSchedule schedule = storage.child_schedule_queue.back();
+    storage.child_schedule_queue.pop_back();
+
+    MeshEntry *entry = storage.entries.entry_at(schedule.slot);
+    if (entry == nullptr || !storage.instance_keys.has_value() ||
+        !storage.instance_keys->slot_live(schedule.slot)) {
+      continue;
+    }
+    if (schedule.pulled) {
+      if (entry->schedule_context.pulled_when != schedule.when) {
+        continue;
+      }
+      entry->schedule_context.pulled_when = MAX_DT;
+    }
+    add_mesh_evaluation_slot(storage, schedule.slot);
+    added = true;
+  }
+  return added;
+}
+
+void materialize_mesh_evaluation_order(MeshNodeStorage &storage) {
+  auto &order = storage.evaluation_order;
+  order.clear();
+  order.reserve(storage.evaluation_candidates.count());
+  for (std::size_t word_index = 0;
+       word_index < storage.evaluation_candidates.word_count(); ++word_index) {
+    std::uint64_t word = storage.evaluation_candidates.words[word_index];
+    while (word != 0) {
+      const auto bit = static_cast<std::size_t>(std::countr_zero(word));
+      const std::size_t slot = word_index * SlotBitmap::bits_per_word + bit;
+      if (storage.instance_keys.has_value() &&
+          storage.instance_keys->slot_live(slot)) {
+        if (MeshEntry *entry = storage.entries.entry_at(slot);
+            entry != nullptr) {
+          order.emplace_back(entry->rank, slot);
+        }
+      }
+      word &= word - 1;
+    }
+  }
+  std::sort(order.begin(), order.end(), [](const auto &a, const auto &b) {
+    if (a.first != b.first) {
+      return a.first < b.first;
+    }
+    return a.second < b.second;
+  });
+}
+
+void prepare_mesh_evaluation_candidates(const NodeView &view,
+                                        const MeshNodeContext &context,
+                                        MeshNodeStorage &storage,
+                                        DateTime evaluation_time) {
+  auto root_input = view.input(evaluation_time);
+  bool input_event = false;
+  storage.refresh_all_bindings = update_mesh_source_handles(
+      root_input.borrowed_ref(), storage, context.spec.keys_input_index);
+
+  const auto root_bundle = root_input.as_bundle();
+  for (std::size_t index = 0; index < root_bundle.size(); ++index) {
+    auto input = root_input.indexed_child_at(index);
+    if (!input.modified()) {
+      continue;
+    }
+    input_event = true;
+  }
+
+  for (const MapArgSource &arg : context.spec.args) {
+    if (arg.kind != MapArgSourceKind::OuterInput) {
+      continue;
+    }
+    auto input = root_input.indexed_child_at(arg.outer_index);
+    if (!input.modified()) {
+      continue;
+    }
+    const auto *schema = input.schema();
+    if (schema != nullptr &&
+        (schema->kind == TSTypeKind::TSB || schema->kind == TSTypeKind::TSL)) {
+      // A structured forwarding boundary may preserve its root handle while
+      // projected leaf endpoints move.
+      storage.refresh_all_bindings = true;
+    }
+  }
+
+  // Multiplexed membership changes can replace or remove an element endpoint.
+  // Explicitly select those keys so their child boundaries are rebound even
+  // if the old element produced no notification.
+  for (const std::size_t mux_index : context.spec.multiplexed_inputs) {
+    if (mux_index >= storage.outer_sources.size()) {
+      continue;
+    }
+    const TSOutputHandle &source = storage.outer_sources[mux_index];
+    if (!source.bound()) {
+      continue;
+    }
+    auto source_data = source.data_view();
+    if (!source_data.valid()) {
+      if (root_input.indexed_child_at(mux_index).modified()) {
+        storage.refresh_all_bindings = true;
+      }
+      continue;
+    }
+    auto dict = source_data.as_dict();
+    if (!dict.modified(evaluation_time)) {
+      continue;
+    }
+    for (const ValueView &key : dict.modified_keys(evaluation_time)) {
+      add_mesh_evaluation_slot(storage, storage.find_slot(key));
+    }
+    for (const ValueView &key : dict.added_keys()) {
+      add_mesh_evaluation_slot(storage, storage.find_slot(key));
+    }
+    for (const ValueView &key : dict.removed_keys()) {
+      add_mesh_evaluation_slot(storage, storage.find_slot(key));
+    }
+  }
+
+  static_cast<void>(drain_due_mesh_schedules(storage, evaluation_time));
+
+  if (storage.refresh_all_bindings ||
+      (!input_event && !storage.evaluation_candidates.any())) {
+    collect_all_mesh_evaluation_slots(storage);
+  }
+}
+
 const MeshSubscribeContext &mesh_subscribe_context_of(const NodeView &view) {
   const NodeTypeRef type = view.type();
   if (!type) {
@@ -485,6 +748,10 @@ void stop_and_clear_all_instances(const NodeView &view,
   }
   storage.dependents.clear();
   storage.graphs_to_remove.clear();
+  storage.evaluation_candidates.reset();
+  storage.evaluation_order.clear();
+  storage.child_schedule_queue.clear();
+  storage.refresh_all_bindings = false;
   storage.max_rank = 0;
   storage.primed = false;
   storage.current_eval_key = {};
@@ -544,9 +811,20 @@ MeshEntry &create_instance(const NodeView &view, const MeshNodeContext &context,
 
   bind_instance_inputs(view, context, entry, evaluation_time, true);
   bind_instance_output(view, context, entry, evaluation_time);
+  entry.schedule_context =
+      MeshChildScheduleContext{&storage, slot, view.pointer()};
+  entry.graph.view().set_child_schedule_observer(
+      [](void *raw_context, DateTime when) {
+        auto *schedule = static_cast<MeshChildScheduleContext *>(raw_context);
+        if (schedule->storage != nullptr) {
+          schedule->storage->push_observed_child_schedule(when, *schedule);
+        }
+      },
+      &entry.schedule_context);
   entry.graph.view().start(evaluation_time);
   schedule_sampled_input_consumers(entry.graph.view(), evaluation_time,
                                    spec.child.input_bindings);
+  add_mesh_evaluation_slot(storage, slot);
   rollback.release();
 
   storage.max_rank = std::max(storage.max_rank, rank);
@@ -755,36 +1033,21 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
   // 2. Removals queued because a dependent went away (remove_dependency).
   process_graphs_to_remove(view, context, storage, evaluation_time);
 
-  // 3. Settle loop (pause/resume). Evaluate instances in dependency-rank order,
-  //    re-scanning until none pauses. A pause has, via add_dependency, created
-  //    and/or ranked the missing dependency below the requester; a later pass
-  //    evaluates that dependency first and then resumes the paused instance —
-  //    so the whole transitive closure settles within this cycle.
-  DateTime next_time = MAX_DT;
-  bool progress = true;
+  // 3. Settle loop (pause/resume). Only children selected by an input
+  //    notification, creation, pause, or internal schedule enter the worklist.
+  //    Those candidates still evaluate in dependency-rank order, and a pause
+  //    can add/rank a missing dependency for the next pass.
+  prepare_mesh_evaluation_candidates(view, context, storage, evaluation_time);
+
   std::size_t guard = 0;
-  while (progress) {
-    progress = false;
+  while (true) {
+    static_cast<void>(drain_due_mesh_schedules(storage, evaluation_time));
+    // Snapshot candidate slots by rank. add_dependency can create or re-rank
+    // instances mid-pass, so the next pass rematerializes this order.
+    materialize_mesh_evaluation_order(storage);
+    bool evaluated = false;
 
-    // Snapshot stable slots by rank: add_dependency can create
-    // instances mid-pass, but existing slot addresses never move.
-    auto &order = storage.evaluation_order;
-    order.clear();
-    order.reserve(storage.active_count());
-    for (std::size_t slot = 0; slot < storage.instance_keys->slot_capacity();
-         ++slot) {
-      if (!storage.instance_keys->slot_live(slot)) {
-        continue;
-      }
-      MeshEntry *entry = storage.entries.entry_at(slot);
-      if (entry != nullptr) {
-        order.emplace_back(entry->rank, slot);
-      }
-    }
-    std::sort(order.begin(), order.end(),
-              [](const auto &a, const auto &b) { return a.first < b.first; });
-
-    for (const auto &ranked : order) {
+    for (const auto &ranked : storage.evaluation_order) {
       MeshEntry *entry = storage.entries.entry_at(ranked.second);
       if (!storage.instance_keys->slot_live(ranked.second)) {
         continue;
@@ -801,11 +1064,14 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
 
       auto child = entry->graph.view();
       const DateTime child_next = child.next_scheduled_time();
-      if (child_next != MAX_DT && child_next > evaluation_time) {
-        next_time = std::min(next_time, child_next);
-      }
       const bool due = child_next <= evaluation_time;
       if (!due && !entry->paused) {
+        if (child_next != MAX_DT) {
+          storage.push_pulled_child_schedule(child_next,
+                                             entry->schedule_context);
+        } else {
+          entry->schedule_context.pulled_when = MAX_DT;
+        }
         continue;
       }
 
@@ -822,11 +1088,13 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
       } else {
         entry->paused = true;
       } // a dependency was created / ranked; re-scan
-      progress = true;
+      evaluated = true;
 
       if (const DateTime next = child.next_scheduled_time();
           next != MAX_DT && next > evaluation_time) {
-        next_time = std::min(next_time, next);
+        storage.push_pulled_child_schedule(next, entry->schedule_context);
+      } else {
+        entry->schedule_context.pulled_when = MAX_DT;
       }
     }
 
@@ -860,12 +1128,30 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
       throw std::runtime_error(
           fmt::format("mesh_ failed to settle within the cycle: {}", detail));
     }
+
+    // Output propagation or an input rebind may have scheduled another child
+    // while this rank snapshot was being processed. Pull those callbacks into
+    // the next pass even when no prior candidate evaluated.
+    const bool added_during_pass =
+        drain_due_mesh_schedules(storage, evaluation_time);
+    if (!evaluated && !added_during_pass) {
+      break;
+    }
   }
   storage.current_eval_key = {};
   process_graphs_to_remove(view, context, storage, evaluation_time);
+  storage.evaluation_candidates.reset();
+  storage.evaluation_order.clear();
+  storage.refresh_all_bindings = false;
 
-  if (next_time < MAX_DT) {
-    view.graph().schedule_node(view.node_index(), next_time);
+  // Current-cycle observer callbacks can arrive after the queue was drained at
+  // the start of a pass (for example while a new child samples valid config).
+  // Purge them before the minimum future deadline re-arms the mesh parent.
+  static_cast<void>(drain_due_mesh_schedules(storage, evaluation_time));
+  storage.evaluation_candidates.reset();
+  if (!storage.child_schedule_queue.empty()) {
+    view.graph().schedule_node(view.node_index(),
+                               storage.child_schedule_queue.front().when);
   }
   return true;
 }

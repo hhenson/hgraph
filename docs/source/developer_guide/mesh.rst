@@ -281,9 +281,14 @@ Under the type-erased design this is a mesh-specific graph-evaluation op, not a
 change to the standard executor.
 
 **Stable state.** Once edges are known they give a stable dependency order, so in
-a settled mesh no pauses occur: instances are evaluated dependency-first from the
-cached edges and each ``mesh_subscribe`` finds its result already present. Pauses
-arise only when a **new** dependency (or a changed dependency key) is discovered.
+a settled mesh no pauses occur: instances selected by input notification,
+creation, or internal schedule are evaluated dependency-first and each
+``mesh_subscribe`` finds its result already present. The mesh does not rebuild
+and sort the complete live-instance order for a sparse tick. Its child schedule
+observer and coalesced pull queue identify independently due instances; newly
+created dependencies and sibling notifications join the same-cycle candidate
+worklist. Source repoints retain a conservative all-instance rebind. Pauses arise
+only when a **new** dependency (or a changed dependency key) is discovered.
 
 **The ``mesh_subscribe`` node.** Wired inside an instance for ``mesh_(func)[k]``.
 Inputs: ``item`` (``TS<K>``, active — the dependency key) and a dynamic ``value``
@@ -321,10 +326,13 @@ multi-cycle-settle ordering:
   forwarding output bound to ``self[item]``. The ``value`` rebind keeps the node
   reactive: a later tick of the sibling reschedules it (cross-cycle
   re-propagation).
-- **Resolver** (``mesh_evaluate``): a rank-ordered **settle loop** — evaluate due /
-  paused instances by ascending rank, re-scanning until none pauses. ``add_dependency``
-  creates the target on demand (same cycle, ranked below the requester) and ``re_rank``
-  keeps the requester above it; a cycle is a runtime error.
+- **Resolver** (``mesh_evaluate``): a rank-ordered **sparse settle loop** —
+  materialize only input-notified, newly created, paused, or internally due
+  instances by ascending rank, then repeat while same-cycle dependency work is
+  added. ``add_dependency`` creates the target on demand (same cycle, ranked
+  below the requester) and ``re_rank`` keeps the requester above it; a cycle is
+  a runtime error. The schedule queue's future minimum re-arms the mesh parent
+  once after the settle loop.
 - **Wiring**: the ``mesh_`` operator (``wire_mesh``, peer instantiation = ``map_``),
   the wiring-time **mesh-context stack** (pushed around the child compile), and
   ``mesh_(func)[k]`` access via ``mesh_ref<OUT>(w, key)`` (resolves the scope, wires a

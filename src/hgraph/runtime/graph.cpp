@@ -192,6 +192,10 @@ struct NestedGraphRuntimeStorage : GraphRuntimeBaseStorage {
   [[nodiscard]] NodeView parent_node() { return NodeView{parent_node_ptr}; }
 
   NodePtr parent_node_ptr{};
+  /** Keyed-parent hook: out-of-band child schedules report (context, when)
+      so the parent can track WHICH child is due without scanning slots. */
+  void (*child_schedule_observer)(void *, DateTime) = nullptr;
+  void *child_schedule_observer_context = nullptr;
 };
 
 inline constexpr std::string_view graph_header_field_name{"header"};
@@ -720,7 +724,20 @@ void nested_schedule_node_impl(const void *context, const GraphView &graph,
   if (!state.started || state.evaluating) {
     return;
   }
+  if (state.child_schedule_observer != nullptr) {
+    state.child_schedule_observer(state.child_schedule_observer_context, when);
+  }
   parent.graph().schedule_node(parent.node_index(), when);
+}
+
+void nested_set_child_schedule_observer_impl(const void *context, void *memory,
+                                             void (*observer)(void *,
+                                                              DateTime),
+                                             void *observer_context) {
+  auto &state = graph_header<NestedGraphRuntimeStorage>(graph_context(context),
+                                                        memory);
+  state.child_schedule_observer = observer;
+  state.child_schedule_observer_context = observer_context;
 }
 
 template <typename Storage>
@@ -1165,6 +1182,8 @@ struct GraphRuntimeRegistry {
         .root_impl = &nested_graph_root_impl,
         .graph_executor_impl = &nested_graph_executor_impl,
         .parent_node_impl = &nested_parent_node_impl,
+        .set_child_schedule_observer_impl =
+            &nested_set_child_schedule_observer_impl,
         .lifecycle_observers_impl =
             &lifecycle_observers_impl<NestedGraphRuntimeStorage>,
         .type_realization_impl =
@@ -1513,6 +1532,16 @@ bool GraphView::evaluate(DateTime evaluation_time) const {
 }
 void GraphView::schedule_node(std::size_t node_index, DateTime when) const {
   ops().schedule_node_impl(ops().context, *this, node_index, when);
+}
+
+void GraphView::set_child_schedule_observer(void (*observer)(void *, DateTime),
+                                            void *observer_context) const {
+  if (ops().set_child_schedule_observer_impl == nullptr) {
+    throw std::logic_error(
+        "set_child_schedule_observer requires a nested child graph");
+  }
+  ops().set_child_schedule_observer_impl(ops().context, data(), observer,
+                                         observer_context);
 }
 
 const GraphOps &GraphView::ops() const { return type().ops_ref(); }

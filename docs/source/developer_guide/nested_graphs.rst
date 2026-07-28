@@ -470,6 +470,36 @@ graph ops (no separate engine/clock object; see the recorded decision):
   pushing mid-evaluate would schedule a spurious extra parent cycle) and
   while the child is stopped.
 
+The push tells a keyed parent *when* but not *which child*. For ``map_`` and
+``mesh_`` that identity matters: both operators keep sparse child worklists,
+and a child due purely by its own internal schedule (a service response
+delivery, a scheduler alarm) must be merged with slots selected by an outer
+tick. The push half therefore also invokes an optional per-child **schedule
+observer** (``GraphView::set_child_schedule_observer``, installed at entry
+creation with a stable per-entry ``(storage, slot)`` context), which feeds a
+per-parent **schedule queue** — a min-heap of ``(when, slot)`` in the keyed
+node's storage.
+
+Every evaluation pops due slots into the candidate set; the evaluation loop's
+own future child schedules push into the same queue (the pull half). At the end
+of the evaluation the queue's minimum re-arms the parent once, including
+deadlines belonging to children outside that cycle's sparse candidate set.
+Repeated pull-side observations of the same child deadline are coalesced;
+push-side observations remain distinct because different internal nodes may
+schedule different times. Queue entries are otherwise lazy: a rescheduled,
+stopped, or removed slot pops harmlessly because both the current per-child
+deadline and the child's due-ness are re-checked. Current-cycle entries
+observed after the initial queue drain are discarded before the parent is
+re-armed, so they cannot hide a later deadline.
+
+``map_`` orders its sparse candidates by stable slot. ``mesh_`` rematerializes
+and sorts only its candidate slots by dependency rank on each settle pass;
+newly created dependencies and same-cycle sibling notifications join that
+worklist before the next pass. A source repoint or structured boundary
+retarget retains the conservative all-child rebind path. ``tsl_map`` continues
+to run per-child due checks over all fixed entries and needs neither observer
+nor queue.
+
 Multi-level nesting recurses up to the root naturally. The boundary *binding*
 helpers shared by all nested node implementations
 (``walk_ts_path`` / ``bind_input_to_source`` /
