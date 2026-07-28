@@ -1833,6 +1833,30 @@ TEST_CASE("service wiring: request/reply switch flip removes an invalid map outp
             dict_delta<Int, TS<Int>>({{1, 5}})));
 }
 
+TEST_CASE("service wiring: a mapped response survives a new key in its delivery cycle")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // Issue #175: key 2 arrives EXACTLY in key 1's response-delivery cycle.
+    // The map's input-event fast path must still evaluate the child that is
+    // due by its own internal schedule — the wake-up was previously lost and
+    // key 1's response never arrived at all. (Key 2 one cycle later is the
+    // neighbouring test's shape and always worked.)
+    CHECK_OUTPUT(
+        eval_node<MappedRequestReplySwitchMapGraph>(
+            values<Value>(dict_delta<Int, TS<Int>>({{1, 4}}),
+                          none,
+                          dict_delta<Int, TS<Int>>({{2, 10}}),
+                          none,
+                          none),
+            values<Str>(Str{"alpha"}, none, none, none, none)),
+        values<Value>(dict_delta<Int, TS<Int>>({}),
+                      none,
+                      dict_delta<Int, TS<Int>>({{1, 5}}),
+                      none,
+                      dict_delta<Int, TS<Int>>({{2, 11}})));
+}
+
 TEST_CASE("service wiring: subscription under map switch retains late keys")
 {
     hgraph::stdlib::register_standard_operators();

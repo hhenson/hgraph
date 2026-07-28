@@ -470,6 +470,24 @@ graph ops (no separate engine/clock object; see the recorded decision):
   pushing mid-evaluate would schedule a spurious extra parent cycle) and
   while the child is stopped.
 
+The push tells a keyed parent *when* but not *which child*. For ``map_``
+that identity matters: its input-event fast path evaluates only
+input-driven slots, and a child due purely by its own internal schedule
+(a service response delivery, a scheduler alarm) coinciding with an outer
+tick would be starved — the wake-up is for the already-current time, so
+nothing re-schedules it (issue #175). The push half therefore also
+invokes an optional per-child **schedule observer**
+(``GraphView::set_child_schedule_observer``, installed by ``map_`` at
+entry creation with a stable per-entry ``(storage, slot)`` context), which
+feeds a per-map **schedule queue** — a min-heap of ``(when, slot)`` in the
+map's node storage. Every map evaluation pops the due slots into the
+evaluation candidates before deciding between the sparse and full paths;
+the evaluation loop's own future child schedules push into the same queue
+(the pull half). Queue entries are lazy: a rescheduled, stopped, or
+removed slot pops harmlessly because the evaluation loop re-checks each
+child's due-ness. ``tsl_map`` and ``mesh`` run per-child due checks over
+all entries every cycle and need neither observer nor queue.
+
 Multi-level nesting recurses up to the root naturally. The boundary *binding*
 helpers shared by all nested node implementations
 (``walk_ts_path`` / ``bind_input_to_source`` /
