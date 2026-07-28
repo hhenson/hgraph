@@ -642,11 +642,17 @@ The following are intentional unless separately re-opened:
   stalls on the invalid input while hg_cpp recomputes the remaining valid
   subset). hg_cpp may publish the valid-subset aggregate — down to the
   reduce identity — while released hgraph holds; subsequent complete
-  aggregates agree. The parity families are scoped to the service-backed
-  inners (subscription startup; request-reply switch flips) — only a
-  service round trip opens the in-flight invalid window, so an extra tick
-  on a pure-arithmetic pipeline stays reportable — and permit only those
-  extra candidate emissions; every released-hgraph emission must match.
+  aggregates agree. The early emission COMPOSES with the no-change ruling:
+  when released hgraph later emits exactly the value hg_cpp already
+  published (e.g. a phantom map key's removal empties upstream's dict one
+  cycle after hg_cpp reduced without it), hg_cpp elides the equal re-tick,
+  so the value can appear one cycle earlier here (issues
+  #98/#102/#110/#150). The parity families are scoped to the
+  service-backed inners (subscription startup; request-reply switch
+  flips) — only a service round trip opens the in-flight invalid window,
+  so an extra tick on a pure-arithmetic pipeline stays reportable — and
+  permit only those extra candidate emissions and their exact-value
+  catch-up elisions; every other released-hgraph emission must match.
 - **Map output contains only valid child outputs** (issues
   #105/#117/#119/#133/#145; design record: :doc:`nested_graphs`): a
   request/reply-backed ``switch_`` branch is transiently invalid while its
