@@ -87,15 +87,27 @@ def _model_fields(model: type) -> tuple[dict[str, Any], dict[str, Any]]:
     init = getattr(model, "__init__", None)
     if init is not None:
         try:
-            signature = inspect.signature(init, eval_str=True)
+            signature = inspect.signature(init)
         except (TypeError, ValueError):
             signature = None
         if signature is not None:
+            # Resolve postponed (string) annotations PER PARAMETER: only the
+            # parameter annotations are read here, and a whole-signature
+            # eval_str would also evaluate the unread RETURN annotation — a
+            # locally declared model's self-referential ``-> Model`` exists
+            # only in the enclosing local scope and would raise NameError.
+            globalns = getattr(init, "__globals__", {})
             for name, parameter in signature.parameters.items():
                 if name == "self":
                     continue
-                if parameter.annotation is not inspect.Parameter.empty:
-                    annotations.setdefault(name, parameter.annotation)
+                annotation = parameter.annotation
+                if isinstance(annotation, str):
+                    try:
+                        annotation = eval(annotation, globalns)  # noqa: S307
+                    except (NameError, SyntaxError):
+                        annotation = parameter.annotation
+                if annotation is not inspect.Parameter.empty:
+                    annotations.setdefault(name, annotation)
                 if parameter.default is not inspect.Parameter.empty:
                     defaults.setdefault(name, parameter.default)
     return annotations, defaults
