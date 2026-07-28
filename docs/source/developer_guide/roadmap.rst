@@ -610,20 +610,6 @@ The following are intentional unless separately re-opened:
   TSS/TSD delta that nets to no change does not tick. Explicit writes are
   unaffected and match upstream exactly: a python node returning the same
   scalar each evaluation ticks each time, as do repeated TSD entry writes.
-- **The lenient-None TSD convention diverges observably in the len
-  family** (issues #120/#129, 2026-07-28; a manifestation of the
-  None-removal convention above, NOT an upstream ``len_`` defect):
-  released hgraph's ``eval_node`` SILENTLY IGNORES a ``{key: None}``
-  TSD tick (no removal, no value, no error — reported upstream as
-  hhenson/hgraph#363), so derived ``len_``/``is_empty``/``contains_``
-  values appear stale; hg_cpp's harness treats ``None`` as the lenient
-  removal and re-evaluates.  With explicit ``REMOVE`` deltas the two
-  runtimes agree exactly (verified by reference-env probes; the native
-  container matrix pins the removal re-ticks as plain correct
-  behaviour).  The campaign keeps out of the divergent convention space:
-  the ``collection_size`` generator emits no ``None`` values for TSD,
-  the corpus tracks the shapes (``coverage-tsd-removal-*``), and their
-  failure fingerprints are pinned in ``known_divergences.json``.
 - **Service-boundary timing** (design record: the scheduling matrix in
   :doc:`services`): request stubs forward next cycle by design, so a
   ``service_adaptor`` round trip observably lands one cycle after released

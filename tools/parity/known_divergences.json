@@ -30,30 +30,6 @@
       "issue": "https://github.com/hhenson/hg_cpp/pull/67",
       "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst): a mesh over an initially empty key set emits no tick in hg_cpp where released hgraph ticks an empty map. Fingerprint pinned by test_parity_harness.py against the corpus recipe mesh-empty-initial-no-tick.",
       "review_after": "2027-07-26"
-    },
-    {
-      "fingerprint": "0708a2d7d8227adae475652e3d559744555a9e979fab7adc4cc8d29e848460d8",
-      "issue": "https://github.com/hhenson/hg_cpp/issues/129",
-      "reason": "Recorded lenient-None deviation, len-family manifestation: released hgraph's eval_node silently ignores a {key: None} TSD tick (reported upstream as hhenson/hgraph#363), so its len_/is_empty/contains_ appear stale; hg_cpp's harness treats None as the lenient removal and re-evaluates. With explicit REMOVE deltas both runtimes agree. See the roadmap.rst Accepted Deviations None-convention entries.",
-      "review_after": "2027-07-28"
-    },
-    {
-      "fingerprint": "79b21651093f2a52ac1eb73e5ac3d4cf0f86e73b2094e466f5653d709c2167fc",
-      "issue": "https://github.com/hhenson/hg_cpp/issues/120",
-      "reason": "Recorded lenient-None deviation, len-family manifestation: released hgraph's eval_node silently ignores a {key: None} TSD tick (reported upstream as hhenson/hgraph#363), so its len_/is_empty/contains_ appear stale; hg_cpp's harness treats None as the lenient removal and re-evaluates. With explicit REMOVE deltas both runtimes agree. See the roadmap.rst Accepted Deviations None-convention entries.",
-      "review_after": "2027-07-28"
-    },
-    {
-      "fingerprint": "88e2181815d7034510ee3179c90a5295611dc572ef95f4b6941d303ad029817f",
-      "issue": "https://github.com/hhenson/hg_cpp/issues/129",
-      "reason": "Recorded lenient-None deviation, len-family manifestation: released hgraph's eval_node silently ignores a {key: None} TSD tick (reported upstream as hhenson/hgraph#363), so its len_/is_empty/contains_ appear stale; hg_cpp's harness treats None as the lenient removal and re-evaluates. With explicit REMOVE deltas both runtimes agree. See the roadmap.rst Accepted Deviations None-convention entries.",
-      "review_after": "2027-07-28"
-    },
-    {
-      "fingerprint": "4c3658dcf2fd97f59b8af5975fc31648da38c12ff68a55a85d5e1d4d4913ac3c",
-      "issue": "https://github.com/hhenson/hg_cpp/issues/129",
-      "reason": "Recorded lenient-None deviation, len-family manifestation: released hgraph's eval_node silently ignores a {key: None} TSD tick (reported upstream as hhenson/hgraph#363), so its len_/is_empty/contains_ appear stale; hg_cpp's harness treats None as the lenient removal and re-evaluates. With explicit REMOVE deltas both runtimes agree. See the roadmap.rst Accepted Deviations None-convention entries.",
-      "review_after": "2027-07-28"
     }
   ],
   "families": [

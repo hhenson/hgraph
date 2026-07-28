@@ -102,28 +102,36 @@ def test_len_family_never_valid_input_never_ticks():
     assert eval_node(tsd_empty, [None, None]) == [True, None]
 
 
-def test_tsd_none_removal_convention_drives_len_family_reticks():
-    # The lenient-None convention (recorded deviation; issues #120/#129,
-    # fingerprints pinned in known_divergences.json): a {key: None} tick is
-    # a lenient removal in hg_cpp's eval_node, so the len family
-    # re-evaluates — upstream's eval_node silently ignores the tick
-    # entirely (reported as hhenson/hgraph#363). With explicit REMOVE both
-    # runtimes agree. These pins are the hg_cpp convention contract.
+def test_tsd_removal_reticks_and_none_is_a_per_key_no_op():
+    # Ruling 2026-07-28: None means NOTHING ticked for that key — the
+    # per-key analogue of the top-level no-tick, consistent across all
+    # keyed structures and matching upstream. Removals are the explicit
+    # sentinels, and the len family re-evaluates on them (both runtimes
+    # agree).
     @hg.graph
     def tsd_len(ts: hg.TSD[str, hg.TS[int]]) -> TS[int]:
         return hg.len_(ts)
 
-    assert eval_node(tsd_len, [{"a": 1, "b": 2}, {"a": None}]) == [2, 1]
+    assert eval_node(tsd_len, [{"a": 1, "b": 2}, {"a": hg.REMOVE_IF_EXISTS}]) == [2, 1]
+    assert eval_node(tsd_len, [{"a": 1, "b": 2}, {"a": None}]) == [2, None]
 
     @hg.graph
     def tsd_empty(ts: hg.TSD[str, hg.TS[int]]) -> TS[bool]:
         return hg.is_empty(ts)
 
-    assert eval_node(tsd_empty, [{"a": 1}, {"a": None}, {"b": 2}]) == [
+    assert eval_node(tsd_empty, [{"a": 1}, {"a": hg.REMOVE_IF_EXISTS}, {"b": 2}]) == [
         False, True, False]
 
     @hg.graph
     def tsd_contains(ts: hg.TSD[str, hg.TS[int]]) -> TS[bool]:
         return hg.contains_(ts, "c")
 
-    assert eval_node(tsd_contains, [{"c": 0}, {"c": None}]) == [True, False]
+    assert eval_node(tsd_contains, [{"c": 0}, {"c": hg.REMOVE_IF_EXISTS}]) == [True, False]
+
+    # Consistency across keyed structures: a None entry per TSL index is
+    # likewise a no-tick for that index.
+    @hg.graph
+    def tsl_first(ts: hg.TSL[TS[int], hg.Size[2]]) -> TS[int]:
+        return ts[0]
+
+    assert eval_node(tsl_first, [[1, 2], [None, 5]]) == [1, None]

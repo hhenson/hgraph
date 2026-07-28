@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "coverage-tsd-removal-mixed-update",
-  "description": "Recorded lenient-None deviation (len-family manifestation): upstream eval_node silently ignores {key: None} TSD ticks (hhenson/hgraph#363); hg_cpp removes leniently and re-evaluates. Fingerprint pinned in known_divergences.json.",
+  "description": "Mixed removal+update TSD delta (agreeing space): len_ shrinks while the surviving key updates.",
   "template": "collection_size",
   "inputs": {
     "ts": [
@@ -10,7 +10,9 @@
         "b": 2
       },
       {
-        "a": null,
+        "a": {
+          "$remove_if_exists": true
+        },
         "b": 5
       }
     ]

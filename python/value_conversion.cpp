@@ -894,16 +894,19 @@ namespace hgraph::python_bridge
                 MapBuilder  modified{delta_binding(key_meta), delta_binding(child->delta_value_schema)};
                 for (auto [key, item] : nb::cast<nb::dict>(object))
                 {
+                    // Upstream convention (ruling 2026-07-28): a None value
+                    // means NOTHING happens for that key — the per-key
+                    // analogue of the top-level None no-tick. Removals are
+                    // the explicit sentinels only: REMOVE raises when the
+                    // key is absent at application; REMOVE_IF_EXISTS is
+                    // lenient.
+                    if (item.is_none()) { continue; }
                     Value key_value = py_to_value_as(key, key_meta);
-                    // hgraph's removal contract: REMOVE raises when the key is
-                    // absent at application; REMOVE_IF_EXISTS and the harness
-                    // None convention are lenient.
                     const bool strict_remove =
                         removed_sentinel_slot().is_valid() && item.is(removed_sentinel_slot());
                     const bool lenient_remove =
-                        item.is_none() ||
-                        (remove_if_exists_sentinel_slot().is_valid() &&
-                         item.is(remove_if_exists_sentinel_slot()));
+                        remove_if_exists_sentinel_slot().is_valid() &&
+                        item.is(remove_if_exists_sentinel_slot());
                     if (strict_remove) { (void)removed_strict.insert_copy(key_value.view().data()); }
                     else if (lenient_remove) { (void)removed.insert_copy(key_value.view().data()); }
                     else
@@ -925,6 +928,9 @@ namespace hgraph::python_bridge
                 {
                     for (auto [key, item] : nb::cast<nb::dict>(object))
                     {
+                        // None = nothing ticked for this index (the keyed-
+                        // structure convention, ruling 2026-07-28).
+                        if (item.is_none()) { continue; }
                         const auto index = nb::cast<std::int64_t>(key);
                         Value child_delta = py_to_delta(item, ts->element_ts());
                         builder.set_item_copy(std::addressof(index), child_delta.view().data());
