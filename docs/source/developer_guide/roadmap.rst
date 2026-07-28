@@ -610,16 +610,21 @@ The following are intentional unless separately re-opened:
   TSS/TSD delta that nets to no change does not tick. Explicit writes are
   unaffected and match upstream exactly: a python node returning the same
   scalar each evaluation ticks each time, as do repeated TSD entry writes.
-- **TSD removal-driven len-family re-ticks** (issues #120/#129, 2026-07-28):
-  released hgraph does not re-evaluate ``len_``/``is_empty``/``contains_``
-  over a TSD on a removal-only delta, leaving STALE values (a partial
-  removal leaves upstream ``len_`` at the old size indefinitely); hg_cpp
-  re-evaluates and publishes the correct value.  Correctness over the
-  upstream quirk: pinned by ``test_tsd_removal_reticks_are_the_ruled_
-  deviation``, the failure fingerprints are pinned in
-  ``known_divergences.json``, the corpus tracks the space
-  (``coverage-tsd-removal-*``), and generation stays out of it.  TSS
-  removals agree with upstream and are unaffected.
+- **TSD removals are invisible to upstream's len family** (issues
+  #120/#129, 2026-07-28): released hgraph never subtracts a removed key
+  from ``len_``/``is_empty``/``contains_`` over a TSD — a removal-only
+  delta does not re-evaluate at all, and even a MIXED delta that does
+  re-evaluate still counts the removed key (reference probes:
+  ``{a:1,b:2}`` then ``{a:None,b:5}`` leaves upstream ``len_`` at 2;
+  ``{a:None,c:3}`` reads 3).  hg_cpp re-evaluates and publishes the
+  correct size.  Correctness over the upstream quirk: pinned by
+  ``test_tsd_removal_reticks_are_the_ruled_deviation`` and the native
+  container matrix, the failure fingerprints (removal-only AND mixed
+  shapes) are pinned in ``known_divergences.json``, the corpus tracks the
+  space (``coverage-tsd-removal-*``), and generation excludes TSD
+  removals entirely — mixed deltas diverge too, so there is no
+  upstream-agreeing removal space to fuzz.  TSS removals agree with
+  upstream and stay generated.
 - **Service-boundary timing** (design record: the scheduling matrix in
   :doc:`services`): request stubs forward next cycle by design, so a
   ``service_adaptor`` round trip observably lands one cycle after released
