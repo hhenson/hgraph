@@ -1163,13 +1163,20 @@ def test_valid_subset_reduce_relation_is_narrowly_bounded():
     }
     ok = lambda trace: {"status": "ok", "trace": trace}
 
-    assert matches_known_family(recipe, families)
+    # The SUBSCRIPTION family stays narrowly bounded to its inner; the
+    # template-wide nested-no-change-retick family (elision relation) matches
+    # any inner but only suppresses equal-re-tick elisions.
+    subscription_families = [
+        f for f in families if f["family"] == "mapped-subscription-valid-subset-reduce"
+    ]
+    assert subscription_families
+    assert matches_known_family(recipe, subscription_families)
     assert not matches_known_family(
         {
             **recipe,
             "parameters": {**recipe["parameters"], "inner": "request_reply"},
         },
-        families,
+        subscription_families,
     )
 
     def classify(reference, candidate):
@@ -1183,6 +1190,42 @@ def test_valid_subset_reduce_relation_is_narrowly_bounded():
     assert not classify([None, None, 26, 14], [None, 9, 25, 14])
     assert not classify([None, None, 26, 14], [None, None, None, 14])
     assert not classify([None, None, 26, 14], [None, 9, 26])
+
+
+def test_nested_no_change_retick_family_is_elision_only():
+    from tools.parity.known import (
+        is_known_family_failure,
+        load_known_divergences,
+    )
+
+    _fingerprints, families = load_known_divergences()
+    ok = lambda trace: {"status": "ok", "trace": trace}
+    recipe = {
+        "template": "nested_higher_order",
+        "parameters": {
+            "inner": "arithmetic",
+            "outer": "map",
+            "wrap_switch": True,
+            "reduce_output": True,
+            "increment": -2,
+        },
+    }
+
+    def classify(reference, candidate):
+        difference = compare_outcomes(ok(reference), ok(candidate))
+        assert difference is not None
+        return is_known_family_failure(
+            recipe, difference.to_dict(), ok(reference), ok(candidate), families
+        )
+
+    # The off-branch len_*0 re-emits an equal 0 upstream; hg_cpp elides it.
+    assert classify([0, 0], [0, None])
+    # A FIRST emission the candidate missed is NOT elision.
+    assert not classify([None, 0], [None, None])
+    # An extra candidate tick is NOT elision.
+    assert not classify([None, None], [None, 0])
+    # A changed value is NOT elision.
+    assert not classify([0, 0], [0, 1])
 
 
 def test_generated_subscription_recipes_never_resubscribe():

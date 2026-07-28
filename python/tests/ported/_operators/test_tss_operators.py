@@ -232,12 +232,14 @@ def test_contains_tss():
     assert eval_node(g, [{1, 2, 3}], [1, 4]) == [True, False]
 
 
-def test_contains_tss_waits_for_the_set_to_be_valid():
+def test_contains_tss_seeds_false_before_the_set_is_valid():
+    # Released hgraph initializes the contains ref-output, so contains_
+    # publishes False before the set first ticks (issue #149).
     @graph
     def g(tss: TSS[int], item: TS[int]) -> TS[bool]:
         return contains_(tss, item)
 
-    assert eval_node(g, [None, {1}], [1, 1]) == [None, True]
+    assert eval_node(g, [None, {1}], [1, 1]) == [False, True]
 
 
 def test_contains_tss_2():

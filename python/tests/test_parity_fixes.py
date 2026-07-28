@@ -1,4 +1,5 @@
-"""Public Python wiring regressions for fixed parity issues #69, #70, #72, #74, #82.
+"""Public Python wiring regressions for fixed parity issues #69, #70, #72, #74,
+#82, #148/#161/#162 (TSS overlap deltas), and #149 (contains seeds False).
 
 Each test pins the released-hgraph trace the differential harness verified;
 the corpus retains the minimized recipes as passing regressions.
@@ -140,3 +141,56 @@ def test_valid_over_silent_ref_produces_no_tick():
         return hg.valid(i)
 
     assert eval_node(plain_valid, [None, 1]) == [False, True]
+
+
+def test_tss_overlap_delta_resolves_by_prior_membership():
+    # Issues #148/#161/#162: upstream filters a set delta's added/removed
+    # lists against membership BEFORE applying, so an element listed in
+    # BOTH is decided by its prior membership — present -> removed,
+    # absent -> added.
+    @graph
+    def tss_len(ts: hg.TSS[int]) -> TS[int]:
+        return hg.len_(ts)
+
+    # {0} + (add {4, 0}, remove {0, -4}) lands on {4}: 0 was present, so
+    # the overlap removal wins (len 1 -> 1; no-change means no tick here).
+    assert eval_node(
+        tss_len,
+        [hg.set_delta(added={0}, removed={1}, tp=int),
+         hg.set_delta(added={4, 0}, removed={0, -4}, tp=int)],
+    ) == [1, None]
+
+    # Both listed adds already present: the overlap removal shrinks the set.
+    assert eval_node(
+        tss_len,
+        [hg.set_delta(added={5, -3}, removed=set(), tp=int),
+         hg.set_delta(added={5, -3}, removed={5, -5}, tp=int)],
+    ) == [2, 1]
+
+    # The captured delta carries the removal downstream.
+    @graph
+    def tss_contains(ts: hg.TSS[int]) -> TS[bool]:
+        return hg.contains_(ts, 0)
+
+    assert eval_node(
+        tss_contains,
+        [hg.set_delta(added={0}, removed=set(), tp=int),
+         hg.set_delta(added={4, 0}, removed={0, -4}, tp=int)],
+    ) == [True, False]
+
+
+def test_contains_seeds_false_before_the_container_ticks():
+    # Issue #149: upstream initializes the contains ref-output, so contains_
+    # publishes False at start even when the container never becomes valid —
+    # unlike len_, which stays silent (see test_len_sized_types).
+    @graph
+    def tsd_contains(ts: hg.TSD[str, TS[int]]) -> TS[bool]:
+        return hg.contains_(ts, "a")
+
+    assert eval_node(tsd_contains, [None, None]) == [False, None]
+
+    @graph
+    def tss_contains(ts: hg.TSS[int]) -> TS[bool]:
+        return hg.contains_(ts, 1)
+
+    assert eval_node(tss_contains, [None, None]) == [False, None]

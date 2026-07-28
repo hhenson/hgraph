@@ -1809,7 +1809,7 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
     CHECK_OUTPUT((eval_node<stdlib::contains_, TSS<Int>>(
                      values<Value>(none, set_delta<Int>({1}, {})),
                      values<Int>(1, 1))),
-                 values<Bool>(none, true));
+                 values<Bool>(false, true));
     CHECK_OUTPUT((eval_node<stdlib::contains_, TSS<Int>, TSS<Int>>(
                      values<Value>(set_delta<Int>({1, 2, 3}, {})),
                      values<Value>(set_delta<Int>({1, 2}, {}), set_delta<Int>({4}, {1, 2})))),
@@ -1820,9 +1820,11 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
                                                                            dict_delta<Int, TS<Int>>({}, {0})))),
                  values<Int>(0, 1, 0));
 
-    // A NEVER-VALID input never ticks (upstream parity, issue #116 family):
-    // len_ and contains_ stay silent until the first real delta; is_empty
-    // (above) deliberately keeps its True start tick per the upstream port.
+    // A NEVER-VALID input (upstream parity): len_ stays silent until the
+    // first real delta (issue #116 family); contains_ SEEDS False — upstream
+    // initializes the contains ref-output before the container first ticks
+    // (issue #149); is_empty (above) keeps its True start tick per the
+    // upstream port.
     CHECK_OUTPUT((eval_node<stdlib::len_, TSS<Int>>(values<Value>(none, set_delta<Int>({1}, {})))),
                  values<Int>(none, 1));
     CHECK_OUTPUT((eval_node<stdlib::len_, TSD<Int, TS<Int>>>(
@@ -1831,11 +1833,11 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
     CHECK_OUTPUT((eval_node<stdlib::contains_, TSD<Int, TS<Int>>>(
                      values<Value>(none, dict_delta<Int, TS<Int>>({{1, 10}})),
                      values<Int>(1, none))),
-                 values<Bool>(none, true));
+                 values<Bool>(false, true));
     CHECK_OUTPUT((eval_node<stdlib::contains_, TSS<Int>, TSS<Int>>(
                      values<Value>(none, set_delta<Int>({1, 2}, {})),
                      values<Value>(set_delta<Int>({1}, {}), none))),
-                 values<Bool>(none, true));
+                 values<Bool>(false, true));
 
     // Removal-driven re-ticks over EXPLICIT removal deltas — plain correct
     // behaviour on which both runtimes agree (the #120/#129 divergences were
@@ -2535,6 +2537,33 @@ TEST_CASE("std operators: an int const dedup stays int")
     // The same rule as a hard reject: an int tolerance for the float
     // overload's ``TS<Float>`` abs_tol leaves no matching candidate.
     REQUIRE_THROWS_AS(eval_node<DedupIntToleranceGraph>(values<Float>(1.0)), OperatorResolutionError);
+}
+
+TEST_CASE("std operators: a set delta listing an element as both added and removed resolves by prior membership")
+{
+    stdlib::register_standard_operators();
+
+    // Upstream filters added/removed against membership BEFORE the apply
+    // (issues #148/#161/#162): an element in both lists is REMOVED when it
+    // was already present and ADDED when it was not. {0} + (add {4,0},
+    // remove {0,-4}) therefore lands on {4}, not {4,0}.
+    CHECK_OUTPUT((eval_node<stdlib::len_, TSS<Int>>(
+                     values<Value>(set_delta<Int>({0}, {1}), set_delta<Int>({4, 0}, {0, -4})))),
+                 values<Int>(1, none));
+    // The captured delta carries the removal downstream: contains_ flips.
+    CHECK_OUTPUT((eval_node<stdlib::contains_, TSS<Int>>(
+                     values<Value>(set_delta<Int>({0}, {}), set_delta<Int>({4, 0}, {0, -4})),
+                     values<Int>(0, none))),
+                 values<Bool>(true, false));
+    // Both elements already present: the adds are no-ops and the overlap
+    // removal wins — {5,-3} + (add {5,-3}, remove {5,-5}) lands on {-3}.
+    CHECK_OUTPUT((eval_node<stdlib::len_, TSS<Int>>(
+                     values<Value>(set_delta<Int>({5, -3}, {1}), set_delta<Int>({5, -3}, {5, -5})))),
+                 values<Int>(2, 1));
+    // An ABSENT element in both lists stays added (membership decides).
+    CHECK_OUTPUT((eval_node<stdlib::len_, TSS<Int>>(
+                     values<Value>(set_delta<Int>({1}, {}), set_delta<Int>({7}, {7, 1})))),
+                 values<Int>(1, none));
 }
 
 TEST_CASE("std operators: an operand combination with no registered implementation raises")

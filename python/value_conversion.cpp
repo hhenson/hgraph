@@ -884,6 +884,16 @@ namespace hgraph::python_bridge
                         "a dict is not a TSS value/delta: use a set, set_delta(...), "
                         "or Removed(...) markers ({} is accepted as the empty set)");
                 }
+                if (set_delta_class_slot().is_valid() && nb::isinstance(object, set_delta_class_slot()))
+                {
+                    // The set-delta literal carries EXPLICIT added/removed
+                    // fields (upstream keeps them as separate frozensets).
+                    // Read them rather than iterating the marker set, which
+                    // cannot represent an element listed in BOTH added and
+                    // removed — Removed(x) hashes as x, so the union
+                    // collapses the pair (issues #148/#161/#162).
+                    return py_tss_spec_to_delta(object.attr("added"), object.attr("removed"), ts);
+                }
                 return py_tss_spec_to_delta(object, nb::handle{}, ts);
             }
             case TSTypeKind::TSD: {
