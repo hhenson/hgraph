@@ -202,3 +202,38 @@ def test_mesh_with_never_valid_keys_never_ticks():
         return hg.mesh_(keyed, __keys__=keys, __key_arg__="key")
 
     assert eval_node(g, [None, None]) is None
+
+
+def test_map_child_response_survives_new_key_in_delivery_cycle():
+    # Issue #175: a map_ child scheduled by its own INTERNAL nodes (here a
+    # request-reply response due for delivery) must evaluate even when an
+    # outer input ticks in the same cycle — the input-event fast path used
+    # to skip it and the wake-up was lost permanently.
+    @hg.request_reply_service
+    def adjust(path: str, request: TS[int]) -> TS[int]: ...
+
+    @hg.service_impl(interfaces=adjust)
+    def adjust_impl(request: hg.TSD[int, TS[int]]) -> hg.TSD[int, TS[int]]:
+        return hg.map_(lambda value: value + 0, request)
+
+    @graph
+    def alpha_branch(value: TS[int]) -> TS[int]:
+        return adjust("issue-175-svc", value)
+
+    @graph
+    def beta_branch(value: TS[int]) -> TS[int]:
+        return value * 2
+
+    @graph
+    def per_key(key: TS[str], value: TS[int], selector: TS[str]) -> TS[int]:
+        del key
+        return hg.switch_(selector, {"alpha": alpha_branch, "beta": beta_branch}, value)
+
+    @graph
+    def g(values: hg.TSD[str, TS[int]], selector: TS[str]) -> hg.TSD[str, TS[int]]:
+        hg.register_service("issue-175-svc", adjust_impl)
+        return hg.map_(per_key, values, selector)
+
+    # k2 arrives EXACTLY in k1's response-delivery cycle (t2).
+    assert eval_node(g, [{"k1": 8}, None, {"k2": -2}], ["alpha", None, None]) == [
+        {}, None, {"k1": 8}, None, {"k2": -2}]

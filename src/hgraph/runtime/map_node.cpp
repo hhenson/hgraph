@@ -809,6 +809,22 @@ namespace hgraph
             }
             else
             {
+                // The input-event fast path must not starve a child that is
+                // DUE by its own internal schedule (a service response
+                // delivery, a scheduler alarm): when an outer tick coincides
+                // with the child's wake-up cycle, missing it here loses the
+                // wake-up permanently (issue #175 — a request-reply response
+                // dropped when a new key arrived in the delivery cycle).
+                for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
+                {
+                    const MapKeyEntry *entry = storage.entry_at(slot);
+                    if (entry == nullptr || !entry->graph.has_value()) { continue; }
+                    const DateTime next = entry->graph.view().next_scheduled_time();
+                    if (next != MAX_DT && next <= evaluation_time)
+                    {
+                        add_map_evaluation_slot(storage, slot);
+                    }
+                }
                 materialize_map_evaluation_slots(storage);
             }
             storage.has_future_child_schedule = false;
