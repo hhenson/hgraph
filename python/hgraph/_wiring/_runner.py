@@ -218,6 +218,7 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
     missing = object()
     previous_logger = state.get(_GRAPH_LOGGER_KEY, missing)
     previous_formatter = state.get(_GRAPH_LOGGER_FORMATTER_KEY, missing)
+    previous_start_time = state.get("__start_time__", missing)
     state[_GRAPH_LOGGER_KEY] = config.graph_logger
     if config.logger_formatter is None:
         state.pop(_GRAPH_LOGGER_FORMATTER_KEY, None)
@@ -233,6 +234,14 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
         _wiring_stack.append(w)
         wiring_pushed = True
         wiring_started = time.perf_counter()
+        # Python-readable mirror of the run start (the C++ run bounds have no
+        # wiring-time getter), exactly as eval_node publishes it: start-time-
+        # aware wiring — the DATA_FRAME replay overloads' upstream
+        # `_api.start_time` filter — reads this. Without it a stored frame
+        # carrying rows before start_time replays them into the native
+        # generator and the stream aborts empty.
+        state["__start_time__"] = (
+            config.start_time if config.start_time is not None else _hgraph.MIN_ST)
         config.graph_logger.debug("Wiring graph: %s", getattr(graph_fn, "__name__", graph_fn))
         out = graph_fn(*args, **kwargs)
         if out is not None:
@@ -270,6 +279,13 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
             state.pop(_GRAPH_LOGGER_FORMATTER_KEY, None)
         else:
             state[_GRAPH_LOGGER_FORMATTER_KEY] = previous_formatter
+        # Restore the enclosing run's start mirror (a nested evaluate_graph
+        # during an outer wiring must not leak its bound into replay wired
+        # later by the outer graph).
+        if previous_start_time is missing:
+            state.pop("__start_time__", None)
+        else:
+            state["__start_time__"] = previous_start_time
     if profiler is not None:
         _log_evaluation_profile(config.graph_logger, profiler.snapshot())
     if out is None:
