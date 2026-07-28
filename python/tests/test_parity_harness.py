@@ -1163,20 +1163,39 @@ def test_valid_subset_reduce_relation_is_narrowly_bounded():
     }
     ok = lambda trace: {"status": "ok", "trace": trace}
 
-    # The SUBSCRIPTION family stays narrowly bounded to its inner; the
-    # template-wide nested-no-change-retick family (elision relation) matches
-    # any inner but only suppresses equal-re-tick elisions.
-    subscription_families = [
-        f for f in families if f["family"] == "mapped-subscription-valid-subset-reduce"
+    # The valid-subset semantics apply only where an in-flight service
+    # round trip opens an invalid window: subscription startup (the original
+    # #95 shape) and a switch_ flip to a request-reply branch. A pure
+    # arithmetic pipeline evaluates same-cycle under sampled semantics, so
+    # its extra ticks stay reportable — the families are scoped to the
+    # service-backed inners, and the relation stays extra-emissions-only.
+    subset_families = [
+        f for f in families
+        if f["family"] in ("mapped-subscription-valid-subset-reduce",
+                           "switch-flip-valid-subset-reduce")
     ]
-    assert subscription_families
-    assert matches_known_family(recipe, subscription_families)
-    assert not matches_known_family(
+    assert len(subset_families) == 2
+    assert matches_known_family(recipe, subset_families)
+    assert matches_known_family(
         {
             **recipe,
             "parameters": {**recipe["parameters"], "inner": "request_reply"},
         },
-        subscription_families,
+        subset_families,
+    )
+    assert not matches_known_family(
+        {
+            **recipe,
+            "parameters": {**recipe["parameters"], "inner": "arithmetic"},
+        },
+        subset_families,
+    )
+    assert not matches_known_family(
+        {
+            **recipe,
+            "parameters": {**recipe["parameters"], "reduce_output": False},
+        },
+        subset_families,
     )
 
     def classify(reference, candidate):
@@ -1192,6 +1211,61 @@ def test_valid_subset_reduce_relation_is_narrowly_bounded():
     assert not classify([None, None, 26, 14], [None, 9, 26])
 
 
+def test_switch_flip_valid_subset_relation_is_windowed():
+    from tools.parity.known import (
+        is_known_family_failure,
+        load_known_divergences,
+    )
+
+    _fingerprints, families = load_known_divergences()
+    ok = lambda trace: {"status": "ok", "trace": trace}
+    # The issue #99 shape: beta at t0, flip to the request-reply alpha at
+    # t1, response lands at t3.
+    recipe = {
+        "template": "nested_higher_order",
+        "inputs": {
+            "selector": ["beta", "alpha", None, None],
+            "values": [{"k1": -1}, None, None, None],
+        },
+        "parameters": {
+            "inner": "request_reply",
+            "outer": "map",
+            "wrap_switch": False,
+            "reduce_output": True,
+            "increment": -5,
+        },
+    }
+
+    def classify(reference, candidate, with_recipe=None):
+        difference = compare_outcomes(ok(reference), ok(candidate))
+        assert difference is not None
+        return is_known_family_failure(
+            with_recipe or recipe, difference.to_dict(), ok(reference),
+            ok(candidate), families,
+        )
+
+    # The flip-cycle valid-subset emission is inside the window.
+    assert classify([3, None, None, -6], [3, 0, None, -6])
+    # An extra tick AFTER the pipeline settled (no input tick since the
+    # last agreeing reference emission) is NOT covered (PR #165 review).
+    assert not classify([3, None, None, -6, None], [3, 0, None, -6, 99])
+    # Payload mismatches and missing emissions stay reportable everywhere.
+    assert not classify([3, None, None, -6], [3, 0, None, -7])
+    assert not classify([3, None, None, -6], [3, None, None, None])
+
+    # A spurious tick with the selector PARKED on the arithmetic branch —
+    # the t0 emission closes the only window, so nothing later is covered.
+    parked = {
+        **recipe,
+        "inputs": {
+            "selector": ["beta", None, None, None],
+            "values": [{"k1": -1}, None, None, None],
+        },
+    }
+    assert not classify([3, None, None, None], [3, None, None, 99],
+                        with_recipe=parked)
+
+
 def test_nested_no_change_retick_family_is_elision_only():
     from tools.parity.known import (
         is_known_family_failure,
@@ -1199,6 +1273,13 @@ def test_nested_no_change_retick_family_is_elision_only():
     )
 
     _fingerprints, families = load_known_divergences()
+    # Bound THIS family's relation in isolation — on a reduce_output
+    # pipeline the widened mapped-valid-subset-reduce family separately
+    # admits extra candidate emissions.
+    elision_families = [
+        f for f in families if f["family"] == "nested-no-change-retick"
+    ]
+    assert elision_families
     ok = lambda trace: {"status": "ok", "trace": trace}
     recipe = {
         "template": "nested_higher_order",
@@ -1215,7 +1296,8 @@ def test_nested_no_change_retick_family_is_elision_only():
         difference = compare_outcomes(ok(reference), ok(candidate))
         assert difference is not None
         return is_known_family_failure(
-            recipe, difference.to_dict(), ok(reference), ok(candidate), families
+            recipe, difference.to_dict(), ok(reference), ok(candidate),
+            elision_families,
         )
 
     # The off-branch len_*0 re-emits an equal 0 upstream; hg_cpp elides it.
