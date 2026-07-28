@@ -596,6 +596,14 @@ Accepted Deviations
 
 The following are intentional unless separately re-opened:
 
+- A set delta's ``added`` and ``removed`` **must be disjoint** (ruling
+  2026-07-28): an element listed in both is incorrect data, rejected at
+  construction (``set_delta`` raises; the parity recipe decoder rejects
+  the shape; the generator never produces it). Released hgraph tolerates
+  the overlap by filtering both lists against prior membership in its
+  value setter; hg_cpp rejects it loudly instead (issues
+  #148/#161/#162). Pinned by
+  ``test_set_delta_added_removed_must_be_disjoint``.
 - A ``None`` value in a keyed delta means **nothing ticked for that key**
   (ruling 2026-07-28) — the per-key analogue of the top-level no-tick,
   applied consistently across keyed structures (TSD keys, TSL indices,

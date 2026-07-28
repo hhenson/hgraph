@@ -887,11 +887,11 @@ namespace hgraph::python_bridge
                 if (set_delta_class_slot().is_valid() && nb::isinstance(object, set_delta_class_slot()))
                 {
                     // The set-delta literal carries EXPLICIT added/removed
-                    // fields (upstream keeps them as separate frozensets).
-                    // Read them rather than iterating the marker set, which
-                    // cannot represent an element listed in BOTH added and
-                    // removed — Removed(x) hashes as x, so the union
-                    // collapses the pair (issues #148/#161/#162).
+                    // fields (upstream keeps them as separate frozensets),
+                    // disjoint by construction (ruling 2026-07-28). Read them
+                    // rather than iterating the marker set — Removed(x)
+                    // hashes as x, so marker iteration is lossy in exotic
+                    // hash-collision shapes the fields represent faithfully.
                     return py_tss_spec_to_delta(object.attr("added"), object.attr("removed"), ts);
                 }
                 return py_tss_spec_to_delta(object, nb::handle{}, ts);

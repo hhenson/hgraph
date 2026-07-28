@@ -2539,33 +2539,6 @@ TEST_CASE("std operators: an int const dedup stays int")
     REQUIRE_THROWS_AS(eval_node<DedupIntToleranceGraph>(values<Float>(1.0)), OperatorResolutionError);
 }
 
-TEST_CASE("std operators: a set delta listing an element as both added and removed resolves by prior membership")
-{
-    stdlib::register_standard_operators();
-
-    // Upstream filters added/removed against membership BEFORE the apply
-    // (issues #148/#161/#162): an element in both lists is REMOVED when it
-    // was already present and ADDED when it was not. {0} + (add {4,0},
-    // remove {0,-4}) therefore lands on {4}, not {4,0}.
-    CHECK_OUTPUT((eval_node<stdlib::len_, TSS<Int>>(
-                     values<Value>(set_delta<Int>({0}, {1}), set_delta<Int>({4, 0}, {0, -4})))),
-                 values<Int>(1, none));
-    // The captured delta carries the removal downstream: contains_ flips.
-    CHECK_OUTPUT((eval_node<stdlib::contains_, TSS<Int>>(
-                     values<Value>(set_delta<Int>({0}, {}), set_delta<Int>({4, 0}, {0, -4})),
-                     values<Int>(0, none))),
-                 values<Bool>(true, false));
-    // Both elements already present: the adds are no-ops and the overlap
-    // removal wins — {5,-3} + (add {5,-3}, remove {5,-5}) lands on {-3}.
-    CHECK_OUTPUT((eval_node<stdlib::len_, TSS<Int>>(
-                     values<Value>(set_delta<Int>({5, -3}, {1}), set_delta<Int>({5, -3}, {5, -5})))),
-                 values<Int>(2, 1));
-    // An ABSENT element in both lists stays added (membership decides).
-    CHECK_OUTPUT((eval_node<stdlib::len_, TSS<Int>>(
-                     values<Value>(set_delta<Int>({1}, {}), set_delta<Int>({7}, {7, 1})))),
-                 values<Int>(1, none));
-}
-
 TEST_CASE("std operators: an operand combination with no registered implementation raises")
 {
     stdlib::register_standard_operators();   // bool arithmetic is deliberately not registered

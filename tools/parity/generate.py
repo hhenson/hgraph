@@ -513,8 +513,14 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
                 parameters["probe"] = draw(st.sampled_from(("a", "cd", "")))
         elif shape == "tss":
             def delta():
+                # added/removed MUST be disjoint (ruling 2026-07-28): an
+                # element in both is incorrect data, rejected at set_delta
+                # construction — the generator must not produce it.
                 added = draw(st.lists(small, max_size=3))
-                removed = draw(st.lists(small, max_size=2))
+                removed = [
+                    value for value in draw(st.lists(small, max_size=2))
+                    if value not in added
+                ]
                 return {"$set_delta": {"added": added, "removed": removed}}
             inputs = {"ts": [delta()] + [
                 None if draw(st.booleans()) else delta()

@@ -608,34 +608,19 @@ namespace hgraph
 
         void apply_delta_tss(const TSOutputView &out, const ValueView &delta)
         {
+            // Contract (ruling 2026-07-28): a canonical set delta's added and
+            // removed lists are DISJOINT — an element in both is incorrect
+            // data, rejected at the construction boundaries (the _SetDelta
+            // literal, the recipe decoder); captured deltas are disjoint by
+            // slot-mask construction. Under that invariant the application
+            // order is immaterial.
             const auto bundle  = delta.as_bundle();
             auto       set_out = out.as_set();
             auto       mutation = set_out.begin_mutation(out.evaluation_time());
             const auto removed = bundle.field("removed").as_indexed_view();
-            const auto added   = bundle.field("added").as_indexed_view();
-            // Upstream filters BOTH lists against membership BEFORE the apply
-            // (its value setter computes added-minus-value / removed-and-value
-            // up front), so an element listed in added AND removed is decided
-            // by its PRIOR membership: present -> removed, absent -> added
-            // (issues #148/#161/#162). Removals run first (remove() already
-            // filters to present keys); when both lists are populated the adds
-            // are pre-scanned against the untouched set so a just-removed
-            // prior member is not resurrected by the same delta.
-            if (added.size() != 0 && removed.size() != 0)
-            {
-                std::vector<bool> add_effective(added.size());
-                for (std::size_t i = 0; i < added.size(); ++i) { add_effective[i] = !mutation.contains(added.at(i)); }
-                for (std::size_t i = 0; i < removed.size(); ++i) { (void)mutation.remove(removed.at(i)); }
-                for (std::size_t i = 0; i < added.size(); ++i)
-                {
-                    if (add_effective[i]) { (void)mutation.add(added.at(i)); }
-                }
-            }
-            else
-            {
-                for (std::size_t i = 0; i < removed.size(); ++i) { (void)mutation.remove(removed.at(i)); }
-                for (std::size_t i = 0; i < added.size(); ++i) { (void)mutation.add(added.at(i)); }
-            }
+            for (std::size_t i = 0; i < removed.size(); ++i) { (void)mutation.remove(removed.at(i)); }
+            const auto added = bundle.field("added").as_indexed_view();
+            for (std::size_t i = 0; i < added.size(); ++i) { (void)mutation.add(added.at(i)); }
             // Touch LAST: the once-per-time notification rides the FIRST
             // record and must carry the real changes; the trailing touch
             // VALIDATES an explicitly-empty tick (hgraph: an empty first

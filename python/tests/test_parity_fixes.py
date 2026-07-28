@@ -1,9 +1,12 @@
 """Public Python wiring regressions for fixed parity issues #69, #70, #72, #74,
-#82, #148/#161/#162 (TSS overlap deltas), and #149 (contains seeds False).
+#82, #148/#161/#162 (overlapping set deltas are rejected), and #149 (contains
+seeds False).
 
 Each test pins the released-hgraph trace the differential harness verified;
 the corpus retains the minimized recipes as passing regressions.
 """
+
+import pytest
 
 import hgraph as hg
 from hgraph import TS, REF, compute_node, graph
@@ -143,40 +146,31 @@ def test_valid_over_silent_ref_produces_no_tick():
     assert eval_node(plain_valid, [None, 1]) == [False, True]
 
 
-def test_tss_overlap_delta_resolves_by_prior_membership():
-    # Issues #148/#161/#162: upstream filters a set delta's added/removed
-    # lists against membership BEFORE applying, so an element listed in
-    # BOTH is decided by its prior membership — present -> removed,
-    # absent -> added.
-    @graph
-    def tss_len(ts: hg.TSS[int]) -> TS[int]:
-        return hg.len_(ts)
+def test_set_delta_added_removed_must_be_disjoint():
+    # Ruling 2026-07-28 (issues #148/#161/#162): an element listed in BOTH
+    # added and removed of one set delta is incorrect data — rejected at
+    # construction, never resolved by convention. (Released hgraph happens
+    # to tolerate the shape by filtering against prior membership; that is
+    # an accepted deviation, roadmap.rst.)
+    with pytest.raises(ValueError, match="add and remove the same element"):
+        hg.set_delta(added={4, 0}, removed={0, -4}, tp=int)
 
-    # {0} + (add {4, 0}, remove {0, -4}) lands on {4}: 0 was present, so
-    # the overlap removal wins (len 1 -> 1; no-change means no tick here).
-    assert eval_node(
-        tss_len,
-        [hg.set_delta(added={0}, removed={1}, tp=int),
-         hg.set_delta(added={4, 0}, removed={0, -4}, tp=int)],
-    ) == [1, None]
+    # The marker-set spelling reaches the same boundary.
+    with pytest.raises(ValueError, match="add and remove the same element"):
+        hg.set_delta(added={0}, removed={0}, tp=int)
 
-    # Both listed adds already present: the overlap removal shrinks the set.
-    assert eval_node(
-        tss_len,
-        [hg.set_delta(added={5, -3}, removed=set(), tp=int),
-         hg.set_delta(added={5, -3}, removed={5, -5}, tp=int)],
-    ) == [2, 1]
-
-    # The captured delta carries the removal downstream.
-    @graph
-    def tss_contains(ts: hg.TSS[int]) -> TS[bool]:
-        return hg.contains_(ts, 0)
-
-    assert eval_node(
-        tss_contains,
-        [hg.set_delta(added={0}, removed=set(), tp=int),
-         hg.set_delta(added={4, 0}, removed={0, -4}, tp=int)],
-    ) == [True, False]
+    # Disjoint deltas construct and compose freely; composition preserves
+    # disjointness (upstream's sequential-application formula NETS an
+    # add-then-remove of the same element to no mention at all).
+    first = hg.set_delta(added={1}, tp=int)
+    second = hg.set_delta(added={2}, removed={1}, tp=int)
+    combined = first + second
+    assert combined.added == {2}
+    assert combined.removed == frozenset()
+    # A removal that predates the window survives composition.
+    third = hg.set_delta(removed={9}, tp=int) + hg.set_delta(added={8}, tp=int)
+    assert third.added == {8}
+    assert third.removed == {9}
 
 
 def test_contains_seeds_false_before_the_container_ticks():

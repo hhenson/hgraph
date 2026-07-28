@@ -90,10 +90,12 @@ class _SetDelta(frozenset):
     (which a TSS node return applies as the FULL VALUE, upstream parity).
 
     The added/removed fields are stored EXPLICITLY (upstream keeps them as
-    separate frozensets): Removed(x) hashes as x, so the frozenset content
-    alone cannot represent an element listed in BOTH added and removed —
-    a shape whose outcome is decided by prior membership at application
-    (issues #148/#161/#162)."""
+    separate frozensets) and MUST be disjoint (ruling 2026-07-28): an
+    element listed in both is incorrect data, rejected here at
+    construction. Enforcement lives at this boundary because the frozenset
+    content could not even represent the bad state faithfully — Removed(x)
+    hashes as x, so the union silently collapses the pair (issues
+    #148/#161/#162)."""
 
     __slots__ = ("_added", "_removed")
 
@@ -104,6 +106,10 @@ class _SetDelta(frozenset):
         else:
             added = frozenset(added) if added else frozenset()
             removed = frozenset(removed) if removed else frozenset()
+        overlap = added & removed
+        if overlap:
+            raise ValueError(
+                f"a set delta cannot both add and remove the same element(s): {sorted(overlap, key=repr)!r}")
         self = super().__new__(cls, added | {Removed(r) for r in removed})
         self._added = added
         self._removed = removed

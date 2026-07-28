@@ -58,10 +58,14 @@ def _decode_value(hg, value):
         delta = value["$set_delta"]
         if not isinstance(delta, dict) or set(delta) != {"added", "removed"}:
             raise RecipeError("$set_delta requires added and removed lists")
-        return hg.set_delta(
-            added=[_decode_value(hg, item) for item in delta["added"]],
-            removed=[_decode_value(hg, item) for item in delta["removed"]],
-        )
+        added = [_decode_value(hg, item) for item in delta["added"]]
+        removed = [_decode_value(hg, item) for item in delta["removed"]]
+        overlap = set(added) & set(removed)
+        if overlap:
+            # Ruling 2026-07-28: added/removed must be disjoint — an element
+            # in both is incorrect data, not a recipe to explore.
+            raise RecipeError(f"$set_delta added/removed overlap: {sorted(overlap)!r}")
+        return hg.set_delta(added=added, removed=removed)
     if set(value) == {"$frozendict"}:
         from frozendict import frozendict
 

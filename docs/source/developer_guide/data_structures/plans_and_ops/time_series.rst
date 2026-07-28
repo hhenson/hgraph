@@ -1010,14 +1010,16 @@ delta bits, the collection remains modified at that evaluation time:
 touching a collection is enough to publish validity, including valid
 empty ``TSS`` / ``TSD`` values.
 
-Sequential netting is distinct from a single canonical set delta that
-lists the same element in BOTH ``added`` and ``removed``. Upstream
-filters both lists against membership *before* applying anything (its
-value setter computes added-minus-value and removed-and-value up
-front), so the element's prior membership decides: present → removed,
-absent → added. ``apply_delta`` over ``TSS`` honours this by
-pre-scanning the adds against the untouched set before the removals
-mutate it, so a delta cannot resurrect a member it also removes
+Sequential netting is distinct from a single canonical set delta: a
+delta's ``added`` and ``removed`` lists MUST be disjoint (ruling
+2026-07-28) — an element listed in both is **incorrect data**, not a
+state to resolve. The invariant is enforced at the construction
+boundaries (the Python ``set_delta`` literal raises, the parity recipe
+decoder rejects) and holds by slot-mask construction for captured
+deltas; ``apply_delta`` over ``TSS`` assumes it, which makes the
+application order immaterial. Released hgraph happens to tolerate the
+overlapping shape by filtering both lists against prior membership in
+its value setter — an accepted deviation recorded in the roadmap
 (parity issues #148/#161/#162).
 
 Slot-Oriented Collection TSData
