@@ -22,13 +22,17 @@ output is INVALID: it never becomes valid if the collection never ticks, and
 it is invalidated (not merely left un-ticked) when the collection empties.
 For any non-empty input both produce identical results.
 
-With an identity ``zero`` the two implementations agree everywhere. These
-tests pin the hg_cpp behaviour for both arities. See issue #44 and the
-documented reduce deviation in ``docs/source/developer_guide/parity_matrix.rst``.
+With an identity ``zero`` the implementations agree once the same values are
+valid. During mapped phantom-slot startup, hg_cpp reduces the currently-valid
+subset (which can be empty and therefore publishes the explicit zero), while
+released hgraph may wait; that accepted #95 timing deviation is documented in
+``nested_graphs.rst``. These tests pin the hg_cpp behaviour for both arities.
+See issue #44 and the documented reduce deviations in
+``docs/source/developer_guide/parity_matrix.rst``.
 """
 
 import hgraph as hg
-from hgraph import TS, TSD, graph
+from hgraph import TS, TSD, TSS, graph
 from hgraph.test import eval_node
 
 
@@ -83,6 +87,49 @@ def test_identity_zero_matches_upstream():
         [{"a": 1, "b": 2, "c": 3}, {"a": hg.REMOVE, "b": hg.REMOVE, "c": hg.REMOVE}],
     )
     assert out == [6, 0]
+
+
+def test_explicit_zero_tracks_valid_values_through_forwarded_mesh_slots():
+    @graph
+    def double(value: TS[int]) -> TS[int]:
+        return value * 2
+
+    @graph
+    def negate(value: TS[int]) -> TS[int]:
+        return value * -1
+
+    @graph
+    def switched_child(key: TS[str], selector: TS[str]) -> TS[int]:
+        return hg.switch_(
+            selector,
+            {"double": double, "negate": negate},
+            hg.len_(key),
+        )
+
+    @graph
+    def mesh_reduce(keys: TSS[str], selector: TS[str]) -> TS[int]:
+        meshed = hg.mesh_(
+            switched_child,
+            selector,
+            __keys__=keys,
+            __key_arg__="key",
+        )
+        return hg.reduce(lambda lhs, rhs: lhs + rhs, meshed, 0)
+
+    # A live mesh slot whose forwarded switch target is still invalid is not a
+    # live reduction value. The explicit zero therefore publishes first; the
+    # child joins once selected and removing its key returns to zero.
+    out = eval_node(
+        mesh_reduce,
+        [
+            hg.set_delta(added={"k"}, tp=str),
+            None,
+            None,
+            hg.set_delta(removed={"k"}, tp=str),
+        ],
+        [None, "double", "negate", None],
+    )
+    assert out == [0, 2, -1, 0]
 
 
 def _map_reduce_no_zero(increment: int):

@@ -447,7 +447,9 @@ namespace hgraph
             if (leaf != last) { storage.structural_leaves.push_back(last); }
         }
 
-        [[nodiscard]] bool reconcile_leaf_state(ReduceNodeStorage &storage, const TSDDataView &dict, bool full)
+        [[nodiscard]] bool reconcile_leaf_state(ReduceNodeStorage &storage,
+                                                const TSDOutputView &output,
+                                                const TSDDataView &dict, bool full)
         {
             if (full)
             {
@@ -458,12 +460,18 @@ namespace hgraph
                 storage.key_to_leaf.reserve(dict.size());
                 for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
                 {
-                    if (!dict.slot_live(slot) || !dict.at_slot(slot).valid()) { continue; }
+                    if (!dict.slot_live(slot)) { continue; }
+                    // A map/mesh forwarding slot can be structurally live
+                    // before its child terminal has a value. Reduction
+                    // membership follows the resolved terminal, not the link
+                    // endpoint that owns the slot.
+                    TSOutputView source = resolve_forwarding_source(output.at_slot(slot));
+                    if (!source.valid()) { continue; }
                     Value key{dict.key_at_slot(slot)};
                     storage.key_to_leaf.emplace(key, storage.dense_to_key.size());
                     storage.dense_to_key.push_back(std::move(key));
                     storage.dense_to_source_slot.push_back(slot);
-                    storage.dense_to_source_handle.emplace_back();
+                    storage.dense_to_source_handle.push_back(source.handle());
                 }
                 return true;
             }
@@ -500,15 +508,15 @@ namespace hgraph
             for (std::size_t slot = dict.next_added_slot(); slot != TS_DATA_NO_CHILD_ID;
                  slot = dict.next_added_slot(slot))
             {
-                auto child = dict.at_slot(slot);
-                if (!child.valid()) { continue; }
+                TSOutputView source = resolve_forwarding_source(output.at_slot(slot));
+                if (!source.valid()) { continue; }
                 Value typed_key{dict.key_at_slot(slot)};
                 if (storage.key_to_leaf.find(typed_key) != storage.key_to_leaf.end()) { continue; }
                 storage.structural_leaves.push_back(storage.dense_to_key.size());
                 storage.key_to_leaf.emplace(typed_key, storage.dense_to_key.size());
                 storage.dense_to_key.push_back(std::move(typed_key));
                 storage.dense_to_source_slot.push_back(slot);
-                storage.dense_to_source_handle.emplace_back();
+                storage.dense_to_source_handle.push_back(source.handle());
                 structural = true;
             }
 
@@ -518,8 +526,8 @@ namespace hgraph
                 if (!dict.slot_live(slot)) { continue; }
                 const ValueView key = dict.key_at_slot(slot);
                 const auto found = storage.key_to_leaf.find(key);
-                auto child = dict.at_slot(slot);
-                if (!child.valid())
+                TSOutputView source = resolve_forwarding_source(output.at_slot(slot));
+                if (!source.valid())
                 {
                     if (found != storage.key_to_leaf.end())
                     {
@@ -538,7 +546,15 @@ namespace hgraph
                     storage.key_to_leaf.emplace(typed_key, leaf);
                     storage.dense_to_key.push_back(std::move(typed_key));
                     storage.dense_to_source_slot.push_back(slot);
-                    storage.dense_to_source_handle.emplace_back();
+                    storage.dense_to_source_handle.push_back(source.handle());
+                    structural = true;
+                    continue;
+                }
+
+                if (!source.handle().same_as(storage.dense_to_source_handle[found->second]))
+                {
+                    storage.structural_leaves.push_back(found->second);
+                    storage.dense_to_source_handle[found->second] = source.handle();
                     structural = true;
                 }
             }
@@ -640,10 +656,10 @@ namespace hgraph
 
         [[nodiscard]] bool reconcile_dict_collection(ReduceNodeStorage &storage, TSInputView &input, bool full)
         {
-            static_cast<void>(input);
-            auto data = storage.collection_source.data_view();
-            auto dict = data.as_dict();
-            return reconcile_leaf_state(storage, dict, full);
+            auto root = storage.collection_source.view(input.evaluation_time());
+            auto output = root.as_dict();
+            auto data = output.data_view();
+            return reconcile_leaf_state(storage, output, data, full);
         }
 
         [[nodiscard]] bool reconcile_list_collection(ReduceNodeStorage &storage, TSInputView &input, bool full)
@@ -699,7 +715,7 @@ namespace hgraph
         {
             auto dict = source.as_dict();
             return source_slot < dict.slot_capacity() && dict.slot_live(source_slot)
-                       ? dict.at_slot(source_slot)
+                       ? resolve_forwarding_source(dict.at_slot(source_slot))
                        : TSOutputView{};
         }
 

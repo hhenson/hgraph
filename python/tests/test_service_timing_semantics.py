@@ -98,7 +98,7 @@ def test_request_reply_inside_a_mapped_switch_keeps_late_keys():
         [{"k1": 3}, {"k2": 4}, None, {"k1": hg.REMOVE}],
         ["alpha", None, "beta", None],
         __end_time__=hg.MIN_ST + 10 * hg.MIN_TD,
-    ) == [None, None, 10, 6]
+    ) == [0, None, 10, 6]
 
 
 def test_subscription_inside_a_mapped_switch_keeps_late_keys():
@@ -132,12 +132,13 @@ def test_subscription_inside_a_mapped_switch_keeps_late_keys():
         mapped = hg.map_(per_key, values, selector)
         return hg.reduce(lambda lhs, rhs: lhs + rhs, mapped, 0)
 
-    # Issue #95: k1's first response is already valid while k2 is a phantom
-    # mapped slot. hg_cpp publishes that valid subset (9); released hgraph
-    # waits one cycle. Once k2 becomes valid, both publish 26 and then 14.
+    # Issue #95: reduction is over the currently-valid subset. Its explicit
+    # identity is observable while every mapped switch terminal is invalid,
+    # then k1 publishes 9 while k2 is still a phantom slot. Released hgraph
+    # waits at those points; once k2 is valid, both publish 26 and then 14.
     assert eval_node(
         app,
         [{"k1": 3}, {"k2": 4}, None, {"k1": hg.REMOVE}],
         ["alpha", None, "beta", None],
         __end_time__=hg.MIN_ST + 10 * hg.MIN_TD,
-    ) == [None, 9, 26, 14]
+    ) == [0, 9, 26, 14]

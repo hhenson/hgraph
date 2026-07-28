@@ -1641,9 +1641,12 @@ TEST_CASE("service wiring: mapped subscription results retain their declared val
 {
     hgraph::stdlib::register_standard_operators();
 
+    // The mapped subscription slot exists before its forwarded value is valid.
+    // Reduction is over the currently-valid subset, so its explicit identity is
+    // published until the first price arrives.
     CHECK_OUTPUT(eval_node<MappedPriceReductionClientGraph>(
                      values<Value>(set_delta<Int>({7}, {}))),
-                 values<Int>(none, 70));
+                 values<Int>(0, 70));
 }
 
 TEST_CASE("service wiring: late duplicate subscription samples the existing value")
@@ -1781,6 +1784,8 @@ TEST_CASE("service wiring: request/reply under map switch retains late keys")
 {
     hgraph::stdlib::register_standard_operators();
 
+    // The explicit reduction identity is observable while all mapped switch
+    // terminals are invalid.
     CHECK_OUTPUT(
         eval_node<MappedRequestReplySwitchGraph>(
             values<Value>(
@@ -1789,16 +1794,17 @@ TEST_CASE("service wiring: request/reply under map switch retains late keys")
                 none,
                 dict_delta<Int, TS<Int>>({}, {1})),
             values<Str>(Str{"alpha"}, none, Str{"beta"}, none)),
-        values<Int>(none, none, 10, 6));
+        values<Int>(0, none, 10, 6));
 }
 
 TEST_CASE("service wiring: subscription under map switch retains late keys")
 {
     hgraph::stdlib::register_standard_operators();
 
-    // Issue #95: key 1 becomes valid while key 2 is still a phantom mapped
-    // slot. Reduction is over the currently-valid subset, so the first quote
-    // publishes 15; later complete aggregates still match released hgraph.
+    // Issue #95: reduction is over the currently-valid subset. Its explicit
+    // identity is therefore observable while every mapped switch terminal is
+    // invalid, and key 1 publishes 15 while key 2 is still a phantom slot.
+    // Later complete aggregates still match released hgraph.
     CHECK_OUTPUT(
         eval_node<MappedSubscriptionSwitchGraph>(
             values<Value>(
@@ -1807,7 +1813,7 @@ TEST_CASE("service wiring: subscription under map switch retains late keys")
                 none,
                 dict_delta<Int, TS<Int>>({}, {1})),
             values<Str>(Str{"alpha"}, none, Str{"beta"}, none)),
-        values<Int>(none, 15, 70, 46));
+        values<Int>(0, 15, 70, 46));
 }
 
 TEST_CASE("service wiring: a mapped request/reply implementation can call itself recursively")
