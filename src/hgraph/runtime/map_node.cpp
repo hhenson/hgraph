@@ -36,6 +36,26 @@ namespace hgraph
         {
             MapNodeStorage *storage{nullptr};
             std::size_t     slot{0};
+            // The current PULL-side heap entry for this child. Repeated outer
+            // input visits often observe the same future child deadline;
+            // coalesce those observations instead of growing the lazy heap
+            // per tick. Push-side observations remain distinct because one
+            // child graph may schedule multiple internal nodes.
+            DateTime pulled_when{MAX_DT};
+        };
+
+        struct MapChildSchedule
+        {
+            DateTime    when{MAX_DT};
+            std::size_t slot{0};
+            bool        pulled{false};
+
+            [[nodiscard]] bool operator>(const MapChildSchedule &other) const noexcept
+            {
+                if (when != other.when) { return when > other.when; }
+                if (slot != other.slot) { return slot > other.slot; }
+                return pulled > other.pulled;
+            }
         };
 
         struct MapKeyEntry
@@ -108,13 +128,34 @@ namespace hgraph
             // out-of-band hook and the evaluation loop's future schedules.
             // Entries are LAZY: a stale (rescheduled, stopped, or removed)
             // slot pops harmlessly — the evaluation loop re-checks due-ness.
-            std::vector<std::pair<DateTime, std::size_t>> child_schedule_queue{};
+            std::vector<MapChildSchedule> child_schedule_queue{};
 
-            void push_child_schedule(DateTime when, std::size_t slot)
+            void push_child_schedule(MapChildSchedule schedule)
             {
-                child_schedule_queue.emplace_back(when, slot);
+                child_schedule_queue.push_back(schedule);
                 std::push_heap(child_schedule_queue.begin(), child_schedule_queue.end(),
                                std::greater<>{});
+            }
+
+            void push_observed_child_schedule(DateTime when,
+                                              const MapChildScheduleContext &schedule)
+            {
+                if (schedule.storage != this)
+                {
+                    return;
+                }
+                push_child_schedule(MapChildSchedule{when, schedule.slot, false});
+            }
+
+            void push_pulled_child_schedule(DateTime when,
+                                            MapChildScheduleContext &schedule)
+            {
+                if (schedule.storage != this || schedule.pulled_when == when)
+                {
+                    return;
+                }
+                schedule.pulled_when = when;
+                push_child_schedule(MapChildSchedule{when, schedule.slot, true});
             }
 
             [[nodiscard]] std::size_t active_count() const noexcept
@@ -398,6 +439,7 @@ namespace hgraph
             if (entry->graph.has_value() && entry->graph.view().started()) {
                 entry->graph.view().stop(evaluation_time);
             }
+            entry->schedule_context.pulled_when = MAX_DT;
             if (output_mutation != nullptr) { (void)output_mutation->erase(entry->key.view()); }
             if (error_mutation != nullptr && error_mutation->contains(entry->key.view()))
             {
@@ -473,7 +515,7 @@ namespace hgraph
             entry.graph.view().set_child_schedule_observer(
                 [](void *context, DateTime when) {
                     auto *schedule = static_cast<MapChildScheduleContext *>(context);
-                    schedule->storage->push_child_schedule(when, schedule->slot);
+                    schedule->storage->push_observed_child_schedule(when, *schedule);
                 },
                 &entry.schedule_context);
             schedule_sampled_input_consumers(
@@ -841,12 +883,27 @@ namespace hgraph
             // cycle). Stale entries pop harmlessly: the evaluation loop
             // re-checks each child's due-ness.
             while (!storage.child_schedule_queue.empty() &&
-                   storage.child_schedule_queue.front().first <= evaluation_time)
+                   storage.child_schedule_queue.front().when <= evaluation_time)
             {
                 std::pop_heap(storage.child_schedule_queue.begin(),
                               storage.child_schedule_queue.end(), std::greater<>{});
-                add_map_evaluation_slot(storage, storage.child_schedule_queue.back().second);
+                const MapChildSchedule schedule =
+                    storage.child_schedule_queue.back();
                 storage.child_schedule_queue.pop_back();
+                auto *entry = storage.entry_at(schedule.slot);
+                if (entry == nullptr)
+                {
+                    continue;
+                }
+                if (schedule.pulled)
+                {
+                    if (entry->schedule_context.pulled_when != schedule.when)
+                    {
+                        continue;
+                    }
+                    entry->schedule_context.pulled_when = MAX_DT;
+                }
+                add_map_evaluation_slot(storage, schedule.slot);
             }
 
             // With no outer input event the parent was woken by a nested
@@ -967,8 +1024,15 @@ namespace hgraph
                     // the child land in the queue here; the out-of-band
                     // observer covers schedules arriving between map
                     // evaluations.
-                    storage.push_child_schedule(next, slot);
+                    storage.push_pulled_child_schedule(
+                        next, entry->schedule_context);
                     view.graph().schedule_node(view.node_index(), next);
+                }
+                else
+                {
+                    // Invalidate a lazy entry when the child consumed or
+                    // cancelled its previous deadline.
+                    entry->schedule_context.pulled_when = MAX_DT;
                 }
             }
             storage.resume_position_plus_one = 0;
@@ -977,6 +1041,38 @@ namespace hgraph
             storage.selective_repoint_bindings = false;
             storage.membership_changed_keys.clear();
             storage.repoint_modified_keys.clear();
+            // Current-cycle observer callbacks can enqueue a due entry after
+            // the queue was drained at the start of this evaluation (for
+            // example while a newly created child samples a valid config
+            // input). Do not let that stale minimum replace the future
+            // deadline propagated by the child.
+            while (!storage.child_schedule_queue.empty() &&
+                   storage.child_schedule_queue.front().when <= evaluation_time)
+            {
+                std::pop_heap(storage.child_schedule_queue.begin(),
+                              storage.child_schedule_queue.end(), std::greater<>{});
+                const MapChildSchedule schedule =
+                    storage.child_schedule_queue.back();
+                storage.child_schedule_queue.pop_back();
+                if (schedule.pulled)
+                {
+                    auto *entry = storage.entry_at(schedule.slot);
+                    if (entry != nullptr &&
+                        entry->schedule_context.pulled_when == schedule.when)
+                    {
+                        entry->schedule_context.pulled_when = MAX_DT;
+                    }
+                }
+            }
+            if (!storage.child_schedule_queue.empty())
+            {
+                // The heap, rather than the sparse candidate set, owns the
+                // earliest child wake-up. Re-arm from its minimum so a
+                // future child that was not input-driven this cycle cannot be
+                // hidden by another candidate's later deadline.
+                view.graph().schedule_node(
+                    view.node_index(), storage.child_schedule_queue.front().when);
+            }
             return true;
         }
 

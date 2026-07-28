@@ -483,10 +483,17 @@ feeds a per-map **schedule queue** — a min-heap of ``(when, slot)`` in the
 map's node storage. Every map evaluation pops the due slots into the
 evaluation candidates before deciding between the sparse and full paths;
 the evaluation loop's own future child schedules push into the same queue
-(the pull half). Queue entries are lazy: a rescheduled, stopped, or
-removed slot pops harmlessly because the evaluation loop re-checks each
-child's due-ness. ``tsl_map`` and ``mesh`` run per-child due checks over
-all entries every cycle and need neither observer nor queue.
+(the pull half). At the end of each map evaluation the queue's minimum
+re-arms the parent, including deadlines belonging to children outside
+that cycle's sparse candidate set. Repeated pull-side observations of the
+same child deadline are coalesced; push-side observations remain distinct
+because different internal nodes may schedule different times. Queue
+entries are otherwise lazy: a rescheduled, stopped, or removed slot pops
+harmlessly because both the current per-child deadline and the child's
+due-ness are re-checked. Current-cycle entries observed after the initial
+queue drain are discarded before the parent is re-armed, so they cannot
+hide a later deadline. ``tsl_map`` and ``mesh`` run per-child due checks
+over all entries every cycle and need neither observer nor queue.
 
 Multi-level nesting recurses up to the root naturally. The boundary *binding*
 helpers shared by all nested node implementations
