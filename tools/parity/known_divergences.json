@@ -97,14 +97,12 @@
       "template": "nested_higher_order",
       "parameters_equal": {
         "inner": "subscription",
-        "outer": "map",
-        "wrap_switch": false,
         "reduce_output": true
       },
       "parameters_not_equal": {},
       "relation": "valid-subset-reduce",
       "issue": "https://github.com/hhenson/hg_cpp/issues/95",
-      "reason": "Accepted reduce deviation (issue #95, roadmap.rst): reduction is over currently-valid values \u2014 a mapped subscription child can exist before its output first validates, and hg_cpp may publish the valid-subset aggregate while released hgraph waits for every live keyed slot. Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal. When released hgraph later emits exactly the value the candidate published early, the candidate's silent position is the composed no-change elision of the equal re-tick (issues #98/#102/#110/#150); any other released-hgraph emission must match exactly.",
+      "reason": "Accepted reduce deviation (issue #95, roadmap.rst): reduction is over currently-valid values \u2014 a mapped/meshed subscription child can exist before its output first validates, and hg_cpp may publish the valid-subset aggregate while released hgraph waits for every live keyed slot. Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal. When released hgraph later emits exactly the value the candidate published early, the candidate's silent position is the composed no-change elision of the equal re-tick (issues #98/#102/#110/#150); any other released-hgraph emission must match exactly. The mesh_ outer reaches the same startup window (issue #173).",
       "review_after": "2027-07-28"
     },
     {

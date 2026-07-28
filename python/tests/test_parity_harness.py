@@ -1216,6 +1216,11 @@ def test_valid_subset_reduce_relation_is_narrowly_bounded():
     assert classify([None, 0], [0, None])
     assert not classify([None, 7], [0, None])
     assert not classify([None, 0], [None, None])
+    # The limiting case (issues #174/#176): released hgraph emitted NOTHING
+    # for the whole run (a null trace) — the candidate's early emission is
+    # still the ruled extra. A null CANDIDATE trace stays reportable.
+    assert classify(None, [0])
+    assert not classify([0], None)
 
 
 def test_switch_flip_valid_subset_relation_is_windowed():
