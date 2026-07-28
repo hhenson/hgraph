@@ -375,7 +375,7 @@ def test_mapped_subscription_result_uses_the_declared_value_schema():
         client,
         ["instrument"],
         __end_time__=hg.MIN_ST + 5 * hg.MIN_TD,
-    ) == [None, 3.0]
+    ) == [0.0, 3.0]
 
 
 def test_mapped_request_reply_service_can_call_itself_recursively():

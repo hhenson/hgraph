@@ -1313,16 +1313,19 @@ TEST_CASE("map_: a downstream map binds when an upstream phantom slot becomes va
                       dict_delta<Str, TS<Int>>({{"key"s, 43}})));
 }
 
-TEST_CASE("map_: reduce observes a chained map phantom slot becoming valid")
+TEST_CASE("map_: reduce publishes explicit zero before a chained phantom becomes valid")
 {
     using namespace hgraph;
     stdlib::register_standard_operators();
 
+    // Reduction is over currently-valid values. The first mapped slot is only
+    // a forwarding placeholder, so the explicit zero publishes until its
+    // child terminal acquires 43.
     CHECK_OUTPUT(
         eval_node<ReducedChainedLateMappedIdentityG>(
             values<Value>(set_delta<Str>({"key"s}, {}), none),
             values<Value>(none, dict_delta<Str, TS<Int>>({{"key"s, 42}}))),
-        values<Int>(none, 43));
+        values<Int>(0, 43));
 }
 
 TEST_CASE("map_: reduce observes multiple phantom slots becoming valid together")
@@ -1331,6 +1334,8 @@ TEST_CASE("map_: reduce observes multiple phantom slots becoming valid together"
     using namespace std::string_literals;
     stdlib::register_standard_operators();
 
+    // Both forwarding placeholders are initially invalid, so their valid
+    // subset is empty and the supplied identity publishes.
     CHECK_OUTPUT(
         eval_node<ReducedChainedLateMappedIdentityG>(
             values<Value>(
@@ -1340,7 +1345,7 @@ TEST_CASE("map_: reduce observes multiple phantom slots becoming valid together"
                 none,
                 dict_delta<Str, TS<Int>>(
                     {{"first"s, 42}, {"second"s, 43}}))),
-        values<Int>(none, 87));
+        values<Int>(0, 87));
 }
 
 TEST_CASE("map_: multiplexed dict add and remove rebind existing explicit-key children")

@@ -176,6 +176,37 @@ struct SwitchInMeshG {
   }
 };
 
+struct InvalidSwitchInMeshG {
+  static constexpr auto name = "invalid_switch_in_mesh_g";
+
+  static Port<TS<Int>> compose(Wiring &w,
+                               NamedPort<"key", TS<Str>> key,
+                               Port<TS<Str>> mode) {
+    auto size = wire<stdlib::len_>(w, key).as<TS<Int>>();
+    return wire<stdlib::switch_>(
+               w, mode,
+               stdlib::switch_cases(
+                   {{Value{Str{"double"}}, fn<SwitchDoubleG>()},
+                    {Value{Str{"negate"}}, fn<SwitchNegateG>()}}),
+               size)
+        .as<TS<Int>>();
+  }
+};
+
+struct ReduceInvalidSwitchMeshG {
+  static constexpr auto name = "reduce_invalid_switch_mesh_g";
+
+  static Port<TS<Int>> compose(Wiring &w, Port<TSS<Str>> keys,
+                               Port<TS<Str>> mode) {
+    auto meshed =
+        wire<stdlib::mesh_>(w, fn<InvalidSwitchInMeshG>(), mode,
+                            arg<"__keys__">(keys))
+            .as<TSD<Str, TS<Int>>>();
+    return wire<stdlib::reduce_>(w, fn<stdlib::add_>(), meshed, Int{0})
+        .as<TS<Int>>();
+  }
+};
+
 struct MeshSwitchZeroG {
   static constexpr auto name = "mesh_switch_zero_g";
   static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>>) {
@@ -411,6 +442,19 @@ TEST_CASE("mesh_: a switch_ terminal writes through to the mesh element") {
               dict_delta<Str, TS<Str>>({{"a"s, "double"s}, {"b"s, "negate"s}})),
           values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 3}, {"b"s, 4}})))),
       values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 6}, {"b"s, -4}})));
+}
+
+TEST_CASE(
+    "mesh_: reduce publishes an explicit zero while switch children are invalid") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  CHECK_OUTPUT(
+      eval_node<ReduceInvalidSwitchMeshG>(
+          values<Value>(set_delta<Str>({Str{"k"}}, {}), none, none,
+                        set_delta<Str>({}, {Str{"k"}})),
+          values<Str>(none, Str{"double"}, Str{"negate"}, none)),
+      values<Int>(0, 2, -1, 0));
 }
 
 TEST_CASE("mesh_: a pass-through child output forwards the mapped element") {
