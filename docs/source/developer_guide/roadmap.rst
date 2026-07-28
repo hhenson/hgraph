@@ -596,13 +596,17 @@ Accepted Deviations
 
 The following are intentional unless separately re-opened:
 
-- The harness ``None``-removal convention for TSD inputs applies leniently
-  (``REMOVE``/``REMOVE_IF_EXISTS`` honour upstream semantics exactly:
-  ``REMOVE`` raises when the key is absent at delta application,
+- A ``None`` value in a keyed delta means **nothing ticked for that key**
+  (ruling 2026-07-28) — the per-key analogue of the top-level no-tick,
+  applied consistently across keyed structures (TSD keys, TSL indices,
+  TSB fields) and to Python node RESULTS, matching upstream exactly (its
+  TSD setter skips ``None`` values; hhenson/hgraph#363 analysis).
+  Removals are the explicit sentinels, honouring upstream semantics
+  exactly: ``REMOVE`` raises when the key is absent at delta application,
   ``REMOVE_IF_EXISTS`` does not; the canonical TSD delta carries strict
-  removals in a dedicated ``removed_strict`` field that only user-authored
-  Python dicts populate — captured/replicated deltas stay lenient).  TSS
-  element removals are lenient in upstream and here alike.
+  removals in a dedicated ``removed_strict`` field that only
+  user-authored Python dicts populate — captured/replicated deltas stay
+  lenient.  TSS element removals are lenient in upstream and here alike.
 - **No-change means no tick** (ruling 2026-07-17): operators that derive a
   value from a collection do not re-tick when the recomputed value is
   unchanged — e.g. ``len_`` over a TSS whose delta nets to no length change
@@ -610,21 +614,6 @@ The following are intentional unless separately re-opened:
   TSS/TSD delta that nets to no change does not tick. Explicit writes are
   unaffected and match upstream exactly: a python node returning the same
   scalar each evaluation ticks each time, as do repeated TSD entry writes.
-- **TSD removals are invisible to upstream's len family** (issues
-  #120/#129, 2026-07-28): released hgraph never subtracts a removed key
-  from ``len_``/``is_empty``/``contains_`` over a TSD — a removal-only
-  delta does not re-evaluate at all, and even a MIXED delta that does
-  re-evaluate still counts the removed key (reference probes:
-  ``{a:1,b:2}`` then ``{a:None,b:5}`` leaves upstream ``len_`` at 2;
-  ``{a:None,c:3}`` reads 3).  hg_cpp re-evaluates and publishes the
-  correct size.  Correctness over the upstream quirk: pinned by
-  ``test_tsd_removal_reticks_are_the_ruled_deviation`` and the native
-  container matrix, the failure fingerprints (removal-only AND mixed
-  shapes) are pinned in ``known_divergences.json``, the corpus tracks the
-  space (``coverage-tsd-removal-*``), and generation excludes TSD
-  removals entirely — mixed deltas diverge too, so there is no
-  upstream-agreeing removal space to fuzz.  TSS removals agree with
-  upstream and stay generated.
 - **Service-boundary timing** (design record: the scheduling matrix in
   :doc:`services`): request stubs forward next cycle by design, so a
   ``service_adaptor`` round trip observably lands one cycle after released

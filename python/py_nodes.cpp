@@ -97,9 +97,12 @@ void apply_py_result(nb::handle result, Out<TsVar<"O">> &out) {
         key_value.view().assign_from_python(key);
         const bool strict_remove = removed_sentinel_slot().is_valid() &&
                                    item.is(removed_sentinel_slot());
+        // None = nothing ticked for this key (ruling 2026-07-28) —
+        // the keyed-delta contract applies to node RESULTS too.
+        if (item.is_none()) { continue; }
         const bool lenient_remove =
-            item.is_none() || (remove_if_exists_sentinel_slot().is_valid() &&
-                               item.is(remove_if_exists_sentinel_slot()));
+            remove_if_exists_sentinel_slot().is_valid() &&
+            item.is(remove_if_exists_sentinel_slot());
         if (strict_remove || lenient_remove) {
           // Membership is pre-checked: an ineffective erase would
           // touch-validate the output (the replay empty-tick rule),
@@ -126,9 +129,10 @@ void apply_py_result(nb::handle result, Out<TsVar<"O">> &out) {
       Value key_value = py_to_value_as(key, key_meta);
       const bool strict_remove = removed_sentinel_slot().is_valid() &&
                                  item.is(removed_sentinel_slot());
+      if (item.is_none()) { continue; }   // per-key no-tick (2026-07-28)
       const bool lenient_remove =
-          item.is_none() || (remove_if_exists_sentinel_slot().is_valid() &&
-                             item.is(remove_if_exists_sentinel_slot()));
+          remove_if_exists_sentinel_slot().is_valid() &&
+          item.is(remove_if_exists_sentinel_slot());
       if (strict_remove || lenient_remove) {
         // See above: pre-check membership so a skipped lenient
         // removal produces no tick and a strict one raises.

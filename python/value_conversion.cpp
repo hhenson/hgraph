@@ -892,26 +892,39 @@ namespace hgraph::python_bridge
                 SetBuilder  removed{delta_binding(key_meta)};
                 SetBuilder  removed_strict{delta_binding(key_meta)};
                 MapBuilder  modified{delta_binding(key_meta), delta_binding(child->delta_value_schema)};
+                bool        saw_item     = false;
+                bool        saw_non_none = false;
                 for (auto [key, item] : nb::cast<nb::dict>(object))
                 {
+                    saw_item = true;
+                    // Upstream convention (ruling 2026-07-28): a None value
+                    // means NOTHING happens for that key — the per-key
+                    // analogue of the top-level None no-tick. Removals are
+                    // the explicit sentinels only: REMOVE raises when the
+                    // key is absent at application; REMOVE_IF_EXISTS is
+                    // lenient.
+                    if (item.is_none()) { continue; }
+                    saw_non_none = true;
                     Value key_value = py_to_value_as(key, key_meta);
-                    // hgraph's removal contract: REMOVE raises when the key is
-                    // absent at application; REMOVE_IF_EXISTS and the harness
-                    // None convention are lenient.
                     const bool strict_remove =
                         removed_sentinel_slot().is_valid() && item.is(removed_sentinel_slot());
                     const bool lenient_remove =
-                        item.is_none() ||
-                        (remove_if_exists_sentinel_slot().is_valid() &&
-                         item.is(remove_if_exists_sentinel_slot()));
+                        remove_if_exists_sentinel_slot().is_valid() &&
+                        item.is(remove_if_exists_sentinel_slot());
                     if (strict_remove) { (void)removed_strict.insert_copy(key_value.view().data()); }
                     else if (lenient_remove) { (void)removed.insert_copy(key_value.view().data()); }
                     else
                     {
                         Value child_delta = py_to_delta(item, child);
+                        if (!child_delta.has_value()) { continue; }
                         modified.set_item_copy(key_value.view().data(), child_delta.view().data());
                     }
                 }
+                // A non-empty mapping whose entries are all None is the
+                // keyed equivalent of a top-level None: no delta at all.
+                // Keep {} distinct because it explicitly validates a fresh
+                // TSD as an empty collection.
+                if (saw_item && !saw_non_none) { return Value{*ts->delta_value_schema}; }
                 BundleBuilder bundle{delta_binding(ts->delta_value_schema)};
                 bundle.set("removed", removed.build());
                 bundle.set("modified", modified.build());
@@ -925,8 +938,12 @@ namespace hgraph::python_bridge
                 {
                     for (auto [key, item] : nb::cast<nb::dict>(object))
                     {
+                        // None = nothing ticked for this index (the keyed-
+                        // structure convention, ruling 2026-07-28).
+                        if (item.is_none()) { continue; }
                         const auto index = nb::cast<std::int64_t>(key);
                         Value child_delta = py_to_delta(item, ts->element_ts());
+                        if (!child_delta.has_value()) { continue; }
                         builder.set_item_copy(std::addressof(index), child_delta.view().data());
                     }
                     return builder.build();
@@ -937,6 +954,11 @@ namespace hgraph::python_bridge
                     if (!item.is_none())
                     {
                         Value child_delta = py_to_delta(item, ts->element_ts());
+                        if (!child_delta.has_value())
+                        {
+                            ++index;
+                            continue;
+                        }
                         builder.set_item_copy(std::addressof(index), child_delta.view().data());
                     }
                     ++index;
@@ -978,7 +1000,9 @@ namespace hgraph::python_bridge
                                           ? nb::borrow<nb::object>(fields[key])
                                           : nb::getattr(object, key);
                     if (item.is_none()) { continue; }
-                    builder.set(index, py_to_delta(item, field.type).view());
+                    Value child_delta = py_to_delta(item, field.type);
+                    if (!child_delta.has_value()) { continue; }
+                    builder.set(index, child_delta.view());
                 }
                 return builder.build();
             }

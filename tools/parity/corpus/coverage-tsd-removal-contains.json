@@ -1,5 +1,5 @@
 {
-  "description": "Ruled deviation: a TSD removal-only delta re-evaluates the len family in hg_cpp (correct) where released hgraph leaves a stale value; the failure fingerprint is pinned in known_divergences.json.",
+  "description": "TSD removal re-ticks (agreeing space): removing the probed key flips contains_ on both runtimes.",
   "features": [
     "binding:non-peered",
     "domain:collection-size",
@@ -15,7 +15,9 @@
         "c": 0
       },
       {
-        "c": null
+        "c": {
+          "$remove_if_exists": true
+        }
       }
     ]
   },

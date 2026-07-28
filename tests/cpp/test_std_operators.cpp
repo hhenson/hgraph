@@ -1837,10 +1837,11 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
                      values<Value>(set_delta<Int>({1}, {}), none))),
                  values<Bool>(none, true));
 
-    // The ruled TSD-removal deviation (issues #120/#129): hg_cpp
-    // re-evaluates on removals — a partial removal shrinks len_, emptying
-    // flips is_empty, removing the probed key flips contains_ — where
-    // released hgraph never subtracts a removed key (mixed deltas included).
+    // Removal-driven re-ticks over EXPLICIT removal deltas — plain correct
+    // behaviour on which both runtimes agree (the #120/#129 divergences were
+    // the harness None-convention, hhenson/hgraph#363, not len semantics):
+    // a partial removal shrinks len_, emptying flips is_empty, removing the
+    // probed key flips contains_.
     CHECK_OUTPUT((eval_node<stdlib::len_, TSD<Int, TS<Int>>>(
                      values<Value>(dict_delta<Int, TS<Int>>({{1, 1}, {2, 2}}),
                                    dict_delta<Int, TS<Int>>({}, {1})))),

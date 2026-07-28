@@ -189,8 +189,12 @@ the ``_hgraph`` bridge module (built from ``python/module.cpp``):
   ``__end_time__=)`` with schema-directed test vectors (TSS from sets —
   removals via ``set_delta(...)``/``Removed(...)`` markers; a dict is NEVER
   a TSS value/delta and rejects loudly, except the empty ``{}`` which is
-  upstream's empty-set stand-in — TSD from ``{key: value}`` dicts with
-  ``None`` = lenient removal, TSL from per-index lists) and friendly delta
+  upstream's empty-set stand-in — TSD from ``{key: value}`` dicts where a
+  ``None`` value means NOTHING ticked for that key (the per-key analogue
+  of the top-level no-tick, consistent across keyed structures — TSD
+  keys, TSL indices, TSB fields — and matching upstream; removals are the
+  explicit ``REMOVE``/``REMOVE_IF_EXISTS`` sentinels; ruling 2026-07-28),
+  TSL from per-index lists) and friendly delta
   read-back (``REMOVE`` sentinel). A generic ``TSL[..., SIZE]`` parameter
   annotation resolves its size from the samples (int-keyed dict → max key
   + 1; list → length) and wires the REAL dynamic list shape (issue #81);

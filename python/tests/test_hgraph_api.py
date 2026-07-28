@@ -203,8 +203,12 @@ def test_tsd_key_removal():
     def keys(d: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
         return hg.map_("add_", d, d)
 
-    out = eval_node(keys, [{"a": 1, "b": 2}, {"a": None}])
+    # None = nothing ticked for the key (ruling 2026-07-28); removals are
+    # the explicit sentinels.
+    out = eval_node(keys, [{"a": 1, "b": 2}, {"a": hg.REMOVE_IF_EXISTS}])
     check(out == [{"a": 2, "b": 4}, {"a": hg.REMOVE}], f"removal: {out}")
+    out = eval_node(keys, [{"a": 1, "b": 2}, {"a": None}])
+    check(out == [{"a": 2, "b": 4}, None], f"None no-op: {out}")
 
 
 def test_tss_deltas():
@@ -775,7 +779,7 @@ def test_time_series_view_api():
     def g(d: TSD[str, TS[int]]) -> TS[int]:
         return observe(d)
 
-    out = eval_node(g, [{"a": 1, "b": 2}, {"a": None}])
+    out = eval_node(g, [{"a": 1, "b": 2}, {"a": hg.REMOVE_IF_EXISTS}])
     check(out == [2, 1], f"sizes: {out}")
     check(observations[0][0] == {"a": 1, "b": 2}, f"value: {observations[0]}")
     check(observations[0][3] == ["a", "b"] and observations[0][4] == [], "first delta keys")
