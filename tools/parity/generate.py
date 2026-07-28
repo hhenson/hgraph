@@ -263,7 +263,13 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             "template": "service_subscription",
             "inputs": {"symbol": ticks},
             "parameters": {
-                "multiplier": draw(st.integers(min_value=-3, max_value=10)),
+                # A zero multiplier turns distinct subscriptions into equal
+                # outputs, measuring the ruled no-change re-tick behavior
+                # instead of service correctness.
+                "multiplier": draw(st.one_of(
+                    st.integers(min_value=-3, max_value=-1),
+                    st.integers(min_value=1, max_value=10),
+                )),
                 "path": draw(st.sampled_from(("quotes", "prices", "live"))),
             },
             "features": [*CATALOG["service_subscription"].features],
@@ -428,13 +434,6 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
                      "microsecond"),
         "timedelta": ("days", "seconds", "microseconds"),
     }
-    _TEMPORAL_METHODS = {
-        "date": ("weekday", "isoweekday"),
-        "datetime": ("weekday", "isoweekday"),
-        "timedelta": ("total_seconds",),
-    }
-    _TEMPORAL_OUTPUT = {"total_seconds": "float"}
-
     @st.composite
     def temporal_expression(draw):
         import datetime as dt
@@ -442,8 +441,11 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         input_type = draw(st.sampled_from(("date", "datetime")))
         target = draw(st.sampled_from(("difference", "shifted", "input")))
         kind = "timedelta" if target == "difference" else input_type
-        accessor = draw(st.sampled_from(
-            _TEMPORAL_PROPERTIES[kind] + _TEMPORAL_METHODS[kind]))
+        # Released hgraph exposes method-call spellings as WiringPort values
+        # rather than callable ports in this generated form. Keep those
+        # candidate-only extensions in ordinary compatibility tests; the
+        # differential generator uses the common property surface.
+        accessor = draw(st.sampled_from(_TEMPORAL_PROPERTIES[kind]))
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
         day = st.integers(min_value=0, max_value=36_500)
         micro = st.integers(min_value=0, max_value=86_399_999_999)
@@ -466,7 +468,7 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             "input_type": input_type,
             "target": target,
             "accessor": accessor,
-            "output_type": _TEMPORAL_OUTPUT.get(accessor, "int"),
+            "output_type": "int",
             "postponed_annotations": draw(
                 st.sampled_from((False, False, False, True))),
         }
@@ -500,7 +502,14 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         operation = ("len" if shape == "tsl"
                      else draw(st.sampled_from(("len", "is_empty", "contains"))))
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
-        parameters = {"shape": shape, "operation": operation}
+        parameters = {
+            "shape": shape,
+            "operation": operation,
+            # Normalize released hgraph's equal-value re-ticks at the graph
+            # boundary. Fixed corpus cases retain the unnormalized output to
+            # pin the accepted no-change deviation.
+            "normalize_output": True,
+        }
         keys = st.sampled_from(("a", "b", "c", "d"))
         small = st.integers(min_value=-5, max_value=5)
         if shape == "str":
@@ -588,20 +597,25 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
     def nested_higher_order(draw):
         # The composition breeding ground: churning key sets under map_/mesh_,
         # per-key switch_ branches flipping (nested graphs start/stop),
-        # services/adaptors INSIDE the branches, optionally the whole
+        # an adaptor around the reduced pipeline, and optionally the whole
         # pipeline under an outer switch_ tearing it down and rebuilding it.
-        inner = draw(st.sampled_from(
-            ("arithmetic", "request_reply", "request_reply",
-             "subscription", "adaptor")))
+        # Service-backed children have intentional invalid startup/round-trip
+        # windows under nested map/reduce. Standalone service generators cover
+        # their agreed behavior; fixed nested corpus cases pin the deviations.
+        inner = draw(st.sampled_from(("arithmetic", "arithmetic", "adaptor")))
         outer = draw(st.sampled_from(("map", "map", "mesh")))
-        subscription = inner == "subscription"
-        wrap = False if subscription else draw(st.booleans())
-        reduce_output = (True if wrap or inner == "adaptor"
-                         else draw(st.sampled_from((True, True, False))))
+        # Feeding an adaptor-wrapped result through the outer switch creates
+        # a reference-side wiring cycle. The inner switch and keyed churn
+        # remain covered without that unsupported composition.
+        wrap = False if inner == "adaptor" else draw(st.booleans())
+        # Generated reductions always provide the identity zero in the
+        # catalogue. Keeping one scalar output also lets dedup normalize the
+        # separately ruled no-change re-tick behavior. Map-valued and
+        # non-identity-zero deviations remain fixed corpus cases.
+        reduce_output = True
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
         keys = ("k1", "k2", "k3")
         active: set = set()
-        retired: set = set()
         first_key = draw(st.sampled_from(keys))
         active.add(first_key)
         values: list = [{first_key: draw(st.integers(-10, 10))}]
@@ -614,13 +628,9 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
                 key = draw(st.sampled_from(sorted(active)))
                 values.append({key: {"$remove": True}})
                 active.remove(key)
-                retired.add(key)
                 continue
             if action == "add":
-                # The re-subscription timing deviation is ruled: with a
-                # subscription leaf a removed key is never re-added.
-                pool = [key for key in keys if key not in active
-                        and not (subscription and key in retired)]
+                pool = [key for key in keys if key not in active]
                 if not pool:
                     values.append(None)
                     continue
@@ -631,13 +641,15 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             values.append({key: draw(st.integers(-10, 10))})
         selector = ["alpha"] + [
             draw(st.sampled_from((None, "alpha", "beta", "beta")))
-            for _ in range(count - 1)]
+            for _ in range(count - 1)
+        ]
         inputs = {"values": values, "selector": selector}
         parameters = {
             "inner": inner,
             "outer": outer,
             "wrap_switch": wrap,
             "reduce_output": reduce_output,
+            "normalize_output": True,
             "increment": draw(st.integers(min_value=-5, max_value=5)),
         }
         if wrap:
@@ -653,7 +665,9 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
                 f"nested:{outer}",
                 f"nested-leaf:{inner}",
                 *(("nested:outer-switch",) if wrap else ()),
-                *(("topology:reduce",) if reduce_output else ()),
+                "topology:reduce",
+                "reduction:explicit-identity-zero",
+                "normalization:dedup",
             ],
         }
 
@@ -672,10 +686,10 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             "features": [*CATALOG["data_frame_recording"].features],
         }
 
-    # (name, factory) pairs; a repeated name WEIGHTS that template in the
-    # unrestricted draw (nested_higher_order is the composition breeding
-    # ground and draws double).
-    weighted = (
+    # (name, factory) pairs for discovery. Families whose every differential
+    # is already an accepted deviation stay in the fixed corpus rather than
+    # consuming random examples here.
+    discovery_weighted = (
         ("scalar_expression", scalar_expression),
         ("feedback_accumulate", feedback_accumulate),
         ("switch_arithmetic", switch_arithmetic),
@@ -684,7 +698,6 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         ("service_request_reply", service_request_reply),
         ("service_subscription", service_subscription),
         ("adaptor_loopback", adaptor_loopback),
-        ("service_adaptor_roundtrip", service_adaptor_roundtrip),
         ("context_switch", context_switch),
         ("operator_pipeline", operator_pipeline),
         ("tsd_key_set_pipeline", tsd_key_set_pipeline),
@@ -696,17 +709,24 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         ("nested_higher_order", nested_higher_order),
         ("nested_higher_order", nested_higher_order),
     )
+    selectable = (
+        *discovery_weighted,
+        # Explicit selection remains available for controller tests and
+        # reproductions; unrestricted discovery excludes its designed
+        # one-cycle transport difference.
+        ("service_adaptor_roundtrip", service_adaptor_roundtrip),
+    )
     if templates is None:
-        return st.one_of(*(factory() for _, factory in weighted))
+        return st.one_of(*(factory() for _, factory in discovery_weighted))
     # A restricted profile draws ONLY the allowed strategies — selecting at
     # the source, never filtering the union (a post-hoc filter discards most
     # draws and trips hypothesis's filter_too_much health check).
     allowed = frozenset(templates)
-    unknown = allowed - {name for name, _ in weighted}
+    unknown = allowed - {name for name, _ in selectable}
     if unknown:
         raise ValueError(
             f"unknown generated template(s): {', '.join(sorted(unknown))}")
-    return st.one_of(*(factory() for name, factory in weighted
+    return st.one_of(*(factory() for name, factory in selectable
                        if name in allowed))
 
 

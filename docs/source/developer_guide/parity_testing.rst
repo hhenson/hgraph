@@ -111,10 +111,23 @@ independent baseline.
 The pull-request profile generates 48 cases of 8--32 ticks in addition to the
 curated corpus.  The nightly profile generates 5,000 cases of 8--64 ticks and
 may shrink a failure below that range.  Nightly-only parameter variants retain
-known high-value stress points, such as direct formatting of a selected REF
-and service-adaptor transport timing, without turning the merge smoke profile
-into a permanent failure.  Ruled parameter spaces which carry no differential
-signal, such as undeduplicated key-set cardinality, remain corpus-only.
+high-value stress points, such as direct formatting of a selected REF, without
+turning the merge smoke profile into a permanent failure.  Ruled parameter
+spaces which carry no differential signal, such as undeduplicated key-set
+cardinality, remain corpus-only.
+
+Generated discovery targets the agreed compatibility contract, not accepted
+deviations.  The fixed corpus permanently retains the latter, but unrestricted
+generation works around them: every reduction supplies its explicit identity
+zero; collection and nested scalar outputs use ``dedup`` to normalize equal
+re-ticks; subscription keys are not repeated and use a non-zero multiplier;
+nested service-backed invalid windows remain fixed-corpus cases while
+standalone service generators cover their agreed behavior; and the designed
+one-cycle service-adaptor round trip is available only by explicit template
+selection; reference-unsupported temporal method-call spellings and cyclic
+adaptor/outer-switch composition remain ordinary compatibility or fixed
+coverage.  This keeps churn, branch lifecycle, service, and reduction coverage
+while reserving random examples for previously unruled behavior.
 
 Coverage is semantic rather than only line-based.  Reports count templates,
 time-series shapes, scalar types, operator families, topology, lifecycle
