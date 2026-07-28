@@ -233,6 +233,14 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
         _wiring_stack.append(w)
         wiring_pushed = True
         wiring_started = time.perf_counter()
+        # Python-readable mirror of the run start (the C++ run bounds have no
+        # wiring-time getter), exactly as eval_node publishes it: start-time-
+        # aware wiring — the DATA_FRAME replay overloads' upstream
+        # `_api.start_time` filter — reads this. Without it a stored frame
+        # carrying rows before start_time replays them into the native
+        # generator and the stream aborts empty.
+        state["__start_time__"] = (
+            config.start_time if config.start_time is not None else _hgraph.MIN_ST)
         config.graph_logger.debug("Wiring graph: %s", getattr(graph_fn, "__name__", graph_fn))
         out = graph_fn(*args, **kwargs)
         if out is not None:
