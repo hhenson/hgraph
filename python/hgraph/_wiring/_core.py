@@ -125,7 +125,7 @@ class _OperatorFunction:
             import inspect
             from .._types import TS
 
-            result_type = inspect.signature(args[0]).return_annotation
+            result_type = inspect.signature(args[0], eval_str=True).return_annotation
             if result_type is not inspect.Signature.empty:
                 kwargs["output_type"] = TS[result_type]
         # hgraph parity: a trailing ``None`` argument means "use the

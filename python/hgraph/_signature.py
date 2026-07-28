@@ -64,7 +64,7 @@ def _is_unresolved(annotation):
 
 def extract_signature(fn, node_type) -> WiringNodeSignature:
     """Build the WiringNodeSignature for a wiring function."""
-    sig = inspect.signature(fn)
+    sig = inspect.signature(fn, eval_str=True)
     args, defaults, input_types = [], {}, {}
     time_series, unresolved = set(), set()
     for name, param in sig.parameters.items():

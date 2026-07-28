@@ -163,7 +163,7 @@ def _overload_wire_trampoline(impl):
 
     signature = (
         getattr(impl, "_wiring_signature", None)
-        or inspect.signature(impl.fn)
+        or inspect.signature(impl.fn, eval_str=True)
     )
     call_parameters = [
         parameter
@@ -254,12 +254,12 @@ def _register_overload(target, impl, requires=None):
     name = _overload_registry_name(target)
     if isinstance(target, _Operator):
         target._overloads.append(
-            (impl, getattr(impl, "_wiring_signature", None) or inspect.signature(impl.fn)))
+            (impl, getattr(impl, "_wiring_signature", None) or inspect.signature(impl.fn, eval_str=True)))
     fn = impl.fn
     # the ORIGINAL wiring signature: star-group nodes rewrite fn's code
     # object to keyword-only params (upstream parity), so fn's live
     # signature no longer shows *args/**kwargs.
-    sig = getattr(impl, "_wiring_signature", None) or inspect.signature(fn)
+    sig = getattr(impl, "_wiring_signature", None) or inspect.signature(fn, eval_str=True)
     param_options, variadic, has_kwargs = [], False, False
     positional = None
     for parameter in sig.parameters.values():
@@ -513,7 +513,7 @@ def dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs):
         raise WiringError(f"dispatch_ needs an @operator/@dispatch target, got {op!r}")
     if not op._overloads:
         raise WiringError(f"{op.__name__} has no overloads to dispatch to")
-    sig = inspect.signature(op.fn)
+    sig = inspect.signature(op.fn, eval_str=True)
     if __output_type is None and isinstance(sig.return_annotation, _TsExpr):
         __output_type = sig.return_annotation
     bound = sig.bind(*args, **kwargs)
@@ -653,7 +653,7 @@ class _Dispatch(_Operator):
         if not isinstance(item, _TsExpr):
             return super().__getitem__(item)
 
-        signature = inspect.signature(self.fn)
+        signature = inspect.signature(self.fn, eval_str=True)
         ts_parameters = [
             parameter for parameter in signature.parameters.values()
             if _is_time_series_annotation(parameter.annotation)

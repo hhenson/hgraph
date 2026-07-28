@@ -405,7 +405,8 @@ def eval_node(fn, *inputs, output_type=None, resolution_dict=None,
     until per-edge passive support lands) must set it and say why."""
     try:
         fn_sig = inspect.signature(
-            fn.fn if isinstance(fn, _GraphFn) or hasattr(fn, "_delegate") else fn)
+            fn.fn if isinstance(fn, _GraphFn) or hasattr(fn, "_delegate") else fn,
+            eval_str=True)
         params = list(fn_sig.parameters.values())
     except (TypeError, ValueError):
         params = []

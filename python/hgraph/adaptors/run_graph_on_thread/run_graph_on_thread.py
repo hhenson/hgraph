@@ -220,7 +220,7 @@ class _ResponseState:
 
 def _graph_parameters(fn, params):
     target = getattr(fn, "fn", fn)
-    signature = inspect.signature(target)
+    signature = inspect.signature(target, eval_str=True)
     return {
         name: value
         for name, value in params.items()
@@ -232,7 +232,7 @@ def _wire_graph_parameters(fn, params):
     from hgraph._types import _TsExpr
 
     target = getattr(fn, "fn", fn)
-    signature = inspect.signature(target)
+    signature = inspect.signature(target, eval_str=True)
     return {
         name: const(value, tp=signature.parameters[name].annotation)
         if isinstance(signature.parameters[name].annotation, _TsExpr)

@@ -36,6 +36,31 @@ def test_postponed_compute_node_and_graph():
     assert eval_node(app, [1, 2]) == [2, 3]
 
 
+def test_postponed_annotation_types_inputs_without_samples():
+    # The annotation itself must type the replay source: an all-None input
+    # vector offers nothing to infer from, so this only wires if the string
+    # 'TS[int]' was evaluated (review finding on issue #83).
+    @hg.compute_node
+    def add_one(value: TS[int]) -> TS[int]:
+        return value.value + 1
+
+    @hg.graph
+    def app(value: TS[int]) -> TS[int]:
+        return add_one(value)
+
+    assert eval_node(app, [None, None]) is None
+
+
+def test_postponed_lower():
+    # Public lower() reads the raw signature too (review finding).
+    @hg.graph
+    def add_graph(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        return lhs + rhs
+
+    lowered = hg.lower(add_graph)
+    assert lowered is not None
+
+
 def test_postponed_tsb_schema():
     @hg.graph
     def bundle(a: TS[int], b: TS[int]) -> TSB[Pair]:
@@ -75,3 +100,26 @@ def test_postponed_generator_and_lifecycle():
 
     assert eval_node(app) == [5]
     assert seen == [5]
+
+
+def test_postponed_local_model_with_self_referential_init_converts():
+    # PR #172 review: a non-dataclass model declared INSIDE a function whose
+    # __init__ carries a postponed self-referential return annotation
+    # ("-> Model", resolvable only in the enclosing local scope). Only the
+    # parameter annotations are read for conversion, so the unread return
+    # annotation must not break it.
+    from hgraph.adaptors.dataclass import CS
+    from hgraph import CompoundScalar
+
+    class Model:
+        x: int
+
+        def __init__(self, x: int = 0, y: str = "") -> Model:
+            self.x = x
+            self.y = y
+
+    model_type = CS[Model]
+    assert issubclass(model_type, CompoundScalar)
+    assert model_type.__annotations__["x"] is int
+    # The __init__-supplied parameter annotation still resolves and lands.
+    assert model_type.__annotations__["y"] is str
