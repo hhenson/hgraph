@@ -170,7 +170,7 @@ def prepare_environments(
             interpreter=interpreter
         )
     else:
-        reference_python = reference_python.resolve()
+        reference_python = reference_python.absolute()
         reference_identity = environment_identity(reference_python)
     if candidate_python is None:
         candidate_python, candidate_identity, fingerprint = (
@@ -184,7 +184,7 @@ def prepare_environments(
             raise ValueError(
                 "candidate_wheel cannot be combined with candidate_python"
             )
-        candidate_python = candidate_python.resolve()
+        candidate_python = candidate_python.absolute()
         candidate_identity = environment_identity(candidate_python)
         fingerprint = "external-" + hashlib.sha256(
             str(candidate_python).encode()

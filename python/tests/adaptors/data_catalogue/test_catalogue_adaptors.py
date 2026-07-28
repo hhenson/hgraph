@@ -34,7 +34,11 @@ class _Sink(DataSink):
 
 
 def _end_time():
-    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=5)
+    # Safety net only: both real-time tests stop their own engine after the
+    # asynchronous adaptor response arrives. Keep enough headroom for a cold
+    # wheel or a stalled shared runner to finish the worker task before the
+    # executor reaches end_time and rejects a late push.
+    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=15)
 
 
 def test_catalogue_subscribe_routes_json_source(tmp_path):

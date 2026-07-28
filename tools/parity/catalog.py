@@ -391,6 +391,8 @@ def _validate_collection_size(recipe):
             raise RecipeError("collection_size contains needs a matching probe scalar")
     elif probe is not None:
         raise RecipeError("collection_size probe applies to contains only")
+    if not isinstance(parameters.get("normalize_output", False), bool):
+        raise RecipeError("collection_size normalize_output must be a boolean")
 
 
 def _collection_size(hg, recipe):
@@ -400,11 +402,13 @@ def _collection_size(hg, recipe):
     shape = parameters["shape"]
     operation = parameters["operation"]
     probe = parameters.get("probe")
+    normalize_output = parameters.get("normalize_output", False)
     inputs = decoded_inputs(hg, recipe)
     if shape == "tsl":
         @hg.graph
         def parity_graph(a: hg.TS[int], b: hg.TS[int]) -> hg.TS[int]:
-            return hg.len_(hg.TSL.from_ts(_via_non_peered_ref(hg, a), b))
+            result = hg.len_(hg.TSL.from_ts(_via_non_peered_ref(hg, a), b))
+            return hg.dedup(result) if normalize_output else result
 
         return eval_node(parity_graph, inputs["a"], inputs["b"])
 
@@ -417,15 +421,18 @@ def _collection_size(hg, recipe):
     if operation == "len":
         @hg.graph
         def parity_graph(ts: annotation) -> hg.TS[int]:
-            return hg.len_(_via_non_peered_ref(hg, ts))
+            result = hg.len_(_via_non_peered_ref(hg, ts))
+            return hg.dedup(result) if normalize_output else result
     elif operation == "is_empty":
         @hg.graph
         def parity_graph(ts: annotation) -> hg.TS[bool]:
-            return hg.is_empty(_via_non_peered_ref(hg, ts))
+            result = hg.is_empty(_via_non_peered_ref(hg, ts))
+            return hg.dedup(result) if normalize_output else result
     else:
         @hg.graph
         def parity_graph(ts: annotation) -> hg.TS[bool]:
-            return hg.contains_(_via_non_peered_ref(hg, ts), probe)
+            result = hg.contains_(_via_non_peered_ref(hg, ts), probe)
+            return hg.dedup(result) if normalize_output else result
 
     return eval_node(parity_graph, inputs["ts"])
 
@@ -525,11 +532,19 @@ def _validate_nested_higher_order(recipe):
         raise RecipeError(f"nested_higher_order outer must be one of {_NESTED_OUTER}")
     wrap_switch = parameters.get("wrap_switch", False)
     reduce_output = parameters.get("reduce_output", True)
-    if not isinstance(wrap_switch, bool) or not isinstance(reduce_output, bool):
-        raise RecipeError("nested_higher_order wrap_switch/reduce_output must be booleans")
+    normalize_output = parameters.get("normalize_output", False)
+    if (not isinstance(wrap_switch, bool)
+            or not isinstance(reduce_output, bool)
+            or not isinstance(normalize_output, bool)):
+        raise RecipeError(
+            "nested_higher_order wrap_switch/reduce_output/normalize_output "
+            "must be booleans")
     if wrap_switch and not reduce_output:
         raise RecipeError(
             "nested_higher_order wrap_switch requires reduce_output (one output shape)")
+    if normalize_output and not reduce_output:
+        raise RecipeError(
+            "nested_higher_order normalize_output requires reduce_output")
     increment = parameters.get("increment", 1)
     if (not isinstance(increment, int) or isinstance(increment, bool)
             or not -20 <= increment <= 20):
@@ -569,6 +584,7 @@ def _nested_higher_order(hg, recipe):
     outer = parameters["outer"]
     wrap_switch = parameters.get("wrap_switch", False)
     reduce_output = parameters.get("reduce_output", True)
+    normalize_output = parameters.get("normalize_output", False)
     increment = parameters.get("increment", 1)
     path = f"nested_{inner}"
 
@@ -688,7 +704,7 @@ def _nested_higher_order(hg, recipe):
                          outer_selector: hg.TS[str]) -> hg.TS[int]:
             register()
             values = _via_non_peered_ref(hg, values)
-            return hg.switch_(
+            result = hg.switch_(
                 outer_selector,
                 {
                     "on": lambda values, selector: pipeline(values, selector),
@@ -697,13 +713,15 @@ def _nested_higher_order(hg, recipe):
                 values,
                 selector,
             )
+            return hg.dedup(result) if normalize_output else result
     elif reduce_output:
         @hg.graph
         def parity_graph(values: hg.TSD[str, hg.TS[int]],
                          selector: hg.TS[str]) -> hg.TS[int]:
             register()
             values = _via_non_peered_ref(hg, values)
-            return pipeline(values, selector)
+            result = pipeline(values, selector)
+            return hg.dedup(result) if normalize_output else result
     else:
         @hg.graph
         def parity_graph(values: hg.TSD[str, hg.TS[int]],
@@ -1653,7 +1671,7 @@ CATALOG = {
             "reference:REF",
             "binding:non-peered",
         ),
-        operators=("len_", "is_empty", "contains_"),
+        operators=("len_", "is_empty", "contains_", "dedup"),
         execute=_collection_size,
     ),
     "lifecycle_state": TemplateSpec(
@@ -1681,7 +1699,9 @@ CATALOG = {
             "binding:non-peered",
             "lifecycle:multi-cycle",
         ),
-        operators=("map_", "mesh_", "switch_", "reduce", "len_", "keys_"),
+        operators=(
+            "map_", "mesh_", "switch_", "reduce", "len_", "keys_", "dedup",
+        ),
         execute=_nested_higher_order,
     ),
     "data_frame_recording": TemplateSpec(

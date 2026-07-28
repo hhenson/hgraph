@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "id": "coverage-nested-explicit-zero-normalized-discovery",
+  "description": "Generated nested discovery uses an explicit identity zero and dedup normalization around arithmetic branch and key churn.",
+  "template": "nested_higher_order",
+  "inputs": {
+    "values": [
+      {"k1": 3},
+      {"k2": 4},
+      null,
+      {"k1": 5},
+      {"k2": {"$remove": true}},
+      null
+    ],
+    "selector": [
+      "alpha",
+      null,
+      null,
+      "beta",
+      null,
+      null
+    ]
+  },
+  "parameters": {
+    "inner": "arithmetic",
+    "outer": "map",
+    "wrap_switch": false,
+    "reduce_output": true,
+    "normalize_output": true,
+    "increment": 2
+  },
+  "features": [
+    "binding:non-peered",
+    "lifecycle:branch-rebind",
+    "lifecycle:multi-cycle",
+    "nested-leaf:arithmetic",
+    "nested:map",
+    "normalization:dedup",
+    "operator:dedup",
+    "reduction:explicit-identity-zero",
+    "reference:REF",
+    "shape:TSD",
+    "topology:nested-higher-order",
+    "topology:reduce",
+    "type:int"
+  ]
+}

@@ -295,6 +295,11 @@ def _valid_subset_reduce_relation(
         return False
     reference_trace = reference.get("trace")
     candidate_trace = candidate.get("trace")
+    if reference_trace is None and isinstance(candidate_trace, list):
+        # Released hgraph emitted NOTHING for the whole run — the limiting
+        # case of catching up later (issues #174/#176): every candidate
+        # position must then qualify as an admissible extra emission.
+        reference_trace = [None] * len(candidate_trace)
     if (
         not isinstance(reference_trace, list)
         or not isinstance(candidate_trace, list)
@@ -339,6 +344,11 @@ def _switch_flip_valid_subset_relation(
         return False
     reference_trace = reference.get("trace")
     candidate_trace = candidate.get("trace")
+    if reference_trace is None and isinstance(candidate_trace, list):
+        # Released hgraph emitted NOTHING for the whole run — the limiting
+        # case of catching up later (issues #174/#176): every candidate
+        # position must then qualify as an admissible extra emission.
+        reference_trace = [None] * len(candidate_trace)
     if (
         not isinstance(reference_trace, list)
         or not isinstance(candidate_trace, list)
