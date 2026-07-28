@@ -104,7 +104,7 @@
       "parameters_not_equal": {},
       "relation": "valid-subset-reduce",
       "issue": "https://github.com/hhenson/hg_cpp/issues/95",
-      "reason": "Accepted reduce deviation (issue #95, roadmap.rst): reduction is over currently-valid values \u2014 a mapped subscription child can exist before its output first validates, and hg_cpp may publish the valid-subset aggregate while released hgraph waits for every live keyed slot. Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal.",
+      "reason": "Accepted reduce deviation (issue #95, roadmap.rst): reduction is over currently-valid values \u2014 a mapped subscription child can exist before its output first validates, and hg_cpp may publish the valid-subset aggregate while released hgraph waits for every live keyed slot. Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal. When released hgraph later emits exactly the value the candidate published early, the candidate's silent position is the composed no-change elision of the equal re-tick (issues #98/#102/#110/#150); any other released-hgraph emission must match exactly.",
       "review_after": "2027-07-28"
     },
     {
@@ -117,7 +117,7 @@
       "parameters_not_equal": {},
       "relation": "switch-flip-valid-subset-reduce",
       "issue": "https://github.com/hhenson/hg_cpp/issues/95",
-      "reason": "The same issue #95 semantics reached through a per-key switch_ flip: flipping to the request-reply-backed branch invalidates the switch output on both runtimes (upstream's own value=None reset) while the round trip is in flight; upstream's reduce tree stalls on the invalid input, hg_cpp recomputes the remaining valid subset down to the identity (issues #99/#101/#104/#108/#115/#130/#131/#147/#152/#154/#155). Scoped to the request_reply inner \u2014 only a service round trip opens the in-flight invalid window; a pure-arithmetic branch evaluates same-cycle under sampled semantics, so its extra ticks stay reportable. Suppress only extra candidate emissions inside a disturbance window (from a selector/values input tick until the next agreeing reference emission \u2014 the span a flip or in-flight round trip can cover) while every released-hgraph emission remains exactly equal.",
+      "reason": "The same issue #95 semantics reached through a per-key switch_ flip: flipping to the request-reply-backed branch invalidates the switch output on both runtimes (upstream's own value=None reset) while the round trip is in flight; upstream's reduce tree stalls on the invalid input, hg_cpp recomputes the remaining valid subset down to the identity (issues #99/#101/#104/#108/#115/#130/#131/#147/#152/#154/#155). Scoped to the request_reply inner \u2014 only a service round trip opens the in-flight invalid window; a pure-arithmetic branch evaluates same-cycle under sampled semantics, so its extra ticks stay reportable. Suppress only extra candidate emissions inside a disturbance window (from a selector/values input tick until the next agreeing reference emission \u2014 the span a flip or in-flight round trip can cover) while every released-hgraph emission remains exactly equal. When released hgraph later emits exactly the value the candidate published early, the candidate's silent position is the composed no-change elision of the equal re-tick (issues #98/#102/#110/#150); any other released-hgraph emission must match exactly.",
       "review_after": "2027-07-28"
     }
   ]

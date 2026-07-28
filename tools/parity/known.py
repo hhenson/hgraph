@@ -280,10 +280,15 @@ def _valid_subset_reduce_relation(
     mapped values while released hgraph remains invalid because another live
     keyed slot is still a phantom.
 
-    Only additional candidate emissions are admitted. Every tick emitted by
-    released hgraph must match exactly, so payload corruption, missing
-    aggregates, shifted eventual values, and trace-length differences remain
-    reportable.
+    Only additional candidate emissions are admitted, plus the CATCH-UP
+    elision they compose with: when released hgraph later emits exactly the
+    value the candidate already published early, the candidate's silent
+    position is the ruled no-change elision of an equal re-tick (the two
+    Accepted Deviations composing, e.g. a phantom map key whose removal
+    empties upstream's dict one cycle after hg_cpp already reduced without
+    it). Any other reference emission must match exactly, so payload
+    corruption, missing aggregates, changed eventual values, and
+    trace-length differences remain reportable.
     """
     if difference.get("classification") != "value":
         return False
@@ -297,11 +302,18 @@ def _valid_subset_reduce_relation(
         return False
 
     extra = 0
+    candidate_last: Any = object()   # nothing published yet
     for ref, cand in zip(reference_trace, candidate_trace):
+        if cand is not None:
+            candidate_last = cand
         if ref == cand:
             continue
         if ref is None and cand is not None:
             extra += 1
+            continue
+        if cand is None and ref == candidate_last:
+            # Upstream catching up to the candidate's earlier emission;
+            # the candidate elides the equal re-tick (no-change ruling).
             continue
         return False
     return extra >= 1
@@ -343,16 +355,25 @@ def _switch_flip_valid_subset_relation(
 
     extra = 0
     window = False
+    candidate_last: Any = object()   # nothing published yet
     for index, (ref, cand) in enumerate(
         zip(reference_trace, candidate_trace)
     ):
         if index in disturbed:
             window = True
+        if cand is not None:
+            candidate_last = cand
         if ref is not None:
-            if ref != cand:
-                return False
-            window = False
-            continue
+            if ref == cand:
+                window = False
+                continue
+            if cand is None and ref == candidate_last:
+                # Upstream catching up to the candidate's earlier in-window
+                # emission; the candidate elides the equal re-tick (the
+                # no-change ruling composing with the valid-subset one).
+                window = False
+                continue
+            return False
         if cand is None:
             continue
         if not window:
