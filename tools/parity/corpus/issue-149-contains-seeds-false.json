@@ -1,0 +1,27 @@
+{
+  "description": "Issue #149: contains_ publishes False at start even when the container never becomes valid (upstream initializes the contains ref-output); len_ stays silent on a never-valid input.",
+  "features": [
+    "binding:non-peered",
+    "domain:collection-size",
+    "operator:contains",
+    "reference:REF",
+    "shape:TSD",
+    "topology:expression"
+  ],
+  "id": "issue-149-contains-seeds-false",
+  "inputs": {
+    "ts": [
+      null,
+      null
+    ]
+  },
+  "parameters": {
+    "operation": "contains",
+    "probe": "c",
+    "shape": "tsd"
+  },
+  "schema_version": 1,
+  "seed": 7,
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/149",
+  "template": "collection_size"
+}

@@ -97,6 +97,15 @@
       "issue": "https://github.com/hhenson/hg_cpp/issues/95",
       "reason": "Accepted reduce deviation: hg_cpp reduces currently-valid mapped values and may publish while another live keyed slot is still a phantom; released hgraph waits. Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal.",
       "review_after": "2027-07-27"
+    },
+    {
+      "family": "nested-no-change-retick",
+      "template": "nested_higher_order",
+      "parameters_not_equal": {},
+      "relation": "no-change-elision",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/141",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst Accepted Deviations) reached through the nested pipeline: the off-branch len_*0 and the reduce over an unchanged sum recompute values that released hgraph re-emits and hg_cpp elides; suppress only when eliding upstream's equal re-ticks makes the traces identical.",
+      "review_after": "2027-07-28"
     }
   ]
 }

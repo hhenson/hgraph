@@ -1809,7 +1809,7 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
     CHECK_OUTPUT((eval_node<stdlib::contains_, TSS<Int>>(
                      values<Value>(none, set_delta<Int>({1}, {})),
                      values<Int>(1, 1))),
-                 values<Bool>(none, true));
+                 values<Bool>(false, true));
     CHECK_OUTPUT((eval_node<stdlib::contains_, TSS<Int>, TSS<Int>>(
                      values<Value>(set_delta<Int>({1, 2, 3}, {})),
                      values<Value>(set_delta<Int>({1, 2}, {}), set_delta<Int>({4}, {1, 2})))),
@@ -1820,9 +1820,11 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
                                                                            dict_delta<Int, TS<Int>>({}, {0})))),
                  values<Int>(0, 1, 0));
 
-    // A NEVER-VALID input never ticks (upstream parity, issue #116 family):
-    // len_ and contains_ stay silent until the first real delta; is_empty
-    // (above) deliberately keeps its True start tick per the upstream port.
+    // A NEVER-VALID input (upstream parity): len_ stays silent until the
+    // first real delta (issue #116 family); contains_ SEEDS False — upstream
+    // initializes the contains ref-output before the container first ticks
+    // (issue #149); is_empty (above) keeps its True start tick per the
+    // upstream port.
     CHECK_OUTPUT((eval_node<stdlib::len_, TSS<Int>>(values<Value>(none, set_delta<Int>({1}, {})))),
                  values<Int>(none, 1));
     CHECK_OUTPUT((eval_node<stdlib::len_, TSD<Int, TS<Int>>>(
@@ -1831,11 +1833,11 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
     CHECK_OUTPUT((eval_node<stdlib::contains_, TSD<Int, TS<Int>>>(
                      values<Value>(none, dict_delta<Int, TS<Int>>({{1, 10}})),
                      values<Int>(1, none))),
-                 values<Bool>(none, true));
+                 values<Bool>(false, true));
     CHECK_OUTPUT((eval_node<stdlib::contains_, TSS<Int>, TSS<Int>>(
                      values<Value>(none, set_delta<Int>({1, 2}, {})),
                      values<Value>(set_delta<Int>({1}, {}), none))),
-                 values<Bool>(none, true));
+                 values<Bool>(false, true));
 
     // Removal-driven re-ticks over EXPLICIT removal deltas — plain correct
     // behaviour on which both runtimes agree (the #120/#129 divergences were

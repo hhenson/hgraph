@@ -608,7 +608,12 @@ namespace hgraph
 
         void apply_delta_tss(const TSOutputView &out, const ValueView &delta)
         {
-            // Remove before add, mirroring the canonical set-delta application order.
+            // Contract (ruling 2026-07-28): a canonical set delta's added and
+            // removed lists are DISJOINT — an element in both is incorrect
+            // data, rejected at the construction boundaries (the _SetDelta
+            // literal, the recipe decoder); captured deltas are disjoint by
+            // slot-mask construction. Under that invariant the application
+            // order is immaterial.
             const auto bundle  = delta.as_bundle();
             auto       set_out = out.as_set();
             auto       mutation = set_out.begin_mutation(out.evaluation_time());

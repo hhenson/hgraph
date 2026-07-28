@@ -79,7 +79,7 @@ def _simplify_delta(value):
         if set(value.keys()) == {"added", "removed"}:
             # hgraph's TSS delta shape: one set - added items plain,
             # removed items wrapped in Removed(...).
-            return _SetDelta(frozenset(value["added"]) | {Removed(r) for r in value["removed"]})
+            return _SetDelta(added=value["added"], removed=value["removed"])
         return {k: _simplify_delta(v) for k, v in value.items()}
     return value
 
@@ -87,33 +87,58 @@ class _SetDelta(frozenset):
     """hgraph's SetDelta: a frozenset of added items + Removed(...) markers.
     A frozenset SUBCLASS so equality/iteration/conversion behave like the
     friendly shape, while staying distinguishable from a plain frozenset
-    (which a TSS node return applies as the FULL VALUE, upstream parity)."""
+    (which a TSS node return applies as the FULL VALUE, upstream parity).
 
-    __slots__ = ()
+    The added/removed fields are stored EXPLICITLY (upstream keeps them as
+    separate frozensets) and MUST be disjoint (ruling 2026-07-28): an
+    element listed in both is incorrect data, rejected here at
+    construction. Enforcement lives at this boundary because the frozenset
+    content could not even represent the bad state faithfully — Removed(x)
+    hashes as x, so the union silently collapses the pair (issues
+    #148/#161/#162)."""
+
+    __slots__ = ("_added", "_removed")
+
+    def __new__(cls, iterable=(), *, added=None, removed=None):
+        if added is None and removed is None:
+            added = frozenset(e for e in iterable if type(e) is not Removed)
+            removed = frozenset(e.item for e in iterable if type(e) is Removed)
+        else:
+            added = frozenset(added) if added else frozenset()
+            removed = frozenset(removed) if removed else frozenset()
+        overlap = added & removed
+        if overlap:
+            raise ValueError(
+                f"a set delta cannot both add and remove the same element(s): {sorted(overlap, key=repr)!r}")
+        self = super().__new__(cls, added | {Removed(r) for r in removed})
+        self._added = added
+        self._removed = removed
+        return self
 
     @property
     def added(self):
-        return frozenset(e for e in self if type(e) is not Removed)
+        return self._added
 
     @property
     def removed(self):
-        return frozenset(e.item for e in self if type(e) is Removed)
+        return self._removed
 
     def __add__(self, other):
-        other_added = frozenset(e for e in other if type(e) is not Removed)
-        other_removed = frozenset(e.item for e in other if type(e) is Removed)
+        if isinstance(other, _SetDelta):
+            other_added, other_removed = other.added, other.removed
+        else:
+            other_added = frozenset(e for e in other if type(e) is not Removed)
+            other_removed = frozenset(e.item for e in other if type(e) is Removed)
         # upstream PythonSetDelta.__add__ composition rules
         added = (self.added - other_removed) | other_added
         removed = (other_removed - self.added) | (self.removed - other_added)
-        return _SetDelta(added | {Removed(r) for r in removed})
+        return _SetDelta(added=added, removed=removed)
 
 
 def set_delta(added=None, removed=None, tp=None):
     """hgraph's set-delta literal: the friendly TSS delta shape - added
     items plain, removals wrapped in Removed."""
-    added = frozenset(added) if added else frozenset()
-    removed = frozenset(removed) if removed else frozenset()
-    return _SetDelta(added | {Removed(r) for r in removed})
+    return _SetDelta(added=added, removed=removed)
 
 
 def compute_set_delta(value, out):

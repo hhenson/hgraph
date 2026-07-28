@@ -178,9 +178,14 @@ struct is_empty_tss {
 };
 
 struct contains_tss_item {
-  static void eval(In<"ts", TSS<ScalarVar<"K">>> ts,
+  static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
                    In<"item", TS<ScalarVar<"K">>> item, Out<TS<Bool>> out) {
-    const Bool value = ts.base().as_set().contains(item.base().value());
+    // upstream parity (issue #149): contains SEEDS False before the set
+    // first ticks (upstream initializes the per-item contains ref-output)
+    // — a never-valid input reads as EMPTY, unlike len_, which stays
+    // silent until the set is valid.
+    const Bool value =
+        ts.valid() && ts.base().as_set().contains(item.base().value());
     // hgraph parity: an ITEM tick always re-publishes (upstream
     // re-samples the per-item contains output on rebind); a SET tick
     // only publishes a membership change.
@@ -195,10 +200,14 @@ struct contains_tss_item {
 struct contains_tss_subset {
   static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
                    In<"item", TSS<ScalarVar<"K">>> item, Out<TS<Bool>> out) {
-    if (!ts.valid()) { return; }   // upstream parity: never-valid never ticks
+    // upstream parity (issue #149): contains SEEDS False before the set
+    // first ticks — a never-valid input reads as EMPTY, unlike len_,
+    // which stays silent until the set is valid.
+    const auto &item_set = item.base().as_set();
     Bool contains_all = true;
-    if (contains_all) {
-      const auto &item_set = item.base().as_set();
+    if (!ts.valid()) {
+      contains_all = item_set.size() == 0;
+    } else {
       for (const ValueView &value : item_set.values()) {
         if (!ts.base().as_set().contains(value)) {
           contains_all = false;
@@ -263,8 +272,12 @@ struct contains_tsd_key {
   static void
   eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
        In<"item", TS<ScalarVar<"K">>> item, Out<TS<Bool>> out) {
-    if (!ts.valid()) { return; }   // upstream parity: never-valid never ticks
-    const Bool value = ts.base().as_dict().contains(item.base().value());
+    // upstream parity (issue #149): contains SEEDS False before the dict
+    // first ticks (upstream initializes the per-key contains ref-output)
+    // — a never-valid input reads as EMPTY, unlike len_, which stays
+    // silent until the dict is valid.
+    const Bool value =
+        ts.valid() && ts.base().as_dict().contains(item.base().value());
     // hgraph parity: an ITEM tick always re-publishes (upstream
     // re-samples the per-key contains output on rebind); a DICT tick
     // only publishes a membership change.
