@@ -3,7 +3,8 @@
 - ``REMOVE`` is STRICT: removing a key that is not present raises at delta
   application (upstream raises through the node as a NodeException).
 - ``REMOVE_IF_EXISTS`` is LENIENT: an absent key is silently ignored.
-- The harness ``None``-removal convenience applies leniently.
+- A ``None`` value means NOTHING ticked for that key (ruling 2026-07-28):
+  a per-key no-op, never a removal.
 - TSS element removals are lenient in upstream and here alike.
 """
 import pytest
@@ -38,9 +39,29 @@ def test_remove_if_exists_existing_key_removes():
     assert out == [{"a": 2, "b": 4}, {"b": hg.REMOVE}]
 
 
-def test_none_removal_convention_is_lenient():
+def test_none_value_is_a_per_key_no_op():
+    # Absent key: nothing happens.
     out = eval_node(_ident, [{"a": 1}, {"zzz": None}])
     assert out == [{"a": 2}, None]
+    # EXISTING key: nothing happens either — the key survives and keeps
+    # updating afterwards (None is never a removal).
+    out = eval_node(_ident, [{"a": 1}, {"a": None}, {"a": 5}])
+    assert out == [{"a": 2}, None, {"a": 10}]
+
+
+@compute_node
+def _emit_none_for_a(ts: TS[bool]) -> TSD[str, TS[int]]:
+    return {"a": None, "b": 7}
+
+
+def test_none_in_a_python_node_result_is_a_per_key_no_op():
+    # The keyed-delta contract applies to node RESULTS too: the returned
+    # None entry must not remove (or write) key "a".
+    @graph
+    def g(ts: TS[bool]) -> TSD[str, TS[int]]:
+        return _emit_none_for_a(ts)
+
+    assert eval_node(g, [True]) == [{"b": 7}]
 
 
 def test_python_node_result_remove_absent_key_raises():

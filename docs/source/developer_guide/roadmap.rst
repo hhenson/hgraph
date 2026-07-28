@@ -596,13 +596,17 @@ Accepted Deviations
 
 The following are intentional unless separately re-opened:
 
-- The harness ``None``-removal convention for TSD inputs applies leniently
-  (``REMOVE``/``REMOVE_IF_EXISTS`` honour upstream semantics exactly:
-  ``REMOVE`` raises when the key is absent at delta application,
+- A ``None`` value in a keyed delta means **nothing ticked for that key**
+  (ruling 2026-07-28) — the per-key analogue of the top-level no-tick,
+  applied consistently across keyed structures (TSD keys, TSL indices,
+  TSB fields) and to Python node RESULTS, matching upstream exactly (its
+  TSD setter skips ``None`` values; hhenson/hgraph#363 analysis).
+  Removals are the explicit sentinels, honouring upstream semantics
+  exactly: ``REMOVE`` raises when the key is absent at delta application,
   ``REMOVE_IF_EXISTS`` does not; the canonical TSD delta carries strict
-  removals in a dedicated ``removed_strict`` field that only user-authored
-  Python dicts populate — captured/replicated deltas stay lenient).  TSS
-  element removals are lenient in upstream and here alike.
+  removals in a dedicated ``removed_strict`` field that only
+  user-authored Python dicts populate — captured/replicated deltas stay
+  lenient.  TSS element removals are lenient in upstream and here alike.
 - **No-change means no tick** (ruling 2026-07-17): operators that derive a
   value from a collection do not re-tick when the recomputed value is
   unchanged — e.g. ``len_`` over a TSS whose delta nets to no length change
