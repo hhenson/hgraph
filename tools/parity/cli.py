@@ -47,7 +47,10 @@ CAMPAIGN_PROFILES = {
 
 
 def _path(value: str | None) -> Path | None:
-    return Path(value).resolve() if value else None
+    # Preserve a virtual environment's bin/python symlink. Resolving it can
+    # select the base interpreter on platforms where uv uses symlinked
+    # launchers, causing isolated parity subprocesses to lose the environment.
+    return Path(value).absolute() if value else None
 
 
 def _load_selected_recipes(paths: list[str] | None) -> list[Recipe]:

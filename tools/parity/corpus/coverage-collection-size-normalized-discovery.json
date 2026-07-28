@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "coverage-collection-size-normalized-discovery",
+  "description": "Generated discovery normalizes equal len_ re-ticks with dedup while retaining collection churn.",
+  "template": "collection_size",
+  "inputs": {
+    "ts": [
+      {"$set_delta": {"added": [1, 2], "removed": []}},
+      {"$set_delta": {"added": [2], "removed": []}},
+      {"$set_delta": {"added": [3], "removed": [1]}},
+      {"$set_delta": {"added": [], "removed": [2, 3]}}
+    ]
+  },
+  "parameters": {
+    "shape": "tss",
+    "operation": "len",
+    "normalize_output": true
+  },
+  "features": [
+    "domain:collection-size",
+    "normalization:dedup",
+    "operator:dedup",
+    "operator:len",
+    "shape:TSS",
+    "topology:expression"
+  ]
+}

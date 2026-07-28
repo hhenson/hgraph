@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,10 +13,10 @@ from tools.artifact_fingerprint import hg_cpp_source_fingerprint
 from tools.parity.campaign import run_campaign
 from tools.parity.canonical import canonicalize
 from tools.parity.catalog import validate_recipe
-from tools.parity.cli import CAMPAIGN_PROFILES
+from tools.parity.cli import CAMPAIGN_PROFILES, _path
 from tools.parity.compare import compare_outcomes
 from tools.parity.coverage import coverage_report, recipe_features
-from tools.parity.environments import ParityEnvironments
+from tools.parity.environments import ParityEnvironments, prepare_environments
 from tools.parity.issues import failure_fingerprint, issue_body, publish_failures
 from tools.parity.model import Recipe, RecipeError, load_corpus
 from tools.parity.reduce import reduce_recipe
@@ -176,12 +177,18 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
         "service_request_reply",
         "service_subscription",
         "adaptor_loopback",
-        "service_adaptor_roundtrip",
         "context_switch",
         "operator_pipeline",
         "tsd_key_set_pipeline",
         "mesh_key_set",
     } <= templates
+    assert "service_adaptor_roundtrip" not in templates
+    assert {
+        recipe.template
+        for recipe in generate_recipes(
+            8, seed=31, templates=("service_adaptor_roundtrip",),
+        )
+    } == {"service_adaptor_roundtrip"}
     assert sum(
         "reference:REF" in recipe.features
         and "binding:non-peered" in recipe.features
@@ -206,6 +213,37 @@ def test_campaign_profiles_scale_nightly_breadth_and_tick_depth():
     assert CAMPAIGN_PROFILES["nightly"]["examples"] == 5000
     assert CAMPAIGN_PROFILES["nightly"]["max_ticks"] == 64
     assert CAMPAIGN_PROFILES["nightly"]["time_budget"] == 3600.0
+
+
+def test_external_environment_paths_preserve_virtualenv_symlinks(
+    monkeypatch, tmp_path
+):
+    reference = tmp_path / "reference" / "bin" / "python"
+    candidate = tmp_path / "candidate" / "bin" / "python"
+    reference.parent.mkdir(parents=True)
+    candidate.parent.mkdir(parents=True)
+    try:
+        reference.symlink_to(sys.executable)
+        candidate.symlink_to(sys.executable)
+    except OSError:
+        pytest.skip("gap: interpreter symlinks are unavailable on this platform")
+    identities = {
+        reference: {"distribution": "hgraph"},
+        candidate: {"distribution": "hg_cpp"},
+    }
+
+    monkeypatch.setattr(
+        "tools.parity.environments.environment_identity",
+        identities.__getitem__,
+    )
+    environments = prepare_environments(
+        reference_python=reference,
+        candidate_python=candidate,
+    )
+
+    assert _path(str(reference)) == reference
+    assert environments.reference_python == reference
+    assert environments.candidate_python == candidate
 
 
 def test_operator_inventory_fallback_excludes_callable_types_and_helpers():
@@ -473,16 +511,61 @@ def test_family_suppression_covers_only_the_documented_difference(
     assert report["summary"]["known_failures"] == 0
 
 
-def test_generated_tsd_map_reduce_recipes_use_identity_zero():
-    # Non-identity zeros are the documented reduce deviation: the generator
-    # must not explore that space (differential results there measure the
-    # deviation, not candidate defects).
+def test_generated_recipes_avoid_accepted_deviation_spaces():
+    # Generated discovery must test the agreed contract rather than consume
+    # examples rediscovering accepted deviations. Fixed corpus recipes retain
+    # each ruled behavior as a permanent regression.
     from tools.parity.generate import generate_recipes
 
-    recipes = generate_recipes(200, seed=7)
-    tsd = [r for r in recipes if r.template == "tsd_map_reduce"]
-    assert tsd, "expected generated tsd_map_reduce recipes"
-    assert all(r.parameters["zero"] == 0 for r in tsd)
+    unrestricted = generate_recipes(400, seed=7)
+    assert all(
+        recipe.template != "service_adaptor_roundtrip"
+        for recipe in unrestricted
+    )
+
+    def generated(template):
+        recipes = generate_recipes(
+            80, seed=11, templates=(template,),
+        )
+        assert recipes, f"expected generated {template} recipes"
+        return recipes
+
+    # Non-identity reduce zeros have capacity-history-dependent reference
+    # behavior. Every generated reduce uses the explicit identity zero.
+    assert all(
+        recipe.parameters["zero"] == 0
+        for recipe in generated("tsd_map_reduce")
+    )
+
+    # Equal derived values are normalized at the graph boundary so an
+    # operator's value semantics are tested without the ruled re-tick policy.
+    assert all(
+        recipe.parameters["normalize_output"] is True
+        for recipe in generated("collection_size")
+    )
+
+    subscriptions = generated("service_subscription")
+    for recipe in subscriptions:
+        symbols = [tick for tick in recipe.inputs["symbol"] if tick is not None]
+        assert len(symbols) == len(set(symbols))
+        assert recipe.parameters["multiplier"] != 0
+
+    nested = generated("nested_higher_order")
+    for recipe in nested:
+        parameters = recipe.parameters
+        assert parameters["reduce_output"] is True
+        assert parameters["normalize_output"] is True
+        assert parameters["inner"] in ("arithmetic", "adaptor")
+        if parameters["inner"] == "adaptor":
+            assert parameters["wrap_switch"] is False
+
+    assert all(
+        recipe.parameters["accessor"] in {
+            "year", "month", "day", "hour", "minute", "second",
+            "microsecond", "days", "seconds", "microseconds",
+        }
+        for recipe in generated("temporal_expression")
+    )
 
 
 def test_reference_failure_is_quarantined_not_promoted(monkeypatch, tmp_path):
@@ -1613,6 +1696,18 @@ def test_new_template_validators_reject_malformed_recipes():
     )
     rejects(
         {
+            "template": "collection_size",
+            "inputs": {"ts": ["abc"]},
+            "parameters": {
+                "shape": "str",
+                "operation": "len",
+                "normalize_output": "yes",
+            },
+        },
+        "normalize_output must be a boolean",
+    )
+    rejects(
+        {
             "template": "lifecycle_state",
             "inputs": {"value": [1]},
             "parameters": {"start_spelling": "banana"},
@@ -1635,6 +1730,20 @@ def test_new_template_validators_reject_malformed_recipes():
                            "wrap_switch": False, "reduce_output": False},
         },
         "adaptor inner requires reduce_output",
+    )
+    rejects(
+        {
+            "template": "nested_higher_order",
+            "inputs": {"values": [{"k1": 1}], "selector": ["alpha"]},
+            "parameters": {
+                "inner": "arithmetic",
+                "outer": "map",
+                "wrap_switch": False,
+                "reduce_output": False,
+                "normalize_output": True,
+            },
+        },
+        "normalize_output requires reduce_output",
     )
     rejects(
         {
