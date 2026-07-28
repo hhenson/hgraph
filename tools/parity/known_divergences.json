@@ -84,24 +84,40 @@
       "review_after": "2027-07-27"
     },
     {
-      "family": "mapped-valid-subset-reduce",
-      "template": "nested_higher_order",
-      "parameters_equal": {
-        "reduce_output": true
-      },
-      "parameters_not_equal": {},
-      "relation": "valid-subset-reduce",
-      "issue": "https://github.com/hhenson/hg_cpp/issues/95",
-      "reason": "Accepted reduce deviation (issue #95, roadmap.rst): reduction is over currently-valid values \u2014 hg_cpp may publish the valid-subset aggregate while released hgraph waits, whether a keyed slot is still a phantom (subscription startup) or a value went transiently invalid (a per-key switch_ flip while a request-reply round trip is in flight; issues #99/#101/#104/#108/#115/#130/#131/#147/#152/#154/#155). Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal.",
-      "review_after": "2027-07-28"
-    },
-    {
       "family": "nested-no-change-retick",
       "template": "nested_higher_order",
       "parameters_not_equal": {},
       "relation": "no-change-elision",
       "issue": "https://github.com/hhenson/hg_cpp/issues/141",
       "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst Accepted Deviations) reached through the nested pipeline: the off-branch len_*0 and the reduce over an unchanged sum recompute values that released hgraph re-emits and hg_cpp elides; suppress only when eliding upstream's equal re-ticks makes the traces identical.",
+      "review_after": "2027-07-28"
+    },
+    {
+      "family": "mapped-subscription-valid-subset-reduce",
+      "template": "nested_higher_order",
+      "parameters_equal": {
+        "inner": "subscription",
+        "outer": "map",
+        "wrap_switch": false,
+        "reduce_output": true
+      },
+      "parameters_not_equal": {},
+      "relation": "valid-subset-reduce",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/95",
+      "reason": "Accepted reduce deviation (issue #95, roadmap.rst): reduction is over currently-valid values \u2014 a mapped subscription child can exist before its output first validates, and hg_cpp may publish the valid-subset aggregate while released hgraph waits for every live keyed slot. Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal.",
+      "review_after": "2027-07-28"
+    },
+    {
+      "family": "switch-flip-valid-subset-reduce",
+      "template": "nested_higher_order",
+      "parameters_equal": {
+        "inner": "request_reply",
+        "reduce_output": true
+      },
+      "parameters_not_equal": {},
+      "relation": "valid-subset-reduce",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/95",
+      "reason": "The same issue #95 semantics reached through a per-key switch_ flip: flipping to the request-reply-backed branch invalidates the switch output on both runtimes (upstream's own value=None reset) while the round trip is in flight; upstream's reduce tree stalls on the invalid input, hg_cpp recomputes the remaining valid subset down to the identity (issues #99/#101/#104/#108/#115/#130/#131/#147/#152/#154/#155). Scoped to the request_reply inner \u2014 only a service round trip opens the in-flight invalid window; a pure-arithmetic branch evaluates same-cycle under sampled semantics, so its extra ticks stay reportable. Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal.",
       "review_after": "2027-07-28"
     }
   ]

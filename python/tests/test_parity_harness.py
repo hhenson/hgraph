@@ -1163,19 +1163,28 @@ def test_valid_subset_reduce_relation_is_narrowly_bounded():
     }
     ok = lambda trace: {"status": "ok", "trace": trace}
 
-    # The family covers every reduce_output pipeline (widened 2026-07-28: a
-    # per-key switch_ flip reaches the same currently-valid-values reduce
-    # semantics as subscription startup), but NOT the reduce-less shapes;
-    # the narrowness lives in the RELATION (extra candidate emissions only).
+    # The valid-subset semantics apply only where an in-flight service
+    # round trip opens an invalid window: subscription startup (the original
+    # #95 shape) and a switch_ flip to a request-reply branch. A pure
+    # arithmetic pipeline evaluates same-cycle under sampled semantics, so
+    # its extra ticks stay reportable — the families are scoped to the
+    # service-backed inners, and the relation stays extra-emissions-only.
     subset_families = [
-        f for f in families if f["family"] == "mapped-valid-subset-reduce"
+        f for f in families if f["relation"] == "valid-subset-reduce"
     ]
-    assert subset_families
+    assert len(subset_families) == 2
     assert matches_known_family(recipe, subset_families)
     assert matches_known_family(
         {
             **recipe,
             "parameters": {**recipe["parameters"], "inner": "request_reply"},
+        },
+        subset_families,
+    )
+    assert not matches_known_family(
+        {
+            **recipe,
+            "parameters": {**recipe["parameters"], "inner": "arithmetic"},
         },
         subset_families,
     )

@@ -642,8 +642,11 @@ The following are intentional unless separately re-opened:
   stalls on the invalid input while hg_cpp recomputes the remaining valid
   subset). hg_cpp may publish the valid-subset aggregate — down to the
   reduce identity — while released hgraph holds; subsequent complete
-  aggregates agree. The parity family permits only those extra candidate
-  emissions; every released-hgraph emission must match.
+  aggregates agree. The parity families are scoped to the service-backed
+  inners (subscription startup; request-reply switch flips) — only a
+  service round trip opens the in-flight invalid window, so an extra tick
+  on a pure-arithmetic pipeline stays reportable — and permit only those
+  extra candidate emissions; every released-hgraph emission must match.
 - Python ``REF`` is an opaque value and does not expose ``.output``.
 - ``None`` in CompoundScalar/Bundle construction means an unset field.
 - TSB deltas are canonically dense; sparse-bundle delta parity is not required.
