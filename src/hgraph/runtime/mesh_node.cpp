@@ -710,10 +710,18 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
   if (!keys_input.valid()) {
     storage.unsubscribe_requested_keys_noexcept();
     auto output = view.output(evaluation_time);
-    auto output_dict = output.as_dict();
-    auto output_mutation = output_dict.begin_mutation(evaluation_time);
-    stop_and_clear_all_instances(view, context, storage, evaluation_time);
-    output_mutation.clear();
+    // Only tear down what was ever published: clear() on a never-valid
+    // dict would touch-VALIDATE it (the empty-tick rule), making a mesh
+    // whose __keys__ never validated tick a valid empty dict at start
+    // where released hgraph stays silent (issues #128/#132/#151).
+    if (output.valid()) {
+      auto output_dict = output.as_dict();
+      auto output_mutation = output_dict.begin_mutation(evaluation_time);
+      stop_and_clear_all_instances(view, context, storage, evaluation_time);
+      output_mutation.clear();
+    } else {
+      stop_and_clear_all_instances(view, context, storage, evaluation_time);
+    }
     return true;
   }
 
