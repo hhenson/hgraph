@@ -440,6 +440,21 @@ TEST_CASE("mesh_: invalid explicit keys clear children and output") {
                     dict_delta<Str, TS<Int>>({}, {"a"s, "b"s})));
 }
 
+TEST_CASE("mesh_: never-valid keys never tick the output") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  // issues #128/#132/#151: a mesh whose __keys__ NEVER validates must not
+  // touch-validate its owned output — released hgraph emits nothing, and a
+  // valid empty dict at start is an observable extra tick. (Keys that
+  // BECOME invalid after publishing still clear with removals — the cases
+  // around this one pin that.)
+  CHECK_OUTPUT((eval_node<MeshInvalidKeysGraph>(
+                   values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}}), none),
+                   values<Str>(Str{"none"}, none))),
+               values<Value>(none, none));
+}
+
 TEST_CASE(
     "mesh_: replacing the explicit key-set source reconciles full membership") {
   using namespace hgraph;

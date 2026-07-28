@@ -1,0 +1,35 @@
+{
+  "description": "Issue #128/#132/#151: a mesh whose __keys__ never validates must not touch-validate its owned output \u2014 released hgraph emits nothing; hg_cpp used to tick a valid empty dict at start.",
+  "features": [
+    "binding:non-peered",
+    "lifecycle:multi-cycle",
+    "nested-leaf:request_reply",
+    "nested:mesh",
+    "reference:REF",
+    "shape:TSD",
+    "topology:nested-higher-order",
+    "type:int"
+  ],
+  "id": "issue-132-mesh-never-valid-keys-silent",
+  "inputs": {
+    "selector": [
+      null,
+      null
+    ],
+    "values": [
+      null,
+      null
+    ]
+  },
+  "parameters": {
+    "increment": 1,
+    "inner": "request_reply",
+    "outer": "mesh",
+    "reduce_output": false,
+    "wrap_switch": false
+  },
+  "schema_version": 1,
+  "seed": 7,
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/132",
+  "template": "nested_higher_order"
+}

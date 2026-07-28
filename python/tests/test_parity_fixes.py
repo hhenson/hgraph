@@ -188,3 +188,17 @@ def test_contains_seeds_false_before_the_container_ticks():
         return hg.contains_(ts, 1)
 
     assert eval_node(tss_contains, [None, None]) == [False, None]
+
+
+def test_mesh_with_never_valid_keys_never_ticks():
+    # Issues #128/#132/#151: a mesh_ whose __keys__ source never validates
+    # must not touch-validate its owned output — upstream emits nothing.
+    @graph
+    def keyed(key: TS[str]) -> TS[int]:
+        return hg.len_(key)
+
+    @graph
+    def g(keys: hg.TSS[str]) -> hg.TSD[str, TS[int]]:
+        return hg.mesh_(keyed, __keys__=keys, __key_arg__="key")
+
+    assert eval_node(g, [None, None]) is None
