@@ -159,8 +159,10 @@ struct len_tss {
 
   static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
                    Out<TS<Int>> out) {
-    container_impl_detail::set_if_changed(
-        out, ts.valid() ? static_cast<Int>(ts.size()) : Int{0});
+    // upstream parity: a NEVER-VALID input never ticks; empty-after-removal
+    // is a valid set and emits 0.
+    if (!ts.valid()) { return; }
+    container_impl_detail::set_if_changed(out, static_cast<Int>(ts.size()));
   }
 };
 
@@ -169,6 +171,8 @@ struct is_empty_tss {
 
   static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
                    Out<TS<Bool>> out) {
+    // upstream parity (ported test_is_empty): a never-valid input READS
+    // empty and ticks True at start — unlike len_, which stays silent.
     container_impl_detail::set_if_changed(out, !ts.valid() || ts.empty());
   }
 };
@@ -191,7 +195,8 @@ struct contains_tss_item {
 struct contains_tss_subset {
   static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
                    In<"item", TSS<ScalarVar<"K">>> item, Out<TS<Bool>> out) {
-    Bool contains_all = ts.valid();
+    if (!ts.valid()) { return; }   // upstream parity: never-valid never ticks
+    Bool contains_all = true;
     if (contains_all) {
       const auto &item_set = item.base().as_set();
       for (const ValueView &value : item_set.values()) {
@@ -211,8 +216,10 @@ struct len_tsd {
   static void
   eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
        Out<TS<Int>> out) {
-    container_impl_detail::set_if_changed(
-        out, ts.valid() ? static_cast<Int>(ts.size()) : Int{0});
+    // upstream parity: a NEVER-VALID input never ticks; empty-after-removal
+    // is a valid dict and emits 0.
+    if (!ts.valid()) { return; }
+    container_impl_detail::set_if_changed(out, static_cast<Int>(ts.size()));
   }
 };
 
@@ -222,6 +229,8 @@ struct is_empty_tsd {
   static void
   eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
        Out<TS<Bool>> out) {
+    // upstream parity (ported test_is_empty): a never-valid input READS
+    // empty and ticks True at start — unlike len_, which stays silent.
     container_impl_detail::set_if_changed(out, !ts.valid() || ts.empty());
   }
 };
@@ -254,8 +263,8 @@ struct contains_tsd_key {
   static void
   eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
        In<"item", TS<ScalarVar<"K">>> item, Out<TS<Bool>> out) {
-    const Bool value =
-        ts.valid() && ts.base().as_dict().contains(item.base().value());
+    if (!ts.valid()) { return; }   // upstream parity: never-valid never ticks
+    const Bool value = ts.base().as_dict().contains(item.base().value());
     // hgraph parity: an ITEM tick always re-publishes (upstream
     // re-samples the per-key contains output on rebind); a DICT tick
     // only publishes a membership change.

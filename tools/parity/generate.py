@@ -522,9 +522,13 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             if operation == "contains":
                 parameters["probe"] = draw(small)
         elif shape == "tsd":
+            # No removals (None values): TSD removal-driven len-family
+            # re-ticks are a RULED deviation (released hgraph leaves stale
+            # values; hg_cpp re-evaluates) — the corpus tracks that space
+            # with pinned fingerprints, generation stays out of it.
             def tick():
                 entries = draw(st.lists(
-                    st.tuples(keys, st.one_of(st.none(), small)),
+                    st.tuples(keys, small),
                     min_size=1, max_size=3, unique_by=lambda kv: kv[0]))
                 return {key: value for key, value in entries}
             inputs = {"ts": [tick() for _ in range(count)]}

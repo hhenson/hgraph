@@ -1,0 +1,31 @@
+{
+  "description": "Ruled deviation: a TSD removal-only delta re-evaluates the len family in hg_cpp (correct) where released hgraph leaves a stale value; the failure fingerprint is pinned in known_divergences.json.",
+  "features": [
+    "binding:non-peered",
+    "domain:collection-size",
+    "operator:contains",
+    "reference:REF",
+    "shape:TSD",
+    "topology:expression"
+  ],
+  "id": "coverage-tsd-removal-contains",
+  "inputs": {
+    "ts": [
+      {
+        "c": 0
+      },
+      {
+        "c": null
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "contains",
+    "probe": "c",
+    "shape": "tsd"
+  },
+  "schema_version": 1,
+  "seed": 7,
+  "template": "collection_size",
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/120"
+}

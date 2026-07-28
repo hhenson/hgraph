@@ -76,3 +76,53 @@ def test_len_over_unsized_type_raises_resolution_error():
             return hg.len_(ts)
 
         eval_node(bad, [1])
+
+
+def test_len_family_never_valid_input_never_ticks():
+    # Issue #116/#137/#138: upstream parity — a NEVER-VALID input produces
+    # no tick; the first publish comes with the first real delta.
+    @hg.graph
+    def tsd_len(ts: hg.TSD[str, hg.TS[int]]) -> TS[int]:
+        return hg.len_(ts)
+
+    assert eval_node(tsd_len, [None, None]) is None
+
+    @hg.graph
+    def tss_len(ts: hg.TSS[int]) -> TS[int]:
+        return hg.len_(ts)
+
+    assert eval_node(tss_len, [None, None]) is None
+
+    # is_empty differs deliberately: upstream's is_empty READS a never-valid
+    # input as empty and ticks True at start (ported test_is_empty pins it).
+    @hg.graph
+    def tsd_empty(ts: hg.TSD[str, hg.TS[int]]) -> TS[bool]:
+        return hg.is_empty(ts)
+
+    assert eval_node(tsd_empty, [None, None]) == [True, None]
+
+
+def test_tsd_removal_reticks_are_the_ruled_deviation():
+    # Ruled deviation (issues #120/#129, fingerprints pinned in
+    # known_divergences.json): released hgraph does NOT re-evaluate the len
+    # family on a TSD removal-only delta, leaving stale values (a partial
+    # removal leaves upstream len_ at the old size); hg_cpp re-evaluates and
+    # publishes the correct value. These pins are the hg_cpp contract.
+    @hg.graph
+    def tsd_len(ts: hg.TSD[str, hg.TS[int]]) -> TS[int]:
+        return hg.len_(ts)
+
+    assert eval_node(tsd_len, [{"a": 1, "b": 2}, {"a": None}]) == [2, 1]
+
+    @hg.graph
+    def tsd_empty(ts: hg.TSD[str, hg.TS[int]]) -> TS[bool]:
+        return hg.is_empty(ts)
+
+    assert eval_node(tsd_empty, [{"a": 1}, {"a": None}, {"b": 2}]) == [
+        False, True, False]
+
+    @hg.graph
+    def tsd_contains(ts: hg.TSD[str, hg.TS[int]]) -> TS[bool]:
+        return hg.contains_(ts, "c")
+
+    assert eval_node(tsd_contains, [{"c": 0}, {"c": None}]) == [True, False]
