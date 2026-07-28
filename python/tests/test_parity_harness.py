@@ -1209,6 +1209,13 @@ def test_valid_subset_reduce_relation_is_narrowly_bounded():
     assert not classify([None, None, 26, 14], [None, 9, 25, 14])
     assert not classify([None, None, 26, 14], [None, None, None, 14])
     assert not classify([None, None, 26, 14], [None, 9, 26])
+    # CATCH-UP composition (issues #98/#102/#110/#150): upstream later
+    # emits exactly the value the candidate published early; the candidate
+    # elides the equal re-tick. The value must match exactly, and a missed
+    # emission with nothing published stays reportable.
+    assert classify([None, 0], [0, None])
+    assert not classify([None, 7], [0, None])
+    assert not classify([None, 0], [None, None])
 
 
 def test_switch_flip_valid_subset_relation_is_windowed():
@@ -1252,6 +1259,11 @@ def test_switch_flip_valid_subset_relation_is_windowed():
     # Payload mismatches and missing emissions stay reportable everywhere.
     assert not classify([3, None, None, -6], [3, 0, None, -7])
     assert not classify([3, None, None, -6], [3, None, None, None])
+    # CATCH-UP composition: upstream's later emission of exactly the
+    # candidate's in-window early value is the elided equal re-tick;
+    # a different later value stays reportable.
+    assert classify([None, 0], [0, None])
+    assert not classify([None, 7], [0, None])
 
     # A spurious tick with the selector PARKED on the arithmetic branch —
     # the t0 emission closes the only window, so nothing later is covered.
