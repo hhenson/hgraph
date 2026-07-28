@@ -102,12 +102,13 @@ def test_len_family_never_valid_input_never_ticks():
     assert eval_node(tsd_empty, [None, None]) == [True, None]
 
 
-def test_tsd_removal_reticks_are_the_ruled_deviation():
-    # Ruled deviation (issues #120/#129, fingerprints pinned in
-    # known_divergences.json): released hgraph does NOT re-evaluate the len
-    # family on a TSD removal-only delta, leaving stale values (a partial
-    # removal leaves upstream len_ at the old size); hg_cpp re-evaluates and
-    # publishes the correct value. These pins are the hg_cpp contract.
+def test_tsd_none_removal_convention_drives_len_family_reticks():
+    # The lenient-None convention (recorded deviation; issues #120/#129,
+    # fingerprints pinned in known_divergences.json): a {key: None} tick is
+    # a lenient removal in hg_cpp's eval_node, so the len family
+    # re-evaluates — upstream's eval_node silently ignores the tick
+    # entirely (reported as hhenson/hgraph#363). With explicit REMOVE both
+    # runtimes agree. These pins are the hg_cpp convention contract.
     @hg.graph
     def tsd_len(ts: hg.TSD[str, hg.TS[int]]) -> TS[int]:
         return hg.len_(ts)

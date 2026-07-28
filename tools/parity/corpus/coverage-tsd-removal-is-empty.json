@@ -1,5 +1,5 @@
 {
-  "description": "Ruled deviation: a TSD removal-only delta re-evaluates the len family in hg_cpp (correct) where released hgraph leaves a stale value; the failure fingerprint is pinned in known_divergences.json.",
+  "description": "Recorded lenient-None deviation (len-family manifestation): upstream eval_node silently ignores {key: None} TSD ticks (hhenson/hgraph#363); hg_cpp removes leniently and re-evaluates. Fingerprint pinned in known_divergences.json.",
   "features": [
     "binding:non-peered",
     "domain:collection-size",

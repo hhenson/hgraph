@@ -610,21 +610,20 @@ The following are intentional unless separately re-opened:
   TSS/TSD delta that nets to no change does not tick. Explicit writes are
   unaffected and match upstream exactly: a python node returning the same
   scalar each evaluation ticks each time, as do repeated TSD entry writes.
-- **TSD removals are invisible to upstream's len family** (issues
-  #120/#129, 2026-07-28): released hgraph never subtracts a removed key
-  from ``len_``/``is_empty``/``contains_`` over a TSD — a removal-only
-  delta does not re-evaluate at all, and even a MIXED delta that does
-  re-evaluate still counts the removed key (reference probes:
-  ``{a:1,b:2}`` then ``{a:None,b:5}`` leaves upstream ``len_`` at 2;
-  ``{a:None,c:3}`` reads 3).  hg_cpp re-evaluates and publishes the
-  correct size.  Correctness over the upstream quirk: pinned by
-  ``test_tsd_removal_reticks_are_the_ruled_deviation`` and the native
-  container matrix, the failure fingerprints (removal-only AND mixed
-  shapes) are pinned in ``known_divergences.json``, the corpus tracks the
-  space (``coverage-tsd-removal-*``), and generation excludes TSD
-  removals entirely — mixed deltas diverge too, so there is no
-  upstream-agreeing removal space to fuzz.  TSS removals agree with
-  upstream and stay generated.
+- **The lenient-None TSD convention diverges observably in the len
+  family** (issues #120/#129, 2026-07-28; a manifestation of the
+  None-removal convention above, NOT an upstream ``len_`` defect):
+  released hgraph's ``eval_node`` SILENTLY IGNORES a ``{key: None}``
+  TSD tick (no removal, no value, no error — reported upstream as
+  hhenson/hgraph#363), so derived ``len_``/``is_empty``/``contains_``
+  values appear stale; hg_cpp's harness treats ``None`` as the lenient
+  removal and re-evaluates.  With explicit ``REMOVE`` deltas the two
+  runtimes agree exactly (verified by reference-env probes; the native
+  container matrix pins the removal re-ticks as plain correct
+  behaviour).  The campaign keeps out of the divergent convention space:
+  the ``collection_size`` generator emits no ``None`` values for TSD,
+  the corpus tracks the shapes (``coverage-tsd-removal-*``), and their
+  failure fingerprints are pinned in ``known_divergences.json``.
 - **Service-boundary timing** (design record: the scheduling matrix in
   :doc:`services`): request stubs forward next cycle by design, so a
   ``service_adaptor`` round trip observably lands one cycle after released
