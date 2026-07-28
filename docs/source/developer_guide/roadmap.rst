@@ -631,12 +631,19 @@ The following are intentional unless separately re-opened:
   ``tests/cpp/test_service_wiring.cpp`` (the service-adaptor collection cases
   and "late duplicate subscription samples the existing value"). First
   subscriptions and request/reply match the Python timing model exactly.
-- **Reduce over phantom mapped keys** (issue #95; design record:
-  :doc:`nested_graphs`): reduction is over currently-valid values. A keyed map
-  child can exist before its output becomes valid, and hg_cpp may publish the
-  valid subset while released hgraph waits for every live keyed slot.
-  Subsequent complete aggregates agree. The parity family permits only those
-  extra candidate emissions; every released-hgraph emission must match.
+- **Reduce over partially-valid mapped keys** (issue #95; design record:
+  :doc:`nested_graphs`): reduction is over currently-valid values. A keyed
+  value can be invalid while its slot is live — a map child existing before
+  its output first validates (the phantom-startup case), or a value going
+  *transiently* invalid, e.g. a per-key ``switch_`` flipping to a
+  service-backed branch whose request-reply response is still in flight
+  (issues #99/#101/#104/#108/#115/#130/#131/#147/#152/#154/#155; both
+  runtimes invalidate the switch output on a flip — upstream's reduce tree
+  stalls on the invalid input while hg_cpp recomputes the remaining valid
+  subset). hg_cpp may publish the valid-subset aggregate — down to the
+  reduce identity — while released hgraph holds; subsequent complete
+  aggregates agree. The parity family permits only those extra candidate
+  emissions; every released-hgraph emission must match.
 - Python ``REF`` is an opaque value and does not expose ``.output``.
 - ``None`` in CompoundScalar/Bundle construction means an unset field.
 - TSB deltas are canonically dense; sparse-bundle delta parity is not required.

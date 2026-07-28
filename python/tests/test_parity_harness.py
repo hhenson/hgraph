@@ -1163,20 +1163,28 @@ def test_valid_subset_reduce_relation_is_narrowly_bounded():
     }
     ok = lambda trace: {"status": "ok", "trace": trace}
 
-    # The SUBSCRIPTION family stays narrowly bounded to its inner; the
-    # template-wide nested-no-change-retick family (elision relation) matches
-    # any inner but only suppresses equal-re-tick elisions.
-    subscription_families = [
-        f for f in families if f["family"] == "mapped-subscription-valid-subset-reduce"
+    # The family covers every reduce_output pipeline (widened 2026-07-28: a
+    # per-key switch_ flip reaches the same currently-valid-values reduce
+    # semantics as subscription startup), but NOT the reduce-less shapes;
+    # the narrowness lives in the RELATION (extra candidate emissions only).
+    subset_families = [
+        f for f in families if f["family"] == "mapped-valid-subset-reduce"
     ]
-    assert subscription_families
-    assert matches_known_family(recipe, subscription_families)
-    assert not matches_known_family(
+    assert subset_families
+    assert matches_known_family(recipe, subset_families)
+    assert matches_known_family(
         {
             **recipe,
             "parameters": {**recipe["parameters"], "inner": "request_reply"},
         },
-        subscription_families,
+        subset_families,
+    )
+    assert not matches_known_family(
+        {
+            **recipe,
+            "parameters": {**recipe["parameters"], "reduce_output": False},
+        },
+        subset_families,
     )
 
     def classify(reference, candidate):
@@ -1199,6 +1207,13 @@ def test_nested_no_change_retick_family_is_elision_only():
     )
 
     _fingerprints, families = load_known_divergences()
+    # Bound THIS family's relation in isolation — on a reduce_output
+    # pipeline the widened mapped-valid-subset-reduce family separately
+    # admits extra candidate emissions.
+    elision_families = [
+        f for f in families if f["family"] == "nested-no-change-retick"
+    ]
+    assert elision_families
     ok = lambda trace: {"status": "ok", "trace": trace}
     recipe = {
         "template": "nested_higher_order",
@@ -1215,7 +1230,8 @@ def test_nested_no_change_retick_family_is_elision_only():
         difference = compare_outcomes(ok(reference), ok(candidate))
         assert difference is not None
         return is_known_family_failure(
-            recipe, difference.to_dict(), ok(reference), ok(candidate), families
+            recipe, difference.to_dict(), ok(reference), ok(candidate),
+            elision_families,
         )
 
     # The off-branch len_*0 re-emits an equal 0 upstream; hg_cpp elides it.

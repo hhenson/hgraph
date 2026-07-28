@@ -84,19 +84,16 @@
       "review_after": "2027-07-27"
     },
     {
-      "family": "mapped-subscription-valid-subset-reduce",
+      "family": "mapped-valid-subset-reduce",
       "template": "nested_higher_order",
       "parameters_equal": {
-        "inner": "subscription",
-        "outer": "map",
-        "wrap_switch": false,
         "reduce_output": true
       },
       "parameters_not_equal": {},
       "relation": "valid-subset-reduce",
       "issue": "https://github.com/hhenson/hg_cpp/issues/95",
-      "reason": "Accepted reduce deviation: hg_cpp reduces currently-valid mapped values and may publish while another live keyed slot is still a phantom; released hgraph waits. Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal.",
-      "review_after": "2027-07-27"
+      "reason": "Accepted reduce deviation (issue #95, roadmap.rst): reduction is over currently-valid values \u2014 hg_cpp may publish the valid-subset aggregate while released hgraph waits, whether a keyed slot is still a phantom (subscription startup) or a value went transiently invalid (a per-key switch_ flip while a request-reply round trip is in flight; issues #99/#101/#104/#108/#115/#130/#131/#147/#152/#154/#155). Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal.",
+      "review_after": "2027-07-28"
     },
     {
       "family": "nested-no-change-retick",
