@@ -231,6 +231,29 @@ TEST_CASE("ts_delta: capture/apply round-trip a TSD-of-scalar dict delta") {
                 dict_delta<Str, TS<Int>>({{"b"s, 9}})});
 }
 
+TEST_CASE("ts_delta: TSD lenient removals tick only when a key exists") {
+  using namespace std::string_literals;
+
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+  (void)TypeRegistry::instance().register_scalar<Str>("str");
+  const std::vector<std::optional<Value>> deltas{
+      dict_delta<Str, TS<Int>>({}, {"missing"s}),
+      dict_delta<Str, TS<Int>>({}),
+      dict_delta<Str, TS<Int>>({{"a"s, 1}}),
+      dict_delta<Str, TS<Int>>({}, {"a"s}),
+      dict_delta<Str, TS<Int>>({}, {"a"s}),
+      dict_delta<Str, TS<Int>>({{"b"s, 2}}),
+  };
+
+  auto app = run_graph<ApplyGraph<TSD<Str, TS<Int>>>>(
+      [&](const GlobalStateView &gs) { set_replay_deltas(gs, "in", deltas); });
+  CHECK_OUTPUT(get_recorded_deltas(app.view().graph().global_state(), "out"),
+               {none, dict_delta<Str, TS<Int>>({}),
+                dict_delta<Str, TS<Int>>({{"a"s, 1}}),
+                dict_delta<Str, TS<Int>>({}, {"a"s}), none,
+                dict_delta<Str, TS<Int>>({{"b"s, 2}})});
+}
+
 TEST_CASE("TSD output slots use the graph's closed Bundle realization") {
   auto &registry = TypeRegistry::instance();
   const auto *integer = registry.register_scalar<Int>("int");

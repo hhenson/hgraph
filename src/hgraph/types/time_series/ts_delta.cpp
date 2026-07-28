@@ -546,12 +546,26 @@ namespace hgraph
         {
             if (!delta.has_value()) { return false; }
             const auto bundle = delta.as_bundle();
-            if (bundle.field("removed").as_indexed_view().size() != 0 ||
-                bundle.field("modified").as_map().size() != 0 ||
-                bundle.field("removed_strict").as_indexed_view().size() != 0)
+            const auto modified       = bundle.field("modified").as_map();
+            const auto removed_strict = bundle.field("removed_strict").as_indexed_view();
+            if (modified.size() != 0 || removed_strict.size() != 0)
             {
                 return true;
             }
+
+            const auto removed = bundle.field("removed").as_indexed_view();
+            if (removed.size() != 0)
+            {
+                const auto dict_out = out.as_dict();
+                for (std::size_t index = 0; index < removed.size(); ++index)
+                {
+                    if (dict_out.contains(removed.at(index))) { return true; }
+                }
+                // Lenient removals of absent keys are not an empty
+                // validating tick, even when the TSD is still fresh.
+                return false;
+            }
+
             // The empty-tick validation rule, as for TSS.
             return !out.valid();
         }

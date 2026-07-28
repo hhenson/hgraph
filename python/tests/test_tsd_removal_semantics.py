@@ -10,7 +10,19 @@
 import pytest
 
 import hgraph as hg
-from hgraph import TS, TSD, TSS, Removed, graph, compute_node, set_delta
+from hgraph import (
+    TS,
+    TSB,
+    TSD,
+    TSL,
+    TSS,
+    Removed,
+    Size,
+    TimeSeriesSchema,
+    compute_node,
+    graph,
+    set_delta,
+)
 from hgraph.test import eval_node
 
 
@@ -32,6 +44,12 @@ def test_remove_absent_key_raises():
 def test_remove_if_exists_absent_key_is_silent():
     out = eval_node(_ident, [{"a": 1}, {"zzz": hg.REMOVE_IF_EXISTS}])
     assert out == [{"a": 2}, None]
+
+
+def test_first_tsd_tick_preserves_no_tick_and_empty_tick_distinction():
+    assert eval_node(_ident, [{"zzz": None}]) is None
+    assert eval_node(_ident, [{"zzz": hg.REMOVE_IF_EXISTS}]) is None
+    assert eval_node(_ident, [{}]) == [{}]
 
 
 def test_remove_if_exists_existing_key_removes():
@@ -62,6 +80,45 @@ def test_none_in_a_python_node_result_is_a_per_key_no_op():
         return _emit_none_for_a(ts)
 
     assert eval_node(g, [True]) == [{"b": 7}]
+
+
+def test_none_only_python_node_result_is_no_tick_for_nested_tsd():
+    @compute_node
+    def emit(ts: TS[bool]) -> TSD[str, TSL[TS[int], Size[2]]]:
+        return {"outer": None}
+
+    assert eval_node(emit, [True]) is None
+
+
+class _Pair(TimeSeriesSchema):
+    a: TS[int]
+    b: TS[int]
+
+
+def test_none_only_python_node_result_is_no_tick_for_fixed_structures():
+    @compute_node
+    def emit_bundle(ts: TS[bool]) -> TSB[_Pair]:
+        return {"a": None, "b": None}
+
+    @compute_node
+    def emit_list(ts: TS[bool]) -> TSL[TS[int], Size[2]]:
+        return [None, None]
+
+    assert eval_node(emit_bundle, [True]) is None
+    assert eval_node(emit_list, [True]) is None
+
+
+def test_fixed_structure_python_node_result_keeps_real_child_updates():
+    @compute_node
+    def emit_bundle(ts: TS[bool]) -> TSB[_Pair]:
+        return {"a": None, "b": 7}
+
+    @compute_node
+    def emit_list(ts: TS[bool]) -> TSL[TS[int], Size[2]]:
+        return [None, 7]
+
+    assert eval_node(emit_bundle, [True]) == [{"b": 7}]
+    assert eval_node(emit_list, [True]) == [{1: 7}]
 
 
 def test_python_node_result_remove_absent_key_raises():

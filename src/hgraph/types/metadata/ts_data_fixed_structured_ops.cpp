@@ -1647,12 +1647,13 @@ namespace hgraph::ts_data_plan_factory_detail
                     fmt::format("{} expects {} elements, got {}", what, state->element_count(), count));
             }
 
+            bool touched = false;
             for (std::size_t index = 0; index < count; ++index)
             {
                 nb::object child_source = sequence[index];
-                static_cast<void>(fixed_child_update_from_python(state, memory, index, child_source, modified_time));
+                touched |= fixed_child_update_from_python(state, memory, index, child_source, modified_time);
             }
-            return true;
+            return touched;
         }
 
         [[nodiscard]] static bool fixed_from_python_bundle(const FixedTSDataContext *state,
@@ -1663,7 +1664,7 @@ namespace hgraph::ts_data_plan_factory_detail
             nb::object object = nb::borrow<nb::object>(source);
             if (is_python_mapping(source))
             {
-                bool touched = true;
+                bool touched = false;
                 for_each_python_mapping_item(source, "TSB from_python", [&](nb::handle key, nb::handle value) {
                     const auto field = nb::cast<std::string>(key);
                     const auto index = field_index_by_name(state, field);
@@ -1671,7 +1672,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     {
                         throw std::invalid_argument(fmt::format("TSB from_python unknown field '{}'", field));
                     }
-                    static_cast<void>(fixed_child_update_from_python(state, memory, index, value, modified_time));
+                    touched |= fixed_child_update_from_python(state, memory, index, value, modified_time);
                 });
                 return touched;
             }
@@ -1682,6 +1683,7 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 
             bool saw_field = false;
+            bool touched   = false;
             for (std::size_t index = 0; index < state->element_count(); ++index)
             {
                 const char *name = state->schema->fields()[index].name;
@@ -1692,13 +1694,13 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (!nb::hasattr(object, name)) { continue; }
                 saw_field = true;
                 nb::object child_source = nb::getattr(object, name);
-                static_cast<void>(fixed_child_update_from_python(state, memory, index, child_source, modified_time));
+                touched |= fixed_child_update_from_python(state, memory, index, child_source, modified_time);
             }
             if (!saw_field)
             {
                 throw std::invalid_argument("TSB from_python expects a mapping, sequence, or field attributes");
             }
-            return true;
+            return touched;
         }
 
         [[nodiscard]] static bool fixed_from_python_list_mapping(const FixedTSDataContext *state,
@@ -1706,15 +1708,16 @@ namespace hgraph::ts_data_plan_factory_detail
                                                                  nb::handle                source,
                                                                  DateTime             modified_time)
         {
+            bool touched = false;
             for_each_python_mapping_item(source, "fixed TSL from_python", [&](nb::handle key, nb::handle value) {
                 const auto index = nb::cast<std::size_t>(key);
                 if (index >= state->element_count())
                 {
                     throw std::out_of_range("fixed TSL from_python index out of range");
                 }
-                static_cast<void>(fixed_child_update_from_python(state, memory, index, value, modified_time));
+                touched |= fixed_child_update_from_python(state, memory, index, value, modified_time);
             });
-            return true;
+            return touched;
         }
 
         [[nodiscard]] static bool fixed_from_python(const void *context,
