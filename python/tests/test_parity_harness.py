@@ -1170,7 +1170,9 @@ def test_valid_subset_reduce_relation_is_narrowly_bounded():
     # its extra ticks stay reportable — the families are scoped to the
     # service-backed inners, and the relation stays extra-emissions-only.
     subset_families = [
-        f for f in families if f["relation"] == "valid-subset-reduce"
+        f for f in families
+        if f["family"] in ("mapped-subscription-valid-subset-reduce",
+                           "switch-flip-valid-subset-reduce")
     ]
     assert len(subset_families) == 2
     assert matches_known_family(recipe, subset_families)
@@ -1207,6 +1209,61 @@ def test_valid_subset_reduce_relation_is_narrowly_bounded():
     assert not classify([None, None, 26, 14], [None, 9, 25, 14])
     assert not classify([None, None, 26, 14], [None, None, None, 14])
     assert not classify([None, None, 26, 14], [None, 9, 26])
+
+
+def test_switch_flip_valid_subset_relation_is_windowed():
+    from tools.parity.known import (
+        is_known_family_failure,
+        load_known_divergences,
+    )
+
+    _fingerprints, families = load_known_divergences()
+    ok = lambda trace: {"status": "ok", "trace": trace}
+    # The issue #99 shape: beta at t0, flip to the request-reply alpha at
+    # t1, response lands at t3.
+    recipe = {
+        "template": "nested_higher_order",
+        "inputs": {
+            "selector": ["beta", "alpha", None, None],
+            "values": [{"k1": -1}, None, None, None],
+        },
+        "parameters": {
+            "inner": "request_reply",
+            "outer": "map",
+            "wrap_switch": False,
+            "reduce_output": True,
+            "increment": -5,
+        },
+    }
+
+    def classify(reference, candidate, with_recipe=None):
+        difference = compare_outcomes(ok(reference), ok(candidate))
+        assert difference is not None
+        return is_known_family_failure(
+            with_recipe or recipe, difference.to_dict(), ok(reference),
+            ok(candidate), families,
+        )
+
+    # The flip-cycle valid-subset emission is inside the window.
+    assert classify([3, None, None, -6], [3, 0, None, -6])
+    # An extra tick AFTER the pipeline settled (no input tick since the
+    # last agreeing reference emission) is NOT covered (PR #165 review).
+    assert not classify([3, None, None, -6, None], [3, 0, None, -6, 99])
+    # Payload mismatches and missing emissions stay reportable everywhere.
+    assert not classify([3, None, None, -6], [3, 0, None, -7])
+    assert not classify([3, None, None, -6], [3, None, None, None])
+
+    # A spurious tick with the selector PARKED on the arithmetic branch —
+    # the t0 emission closes the only window, so nothing later is covered.
+    parked = {
+        **recipe,
+        "inputs": {
+            "selector": ["beta", None, None, None],
+            "values": [{"k1": -1}, None, None, None],
+        },
+    }
+    assert not classify([3, None, None, None], [3, None, None, 99],
+                        with_recipe=parked)
 
 
 def test_nested_no_change_retick_family_is_elision_only():

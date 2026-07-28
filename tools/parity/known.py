@@ -307,10 +307,67 @@ def _valid_subset_reduce_relation(
     return extra >= 1
 
 
+def _switch_flip_valid_subset_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """The switch-flip route of the issue #95 deviation, WINDOWED (PR #165
+    review): an extra candidate emission is admitted only inside a
+    disturbance window — from a driving-input tick (``selector`` /
+    ``outer_selector`` / ``values``, the events that can flip a branch or
+    put a request round trip in flight) until the next agreeing reference
+    emission. Outside a window every position must match exactly, so a
+    spurious candidate tick on a settled request-reply pipeline stays
+    reportable, as do payload mismatches and missing emissions anywhere."""
+    if difference.get("classification") != "value":
+        return False
+    reference_trace = reference.get("trace")
+    candidate_trace = candidate.get("trace")
+    if (
+        not isinstance(reference_trace, list)
+        or not isinstance(candidate_trace, list)
+        or len(reference_trace) != len(candidate_trace)
+    ):
+        return False
+
+    inputs = recipe.get("inputs") or {}
+    disturbed = set()
+    for name in ("selector", "outer_selector", "values"):
+        ticks = inputs.get(name) or ()
+        for index, tick in enumerate(ticks):
+            if tick is not None:
+                disturbed.add(index)
+
+    extra = 0
+    window = False
+    for index, (ref, cand) in enumerate(
+        zip(reference_trace, candidate_trace)
+    ):
+        if index in disturbed:
+            window = True
+        if ref is not None:
+            if ref != cand:
+                return False
+            window = False
+            continue
+        if cand is None:
+            continue
+        if not window:
+            return False
+        extra += 1
+    return extra >= 1
+
+
+SWITCH_FLIP_VALID_SUBSET = "switch-flip-valid-subset-reduce"
+
 RELATIONS = {
     TRACE_VALUE: _trace_value_relation,
     NO_CHANGE_ELISION: _no_change_elision_relation,
     VALID_SUBSET_REDUCE: _valid_subset_reduce_relation,
+    SWITCH_FLIP_VALID_SUBSET: _switch_flip_valid_subset_relation,
     SERVICE_ADAPTOR_ONE_CYCLE: _service_adaptor_one_cycle_relation,
     KEY_SET_SIZE_NO_RETICK: _key_set_size_no_retick_relation,
     SUBSCRIPTION_RESAMPLE_ONE_CYCLE: (
