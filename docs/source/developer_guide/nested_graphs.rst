@@ -603,6 +603,15 @@ input(s) — an operator like the rest of the family
   On node stop, ``map_`` stops every child, erases the owned TSD elements, and
   clears the output, while entry destruction remains part of node-storage
   disposal after graph-wide subscriptions have been released.
+- **Only valid child outputs are map elements.** If a live child's terminal
+  becomes invalid — for example, ``switch_`` flips from an arithmetic branch
+  to a request/reply-backed branch whose response is still in flight — the
+  owned TSD publishes a removal for that key. The response adds the key again
+  when the terminal validates. Released hgraph instead publishes an empty TSD
+  delta during this switch flip and retains the stale element. hg_cpp's
+  valid-child-set behavior is the accepted deviation for issues
+  #105/#117/#119/#133/#145, pinned by the mapped request/reply tests and the
+  bounded ``switch-flip-map-removal`` parity relation.
 - **Storage-plan ordering is load-bearing**: the map field is placed *after*
   ``output`` in the node storage plan (``node_storage_plan_for``'s
   ``extra_fields_after_output``) so reverse-order destruction tears the

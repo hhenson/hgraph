@@ -1217,6 +1217,24 @@ namespace
         }
     };
 
+    struct MappedRequestReplySwitchMapGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "mapped_request_reply_switch_map_graph";
+
+        static Port<TSD<Int, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Int, TS<Int>>> values,
+            Port<TS<Str>> selector)
+        {
+            service::register_request_reply_service<AddOneService, AddOneImplNode>(
+                w, service::path("mapped_switch_request_reply"));
+            return wire<stdlib::map_>(
+                       w, fn<MappedRequestReplySwitchFunction>(),
+                       values, selector)
+                .as<TSD<Int, TS<Int>>>();
+        }
+    };
+
     struct MappedSubscriptionSwitchFunction
     {
         [[maybe_unused]] static constexpr auto name =
@@ -1795,6 +1813,24 @@ TEST_CASE("service wiring: request/reply under map switch retains late keys")
                 dict_delta<Int, TS<Int>>({}, {1})),
             values<Str>(Str{"alpha"}, none, Str{"beta"}, none)),
         values<Int>(0, none, 10, 6));
+}
+
+TEST_CASE("service wiring: request/reply switch flip removes an invalid map output")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // Issues #105/#117/#119/#133/#145: the request/reply-backed branch is
+    // transiently invalid after the flip. The mapped TSD removes the old
+    // beta output, then adds the alpha response when it arrives.
+    CHECK_OUTPUT(
+        eval_node<MappedRequestReplySwitchMapGraph>(
+            values<Value>(dict_delta<Int, TS<Int>>({{1, 4}}), none),
+            values<Str>(Str{"beta"}, Str{"alpha"})),
+        values<Value>(
+            dict_delta<Int, TS<Int>>({{1, 6}}),
+            dict_delta<Int, TS<Int>>({}, {1}),
+            none,
+            dict_delta<Int, TS<Int>>({{1, 5}})));
 }
 
 TEST_CASE("service wiring: subscription under map switch retains late keys")

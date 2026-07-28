@@ -559,6 +559,14 @@ Wiring and node-authoring surface
        :doc:`nested_graphs`; issue #95 is pinned by the mapped-service Python
        and C++ regressions and the bounded ``valid-subset-reduce`` parity
        family.
+       The related unreduced-map deviation is also intentional: when a
+       mapped ``switch_`` flips to a request/reply branch whose response is
+       still in flight, hg_cpp removes the transiently invalid child output
+       and adds it again when the response arrives. Released hgraph publishes
+       an empty delta and retains the stale value. Issues
+       #105/#117/#119/#133/#145 are pinned by the mapped request/reply Python
+       and C++ regressions and the bounded ``switch-flip-map-removal`` parity
+       family.
    * - ``dispatch_``
      - Full for Bundle values
      - Native ``dispatch_cases`` / ``dispatch_case`` wiring builds a closed

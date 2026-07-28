@@ -214,12 +214,16 @@ way:
 * ``service-adaptor-one-cycle`` requires the candidate trace to equal one
   leading no-tick cycle followed by the complete reference trace;
 * ``key-set-size-no-retick`` removes only ``size`` fields and then requires
-  every remaining field to compare within the template's float tolerance; and
+  every remaining field to compare within the template's float tolerance;
 * ``subscription-resample-one-cycle`` requires repeated non-null subscription
   keys and proves that delaying the **subset** of repeats that actually emit
   an existing value — a repeat that emits nothing shifts nothing — makes the
   complete payload traces equal, with at least one repeat accounting for the
-  mismatch.
+  mismatch; and
+* ``switch-flip-map-removal`` requires the candidate to remove exactly every
+  currently-live mapped output, opposite the reference's canonical empty-map
+  delta, on the exact ``beta``-to-request/reply-``alpha`` switch flip. Later
+  response payloads and every other tick must still match.
 
 An unknown relation, payload corruption, unrelated missing field, candidate
 crash, or status difference does not match and therefore continues through
