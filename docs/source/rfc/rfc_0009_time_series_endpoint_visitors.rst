@@ -1,7 +1,7 @@
 RFC 0009: Type-Erased Time-Series Endpoint Visitors
 ====================================================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-07-29
 :Target: Public C++ time-series endpoint views
@@ -220,5 +220,7 @@ Acceptance criteria
 Implementation status
 ---------------------
 
-The implementation accompanies this RFC in the same pull request. The RFC
-status becomes ``Accepted`` when that pull request merges.
+The endpoint visitor and its first JSON codec adoption were accepted in
+PR #193. Native error-trace traversal subsequently adopted the same one-level
+dispatch while retaining its explicit modified-child, reference, depth, and
+cycle policies.
