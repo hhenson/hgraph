@@ -14,7 +14,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if (UNIX)
-    set(CMAKE_CXX_FLAGS_RELEASE "-g -O3")
+    # Overriding CMAKE_CXX_FLAGS_RELEASE replaces CMake's default Release
+    # flags (-O3 -DNDEBUG) wholesale: -DNDEBUG must be restated or every
+    # Release build (including wheels) ships with assert() live.
+    set(CMAKE_CXX_FLAGS_RELEASE "-g -O3 -DNDEBUG")
     set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-g -O3 -DNDEBUG")
     set(CMAKE_CXX_FLAGS_DEBUG "-g")
     set(CMAKE_CXX_FLAGS "-Wall")
