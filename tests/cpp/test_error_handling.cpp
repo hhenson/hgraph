@@ -441,6 +441,60 @@ namespace
         }
     };
 
+    using TracePair = TSB<"TracePair",
+                          Field<"lhs", TS<Int>>,
+                          Field<"rhs", TS<Int>>>;
+
+    struct ThrowOnZeroBundle
+    {
+        static constexpr auto name = "throw_on_zero_bundle";
+
+        static void eval(In<"values", TracePair> values, Out<TS<Int>> out)
+        {
+            auto lhs = values.template field<"lhs">();
+            auto rhs = values.template field<"rhs">();
+            if (rhs.value() == 0) { throw std::runtime_error("bundle zero"); }
+            out.set(lhs.value() / rhs.value());
+        }
+    };
+
+    struct StructuredBundleCaptureTraceGraph
+    {
+        static constexpr auto name = "structured_bundle_capture_trace_graph";
+
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            auto output = wire<ThrowOnZeroBundle>(w, {{"lhs", lhs}, {"rhs", rhs}});
+            auto error = exception_time_series(
+                output, ErrorCaptureOptions{.trace_back_depth = 2, .capture_values = true});
+            return wire<ErrorTraceOf>(w, error);
+        }
+    };
+
+    struct ThrowOnZeroList
+    {
+        static constexpr auto name = "throw_on_zero_list";
+
+        static void eval(In<"values", TSL<TS<Int>, 2>> values, Out<TS<Int>> out)
+        {
+            if (values[1].value() == 0) { throw std::runtime_error("list zero"); }
+            out.set(values[0].value() / values[1].value());
+        }
+    };
+
+    struct StructuredListCaptureTraceGraph
+    {
+        static constexpr auto name = "structured_list_capture_trace_graph";
+
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            auto output = wire<ThrowOnZeroList>(w, {lhs, rhs});
+            auto error = exception_time_series(
+                output, ErrorCaptureOptions{.trace_back_depth = 2, .capture_values = true});
+            return wire<ErrorTraceOf>(w, error);
+        }
+    };
+
     struct DirectCaptureDepthZeroGraph
     {
         static constexpr auto name = "direct_capture_depth_zero_graph";
@@ -673,6 +727,26 @@ TEST_CASE("error handling: capture options include the failed node and input val
     REQUIRE(depth_zero[0].has_value());
     CHECK(depth_zero[0]->find("throw_on_negative") != std::string::npos);
     CHECK(depth_zero[0]->find("*x*") == std::string::npos);
+}
+
+TEST_CASE("error handling: activation traces traverse structurally wired endpoint inputs")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+
+    const auto bundle = eval_node<StructuredBundleCaptureTraceGraph>(
+        values<Int>(9), values<Int>(0));
+    REQUIRE(bundle[0].has_value());
+    CHECK(bundle[0]->find("throw_on_zero_bundle") != std::string::npos);
+    CHECK(bundle[0]->find("*values*: value={lhs: 9, rhs: 0}") != std::string::npos);
+    CHECK(bundle[0]->find("replay") != std::string::npos);
+
+    const auto list = eval_node<StructuredListCaptureTraceGraph>(
+        values<Int>(9), values<Int>(0));
+    REQUIRE(list[0].has_value());
+    CHECK(list[0]->find("throw_on_zero_list") != std::string::npos);
+    CHECK(list[0]->find("*values*: value=[9, 0]") != std::string::npos);
+    CHECK(list[0]->find("replay") != std::string::npos);
 }
 
 TEST_CASE("error handling: try_except propagates child graph pauses")

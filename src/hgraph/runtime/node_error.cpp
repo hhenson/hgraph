@@ -3,9 +3,7 @@
 #include <hgraph/runtime/node.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
-#include <hgraph/types/time_series/ts_input/bundle_view.h>
-#include <hgraph/types/time_series/ts_input/dict_view.h>
-#include <hgraph/types/time_series/ts_input/list_view.h>
+#include <hgraph/types/time_series/visitor.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/scope.h>
 
@@ -66,46 +64,34 @@ namespace hgraph
                 return;
             }
 
-            const TSValueTypeMetaData *schema = input.schema();
-            if (schema == nullptr) { return; }
-            switch (schema->kind)
-            {
-                case TSTypeKind::TSB:
-                {
-                    auto bundle = input.as_bundle();
+            if (input.schema() == nullptr) { return; }
+            visit(
+                input,
+                [&](TSBInputView bundle) {
                     for (auto &&[name, child] : bundle.modified_items())
                     {
                         static_cast<void>(name);
                         append_input_sources(out, child, evaluation_time, depth,
                                              capture_values, indent, visited);
                     }
-                    break;
-                }
-                case TSTypeKind::TSL:
-                {
-                    auto list = input.as_list();
+                },
+                [&](TSLInputView list) {
                     for (auto &&[index, child] : list.modified_items())
                     {
                         static_cast<void>(index);
                         append_input_sources(out, child, evaluation_time, depth,
                                              capture_values, indent, visited);
                     }
-                    break;
-                }
-                case TSTypeKind::TSD:
-                {
-                    auto dict = input.as_dict();
+                },
+                [&](TSDInputView dict) {
                     for (auto &&[key, child] : dict.modified_items())
                     {
                         static_cast<void>(key);
                         append_input_sources(out, child, evaluation_time, depth,
                                              capture_values, indent, visited);
                     }
-                    break;
-                }
-                default:
-                    break;
-            }
+                },
+                [](TSInputView) {});
         }
 
         void append_input(std::string &out, std::string_view name, const TSInputView &input,
@@ -162,20 +148,25 @@ namespace hgraph
 
             if (depth == 0 || !node.has_input()) { return; }
             TSInputView input = node.input(evaluation_time);
-            if (input.schema() != nullptr && input.schema()->kind == TSTypeKind::TSB)
-            {
-                auto bundle = input.as_bundle();
-                for (auto &&[name, child] : bundle.items())
-                {
-                    append_input(out, name, child, evaluation_time, depth,
-                                 capture_values, indent + 2, visited);
-                }
-            }
-            else
+            if (input.schema() == nullptr)
             {
                 append_input(out, "input", input, evaluation_time, depth,
                              capture_values, indent + 2, visited);
+                return;
             }
+            visit(
+                input,
+                [&](TSBInputView bundle) {
+                    for (auto &&[name, child] : bundle.items())
+                    {
+                        append_input(out, name, child, evaluation_time, depth,
+                                     capture_values, indent + 2, visited);
+                    }
+                },
+                [&](TSInputView leaf) {
+                    append_input(out, "input", leaf, evaluation_time, depth,
+                                 capture_values, indent + 2, visited);
+                });
         }
     }  // namespace
 
