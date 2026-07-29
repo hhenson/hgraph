@@ -219,6 +219,19 @@ namespace
         }
     };
 
+    struct WindowStdDdofGraph
+    {
+        static constexpr auto name = "window_std_ddof_graph";
+
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{3}, Int{3});
+            return wire<stdlib::std_>(
+                       w, window, arg<"ddof">(Int{1}))
+                .as<TS<Float>>();
+        }
+    };
+
     // Scalar-container TS schemas are runtime metadata today. The wrapper graph
     // pins the output type expectation while eval_runtime_schema_graph supplies
     // the input schema at replay.
@@ -2211,6 +2224,9 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                      values<Int>(1, 2, none, 3),
                      values<Bool>(none, none, true, none)),
                  values<Int>(101, 203, 0, 103));
+    CHECK_OUTPUT(eval_node<WindowStdDdofGraph>(
+                     values<Int>(1, 2, 3, 4, 5)),
+                 values<Float>(none, none, 1.0, 1.0, 1.0));
 
     CHECK_OUTPUT(eval_node<stdlib::count>(values<Int>(3, none, 2, 1)), values<Int>(1, none, 2, 3));
     CHECK_OUTPUT(eval_node<stdlib::dedup>(values<Int>(1, 2, 2, 3, 3, 3, 4)),

@@ -306,8 +306,8 @@ namespace hgraph::stdlib
             }
         };
 
-        /** std over a NUMERIC TSW: the POPULATION standard deviation of the
-            window contents (hgraph parity for windowed std). */
+        /** std over a NUMERIC TSW. The no-ddof overload uses the population
+            divisor; the explicit overload uses N - ddof. */
         template <typename T>
         struct tsw_std_impl
         {
@@ -330,7 +330,9 @@ namespace hgraph::stdlib
                             TypeRegistry::instance().ts(scalar_descriptor<Float>::value_meta()));
             }
 
-            static void eval(In<"ts", TsVar<"S">> ts, Out<TsVar<"__out__">> out)
+            static void eval_with_ddof(
+                const In<"ts", TsVar<"S">> &ts, Int ddof,
+                const Out<TsVar<"__out__">> &out)
             {
                 const auto &erased = static_cast<const TSOutputView &>(out);
                 if (!ts.valid()) { return; }
@@ -351,9 +353,35 @@ namespace hgraph::stdlib
                     const Float delta = static_cast<Float>(window.at(index).checked_as<T>()) - mean_value;
                     squares += delta * delta;
                 }
+                const Float divisor =
+                    static_cast<Float>(size) - static_cast<Float>(ddof);
+                const Float variance =
+                    divisor > 0.0
+                        ? squares / divisor
+                        : std::numeric_limits<Float>::quiet_NaN();
                 auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
                 static_cast<void>(mutation.move_value_from(
-                    Value{std::sqrt(squares / static_cast<Float>(size))}));
+                    Value{std::sqrt(variance)}));
+            }
+
+            static void eval(In<"ts", TsVar<"S">> ts,
+                             Out<TsVar<"__out__">> out)
+            {
+                eval_with_ddof(ts, 0, out);
+            }
+        };
+
+        template <typename T>
+        struct tsw_std_ddof_impl : tsw_std_impl<T>
+        {
+            static constexpr auto name =
+                std::same_as<T, Int> ? "std_tsw_ddof_int" : "std_tsw_ddof_float";
+
+            static void eval(In<"ts", TsVar<"S">> ts,
+                             Scalar<"ddof", Int> ddof,
+                             Out<TsVar<"__out__">> out)
+            {
+                tsw_std_impl<T>::eval_with_ddof(ts, ddof.value(), out);
             }
         };
 
