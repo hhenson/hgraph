@@ -1089,17 +1089,6 @@ namespace hgraph
         return *plan();
     }
 
-    const NodeOps *NodeTypeRef::ops() const noexcept
-    {
-        return record_ != nullptr ? static_cast<const NodeOps *>(record_->ops) : nullptr;
-    }
-
-    const NodeOps &NodeTypeRef::ops_ref() const
-    {
-        if (ops() == nullptr) throw std::logic_error("NodeTypeRef is unbound");
-        return *ops();
-    }
-
     NodePtr NodeTypeRef::typed_null() const noexcept
     {
         return NodePtr{AnyPtr{record_, nullptr, AccessMode::ReadOnly}, NodePtr::UncheckedTag{}};

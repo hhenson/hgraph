@@ -84,17 +84,6 @@ namespace hgraph
         return *plan();
     }
 
-    const EvaluationClockOps *ClockTypeRef::ops() const noexcept
-    {
-        return record_ != nullptr ? static_cast<const EvaluationClockOps *>(record_->ops) : nullptr;
-    }
-
-    const EvaluationClockOps &ClockTypeRef::ops_ref() const
-    {
-        if (ops() == nullptr) throw std::logic_error("ClockTypeRef is unbound");
-        return *ops();
-    }
-
     ClockPtr ClockTypeRef::typed_null() const noexcept
     {
         return ClockPtr{AnyPtr{record_, nullptr, AccessMode::ReadOnly}, ClockPtr::UncheckedTag{}};

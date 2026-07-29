@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <stdexcept>
 #include <string_view>
 #include <type_traits>
 
@@ -38,8 +39,19 @@ namespace hgraph
         {
             if (plan() != nullptr) plan()->destroy(memory);
         }
-        [[nodiscard]] const GraphOps *ops() const noexcept;
-        [[nodiscard]] const GraphOps &ops_ref() const;
+        // Header-inline like the other trivial record accessors: these run
+        // on hot evaluation paths and the out-of-line definitions were not
+        // inlined even under LTO (profiled as bare call overhead).
+        [[nodiscard]] const GraphOps *ops() const noexcept
+        {
+            return record_ != nullptr ? static_cast<const GraphOps *>(record_->ops) : nullptr;
+        }
+        [[nodiscard]] const GraphOps &ops_ref() const
+        {
+            const auto *table = ops();
+            if (table == nullptr) { throw std::logic_error("GraphTypeRef is unbound"); }
+            return *table;
+        }
         [[nodiscard]] constexpr TypeCapabilities capabilities() const noexcept
         {
             return record_ != nullptr ? record_->capabilities : TypeCapabilities::None;

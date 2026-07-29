@@ -1307,17 +1307,6 @@ const MemoryUtils::StoragePlan &GraphTypeRef::checked_plan() const {
   return *plan();
 }
 
-const GraphOps *GraphTypeRef::ops() const noexcept {
-  return record_ != nullptr ? static_cast<const GraphOps *>(record_->ops)
-                            : nullptr;
-}
-
-const GraphOps &GraphTypeRef::ops_ref() const {
-  if (ops() == nullptr)
-    throw std::logic_error("GraphTypeRef is unbound");
-  return *ops();
-}
-
 GraphPtr GraphTypeRef::typed_null() const noexcept {
   return GraphPtr{AnyPtr{record_, nullptr, AccessMode::ReadOnly},
                   GraphPtr::UncheckedTag{}};

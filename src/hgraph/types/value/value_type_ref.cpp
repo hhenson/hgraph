@@ -110,17 +110,6 @@ namespace hgraph
         return *plan();
     }
 
-    const ValueOps *ValueTypeRef::ops() const noexcept
-    {
-        return record_ != nullptr ? static_cast<const ValueOps *>(record_->ops) : nullptr;
-    }
-
-    const ValueOps &ValueTypeRef::ops_ref() const
-    {
-        if (ops() == nullptr) throw std::logic_error("ValueTypeRef is unbound");
-        return *ops();
-    }
-
     ValuePtr ValueTypeRef::typed_null() const noexcept
     {
         return ValuePtr{AnyPtr{record_, nullptr, AccessMode::ReadOnly}, ValuePtr::UncheckedTag{}};

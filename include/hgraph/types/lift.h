@@ -229,13 +229,6 @@ namespace hgraph
         }
 
         template <typename F, std::size_t... I>
-        [[nodiscard]] result_t<F> eval_input_values(TSBInputView &input, std::index_sequence<I...>)
-        {
-            using tuple = arg_tuple_t<F>;
-            return invoke<F>(input.at(I).value().template checked_as<tuple_arg_t<tuple, I>>()...);
-        }
-
-        template <typename F, std::size_t... I>
         [[nodiscard]] const TSValueTypeMetaData *input_schema_impl(std::size_t index, std::index_sequence<I...>)
         {
             using tuple = arg_tuple_t<F>;
@@ -393,9 +386,25 @@ namespace hgraph
         }
 
         template <typename F, std::size_t... I>
-        [[nodiscard]] bool lifted_inputs_valid(TSBInputView &input, std::index_sequence<I...>)
+        bool evaluate_lifted_children(const NodeView &view, TSBInputView &input,
+                                      DateTime evaluation_time, std::index_sequence<I...>)
         {
-            return (input.at(I).valid() && ...);
+            // Project each argument child ONCE per evaluation: at(I) walks
+            // the input child projection, and the validity pass plus the
+            // value pass previously each paid it — the lifted twin of the
+            // static-node invocation frame (RFC 0008 profile).
+            std::array<TSInputView, sizeof...(I)> children{input.at(I)...};
+            if (!(children[I].valid() && ...)) { return true; }
+            auto output = view.output(evaluation_time);
+
+            using tuple = arg_tuple_t<F>;
+            result_t<F> result =
+                invoke<F>(children[I].value().template checked_as<tuple_arg_t<tuple, I>>()...);
+            auto mutation = output.begin_mutation(evaluation_time);
+            auto destination = mutation.value();
+            const ValueView source{destination.binding(), static_cast<const void *>(&result)};
+            static_cast<void>(mutation.copy_value_from(source));
+            return true;
         }
 
         template <typename F, auto Identity>
@@ -405,15 +414,8 @@ namespace hgraph
 
             auto root_input = view.input(evaluation_time);
             auto input      = root_input.as_bundle();
-            if (!lifted_inputs_valid<F>(input, std::make_index_sequence<arity_v<F>>{})) { return true; }
-            auto output     = view.output(evaluation_time);
-
-            result_t<F> result = eval_input_values<F>(input, std::make_index_sequence<arity_v<F>>{});
-            auto mutation = output.begin_mutation(evaluation_time);
-            auto destination = mutation.value();
-            const ValueView source{destination.binding(), static_cast<const void *>(&result)};
-            static_cast<void>(mutation.copy_value_from(source));
-            return true;
+            return evaluate_lifted_children<F>(view, input, evaluation_time,
+                                               std::make_index_sequence<arity_v<F>>{});
         }
 
         template <typename F, auto Identity>
