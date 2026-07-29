@@ -44,6 +44,14 @@ namespace hgraph
         [[nodiscard]] Range<DateTime> value_times() const;
         [[nodiscard]] Range<ValueView>::iterator begin() const;
         [[nodiscard]] Range<ValueView>::iterator end() const;
+
+      private:
+        TSWInputView(TSInputView view, detail::TrustedTSEndpointKind)
+            : TSInputTypedView<TSWInputView>(std::move(view))
+        {
+        }
+
+        friend struct detail::TSEndpointVisitorAccess;
     };
 }  // namespace hgraph
 

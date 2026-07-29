@@ -35,6 +35,14 @@ namespace hgraph
         [[nodiscard]] TSOutputView operator[](std::size_t index) &;
         [[nodiscard]] TSOutputView operator[](std::size_t index) const &;
         TSOutputView operator[](std::size_t) && = delete;
+
+      private:
+        TSLOutputView(TSOutputView view, detail::TrustedTSEndpointKind)
+            : TSOutputTypedView<TSLOutputView>(std::move(view))
+        {
+        }
+
+        friend struct detail::TSEndpointVisitorAccess;
     };
 }  // namespace hgraph
 

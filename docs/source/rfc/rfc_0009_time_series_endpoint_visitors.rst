@@ -191,6 +191,5 @@ Acceptance criteria
 Implementation status
 ---------------------
 
-No implementation has merged. The RFC status will become ``Accepted`` in the
-same pull request as the public header, tests, documentation, and adoption
-site.
+The implementation accompanies this RFC in the same pull request. The RFC
+status becomes ``Accepted`` when that pull request merges.

@@ -36,6 +36,14 @@ namespace hgraph
         [[nodiscard]] Range<ValueView> removed_values() const;
         [[nodiscard]] Range<ValueView>::iterator begin() const;
         [[nodiscard]] Range<ValueView>::iterator end() const;
+
+      private:
+        TSSInputView(TSInputView view, detail::TrustedTSEndpointKind)
+            : TSInputTypedView<TSSInputView>(std::move(view))
+        {
+        }
+
+        friend struct detail::TSEndpointVisitorAccess;
     };
 }  // namespace hgraph
 

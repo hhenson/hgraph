@@ -556,6 +556,38 @@ it uses ``value().as_set()``, ``value().as_map()``,
 storage, which is distinct from ``valid()``; an output can be
 bound before its time-series value has ever been set.
 
+One-level endpoint visitation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Generic endpoint algorithms can dispatch a live ``TSInputView`` or
+``TSOutputView`` with ``hgraph::visit`` from
+``<hgraph/types/time_series/visitor.h>``. The visitor performs one switch on
+the endpoint's semantic ``TSTypeKind`` and passes a borrowed specialised view
+to the matching callable. Existing collection views are used for ``TSS``,
+``TSD``, ``TSL``, ``TSW``, and ``TSB``; ``TSValue*View``,
+``TSReference*View``, and ``TSSignal*View`` tag the three leaf kinds.
+
+.. code-block:: cpp
+
+   const std::size_t child_count = hgraph::visit(
+       input,
+       [](hgraph::TSDInputView dict) { return dict.size(); },
+       [](hgraph::TSLInputView list) { return list.size(); },
+       [](hgraph::TSBInputView bundle) { return bundle.size(); },
+       [](hgraph::TSInputView) { return std::size_t{0}; });
+
+A specialised handler takes precedence over the role-level
+``TSInputView`` / ``TSOutputView`` catch-all. Every reachable branch must
+return ``void`` or the same non-reference type. Reference returns are rejected
+because the selected wrapper is a temporary cursor.
+
+Dispatch is intentionally one level. It does not walk collection children or
+follow ``REF`` values. A caller that wants recursion selects children through
+the specialised view and calls ``visit`` again, making key selection,
+validity filtering, and reference-cycle policy explicit. An endpoint with a
+schema remains dispatchable while its current value or peered target is
+invalid; a default view without a schema throws ``std::invalid_argument``.
+
 TSData Memory Layout and Delta Tracking
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

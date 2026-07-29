@@ -62,12 +62,18 @@ namespace hgraph
         TSInputView operator[](std::string_view) && = delete;
 
       private:
+        TSBInputView(TSInputView view, detail::TrustedTSEndpointKind)
+            : TSInputTypedView<TSBInputView>(std::move(view))
+        {
+        }
+
         static constexpr std::size_t npos = static_cast<std::size_t>(-1);
 
         [[nodiscard]] std::size_t field_index(std::string_view name) const;
         [[nodiscard]] std::size_t find_field_index(std::string_view name) const noexcept;
         [[nodiscard]] std::string_view key_at(std::size_t index) const noexcept;
 
+        friend struct detail::TSEndpointVisitorAccess;
     };
 }  // namespace hgraph
 

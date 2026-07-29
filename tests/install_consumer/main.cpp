@@ -5,6 +5,7 @@
 #include <hgraph/types/metadata/type_record.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/type_pointer.h>
+#include <hgraph/types/time_series/visitor.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
 
@@ -49,6 +50,18 @@ int main()
     }
 
     static_cast<void>(stdlib::register_standard_types(registry));
+
+    const auto *ts_int = registry.ts(scalar_descriptor<Int>::value_meta());
+    TSOutput    output{*ts_int};
+    auto        output_view = output.view(MIN_ST);
+    const bool  visited_value = visit(
+        output_view,
+        [](TSValueOutputView selected) { return selected.schema()->kind == TSTypeKind::TS; },
+        [](TSOutputView) { return false; });
+    if (!visited_value)
+    {
+        throw std::runtime_error("installed endpoint visitor dispatched the wrong time-series kind");
+    }
 
     using TypedFrame = FrameOf<Bundle<"consumer::Row", Field<"value", Int>>,
                                Bundle<"consumer::Metadata", Field<"revision", Int>>>;

@@ -58,6 +58,14 @@ namespace hgraph
          * ``ts_key_set_path_component`` addresses it in edges/bindings).
          */
         [[nodiscard]] TSOutputView key_set() const;
+
+      private:
+        TSDOutputView(TSOutputView view, detail::TrustedTSEndpointKind)
+            : TSOutputTypedView<TSDOutputView>(std::move(view))
+        {
+        }
+
+        friend struct detail::TSEndpointVisitorAccess;
     };
 }  // namespace hgraph
 

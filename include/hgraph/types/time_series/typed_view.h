@@ -7,6 +7,24 @@
 
 namespace hgraph
 {
+    namespace detail
+    {
+        struct TSEndpointVisitorAccess;
+
+        /**
+         * Construction token used after endpoint visitation has already
+         * checked the semantic TS kind.
+         *
+         * Only ``TSEndpointVisitorAccess`` can create the token, so public
+         * shape-view construction remains checked.
+         */
+        class TrustedTSEndpointKind
+        {
+            constexpr TrustedTSEndpointKind() noexcept = default;
+            friend struct TSEndpointVisitorAccess;
+        };
+    }  // namespace detail
+
     template <typename Derived, typename EndpointView>
     class TSTypedTimeSeriesView
     {

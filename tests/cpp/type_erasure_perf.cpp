@@ -10,6 +10,7 @@
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/visitor.h>
 #include <hgraph/types/value/value_builder.h>
 
 #include <algorithm>
@@ -40,6 +41,7 @@ namespace
     std::atomic<std::size_t> g_allocations{0};
     std::atomic<std::size_t> g_allocated_bytes{0};
     std::atomic<const hgraph::ValueView *> g_atomic_value_view_input{nullptr};
+    std::atomic<const hgraph::TSOutputView *> g_atomic_ts_output_view_input{nullptr};
     volatile std::uint64_t g_retained_value{0};
     std::uint64_t g_graph_observation{0};
 
@@ -731,6 +733,56 @@ int main()
             }
         });
 
+    auto endpoint_dispatch_view = bundle_output.view(MIN_ST);
+    g_atomic_ts_output_view_input.store(&endpoint_dispatch_view, std::memory_order_release);
+    const auto manual_endpoint_dispatch = [&] {
+        const auto *source = g_atomic_ts_output_view_input.load(std::memory_order_relaxed);
+        auto        candidate = source->borrowed_ref();
+        switch (candidate.schema()->kind)
+        {
+            case TSTypeKind::TS:
+            case TSTypeKind::REF:
+            case TSTypeKind::SIGNAL:
+                return std::uint64_t{0};
+            case TSTypeKind::TSS:
+                return static_cast<std::uint64_t>(candidate.as_set().size());
+            case TSTypeKind::TSD:
+                return static_cast<std::uint64_t>(candidate.as_dict().size());
+            case TSTypeKind::TSL:
+                return static_cast<std::uint64_t>(candidate.as_list().size());
+            case TSTypeKind::TSW:
+                return static_cast<std::uint64_t>(candidate.as_window().size());
+            case TSTypeKind::TSB:
+                return static_cast<std::uint64_t>(candidate.as_bundle().size());
+        }
+        throw std::runtime_error("unknown time-series kind in manual endpoint dispatch");
+    };
+    const auto visitor_endpoint_dispatch = [&] {
+        const auto *source = g_atomic_ts_output_view_input.load(std::memory_order_relaxed);
+        return visit(
+            *source,
+            [](TSSOutputView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](TSDOutputView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](TSLOutputView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](TSWOutputView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](TSBOutputView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](TSOutputView) { return std::uint64_t{0}; });
+    };
+    require_no_allocations("endpoint_manual_kind_dispatch", 10'000, manual_endpoint_dispatch);
+    require_no_allocations("endpoint_visitor_kind_dispatch", 10'000, visitor_endpoint_dispatch);
+    run_benchmark(
+        "endpoint_manual_kind_dispatch", 200'000, samples, warmup,
+        manual_endpoint_dispatch,
+        [](std::uint64_t value) {
+            if (value != 2) { throw std::runtime_error("manual endpoint dispatch failed"); }
+        });
+    run_benchmark(
+        "endpoint_visitor_kind_dispatch", 200'000, samples, warmup,
+        visitor_endpoint_dispatch,
+        [](std::uint64_t value) {
+            if (value != 2) { throw std::runtime_error("visitor endpoint dispatch failed"); }
+        });
+
     const auto *dynamic_list_meta = registry.tsl(ts_int, 0);
     ListBuilder dynamic_source_builder{ValuePlanFactory::instance().type_for(int_meta)};
     for (const Int value : {Int{59}, Int{60}, Int{61}, Int{62}})
@@ -963,7 +1015,8 @@ int main()
         });
     profiled_graph.stop();
     const auto profile = profiler.snapshot();
-    if (profile.graph_cycles == 0 || profile.entries.size() != 2)
+    if (benchmark_selected("evaluation_profiler_enabled_cycle") &&
+        (profile.graph_cycles == 0 || profile.entries.size() != 2))
     {
         throw std::runtime_error("evaluation profiler benchmark produced no measurements");
     }

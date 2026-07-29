@@ -44,6 +44,14 @@ namespace hgraph
         [[nodiscard]] Range<ValueView>::iterator begin() const;
         [[nodiscard]] Range<ValueView>::iterator end() const;
         [[nodiscard]] TSWDataMutationView begin_mutation(DateTime evaluation_time) const;
+
+      private:
+        TSWOutputView(TSOutputView view, detail::TrustedTSEndpointKind)
+            : TSOutputTypedView<TSWOutputView>(std::move(view))
+        {
+        }
+
+        friend struct detail::TSEndpointVisitorAccess;
     };
 }  // namespace hgraph
 
