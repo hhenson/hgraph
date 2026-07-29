@@ -33,7 +33,10 @@ dependencies = [
     "sqlalchemy",
     "duckdb",
     "pyarrow>=16.1.0",
-    "multimethod",
+    # <2.1: multimethod 2.1 (2026-07-29) raises "metaclass conflict" when a
+    # Union[...] overload is registered against the C++-engine's bound types
+    # (hgraph.debug._inspector_util's format_value); unpin once adapted.
+    "multimethod<2.1",
     "psutil",
     "typing-extensions",
     "pycurl",
