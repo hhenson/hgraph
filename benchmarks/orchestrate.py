@@ -1,23 +1,28 @@
-"""Benchmark orchestrator — runs every scenario across the three hgraph
-implementations and renders the performance matrix.
+"""Benchmark orchestrator — compares released C++ hgraph with hg_cpp and
+renders the performance matrix.
 
 Modes:
-  upstream-py   pip-installed hgraph (PyPI), Python runtime
   upstream-cpp  same package with HGRAPH_USE_CPP=true (the old C++ runtime)
   hg-cpp        this repository's package, from the CURRENT interpreter's env
+  upstream-py   optional pip-installed hgraph Python runtime reference
 
 Usage (from the repo root, inside the repo's env):
-  uv run python benchmarks/orchestrate.py                 # full matrix
+  uv run python benchmarks/orchestrate.py                 # C++ comparison
   uv run python benchmarks/orchestrate.py --scale 0.1     # quick pass
+  uv run python benchmarks/orchestrate.py --mode upstream-py  # on demand
   uv run python benchmarks/orchestrate.py --scenario tick_std --mode hg-cpp
   uv run python benchmarks/orchestrate.py --setup-only    # just build venvs
 
 The upstream venv is created once per Python major/minor, platform, and
 architecture at benchmarks/.venv-upstream-X.Y-PLATFORM-ARCH (delete it to
-force a refresh). Results land in benchmarks/results/.
+force a package refresh). Successful upstream timings are cached until the
+installed hgraph version, scenario pack, host, scales, or sample count changes.
+Results land in benchmarks/results/.
 """
 import argparse
+import copy
 import datetime as dt
+import hashlib
 import json
 import os
 import platform
@@ -46,6 +51,21 @@ VALIDATOR = BENCH_DIR / "validate.py"
 HG_CPP_FINGERPRINT_FILE = HG_CPP_VENV / ".source-fingerprint"
 
 MODES = ("upstream-py", "upstream-cpp", "hg-cpp")
+DEFAULT_MODES = ("upstream-cpp", "hg-cpp")
+BASELINE_MODES = ("upstream-py", "upstream-cpp")
+MODE_LABELS = {
+    "upstream-py": "Python",
+    "upstream-cpp": "legacy C++",
+    "hg-cpp": "hg_cpp",
+}
+BASELINE_CACHE_SCHEMA = 1
+BASELINE_CACHE = RESULTS_DIR / f"baseline-{ENVIRONMENT_KEY}.json"
+BASELINE_INPUTS = (
+    Path(__file__).resolve(),
+    BENCH_DIR / "scenarios.py",
+    RUNNER,
+    VALIDATOR,
+)
 
 
 def upstream_python() -> Path:
@@ -58,6 +78,16 @@ def hg_cpp_python() -> Path:
 
 def hg_cpp_source_fingerprint() -> str:
     return _source_fingerprint(REPO_ROOT)
+
+
+def benchmark_pack_fingerprint() -> str:
+    digest = hashlib.sha256()
+    for path in BASELINE_INPUTS:
+        digest.update(path.relative_to(REPO_ROOT).as_posix().encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _first_line(command: list[str]) -> str:
@@ -117,6 +147,71 @@ def ensure_upstream_venv() -> None:
         ["uv", "pip", "install", "--python", str(upstream_python()), "hgraph"],
         check=True,
     )
+
+
+def upstream_hgraph_version() -> str:
+    version = _first_line([
+        str(upstream_python()),
+        "-c",
+        "from importlib.metadata import version; print(version('hgraph'))",
+    ])
+    if version == "unknown":
+        raise RuntimeError(
+            "could not determine the upstream hgraph version for the "
+            "benchmark baseline"
+        )
+    return version
+
+
+def baseline_identity(
+    cycle_scale: float,
+    size_scale: float,
+    samples: int,
+) -> dict:
+    return {
+        "schema": BASELINE_CACHE_SCHEMA,
+        "environment": ENVIRONMENT_KEY,
+        "cpu": _cpu_model(),
+        "upstream_hgraph": upstream_hgraph_version(),
+        "benchmark_pack": benchmark_pack_fingerprint(),
+        "cycle_scale": cycle_scale,
+        "size_scale": size_scale,
+        "samples": samples,
+    }
+
+
+def load_baseline_cache(path: Path, identity: dict) -> dict:
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if payload.get("identity") != identity:
+        return {}
+    results = payload.get("results")
+    return results if isinstance(results, dict) else {}
+
+
+def save_baseline_cache(path: Path, identity: dict, results: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "identity": identity,
+        "results": results,
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n")
+
+
+def cached_baseline_result(
+    cache: dict,
+    scenario: str,
+    mode: str,
+) -> dict | None:
+    result = cache.get(scenario, {}).get(mode)
+    if not isinstance(result, dict) or not result.get("ok"):
+        return None
+    reused = copy.deepcopy(result)
+    reused.pop("benchmark_metadata", None)
+    reused["baseline_reused"] = True
+    return reused
 
 
 def ensure_hg_cpp_venv() -> str:
@@ -255,6 +350,23 @@ def render(
     """results: {scenario: {mode: result_dict}} -> markdown matrix."""
     if metadata is None:
         metadata = benchmark_metadata()
+    display_modes = [
+        mode for mode in MODES
+        if any(mode in per_mode for per_mode in results.values())
+    ]
+    baseline_mode = (
+        "upstream-py"
+        if "upstream-py" in display_modes
+        else "upstream-cpp" if "upstream-cpp" in display_modes else None
+    )
+    reused_baselines = sum(
+        bool(result.get("baseline_reused"))
+        for per_mode in results.values()
+        for result in per_mode.values()
+    )
+    mode_summary = ", ".join(
+        f"{MODE_LABELS[mode]} (`{mode}`)" for mode in display_modes
+    )
     lines = [
         "# hgraph performance matrix",
         "",
@@ -269,11 +381,15 @@ def render(
         f"- cycle scale: {cycle_scale}",
         f"- size scale: {size_scale}",
         f"- fresh-process samples: {samples}",
-        f"- modes: upstream-py / upstream-cpp = pip hgraph "
-        f"(HGRAPH_USE_CPP toggles the old C++ runtime); hg-cpp = this repo",
+        f"- modes: {mode_summary}",
+        f"- reused upstream baseline cells: {reused_baselines}",
         "",
         "Median seconds per scenario (lower is better); +/- is median absolute "
-        "deviation and xN is speed-up vs upstream-py.",
+        "deviation"
+        + (
+            f" and xN is speed-up vs {MODE_LABELS[baseline_mode]}."
+            if baseline_mode else "."
+        ),
         "hg_cpp-only sections are tracked without an upstream comparison.",
     ]
     current_group = None
@@ -298,16 +414,20 @@ def render(
                     "|---|---|---|",
                 ]
             else:
+                headers = " | ".join(
+                    MODE_LABELS[mode] for mode in display_modes
+                )
                 lines += [
-                    "| workload | cycles | upstream-py | upstream-cpp | hg-cpp |",
-                    "|---|---|---|---|---|",
+                    f"| workload | cycles | {headers} |",
+                    "|" + "---|" * (2 + len(display_modes)),
                 ]
-        base = per_mode.get("upstream-py", {})
+        row_modes = ["hg-cpp"] if group_is_hg_cpp_only else display_modes
+        base = per_mode.get(baseline_mode, {}) if baseline_mode else {}
         base_s = base.get("seconds") if base.get("ok") else None
         cycles = next(
             (r.get("cycles") for r in per_mode.values() if r.get("ok")), "-")
         cells = []
-        for mode in MODES:
+        for mode in row_modes:
             r = per_mode.get(mode)
             if r is None or r.get("skipped"):
                 cells.append("N/A")
@@ -317,18 +437,16 @@ def render(
                 cell = f"{s:.3f}s"
                 if r.get("sample_count", 1) > 1:
                     cell += f" +/- {r['seconds_mad']:.3f}s"
-                if base_s and mode != "upstream-py":
+                if base_s and mode != baseline_mode:
                     cell += f" (x{base_s / s:.1f})" if s else ""
                 cells.append(cell)
             else:
                 cells.append("FAIL")
-        if group_is_hg_cpp_only:
-            lines.append(f"| {label} (`{name}`) | {cycles} | {cells[2]} |")
-        else:
-            lines.append(
-                f"| {label} (`{name}`) | {cycles} | "
-                f"{cells[0]} | {cells[1]} | {cells[2]} |"
-            )
+        lines.append(
+            f"| {label} (`{name}`) | {cycles} | "
+            + " | ".join(cells)
+            + " |"
+        )
     failures = [
         (name, mode, r["error"])
         for name, per_mode in results.items()
@@ -359,9 +477,13 @@ def main() -> int:
     parser.add_argument("--group", action="append",
                         help="restrict to exact report group name")
     parser.add_argument("--mode", action="append", choices=MODES,
-                        help="restrict to mode(s); default all")
+                        help="restrict to mode(s); default legacy C++ and hg_cpp")
     parser.add_argument("--timeout", type=int, default=300,
                         help="per-scenario timeout, seconds")
+    parser.add_argument("--baseline-cache", type=Path, default=BASELINE_CACHE,
+                        help="upstream timing cache (default: platform-specific)")
+    parser.add_argument("--refresh-baseline", action="store_true",
+                        help="rerun selected upstream modes and refresh their cache")
     parser.add_argument("--setup-only", action="store_true")
     parser.add_argument("--skip-validation", action="store_true",
                         help="skip the cross-runtime workload correctness preflight")
@@ -374,21 +496,13 @@ def main() -> int:
     cycle_scale = 1.0 if cycle_scale is None else cycle_scale
     size_scale = 1.0 if size_scale is None else size_scale
 
-    modes = args.mode or list(MODES)
+    modes = args.mode or list(DEFAULT_MODES)
     if any(m.startswith("upstream") for m in modes):
         ensure_upstream_venv()
     if "hg-cpp" in modes:
         ensure_hg_cpp_venv()
     if args.setup_only:
         return 0
-
-    metadata = benchmark_metadata()
-
-    if not args.skip_validation:
-        for mode in modes:
-            print(f"[validate] {mode} ...", end="", flush=True)
-            validate_mode(mode)
-            print(" ok")
 
     sys.path.insert(0, str(BENCH_DIR))
     import scenarios as sc
@@ -408,11 +522,50 @@ def main() -> int:
     if not names:
         parser.error("scenario filters selected no workloads")
 
+    metadata = benchmark_metadata()
+    selected_baseline_modes = [
+        mode for mode in modes if mode in BASELINE_MODES
+    ]
+    baseline_cache_identity = None
+    baseline_cache = {}
+    if selected_baseline_modes:
+        baseline_cache_identity = baseline_identity(
+            cycle_scale, size_scale, args.samples
+        )
+        baseline_cache = load_baseline_cache(
+            args.baseline_cache, baseline_cache_identity
+        )
+
+    reusable_baselines = {}
+    modes_to_run = set()
+    for name in names:
+        scenario = sc.SCENARIOS[name]
+        for mode in modes:
+            if mode not in scenario.modes:
+                continue
+            cached = None
+            if mode in BASELINE_MODES and not args.refresh_baseline:
+                cached = cached_baseline_result(baseline_cache, name, mode)
+            if cached is not None:
+                reusable_baselines[(name, mode)] = cached
+            else:
+                modes_to_run.add(mode)
+
+    if not args.skip_validation:
+        for mode in modes:
+            if mode not in modes_to_run:
+                print(f"[validate] {mode} ... cached baseline")
+                continue
+            print(f"[validate] {mode} ...", end="", flush=True)
+            validate_mode(mode)
+            print(" ok")
+
     results = {}
+    baseline_cache_changed = False
     for scenario_index, name in enumerate(names):
         scenario = sc.SCENARIOS[name]
         results[name] = {}
-        active_modes = [mode for mode in modes if mode in scenario.modes]
+        active_modes = []
         for mode in modes:
             if mode not in scenario.modes:
                 results[name][mode] = {
@@ -424,6 +577,12 @@ def main() -> int:
                     "skipped": True,
                     "reason": "workload is not supported by this runtime",
                 }
+            elif (name, mode) in reusable_baselines:
+                reused = reusable_baselines[(name, mode)]
+                reused["benchmark_metadata"] = metadata
+                results[name][mode] = reused
+            else:
+                active_modes.append(mode)
 
         collected = {mode: [] for mode in active_modes}
         for sample_index in range(args.samples):
@@ -454,8 +613,21 @@ def main() -> int:
             aggregate.setdefault("supported_modes", list(scenario.modes))
             aggregate["benchmark_metadata"] = metadata
             results[name][mode] = aggregate
+            if mode in BASELINE_MODES and aggregate.get("ok"):
+                cached = copy.deepcopy(aggregate)
+                cached.pop("baseline_reused", None)
+                cached.pop("benchmark_metadata", None)
+                baseline_cache.setdefault(name, {})[mode] = cached
+                baseline_cache_changed = True
 
     RESULTS_DIR.mkdir(exist_ok=True)
+    if baseline_cache_changed:
+        save_baseline_cache(
+            args.baseline_cache,
+            baseline_cache_identity,
+            baseline_cache,
+        )
+        print(f"[baseline] updated {args.baseline_cache}")
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
     (RESULTS_DIR / f"raw-{stamp}.json").write_text(json.dumps(results, indent=2))
     report = render(results, cycle_scale, size_scale, args.samples, metadata)
