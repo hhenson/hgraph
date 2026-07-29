@@ -479,6 +479,17 @@ def test_std_tsw_number():
     assert eval_node(app, [1, 2, 3, 4, 5]) == [None, None, 0.816496580927726, 1.118033988749895, 1.4142135623730951]
 
 
+def test_std_tsw_ddof():
+    @graph
+    def app(ts: TS[int]) -> TS[float]:
+        window = to_window(ts, 5, 3)
+        return std(window, ddof=1)
+
+    actual = eval_node(app, [1, 2, 3, 4, 5])
+    assert actual[:2] == [None, None]
+    assert actual[2:] == pytest.approx([1.0, 1.2909944487358056, 1.5811388300841898])
+
+
 @pytest.mark.parametrize(
     ["lhs", "rhs", "expected"],
     [

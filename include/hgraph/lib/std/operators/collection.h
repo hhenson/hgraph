@@ -35,8 +35,11 @@ namespace hgraph::stdlib
     {
     };
 
-    /** ``std_`` — running / element-wise standard deviation. */
-    struct std_ : Operator<"std", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
+    /** ``std_`` — running / element-wise standard deviation.
+        Window overloads accept ``ddof`` to use an ``N - ddof`` divisor. */
+    struct std_
+        : Operator<"std", In<"ts", TsVar<"S">>, Scalar<"ddof", Int>,
+                   Out<TsVar<"O">>>
     {
     };
 
