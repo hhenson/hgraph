@@ -539,7 +539,7 @@ requires-dist = [
     { name = "frozendict", specifier = ">=2.3.10" },
     { name = "kafka-python", marker = "extra == 'messaging'", specifier = ">=2.1.5" },
     { name = "matplotlib", marker = "extra == 'notebook'" },
-    { name = "multimethod" },
+    { name = "multimethod", specifier = "<2.1" },
     { name = "mypy", marker = "extra == 'test'" },
     { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=2.0.0" },
     { name = "nanobind", marker = "extra == 'dev'", specifier = "==2.13.0" },
