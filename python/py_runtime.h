@@ -656,6 +656,26 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::object value() const
         {
             const auto &v = checked();
+            const auto *schema = v.schema();
+            if (schema != nullptr && schema->kind == TSTypeKind::TS)
+            {
+                // HOT PATH: atomic scalars dominate python-node reads.
+                // value_to_python() folds the has_current_value check into
+                // one ops dispatch; the invalid/None read falls out of it.
+                TSDataView data = evaluation_data.has_value()
+                                      ? TSDataView{evaluation_data}
+                                      : v.data_view().borrowed_ref();
+                if (!data.valid()) { return nb::none(); }
+                nb::object result = data.value_to_python();
+                if (PySet_CheckExact(result.ptr()))
+                {
+                    // hgraph parity: a scalar set is a FROZENSET (TSS values
+                    // stay mutable sets) - returning it to a TSS output means
+                    // replace.
+                    return nb::steal(PyFrozenSet_New(result.ptr()));
+                }
+                return result;
+            }
             TSDataView data = evaluation_data.has_value()
                                   ? TSDataView{evaluation_data}
                                   : v.data_view().borrowed_ref();
@@ -663,7 +683,6 @@ namespace hgraph::python_bridge
             {
                 return nb::none();   // hgraph: invalid reads as None
             }
-            const auto *schema = v.schema();
             if (schema != nullptr && schema->kind == TSTypeKind::TSL)
             {
                 // hgraph parity: a TSL's value is a tuple of child values
@@ -697,14 +716,7 @@ namespace hgraph::python_bridge
                 }
                 return materialize_tsb_value(schema, std::move(result));
             }
-            nb::object result = data.value_to_python();
-            if (schema != nullptr && schema->kind == TSTypeKind::TS && PySet_CheckExact(result.ptr()))
-            {
-                // hgraph parity: a scalar set is a FROZENSET (TSS values stay
-                // mutable sets) - returning it to a TSS output means replace.
-                return nb::steal(PyFrozenSet_New(result.ptr()));
-            }
-            return result;
+            return data.value_to_python();   // TS handled on the hot path above
         }
 
         [[nodiscard]] nb::object delta_value() const

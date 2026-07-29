@@ -17,6 +17,27 @@ namespace hgraph::python_bridge
 {
     namespace
     {
+        /** Raw tp_getset getter for the hot per-tick TimeSeries reads
+            (value/delta_value/modified/valid): a direct C call from
+            CPython's attribute lookup, where def_prop_ro routes through an
+            nb_func vectorcall (~15-20ns per read on the python-node
+            boundary). */
+        template <auto Member>
+        PyObject *py_ts_raw_get(PyObject *self, void *) noexcept
+        {
+            return py_error_on_exception<PyObject *>(nullptr, [&] {
+                auto *ts = nb::inst_ptr<PyTimeSeries>(self);
+                if constexpr (std::is_same_v<decltype((ts->*Member)()), bool>)
+                {
+                    return PyBool_FromLong((ts->*Member)() ? 1 : 0);
+                }
+                else
+                {
+                    return (ts->*Member)().release().ptr();
+                }
+            });
+        }
+
         std::vector<WiringPortRef> wiring_ports(nb::list inputs)
         {
             std::vector<WiringPortRef> result;
@@ -569,8 +590,18 @@ namespace hgraph::python_bridge
               return checked_add(
                   value, delta, time_zone_provider(view));
           });
-    nb::class_<PyTimeSeries>(m, "TimeSeries")
-        .def_prop_ro("value", &PyTimeSeries::value)
+    static PyGetSetDef py_ts_getset[] = {
+        {"value", &py_ts_raw_get<&PyTimeSeries::value>, nullptr, nullptr, nullptr},
+        {"delta_value", &py_ts_raw_get<&PyTimeSeries::delta_value>, nullptr, nullptr, nullptr},
+        {"modified", &py_ts_raw_get<&PyTimeSeries::modified>, nullptr, nullptr, nullptr},
+        {"valid", &py_ts_raw_get<&PyTimeSeries::valid>, nullptr, nullptr, nullptr},
+        {nullptr, nullptr, nullptr, nullptr, nullptr},
+    };
+    static PyType_Slot py_ts_slots[] = {
+        {Py_tp_getset, static_cast<void *>(py_ts_getset)},
+        {0, nullptr},
+    };
+    nb::class_<PyTimeSeries>(m, "TimeSeries", nb::type_slots(py_ts_slots))
         .def_prop_ro("_kind", [](const PyTimeSeries &self) { return static_cast<int>(self.kind()); })
         // hgraph's runtime activity control: a node may passivate/reactivate
         // its own input subscription (the C++ In views expose the same).
@@ -584,9 +615,9 @@ namespace hgraph::python_bridge
                  self.require_alive();
                  self.view.make_active();
              })
-        .def_prop_ro("delta_value", &PyTimeSeries::delta_value)
-        .def_prop_ro("modified", &PyTimeSeries::modified)
-        .def_prop_ro("valid", &PyTimeSeries::valid)
+        // value/delta_value/modified/valid are raw tp_getset slots above —
+        // a def_prop_ro here would REPLACE the raw descriptor in the type
+        // dictionary and silently restore the vectorcall path.
         .def_prop_ro("all_valid", &PyTimeSeries::all_valid)
         // TSW eviction surface (hgraph's removed_value pair).
         .def_prop_ro("has_removed_value",
