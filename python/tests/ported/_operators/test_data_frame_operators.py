@@ -15,8 +15,8 @@ import pyarrow as pa
 import pytest
 from frozendict import frozendict as fd, frozendict
 
-from hgraph import from_data_frame, TS, MIN_ST, MIN_TD, TSB, ts_schema, TSD, Frame, COMPOUND_SCALAR, graph, \
-    compound_scalar, to_data_frame, CompoundScalar, REMOVE
+from hgraph import REF, from_data_frame, TS, MIN_ST, MIN_TD, TSB, ts_schema, TSD, Frame, COMPOUND_SCALAR, graph, \
+    compound_scalar, compute_node, const, to_data_frame, CompoundScalar, REMOVE
 from hgraph.adaptors.data_frame import group_by
 from hgraph.test import eval_node
 
@@ -116,6 +116,65 @@ def test_to_data_frame_tsd_k_tsb():
         "a": [1, 1, 2, 1, 3],
         "b": [4, 4, 5, 4, 6]}).sort_by([("date", "ascending"), ("key", "ascending"), ("a", "ascending"), ("b", "ascending")])
     actual = actual.sort_by([("date", "ascending"), ("key", "ascending"), ("a", "ascending"), ("b", "ascending")])
+    assert actual.equals(expected)
+
+
+def test_to_data_frame_tsd_ref_values_follow_repoints():
+    @compute_node
+    def select_ref(
+        pick_rhs: TS[bool],
+        lhs: REF[TS[float]],
+        rhs: REF[TS[float]],
+    ) -> TSD[str, REF[TS[float]]]:
+        return {"selected": rhs.value if pick_rhs.value else lhs.value}
+
+    @graph
+    def g(pick_rhs: TS[bool]) -> TS[Frame[compound_scalar(date=datetime, key=str, value=float)]]:
+        return to_data_frame(
+            select_ref(pick_rhs, const(1.5), const(2.5)),
+            key_col="key",
+        )
+
+    actual = pa.concat_tables(eval_node(g, pick_rhs=[False, True, False]))
+    expected = pa.table({
+        "date": [_instant(MIN_ST), _instant(MIN_ST + MIN_TD), _instant(MIN_ST + 2 * MIN_TD)],
+        "key": ["selected", "selected", "selected"],
+        "value": [1.5, 2.5, 1.5],
+    })
+    assert actual.equals(expected)
+
+
+def test_to_data_frame_tsd_ref_tsb_values_follow_repoints():
+    schema = ts_schema(a=TS[int], b=TS[str])
+
+    @compute_node
+    def select_ref(
+        pick_rhs: TS[bool],
+        lhs: REF[TSB[schema]],
+        rhs: REF[TSB[schema]],
+    ) -> TSD[str, REF[TSB[schema]]]:
+        return {"selected": rhs.value if pick_rhs.value else lhs.value}
+
+    @graph
+    def g(
+        pick_rhs: TS[bool],
+        lhs: TSB[schema],
+        rhs: TSB[schema],
+    ) -> TS[Frame[compound_scalar(date=datetime, key=str, a=int, b=str)]]:
+        return to_data_frame(select_ref(pick_rhs, lhs, rhs), key_col="key")
+
+    actual = pa.concat_tables(eval_node(
+        g,
+        pick_rhs=[False, True],
+        lhs=[fd(a=1, b="one"), None],
+        rhs=[fd(a=2, b="two"), None],
+    ))
+    expected = pa.table({
+        "date": [_instant(MIN_ST), _instant(MIN_ST + MIN_TD)],
+        "key": ["selected", "selected"],
+        "a": [1, 2],
+        "b": ["one", "two"],
+    })
     assert actual.equals(expected)
 
 

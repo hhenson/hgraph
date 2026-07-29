@@ -11,6 +11,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -39,6 +40,12 @@ namespace
                                 Field<"c", Int>>;
     using KeyedRow = Bundle<"tests.data_frame::KeyedRow", Field<"a", Int>,
                             Field<"b", Int>, Field<"key", Str>>;
+    using ScalarRefFrameRow =
+        UnNamedBundle<Field<"date", DateTime>, Field<"key", Str>, Field<"value", Float>>;
+    using RefBundle = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Str>>>;
+    using BundleRefFrameRow =
+        UnNamedBundle<Field<"date", DateTime>, Field<"key", Str>, Field<"a", Int>,
+                      Field<"b", Str>>;
 
     void require_arrow(const arrow::Status &status)
     {
@@ -309,6 +316,115 @@ namespace
                         TS<FrameOf<KeyedRow>>>(w, ts, Str{"key"});
         }
     };
+
+    struct SelectScalarRefDict
+    {
+        static constexpr auto name = "select_scalar_ref_dict";
+
+        static void eval(In<"pick_rhs", TS<Bool>> pick_rhs,
+                         In<"lhs", REF<TS<Float>>> lhs,
+                         In<"rhs", REF<TS<Float>>> rhs,
+                         Out<TSD<Str, REF<TS<Float>>>> out)
+        {
+            out.set(Str{"selected"}, pick_rhs.value() ? rhs.value() : lhs.value());
+        }
+    };
+
+    struct ScalarRefToFrameGraph
+    {
+        static constexpr auto name = "scalar_ref_to_frame_graph";
+
+        static Port<TS<FrameOf<ScalarRefFrameRow>>> compose(
+            Wiring &w, Port<TS<Bool>> pick_rhs, Port<TS<Float>> lhs, Port<TS<Float>> rhs)
+        {
+            auto refs = wire<SelectScalarRefDict>(w, pick_rhs, lhs, rhs);
+            return wire<stdlib::to_data_frame, TS<FrameOf<ScalarRefFrameRow>>>(
+                w, refs, Str{"date"}, Str{"key"}, Str{"value"});
+        }
+    };
+
+    struct SelectBundleRefDict
+    {
+        static constexpr auto name = "select_bundle_ref_dict";
+
+        static void eval(In<"pick_rhs", TS<Bool>> pick_rhs,
+                         In<"lhs", REF<RefBundle>> lhs,
+                         In<"rhs", REF<RefBundle>> rhs,
+                         Out<TSD<Str, REF<RefBundle>>> out)
+        {
+            out.set(Str{"selected"}, pick_rhs.value() ? rhs.value() : lhs.value());
+        }
+    };
+
+    struct BundleRefToFrameGraph
+    {
+        static constexpr auto name = "bundle_ref_to_frame_graph";
+
+        static Port<TS<FrameOf<BundleRefFrameRow>>> compose(
+            Wiring &w, Port<TS<Bool>> pick_rhs, Port<TS<Int>> lhs_a, Port<TS<Str>> lhs_b,
+            Port<TS<Int>> rhs_a, Port<TS<Str>> rhs_b)
+        {
+            auto lhs  = stdlib::to_tsb<RefBundle>(w, lhs_a, lhs_b);
+            auto rhs  = stdlib::to_tsb<RefBundle>(w, rhs_a, rhs_b);
+            auto refs = wire<SelectBundleRefDict>(w, pick_rhs, lhs, rhs);
+            return wire<stdlib::to_data_frame, TS<FrameOf<BundleRefFrameRow>>>(
+                w, refs, Str{"date"}, Str{"key"}, Str{"value"});
+        }
+    };
+}
+
+TEST_CASE("data frame operators: to_data_frame dereferences scalar TSD values across repoints")
+{
+    stdlib::register_standard_operators();
+    const auto result = eval_node<ScalarRefToFrameGraph>(
+        values<Bool>(false, true, false),
+        values<Float>(1.5, none, none),
+        values<Float>(2.5, none, none));
+
+    REQUIRE(result.size() == 3);
+    const std::array<Float, 3> expected{1.5, 2.5, 1.5};
+    for (std::size_t index = 0; index < result.size(); ++index)
+    {
+        REQUIRE(result[index].has_value());
+        CHECK(frame_rows(*result[index]) == 1);
+        CHECK(frame_cell(*result[index], "key", scalar_descriptor<Str>::value_meta(), 0)
+                  .view()
+                  .checked_as<Str>() == "selected");
+        CHECK(frame_cell(*result[index], "value", scalar_descriptor<Float>::value_meta(), 0)
+                  .view()
+                  .checked_as<Float>() == expected[index]);
+    }
+}
+
+TEST_CASE("data frame operators: to_data_frame dereferences TSB-valued TSD references")
+{
+    stdlib::register_standard_operators();
+    const auto result = eval_node<BundleRefToFrameGraph>(
+        values<Bool>(false, true),
+        values<Int>(1, none), values<Str>("one", none),
+        values<Int>(2, none), values<Str>("two", none));
+
+    REQUIRE(result.size() == 2);
+    for (std::size_t index = 0; index < result.size(); ++index)
+    {
+        REQUIRE(result[index].has_value());
+        CHECK(frame_rows(*result[index]) == 1);
+        CHECK(frame_cell(*result[index], "key", scalar_descriptor<Str>::value_meta(), 0)
+                  .view()
+                  .checked_as<Str>() == "selected");
+    }
+    CHECK(frame_cell(*result[0], "a", scalar_descriptor<Int>::value_meta(), 0)
+              .view()
+              .checked_as<Int>() == 1);
+    CHECK(frame_cell(*result[0], "b", scalar_descriptor<Str>::value_meta(), 0)
+              .view()
+              .checked_as<Str>() == "one");
+    CHECK(frame_cell(*result[1], "a", scalar_descriptor<Int>::value_meta(), 0)
+              .view()
+              .checked_as<Int>() == 2);
+    CHECK(frame_cell(*result[1], "b", scalar_descriptor<Str>::value_meta(), 0)
+              .view()
+              .checked_as<Str>() == "two");
 }
 
 TEST_CASE("data frame operators: sorted_ orders rows through the native wiring path")
