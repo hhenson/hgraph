@@ -48,14 +48,33 @@ affinity set; matches the morning legacy numbers, confirming the correction).
 | Multiplexed service adaptor - Python implementation (`service_adaptor_py`) | 0.055s | 0.064s | x0.86 | x0.73 |
 | **aggregate** | **8.336s** | **3.321s** | **x2.51** | - |
 
+Caveat — interpreter versions differ between the endpoints: the morning
+matrix ran Python 3.14.4 while both evening matrices ran 3.12.13 (the
+capstone worktree's environments resolved 3.12). Morning-vs-evening ratio
+movements therefore carry an interpreter confound on the python-node
+scenarios and are indicative rather than attributive. The per-change
+attributions below rest on same-interpreter controlled measurements taken
+during the campaign, not on this table.
+
 Observations:
 
-- hg_cpp leads 25 of 27 scenarios; every ratio improved over the morning run.
-- `tick_py` flipped from x0.87 to x1.09 (the #185 boundary work).
-- The two remaining sub-parity scenarios narrowed sharply and have owned
+- hg_cpp leads 25 of 27 scenarios; 25 of 27 ratios improved over the
+  morning run. The two declines (`construct_std` x16.78 -> x16.62,
+  `type_cs_py` x1.06 -> x1.03) are legacy-side run-to-run movement at
+  noise scale, not hg_cpp regressions (hg_cpp absolute times were equal
+  or better in both).
+- `tick_py` moved from x0.87 to x1.09 in this table (interpreter confound
+  applies). The controlled same-interpreter measurement of the #185
+  boundary work on this box (Python 3.14 pack path, main vs #185 branch,
+  same morning) showed tick_py 0.046s -> 0.042s (-8.7%); the mac
+  like-for-like micro-bench attributed the mechanism (.value read
+  40ns -> 26ns).
+- The two remaining sub-parity scenarios narrowed and have owned
   follow-ups: `tsd_dense_py` x0.82 -> x0.95 and `service_adaptor_py`
   x0.73 -> x0.86 (keyed-route resolution: RFC 0008; observer notify:
   issue #192).
 - Absolute cross-machine comparisons remain invalid; same-machine ratios are
   the convention (the mac/155H hardware factor is ~1.59x on identical
   CPython work).
+- Raw sample records: `raw-20260729-085844.json`, `raw-20260729-155242.json`,
+  `raw-20260729-163133.json`.
