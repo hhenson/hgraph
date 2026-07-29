@@ -309,14 +309,16 @@ namespace hgraph::python_bridge
             {
                 eb.add_lifecycle_observer(run->profiler.get());
             }
-            // Registered LAST so its root after-evaluation release runs after
-            // every other observer's after-hook (they see the GIL still held).
+            // NOT registered at build time: the first python re-entry adds it
+            // to the runtime observer list (appended last, so its release runs
+            // after every other observer's after-hook), and pure-native runs
+            // never pay the per-cycle hook dispatch.
             auto cycle_gil_owned = std::make_unique<PyCycleGilObserver>();
             auto *cycle_gil      = cycle_gil_owned.get();
-            eb.add_lifecycle_observer(cycle_gil);
             run->observers.push_back(std::move(cycle_gil_owned));
             run->executor = eb.make_executor();
-            cycle_gil->bind_root(run->executor.view().graph().data());
+            cycle_gil->bind_root(run->executor.view().graph().data(),
+                                 &run->executor.view().lifecycle_observers());
 
             if (py_has_active_runtime_global_state())
             {

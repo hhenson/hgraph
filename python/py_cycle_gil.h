@@ -36,14 +36,22 @@ namespace hgraph::python_bridge
     class PyCycleGilObserver final : public LifecycleObserver
     {
       public:
-        /** Root identity is bound after ``make_executor`` (the storage
-            pointer is stable for the run's lifetime). */
-        void bind_root(const void *root_graph_data) noexcept { root_ = root_graph_data; }
+        /** Root identity and the executor's observer list are bound after
+            ``make_executor`` (both stable for the run's lifetime; ``bind_root``
+            runs on the evaluation thread, before the run loop starts). The
+            observer stays OFF the list until the first python re-entry
+            registers it lazily, so pure-native runs never pay the per-cycle
+            hook dispatch (measured ~2% on the native tick benchmark). */
+        void bind_root(const void *root_graph_data, LifecycleObserverList *observers) noexcept
+        {
+            root_      = root_graph_data;
+            observers_ = observers;
+            owner_     = std::this_thread::get_id();
+        }
 
         void on_before_graph_evaluation(const GraphView &graph) override
         {
             if (graph.data() != root_) { return; }
-            owner_    = std::this_thread::get_id();
             in_cycle_ = true;
         }
 
@@ -58,12 +66,24 @@ namespace hgraph::python_bridge
             }
         }
 
-        /** Take (or join) the cycle hold. Returns false outside a root
-            cycle or off the evaluation thread — the caller then manages
-            the GIL locally, exactly as before. */
+        /** Take (or join) the cycle hold. Returns false off the evaluation
+            thread — the caller then manages the GIL locally, exactly as
+            before. */
         [[nodiscard]] bool try_hold() noexcept
         {
-            if (!in_cycle_ || owner_ != std::this_thread::get_id()) { return false; }
+            if (observers_ == nullptr || owner_ != std::this_thread::get_id()) { return false; }
+            if (!registered_)
+            {
+                // First python re-entry of the run: join the observer list
+                // (appended last, so the release still runs after every other
+                // observer's after-hook; runtime add is a sanctioned use of
+                // the list). The current cycle is already past its
+                // before-notification, so arm the cycle flag here.
+                observers_->add(this);
+                registered_ = true;
+                in_cycle_   = true;
+            }
+            if (!in_cycle_) { return false; }
             if (!held_)
             {
                 state_ = PyGILState_Ensure();
@@ -73,11 +93,13 @@ namespace hgraph::python_bridge
         }
 
       private:
-        const void      *root_{nullptr};
-        std::thread::id  owner_{};
-        PyGILState_STATE state_{};
-        bool             in_cycle_{false};
-        bool             held_{false};
+        const void            *root_{nullptr};
+        LifecycleObserverList *observers_{nullptr};
+        std::thread::id        owner_{};
+        PyGILState_STATE       state_{};
+        bool                   in_cycle_{false};
+        bool                   held_{false};
+        bool                   registered_{false};
     };
 
     /** The run currently evaluating on this process (the bridge rejects a
