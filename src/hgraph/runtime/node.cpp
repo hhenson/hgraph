@@ -75,6 +75,7 @@ namespace hgraph
             std::size_t evaluation_clock_offset{npos};
             std::size_t error_output_offset{npos};
             std::size_t recordable_state_offset{npos};
+            std::size_t prepared_inputs_offset{npos};
 
             [[nodiscard]] bool has_input() const noexcept { return input_offset != npos; }
             [[nodiscard]] bool has_output() const noexcept { return output_offset != npos; }
@@ -456,6 +457,7 @@ namespace hgraph
                 {"evaluation_clock", &NodeRuntimeLayout::evaluation_clock_offset},
                 {"error_output", &NodeRuntimeLayout::error_output_offset},
                 {"recordable_state", &NodeRuntimeLayout::recordable_state_offset},
+                {node_prepared_inputs_field.data(), &NodeRuntimeLayout::prepared_inputs_offset},
             };
             for (const auto &[name, member] : optional_components)
             {
@@ -1204,6 +1206,16 @@ namespace hgraph
     }
     void *NodeView::data() const noexcept { return const_cast<void *>(pointer_.data()); }
 
+    void *NodeView::prepared_input_routes() const noexcept
+    {
+        if (!valid()) { return nullptr; }
+        const NodeOps &table = ops();
+        if (table.context == nullptr) { return nullptr; }
+        const auto &context = *static_cast<const NodeRuntimeContext *>(table.context);
+        if (context.layout.prepared_inputs_offset == NodeRuntimeLayout::npos) { return nullptr; }
+        return MemoryUtils::advance(data(), context.layout.prepared_inputs_offset);
+    }
+
     std::string_view NodeView::label() const noexcept
     {
         return ops().label_impl(ops().context, data());
@@ -1544,7 +1556,17 @@ namespace hgraph
         schema.captures_errors     = true;
         schema.error_capture       = options;
 
-        const auto &plan = node_storage_plan_for(schema);
+        // Preserve non-standard planned fields (the prepared-slot array):
+        // callbacks resolve the field's offset through the rebuilt layout,
+        // never from the origin plan.
+        std::vector<NodeStorageField> extra_fields;
+        if (const auto *prepared = origin.plan != nullptr
+                                       ? origin.plan->find_component(node_prepared_inputs_field)
+                                       : nullptr)
+        {
+            extra_fields.push_back(NodeStorageField{node_prepared_inputs_field, prepared->plan});
+        }
+        const auto &plan = node_storage_plan_for(schema, extra_fields);
         const auto type =
             node_runtime_registry().make_type(std::move(schema), origin.callbacks, plan, NodeOps{},
                                               type_.record()->implementation_name());
@@ -1600,7 +1622,15 @@ namespace hgraph
         }
         schema.active_inputs = std::move(active);
 
-        const auto &plan = node_storage_plan_for(schema);
+        // Preserve non-standard planned fields (see with_error_capture).
+        std::vector<NodeStorageField> extra_fields;
+        if (const auto *prepared = origin.plan != nullptr
+                                       ? origin.plan->find_component(node_prepared_inputs_field)
+                                       : nullptr)
+        {
+            extra_fields.push_back(NodeStorageField{node_prepared_inputs_field, prepared->plan});
+        }
+        const auto &plan = node_storage_plan_for(schema, extra_fields);
         const auto type =
             node_runtime_registry().make_type(std::move(schema), origin.callbacks, plan, node_ops,
                                               type_.record()->implementation_name());

@@ -469,9 +469,13 @@ ticks, and are relaxed **for static nodes only**:
   count.
 * "The … static-node storage ABIs do not gain fields" is likewise scoped to
   stages 1–4.  The prepared-slot field is private to the static-node path
-  (``NodeStorageField`` plus a static-node-private extended view context); it
-  is not part of the installed extension SDK, whose promotion rules from the
-  original text still apply.
+  (``NodeStorageField``, with the array offset captured by the node's own
+  callbacks); it is not part of the installed extension SDK, whose promotion
+  rules from the original text still apply.  The input-view cursor also gains
+  one non-owning route pointer (``TSInputView`` grows from eight to nine
+  words; the pointer is null everywhere outside the prepared path), which is
+  what lets ordinary property reads resolve through the stable handle instead
+  of re-running route resolution per read.
 
 Prepared-slot contract
 ~~~~~~~~~~~~~~~~~~~~~~
