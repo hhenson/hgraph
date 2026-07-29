@@ -1,6 +1,7 @@
 # Comparative benchmark pack
 
-Cross-implementation performance bench for the three hgraph runtimes:
+The default performance comparison covers the released C++ runtime and hg_cpp.
+The pure-Python runtime remains available as an on-demand reference:
 
 | mode | implementation |
 |---|---|
@@ -36,7 +37,7 @@ overhead out of the Python node boundary in every mode.
 
 ```sh
 # from the repo root, in the repo's environment (hg_cpp installed):
-uv run python benchmarks/orchestrate.py                 # core, 3 samples
+uv run python benchmarks/orchestrate.py                 # legacy C++ vs hg_cpp
 uv run python benchmarks/orchestrate.py --scale 0.1     # quick legacy shorthand
 uv run python benchmarks/orchestrate.py \
   --suite core --suite diagnostic                       # all workloads
@@ -45,6 +46,10 @@ uv run python benchmarks/orchestrate.py \
 uv run python benchmarks/orchestrate.py \
   --group "TSD - key lifecycle" --samples 5
 uv run python benchmarks/orchestrate.py --scenario tick_std --mode hg-cpp
+uv run python benchmarks/orchestrate.py \
+  --mode upstream-py --mode upstream-cpp --mode hg-cpp  # Python on demand
+uv run python benchmarks/orchestrate.py \
+  --refresh-baseline                                    # rerun legacy C++
 uv run python benchmarks/runner.py --list               # readable inventory
 ```
 
@@ -65,6 +70,15 @@ cannot be mistaken for a stale editable build. All modes use the same
 interpreter version. Delete the upstream directory to refresh its published
 package. Results (markdown matrix + raw JSON) are written to
 `benchmarks/results/`.
+
+Successful upstream timings are cached in a platform-specific
+`benchmarks/results/baseline-*.json` file. The cache identity includes the
+installed hgraph version, Python/platform/architecture, CPU model, benchmark
+scenario-pack fingerprint, scale factors, and sample count. A changed hgraph
+version or scenario pack therefore reruns the baseline automatically; normal
+hg_cpp iterations reuse it. Use `--refresh-baseline` for a deliberate rerun, or
+`--baseline-cache PATH` to keep a separate controlled baseline. Cache files are
+local measurement artifacts and are ignored by Git.
 
 Each timing sample runs in a fresh subprocess. The orchestrator rotates mode
 order deterministically between samples, reports the median and median absolute

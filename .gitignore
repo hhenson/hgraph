@@ -12,6 +12,7 @@
 .claude/
 benchmarks/.venv-upstream*/
 benchmarks/.venv-hg-cpp*/
+benchmarks/results/baseline-*.json
 /reports/
 /.parity/
 

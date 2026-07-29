@@ -66,6 +66,55 @@ def test_benchmark_report_groups_readable_names_and_marks_unsupported_modes():
     assert "+/- 0.200s" in report
 
 
+def test_default_benchmark_report_compares_legacy_cpp_with_hg_cpp():
+    legacy = orchestrate.aggregate_samples(
+        [_sample(2.0), _sample(2.0), _sample(2.0)]
+    )
+    candidate = orchestrate.aggregate_samples(
+        [_sample(1.0), _sample(1.0), _sample(1.0)]
+    )
+
+    report = orchestrate.render(
+        {"sample": {"upstream-cpp": legacy, "hg-cpp": candidate}},
+        cycle_scale=1.0,
+        size_scale=1.0,
+        samples=3,
+    )
+
+    assert orchestrate.DEFAULT_MODES == ("upstream-cpp", "hg-cpp")
+    assert "| workload | cycles | legacy C++ | hg_cpp |" in report
+    assert "speed-up vs legacy C++" in report
+    assert "1.000s +/- 0.000s (x2.0)" in report
+    assert "`upstream-py`" not in report
+
+
+def test_upstream_baseline_cache_reuses_only_matching_successes(tmp_path):
+    cache_path = tmp_path / "nested" / "baseline.json"
+    identity = {"schema": 1, "upstream_hgraph": "1.2.3"}
+    measured = orchestrate.aggregate_samples(
+        [_sample(2.0), _sample(2.1), _sample(1.9)]
+    )
+    measured["benchmark_metadata"] = {"revision": "obsolete"}
+    results = {"sample": {"upstream-cpp": measured}}
+    orchestrate.save_baseline_cache(cache_path, identity, results)
+
+    loaded = orchestrate.load_baseline_cache(cache_path, identity)
+    reused = orchestrate.cached_baseline_result(
+        loaded, "sample", "upstream-cpp"
+    )
+
+    assert reused["seconds"] == 2.0
+    assert reused["baseline_reused"] is True
+    assert "benchmark_metadata" not in reused
+    assert "baseline_reused" not in loaded["sample"]["upstream-cpp"]
+    assert orchestrate.load_baseline_cache(
+        cache_path, {**identity, "upstream_hgraph": "2.0.0"}
+    ) == {}
+    assert orchestrate.cached_baseline_result(
+        loaded, "missing", "upstream-cpp"
+    ) is None
+
+
 def test_benchmark_sample_failure_is_not_hidden_by_successful_samples():
     failed = orchestrate.aggregate_samples(
         [_sample(1.0), {"scenario": "sample", "ok": False, "error": "boom"}]
