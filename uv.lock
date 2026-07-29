@@ -613,11 +613,11 @@ wheels = [
 
 [[package]]
 name = "kafka-python"
-version = "3.0.8"
+version = "3.0.9"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/86/61/c5132aae897587d9135322ca66d46f14f5d4f11fef41b24963f1a5ab43d1/kafka_python-3.0.8.tar.gz", hash = "sha256:0e9d89d40ae1cb45eae2f89fa9abff919c49d54299a6b3774b5261d6d6ff11e2", size = 513378, upload-time = "2026-07-09T18:53:02.35Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/99/ae/2a6a54192fa336d10306a10f67a2db7ebb70bbe1600127b29fd45f18af50/kafka_python-3.0.9.tar.gz", hash = "sha256:703c00a59d9853494a9821f8665d99e9443951dabe657a0b2a24e9e50a70703d", size = 513213, upload-time = "2026-07-21T18:19:27.838Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/87/8d/e21b9560d7b915657320b62021be204c60216a0a4c3fe3da3f76e20371a0/kafka_python-3.0.8-py3-none-any.whl", hash = "sha256:e0fd7d3a70e4c85506c747e722cabb65a7beaaa7ccd95840d10bf653d77da7ed", size = 614077, upload-time = "2026-07-09T18:53:00.374Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/a0/d6c0d888a865fe06fc9746ca0519f511acca4b36a750e04b703ed47fdd61/kafka_python-3.0.9-py3-none-any.whl", hash = "sha256:506ba871979b79813120bbf522bd71d827611c0756de57aac5a15f111a11bed4", size = 614119, upload-time = "2026-07-21T18:19:25.739Z" },
 ]
 
 [[package]]
