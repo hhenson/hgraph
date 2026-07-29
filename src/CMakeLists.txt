@@ -169,6 +169,14 @@ if(HGRAPH_BUILD_SHARED)
             "-fno-semantic-interposition"
             HGRAPH_HAS_NO_SEMANTIC_INTERPOSITION
         )
+
+        include(CheckIPOSupported)
+        check_ipo_supported(
+            RESULT HGRAPH_HAS_INTERPROCEDURAL_OPTIMIZATION
+            OUTPUT HGRAPH_INTERPROCEDURAL_OPTIMIZATION_ERROR
+            LANGUAGES CXX
+        )
+
         if(HGRAPH_HAS_NO_SEMANTIC_INTERPOSITION)
             # ELF makes every default-visible C++ method preemptible unless the
             # compiler is told otherwise. hgraph's public methods are also used
@@ -183,6 +191,17 @@ if(HGRAPH_BUILD_SHARED)
                     $<$<CONFIG:MinSizeRel>:-fno-semantic-interposition>
                 )
             endforeach()
+        endif()
+
+        if(HGRAPH_HAS_INTERPROCEDURAL_OPTIMIZATION)
+            # The runtime's hot paths span many translation units. Preserve the
+            # public DSO boundaries while allowing the compiler and linker to
+            # optimize calls within each component as a whole.
+            set_target_properties(hgraph_runtime hgraph_wiring hgraph_stdlib PROPERTIES
+                INTERPROCEDURAL_OPTIMIZATION_RELEASE ON
+                INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO ON
+                INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL ON
+            )
         endif()
     endif()
 
