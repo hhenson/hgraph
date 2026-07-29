@@ -162,14 +162,8 @@ namespace hgraph
         if (duplicate == entries->entries.end()) { *it = replacement; }
     }
 
-    void TSDataObserverSet::notify(DateTime modified_time) const
+    void TSDataObserverSet::notify_many(DateTime modified_time) const
     {
-        if (auto *entry = single(); entry != nullptr)
-        {
-            entry->notify(modified_time);
-            return;
-        }
-
         auto *entries = many();
         if (entries == nullptr) { return; }
         ++entries->notify_depth;

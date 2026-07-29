@@ -235,8 +235,23 @@ namespace hgraph
         /** Replace a registered observer pointer without changing list shape. */
         void replace(Notifiable *observer, Notifiable *replacement) noexcept;
 
-        /** Notify all registered observers for ``modified_time``. */
-        void notify(DateTime modified_time) const;
+        /** Notify all registered observers for ``modified_time``.
+            Header-inline fast path (issue #192 stage 1): the measured call
+            distribution is 60-78% EMPTY sets and most of the rest a single
+            observer (tick 700k/0/200k, subscription 150k/60k/40k, dense map
+            1004k/201k/203k empty/single/many) — both dispatch without the
+            out-of-line call; only the vector path with its re-entrancy
+            depth/compaction bookkeeping stays out-of-line. */
+        void notify(DateTime modified_time) const
+        {
+            if (!observers_) { return; }
+            if (auto *entry = observers_.get<Notifiable>(); entry != nullptr)
+            {
+                entry->notify(modified_time);
+                return;
+            }
+            notify_many(modified_time);
+        }
 
         /** Detach and invalidate every observer before ``source`` is destroyed. */
         void invalidate(const TSDataTracking *source) noexcept;
@@ -258,6 +273,7 @@ namespace hgraph
         void set_single(Notifiable *observer) noexcept;
         void set_many(ObserverList *observers) noexcept;
         void compact_many(ObserverList &observers) noexcept;
+        void notify_many(DateTime modified_time) const;
 
         ObserverStorage observers_{};
     };
