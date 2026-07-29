@@ -340,7 +340,12 @@ namespace hgraph
         Value read_str(const Column &, const arrow::Array &array, std::int64_t row)
         {
             // polars-built tables carry large_utf8 (64-bit offsets); reading
-            // one through StringArray misreads the offset buffer.
+            // one through StringArray misreads the offset buffer. Arrow's
+            // utf8_view representation likewise uses a distinct array layout.
+            if (array.type_id() == arrow::Type::STRING_VIEW)
+            {
+                return Value{Str{static_cast<const arrow::StringViewArray &>(array).GetView(row)}};
+            }
             if (array.type_id() == arrow::Type::LARGE_STRING)
             {
                 return Value{Str{static_cast<const arrow::LargeStringArray &>(array).GetView(row)}};
@@ -672,7 +677,8 @@ namespace hgraph
                                      actual->Equals(arrow::timestamp(
                                          arrow::TimeUnit::MICRO))) ||
                                     (ops.type->id() == arrow::Type::STRING &&
-                                     actual->id() == arrow::Type::LARGE_STRING) ||
+                                     (actual->id() == arrow::Type::LARGE_STRING ||
+                                      actual->id() == arrow::Type::STRING_VIEW)) ||
                                     (ops.type->id() == arrow::Type::BINARY &&
                                      actual->id() == arrow::Type::LARGE_BINARY);
             if (!compatible)
