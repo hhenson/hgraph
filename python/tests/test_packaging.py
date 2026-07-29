@@ -16,7 +16,7 @@ NANOBIND_REQUIREMENT = "nanobind==2.13.0"
 SUPPORTED_PYTHON_MINIMUM = ">=3.12"
 STABLE_ABI_TAG = "cp312"
 DISTRIBUTION_NAME = "hg_cpp"
-RELEASE_CANDIDATE = Version("0.4.0rc1")
+UNTAGGED_VERSION = Version("0.0.0")
 
 
 def load_project():
@@ -68,23 +68,25 @@ def test_pypi_classifiers_are_valid():
     assert not invalid_classifiers, f"invalid PyPI classifiers: {sorted(invalid_classifiers)}"
 
 
-def test_release_metadata_is_consistent():
+def test_release_metadata_uses_untagged_sentinel():
     project = load_project()["project"]
     version = Version(project["version"])
 
     assert project["name"] == DISTRIBUTION_NAME
-    assert version == RELEASE_CANDIDATE
-    assert version.is_prerelease
+    assert version == UNTAGGED_VERSION
 
     cmake = (ROOT / "CMakeLists.txt").read_text()
     cmake_version = re.search(r"project\(\s*hgraph\s+VERSION\s+(\d+\.\d+\.\d+)", cmake)
     assert cmake_version is not None
-    assert Version(cmake_version.group(1)) == Version(version.base_version)
 
     sphinx = (ROOT / "docs/source/conf.py").read_text()
     sphinx_version = re.search(r'^release = "([^"]+)"$', sphinx, re.MULTILINE)
     assert sphinx_version is not None
-    assert Version(sphinx_version.group(1)) == version
+    assert Version(sphinx_version.group(1)) == Version(cmake_version.group(1))
+
+    workflow = (ROOT / ".github/workflows/build.yml").read_text()
+    assert "Restamp distributions to the tag version" in workflow
+    assert 'version = os.environ["RELEASE_TAG"].removeprefix("v_")' in workflow
 
 
 def test_wheel_targets_the_python_312_stable_abi():
@@ -203,7 +205,7 @@ def main():
     test_windows_wheel_installs_all_linked_pyarrow_runtimes()
     test_supported_python_versions_are_declared()
     test_pypi_classifiers_are_valid()
-    test_release_metadata_is_consistent()
+    test_release_metadata_uses_untagged_sentinel()
     test_wheel_targets_the_python_312_stable_abi()
     test_wheel_uses_shared_runtime_for_downstream_native_extensions()
     test_source_distribution_excludes_private_release_evidence()
@@ -217,7 +219,7 @@ def main():
     print("PASS test_windows_wheel_installs_all_linked_pyarrow_runtimes")
     print("PASS test_supported_python_versions_are_declared")
     print("PASS test_pypi_classifiers_are_valid")
-    print("PASS test_release_metadata_is_consistent")
+    print("PASS test_release_metadata_uses_untagged_sentinel")
     print("PASS test_wheel_targets_the_python_312_stable_abi")
     print("PASS test_wheel_uses_shared_runtime_for_downstream_native_extensions")
     print("PASS test_source_distribution_excludes_private_release_evidence")

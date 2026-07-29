@@ -8,8 +8,9 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "hg_cpp"
-version = "0.4.0rc1"
-description = "Release candidate for the C++ first hgraph runtime and Python compatibility bridge"
+# Release artifacts are restamped from the v_x.x.x tag by build.yml.
+version = "0.0.0"
+description = "C++-first hgraph runtime and Python compatibility bridge"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}

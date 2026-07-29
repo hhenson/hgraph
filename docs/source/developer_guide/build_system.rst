@@ -64,14 +64,14 @@ Windows x86_64, and Apple Silicon macOS, then installs each platform wheel under
 CPython 3.12, 3.13, and 3.14.  A tag matching ``v_x.x.x`` publishes the tested
 wheels and source distribution through PyPI trusted publishing.  The tag is the
 release version authority: the publish job restamps the metadata of artifacts
-already tested for that exact commit, rather than rebuilding them.  The version
-in ``pyproject.toml`` and ``docs/source/conf.py`` is the untagged artifact
-baseline.  CMake's ``project(VERSION)`` field is numeric and matches that
-baseline's base version (for example ``0.4.0rc1`` maps to ``0.4.0``).  Packaging
-tests enforce the baseline relationships and the release workflow validates
-the tag syntax and rejects versions already present on PyPI.  The PyPI trusted
-publisher is bound to the ``build.yml`` workflow and the GitHub ``release``
-environment.
+already tested for that exact commit, rather than rebuilding them.
+``pyproject.toml`` therefore uses ``0.0.0`` as an explicit untagged-artifact
+sentinel; it is never the version published to PyPI.  CMake's numeric
+``project(VERSION)`` and ``docs/source/conf.py`` track the current C++ API line
+independently.  Packaging tests enforce these relationships and the release
+workflow validates the tag syntax and rejects versions already present on
+PyPI.  The PyPI trusted publisher is bound to the ``build.yml`` workflow and
+the GitHub ``release`` environment.
 
 The macOS build uses the current system Clang from the latest Apple Silicon
 runner image while retaining a macOS 15 deployment target.
