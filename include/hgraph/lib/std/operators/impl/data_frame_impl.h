@@ -227,7 +227,8 @@ namespace hgraph::stdlib
 
     /** ``to_data_frame(ts, ...)`` — a per-tick snapshot frame; the output
         ``Frame[Schema]`` names the columns (dt_col first, TSD adds key_col). */
-    struct to_data_frame_impl
+    template <typename TInputSchema>
+    struct to_data_frame_impl_base
     {
         static constexpr auto name = "to_data_frame";
 
@@ -255,7 +256,7 @@ namespace hgraph::stdlib
             if (out != nullptr) { bind_output(resolution, out); }
         }
 
-        static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts, Scalar<"dt_col", Str> dt_col,
+        static void start(In<"ts", TInputSchema, InputValidity::Unchecked> ts, Scalar<"dt_col", Str> dt_col,
                           Scalar<"key_col", Str> key_col, Scalar<"value_col", Str> value_col,
                           State<ToDataFrameState> state, Out<TsVar<"__out__">> out)
         {
@@ -266,7 +267,7 @@ namespace hgraph::stdlib
             state.set(ToDataFrameState{plan});
         }
 
-        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"dt_col", Str> dt_col,
+        static void eval(In<"ts", TInputSchema> ts, Scalar<"dt_col", Str> dt_col,
                          Scalar<"key_col", Str> key_col, Scalar<"value_col", Str> value_col,
                          State<ToDataFrameState> state, DateTime now, Out<TsVar<"__out__">> out)
         {
@@ -283,6 +284,12 @@ namespace hgraph::stdlib
             state.set(ToDataFrameState{});
         }
     };
+
+    // Bind TSD elements independently so the normal input adaptation path
+    // dereferences reference-valued leaves before the frame is assembled.
+    using to_data_frame_tsd_impl =
+        to_data_frame_impl_base<TSD<ScalarVar<"K">, TsVar<"V">>>;
+    using to_data_frame_impl = to_data_frame_impl_base<TsVar<"S">>;
 
     /** ``group_by(ts, by)`` — partition a Frame TS into TSD[key, TS[Frame]]
         (removed keys emit REMOVE; ``by`` is a column name or tuple of them). */

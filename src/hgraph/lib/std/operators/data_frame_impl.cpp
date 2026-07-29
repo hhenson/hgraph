@@ -231,15 +231,17 @@ namespace hgraph::stdlib
                                                            std::string_view key_col,
                                                            std::string_view value_col)
         {
+            auto       &registry = TypeRegistry::instance();
+            const auto *schema   = registry.dereference(ts);
             std::vector<std::pair<std::string, const ValueTypeMetaData *>> fields;
             fields.emplace_back(std::string{dt_col}, datetime_meta());
 
-            const auto *leaf = ts;
-            if (ts->kind == TSTypeKind::TSD)
+            const auto *leaf = schema;
+            if (schema->kind == TSTypeKind::TSD)
             {
-                if (ts->key_type()->value_kind() != ValueTypeKind::Atomic) { return nullptr; }
-                fields.emplace_back(std::string{key_col}, ts->key_type());
-                leaf = ts->element_ts();
+                if (schema->key_type()->value_kind() != ValueTypeKind::Atomic) { return nullptr; }
+                fields.emplace_back(std::string{key_col}, schema->key_type());
+                leaf = schema->element_ts();
             }
             if (leaf->kind == TSTypeKind::TS)
             {
@@ -258,7 +260,6 @@ namespace hgraph::stdlib
             }
             else { return nullptr; }
 
-            auto &registry = TypeRegistry::instance();
             return registry.ts(registry.frame(registry.un_named_bundle(fields)));
         }
 
@@ -267,11 +268,12 @@ namespace hgraph::stdlib
         {
             auto        plan     = std::make_unique<ToFramePlan>();
             const auto *columns  = frame_columns_schema(out.schema()->value_schema, "to_data_frame");
+            const auto *schema   = TypeRegistry::instance().dereference(ts.schema());
             plan->row_meta       = columns;
             plan->converter      = &table_converter(columns);
-            plan->dict           = ts.schema()->kind == TSTypeKind::TSD;
+            plan->dict           = schema->kind == TSTypeKind::TSD;
 
-            const auto *leaf = plan->dict ? ts.schema()->element_ts() : ts.schema();
+            const auto *leaf = plan->dict ? schema->element_ts() : schema;
             const auto *leaf_bundle =
                 leaf->kind == TSTypeKind::TSB ? leaf->value_schema : nullptr;
 
@@ -1362,6 +1364,7 @@ namespace hgraph::stdlib
     void register_data_frame_operators()
     {
         register_overload<from_data_frame, from_data_frame_impl>();
+        register_overload<to_data_frame, to_data_frame_tsd_impl>();
         register_overload<to_data_frame, to_data_frame_impl>();
         register_overload<group_by, group_by_impl>();
         register_overload<sorted_, sorted_frame_impl>();
