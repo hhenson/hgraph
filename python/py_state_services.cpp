@@ -615,9 +615,9 @@ namespace hgraph::python_bridge
                  self.require_alive();
                  self.view.make_active();
              })
-        .def_prop_ro("delta_value", &PyTimeSeries::delta_value)
-        .def_prop_ro("modified", &PyTimeSeries::modified)
-        .def_prop_ro("valid", &PyTimeSeries::valid)
+        // value/delta_value/modified/valid are raw tp_getset slots above —
+        // a def_prop_ro here would REPLACE the raw descriptor in the type
+        // dictionary and silently restore the vectorcall path.
         .def_prop_ro("all_valid", &PyTimeSeries::all_valid)
         // TSW eviction surface (hgraph's removed_value pair).
         .def_prop_ro("has_removed_value",
