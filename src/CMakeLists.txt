@@ -163,6 +163,29 @@ target_link_libraries(hgraph_stdlib PRIVATE $<BUILD_INTERFACE:Boost::math>)
 target_link_libraries(hgraph_core INTERFACE hgraph_stdlib hgraph::options)
 
 if(HGRAPH_BUILD_SHARED)
+    if(UNIX AND NOT APPLE)
+        include(CheckCXXCompilerFlag)
+        check_cxx_compiler_flag(
+            "-fno-semantic-interposition"
+            HGRAPH_HAS_NO_SEMANTIC_INTERPOSITION
+        )
+        if(HGRAPH_HAS_NO_SEMANTIC_INTERPOSITION)
+            # ELF makes every default-visible C++ method preemptible unless the
+            # compiler is told otherwise. hgraph's public methods are also used
+            # heavily inside these DSOs; preserving interposition there forces
+            # PLT calls and prevents local optimization throughout the runtime
+            # hot path. The public symbols remain exported for SDK consumers,
+            # but hgraph does not support replacing its C++ ABI via LD_PRELOAD.
+            foreach(_hgraph_target IN ITEMS hgraph_runtime hgraph_wiring hgraph_stdlib)
+                target_compile_options(${_hgraph_target} PRIVATE
+                    $<$<CONFIG:Release>:-fno-semantic-interposition>
+                    $<$<CONFIG:RelWithDebInfo>:-fno-semantic-interposition>
+                    $<$<CONFIG:MinSizeRel>:-fno-semantic-interposition>
+                )
+            endforeach()
+        endif()
+    endif()
+
     if(HGRAPH_WINDOWS_UNIFIED_SHARED)
         target_link_libraries(hgraph_stdlib PRIVATE hgraph_private_dependencies)
         target_compile_definitions(hgraph_stdlib PRIVATE hgraph_EXPORTS)
