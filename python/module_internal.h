@@ -27,6 +27,40 @@ namespace hgraph::python_bridge
     namespace nb = nanobind;
 
     struct PyObj;
+
+    /**
+     * Raw-CPython-entry-point boundary (the ``tp_getset`` / ``tp_*`` slot
+     * family): run ``f`` and return its result. If ``f`` throws, SET the
+     * corresponding Python error — an in-flight ``nb::python_error``
+     * restores itself, anything else becomes ``RuntimeError`` — and return
+     * ``error_result``, the slot's CPython error sentinel (``nullptr`` for
+     * getters, ``-1`` for setters). The python-boundary member of the
+     * ``scope.h`` ``fallback_on_exception`` / ``annotate_on_exception``
+     * control family: call sites stay expression-shaped instead of
+     * hand-rolled try/catch blocks.
+     */
+    template <typename Result, typename F>
+    [[nodiscard]] Result py_error_on_exception(Result error_result, F &&f) noexcept
+    {
+        try
+        {
+            return std::forward<F>(f)();
+        }
+        catch (nb::python_error &error)
+        {
+            error.restore();
+        }
+        catch (const std::exception &error)
+        {
+            PyErr_SetString(PyExc_RuntimeError, error.what());
+        }
+        catch (...)
+        {
+            PyErr_SetString(PyExc_RuntimeError,
+                            "unhandled C++ exception at the Python boundary");
+        }
+        return error_result;
+    }
 }
 
 namespace hgraph::python_bridge

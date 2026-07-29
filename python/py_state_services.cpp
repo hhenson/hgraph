@@ -25,8 +25,7 @@ namespace hgraph::python_bridge
         template <auto Member>
         PyObject *py_ts_raw_get(PyObject *self, void *) noexcept
         {
-            try
-            {
+            return py_error_on_exception<PyObject *>(nullptr, [&] {
                 auto *ts = nb::inst_ptr<PyTimeSeries>(self);
                 if constexpr (std::is_same_v<decltype((ts->*Member)()), bool>)
                 {
@@ -36,23 +35,7 @@ namespace hgraph::python_bridge
                 {
                     return (ts->*Member)().release().ptr();
                 }
-            }
-            catch (nb::python_error &error)
-            {
-                error.restore();
-                return nullptr;
-            }
-            catch (const std::exception &error)
-            {
-                PyErr_SetString(PyExc_RuntimeError, error.what());
-                return nullptr;
-            }
-            catch (...)
-            {
-                PyErr_SetString(PyExc_RuntimeError,
-                                "unexpected error reading a TimeSeries attribute");
-                return nullptr;
-            }
+            });
         }
 
         std::vector<WiringPortRef> wiring_ports(nb::list inputs)
