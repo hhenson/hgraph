@@ -169,6 +169,21 @@ TEST_CASE("table codec: schema-declared legacy Instant reads but version 2 rejec
         std::invalid_argument);
 }
 
+TEST_CASE("table codec: Arrow utf8_view arrays decode as native strings")
+{
+    arrow::StringViewBuilder builder;
+    const Str expected{"a string-view value stored outside the inline view"};
+    REQUIRE(builder.Append(expected).ok());
+
+    std::shared_ptr<arrow::Array> values;
+    REQUIRE(builder.Finish(&values).ok());
+    REQUIRE(values->type_id() == arrow::Type::STRING_VIEW);
+
+    const Value decoded =
+        array_cell(*values, scalar_descriptor<Str>::value_meta(), 0);
+    CHECK(decoded.view().checked_as<Str>() == expected);
+}
+
 TEST_CASE("table codec: bytes and variadic tuples are Arrow leaf values")
 {
     auto &registry = TypeRegistry::instance();
