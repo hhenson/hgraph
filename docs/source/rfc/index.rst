@@ -21,3 +21,4 @@ workflow are defined by :doc:`rfc_0000`.
    rfc_0005_hgraph_1_0_api
    rfc_0006_tsw_reset_and_clear
    rfc_0007_scheduled_duration_tsw_eviction
+   rfc_0008_prepared_node_inputs
