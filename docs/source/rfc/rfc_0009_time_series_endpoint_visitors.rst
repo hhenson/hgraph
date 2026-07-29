@@ -144,6 +144,31 @@ equivalent to the existing manual switch plus view construction. A focused
 benchmark compares the two forms on macOS and Linux and records any measurable
 difference before acceptance.
 
+The focused benchmark uses 21 samples of 200,000 dispatches over the same
+``TSB`` output view. It compares a caller-written kind switch plus the public
+checked projection with ``visit`` plus its internal trusted projection:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 24 24 24
+
+   * - Host and compiler
+     - Manual median
+     - Visitor median
+     - Visitor difference
+   * - macOS arm64, AppleClang 21.0.0
+     - 7.001 ns/op
+     - 4.387 ns/op
+     - 37.3% faster
+   * - Linux x86_64, Clang 21.1.8
+     - 8.164 ns/op
+     - 4.960 ns/op
+     - 39.2% faster
+
+Both forms reported zero allocations. The result confirms that centralising
+the checked dispatch does not add overhead and avoids revalidating the
+specialised projection after the kind switch.
+
 Compatibility
 -------------
 
