@@ -174,16 +174,30 @@ GIL boundaries
 --------------
 
 The runtime evaluates without the GIL: ``PyWiring::run`` releases it the
-instant the run loop is entered. Every re-entry into Python therefore
-acquires it locally: the user-node trampolines (compute/sink/generator
-lifecycle and eval), the overload wire trampolines and ``requires`` bridges,
-``io_write_slot`` (diagnostic sinks route through ``sys.stdout``/``stderr``),
-and push-source senders (which *release* around the blocking C++ send from
-Python threads). The lock-ordering rules live in :doc:`python_integration`
-(*GIL And Runtime Locks*); the implementation rule here is simpler: **GIL
-scopes move verbatim** — when relocating code, never widen or narrow an
-acquire/release, and keep the ruling comments attached to
-``PyWiring::run`` and the sender.
+instant the run loop is entered. Within a run, the hold is **cycle-scoped**
+(refined 2026-07-29, ``python/py_cycle_gil.h``): the first python re-entry of
+an evaluation cycle takes the GIL and keeps it for the remainder of that
+cycle; a ``PyCycleGilObserver`` — registered *last* on the executor's
+lifecycle-observer list so every other observer's after-hook still sees the
+GIL held — releases it when the *root* graph's after-evaluation notification
+fires (normal completion and escaping exceptions alike). The GIL is therefore
+always free while the real-time loop waits between cycles, preserving the
+sender-liveness guarantee; what changed is only that N per-node
+acquire/release pairs inside one cycle collapsed to one (measured at ~6% of
+``pthread_mutex`` traffic on dense python graphs). Per-tick eval trampolines
+join the hold through ``PyCycleGil``; every other re-entry keeps its local
+acquire — one-time start/stop hooks, the overload wire trampolines and
+``requires`` bridges, ``io_write_slot`` (diagnostic sinks route through
+``sys.stdout``/``stderr``), the lowered ``run_lowered`` frame path (no cycle
+holder is armed there), and push-source senders (which *release* around the
+blocking C++ send from Python threads; ``try_hold`` thread-checks, so a
+sender can never join the evaluation thread's hold). A local acquire while
+the cycle holds the GIL degenerates to a cheap recursive ensure. The
+lock-ordering rules live in :doc:`python_integration` (*GIL And Runtime
+Locks*); the implementation rule stays: **GIL scopes move verbatim** — when
+relocating code, never widen or narrow an acquire/release, and keep the
+ruling comments attached to ``PyWiring::run``, ``py_nodes.cpp``, and the
+sender.
 
 Python-owned Bundle bindings
 ----------------------------

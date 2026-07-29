@@ -46,6 +46,12 @@ rule is:
 3. acquire the GIL immediately around the Python call,
 4. release the GIL before a blocking wait.
 
+Rule 3 is satisfied collectively within one evaluation cycle: the first
+python re-entry of a cycle may take a hold that later re-entries in the same
+cycle join (the cycle-scoped refinement in :doc:`python_bridge`, *GIL
+boundaries*). Rule 4 is what bounds that hold — it is released at the root
+graph's after-evaluation notification, before the executor can block.
+
 This is especially important for push-source nodes: external threads enqueue
 through a sender and wake the real-time evaluation clock, while the evaluator may
 be sleeping on a condition variable. The implementation must avoid GIL/runtime
@@ -315,8 +321,9 @@ Recorded divergences / gaps (the morning-summary list):
 - **Python user nodes landed** (the ruling realised): ``@compute_node`` /
   ``@sink_node`` / ``@generator`` run Python functions as runtime nodes —
   graph-thread only, both modes, no side effects beyond their output. The
-  GIL is RELEASED the instant the run loop starts and ACQUIRED around each
-  Python-node call. Inputs arrive as plain Python VALUES (a recorded
+  GIL is RELEASED the instant the run loop starts and held cycle-scoped
+  around Python-node calls (first re-entry acquires, root-cycle end
+  releases — :doc:`python_bridge`, *GIL boundaries*). Inputs arrive as plain Python VALUES (a recorded
   divergence from Python hgraph's TimeSeries view objects); a compute
   node's return value ticks its output (``None`` = no tick); a generator
   yields ``(datetime, value)`` pairs emitted at their absolute times. The

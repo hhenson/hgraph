@@ -1,14 +1,18 @@
 /**
  * Python user nodes (@compute_node / @generator / @sink_node).
- * Ruling: graph-thread only, both modes; the GIL is RELEASED on
- * entering the run loop and ACQUIRED around each python call; values
- * cross the boundary through the module converters.
+ * Ruling (refined 2026-07-29): graph-thread only, both modes; the GIL is
+ * RELEASED on entering the run loop; per-tick eval trampolines join the
+ * cycle-scoped hold (PyCycleGil — first python re-entry of a cycle takes
+ * the GIL, the cycle observer releases it at root-cycle end), while
+ * one-time start/stop hooks keep plain per-call acquires; values cross
+ * the boundary through the module converters.
  *
  * Everything here is TU-local by design (the node/op structs' typeid IS
  * node identity, but registration happens only in this file through
  * register_python_overloads()).
  */
 #include "py_bindings.h"
+#include "py_cycle_gil.h"
 #include "py_runtime.h"
 
 namespace nb = nanobind;
@@ -901,7 +905,7 @@ struct py_compute_node {
        NodeScheduler scheduler, DateTime now, GlobalStateView global_state,
        EngineControlView engine, NodeView node, Out<TsVar<"O">> out) {
     const PyCallShape shape = parse_py_call_shape(config.value());
-    nb::gil_scoped_acquire gil;
+    PyCycleGil gil;
     translate_python_error([&] {
       nb::list call_args;
       std::optional<nb::list> context_values;
@@ -1003,7 +1007,7 @@ struct py_fast_compute_node {
       throw std::logic_error("fast python node has no runtime cache");
     }
 
-    nb::gil_scoped_acquire gil;
+    PyCycleGil gil;
     translate_python_error([&] {
       auto lease = py_ts_lease_for_call();
       auto invalid = UnwindCleanupGuard([&] { lease.invalidate(); });
@@ -1172,7 +1176,7 @@ struct py_compute_recordable_node {
        DateTime now, GlobalStateView global_state, EngineControlView engine,
        NodeView node, Out<TsVar<"O">> out) {
     const PyCallShape shape = parse_py_call_shape(config.value());
-    nb::gil_scoped_acquire gil;
+    PyCycleGil gil;
     translate_python_error([&] {
       nb::list call_args;
       std::optional<nb::list> context_values;
@@ -1276,7 +1280,7 @@ struct py_sink_node {
        NodeScheduler scheduler, DateTime now, GlobalStateView global_state,
        EngineControlView engine, NodeView node) {
     const PyCallShape shape = parse_py_call_shape(config.value());
-    nb::gil_scoped_acquire gil;
+    PyCycleGil gil;
     translate_python_error([&] {
       nb::list call_args;
       std::optional<nb::list> context_values;
@@ -1432,7 +1436,7 @@ struct py_generator_node {
     static_cast<void>(stop_enabled);
     static_cast<void>(stop_config);
     static_cast<void>(stop_scalars);
-    nb::gil_scoped_acquire gil;
+    PyCycleGil gil;
     translate_python_error([&] {
       PyGenHandle *handle = state.get().handle;
       if (handle == nullptr || handle->exhausted) {
@@ -1584,7 +1588,7 @@ struct type_py_node {
   static constexpr auto name = "type_py";
 
   static void eval(In<"ts", TsVar<"S">> ts, Out<TS<AnyValue>> out) {
-    nb::gil_scoped_acquire gil;
+    PyCycleGil gil;
     translate_python_error([&] {
       nb::object value = value_to_py(ts.value());
       out.set(Value{PyObj{nb::borrow(value.type())}});
@@ -1611,7 +1615,7 @@ struct getattr_type_name_node {
   static void eval(In<"ts", TS<AnyValue>> ts, Scalar<"attr", Str> attr,
                    Out<TS<Str>> out) {
     static_cast<void>(attr);
-    nb::gil_scoped_acquire gil;
+    PyCycleGil gil;
     translate_python_error([&] {
       const auto *value = ts.contained_value().try_as<PyObj>();
       if (value == nullptr) {
