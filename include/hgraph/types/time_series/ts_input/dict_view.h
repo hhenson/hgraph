@@ -65,6 +65,14 @@ namespace hgraph
         Range<TSInputView> removed_values() && = delete;
         [[nodiscard]] KeyValueRange<ValueView, TSInputView> removed_items() const &;
         KeyValueRange<ValueView, TSInputView> removed_items() && = delete;
+
+      private:
+        TSDInputView(TSInputView view, detail::TrustedTSEndpointKind)
+            : TSInputTypedView<TSDInputView>(std::move(view))
+        {
+        }
+
+        friend struct detail::TSEndpointVisitorAccess;
     };
 }  // namespace hgraph
 

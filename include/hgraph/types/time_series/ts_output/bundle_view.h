@@ -48,6 +48,14 @@ namespace hgraph
         [[nodiscard]] TSOutputView operator[](std::string_view name) &;
         [[nodiscard]] TSOutputView operator[](std::string_view name) const &;
         TSOutputView operator[](std::string_view) && = delete;
+
+      private:
+        TSBOutputView(TSOutputView view, detail::TrustedTSEndpointKind)
+            : TSOutputTypedView<TSBOutputView>(std::move(view))
+        {
+        }
+
+        friend struct detail::TSEndpointVisitorAccess;
     };
 }  // namespace hgraph
 

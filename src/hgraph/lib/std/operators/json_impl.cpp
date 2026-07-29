@@ -1,4 +1,5 @@
 #include <hgraph/lib/std/operators/impl/json_impl.h>
+#include <hgraph/types/time_series/visitor.h>
 
 #include <fmt/format.h>
 #include <simdjson.h>
@@ -662,11 +663,9 @@ namespace hgraph::stdlib
 
         void write_ts_delta(const TSInputView &ts, std::string &out)
         {
-            const auto *schema = ts.schema();
-            switch (schema->kind)
-            {
-                case TSTypeKind::TSD: {
-                    auto dict  = const_cast<TSInputView &>(ts).as_dict();
+            visit(
+                ts,
+                [&](TSDInputView dict) {
                     bool first = true;
                     out.push_back('{');
                     for (const ValueView key : dict.removed_keys())
@@ -683,11 +682,9 @@ namespace hgraph::stdlib
                         write_ts_delta(child, out);
                     }
                     out.push_back('}');
-                    return;
-                }
-                case TSTypeKind::TSS: {
-                    auto        set     = const_cast<TSInputView &>(ts).as_set();
-                    const auto &element = json_converter(schema->value_schema->element_type);
+                },
+                [&](TSSInputView set) {
+                    const auto &element = json_converter(set.schema()->value_schema->element_type);
                     std::string added;
                     std::string removed;
                     bool        any_added   = false;
@@ -721,10 +718,8 @@ namespace hgraph::stdlib
                         out.push_back(']');
                     }
                     out.push_back('}');
-                    return;
-                }
-                case TSTypeKind::TSL: {
-                    auto list  = const_cast<TSInputView &>(ts).as_list();
+                },
+                [&](TSLInputView list) {
                     bool first = true;
                     out.push_back('{');
                     for (std::size_t index = 0; index < list.size(); ++index)
@@ -736,44 +731,37 @@ namespace hgraph::stdlib
                         write_ts_delta(child, out);
                     }
                     out.push_back('}');
-                    return;
-                }
-                case TSTypeKind::TSB: {
-                    auto bundle = const_cast<TSInputView &>(ts).as_bundle();
-                    bool first  = true;
+                },
+                [&](TSBInputView bundle) {
+                    bool first = true;
                     out.push_back('{');
                     for (std::size_t index = 0; index < bundle.size(); ++index)
                     {
                         auto child = bundle.at(index);
                         if (!child.modified()) { continue; }
                         write_separator(first, out);
-                        out += fmt::format("\"{}\": ", schema->fields()[index].name);
+                        out += fmt::format("\"{}\": ", bundle.schema()->fields()[index].name);
                         write_ts_delta(child, out);
                     }
                     out.push_back('}');
-                    return;
-                }
-                default: {
-                    json_converter(schema->value_schema).write(ts.value(), out);
-                    return;
-                }
-            }
+                },
+                [&](TSInputView leaf) {
+                    json_converter(leaf.schema()->value_schema).write(leaf.value(), out);
+                });
         }
 
         void apply_ts_json(const TSOutputView &out, json_fragment::Cursor &cursor)
         {
-            const auto *schema = out.schema();
-            switch (schema->kind)
-            {
-                case TSTypeKind::TSD: {
+            visit(
+                out,
+                [&](TSDOutputView dict) {
                     if (!json_fragment::consume(cursor, '{'))
                     {
                         json_fragment::fail(cursor, "expected '{' for a TSD");
                     }
-                    auto dict     = out.as_dict();
-                    auto mutation = dict.begin_mutation(out.evaluation_time());
+                    auto mutation = dict.begin_mutation(dict.evaluation_time());
                     if (json_fragment::consume(cursor, '}')) { return; }
-                    const auto *key_meta   = schema->key_type();
+                    const auto *key_meta   = dict.schema()->key_type();
                     const bool  string_key = key_meta == scalar_descriptor<Str>::value_meta();
                     while (true)
                     {
@@ -788,30 +776,30 @@ namespace hgraph::stdlib
                         else
                         {
                             auto element = mutation.at(key.view());
-                            apply_ts_json(TSOutputView{out.output(), element, out.evaluation_time()}, cursor);
+                            apply_ts_json(
+                                TSOutputView{dict.base().output(), element, dict.evaluation_time()},
+                                cursor);
                         }
                         if (json_fragment::consume(cursor, ',')) { continue; }
                         if (json_fragment::consume(cursor, '}')) { break; }
                         json_fragment::fail(cursor, "expected ',' or '}' in a TSD object");
                     }
-                    return;
-                }
-                case TSTypeKind::TSS: {
+                },
+                [&](TSSOutputView set) {
                     if (json_fragment::peek(cursor) == '[')
                     {
                         // A bare array replaces the whole membership.
                         const Value parsed =
-                            json_fragment::parse_value(json_converter(schema->value_schema), cursor);
-                        apply_current_value(out, parsed.view());
+                            json_fragment::parse_value(json_converter(set.schema()->value_schema), cursor);
+                        apply_current_value(set.base(), parsed.view());
                         return;
                     }
                     if (!json_fragment::consume(cursor, '{'))
                     {
                         json_fragment::fail(cursor, "expected '{' or '[' for a TSS");
                     }
-                    auto        set      = out.as_set();
-                    auto        mutation = set.begin_mutation(out.evaluation_time());
-                    const auto &element  = json_converter(schema->value_schema->element_type);
+                    auto        mutation = set.begin_mutation(set.evaluation_time());
+                    const auto &element  = json_converter(set.schema()->value_schema->element_type);
                     if (json_fragment::consume(cursor, '}')) { return; }
                     while (true)
                     {
@@ -836,30 +824,26 @@ namespace hgraph::stdlib
                         if (json_fragment::consume(cursor, '}')) { break; }
                         json_fragment::fail(cursor, "expected ',' or '}' in a set delta");
                     }
-                    return;
-                }
-                case TSTypeKind::TSL: {
+                },
+                [&](TSLOutputView list) {
                     if (json_fragment::peek(cursor) == '[')
                     {
                         const Value parsed =
-                            json_fragment::parse_value(json_converter(schema->value_schema), cursor);
-                        apply_current_value(out, parsed.view());
+                            json_fragment::parse_value(json_converter(list.schema()->value_schema), cursor);
+                        apply_current_value(list.base(), parsed.view());
                         return;
                     }
                     // The index-object form IS the canonical TSL delta (an
                     // index map); its converter reads quoted keys.
                     const Value parsed =
-                        json_fragment::parse_value(json_converter(schema->delta_value_schema), cursor);
-                    apply_delta(out, parsed.view());
-                    return;
-                }
-                default: {
+                        json_fragment::parse_value(json_converter(list.schema()->delta_value_schema), cursor);
+                    apply_delta(list.base(), parsed.view());
+                },
+                [&](TSOutputView leaf) {
                     const Value parsed =
-                        json_fragment::parse_value(json_converter(schema->value_schema), cursor);
-                    apply_current_value(out, parsed.view());
-                    return;
-                }
-            }
+                        json_fragment::parse_value(json_converter(leaf.schema()->value_schema), cursor);
+                    apply_current_value(leaf, parsed.view());
+                });
         }
     }  // namespace json_ts_detail
 

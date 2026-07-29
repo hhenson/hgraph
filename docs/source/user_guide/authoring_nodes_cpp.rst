@@ -497,6 +497,39 @@ null. Build expected test deltas with ``tsb_delta<Schema>(...)`` in schema field
 order. ``std::nullopt`` leaves a field at its canonical default delta: typed-null
 for scalar children, empty delta for collection children.
 
+Visiting an erased endpoint
+---------------------------
+
+When an extension receives a type-erased ``TSInputView`` or ``TSOutputView``,
+use ``hgraph::visit`` to recover its semantic time-series shape without
+repeating a ``TSTypeKind`` switch:
+
+.. code-block:: cpp
+
+   #include <hgraph/types/time_series/visitor.h>
+
+   void describe(const TSInputView &input)
+   {
+       visit(
+           input,
+           [](TSDInputView dict) {
+               // Keyed child selection remains an explicit algorithm policy.
+               for (auto &&[key, child] : dict.items()) { /* ... */ }
+           },
+           [](TSBInputView bundle) {
+               for (auto &&[name, child] : bundle.items()) { /* ... */ }
+           },
+           [](TSInputView leaf_or_other_collection) {
+               // Role-level fallback for every shape not handled above.
+           });
+   }
+
+The selected view is borrowed and move-only. The call visits exactly one
+endpoint: it neither follows ``REF`` values nor recursively walks children.
+All handlers return ``void`` in this example; value-returning handlers must all
+produce the same non-reference type. Invalid-current-value and unbound inputs
+still dispatch from their schema, while a default view with no schema throws.
+
 
 Collections — ``TSS`` / ``TSL`` / ``TSD`` / ``TSW``
 ---------------------------------------------------

@@ -46,6 +46,14 @@ namespace hgraph
         [[nodiscard]] TSInputView operator[](std::size_t index) &;
         [[nodiscard]] TSInputView operator[](std::size_t index) const &;
         TSInputView operator[](std::size_t) && = delete;
+
+      private:
+        TSLInputView(TSInputView view, detail::TrustedTSEndpointKind)
+            : TSInputTypedView<TSLInputView>(std::move(view))
+        {
+        }
+
+        friend struct detail::TSEndpointVisitorAccess;
     };
 }  // namespace hgraph
 
