@@ -42,8 +42,20 @@ namespace hgraph
         {
             if (plan() != nullptr) plan()->destroy(memory);
         }
-        [[nodiscard]] const NodeOps *ops() const noexcept;
-        [[nodiscard]] const NodeOps &ops_ref() const;
+        // ops()/ops_ref() are header-inline like plan()/capabilities():
+        // they run on every node evaluation and profiling showed the
+        // out-of-line definitions were not inlined even under LTO
+        // (~2-3% self time as bare call overhead).
+        [[nodiscard]] const NodeOps *ops() const noexcept
+        {
+            return record_ != nullptr ? static_cast<const NodeOps *>(record_->ops) : nullptr;
+        }
+        [[nodiscard]] const NodeOps &ops_ref() const
+        {
+            const auto *table = ops();
+            if (table == nullptr) { throw std::logic_error("NodeTypeRef is unbound"); }
+            return *table;
+        }
         [[nodiscard]] constexpr TypeCapabilities capabilities() const noexcept
         {
             return record_ != nullptr ? record_->capabilities : TypeCapabilities::None;

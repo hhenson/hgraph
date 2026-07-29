@@ -37,8 +37,19 @@ namespace hgraph
             return record_ != nullptr ? record_->plan : nullptr;
         }
         [[nodiscard]] const MemoryUtils::StoragePlan &checked_plan() const;
-        [[nodiscard]] const ValueOps *ops() const noexcept;
-        [[nodiscard]] const ValueOps &ops_ref() const;
+        // Header-inline like the other trivial record accessors: these run
+        // on hot evaluation paths and the out-of-line definitions were not
+        // inlined even under LTO (profiled as bare call overhead).
+        [[nodiscard]] const ValueOps *ops() const noexcept
+        {
+            return record_ != nullptr ? static_cast<const ValueOps *>(record_->ops) : nullptr;
+        }
+        [[nodiscard]] const ValueOps &ops_ref() const
+        {
+            const auto *table = ops();
+            if (table == nullptr) { throw std::logic_error("ValueTypeRef is unbound"); }
+            return *table;
+        }
         [[nodiscard]] const MemoryUtils::LifecycleOps *lifecycle() const noexcept
         {
             return plan() != nullptr ? &plan()->lifecycle : nullptr;

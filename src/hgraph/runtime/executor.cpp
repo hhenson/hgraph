@@ -806,17 +806,6 @@ namespace hgraph
         return *plan();
     }
 
-    const GraphExecutorOps *ExecutorTypeRef::ops() const noexcept
-    {
-        return record_ != nullptr ? static_cast<const GraphExecutorOps *>(record_->ops) : nullptr;
-    }
-
-    const GraphExecutorOps &ExecutorTypeRef::ops_ref() const
-    {
-        if (ops() == nullptr) throw std::logic_error("ExecutorTypeRef is unbound");
-        return *ops();
-    }
-
     ExecutorPtr ExecutorTypeRef::typed_null() const noexcept
     {
         return ExecutorPtr{AnyPtr{record_, nullptr, AccessMode::ReadOnly}, ExecutorPtr::UncheckedTag{}};

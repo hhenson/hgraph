@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <stdexcept>
 #include <string_view>
 #include <type_traits>
 
@@ -34,8 +35,19 @@ namespace hgraph
             return record_ != nullptr ? record_->plan : nullptr;
         }
         [[nodiscard]] const MemoryUtils::StoragePlan &checked_plan() const;
-        [[nodiscard]] const EvaluationClockOps *ops() const noexcept;
-        [[nodiscard]] const EvaluationClockOps &ops_ref() const;
+        // Header-inline like the other trivial record accessors: these run
+        // on hot evaluation paths and the out-of-line definitions were not
+        // inlined even under LTO (profiled as bare call overhead).
+        [[nodiscard]] const EvaluationClockOps *ops() const noexcept
+        {
+            return record_ != nullptr ? static_cast<const EvaluationClockOps *>(record_->ops) : nullptr;
+        }
+        [[nodiscard]] const EvaluationClockOps &ops_ref() const
+        {
+            const auto *table = ops();
+            if (table == nullptr) { throw std::logic_error("ClockTypeRef is unbound"); }
+            return *table;
+        }
         [[nodiscard]] constexpr TypeCapabilities capabilities() const noexcept
         {
             return record_ != nullptr ? record_->capabilities : TypeCapabilities::None;
