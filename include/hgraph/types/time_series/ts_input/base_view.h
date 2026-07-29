@@ -19,6 +19,25 @@ namespace hgraph
         struct TSInputChildProjection;
         struct TSInputTargetActiveNode;
         struct TSInputViewOps;
+
+        /**
+         * A prepared canonical-slot route (RFC 0008 stage 5): the per-tick
+         * cache that replaces the projection walk for a static node's input
+         * slot. ``data`` is the slot's target-link storage (target slots) or
+         * its owned input storage (non-target slots); ``observed`` points at
+         * the active-trie root's in-place-updated output handle when the slot
+         * is actively observed. Non-owning throughout: acquired after input
+         * activation, cleared before deactivation, validity re-checked per
+         * use via ``observed->bound()``.
+         */
+        struct PreparedInputSlotRoute
+        {
+            TSDataStorageRef<>    data{};
+            const TSOutputHandle *observed{nullptr};
+            bool                  target{false};
+
+            [[nodiscard]] bool ready() const noexcept { return data.has_value(); }
+        };
     }
 
     class TSInput;
@@ -122,6 +141,17 @@ namespace hgraph
         /** Shape-erased indexed child projection for TSB/TSL-like inputs. */
         [[nodiscard]] TSInputView indexed_child_at(std::size_t index) const;
 
+        /**
+         * RFC 0008 stage 5 (static-node implementation detail — not a stable
+         * extension API). ``prepare_child_route`` captures the slot's route
+         * once, after input activation; ``child_from_prepared`` rebuilds the
+         * slot view from that cache without the per-tick projection walk. The
+         * route is non-owning; behaviour is identical to
+         * ``indexed_child_at`` for every binding/invalidation state.
+         */
+        [[nodiscard]] detail::PreparedInputSlotRoute prepare_child_route(std::size_t index) const;
+        [[nodiscard]] TSInputView child_from_prepared(const detail::PreparedInputSlotRoute &route) const;
+
         [[nodiscard]] TSSInputView as_set() &;
         [[nodiscard]] TSSInputView as_set() const &;
         void as_set() && = delete;
@@ -200,6 +230,11 @@ namespace hgraph
             // A TU-local sentinel denotes a target-link root; real pointers
             // denote descendant path nodes. Null denotes non-target storage.
             detail::TSInputTargetActiveNode *target_node{nullptr};
+            // Prepared-route fast path (RFC 0008 stage 5): set only by
+            // ``child_from_prepared``. Points at the active-trie root's
+            // in-place-updated handle; ``bound()`` false falls back to the
+            // full resolution, so rebind/invalidation semantics are kept.
+            const TSOutputHandle *route_observed{nullptr};
         };
 
         TSInputView(TSInput                         *input,

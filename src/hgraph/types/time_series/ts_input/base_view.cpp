@@ -38,8 +38,10 @@ namespace hgraph
 
     TSInputView::InputDataCursor TSInputView::InputDataCursor::borrowed_ref() const noexcept
     {
-        return InputDataCursor{value_data.borrowed_ref(), raw_data.borrowed_ref(), target_node,
+        InputDataCursor cursor{value_data.borrowed_ref(), raw_data.borrowed_ref(), target_node,
                                Classification::Known};
+        cursor.route_observed = route_observed;
+        return cursor;
     }
 
     bool TSInputView::InputDataCursor::has_storage() const noexcept
@@ -86,6 +88,15 @@ namespace hgraph
 
     const TSDataView &TSInputView::InputDataCursor::resolved_value_data() const noexcept
     {
+        // Prepared route (RFC 0008 stage 5): the trie node's handle is
+        // replaced in place on every topology event, so a bound handle IS the
+        // current target; unbound falls through to the full resolution
+        // (which also serves rebuilding after source invalidation).
+        if (route_observed != nullptr && route_observed->bound())
+        {
+            value_data = route_observed->data_view();
+            return value_data;
+        }
         if (is_target_position()) { value_data = detail::target_link_resolve(raw_data, target_path_node()); }
         return value_data;
     }
@@ -696,6 +707,49 @@ namespace hgraph
         auto *target_node = projection.target_link.valid() ? target_root_marker() : nullptr;
         return TSInputView{input_, std::move(projection.visible), std::move(projection.target_link), target_node,
                            scheduling_notifier_, evaluation_time_, InputDataCursor::Classification::Known};
+    }
+
+    detail::PreparedInputSlotRoute TSInputView::prepare_child_route(std::size_t index) const
+    {
+        detail::PreparedInputSlotRoute route;
+        auto parent     = data_.value_data.borrowed_ref();
+        auto projection = detail::input_child_projection(parent, index);
+        if (projection.target_link.valid())
+        {
+            route.data   = projection.target_link.storage_ref();
+            route.target = true;
+            const auto *storage = detail::target_link_storage(projection.target_link);
+            const auto *state   = storage != nullptr ? storage->state() : nullptr;
+            const auto *root    = state != nullptr ? state->active_root() : nullptr;
+            // Mirror ``resolved_target_at_path``'s trust conditions at acquire
+            // time; a runtime make_passive/make_active toggle keeps working
+            // because it resets/re-sets the SAME in-place handle.
+            if (root != nullptr && root->locally_active &&
+                root->observation_kind == detail::TSInputObservationKind::Value)
+            {
+                route.observed = &root->observed;
+            }
+        }
+        else { route.data = projection.visible.storage_ref(); }
+        return route;
+    }
+
+    TSInputView TSInputView::child_from_prepared(const detail::PreparedInputSlotRoute &route) const
+    {
+        if (!route.target)
+        {
+            return TSInputView{input_, TSDataView{route.data}, TSDataView{}, nullptr,
+                               scheduling_notifier_, evaluation_time_,
+                               InputDataCursor::Classification::Known};
+        }
+        // Empty value seed: every read resolves through the cursor (the
+        // prepared route or the full resolution), exactly as the projected
+        // slow path does.
+        TSInputView view{input_, TSDataView{}, TSDataView{route.data}, target_root_marker(),
+                         scheduling_notifier_, evaluation_time_,
+                         InputDataCursor::Classification::Known};
+        view.data_.route_observed = route.observed;
+        return view;
     }
 
 }  // namespace hgraph

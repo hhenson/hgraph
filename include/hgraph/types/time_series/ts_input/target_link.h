@@ -21,6 +21,15 @@ namespace hgraph::detail
     struct TSInputTargetLinkState;
     struct TSInputTargetLinkStorage;
 
+    /**
+     * Non-pruning invariant (RFC 0008 stage 5): an active-trie node, once
+     * created, lives until its owning ``TSInputTargetLinkStorage`` is
+     * destroyed or assigned over. Deactivation (``make_passive``) resets
+     * ``observed`` in place but keeps the node; storage move-construction
+     * repoints the tree without relocating nodes. Prepared input slots hold
+     * non-owning pointers into this trie and rely on that stability, with
+     * ``observed.bound()`` as their per-use validity check.
+     */
     struct TSInputTargetActiveNode
     {
         TSInputTargetActiveNode *parent{nullptr};
@@ -33,7 +42,6 @@ namespace hgraph::detail
         [[nodiscard]] TSInputTargetActiveNode *child_at(std::size_t slot_index) const noexcept;
         [[nodiscard]] bool has_any_active() const noexcept;
         TSInputTargetActiveNode &ensure_child(std::size_t slot_index);
-        bool try_prune_child(std::size_t slot_index);
         void clear_observed() noexcept;
     };
 
@@ -60,7 +68,6 @@ namespace hgraph::detail
         void source_invalidated(const TSDataTracking *source) noexcept override;
         [[nodiscard]] TSInputTargetActiveNode *active_root() const noexcept;
         [[nodiscard]] TSInputTargetActiveNode &ensure_active_root();
-        void try_prune_active_root();
         void clear_active_observed() noexcept;
         void unsubscribe_active_tree() noexcept;
 
