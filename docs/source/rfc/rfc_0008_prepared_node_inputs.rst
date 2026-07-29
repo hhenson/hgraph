@@ -1,5 +1,5 @@
-RFC 0008: Prepared Node Inputs
-==============================
+RFC 0008: Prepared Node Invocation
+==================================
 
 :Status: Proposed
 :Author: Howard Henson
@@ -9,20 +9,17 @@ RFC 0008: Prepared Node Inputs
 Summary
 -------
 
-Move stable node-invocation work out of the per-tick path.  Native static nodes
-prepare their input root, immutable scalar bundle, and output handle once
-during start.  Each callback then creates one lightweight invocation frame
-which borrows those prepared objects for the current evaluation time and
-projects each input slot once.  Input views resolve a forwarding route when the
-evaluation snapshot is created, not every time ``valid``, ``modified``,
-``value``, or ``delta_value`` reads that snapshot.
+Stop reconstructing the same root projections independently for every
+parameter of a node callback.  Each native static-node callback creates one
+lightweight invocation frame.  On first use, the frame materializes one input
+root and one immutable scalar bundle for that invocation, then projects
+already-validated canonical slots from those shared roots.
 
-The design relies on the existing event-driven binding contract.  Target links
-and active-path observers update their stable target handles when a route is
-bound, unbound, invalidated, or repointed.  A new evaluation snapshot reads that
-current handle; ordinary value ticks neither relink nor revalidate the route.
-Dynamic keyed children remain governed by their slot-store and slot-observer
-lifecycle.
+The frame is stack-local and retains nothing across callbacks.  Binding,
+repointing, invalidation, and dynamic-child lifetime therefore keep their
+existing semantics.  The design also shares one root in the common readiness
+gate and removes a terminal node-endpoint notification whose dispatched
+operation is already a no-op.
 
 Motivation
 ----------
@@ -38,10 +35,9 @@ structures than performing the scalar operation:
 * the scalar add itself: about 1.9 percent.
 
 The graph has already validated node schemas, endpoint shapes, input slot
-indices, and scalar slots before execution.  Bind and invalidation operations
-already notify active target paths.  Repeating those checks and reconstructing
-the same root views on every property access adds cost without strengthening a
-runtime invariant.
+indices, and scalar slots before execution.  Reconstructing the root and its
+bundle wrapper independently for each callback argument adds cost without
+strengthening a runtime invariant.
 
 Ownership boundary
 ------------------
@@ -57,56 +53,39 @@ route cache or independently decide when a binding is stale.
 Runtime contract
 ----------------
 
-Prepared static invocation state
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-A static node with at least one reusable invocation component receives one
-planned storage field.  Its exact representation is private, but it may contain
-only components present in that node's declared signature:
-
-* one input-root view for a node with ``In`` selectors;
-* one immutable scalar-bundle view for a node with ``Scalar`` selectors;
-* one output handle for a node with an ``Out`` selector; and
-* one recordable-state handle when required by a later implementation stage.
-
-The storage is constructed in place with the node and is prepared after input
-activation but before the implementation's start hook.  It is destroyed before
-the input and output storage it borrows.  It adds no heap allocation and does
-not add a word to ``AnyPtr``, ``TSDataStorageRef``, ``TSInputView``, or
-``NodeView``.
+Evaluation-local invocation preparation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Each start, evaluate, or stop callback creates one stack-local invocation
 frame.  The frame:
 
-* borrows the prepared input root at the callback's evaluation time;
+* creates the input root at the callback's evaluation time at most once;
 * projects input slots directly by their already-validated canonical index;
-* reads scalar slots from the prepared immutable bundle;
-* reconstructs output views from stable handles and the current time; and
+* creates the immutable scalar bundle at most once and reads scalar slots from
+  it;
+* creates the output view directly for the single permitted output selector;
+  and
 * falls back to the existing ``NodeView`` operations for genuinely dynamic
   facilities such as replaceable state or scheduling.
 
-Preparation belongs to lifecycle, not graph construction, because endpoint
-storage has its final address and active route observers exist at start.
-Preparation is idempotent so a failed start can be retried safely.
+The frame is lazy, so a hook which does not request an input or scalar root does
+not create it.  It adds no planned node storage, heap allocation, or persistent
+borrow.  A failed start, paused evaluation, stopped nested graph, or reused
+dynamic slot cannot leave invocation state behind.
 
-Evaluation snapshots
+Input-view semantics
 ~~~~~~~~~~~~~~~~~~~~
 
-``TSInputView`` is a transient evaluation snapshot.  Construction or
-``borrowed_ref(evaluation_time)`` captures the route current for that
-evaluation.  Repeated reads of the same view use the captured ``TSDataView``;
-they do not resolve the target chain again.
+This RFC does not change ``TSInputView`` binding semantics.  A retained view
+continues to observe bind, rebind, source invalidation, and forwarding changes
+through its target link.  Each callback receives views with the current
+evaluation time, exactly as before.
 
-Calling ``bind_output``, ``bind_output_sampled``, or ``unbind_output`` through
-that same view updates its snapshot immediately.  A route changed through a
-different view becomes visible when the consumer creates its next evaluation
-snapshot.  Runtime callbacks already receive fresh or explicitly reborrowed
-views per evaluation, so this does not delay graph-observable changes.
-
-Retaining an input view across evaluations without calling
-``borrowed_ref(new_time)`` is unsupported.  The evaluation time was already
-part of the view's delta and modification semantics; this RFC makes the route
-part of the same snapshot boundary.
+Target links already keep an observed output handle for active paths and
+replace that handle when topology changes.  Eliminating the residual
+``resolved_target_at_path`` dispatch is a possible later optimization, but it
+requires a stable-handle contract and topology-aware invalidation.  It is not
+part of this RFC's first implementation.
 
 Route invalidation
 ~~~~~~~~~~~~~~~~~~
@@ -125,19 +104,46 @@ Ordinary value modification does not dirty topology.  It schedules active
 consumers through the existing notification path but leaves the route handle
 unchanged.
 
-A prepared static input stores only the stable non-peered input root.  Its
-per-evaluation child projection reads the target link's current handle, so
-repointing does not require patching every node cache.  Target paths below a
-peered structural root continue to use the active target trie, whose observed
+An invocation frame projects from the current input root.  Target paths below
+a peered structural root continue to use the active target trie, whose observed
 handles are replaced by the existing resubscription logic.
+
+Follow-up stable-handle design
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If profiling after this change still identifies target resolution as a
+material fixed cost, the next stage should reuse the route object which the
+runtime already maintains rather than cache a copied ``TSDataView``.
+
+For an active value input, each node in the target-link active trie owns a
+stable ``TSOutputHandle observed`` object.  Bind, rebind, invalidation,
+forwarding changes, and dynamic-slot changes already replace or reset that
+object in place.  A prepared slot can therefore hold a non-owning pointer to
+the ``observed`` object and create a time-stamped input view directly from its
+current contents.  Ordinary value ticks do not touch the pointer or rebuild
+the route.
+
+That pointer is valid only while its active-trie node is retained.  The
+prepared-slot lifecycle must therefore be:
+
+* acquire only after input activation has created the trie node;
+* clear before input deactivation may prune that node;
+* never own a target output or dynamic child;
+* fall back to normal route resolution for passive or structural selectors
+  until they have an equivalent stable route-owner contract; and
+* update the existing ``observed`` object in place on every topology event,
+  rather than adding a per-read generation poll.
+
+The first implementation should remain private to static nodes.  Promotion to
+the installed extension SDK requires the RFC amendment, performance evidence,
+and installed-consumer proof required by the extension policy.
 
 Readiness checks
 ~~~~~~~~~~~~~~~~
 
-The common readiness gate creates one root input view and, for a TSB root, one
-bundle projection.  It checks every required slot through that shared
-projection.  It must not reconstruct the root and bundle independently for
-each validity policy.
+The common readiness gate creates one root input view.  For a TSB root, it
+checks every required slot directly through that shared root.  It must not
+reconstruct the root independently for each validity policy.
 
 Endpoint notification
 ~~~~~~~~~~~~~~~~~~~~~
@@ -157,15 +163,13 @@ Dynamic and nested graphs
 -------------------------
 
 Map, mesh, switch, reduce, and other nested graph nodes retain their existing
-slot-store ownership protocols.  A prepared view must not keep a dynamic child
-alive, bypass an erase, or retain a retired-object side container.
+slot-store ownership protocols.  A callback-local view must not keep a dynamic
+child alive, bypass an erase, or retain a retired-object side container.
 
-Static child nodes inside a nested graph prepare their own stable root after
-their node storage is attached.  Their input links may repoint while keys churn;
-the next invocation projects the current slot target.  Paused graphs retain
-their prepared node roots because the node allocation remains live.  Stop
-deactivates links before graph storage is erased, and prepared views are
-destroyed before the endpoints they borrow.
+Static child nodes inside a nested graph create their invocation frame only
+while a callback is executing.  Their input links may repoint while keys churn;
+the next invocation projects the current slot target.  No invocation frame
+survives a pause, stop, erase, or slot reuse.
 
 C++ and Python contract
 -----------------------
@@ -173,24 +177,18 @@ C++ and Python contract
 The first-class C++ path is the static-node invocation frame described above.
 The public selector types and wiring syntax do not change.
 
-The Python bridge continues to receive C++ ``TSInputView`` snapshots.  Its fast
-compute cache must call ``borrowed_ref(now)`` for a view retained across
-callbacks.  Python wrapper reuse is independent of route validity: replacing a
-wrapper's C++ view replaces its complete evaluation snapshot.
+The Python bridge keeps its existing C++ ``TSInputView`` handling.  Python
+wrapper reuse and retained-view expiry are unchanged by the native static-node
+invocation frame.
 
 No new Python-only semantic or configuration switch is introduced.
 
 Compatibility and ABI
 ---------------------
 
-The node, TSData, input-view, and pointer ABIs do not gain fields.  Static node
-storage plans gain a private component and therefore static bytes, but node
-storage is planned and constructed by the same runtime version; downstream
-code does not embed that layout.
-
-The evaluation-snapshot rule is a clarification of the existing transient-view
-and explicit-``borrowed_ref`` API.  Code which retained a view across ticks and
-expected its route and evaluation time to update implicitly must reborrow it.
+The node, TSData, input-view, pointer, and static-node storage ABIs do not gain
+fields.  Public selector and wiring APIs do not change.  Existing retained-view
+and binding behavior is preserved.
 
 There is no serialization or wire-format change.  Prepared views and route
 handles are derived runtime state and are never recorded.
@@ -198,40 +196,34 @@ handles are derived runtime state and are never recorded.
 Performance and memory goals
 ----------------------------
 
-* Construct the static input root, scalar bundle, and output handle once per
-  node start, with no heap allocation.
-* Construct at most one input-root borrow per static callback.
-* Perform no bundle kind or size validation for a canonical input slot after
-  the node type and endpoint have been validated.
-* Resolve a target route at most once per evaluation snapshot; repeated
-  property reads perform zero route rebuilds.
+* Construct at most one input root and scalar bundle per static callback.
+* Project canonical input slots directly from the shared root rather than
+  rebuilding a shape-specific bundle wrapper for each selector.
 * Preserve the existing active-route handle on ordinary value ticks.
-* Add planned storage only to static nodes that have reusable components.
+* Add no planned storage or persistent borrowed state.
 * Keep dynamic keyed collection and nested-graph lifecycle allocation
   behaviour unchanged.
 
 Implementation stages
 ---------------------
 
-1. Share one root and bundle in the common readiness gate.
-2. Add private planned invocation state and a stack-local frame for native
-   static node callbacks.
-3. Make input views capture a resolved route when constructed or reborrowed,
-   and reuse it for all reads during that evaluation.
-4. Stop terminal node-endpoint notification after root tracking is complete.
-5. Apply the same prepared-root contract to Python and system-node paths only
-   where profiling shows remaining reconstruction.
-6. Consider promoting a stable input-slot handle to the public extension
-   bridge in a separate RFC amendment after at least one installed SDK consumer
-   proves the private representation.
+1. Share one root in the common readiness gate.
+2. Add a stack-local frame for native static-node callbacks.
+3. Stop terminal node-endpoint notification after root tracking is complete.
+4. Apply the same invocation-local root sharing to Python and system-node
+   paths only where profiling shows remaining reconstruction.
+5. Design topology-aware stable input handles in a separate RFC amendment,
+   after profiling the remaining path and proving bind, invalidation, map,
+   mesh, and installed-SDK behavior.
 
 Alternatives considered
 -----------------------
 
-Caching a ``TSInputView`` for every input slot was rejected because it
-multiplies per-node memory and makes dynamic-child lifetime harder to audit.
-The prepared non-peered root is sufficient for static nodes and leaves target
-ownership in the link.
+Caching a ``TSInputView`` for every input slot, or retaining a root view in
+planned node storage, was rejected for this stage.  It adds per-node memory and
+makes dynamic-child and source-invalidation lifetime harder to audit.  The
+invocation-local frame captures most of the repeated construction without
+altering that ownership boundary.
 
 Adding cached ops pointers to ``NodeView`` or another word to the common
 type-erased pointers was rejected because it taxes every cold and hot use.  A
@@ -239,7 +231,9 @@ stack-local invocation frame can cache the same information only while needed.
 
 Polling a route generation on every property read was rejected.  It replaces
 one repeated validation with another and ignores the existing notification and
-active-observer design.
+active-observer design.  A later route optimization should expose the handle
+which that observer protocol already updates, not add a parallel validity
+protocol.
 
 Acceptance criteria
 -------------------
@@ -249,14 +243,13 @@ The implementation requires:
 * native public-wiring tests for one and multiple inputs, passive and unchecked
   inputs, TSB/TSL projections, scalar configuration, and lifecycle-only
   selectors;
-* route tests for bind, rebind, sampled rebind, unbind, forwarding/REF paths,
-  and repeated reads from one snapshot;
-* map and mesh key erase/reuse tests proving prepared views do not retain a
-  child slot;
+* existing route tests for bind, rebind, sampled rebind, unbind, and
+  forwarding/REF paths;
+* map and mesh key erase/reuse tests proving callback-local views do not alter
+  child-slot lifetime;
 * Python parity tests for direct and paired fast-compute inputs, retained
   wrapper expiry, and reference repointing;
-* the complete C++ and non-WIP Python 3.14 suites on macOS and Linux, with ASan
-  for the prepared-view lifetime change; and
+* the complete C++ and non-WIP Python 3.14 suites on macOS and Linux; and
 * five-sample before/after full benchmark packs on the same macOS and Linux
   hosts, plus focused native microbenchmarks where the full graph scenarios do
   not isolate the changed cost.
@@ -274,5 +267,169 @@ process samples per scenario:
 * macOS 26.5, Apple M4 Max, Apple Clang 21, Python 3.14.6;
 * Linux x86_64, Intel Core Ultra 7 155H, GCC 15.2, Python 3.14.4.
 
-Post-change results and any implementation deviations will be added before the
-RFC is accepted.
+Both hosts ran the same command, reusing the unchanged released-hgraph C++
+baseline:
+
+.. code-block:: console
+
+   uv run python benchmarks/orchestrate.py \
+       --suite core --suite diagnostic \
+       --mode upstream-cpp --mode hg-cpp --samples 5
+
+The following representative full-pack medians are in milliseconds.  Positive
+change means the post-change implementation is faster.  The final column is
+the ``hg_cpp / legacy C++`` throughput ratio before and after the change.
+
+macOS
+~~~~~
+
+.. list-table::
+   :header-rows: 1
+
+   * - Workload
+     - Before
+     - After
+     - Change
+     - Legacy-relative throughput
+   * - Native feedback loop
+     - 32.815
+     - 31.809
+     - +3.2%
+     - 2.09x -> 2.16x
+   * - Python compute chain
+     - 23.343
+     - 23.835
+     - -2.1%
+     - 1.24x -> 1.22x
+   * - Scheduler fan-out
+     - 106.875
+     - 101.636
+     - +5.2%
+     - 1.79x -> 1.88x
+   * - Scheduler fan-in
+     - 142.992
+     - 143.039
+     - 0.0%
+     - 1.80x -> 1.80x
+   * - Python generator boundary
+     - 9.155
+     - 8.250
+     - +11.0%
+     - 1.70x -> 1.89x
+   * - Python sink boundary
+     - 13.186
+     - 12.230
+     - +7.8%
+     - 1.17x -> 1.26x
+   * - Integer arithmetic
+     - 16.046
+     - 15.114
+     - +6.2%
+     - 1.89x -> 2.01x
+   * - Partial TSB updates
+     - 37.535
+     - 36.284
+     - +3.4%
+     - 1.76x -> 1.82x
+   * - Dense TSD map
+     - 85.673
+     - 86.451
+     - -0.9%
+     - 1.88x -> 1.87x
+   * - Ordered fixed-TSL reduce
+     - 23.813
+     - 23.101
+     - +3.1%
+     - 2.03x -> 2.10x
+   * - Mesh with key churn
+     - 23.528
+     - 23.240
+     - +1.2%
+     - 4.02x -> 4.07x
+   * - Native reference service
+     - 13.035
+     - 11.363
+     - +14.7%
+     - 1.75x -> 2.00x
+
+Linux
+~~~~~
+
+.. list-table::
+   :header-rows: 1
+
+   * - Workload
+     - Before
+     - After
+     - Change
+     - Legacy-relative throughput
+   * - Native feedback loop
+     - 64.229
+     - 59.961
+     - +7.1%
+     - 1.50x -> 1.61x
+   * - Python compute chain
+     - 45.248
+     - 41.822
+     - +8.2%
+     - 0.89x -> 0.97x
+   * - Scheduler fan-out
+     - 213.362
+     - 197.764
+     - +7.9%
+     - 1.18x -> 1.28x
+   * - Scheduler fan-in
+     - 276.405
+     - 255.661
+     - +8.1%
+     - 1.19x -> 1.28x
+   * - Python generator boundary
+     - 16.016
+     - 14.420
+     - +11.1%
+     - 1.39x -> 1.54x
+   * - Python sink boundary
+     - 23.628
+     - 21.630
+     - +9.2%
+     - 0.94x -> 1.03x
+   * - Integer arithmetic
+     - 29.197
+     - 25.828
+     - +13.0%
+     - 1.44x -> 1.63x
+   * - Partial TSB updates
+     - 64.819
+     - 60.900
+     - +6.4%
+     - 1.40x -> 1.49x
+   * - Dense TSD map
+     - 161.162
+     - 157.114
+     - +2.6%
+     - 1.25x -> 1.28x
+   * - Ordered fixed-TSL reduce
+     - 43.291
+     - 39.299
+     - +10.2%
+     - 1.50x -> 1.65x
+   * - Mesh with key churn
+     - 34.734
+     - 34.693
+     - +0.1%
+     - 4.51x -> 4.52x
+   * - Native reference service
+     - 24.000
+     - 19.966
+     - +20.2%
+     - 1.30x -> 1.56x
+
+All 56 comparable scenarios completed on both hosts.  No unaffected workload
+had a repeatable regression above five percent.  The macOS sparse-reduce cell
+initially measured -7.1 percent in the full five-sample pack, but its samples
+contained a high outlier; a 15-sample rerun measured 13.387 ms versus the
+13.137 ms pre-change median (-1.9 percent).
+
+The implementation deliberately stops at callback-local preparation.  It does
+not add persistent input handles or change ``TSInputView`` behavior.  The
+stable observed-handle design above remains a separately measured follow-up.
