@@ -578,8 +578,12 @@ to the matching callable. Existing collection views are used for ``TSS``,
 
 A specialised handler takes precedence over the role-level
 ``TSInputView`` / ``TSOutputView`` catch-all. Every reachable branch must
-return ``void`` or the same non-reference type. Reference returns are rejected
-because the selected wrapper is a temporary cursor.
+return ``void`` or the same safe value type. Reference returns and lazy
+``Range`` / ``KeyValueRange`` results are rejected because the selected wrapper
+is a temporary cursor and a range may retain it as projection context. Consume
+ranges inside the handler or return an owned materialisation such as
+``std::vector``. User-defined result types must likewise not retain a pointer or
+reference to the selected wrapper.
 
 Dispatch is intentionally one level. It does not walk collection children or
 follow ``REF`` values. A caller that wants recursion selects children through

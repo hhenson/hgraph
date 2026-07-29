@@ -168,14 +168,33 @@ namespace hgraph
         template <typename Result, typename Visitor, typename SpecialisedView, typename BaseView>
         inline constexpr bool endpoint_branch_same_result_v =
             std::same_as<Result, endpoint_branch_result_t<Visitor, SpecialisedView, BaseView>>;
+
+        template <typename Result> struct TSEndpointBorrowedRangeResult : std::false_type
+        {
+        };
+
+        template <typename Value> struct TSEndpointBorrowedRangeResult<Range<Value>> : std::true_type
+        {
+        };
+
+        template <typename Key, typename Value>
+        struct TSEndpointBorrowedRangeResult<KeyValueRange<Key, Value>> : std::true_type
+        {
+        };
+
+        template <typename Result>
+        inline constexpr bool endpoint_result_safe_v =
+            !std::is_reference_v<Result> &&
+            !TSEndpointBorrowedRangeResult<std::remove_cv_t<Result>>::value;
     }  // namespace detail
 
     /**
      * Visit one input endpoint according to its semantic time-series kind.
      *
      * A shape-specific handler takes precedence over a ``TSInputView``
-     * catch-all. Every reachable handler must return void or the same
-     * non-reference type. The selected wrapper is a temporary borrowed cursor.
+     * catch-all. Every reachable handler must return void or the same safe
+     * value type. References and lazy hgraph ranges are rejected because the
+     * selected wrapper is a temporary borrowed cursor.
      */
     template <typename... Handlers>
     decltype(auto) visit(const TSInputView &view, Handlers &&...handlers)
@@ -201,8 +220,9 @@ namespace hgraph
         else
         {
             using Result = detail::endpoint_branch_result_t<Visitor, TSValueInputView, TSInputView>;
-            static_assert(!std::is_reference_v<Result>, "time-series endpoint visitor cannot return a reference to a "
-                                                        "temporary view");
+            static_assert(detail::endpoint_result_safe_v<Result>,
+                          "time-series endpoint visitor cannot return a reference or lazy hgraph range that may borrow "
+                          "from a temporary view; consume the range in the handler or return an owned collection");
             static_assert(
                 detail::endpoint_branch_same_result_v<Result, Visitor, TSSInputView, TSInputView> &&
                     detail::endpoint_branch_same_result_v<Result, Visitor, TSDInputView, TSInputView> &&
@@ -246,8 +266,9 @@ namespace hgraph
      * Visit one output endpoint according to its semantic time-series kind.
      *
      * A shape-specific handler takes precedence over a ``TSOutputView``
-     * catch-all. Every reachable handler must return void or the same
-     * non-reference type. The selected wrapper is a temporary borrowed cursor.
+     * catch-all. Every reachable handler must return void or the same safe
+     * value type. References and lazy hgraph ranges are rejected because the
+     * selected wrapper is a temporary borrowed cursor.
      */
     template <typename... Handlers>
     decltype(auto) visit(const TSOutputView &view, Handlers &&...handlers)
@@ -274,8 +295,9 @@ namespace hgraph
         else
         {
             using Result = detail::endpoint_branch_result_t<Visitor, TSValueOutputView, TSOutputView>;
-            static_assert(!std::is_reference_v<Result>, "time-series endpoint visitor cannot return a reference to a "
-                                                        "temporary view");
+            static_assert(detail::endpoint_result_safe_v<Result>,
+                          "time-series endpoint visitor cannot return a reference or lazy hgraph range that may borrow "
+                          "from a temporary view; consume the range in the handler or return an owned collection");
             static_assert(
                 detail::endpoint_branch_same_result_v<Result, Visitor, TSSOutputView, TSOutputView> &&
                     detail::endpoint_branch_same_result_v<Result, Visitor, TSDOutputView, TSOutputView> &&

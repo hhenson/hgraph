@@ -105,10 +105,13 @@ handler is absent, a handler accepting the role's erased ``TSInputView`` or
 view is also valid. If neither a specialised nor base handler can accept any
 reachable alternative, the visitor is ill-formed.
 
-Every selected branch returns ``void`` or the same non-reference result type.
-Reference results are rejected because the shape-specific wrapper is a
-temporary borrowed cursor. The visitor forwards the returned value without
-materialising an optional or allocating storage.
+Every selected branch returns ``void`` or the same safe value type. Reference
+results and the lazy ``Range`` / ``KeyValueRange`` types are rejected because
+the shape-specific wrapper is a temporary borrowed cursor. A collection range
+can retain that wrapper as its projection context even though the range itself
+is returned by value. Consume such a range inside the handler or materialise it
+into an owned collection before returning. The visitor forwards accepted
+values without materialising an optional or allocating storage.
 
 Endpoint and reference semantics
 --------------------------------
@@ -128,7 +131,8 @@ The handler receives a borrowed cursor over the same endpoint position and
 evaluation time. The visitor neither owns nor extends the lifetime of the
 endpoint or its underlying storage. Mutating an output through the selected
 view and activating or binding an input retain the existing capability and
-lifecycle rules.
+lifecycle rules. More generally, a user-defined result must not retain a
+pointer or reference to the selected wrapper.
 
 Representation and performance
 ------------------------------
@@ -202,8 +206,8 @@ Acceptance criteria
 
 * All eight semantic kinds dispatch correctly for input and output endpoints.
 * Specialised handlers override the role-level catch-all.
-* ``void`` and common value results work without allocations; reference
-  results and incomplete visitors fail at compile time.
+* ``void`` and common owned-value results work without allocations; reference
+  results, lazy hgraph ranges, and incomplete visitors fail at compile time.
 * Invalid-current-value inputs dispatch, default views fail clearly, and
   ``REF`` is not followed.
 * Existing JSON endpoint algorithms demonstrate explicit recursive use without

@@ -180,6 +180,21 @@ TEST_CASE("endpoint visit prefers a specialised handler and supports a role "
     CHECK(called);
 }
 
+TEST_CASE("endpoint visit result contract rejects borrowed lazy ranges")
+{
+    using namespace hgraph;
+
+    static_assert(detail::endpoint_result_safe_v<void>);
+    static_assert(detail::endpoint_result_safe_v<std::vector<TSInputView>>);
+    static_assert(detail::endpoint_result_safe_v<std::vector<TSOutputView>>);
+    static_assert(!detail::endpoint_result_safe_v<TSInputView &>);
+    static_assert(!detail::endpoint_result_safe_v<TSOutputView &>);
+    static_assert(!detail::endpoint_result_safe_v<Range<TSInputView>>);
+    static_assert(!detail::endpoint_result_safe_v<const Range<TSOutputView>>);
+    static_assert(!detail::endpoint_result_safe_v<KeyValueRange<std::string_view, TSInputView>>);
+    static_assert(!detail::endpoint_result_safe_v<const KeyValueRange<std::size_t, TSOutputView>>);
+}
+
 TEST_CASE("endpoint visit keeps references opaque and recursion explicit")
 {
     using namespace hgraph;
