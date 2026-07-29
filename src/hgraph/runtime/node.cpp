@@ -558,13 +558,26 @@ namespace hgraph
                 return input.valid();
             }
 
+            // Prepared routes (RFC 0008 stage 5): the readiness gate is a
+            // per-tick projection consumer too — when the node planned a
+            // route array (sized to the TSB field count), gate checks
+            // rebuild slot views from the cache.
+            const auto *routes = static_cast<const detail::PreparedInputSlotRoute *>(
+                view.prepared_input_routes());
+            const auto slot_view = [&](std::size_t slot) {
+                if (routes != nullptr && routes[slot].ready())
+                {
+                    return input.child_from_prepared(routes[slot]);
+                }
+                return input.indexed_child_at(slot);
+            };
             const auto checked_slot = [&](std::size_t slot) {
                 if (slot >= schema->field_count())
                 {
                     throw std::out_of_range(
                         "Node input selector is out of range");
                 }
-                return input.indexed_child_at(slot);
+                return slot_view(slot);
             };
 
             const auto &valid_slots = node_schema->valid_inputs;
@@ -579,7 +592,7 @@ namespace hgraph
             {
                 for (std::size_t slot = 0; slot < schema->field_count(); ++slot)
                 {
-                    if (!input.indexed_child_at(slot).valid()) { return false; }
+                    if (!slot_view(slot).valid()) { return false; }
                 }
             }
 

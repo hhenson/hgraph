@@ -2,6 +2,7 @@
 #define HGRAPH_TYPES_LIFT_H
 
 #include <hgraph/runtime/node.h>
+#include <hgraph/runtime/prepared_input_routes.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_schema.h>
@@ -386,14 +387,19 @@ namespace hgraph
         }
 
         template <typename F, std::size_t... I>
-        bool evaluate_lifted_children(const NodeView &view, TSBInputView &input,
+        bool evaluate_lifted_children(const NodeView &view, TSInputView &root, TSBInputView &input,
                                       DateTime evaluation_time, std::index_sequence<I...>)
         {
             // Project each argument child ONCE per evaluation: at(I) walks
             // the input child projection, and the validity pass plus the
             // value pass previously each paid it — the lifted twin of the
-            // static-node invocation frame (RFC 0008 profile).
-            std::array<TSInputView, sizeof...(I)> children{input.at(I)...};
+            // static-node invocation frame (RFC 0008 profile). Prepared
+            // routes (stage 5) replace even that single walk with the
+            // planned per-slot route cache when acquired.
+            const auto *routes = prepared_input_routes_for(view);
+            std::array<TSInputView, sizeof...(I)> children{
+                (routes != nullptr && routes[I].ready() ? root.child_from_prepared(routes[I])
+                                                        : input.at(I))...};
             if (!(children[I].valid() && ...)) { return true; }
             auto output = view.output(evaluation_time);
 
@@ -414,7 +420,7 @@ namespace hgraph
 
             auto root_input = view.input(evaluation_time);
             auto input      = root_input.as_bundle();
-            return evaluate_lifted_children<F>(view, input, evaluation_time,
+            return evaluate_lifted_children<F>(view, root_input, input, evaluation_time,
                                                std::make_index_sequence<arity_v<F>>{});
         }
 
@@ -464,6 +470,22 @@ namespace hgraph
             descriptor.schema             = std::move(schema);
             descriptor.callbacks.evaluate = &evaluate_lifted_node_callback<F, Identity>;
             descriptor.ops.evaluate_impl  = &evaluate_lifted_node<F, Identity>;
+            if constexpr (arity_v<F> > 0)
+            {
+                // Prepared routes (RFC 0008 stage 5): same planned field and
+                // acquire/clear lifecycle as static nodes.
+                if (input_schema != nullptr)
+                {
+                    const std::array fields{prepared_routes_storage_field<arity_v<F>>()};
+                    descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, fields);
+                    descriptor.callbacks.start = [](const NodeView &node, DateTime evaluation_time) {
+                        acquire_prepared_input_routes<arity_v<F>>(node, evaluation_time);
+                    };
+                    descriptor.callbacks.stop = [](const NodeView &node, DateTime) {
+                        clear_prepared_input_routes<arity_v<F>>(node);
+                    };
+                }
+            }
 
             NodeBuilder builder = NodeBuilder::from_descriptor(std::move(descriptor));
             builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(

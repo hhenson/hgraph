@@ -14,6 +14,7 @@
 #include <hgraph/types/time_series/ts_data/set_view.h>
 #include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/time_series/ts_input/bundle_view.h>
+#include <hgraph/runtime/prepared_input_routes.h>
 #include <hgraph/types/time_series/ts_input/detail.h>
 #include <hgraph/util/scope.h>
 #include <hgraph/types/time_series/ts_input/dict_view.h>
@@ -2902,48 +2903,9 @@ namespace hgraph
         }
 
         // ---- prepared input routes (RFC 0008 stage 5) ----
-        // One planned array per static node with inputs; acquired by the
-        // framework start callback AFTER the user start hook (input
-        // activation precedes both), cleared by the framework stop callback
-        // after the user stop hook (deactivation follows both). Non-owning
-        // throughout — validity is re-checked per use via the trie handle.
-        // The array's offset is resolved through the node's OWN runtime
-        // layout (``NodeView::prepared_input_routes``), never captured: a
-        // derived-type rebuild (error capture, passive inputs) relays or
-        // drops the field and the callbacks follow automatically.
-        template <std::size_t SlotCount>
-        using PreparedRoutesStorage = std::array<detail::PreparedInputSlotRoute, SlotCount>;
-
-        [[nodiscard]] inline detail::PreparedInputSlotRoute *
-        prepared_routes(const NodeView &view) noexcept
-        {
-            return static_cast<detail::PreparedInputSlotRoute *>(view.prepared_input_routes());
-        }
-
-        template <std::size_t SlotCount>
-        void acquire_prepared_routes(const NodeView &view, DateTime evaluation_time)
-        {
-            auto *routes = prepared_routes(view);
-            if (routes == nullptr) { return; }
-            TSInputView root = view.input(evaluation_time);
-            // Only a projectable (owned, child-carrying) root prepares;
-            // anything else leaves the routes empty and every slot falls
-            // back to the per-tick projection.
-            if (!detail::has_input_children(root.data_view())) { return; }
-            for (std::size_t slot = 0; slot < SlotCount; ++slot)
-            {
-                routes[slot] = root.prepare_child_route(slot);
-            }
-        }
-
-        template <std::size_t SlotCount>
-        void clear_prepared_routes(const NodeView &view) noexcept
-        {
-            auto *routes = prepared_routes(view);
-            if (routes == nullptr) { return; }
-            for (std::size_t slot = 0; slot < SlotCount; ++slot) { routes[slot] = {}; }
-        }
-
+        // Shared machinery in <hgraph/runtime/prepared_input_routes.h>;
+        // acquired after the user start hook, cleared after the user stop
+        // hook, offset resolved through the node's own runtime layout.
         template <typename TImplementation>
         [[nodiscard]] NodeCallbacks static_node_callbacks()
         {
@@ -2975,7 +2937,7 @@ namespace hgraph
             {
                 callbacks.evaluate = [](const NodeView &view, DateTime evaluation_time) {
                     invoke<&TImplementation::eval, signature_args>(view, evaluation_time,
-                                                                   prepared_routes(view));
+                                                                   prepared_input_routes_for(view));
                 };
                 callbacks.start = [](const NodeView &view, DateTime evaluation_time) {
                     // The user hook runs with the slow path (routes not yet
@@ -2984,16 +2946,16 @@ namespace hgraph
                     {
                         invoke<&TImplementation::start, signature_args>(view, evaluation_time);
                     }
-                    acquire_prepared_routes<slot_count>(view, evaluation_time);
+                    acquire_prepared_input_routes<slot_count>(view, evaluation_time);
                 };
                 callbacks.stop = [](const NodeView &view, DateTime evaluation_time) {
                     auto clear_routes = UnwindCleanupGuard([&]() noexcept {
-                        clear_prepared_routes<slot_count>(view);
+                        clear_prepared_input_routes<slot_count>(view);
                     });
                     if constexpr (has_stop<TImplementation>)
                     {
                         invoke<&TImplementation::stop, signature_args>(view, evaluation_time,
-                                                                       prepared_routes(view));
+                                                                       prepared_input_routes_for(view));
                     }
                     clear_routes.complete();
                 };
@@ -3056,10 +3018,7 @@ namespace hgraph
             {
                 if (descriptor.schema.input_schema != nullptr)
                 {
-                    const std::array fields{NodeStorageField{
-                        .name = node_prepared_inputs_field,
-                        .plan = &MemoryUtils::plan_for<PreparedRoutesStorage<slot_count>>(),
-                    }};
+                    const std::array fields{prepared_routes_storage_field<slot_count>()};
                     descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, fields);
                 }
             }
