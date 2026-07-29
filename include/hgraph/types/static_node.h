@@ -1912,7 +1912,50 @@ namespace hgraph
             }
         }
 
-        // ---- arg providers: build a selector from NodeView + evaluation time ----
+        // Per-hook scratch only. Keeping the roots beyond this frame would
+        // retain input-route state across rebind and dynamic-slot lifecycles.
+        class StaticNodeInvocationFrame
+        {
+          public:
+            StaticNodeInvocationFrame(const NodeView &view, DateTime evaluation_time)
+                : view_(view), evaluation_time_(evaluation_time)
+            {
+            }
+
+            [[nodiscard]] const NodeView &view() const noexcept { return view_; }
+            [[nodiscard]] DateTime evaluation_time() const noexcept { return evaluation_time_; }
+
+            [[nodiscard]] TSInputView input_at(std::size_t slot)
+            {
+                if (!input_root_.has_value())
+                {
+                    input_root_.emplace(view_.input(evaluation_time_));
+                }
+                return input_root_->indexed_child_at(slot);
+            }
+
+            [[nodiscard]] ValueView scalar_at(std::size_t slot)
+            {
+                if (!scalar_root_.has_value())
+                {
+                    scalar_root_.emplace(view_.scalars().as_bundle());
+                }
+                return (*scalar_root_)[slot];
+            }
+
+            [[nodiscard]] TSOutputView output() const
+            {
+                return view_.output(evaluation_time_);
+            }
+
+          private:
+            const NodeView            &view_;
+            DateTime                   evaluation_time_;
+            std::optional<TSInputView> input_root_{};
+            std::optional<BundleView>  scalar_root_{};
+        };
+
+        // ---- arg providers: build a selector from one invocation frame ----
         template <typename T>
         struct arg_provider
         {
@@ -1922,22 +1965,20 @@ namespace hgraph
         template <fixed_string N, typename V, auto... P>
         struct arg_provider<In<N, V, P...>>
         {
-            template <std::size_t Slot>
-            static In<N, V, P...> get_indexed(const NodeView &view,
-                                              DateTime evaluation_time)
+            template <std::size_t Slot, typename Frame>
+            static In<N, V, P...> get_indexed(Frame &frame)
             {
-                TSInputView root   = view.input(evaluation_time);
-                auto        bundle = root.as_bundle();
-                return In<N, V, P...>{bundle[Slot]};
+                return In<N, V, P...>{frame.input_at(Slot)};
             }
         };
 
         template <typename V>
         struct arg_provider<Out<V>>
         {
-            static Out<V> get(const NodeView &view, DateTime evaluation_time)
+            template <typename Frame>
+            static Out<V> get_prepared(Frame &frame)
             {
-                return Out<V>{view.output(evaluation_time), evaluation_time};
+                return Out<V>{frame.output(), frame.evaluation_time()};
             }
         };
 
@@ -1971,11 +2012,10 @@ namespace hgraph
         template <fixed_string N, typename V>
         struct arg_provider<Scalar<N, V>>
         {
-            template <std::size_t Slot>
-            static Scalar<N, V> get_indexed(const NodeView &view, DateTime)
+            template <std::size_t Slot, typename Frame>
+            static Scalar<N, V> get_indexed(Frame &frame)
             {
-                auto bundle = view.scalars().as_bundle();
-                return Scalar<N, V>{bundle[Slot]};
+                return Scalar<N, V>{frame.scalar_at(Slot)};
             }
         };
 
@@ -2057,36 +2097,39 @@ namespace hgraph
             }
         };
 
-        template <typename Selector, typename CanonicalArgs>
-        decltype(auto) provide_arg(const NodeView &view, DateTime evaluation_time)
+        template <typename Selector, typename CanonicalArgs, typename Frame>
+        decltype(auto) provide_arg(Frame &frame)
         {
             if constexpr (is_input_selector<Selector>::value)
             {
                 constexpr std::size_t slot = canonical_input_slot<Selector, CanonicalArgs>();
-                return arg_provider<Selector>::template get_indexed<slot>(view,
-                                                                          evaluation_time);
+                return arg_provider<Selector>::template get_indexed<slot>(frame);
             }
             else if constexpr (is_scalar_selector<Selector>::value)
             {
                 constexpr std::size_t slot = canonical_scalar_slot<Selector, CanonicalArgs>();
-                return arg_provider<Selector>::template get_indexed<slot>(view,
-                                                                           evaluation_time);
+                return arg_provider<Selector>::template get_indexed<slot>(frame);
+            }
+            else if constexpr (is_output_selector<Selector>::value)
+            {
+                return arg_provider<Selector>::get_prepared(frame);
             }
             else
             {
-                return arg_provider<Selector>::get(view, evaluation_time);
+                return arg_provider<Selector>::get(frame.view(), frame.evaluation_time());
             }
         }
 
         // ---- invoke a static hook by injecting each parameter by type ----
         template <auto Fn, typename CanonicalArgs, std::size_t... I>
-        void invoke_impl(const NodeView &view, DateTime evaluation_time, std::index_sequence<I...>)
+        void invoke_impl(const NodeView &view,
+                         DateTime evaluation_time,
+                         std::index_sequence<I...>)
         {
-            (void)view;
-            (void)evaluation_time;
             using args = typename fn_traits<decltype(Fn)>::args_tuple;
+            StaticNodeInvocationFrame frame{view, evaluation_time};
             Fn(provide_arg<selector_of<std::tuple_element_t<I, args>>, CanonicalArgs>(
-                view, evaluation_time)...);
+                frame)...);
         }
 
         template <auto Fn,

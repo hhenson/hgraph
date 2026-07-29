@@ -538,47 +538,52 @@ namespace hgraph
             }
         }
 
-        [[nodiscard]] TSInputView input_slot(const NodeView &view, std::size_t slot, DateTime evaluation_time)
-        {
-            const auto *schema = view.schema()->input_schema;
-            if (schema == nullptr || schema->kind != TSTypeKind::TSB)
-            {
-                throw std::logic_error("Node input selectors require a TSB root input schema");
-            }
-            if (slot >= schema->field_count()) { throw std::out_of_range("Node input selector is out of range"); }
-            auto root = view.input(evaluation_time);
-            auto input = root.as_bundle();
-            return input[slot];
-        }
-
         [[nodiscard]] bool ready_to_evaluate(const NodeView &view, DateTime evaluation_time)
         {
-            if (!view.has_input()) { return true; }
+            const auto *node_schema = view.schema();
+            if (node_schema == nullptr || !node_schema->has_input()) { return true; }
 
-            const auto *schema = view.schema()->input_schema;
-            const auto &valid_slots = view.schema()->valid_inputs;
+            const auto *schema = node_schema->input_schema;
+            auto input = view.input(evaluation_time);
+            if (schema == nullptr || schema->kind != TSTypeKind::TSB)
+            {
+                if (node_schema->valid_inputs.has_value() ||
+                    !node_schema->all_valid_inputs.empty())
+                {
+                    throw std::logic_error(
+                        "Node input selectors require a TSB root input schema");
+                }
+                return input.valid();
+            }
+
+            const auto checked_slot = [&](std::size_t slot) {
+                if (slot >= schema->field_count())
+                {
+                    throw std::out_of_range(
+                        "Node input selector is out of range");
+                }
+                return input.indexed_child_at(slot);
+            };
+
+            const auto &valid_slots = node_schema->valid_inputs;
             if (valid_slots.has_value())
             {
                 for (const std::size_t slot : *valid_slots)
                 {
-                    if (!input_slot(view, slot, evaluation_time).valid()) { return false; }
+                    if (!checked_slot(slot).valid()) { return false; }
                 }
             }
-            else if (schema != nullptr && schema->kind == TSTypeKind::TSB)
+            else
             {
                 for (std::size_t slot = 0; slot < schema->field_count(); ++slot)
                 {
-                    if (!input_slot(view, slot, evaluation_time).valid()) { return false; }
+                    if (!input.indexed_child_at(slot).valid()) { return false; }
                 }
             }
-            else if (!view.input(evaluation_time).valid())
-            {
-                return false;
-            }
 
-            for (const std::size_t slot : view.schema()->all_valid_inputs)
+            for (const std::size_t slot : node_schema->all_valid_inputs)
             {
-                if (!input_slot(view, slot, evaluation_time).all_valid()) { return false; }
+                if (!checked_slot(slot).all_valid()) { return false; }
             }
 
             return true;

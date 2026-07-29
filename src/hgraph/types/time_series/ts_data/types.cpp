@@ -421,7 +421,9 @@ namespace hgraph
         {
             if (has_node_endpoint_parent())
             {
-                notify_node_endpoint_child_modified(parent_node_ptr(), port(), mutation_time);
+                // The root TSData tracking and its subscribers were updated
+                // before reaching this terminal. Node-owned input and output
+                // endpoints have no additional eager delta state to mark.
                 return;
             }
             if (auto *endpoint = parent_endpoint(); endpoint != nullptr)
