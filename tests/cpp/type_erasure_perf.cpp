@@ -12,6 +12,7 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/visitor.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/value/visitor.h>
 
 #include <algorithm>
 #include <atomic>
@@ -684,6 +685,61 @@ int main()
             }
         });
 
+    const auto manual_atomic_value_dispatch = [&] {
+        const auto *source = g_atomic_value_view_input.load(std::memory_order_relaxed);
+        switch (source->schema()->value_kind())
+        {
+        case ValueTypeKind::Atomic:
+            return static_cast<std::uint64_t>(source->as_atomic().checked_as<Int>());
+        case ValueTypeKind::Tuple:
+            return static_cast<std::uint64_t>(source->as_tuple().size());
+        case ValueTypeKind::Bundle:
+            return static_cast<std::uint64_t>(source->as_bundle().size());
+        case ValueTypeKind::List:
+            return static_cast<std::uint64_t>(source->as_list().size());
+        case ValueTypeKind::Set:
+            return static_cast<std::uint64_t>(source->as_set().size());
+        case ValueTypeKind::Map:
+            return static_cast<std::uint64_t>(source->as_map().size());
+        case ValueTypeKind::CyclicBuffer:
+            return static_cast<std::uint64_t>(source->as_cyclic_buffer().size());
+        case ValueTypeKind::Queue:
+            return static_cast<std::uint64_t>(source->as_queue().size());
+        case ValueTypeKind::Any:
+            throw std::runtime_error("unexpected Any in manual atomic value dispatch");
+        }
+        throw std::runtime_error("unknown kind in manual atomic value dispatch");
+    };
+    const auto visitor_atomic_value_dispatch = [&] {
+        const auto *source = g_atomic_value_view_input.load(std::memory_order_relaxed);
+        return visit(
+            *source,
+            [](AtomicView selected) {
+                return static_cast<std::uint64_t>(selected.checked_as<Int>());
+            },
+            [](TupleView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](BundleView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](ListView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](SetView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](MapView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](CyclicBufferView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](QueueView selected) { return static_cast<std::uint64_t>(selected.size()); });
+    };
+    require_no_allocations("value_manual_atomic_dispatch", 10'000, manual_atomic_value_dispatch);
+    require_no_allocations("value_visitor_atomic_dispatch", 10'000, visitor_atomic_value_dispatch);
+    run_benchmark(
+        "value_manual_atomic_dispatch", 200'000, samples, warmup,
+        manual_atomic_value_dispatch,
+        [](std::uint64_t value) {
+            if (value != 41) { throw std::runtime_error("manual atomic value dispatch failed"); }
+        });
+    run_benchmark(
+        "value_visitor_atomic_dispatch", 200'000, samples, warmup,
+        visitor_atomic_value_dispatch,
+        [](std::uint64_t value) {
+            if (value != 41) { throw std::runtime_error("visitor atomic value dispatch failed"); }
+        });
+
     TSOutput scalar_output{*ts_int};
     {
         auto mutation = scalar_output.begin_mutation(MIN_ST);
@@ -719,6 +775,66 @@ int main()
             throw std::runtime_error("composite TS setup failed");
         }
     }
+
+    auto bundle_value_view = bundle_output.view(MIN_ST).value();
+    g_atomic_value_view_input.store(&bundle_value_view, std::memory_order_release);
+    const auto manual_bundle_value_dispatch = [&] {
+        const auto *source = g_atomic_value_view_input.load(std::memory_order_relaxed);
+        switch (source->schema()->value_kind())
+        {
+        case ValueTypeKind::Atomic:
+            return static_cast<std::uint64_t>(source->as_atomic().checked_as<Int>());
+        case ValueTypeKind::Tuple:
+            return static_cast<std::uint64_t>(source->as_tuple().size());
+        case ValueTypeKind::Bundle:
+            return static_cast<std::uint64_t>(source->as_bundle().size());
+        case ValueTypeKind::List:
+            return static_cast<std::uint64_t>(source->as_list().size());
+        case ValueTypeKind::Set:
+            return static_cast<std::uint64_t>(source->as_set().size());
+        case ValueTypeKind::Map:
+            return static_cast<std::uint64_t>(source->as_map().size());
+        case ValueTypeKind::CyclicBuffer:
+            return static_cast<std::uint64_t>(source->as_cyclic_buffer().size());
+        case ValueTypeKind::Queue:
+            return static_cast<std::uint64_t>(source->as_queue().size());
+        case ValueTypeKind::Any:
+            throw std::runtime_error("unexpected Any in manual bundle value dispatch");
+        }
+        throw std::runtime_error("unknown kind in manual bundle value dispatch");
+    };
+    const auto visitor_bundle_value_dispatch = [&] {
+        const auto *source = g_atomic_value_view_input.load(std::memory_order_relaxed);
+        return visit(
+            *source,
+            [](BundleView selected) {
+                return static_cast<std::uint64_t>(selected.size());
+            },
+            [](AtomicView selected) {
+                return static_cast<std::uint64_t>(selected.checked_as<Int>());
+            },
+            [](TupleView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](ListView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](SetView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](MapView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](CyclicBufferView selected) { return static_cast<std::uint64_t>(selected.size()); },
+            [](QueueView selected) { return static_cast<std::uint64_t>(selected.size()); });
+    };
+    require_no_allocations("value_manual_bundle_dispatch", 10'000, manual_bundle_value_dispatch);
+    require_no_allocations("value_visitor_bundle_dispatch", 10'000, visitor_bundle_value_dispatch);
+    run_benchmark(
+        "value_manual_bundle_dispatch", 200'000, samples, warmup,
+        manual_bundle_value_dispatch,
+        [](std::uint64_t value) {
+            if (value != 2) { throw std::runtime_error("manual bundle value dispatch failed"); }
+        });
+    run_benchmark(
+        "value_visitor_bundle_dispatch", 200'000, samples, warmup,
+        visitor_bundle_value_dispatch,
+        [](std::uint64_t value) {
+            if (value != 2) { throw std::runtime_error("visitor bundle value dispatch failed"); }
+        });
+
     run_benchmark(
         "fixed_composite_ts_child_read", 50000, samples, warmup,
         [&] {

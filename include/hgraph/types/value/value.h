@@ -15,6 +15,7 @@
 #include <hgraph/types/value/value_view.h>
 
 #include <compare>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -115,8 +116,11 @@ namespace hgraph
             }
             storage_ = storage_type(*binding.record());
             // The owner has default-constructed the payload; assign the
-            // caller-supplied value into the live storage.
-            *static_cast<T *>(storage_.data()) = std::move(value);
+            // caller-supplied value through the registered lifecycle table.
+            // Besides keeping scalar construction on the erased contract,
+            // this lets the owner select inline or heap storage without a
+            // caller-side typed cast into its inline buffer.
+            binding.move_assign_at(storage_.data(), std::addressof(value));
         }
 
         // Copy and move are inherited from ``ErasedOwner`` — copy
@@ -157,6 +161,11 @@ namespace hgraph
         }
 
         // -- atomic access shortcuts --
+        [[nodiscard]] AtomicView as_atomic() const { return view().as_atomic(); }
+        [[nodiscard]] AtomicView as_atomic() { return view().as_atomic(); }
+        [[nodiscard]] std::optional<AtomicView> try_as_atomic() const { return view().try_as_atomic(); }
+        [[nodiscard]] std::optional<AtomicView> try_as_atomic() { return view().try_as_atomic(); }
+
         template <typename T>
         [[nodiscard]] const T &as() const
         {

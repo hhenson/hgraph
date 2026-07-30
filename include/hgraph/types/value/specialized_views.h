@@ -149,6 +149,23 @@ namespace hgraph
         }
     }  // namespace specialized_view_detail
 
+    /** Shape-tagged read-only view over an open-ended atomic value. */
+    class AtomicView : public ValueView
+    {
+      public:
+        static constexpr ValueTypeKind kind = ValueTypeKind::Atomic;
+
+        explicit AtomicView(ValueView base)
+            : ValueView(specialized_view_detail::require_kind(std::move(base), kind, "AtomicView"))
+        {
+        }
+
+      private:
+        AtomicView(ValueView base, detail::TrustedValueKind) : ValueView(std::move(base)) {}
+
+        friend struct detail::ValueVisitorAccess;
+    };
+
     /**
      * Base for views over positionally-addressed kinds. Tuple, bundle,
      * fixed-size list, and compact dynamic containers all forward
@@ -255,12 +272,19 @@ namespace hgraph
     class TupleView : public IndexedValueView
     {
       public:
+        static constexpr ValueTypeKind kind = ValueTypeKind::Tuple;
+
         explicit TupleView(ValueView base)
-            : IndexedValueView(specialized_view_detail::require_kind(std::move(base), ValueTypeKind::Tuple, "TupleView"))
+            : IndexedValueView(specialized_view_detail::require_kind(std::move(base), kind, "TupleView"))
         {
         }
 
         [[nodiscard]] MutableTupleView begin_mutation() const;
+
+      private:
+        TupleView(ValueView base, detail::TrustedValueKind) : IndexedValueView(std::move(base)) {}
+
+        friend struct detail::ValueVisitorAccess;
     };
 
     class MutableTupleView : public MutableIndexedValueView
@@ -277,11 +301,13 @@ namespace hgraph
     class BundleView : public IndexedValueView
     {
       public:
+        static constexpr ValueTypeKind kind = ValueTypeKind::Bundle;
+
         using IndexedValueView::at;
         using IndexedValueView::operator[];
 
         explicit BundleView(ValueView base)
-            : IndexedValueView(specialized_view_detail::require_kind(std::move(base), ValueTypeKind::Bundle, "BundleView"))
+            : IndexedValueView(specialized_view_detail::require_kind(std::move(base), kind, "BundleView"))
         {
         }
 
@@ -309,6 +335,11 @@ namespace hgraph
 
         [[nodiscard]] const ValueView field(std::string_view name) const { return at(name); }
         [[nodiscard]] const ValueView operator[](std::string_view name) const { return at(name); }
+
+      private:
+        BundleView(ValueView base, detail::TrustedValueKind) : IndexedValueView(std::move(base)) {}
+
+        friend struct detail::ValueVisitorAccess;
     };
 
     class MutableBundleView : public MutableIndexedValueView
@@ -351,8 +382,10 @@ namespace hgraph
     class ListView : public IndexedValueView
     {
       public:
+        static constexpr ValueTypeKind kind = ValueTypeKind::List;
+
         explicit ListView(ValueView base)
-            : IndexedValueView(specialized_view_detail::require_kind(std::move(base), ValueTypeKind::List, "ListView"))
+            : IndexedValueView(specialized_view_detail::require_kind(std::move(base), kind, "ListView"))
         {
         }
 
@@ -371,6 +404,11 @@ namespace hgraph
             if (empty()) { throw std::out_of_range("ListView::back on empty list"); }
             return at(size() - 1);
         }
+
+      private:
+        ListView(ValueView base, detail::TrustedValueKind) : IndexedValueView(std::move(base)) {}
+
+        friend struct detail::ValueVisitorAccess;
     };
 
     class MutableListView : public MutableIndexedValueView
@@ -491,9 +529,11 @@ namespace hgraph
     class CyclicBufferView : public IndexedValueView
     {
       public:
+        static constexpr ValueTypeKind kind = ValueTypeKind::CyclicBuffer;
+
         explicit CyclicBufferView(ValueView base)
             : IndexedValueView(
-                  specialized_view_detail::require_kind(std::move(base), ValueTypeKind::CyclicBuffer, "CyclicBufferView"))
+                  specialized_view_detail::require_kind(std::move(base), kind, "CyclicBufferView"))
         {
             cyclic_buffer_ops_ = specialized_view_detail::checked_cyclic_buffer_ops(binding(), "CyclicBufferView");
         }
@@ -521,6 +561,14 @@ namespace hgraph
         }
 
       private:
+        CyclicBufferView(ValueView base, detail::TrustedValueKind)
+            : IndexedValueView(std::move(base))
+            , cyclic_buffer_ops_{specialized_view_detail::checked_cyclic_buffer_ops(binding(), "CyclicBufferView")}
+        {
+        }
+
+        friend struct detail::ValueVisitorAccess;
+
         const CyclicBufferValueOps *cyclic_buffer_ops_{nullptr};
     };
 
@@ -559,8 +607,10 @@ namespace hgraph
     class QueueView : public IndexedValueView
     {
       public:
+        static constexpr ValueTypeKind kind = ValueTypeKind::Queue;
+
         explicit QueueView(ValueView base)
-            : IndexedValueView(specialized_view_detail::require_kind(std::move(base), ValueTypeKind::Queue, "QueueView"))
+            : IndexedValueView(specialized_view_detail::require_kind(std::move(base), kind, "QueueView"))
         {
             queue_ops_ = specialized_view_detail::checked_queue_ops(binding(), "QueueView");
         }
@@ -586,6 +636,14 @@ namespace hgraph
         }
 
       private:
+        QueueView(ValueView base, detail::TrustedValueKind)
+            : IndexedValueView(std::move(base))
+            , queue_ops_{specialized_view_detail::checked_queue_ops(binding(), "QueueView")}
+        {
+        }
+
+        friend struct detail::ValueVisitorAccess;
+
         const QueueValueOps *queue_ops_{nullptr};
     };
 
@@ -632,8 +690,10 @@ namespace hgraph
     class SetView : public ValueView
     {
       public:
+        static constexpr ValueTypeKind kind = ValueTypeKind::Set;
+
         explicit SetView(ValueView base)
-            : ValueView(specialized_view_detail::require_kind(std::move(base), ValueTypeKind::Set, "SetView"))
+            : ValueView(specialized_view_detail::require_kind(std::move(base), kind, "SetView"))
         {
             ops_ = specialized_view_detail::checked_set_ops(binding(), "SetView");
         }
@@ -670,6 +730,14 @@ namespace hgraph
         [[nodiscard]] MutableSetView begin_mutation() const;
 
       private:
+        SetView(ValueView base, detail::TrustedValueKind)
+            : ValueView(std::move(base))
+            , ops_{specialized_view_detail::checked_set_ops(binding(), "SetView")}
+        {
+        }
+
+        friend struct detail::ValueVisitorAccess;
+
         const SetValueOps *ops_{nullptr};
     };
 
@@ -736,8 +804,10 @@ namespace hgraph
     class MapView : public ValueView
     {
       public:
+        static constexpr ValueTypeKind kind = ValueTypeKind::Map;
+
         explicit MapView(ValueView base)
-            : ValueView(specialized_view_detail::require_kind(std::move(base), ValueTypeKind::Map, "MapView"))
+            : ValueView(specialized_view_detail::require_kind(std::move(base), kind, "MapView"))
         {
             ops_ = specialized_view_detail::checked_map_ops(binding(), "MapView");
         }
@@ -799,6 +869,14 @@ namespace hgraph
         [[nodiscard]] MutableMapView begin_mutation() const;
 
       private:
+        MapView(ValueView base, detail::TrustedValueKind)
+            : ValueView(std::move(base))
+            , ops_{specialized_view_detail::checked_map_ops(binding(), "MapView")}
+        {
+        }
+
+        friend struct detail::ValueVisitorAccess;
+
         [[nodiscard]] bool key_compatible(const ValueView &key) const noexcept
         {
             return specialized_view_detail::binding_matches(
@@ -943,6 +1021,17 @@ namespace hgraph
     {
         if (!is_indexed()) { throw std::logic_error("ValueView::as_indexed_view on non-indexed view"); }
         return IndexedValueView{borrowed_ref()};
+    }
+
+    inline AtomicView ValueView::as_atomic() const
+    {
+        if (!is_atomic()) { throw std::logic_error("ValueView::as_atomic on non-atomic view"); }
+        return AtomicView{borrowed_ref()};
+    }
+
+    inline std::optional<AtomicView> ValueView::try_as_atomic() const
+    {
+        return is_atomic() ? std::optional<AtomicView>{AtomicView{borrowed_ref()}} : std::nullopt;
     }
 
     inline std::optional<IndexedValueView> ValueView::try_as_indexed_view() const
