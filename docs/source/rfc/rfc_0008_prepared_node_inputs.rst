@@ -489,9 +489,9 @@ common readiness gate (all other node kinds keep the existing projection
 path unchanged).  Each slot holds exactly two non-owning words of route
 state:
 
-* a pointer to the slot's active-trie node (``TSInputTargetActiveNode``),
-  whose ``observed`` output handle the runtime already replaces in place on
-  every topology event; and
+* a pointer to the slot's active-trie root node
+  (``TSInputTargetActiveNode``), whose ``observed`` output handle the
+  runtime already replaces in place on every topology event; and
 * the slot's target-link storage reference, from which the input cursor is
   reconstructed so that sampled-rebind blending, structural-transition
   checks, and link-local tracking reads keep their existing semantics.  The
@@ -508,10 +508,15 @@ Lifecycle:
   after the user ``stop`` hook, so the trie node is still live at clear time.
   Nested static children acquire and clear on every child start/stop, which
   keeps dynamic-slot reuse correct without new bookkeeping.
-* **Validity per use** is the handle's own bound state: source invalidation
-  and ``make_passive`` clear ``observed`` in place while the trie node stays
-  alive, so an unbound handle *is* the fallback signal.  No generation
-  counter is added (the alternative already rejected above).
+* **Validity per use** re-checks the full trust condition that
+  ``resolved_target_at_path`` requires — locally active, value-kind
+  observation, bound.  Source invalidation and ``make_passive`` clear
+  ``observed`` in place while the trie node stays alive; a runtime
+  ``make_structural_active`` swaps in a *bound structural* handle on the
+  same node, which the kind check rejects (a bound-only check would expose
+  structural storage as the value route).  Any failed condition falls back
+  to full resolution.  No generation counter is added (the alternative
+  already rejected above).
 
 Non-pruning becomes a contract.  The active-trie pruning helpers
 (``try_prune_child`` / ``try_prune_active_root``) are dead code today; stage

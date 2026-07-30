@@ -24,17 +24,21 @@ namespace hgraph
          * A prepared canonical-slot route (RFC 0008 stage 5): the per-tick
          * cache that replaces the projection walk for a static node's input
          * slot. ``data`` is the slot's target-link storage (target slots) or
-         * its owned input storage (non-target slots); ``observed`` points at
-         * the active-trie root's in-place-updated output handle when the slot
-         * is actively observed. Non-owning throughout: acquired after input
-         * activation, cleared before deactivation, validity re-checked per
-         * use via ``observed->bound()``.
+         * its owned input storage (non-target slots); ``route`` points at the
+         * active-trie root, whose ``observed`` handle the runtime updates in
+         * place. Non-owning throughout: acquired after input activation,
+         * cleared before deactivation. Validity is re-checked per use with
+         * the SAME trust condition as ``resolved_target_at_path`` —
+         * locally active, value-kind observation, bound — because a runtime
+         * ``make_structural_active()`` replaces the same node's handle with
+         * a bound STRUCTURAL view (``bound()`` alone would expose the wrong
+         * shape as the value route).
          */
         struct PreparedInputSlotRoute
         {
-            TSDataStorageRef<>    data{};
-            const TSOutputHandle *observed{nullptr};
-            bool                  target{false};
+            TSDataStorageRef<>                     data{};
+            const detail::TSInputTargetActiveNode *route{nullptr};
+            bool                                   target{false};
 
             [[nodiscard]] bool ready() const noexcept { return data.has_value(); }
         };
@@ -231,10 +235,12 @@ namespace hgraph
             // denote descendant path nodes. Null denotes non-target storage.
             detail::TSInputTargetActiveNode *target_node{nullptr};
             // Prepared-route fast path (RFC 0008 stage 5): set only by
-            // ``child_from_prepared``. Points at the active-trie root's
-            // in-place-updated handle; ``bound()`` false falls back to the
-            // full resolution, so rebind/invalidation semantics are kept.
-            const TSOutputHandle *route_observed{nullptr};
+            // ``child_from_prepared``. Points at the active-trie root; reads
+            // re-check locally-active + value-kind + bound (the
+            // ``resolved_target_at_path`` trust condition) and fall back to
+            // full resolution otherwise, so rebind/invalidation/activity-kind
+            // switches keep exact semantics.
+            const detail::TSInputTargetActiveNode *route_node{nullptr};
         };
 
         TSInputView(TSInput                         *input,

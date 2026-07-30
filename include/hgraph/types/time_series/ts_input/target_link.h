@@ -27,8 +27,9 @@ namespace hgraph::detail
      * destroyed or assigned over. Deactivation (``make_passive``) resets
      * ``observed`` in place but keeps the node; storage move-construction
      * repoints the tree without relocating nodes. Prepared input slots hold
-     * non-owning pointers into this trie and rely on that stability, with
-     * ``observed.bound()`` as their per-use validity check.
+     * non-owning pointers into this trie and rely on that stability; their
+     * per-use trust check mirrors ``resolved_target_at_path`` (locally
+     * active, value-kind observation, bound).
      */
     struct TSInputTargetActiveNode
     {

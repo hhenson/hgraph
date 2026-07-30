@@ -40,7 +40,7 @@ namespace hgraph
     {
         InputDataCursor cursor{value_data.borrowed_ref(), raw_data.borrowed_ref(), target_node,
                                Classification::Known};
-        cursor.route_observed = route_observed;
+        cursor.route_node = route_node;
         return cursor;
     }
 
@@ -89,12 +89,18 @@ namespace hgraph
     const TSDataView &TSInputView::InputDataCursor::resolved_value_data() const noexcept
     {
         // Prepared route (RFC 0008 stage 5): the trie node's handle is
-        // replaced in place on every topology event, so a bound handle IS the
-        // current target; unbound falls through to the full resolution
-        // (which also serves rebuilding after source invalidation).
-        if (route_observed != nullptr && route_observed->bound())
+        // replaced in place on every topology event, so a TRUSTED handle IS
+        // the current target. Trust means the same three conditions
+        // ``resolved_target_at_path`` requires — locally active, value-kind
+        // observation, bound — because a runtime ``make_structural_active()``
+        // swaps in a bound STRUCTURAL handle on this same node. Anything
+        // else falls through to the full resolution (which also serves
+        // rebuilding after source invalidation).
+        if (route_node != nullptr && route_node->locally_active &&
+            route_node->observation_kind == detail::TSInputObservationKind::Value &&
+            route_node->observed.bound())
         {
-            value_data = route_observed->data_view();
+            value_data = route_node->observed.data_view();
             return value_data;
         }
         if (is_target_position()) { value_data = detail::target_link_resolve(raw_data, target_path_node()); }
@@ -720,15 +726,12 @@ namespace hgraph
             route.target = true;
             const auto *storage = detail::target_link_storage(projection.target_link);
             const auto *state   = storage != nullptr ? storage->state() : nullptr;
-            const auto *root    = state != nullptr ? state->active_root() : nullptr;
-            // Mirror ``resolved_target_at_path``'s trust conditions at acquire
-            // time; a runtime make_passive/make_active toggle keeps working
-            // because it resets/re-sets the SAME in-place handle.
-            if (root != nullptr && root->locally_active &&
-                root->observation_kind == detail::TSInputObservationKind::Value)
-            {
-                route.observed = &root->observed;
-            }
+            // The trie root pointer is stable for the storage's lifetime
+            // (non-pruning contract); the trust conditions are re-checked at
+            // EVERY read, not frozen here, so runtime activity toggles
+            // (make_passive / make_active / make_structural_active) keep
+            // exact semantics.
+            route.route = state != nullptr ? state->active_root() : nullptr;
         }
         else { route.data = projection.visible.storage_ref(); }
         return route;
@@ -748,7 +751,7 @@ namespace hgraph
         TSInputView view{input_, TSDataView{}, TSDataView{route.data}, target_root_marker(),
                          scheduling_notifier_, evaluation_time_,
                          InputDataCursor::Classification::Known};
-        view.data_.route_observed = route.observed;
+        view.data_.route_node = route.route;
         return view;
     }
 
