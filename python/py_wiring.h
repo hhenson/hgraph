@@ -7,6 +7,7 @@
 #ifndef HGRAPH_PYTHON_PY_WIRING_H
 #define HGRAPH_PYTHON_PY_WIRING_H
 
+#include "py_cycle_gil.h"
 #include "py_runtime.h"
 
 namespace hgraph::python_bridge
@@ -308,7 +309,16 @@ namespace hgraph::python_bridge
             {
                 eb.add_lifecycle_observer(run->profiler.get());
             }
+            // NOT registered at build time: the first python re-entry adds it
+            // to the runtime observer list (appended last, so its release runs
+            // after every other observer's after-hook), and pure-native runs
+            // never pay the per-cycle hook dispatch.
+            auto cycle_gil_owned = std::make_unique<PyCycleGilObserver>();
+            auto *cycle_gil      = cycle_gil_owned.get();
+            run->observers.push_back(std::move(cycle_gil_owned));
             run->executor = eb.make_executor();
+            cycle_gil->bind_root(run->executor.view().graph().data(),
+                                 &run->executor.view().lifecycle_observers());
 
             if (py_has_active_runtime_global_state())
             {
@@ -334,10 +344,23 @@ namespace hgraph::python_bridge
                         run->executor.view().graph().global_state());
                 }
             });
+            py_active_cycle_gil = cycle_gil;
+            auto clear_cycle_gil = UnwindCleanupGuard([&] {
+                // Final balance: a preceding observer throwing out of the LAST
+                // cycle's after-notification would leak the hold past the run
+                // (mid-run leaks self-heal at the next cycle's
+                // before-notification). Release here, before gil_scoped_release
+                // rebalances, so the PyGILState pairing always closes.
+                cycle_gil->release_if_held();
+                py_active_cycle_gil = nullptr;
+            });
             annotate_on_exception(
                 [&] {
-                    // Ruling: the GIL is released the instant we enter the run
-                    // loop; python user nodes re-acquire it per call.
+                    // Ruling (refined 2026-07-29): the GIL is released the
+                    // instant we enter the run loop; the FIRST python re-entry
+                    // of each cycle takes it and the cycle observer releases it
+                    // at root-cycle end (py_cycle_gil.h). It stays free while
+                    // the loop waits between cycles.
                     nb::gil_scoped_release release;
                     run->executor.view().run();
                 },
@@ -350,6 +373,7 @@ namespace hgraph::python_bridge
                             std::shared_ptr<PyRun>{std::move(run)}};
                     }
                 });
+            clear_cycle_gil.complete();
             clear_runtime_state.complete();
             copy_runtime_state.complete();
             return run;

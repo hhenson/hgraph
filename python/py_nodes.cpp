@@ -1,14 +1,24 @@
 /**
  * Python user nodes (@compute_node / @generator / @sink_node).
- * Ruling: graph-thread only, both modes; the GIL is RELEASED on
- * entering the run loop and ACQUIRED around each python call; values
- * cross the boundary through the module converters.
+ * Ruling (refined 2026-07-30): graph-thread only, both modes; the GIL is
+ * RELEASED on entering the run loop and held COARSE-GRAINED per cycle once
+ * the run is known to contain python nodes: the node START trampolines call
+ * py_cycle_gil_note_python_call() (once per node instance — the note's
+ * thread-local read stays off the per-tick path; general-dynamic TLS
+ * through this .so is the expensive access pattern), which arms
+ * PyCycleGilObserver to take the GIL at each root cycle start and release
+ * it at cycle end. Every trampoline keeps its ordinary
+ * nb::gil_scoped_acquire — a cheap recursive ensure while the cycle holds
+ * the lock. The startless diagnostic nodes (type_py / getattr_type_name)
+ * keep plain per-call acquires. Values cross the boundary through the
+ * module converters.
  *
  * Everything here is TU-local by design (the node/op structs' typeid IS
  * node identity, but registration happens only in this file through
  * register_python_overloads()).
  */
 #include "py_bindings.h"
+#include "py_cycle_gil.h"
 #include "py_runtime.h"
 
 namespace nb = nanobind;
@@ -834,6 +844,9 @@ void py_call_lifecycle(const PyNodeRef &fn, bool enabled,
                        GlobalStateView global_state, EngineControlView engine,
                        const NodeView &node,
                        const TSInputView *inputs = nullptr) {
+  // Arms the per-cycle GIL hold (start/stop run once per node instance —
+  // the note's thread-local read stays OFF the per-tick path).
+  py_cycle_gil_note_python_call();
   if (!enabled) {
     return;
   }
@@ -975,6 +988,7 @@ struct py_fast_compute_node {
         Scalar<"scalars", ScalarVar<"SV">> scalars,
         State<PyFastComputeStateRef> state, SingleShotScheduler initial_sample,
         GlobalStateView global_state, Out<TsVar<"O">> out) {
+    py_cycle_gil_note_python_call();
     PyCallShape shape = parse_py_call_shape(config.value());
     py_apply_input_activity(shape.layout, args.base());
     py_schedule_initial_reference_sample(shape.layout, args.base(),
@@ -1136,6 +1150,7 @@ struct py_compute_recordable_node {
         RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
         SingleShotScheduler initial_sample, GlobalStateView global_state,
         EngineControlView engine, NodeView node) {
+    py_cycle_gil_note_python_call();
     const auto layout = parse_py_call_shape(eval_config.value()).layout;
     py_apply_input_activity(layout, args.base());
     py_schedule_initial_reference_sample(layout, args.base(), initial_sample);
@@ -1384,6 +1399,7 @@ struct py_generator_node {
                     State<PyGenStateRef> state, NodeScheduler sched,
                     GlobalStateView global_state, EngineControlView engine,
                     NodeView node) {
+    py_cycle_gil_note_python_call();
     nb::gil_scoped_acquire gil;
     translate_python_error([&] {
       auto handle = std::make_unique<PyGenHandle>();

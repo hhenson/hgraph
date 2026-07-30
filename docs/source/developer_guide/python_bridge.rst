@@ -174,16 +174,42 @@ GIL boundaries
 --------------
 
 The runtime evaluates without the GIL: ``PyWiring::run`` releases it the
-instant the run loop is entered. Every re-entry into Python therefore
-acquires it locally: the user-node trampolines (compute/sink/generator
-lifecycle and eval), the overload wire trampolines and ``requires`` bridges,
-``io_write_slot`` (diagnostic sinks route through ``sys.stdout``/``stderr``),
-and push-source senders (which *release* around the blocking C++ send from
-Python threads). The lock-ordering rules live in :doc:`python_integration`
-(*GIL And Runtime Locks*); the implementation rule here is simpler: **GIL
-scopes move verbatim** — when relocating code, never widen or narrow an
-acquire/release, and keep the ruling comments attached to
-``PyWiring::run`` and the sender.
+instant the run loop is entered. Within a run, the hold is **cycle-scoped
+and coarse-grained** (Howard's ruling 2026-07-30, ``python/py_cycle_gil.h``):
+once the run is known to contain python nodes, ``PyCycleGilObserver`` takes
+the GIL at the start of every root evaluation cycle and releases it when the
+*root* graph's after-evaluation notification fires (normal completion and
+escaping exceptions alike). Every python re-entry keeps its ordinary local
+acquire — under the held cycle lock that is a cheap recursive ensure, and
+there is no hold hand-off between trampolines and observer to get wrong.
+The GIL is therefore always free while the real-time loop waits between
+cycles, preserving the sender-liveness guarantee; what changed is only that
+N per-node acquire/release pairs inside one cycle collapsed to one (measured
+at ~6% of ``pthread_mutex`` traffic on dense python graphs).
+
+"Contains python nodes" is detected at runtime: the node START trampolines
+call ``py_cycle_gil_note_python_call()``, which registers the observer on
+first use — *last* on the executor's lifecycle-observer list, so every other
+observer's after-hook still sees the GIL held. Pure-native runs never
+register it and pay nothing. The note reads a ``thread_local`` holder
+(matching the per-thread active-runtime guard, so concurrent per-thread runs
+each arm only their own observer); that read happens once per node *start*,
+never on the per-tick path — general-dynamic TLS through the bridge ``.so``
+is the expensive access pattern and is deliberately kept off the tick path.
+Two safety nets bound a buggy observer that throws out of the
+after-notification before the release runs: the next root
+before-notification finds the hold still armed and keeps it (no
+double-ensure), and the run wrapper releases on exit, so the ``PyGILState``
+pairing always closes. The startless diagnostic nodes (``type_py``,
+``getattr_type_name``), one-time start/stop bodies, the overload wire
+trampolines and ``requires`` bridges, ``io_write_slot``, the lowered
+``run_lowered`` frame path (no observer is armed there), and push-source
+senders (which *release* around the blocking C++ send from Python threads)
+all keep their plain local acquires. The lock-ordering rules live in
+:doc:`python_integration` (*GIL And Runtime Locks*); the implementation rule
+stays: **GIL scopes move verbatim** — when relocating code, never widen or
+narrow an acquire/release, and keep the ruling comments attached to
+``PyWiring::run``, ``py_nodes.cpp``, and the sender.
 
 Python-owned Bundle bindings
 ----------------------------
