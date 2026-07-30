@@ -27,6 +27,7 @@
 #ifndef HGRAPH_PYTHON_PY_VALUE_MIRROR_H
 #define HGRAPH_PYTHON_PY_VALUE_MIRROR_H
 
+#include <hgraph/types/static_schema.h>
 #include <hgraph/util/date_time.h>
 
 #include <Python.h>
@@ -116,6 +117,26 @@ namespace hgraph::python_bridge
 
         ankerl::unordered_dense::map<const void *, Entry> entries_{};
     };
+
+    /** Mirror only where conversion is EXPENSIVE (issue #204 measurement:
+        int-typed chains regressed 3.7% — a PyLong construction is cheaper
+        than the map probe+store the mirror adds). Cheap scalar schemas are
+        excluded at BOTH probe and store, so their outputs are never marked
+        wanted and their reads never probe. Pointer compares only. */
+    [[nodiscard]] inline bool py_mirror_eligible(const ValueTypeMetaData *value_schema) noexcept
+    {
+        if (value_schema == nullptr) { return false; }
+        static const ValueTypeMetaData *const cheap[] = {
+            scalar_descriptor<Int>::value_meta(),
+            scalar_descriptor<Float>::value_meta(),
+            scalar_descriptor<Bool>::value_meta(),
+        };
+        for (const auto *meta : cheap)
+        {
+            if (value_schema == meta) { return false; }
+        }
+        return true;
+    }
 
     /** The run currently evaluating on THIS THREAD (same per-thread pattern
         and rationale as ``py_active_cycle_gil``). Null outside a run — every

@@ -43,6 +43,7 @@ void apply_py_result(nb::handle result, Out<TsVar<"O">> &out) {
     // python readers of this output. Plain TS only; sets are excluded
     // because the converted read path deliberately returns a frozenset.
     if (erased.schema()->kind == TSTypeKind::TS &&
+        py_mirror_eligible(erased.schema()->value_schema) &&
         !PyAnySet_Check(result.ptr())) {
       if (auto *mirror = py_active_value_mirror; mirror != nullptr) {
         mirror->store(erased.data_view().data(), erased.evaluation_time(),

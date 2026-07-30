@@ -671,7 +671,8 @@ namespace hgraph::python_bridge
                 // read by python skips conversion — an lmt-matched entry IS
                 // the current value (single writer per output). A miss marks
                 // the output wanted so future python writes mirror it.
-                if (auto *mirror = py_active_value_mirror; mirror != nullptr)
+                if (auto *mirror = py_active_value_mirror;
+                    mirror != nullptr && py_mirror_eligible(schema->value_schema))
                 {
                     if (PyObject *hit = mirror->probe(data.data(), data.last_modified_time()))
                     {
