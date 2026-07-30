@@ -52,6 +52,13 @@ namespace hgraph::python_bridge
         void on_before_graph_evaluation(const GraphView &graph) override
         {
             if (graph.data() != root_) { return; }
+            // Self-heal: if a PRECEDING observer threw out of the previous
+            // cycle's after-notification before this (last-registered)
+            // observer ran, the hold leaked past the cycle boundary. Release
+            // it here — the next cycle is only now beginning, so the GIL was
+            // wrongly held across exactly the window that already misbehaved,
+            // and the imbalance stops at one cycle.
+            release_if_held();
             in_cycle_ = true;
         }
 
@@ -59,6 +66,13 @@ namespace hgraph::python_bridge
         {
             if (graph.data() != root_) { return; }
             in_cycle_ = false;
+            release_if_held();
+        }
+
+        /** Balance the hold if armed; safe on the owning thread only (the
+            run wrapper's cleanup and the observer hooks). */
+        void release_if_held() noexcept
+        {
             if (held_)
             {
                 held_ = false;
@@ -102,11 +116,17 @@ namespace hgraph::python_bridge
         bool                   registered_{false};
     };
 
-    /** The run currently evaluating on this process (the bridge rejects a
-        second concurrent run before entering the loop, so a plain global
-        suffices; ``try_hold`` still thread-checks for the lowered path and
-        sender threads). Set/cleared around ``run()`` in py_wiring. */
-    inline PyCycleGilObserver *py_active_cycle_gil{nullptr};
+    /** The run currently evaluating on THIS THREAD. Runs are per-thread (the
+        active-runtime guard in py_runtime.h is thread_local, and the
+        run_graph_on_thread adaptor runs graphs on background python threads
+        concurrently), so the holder must be too: a process-global pointer
+        could be read by one run's trampoline while another thread's run tears
+        its observer down. A trampoline only ever sees its own thread's
+        holder; ``try_hold``'s owner check is then a belt-and-braces
+        invariant, not the safety mechanism. Set/cleared around ``run()`` in
+        py_wiring. (Deliberate exception to the no-thread_local rule: this is
+        bridge-boundary state keyed by python thread, like the GIL itself.) */
+    inline thread_local PyCycleGilObserver *py_active_cycle_gil{nullptr};
 
     /** Drop-in replacement for ``nb::gil_scoped_acquire`` on the per-tick
         node trampolines: joins the cycle hold when one is active (no

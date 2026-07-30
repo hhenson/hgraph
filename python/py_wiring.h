@@ -345,7 +345,15 @@ namespace hgraph::python_bridge
                 }
             });
             py_active_cycle_gil = cycle_gil;
-            auto clear_cycle_gil = UnwindCleanupGuard([&] { py_active_cycle_gil = nullptr; });
+            auto clear_cycle_gil = UnwindCleanupGuard([&] {
+                // Final balance: a preceding observer throwing out of the LAST
+                // cycle's after-notification would leak the hold past the run
+                // (mid-run leaks self-heal at the next cycle's
+                // before-notification). Release here, before gil_scoped_release
+                // rebalances, so the PyGILState pairing always closes.
+                cycle_gil->release_if_held();
+                py_active_cycle_gil = nullptr;
+            });
             annotate_on_exception(
                 [&] {
                     // Ruling (refined 2026-07-29): the GIL is released the

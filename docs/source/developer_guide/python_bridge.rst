@@ -184,7 +184,14 @@ fires (normal completion and escaping exceptions alike). The GIL is therefore
 always free while the real-time loop waits between cycles, preserving the
 sender-liveness guarantee; what changed is only that N per-node
 acquire/release pairs inside one cycle collapsed to one (measured at ~6% of
-``pthread_mutex`` traffic on dense python graphs). Per-tick eval trampolines
+``pthread_mutex`` traffic on dense python graphs). The holder is
+**thread-scoped** (a ``thread_local``, matching the per-thread active-runtime
+guard): concurrent runs on different python threads each hold their own
+cycle, and a trampoline can never observe another thread's holder. Two
+safety nets bound a buggy observer that throws out of the after-notification
+before the release runs: the next root before-notification releases a leaked
+hold (mid-run), and the run wrapper releases on exit (last cycle), so the
+``PyGILState`` pairing always closes. Per-tick eval trampolines
 join the hold through ``PyCycleGil``; every other re-entry keeps its local
 acquire — one-time start/stop hooks, the overload wire trampolines and
 ``requires`` bridges, ``io_write_slot`` (diagnostic sinks route through
