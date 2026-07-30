@@ -737,6 +737,14 @@ namespace hgraph
         return route;
     }
 
+    TSInputView TSInputView::routed_child_at(std::size_t index) const
+    {
+        if (!detail::has_input_children(data_.value_data)) { return indexed_child_at(index); }
+        auto route = prepare_child_route(index);
+        if (route.ready()) { return child_from_prepared(route); }
+        return indexed_child_at(index);
+    }
+
     TSInputView TSInputView::child_from_prepared(const detail::PreparedInputSlotRoute &route) const
     {
         if (!route.target)

@@ -129,7 +129,8 @@ namespace hgraph
 
             auto input       = view.input(evaluation_time);
             auto bundle      = input.as_bundle();
-            storage.input    = bundle.at(0);
+            // Retained view: carry the prepared route (issue #203).
+            storage.input    = input.routed_child_at(0);
             auto source_input = bundle.at(1);
 
             NodeView source = source_input.bound_output().owner_node();

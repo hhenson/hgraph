@@ -380,7 +380,9 @@ namespace hgraph
 
             auto input         = capture.input(evaluation_time);
             auto bundle        = input.as_bundle();
-            storage.input      = bundle.at(0);
+            // Retained view: carry the prepared route so per-tick reads
+            // resolve through the trie handle (issue #203).
+            storage.input      = input.routed_child_at(0);
             auto subscriptions = bundle.at(1);
             if (!subscriptions.bound())
             {
@@ -404,7 +406,7 @@ namespace hgraph
 
             auto input    = capture.input(evaluation_time);
             auto bundle   = input.as_bundle();
-            storage.input = bundle.at(0);
+            storage.input = input.routed_child_at(0);
             auto requests = bundle.at(1);
             auto request_id = bundle.at(2);
             if (!requests.bound())
