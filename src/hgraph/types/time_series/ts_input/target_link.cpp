@@ -297,15 +297,6 @@ namespace hgraph::detail
         return *child;
     }
 
-    bool TSInputTargetActiveNode::try_prune_child(std::size_t slot_index)
-    {
-        const auto it = children.find(slot_index);
-        if (it == children.end()) { return false; }
-        if (it->second && it->second->has_any_active()) { return false; }
-        children.erase(it);
-        return true;
-    }
-
     void TSInputTargetActiveNode::clear_observed() noexcept
     {
         observed.reset();
@@ -386,11 +377,6 @@ namespace hgraph::detail
     {
         if (!active_root_node) { active_root_node = std::make_unique<TSInputTargetActiveNode>(); }
         return *active_root_node;
-    }
-
-    void TSInputTargetLinkState::try_prune_active_root()
-    {
-        if (active_root_node && !active_root_node->has_any_active()) { active_root_node.reset(); }
     }
 
     void TSInputTargetLinkState::clear_active_observed() noexcept

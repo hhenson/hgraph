@@ -191,6 +191,12 @@ namespace hgraph
         const MemoryUtils::StoragePlan *plan{nullptr};
     };
 
+    /** Planned field name of the static-node prepared-slot array (RFC 0008
+        stage 5). The layout caches its offset like every standard component,
+        so derived-type rebuilds (error capture, passive inputs) resolve
+        their own layout instead of inheriting a stale offset. */
+    inline constexpr std::string_view node_prepared_inputs_field{"prepared_inputs"};
+
     /**
      * Build (and intern) the node storage plan. Components destroy in
      * **reverse** order, so field placement encodes link direction:
@@ -248,6 +254,11 @@ namespace hgraph
         [[nodiscard]] NodePtr pointer() const noexcept;
         [[nodiscard]] const NodeTypeMetaData *schema() const noexcept;
         [[nodiscard]] void *data() const noexcept;
+        /** The node's planned prepared-slot array (RFC 0008 stage 5), or
+            null when this node type carries none. Type-erased so the node
+            layer stays independent of the static-node header; static nodes
+            cast to their ``PreparedInputSlotRoute`` array. */
+        [[nodiscard]] void *prepared_input_routes() const noexcept;
 
         [[nodiscard]] std::string_view label() const noexcept;
         [[nodiscard]] NodeKind node_kind() const noexcept;

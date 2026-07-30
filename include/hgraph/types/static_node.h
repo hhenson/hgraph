@@ -14,6 +14,9 @@
 #include <hgraph/types/time_series/ts_data/set_view.h>
 #include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/time_series/ts_input/bundle_view.h>
+#include <hgraph/runtime/prepared_input_routes.h>
+#include <hgraph/types/time_series/ts_input/detail.h>
+#include <hgraph/util/scope.h>
 #include <hgraph/types/time_series/ts_input/dict_view.h>
 #include <hgraph/types/time_series/ts_input/list_view.h>
 #include <hgraph/types/time_series/ts_input/set_view.h>
@@ -1914,11 +1917,15 @@ namespace hgraph
 
         // Per-hook scratch only. Keeping the roots beyond this frame would
         // retain input-route state across rebind and dynamic-slot lifecycles.
+        // ``routes`` (RFC 0008 stage 5) is the node's planned prepared-slot
+        // array: per-tick slot views rebuild from the cached route instead of
+        // re-walking the projection; an unready route falls back.
         class StaticNodeInvocationFrame
         {
           public:
-            StaticNodeInvocationFrame(const NodeView &view, DateTime evaluation_time)
-                : view_(view), evaluation_time_(evaluation_time)
+            StaticNodeInvocationFrame(const NodeView &view, DateTime evaluation_time,
+                                      const detail::PreparedInputSlotRoute *routes = nullptr)
+                : view_(view), evaluation_time_(evaluation_time), routes_(routes)
             {
             }
 
@@ -1930,6 +1937,10 @@ namespace hgraph
                 if (!input_root_.has_value())
                 {
                     input_root_.emplace(view_.input(evaluation_time_));
+                }
+                if (routes_ != nullptr && routes_[slot].ready())
+                {
+                    return input_root_->child_from_prepared(routes_[slot]);
                 }
                 return input_root_->indexed_child_at(slot);
             }
@@ -1951,6 +1962,7 @@ namespace hgraph
           private:
             const NodeView            &view_;
             DateTime                   evaluation_time_;
+            const detail::PreparedInputSlotRoute *routes_{nullptr};
             std::optional<TSInputView> input_root_{};
             std::optional<BundleView>  scalar_root_{};
         };
@@ -2124,23 +2136,25 @@ namespace hgraph
         template <auto Fn, typename CanonicalArgs, std::size_t... I>
         void invoke_impl(const NodeView &view,
                          DateTime evaluation_time,
+                         const detail::PreparedInputSlotRoute *routes,
                          std::index_sequence<I...>)
         {
             using args = typename fn_traits<decltype(Fn)>::args_tuple;
-            StaticNodeInvocationFrame frame{view, evaluation_time};
+            StaticNodeInvocationFrame frame{view, evaluation_time, routes};
             Fn(provide_arg<selector_of<std::tuple_element_t<I, args>>, CanonicalArgs>(
                 frame)...);
         }
 
         template <auto Fn,
                   typename CanonicalArgs = typename fn_traits<decltype(Fn)>::args_tuple>
-        void invoke(const NodeView &view, DateTime evaluation_time)
+        void invoke(const NodeView &view, DateTime evaluation_time,
+                    const detail::PreparedInputSlotRoute *routes = nullptr)
         {
             using traits = fn_traits<decltype(Fn)>;
             static_assert(std::is_same_v<typename traits::return_type, void>,
                           "Static node hooks must return void");
             invoke_impl<Fn, CanonicalArgs>(
-                view, evaluation_time,
+                view, evaluation_time, routes,
                 std::make_index_sequence<std::tuple_size_v<typename traits::args_tuple>>{});
         }
 
@@ -2812,7 +2826,6 @@ namespace hgraph
         struct StaticNodeBuilderParts
         {
             NodeTypeMetaData schema{};
-            NodeCallbacks    callbacks{};
             TSEndpointSchema input_endpoint{};
             std::string_view implementation_label{};
         };
@@ -2889,28 +2902,65 @@ namespace hgraph
             return schema;
         }
 
+        // ---- prepared input routes (RFC 0008 stage 5) ----
+        // Shared machinery in <hgraph/runtime/prepared_input_routes.h>;
+        // acquired after the user start hook, cleared after the user stop
+        // hook, offset resolved through the node's own runtime layout.
         template <typename TImplementation>
         [[nodiscard]] NodeCallbacks static_node_callbacks()
         {
             using signature_args =
                 typename StaticNodeSignature<TImplementation>::canonical_args;
+            constexpr std::size_t slot_count =
+                StaticNodeSignature<TImplementation>::input_count();
             NodeCallbacks callbacks;
-            callbacks.evaluate = [](const NodeView &view, DateTime evaluation_time) {
-                invoke<&TImplementation::eval, signature_args>(view, evaluation_time);
-            };
-            if constexpr (has_start<TImplementation>)
+            if constexpr (slot_count == 0)
             {
+                callbacks.evaluate = [](const NodeView &view, DateTime evaluation_time) {
+                    invoke<&TImplementation::eval, signature_args>(view, evaluation_time);
+                };
+                if constexpr (has_start<TImplementation>)
+                {
+                    callbacks.start = [](const NodeView &view, DateTime evaluation_time) {
+                        invoke<&TImplementation::start, signature_args>(view, evaluation_time);
+                    };
+                }
+                if constexpr (has_stop<TImplementation>)
+                {
+                    callbacks.stop = [](const NodeView &view, DateTime evaluation_time) {
+                        invoke<&TImplementation::stop, signature_args>(view, evaluation_time);
+                    };
+                }
+                return callbacks;
+            }
+            else
+            {
+                callbacks.evaluate = [](const NodeView &view, DateTime evaluation_time) {
+                    invoke<&TImplementation::eval, signature_args>(view, evaluation_time,
+                                                                   prepared_input_routes_for(view));
+                };
                 callbacks.start = [](const NodeView &view, DateTime evaluation_time) {
-                    invoke<&TImplementation::start, signature_args>(view, evaluation_time);
+                    // The user hook runs with the slow path (routes not yet
+                    // acquired); a throwing start leaves nothing behind.
+                    if constexpr (has_start<TImplementation>)
+                    {
+                        invoke<&TImplementation::start, signature_args>(view, evaluation_time);
+                    }
+                    acquire_prepared_input_routes<slot_count>(view, evaluation_time);
                 };
-            }
-            if constexpr (has_stop<TImplementation>)
-            {
                 callbacks.stop = [](const NodeView &view, DateTime evaluation_time) {
-                    invoke<&TImplementation::stop, signature_args>(view, evaluation_time);
+                    auto clear_routes = UnwindCleanupGuard([&]() noexcept {
+                        clear_prepared_input_routes<slot_count>(view);
+                    });
+                    if constexpr (has_stop<TImplementation>)
+                    {
+                        invoke<&TImplementation::stop, signature_args>(view, evaluation_time,
+                                                                       prepared_input_routes_for(view));
+                    }
+                    clear_routes.complete();
                 };
+                return callbacks;
             }
-            return callbacks;
         }
 
         template <typename TImplementation>
@@ -2926,7 +2976,6 @@ namespace hgraph
             schema.schedule_on_start = schema.schedule_on_start || has_active_reference_input(schema);
             return StaticNodeBuilderParts<TImplementation>{
                 .schema         = std::move(schema),
-                .callbacks      = static_node_callbacks<TImplementation>(),
                 .input_endpoint = signature::input_endpoint(),
                 .implementation_label = static_node_implementation_label<TImplementation>(),
             };
@@ -2948,10 +2997,33 @@ namespace hgraph
             schema.schedule_on_start = schema.schedule_on_start || has_active_reference_input(schema);
             return StaticNodeBuilderParts<TImplementation>{
                 .schema         = std::move(schema),
-                .callbacks      = static_node_callbacks<TImplementation>(),
                 .input_endpoint = signature::input_endpoint(resolution),
                 .implementation_label = static_node_implementation_label<TImplementation>(),
             };
+        }
+        /**
+         * Assemble the node builder from parts (RFC 0008 stage 5): nodes
+         * with inputs take the descriptor path so their storage plan carries
+         * the prepared-slot array, whose offset the callbacks capture.
+         */
+        template <typename TImplementation>
+        [[nodiscard]] NodeBuilder make_static_node_builder(StaticNodeBuilderParts<TImplementation> parts)
+        {
+            using signature = StaticNodeSignature<TImplementation>;
+            NodeTypeDescriptor descriptor;
+            descriptor.schema               = std::move(parts.schema);
+            descriptor.implementation_label = parts.implementation_label;
+            constexpr std::size_t slot_count = signature::input_count();
+            if constexpr (slot_count > 0)
+            {
+                if (descriptor.schema.input_schema != nullptr)
+                {
+                    const std::array fields{prepared_routes_storage_field<slot_count>()};
+                    descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, fields);
+                }
+            }
+            descriptor.callbacks = static_node_callbacks<TImplementation>();
+            return NodeBuilder::from_descriptor(std::move(descriptor), std::move(parts.input_endpoint));
         }
     }  // namespace static_node_detail
 
@@ -2961,8 +3033,7 @@ namespace hgraph
         auto parts = static_node_detail::static_node_builder_parts<TImplementation>();
         std::string saved_label{label_};
         Value       saved_scalars{std::move(scalars_)};
-        *this = NodeBuilder::native(std::move(parts.schema), std::move(parts.callbacks),
-                                    std::move(parts.input_endpoint), parts.implementation_label);
+        *this = static_node_detail::make_static_node_builder<TImplementation>(std::move(parts));
         if (!saved_label.empty()) { label(std::move(saved_label)); }
         if (saved_scalars.has_value()) { scalars(std::move(saved_scalars)); }
         return *this;
@@ -2974,8 +3045,7 @@ namespace hgraph
         auto parts = static_node_detail::static_node_builder_parts<TImplementation>(resolution);
         std::string saved_label{label_};
         Value       saved_scalars{std::move(scalars_)};
-        *this = NodeBuilder::native(std::move(parts.schema), std::move(parts.callbacks),
-                                    std::move(parts.input_endpoint), parts.implementation_label);
+        *this = static_node_detail::make_static_node_builder<TImplementation>(std::move(parts));
         if (!saved_label.empty()) { label(std::move(saved_label)); }
         if (saved_scalars.has_value()) { scalars(std::move(saved_scalars)); }
         return *this;

@@ -1351,3 +1351,68 @@ TEST_CASE("TSW ranges use stable ops contexts across data and endpoint roles")
     auto canonical_view = data.view();
     require_ranges(canonical_view.as_window());
 }
+
+TEST_CASE("prepared routes re-check the observation kind before the fast path")
+{
+    using namespace hgraph;
+
+    // RFC 0008 stage 5 regression (review catch): a runtime
+    // make_structural_active() replaces the SAME trie node's observed handle
+    // with a bound STRUCTURAL view; a bound-only fast path would then expose
+    // structural storage as the value route. The prepared read must mirror
+    // resolved_target_at_path's full trust condition and fall back.
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int   = registry.ts(int_meta);
+    // TSD: its structural observation is the KEY SET — genuinely different
+    // storage from the value target (a TSS's structural view is the set
+    // itself, which could not distinguish the routes).
+    const auto *tsd      = registry.tsd(int_meta, ts_int);
+    const auto *root     = registry.tsb("PreparedRouteKindRoot", {{"s", tsd}});
+
+    const auto input_schema =
+        TSEndpointSchema::non_peered(root, {TSEndpointSchema::peered(tsd)});
+
+    TSOutput output{*tsd};
+    TSInput  input{TSInputBuilderFactory::checked_builder_for(*root, input_schema)};
+
+    auto binding_root   = input.view();
+    auto binding_bundle = binding_root.as_bundle();
+    binding_bundle.field("s").bind_output(output.view());
+
+    RecordingNotifiable recorder;
+    auto active_root   = input.view(&recorder);
+    auto active_bundle = active_root.as_bundle();
+    active_bundle.field("s").make_active();
+
+    const auto t = MIN_ST + TimeDelta{5};
+    auto root_view = input.view(nullptr, t);
+    auto route     = root_view.prepare_child_route(0);
+    REQUIRE(route.ready());
+    REQUIRE(route.target);
+
+    const auto require_matches_slow_path = [&] {
+        auto fast = root_view.child_from_prepared(route);
+        auto slow = root_view.indexed_child_at(0);
+        REQUIRE(fast.data_view().data() == slow.data_view().data());
+        REQUIRE(fast.data_view().schema() == slow.data_view().schema());
+    };
+
+    // Value-kind active: the fast path serves the value target.
+    require_matches_slow_path();
+
+    // Switch the SAME slot to structural observation: the trie node's
+    // handle is now a bound structural view — the prepared read must
+    // reject it and resolve the value route exactly like the slow path.
+    active_bundle.field("s").make_structural_active();
+    require_matches_slow_path();
+
+    // Passive: observed reset in place — fall back again.
+    active_bundle.field("s").make_passive();
+    require_matches_slow_path();
+
+    // Re-activated value observation: the fast path resumes on the same
+    // stable trie node.
+    active_bundle.field("s").make_active();
+    require_matches_slow_path();
+}

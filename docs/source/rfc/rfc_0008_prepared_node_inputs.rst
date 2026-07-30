@@ -1,7 +1,8 @@
 RFC 0008: Prepared Node Invocation
 ==================================
 
-:Status: Proposed
+:Status: Accepted (stages 1–4 implemented; stage 5 specified by the
+         2026-07-29 amendment below)
 :Author: Howard Henson
 :Created: 2026-07-29
 :Target: Node invocation, input routing, and endpoint notification
@@ -214,7 +215,8 @@ Implementation stages
    paths only where profiling shows remaining reconstruction.
 5. Design topology-aware stable input handles in a separate RFC amendment,
    after profiling the remaining path and proving bind, invalidation, map,
-   mesh, and installed-SDK behavior.
+   mesh, and installed-SDK behavior.  *Done: the stage 5 amendment at the end
+   of this document.*
 
 Alternatives considered
 -----------------------
@@ -433,3 +435,128 @@ contained a high outlier; a 15-sample rerun measured 13.387 ms versus the
 The implementation deliberately stops at callback-local preparation.  It does
 not add persistent input handles or change ``TSInputView`` behavior.  The
 stable observed-handle design above remains a separately measured follow-up.
+
+Stage 5 amendment: stable prepared slots (2026-07-29)
+-----------------------------------------------------
+
+Trigger evidence
+~~~~~~~~~~~~~~~~
+
+The condition this RFC set for stage 5 — "if profiling after this change
+still identifies target resolution as a material fixed cost" — is met.  A
+profile of merged main (revision ``0e161e5a``, after stages 1–4, the lifted
+single-projection change, and the observer-notify inline) on the Linux host
+shows the per-tick input substrate as the top of the pure-native profile:
+``input_child_projection`` 6.0 percent, ``resolved_target_at_path`` 2.3
+percent, ``target_link_resolve`` 0.9 percent, and the TSB projection wrappers
+(``at`` / ``size`` / ``as_bundle`` / ``indexed_child_at``) about 5.3 percent
+combined.  The cost is structural: ``input_at`` resolves the slot's target
+once and discards the resolution, then every subsequent property read on the
+returned view re-resolves the route (``resolved_value_data`` reassigns its
+cached target view unconditionally at a target position), so a typical
+``modified()``-then-``value()`` tick performs the full resolution two to
+three times.
+
+Relaxations
+~~~~~~~~~~~
+
+Two stage 1–4 constraints cannot hold for a slot that keeps a pointer across
+ticks, and are relaxed **for static nodes only**:
+
+* "Add no planned storage or persistent borrowed state" now binds stages 1–4
+  alone.  Stage 5 adds one planned static-node storage field: a fixed-size
+  prepared-slot array sized by the implementation's canonical input-slot
+  count.
+* "The … static-node storage ABIs do not gain fields" is likewise scoped to
+  stages 1–4.  The prepared-slot field is private to the static-node path
+  (``NodeStorageField``, with the array offset captured by the node's own
+  callbacks); it is not part of the installed extension SDK, whose promotion
+  rules from the original text still apply.  The input-view cursor also gains
+  one non-owning route pointer (``TSInputView`` grows from eight to nine
+  words; the pointer is null everywhere outside the prepared path), which is
+  what lets ordinary property reads resolve through the stable handle instead
+  of re-running route resolution per read.
+
+Prepared-slot contract
+~~~~~~~~~~~~~~~~~~~~~~
+
+A prepared slot exists per canonical **actively observed value input** of a
+node whose front-end plans the route array — the static-node builder and
+the lifted-kernel builder, which share the machinery in
+``runtime/prepared_input_routes.h``.  Three per-tick consumers read it: the
+static-node invocation frame, the lifted-kernel child projection, and the
+common readiness gate (all other node kinds keep the existing projection
+path unchanged).  Each slot holds exactly two non-owning words of route
+state:
+
+* a pointer to the slot's active-trie root node
+  (``TSInputTargetActiveNode``), whose ``observed`` output handle the
+  runtime already replaces in place on every topology event; and
+* the slot's target-link storage reference, from which the input cursor is
+  reconstructed so that sampled-rebind blending, structural-transition
+  checks, and link-local tracking reads keep their existing semantics.  The
+  prepared slot removes the per-callback projection walk and the per-read
+  route re-resolution; it must not bypass the cursor.
+
+Lifecycle:
+
+* **Acquire** in a framework-supplied ``start`` callback.  Input activation
+  (``activate_input_slots``) runs before the user ``start`` hook, so the trie
+  node exists; static nodes therefore register start/stop callbacks
+  unconditionally, not only when the implementation declares them.
+* **Clear** in the framework-supplied ``stop`` callback.  Deactivation runs
+  after the user ``stop`` hook, so the trie node is still live at clear time.
+  Nested static children acquire and clear on every child start/stop, which
+  keeps dynamic-slot reuse correct without new bookkeeping.
+* **Validity per use** re-checks the full trust condition that
+  ``resolved_target_at_path`` requires — locally active, value-kind
+  observation, bound.  Source invalidation and ``make_passive`` clear
+  ``observed`` in place while the trie node stays alive; a runtime
+  ``make_structural_active`` swaps in a *bound structural* handle on the
+  same node, which the kind check rejects (a bound-only check would expose
+  structural storage as the value route).  Any failed condition falls back
+  to full resolution.  No generation counter is added (the alternative
+  already rejected above).
+
+Non-pruning becomes a contract.  The active-trie pruning helpers
+(``try_prune_child`` / ``try_prune_active_root``) are dead code today; stage
+5 removes them and records the invariant they contradicted: an active-trie
+node, once created, lives until its owning target-link storage is destroyed
+or assigned over.  Storage *move construction* preserves trie-node addresses
+(the tree is repointed in place); copy-assignment and move-assignment into a
+populated link destroy the tree, and both happen only during build-time
+embedding, before any acquire.
+
+Fallbacks (unchanged behaviour)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The stable path applies only where the runtime already trusts the observed
+handle: locally active, value-kind observation, bound.  Everything else keeps
+the existing resolution path, routed at compile time from the selector's
+policy pack (``InputActivity``) with no runtime test:
+
+* passive inputs (never activate, no observed handle);
+* structural selectors (their observed handle is a derived structural view,
+  not the value position);
+* slots whose projection carries no target link (owned storage); and
+* from-REF alternatives and mid-transition reads, which the reconstructed
+  cursor already handles because the prepared slot retains the link storage
+  reference.
+
+Acceptance
+~~~~~~~~~~
+
+The original acceptance criteria apply unchanged, with emphasis on: existing
+bind/rebind/sampled/unbind/forwarding route tests; map and mesh key
+erase/reuse (child start/stop must re-acquire cleanly); source-invalidation
+tests proving the bound-state fallback; and five-sample before/after packs on
+both hosts with the ``hg_cpp / legacy C++`` ratio recorded.
+
+Focused pinned Linux medians (Core Ultra 7 155H, seven samples per side,
+against main ``a5d1a9b5``): scheduler fan-out +21.0 percent, partial-TSB
++8.2, dense TSD map +6.7, integer arithmetic +6.5, native tick +5.4;
+python-boundary shapes neutral.  Nodes outside the planned-route front-ends
+pay the one-word-wider input view without gaining the cache — measured
+-1.7 percent on the native request-reply service scenario, inside the five
+percent investigation bar; extending route planning to the erased node
+front-ends is the natural follow-up if that cost matters.
