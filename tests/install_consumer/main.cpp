@@ -6,14 +6,24 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/type_pointer.h>
 #include <hgraph/types/time_series/visitor.h>
+#include <hgraph/types/value/any_ops.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
+#include <hgraph/types/value/visitor.h>
 
 #include <arrow/api.h>
 
 #include <cstdint>
 #include <stdexcept>
 #include <type_traits>
+
+namespace
+{
+    struct ConsumerExtensionScalar
+    {
+        std::int32_t value{0};
+    };
+}
 
 int main()
 {
@@ -47,6 +57,22 @@ int main()
     if (value.view().checked_as<std::int32_t>() != 73)
     {
         throw std::runtime_error("installed target mutation round-trip failed");
+    }
+
+    registry.register_scalar<ConsumerExtensionScalar>("consumer::ExtensionScalar");
+    Value extension{ConsumerExtensionScalar{17}};
+    Value boxed{any_type()};
+    boxed.as_any().begin_mutation().set(extension.view());
+    const bool visited_extension = visit(
+        boxed.view(),
+        [](AtomicView selected) {
+            return selected.holds_alternative<ConsumerExtensionScalar>() &&
+                   selected.checked_as<ConsumerExtensionScalar>().value == 17;
+        },
+        [](ValueView) { return false; });
+    if (!visited_extension)
+    {
+        throw std::runtime_error("installed value visitor did not unwrap and dispatch the extension scalar");
     }
 
     static_cast<void>(stdlib::register_standard_types(registry));

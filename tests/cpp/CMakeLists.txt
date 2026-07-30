@@ -227,6 +227,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_tsd_proxy.cpp
     test_type_registry.cpp
     test_value.cpp
+    test_value_visitor.cpp
     test_value_types.cpp
 )
 
