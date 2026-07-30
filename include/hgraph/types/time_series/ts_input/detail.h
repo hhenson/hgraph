@@ -1,6 +1,7 @@
 #ifndef HGRAPH_CPP_TS_INPUT_DETAIL_H
 #define HGRAPH_CPP_TS_INPUT_DETAIL_H
 
+#include <hgraph/hgraph_export.h>
 #include <hgraph/types/time_series/ts_input.h>
 
 #include <hgraph/types/time_series/ts_input/target_link.h>
@@ -32,8 +33,11 @@ namespace hgraph::detail
     [[nodiscard]] TSInputChildProjection input_child_projection(const TSDataView &parent, std::size_t index);
 
     /** True when ``data`` is INPUT-SHAPED (holds per-child target links) —
-        e.g. a from-REF alternative's projected data. */
-    [[nodiscard]] bool has_input_children(const TSDataView &data) noexcept;
+        e.g. a from-REF alternative's projected data. Exported: the prepared
+        route acquire template (runtime/prepared_input_routes.h) instantiates
+        in downstream modules (the python bridge builds its own static
+        nodes). */
+    [[nodiscard]] HGRAPH_EXPORT bool has_input_children(const TSDataView &data) noexcept;
 
     struct TSInputViewOps
     {
