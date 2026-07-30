@@ -10,7 +10,6 @@
 #define HGRAPH_PYTHON_PY_RUNTIME_H
 
 #include "py_carriers.h"
-#include "py_value_mirror.h"
 
 #include <algorithm>
 
@@ -667,18 +666,6 @@ namespace hgraph::python_bridge
                                       ? TSDataView{evaluation_data}
                                       : v.data_view().borrowed_ref();
                 if (!data.valid()) { return nb::none(); }
-                // Python-value mirror (issue #204): a python-written output
-                // read by python skips conversion — an lmt-matched entry IS
-                // the current value (single writer per output). A miss marks
-                // the output wanted so future python writes mirror it.
-                if (auto *mirror = py_active_value_mirror;
-                    mirror != nullptr && py_mirror_eligible(schema->value_schema))
-                {
-                    if (PyObject *hit = mirror->probe(data.data(), data.last_modified_time()))
-                    {
-                        return nb::steal<nb::object>(hit);
-                    }
-                }
                 nb::object result = data.value_to_python();
                 if (PySet_CheckExact(result.ptr()))
                 {

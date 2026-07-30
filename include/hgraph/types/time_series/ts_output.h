@@ -2,6 +2,7 @@
 #define HGRAPH_CPP_ROOT_TS_OUTPUT_H
 
 #include <hgraph/types/time_series/ts_data.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/endpoint_owner.h>
 #include <hgraph/types/time_series/ts_output/base_view.h>
 #include <hgraph/types/time_series/ts_output/bundle_view.h>
@@ -37,6 +38,10 @@ namespace hgraph
         explicit TSOutput(TSOutputTypeRef type);
         explicit TSOutput(const TSValueTypeMetaData &schema);
         explicit TSOutput(const TSValueTypeMetaData *schema);
+        TSOutput(const TSValueTypeMetaData &schema,
+                 ValueStorageVariant value_storage);
+        TSOutput(const TSValueTypeMetaData *schema,
+                 ValueStorageVariant value_storage);
         explicit TSOutput(const TSEndpointSchema &endpoint_schema);
         ~TSOutput() noexcept;
 
@@ -92,6 +97,8 @@ namespace hgraph
                                                         DateTime            mutation_time);
 
         static TSData checked_data_for(const TSValueTypeMetaData *schema);
+        static TSData checked_data_for(const TSValueTypeMetaData *schema,
+                                       ValueStorageVariant value_storage);
         static TSData checked_data_for(const TSEndpointSchema &endpoint_schema);
         static const TSData &copyable_data(const TSOutput &other);
 

@@ -29,6 +29,61 @@
 #include <vector>
 
 namespace hgraph::python_bridge {
+PythonValueHolder::PythonValueHolder(const PythonValueHolder &other)
+    : object(other.object) {
+  if (object != nullptr) {
+    nb::gil_scoped_acquire gil;
+    Py_INCREF(object);
+  }
+}
+
+PythonValueHolder::PythonValueHolder(PythonValueHolder &&other) noexcept
+    : object(std::exchange(other.object, nullptr)) {}
+
+PythonValueHolder &
+PythonValueHolder::operator=(const PythonValueHolder &other) {
+  if (this != &other) {
+    PythonValueHolder replacement{other};
+    swap(replacement);
+  }
+  return *this;
+}
+
+PythonValueHolder &
+PythonValueHolder::operator=(PythonValueHolder &&other) noexcept {
+  if (this != &other) {
+    PythonValueHolder replacement{std::move(other)};
+    swap(replacement);
+  }
+  return *this;
+}
+
+PythonValueHolder::~PythonValueHolder() { clear(); }
+
+void PythonValueHolder::clear() noexcept {
+  if (object == nullptr) {
+    return;
+  }
+  nb::gil_scoped_acquire gil;
+  PyObject *previous = std::exchange(object, nullptr);
+  Py_DECREF(previous);
+}
+
+void PythonValueHolder::set(nb::handle source) {
+  if (!source.is_valid() || source.is_none()) {
+    throw nb::type_error(
+        "retained Python output value requires a non-None object");
+  }
+  PyObject *replacement = source.ptr();
+  Py_INCREF(replacement);
+  PyObject *previous = std::exchange(object, replacement);
+  Py_XDECREF(previous);
+}
+
+nb::object PythonValueHolder::get() const {
+  return object != nullptr ? nb::borrow<nb::object>(object) : nb::none();
+}
+
 namespace {
 struct NativeScalarRegistrations {
   std::unordered_map<PyObject *,
@@ -661,6 +716,23 @@ bool is_python_bundle_schema(const ValueTypeMetaData *schema) noexcept {
   auto &bindings = python_bundle_bindings();
   std::lock_guard lock(bindings.mutex);
   return bindings.current.contains(schema);
+}
+
+bool is_python_bundle_binding(ValueTypeRef binding) noexcept {
+  if (!binding) {
+    return false;
+  }
+  auto &bindings = python_bundle_bindings();
+  std::lock_guard lock(bindings.mutex);
+  const auto current = bindings.current.find(binding.schema());
+  if (current == bindings.current.end()) {
+    return false;
+  }
+  return std::ranges::any_of(
+      current->second,
+      [binding](const PythonBundleBindingEntry *entry) {
+        return entry != nullptr && entry->binding == binding;
+      });
 }
 
 ValueTypeRef

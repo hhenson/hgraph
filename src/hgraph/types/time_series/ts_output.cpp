@@ -17,7 +17,8 @@ namespace hgraph {
 namespace {
 [[nodiscard]] TSOutputTypeRef
 realized_output_type_for(const TSValueTypeMetaData *schema,
-                         const TypeRealizationSnapshot &snapshot) {
+                         const TypeRealizationSnapshot &snapshot,
+                         ValueStorageVariant value_storage) {
   auto &factory = TSDataPlanFactory::instance();
   if (schema == nullptr) {
     return {};
@@ -26,9 +27,16 @@ realized_output_type_for(const TSValueTypeMetaData *schema,
   if (schema->value_schema != nullptr &&
       (schema->kind == TSTypeKind::TS || schema->kind == TSTypeKind::TSB)) {
     const auto realized = snapshot.type_for(schema->value_schema);
+    if (schema->kind == TSTypeKind::TS &&
+        (realized !=
+             ValuePlanFactory::instance().type_for(schema->value_schema) ||
+         value_storage != ValueStorageVariant::Native)) {
+      return factory.output_type_for(schema, realized, value_storage);
+    }
     if (realized !=
         ValuePlanFactory::instance().type_for(schema->value_schema)) {
-      return factory.output_type_for(schema, realized);
+      return factory.output_type_for(schema, realized,
+                                     ValueStorageVariant::Native);
     }
   }
 
@@ -36,27 +44,28 @@ realized_output_type_for(const TSValueTypeMetaData *schema,
     const auto realized_key = snapshot.type_for(schema->key_type());
     const auto canonical_key =
         ValuePlanFactory::instance().type_for(schema->key_type());
-    const auto realized_element =
-        realized_output_type_for(schema->element_ts(), snapshot);
+    const auto realized_element = realized_output_type_for(
+        schema->element_ts(), snapshot, ValueStorageVariant::Native);
     const auto canonical_element =
         factory.output_type_for(schema->element_ts());
     if ((realized_key && realized_key != canonical_key) ||
         (realized_element && realized_element != canonical_element)) {
-      return factory.keyed_output_type_for(
-          schema, realized_key, realized_element.as_role());
+      return factory.keyed_output_type_for(schema, realized_key,
+                                           realized_element.as_role());
     }
   }
 
   if (schema->kind == TSTypeKind::TSS && schema->value_schema != nullptr) {
     const auto *key_schema = schema->value_schema->element_type;
     const auto realized_key = snapshot.type_for(key_schema);
-    const auto canonical_key = ValuePlanFactory::instance().type_for(key_schema);
+    const auto canonical_key =
+        ValuePlanFactory::instance().type_for(key_schema);
     if (realized_key && realized_key != canonical_key) {
       return factory.keyed_output_type_for(schema, realized_key);
     }
   }
 
-  return factory.output_type_for(schema);
+  return factory.output_type_for(schema, value_storage);
 }
 } // namespace
 
@@ -71,6 +80,18 @@ TSOutput::TSOutput(const TSValueTypeMetaData &schema)
 
 TSOutput::TSOutput(const TSValueTypeMetaData *schema)
     : data_(checked_data_for(schema)) {
+  attach_root_parent();
+}
+
+TSOutput::TSOutput(const TSValueTypeMetaData &schema,
+                   ValueStorageVariant value_storage)
+    : data_(checked_data_for(&schema, value_storage)) {
+  attach_root_parent();
+}
+
+TSOutput::TSOutput(const TSValueTypeMetaData *schema,
+                   ValueStorageVariant value_storage)
+    : data_(checked_data_for(schema, value_storage)) {
   attach_root_parent();
 }
 
@@ -196,13 +217,19 @@ void TSOutput::release_alternative_subscriptions(
 }
 
 TSData TSOutput::checked_data_for(const TSValueTypeMetaData *schema) {
+  return checked_data_for(schema, ValueStorageVariant::Native);
+}
+
+TSData TSOutput::checked_data_for(const TSValueTypeMetaData *schema,
+                                  ValueStorageVariant value_storage) {
   if (schema == nullptr) {
     throw std::invalid_argument("TSOutput requires a time-series schema");
   }
   if (const auto *snapshot = active_type_realization(); snapshot != nullptr) {
-    return TSData{realized_output_type_for(schema, *snapshot)};
+    return TSData{realized_output_type_for(schema, *snapshot, value_storage)};
   }
-  return TSData{TSDataPlanFactory::instance().output_type_for(schema)};
+  return TSData{
+      TSDataPlanFactory::instance().output_type_for(schema, value_storage)};
 }
 
 TSData TSOutput::checked_data_for(const TSEndpointSchema &endpoint_schema) {

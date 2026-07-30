@@ -2194,6 +2194,7 @@ namespace hgraph
         // Optional ``static constexpr bool schedule_on_start`` attribute: when true
         // the framework schedules the node for the start cycle (see node.cpp).
         template <typename T> concept has_schedule_on_start = requires { T::schedule_on_start; };
+        template <typename T> concept has_uses_python_values = requires { T::uses_python_values; };
     }  // namespace static_node_detail
 
     // -----------------------------------------------------------------
@@ -2894,6 +2895,10 @@ namespace hgraph
             schema.uses_scheduler        = signature::uses_scheduler();
             schema.uses_global_state     = signature::uses_global_state();
             schema.uses_evaluation_clock = signature::uses_evaluation_clock();
+            if constexpr (has_uses_python_values<TImplementation>)
+            {
+                schema.uses_python_values = TImplementation::uses_python_values;
+            }
             schema.schedule_on_start     = signature::schedule_on_start();
             schema.active_inputs         = signature::active_inputs();
             schema.structural_inputs     = signature::structural_inputs();
@@ -3033,9 +3038,11 @@ namespace hgraph
         auto parts = static_node_detail::static_node_builder_parts<TImplementation>();
         std::string saved_label{label_};
         Value       saved_scalars{std::move(scalars_)};
+        const auto  saved_output_storage = output_value_storage_;
         *this = static_node_detail::make_static_node_builder<TImplementation>(std::move(parts));
         if (!saved_label.empty()) { label(std::move(saved_label)); }
         if (saved_scalars.has_value()) { scalars(std::move(saved_scalars)); }
+        output_value_storage(saved_output_storage);
         return *this;
     }
 
@@ -3045,9 +3052,11 @@ namespace hgraph
         auto parts = static_node_detail::static_node_builder_parts<TImplementation>(resolution);
         std::string saved_label{label_};
         Value       saved_scalars{std::move(scalars_)};
+        const auto  saved_output_storage = output_value_storage_;
         *this = static_node_detail::make_static_node_builder<TImplementation>(std::move(parts));
         if (!saved_label.empty()) { label(std::move(saved_label)); }
         if (saved_scalars.has_value()) { scalars(std::move(saved_scalars)); }
+        output_value_storage(saved_output_storage);
         return *this;
     }
 
