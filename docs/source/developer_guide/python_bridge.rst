@@ -211,6 +211,29 @@ stays: **GIL scopes move verbatim** — when relocating code, never widen or
 narrow an acquire/release, and keep the ruling comments attached to
 ``PyWiring::run``, ``py_nodes.cpp``, and the sender.
 
+Python-value mirror
+-------------------
+
+Issue #204 (``python/py_value_mirror.h``): when a python node's result is
+applied to its C++ output (plain ``TS`` outputs; sets excluded because the
+converted read path deliberately returns a frozenset), the ORIGINAL PyObject
+is retained keyed by {output storage pointer, last-modified time}; a python
+consumer whose read resolves to that output at the same lmt receives a new
+reference instead of converting. The C++ storage stays canonical — native
+readers, record/replay, and serialization are untouched — and the lmt key is
+sound because each output has exactly one writer. Handing out the same
+object is within contract (output values are immutable by graph semantics —
+mutating one from python is UB, Howard's ruling 2026-07-30) and matches
+upstream hgraph's reference-passing behaviour.
+
+Memory discipline: a read miss marks the output *wanted* and only wanted
+outputs ever retain anything (bounded by the python-read output count); one
+object per output, replaced per write; the producing node's stop trampoline
+erases its entry — which also closes the nested-slot-reuse staleness hole,
+since children stop before their storage is reused; the map lives on the run
+(``PyRun::value_mirror``), armed through a thread_local like the cycle-GIL
+holder, cleared under the GIL at run end (destructor covers retained runs).
+
 Python-owned Bundle bindings
 ----------------------------
 

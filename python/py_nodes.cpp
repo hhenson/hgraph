@@ -20,6 +20,7 @@
 #include "py_bindings.h"
 #include "py_cycle_gil.h"
 #include "py_runtime.h"
+#include "py_value_mirror.h"
 
 namespace nb = nanobind;
 using namespace hgraph;
@@ -38,6 +39,16 @@ void apply_py_result(nb::handle result, Out<TsVar<"O">> &out) {
           &ts_data_detail::missing_from_python) {
     static_cast<void>(
         erased.begin_mutation(erased.evaluation_time()).from_python(result));
+    // Python-value mirror (issue #204): retain the ORIGINAL object for
+    // python readers of this output. Plain TS only; sets are excluded
+    // because the converted read path deliberately returns a frozenset.
+    if (erased.schema()->kind == TSTypeKind::TS &&
+        !PyAnySet_Check(result.ptr())) {
+      if (auto *mirror = py_active_value_mirror; mirror != nullptr) {
+        mirror->store(erased.data_view().data(), erased.evaluation_time(),
+                      result.ptr());
+      }
+    }
     return;
   }
   if (erased.schema() != nullptr && erased.schema()->kind == TSTypeKind::REF) {
@@ -838,6 +849,23 @@ py_call_with_contexts(const nb::object &fn, nb::list &call_args,
   return result;
 }
 
+/** Producing-node stop: drop this node's mirror entry (issue #204) so a
+    reused nested slot can never serve a stale object. */
+void py_mirror_erase_output(const NodeView &node) {
+  auto *mirror = py_active_value_mirror;
+  if (mirror == nullptr || !node.has_output()) {
+    return;
+  }
+  auto output = node.output(MIN_DT);
+  if (output.valid()) {
+    // Self-acquire: some stop call sites run outside their lifecycle
+    // helper's GIL scope, and erase decrefs the mirrored object.
+    const PyGILState_STATE gil = PyGILState_Ensure();
+    mirror->erase(output.data_view().data());
+    PyGILState_Release(gil);
+  }
+}
+
 void py_call_lifecycle(const PyNodeRef &fn, bool enabled,
                        std::string_view config, const ValueView &scalars,
                        State<PyStateRef> &state, NodeScheduler scheduler,
@@ -956,6 +984,7 @@ struct py_compute_node {
     py_call_lifecycle(fn.value(), enabled.value(), config.value(),
                       scalars.value(), state, scheduler, global_state, engine,
                       node, &input_view);
+    py_mirror_erase_output(node);
     cleanup.release();
     py_clear_input_activity(parse_py_call_shape(eval_config.value()).layout,
                             args.base());
@@ -1105,6 +1134,9 @@ struct py_fast_compute_node {
         nb::handle(cache->pair_objects[slot]).dec_ref();
         cache->pair_objects[slot] = nullptr;
         cache->pair_wrappers[slot] = nullptr;
+      }
+      if (auto *mirror = py_active_value_mirror; mirror != nullptr) {
+        mirror->erase(cache->output.data_view().data());
       }
     }
     py_clear_input_activity(parse_py_call_shape(config.value()).layout,
@@ -1331,6 +1363,7 @@ struct py_sink_node {
     py_call_lifecycle(fn.value(), enabled.value(), config.value(),
                       scalars.value(), state, scheduler, global_state, engine,
                       node, &input_view);
+    py_mirror_erase_output(node);
     cleanup.release();
     py_clear_input_activity(parse_py_call_shape(eval_config.value()).layout,
                             args.base());
@@ -1467,6 +1500,7 @@ struct py_generator_node {
                    NodeScheduler scheduler, GlobalStateView global_state,
                    EngineControlView engine, NodeView node) {
     nb::gil_scoped_acquire gil;
+    py_mirror_erase_output(node);
     std::unique_ptr<PyGenHandle> handle{state.get().handle};
     state.set(PyGenStateRef{});
     if (handle != nullptr) {

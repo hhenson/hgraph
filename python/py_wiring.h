@@ -9,6 +9,7 @@
 
 #include "py_cycle_gil.h"
 #include "py_runtime.h"
+#include "py_value_mirror.h"
 
 namespace hgraph::python_bridge
 {
@@ -36,6 +37,10 @@ namespace hgraph::python_bridge
         std::unique_ptr<EvaluationTrace> trace{};
         std::unique_ptr<EvaluationProfiler> profiler{};
         std::vector<std::unique_ptr<LifecycleObserver>> observers{};
+        /** Python-value mirror (issue #204): lives exactly as long as the
+            run; cleared under the GIL at run end (dtor covers retained
+            runs). */
+        PyValueMirror value_mirror{};
         GraphExecutorValue executor;
 
         /** Recorded read-back. DENSE (default): per-cycle values, None = no
@@ -344,8 +349,10 @@ namespace hgraph::python_bridge
                         run->executor.view().graph().global_state());
                 }
             });
-            py_active_cycle_gil = cycle_gil;
+            py_active_cycle_gil     = cycle_gil;
+            py_active_value_mirror  = &run->value_mirror;
             auto clear_cycle_gil = UnwindCleanupGuard([&] {
+                py_active_value_mirror = nullptr;
                 // Final balance: a preceding observer throwing out of the LAST
                 // cycle's after-notification would leak the hold past the run
                 // (mid-run leaks self-heal at the next cycle's
@@ -374,6 +381,9 @@ namespace hgraph::python_bridge
                     }
                 });
             clear_cycle_gil.complete();
+            // GIL is re-held here (past gil_scoped_release): free the
+            // mirrored objects with the run's useful life.
+            run->value_mirror.clear();
             clear_runtime_state.complete();
             copy_runtime_state.complete();
             return run;
