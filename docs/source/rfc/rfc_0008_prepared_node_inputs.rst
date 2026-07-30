@@ -481,7 +481,13 @@ Prepared-slot contract
 ~~~~~~~~~~~~~~~~~~~~~~
 
 A prepared slot exists per canonical **actively observed value input** of a
-static node and holds exactly two non-owning words of route state:
+node whose front-end plans the route array — the static-node builder and
+the lifted-kernel builder, which share the machinery in
+``runtime/prepared_input_routes.h``.  Three per-tick consumers read it: the
+static-node invocation frame, the lifted-kernel child projection, and the
+common readiness gate (all other node kinds keep the existing projection
+path unchanged).  Each slot holds exactly two non-owning words of route
+state:
 
 * a pointer to the slot's active-trie node (``TSInputTargetActiveNode``),
   whose ``observed`` output handle the runtime already replaces in place on
@@ -540,3 +546,12 @@ bind/rebind/sampled/unbind/forwarding route tests; map and mesh key
 erase/reuse (child start/stop must re-acquire cleanly); source-invalidation
 tests proving the bound-state fallback; and five-sample before/after packs on
 both hosts with the ``hg_cpp / legacy C++`` ratio recorded.
+
+Focused pinned Linux medians (Core Ultra 7 155H, seven samples per side,
+against main ``a5d1a9b5``): scheduler fan-out +21.0 percent, partial-TSB
++8.2, dense TSD map +6.7, integer arithmetic +6.5, native tick +5.4;
+python-boundary shapes neutral.  Nodes outside the planned-route front-ends
+pay the one-word-wider input view without gaining the cache — measured
+-1.7 percent on the native request-reply service scenario, inside the five
+percent investigation bar; extending route planning to the erased node
+front-ends is the natural follow-up if that cost matters.
