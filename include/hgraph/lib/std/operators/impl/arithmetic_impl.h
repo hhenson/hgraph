@@ -18,6 +18,7 @@
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/temporal.h>
+#include <hgraph/types/value/visitor.h>
 
 #include <algorithm>
 #include <chrono>
@@ -879,14 +880,14 @@ namespace hgraph::stdlib
             static void eval(In<"ts", TS<ScalarVar<"T">>> ts, Out<TS<Int>> out)
             {
                 const ValueView value = ts.base().value();
-                switch (value.schema()->value_kind())
-                {
-                    case ValueTypeKind::List: out.set(static_cast<Int>(value.as_list().size())); return;
-                    case ValueTypeKind::Tuple: out.set(static_cast<Int>(value.as_tuple().size())); return;
-                    case ValueTypeKind::Set: out.set(static_cast<Int>(value.as_set().size())); return;
-                    case ValueTypeKind::Map: out.set(static_cast<Int>(value.as_map().size())); return;
-                    default: throw std::logic_error("len_: not a sized container");
-                }
+                const auto size = visit(
+                    value,
+                    [](ListView selected) { return static_cast<Int>(selected.size()); },
+                    [](TupleView selected) { return static_cast<Int>(selected.size()); },
+                    [](SetView selected) { return static_cast<Int>(selected.size()); },
+                    [](MapView selected) { return static_cast<Int>(selected.size()); },
+                    [](ValueView) -> Int { throw std::logic_error("len_: not a sized container"); });
+                out.set(size);
             }
         };
     }  // namespace arithmetic_impl_detail

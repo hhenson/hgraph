@@ -81,6 +81,24 @@ namespace
         return Value{compact_list_type(binding, *meta), &storage};
     }
 
+    [[nodiscard]] Value int_set(std::initializer_list<Int> values)
+    {
+        const auto binding =
+            ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta());
+        SetBuilder builder{binding};
+        for (Int value : values) { builder.insert(value); }
+        return builder.build();
+    }
+
+    [[nodiscard]] Value int_map(std::initializer_list<std::pair<Int, Int>> values)
+    {
+        const auto binding =
+            ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta());
+        MapBuilder builder{binding, binding};
+        for (const auto &[key, value] : values) { builder.set_item(key, value); }
+        return builder.build();
+    }
+
     [[nodiscard]] Series int_series(std::initializer_list<std::optional<Int>> values)
     {
         arrow::Int64Builder builder;
@@ -1158,6 +1176,21 @@ TEST_CASE("std operators: tuple subtraction accepts a native erased comparator")
                      values<Value>(int_tuple({1, 2, 3, 4, 5})), values<Int>(1),
                      value_fn<SameParity>())),
                  values<Value>(int_tuple({2, 4})));
+}
+
+TEST_CASE("std operators: len_ visits scalar tuple, set, and map values")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<stdlib::len_, TS<HomogeneousTuple<Int>>>(
+                     values<Value>(int_tuple({1, 2, 3}), int_tuple({4})))),
+                 values<Int>(3, 1));
+    CHECK_OUTPUT((eval_node<stdlib::len_, TS<Set<Int>>>(
+                     values<Value>(int_set({1, 2, 2}), int_set({})))),
+                 values<Int>(2, 0));
+    CHECK_OUTPUT((eval_node<stdlib::len_, TS<Map<Int, Int>>>(
+                     values<Value>(int_map({{1, 10}, {2, 20}}), int_map({{3, 30}})))),
+                 values<Int>(2, 1));
 }
 
 TEST_CASE("stdlib nonthrowing schema helpers reject malformed compact kinds")

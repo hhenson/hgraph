@@ -9,4 +9,5 @@
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/time_series/visitor.h>
+#include <hgraph/types/value/visitor.h>
 #include <hgraph/version.h>

@@ -133,7 +133,7 @@ The erased layer supports direct casting from one view shape to
 another so callers do not need to chain calls to reach a typed
 handle. Two cast families exist:
 
-- **Kind-specialised view casts**: ``as_tuple()``, ``as_bundle()``,
+- **Kind-specialised view casts**: ``as_atomic()``, ``as_tuple()``, ``as_bundle()``,
   ``as_list()``, ``as_set()``, ``as_map()``, ``as_cyclic_buffer()``,
   ``as_queue()``, ``as_any()``, with ``try_as_*`` counterparts that return
   ``std::optional`` and throw nothing.
@@ -150,8 +150,8 @@ do not change the underlying schema or copy the payload. Cross-schema
 adaptation — exposing one schema's value through a different schema —
 is a time-series concern, not a value-layer concern.
 
-Status: the read-only cast family is implemented for tuple, bundle,
-list, set, map, cyclic buffer, and queue views. Mutable-view casts are
+Status: the read-only cast family is implemented for atomic, tuple, bundle,
+list, set, map, cyclic buffer, queue, and Any views. Mutable-view casts are
 implemented as casts from an already-open mutable erased view; opening
 that mutable view is always done by ``begin_mutation()`` and is gated
 by the bound ops table.
@@ -254,6 +254,12 @@ that transition; replacement happens at the ``Value`` level
 Read-only views
 ~~~~~~~~~~~~~~~
 
+``AtomicView``
+    Shape tag for the open-ended atomic kind. It retains the
+    ``ValueView`` scalar access operations rather than enumerating known C++
+    alternatives, so independently registered extension scalars remain
+    first-class.
+
 ``IndexedValueView``
     Base for tuple, bundle, list, cyclic buffer, and queue views.
     Adds ``size()``, ``at(index)``, ``operator[](index)``, and a
@@ -308,6 +314,42 @@ Read-only views
     ``begin_mutation()``) adds ``set(value)`` (replace, deep copy) and
     ``clear()`` (return to empty). Unlike the compact containers, the
     ``Any`` ops allow ``begin_mutation()``, so the box is reassignable.
+
+Value visitation and operation ownership
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``hgraph::visit`` from ``<hgraph/types/value/visitor.h>`` dispatches a live
+``ValueView`` to ``AtomicView``, ``TupleView``, ``BundleView``, ``ListView``,
+``SetView``, ``MapView``, ``CyclicBufferView``, or ``QueueView``. A
+shape-specific callable takes precedence over a ``ValueView`` catch-all.
+Every reachable branch returns ``void`` or the same safe owned type.
+Reference and lazy hgraph range results are rejected because the selected
+specialised wrapper is a temporary borrowed cursor.
+
+``Any`` is deliberately transparent in this dispatch. The visitor repeatedly
+obtains the contained view until it reaches a concrete semantic shape.
+``AnyView`` remains necessary for box management—empty-state inspection,
+replacement, and clearing—but is not a visitor alternative. An empty box and
+any other absent payload cannot be visited.
+
+Dispatch uses the declared value kind and does not call ``concrete()``.
+Consequently enums remain atomic, shaped arrays remain lists, and owned
+recursive records retain their bundle surface. Concrete projection and
+recursive child walking are caller policies.
+
+The visitor complements rather than replaces value type erasure. Hashing,
+equality, comparison, formatting, conversion, copying, and assignment remain
+in ``ValueOps``. Schema factories, codec planning, and wiring-time overload
+selection continue to inspect metadata directly. Use visitation only for
+caller-owned algorithms whose behaviour genuinely varies by a live value
+shape.
+
+After the kind switch, the visitor constructs specialised views through a
+trusted internal projection that preserves the original access tag and avoids
+repeating semantic-kind validation. The specialised view still resolves and
+checks the operation-table subclass required by its methods. Visiting writable
+storage does not implicitly enter mutation; ``begin_mutation()`` remains an
+explicit transition.
 
 Mutable views (ops-gated)
 ~~~~~~~~~~~~~~~~~~~~~~~~~

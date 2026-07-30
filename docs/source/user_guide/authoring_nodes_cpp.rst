@@ -530,6 +530,51 @@ All handlers return ``void`` in this example; value-returning handlers must all
 produce the same non-reference type. Invalid-current-value and unbound inputs
 still dispatch from their schema, while a default view with no schema throws.
 
+Visiting an erased value
+------------------------
+
+Use the value-layer overload of ``hgraph::visit`` when an algorithm varies by
+the live value's semantic shape:
+
+.. code-block:: cpp
+
+   #include <hgraph/types/value/visitor.h>
+
+   std::size_t item_count(const ValueView &value)
+   {
+       return visit(
+           value,
+           [](AtomicView) { return std::size_t{1}; },
+           [](TupleView tuple) { return tuple.size(); },
+           [](BundleView bundle) { return bundle.size(); },
+           [](ListView list) { return list.size(); },
+           [](SetView set) { return set.size(); },
+           [](MapView map) { return map.size(); },
+           [](CyclicBufferView buffer) { return buffer.size(); },
+           [](QueueView queue) { return queue.size(); });
+   }
+
+``AtomicView`` identifies the scalar shape without limiting it to a core list
+of C++ types. An extension handler can use
+``holds_alternative<ExtensionScalar>()`` and
+``checked_as<ExtensionScalar>()`` on it.
+
+A populated ``Any`` box is transparent to the visitor. Passing the
+``ValueView`` for an ``Any`` containing an ``ExtensionScalar`` invokes the
+``AtomicView`` handler for that scalar; nested populated boxes are also
+peeled. An empty ``Any`` has no visitable value and throws
+``std::invalid_argument``. Code assigning meaning to that empty state checks
+``value.as_any().has_value()`` before visiting. ``AnyView`` remains the
+explicit interface for inspecting, replacing, or clearing the box and is not
+a visitor alternative.
+
+The selected view is borrowed and move-only. All reachable handlers return
+``void`` or the same owned value type; references and lazy
+``Range`` / ``KeyValueRange`` results are rejected. Dispatch uses the declared
+value shape and does not call ``concrete()`` or recursively walk children.
+Call those operations and ``visit`` again when they are part of the
+algorithm's policy.
+
 
 Collections — ``TSS`` / ``TSL`` / ``TSD`` / ``TSW``
 ---------------------------------------------------

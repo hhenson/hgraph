@@ -379,6 +379,21 @@ struct PyFastComputeCache {
   PyTimeSeries *input_wrapper{nullptr};
   std::array<PyObject *, 2> pair_objects{};
   std::array<PyTimeSeries *, 2> pair_wrappers{};
+  // Per-ts-arg prepared routes below the args root (issue #203): acquired
+  // once at start, non-owning (trie handles update in place; the read-side
+  // trust condition re-checks per use). Indexed by ts-arg position.
+  std::vector<hgraph::detail::PreparedInputSlotRoute> arg_routes{};
+
+  /** Project ts-arg ``slot`` from ``args_root`` through the prepared route
+      when ready; the plain per-tick projection otherwise. */
+  [[nodiscard]] TSInputView arg_at(const TSInputView &args_root,
+                                   TSBInputView &bundle,
+                                   std::size_t slot) const {
+    if (slot < arg_routes.size() && arg_routes[slot].ready()) {
+      return args_root.child_from_prepared(arg_routes[slot]);
+    }
+    return bundle[slot];
+  }
 
   [[nodiscard]] bool direct() const noexcept {
     return shape.kw_names.empty() && shape.layout.size() == 1 &&
@@ -631,7 +646,8 @@ struct PyFastComputeStateRef {
   return true;
 }
 
-[[nodiscard]] bool py_assemble_fast_args(std::string_view layout,
+[[nodiscard]] bool py_assemble_fast_args(const PyFastComputeCache &cache,
+                                         std::string_view layout,
                                          const TSInputView &args,
                                          const ValueView &scalars,
                                          const PyTsLease &lease,
@@ -650,7 +666,8 @@ struct PyFastComputeStateRef {
     case 'a':
     case 'A': {
       nb::object ts_obj;
-      if (!py_make_ts_arg(kind, bundle[ts_index++], lease, ts_obj)) {
+      if (!py_make_ts_arg(kind, cache.arg_at(args, bundle, ts_index++), lease,
+                          ts_obj)) {
         return false;
       }
       call_args.append(ts_obj);
@@ -1030,13 +1047,31 @@ struct py_fast_compute_node {
          shape.layout.front() == 'T' || shape.layout.front() == 'U' ||
          shape.layout.front() == 'a' || shape.layout.front() == 'A');
     TSInputView cached_input = args.base().borrowed_ref();
+    // Acquire the level-2 prepared routes (issue #203): the args root is
+    // owned child-carrying storage, so each ts-arg slot's route is stable
+    // for the node's lifetime and the retained/per-tick views built from it
+    // resolve reads through the trie handle.
+    std::vector<hgraph::detail::PreparedInputSlotRoute> arg_routes;
+    if (detail::has_input_children(cached_input.data_view())) {
+      std::size_t ts_count = 0;
+      for (const char kind : shape.layout) {
+        if (kind != 's') { ++ts_count; }
+      }
+      arg_routes.reserve(ts_count);
+      for (std::size_t slot = 0; slot < ts_count; ++slot) {
+        arg_routes.push_back(cached_input.prepare_child_route(slot));
+      }
+    }
     if (direct) {
       auto bundle = cached_input.as_bundle();
-      cached_input = bundle[0];
+      cached_input = !arg_routes.empty() && arg_routes[0].ready()
+                         ? cached_input.child_from_prepared(arg_routes[0])
+                         : bundle[0];
     }
     auto cache = std::make_unique<PyFastComputeCache>(
         fn.value().record, std::move(shape), std::move(cached_input),
         scalars.value(), out.handle(), global_state);
+    cache->arg_routes = std::move(arg_routes);
     state.set(PyFastComputeStateRef{cache.get()});
     static_cast<void>(cache.release());
   }
@@ -1074,9 +1109,11 @@ struct py_fast_compute_node {
         nb::object lhs;
         nb::object rhs;
         if (!py_make_cached_pair_ts_arg(*cache, 0, cache->shape.layout[0],
-                                        bundle[0], lease, lhs) ||
+                                        cache->arg_at(input, bundle, 0), lease,
+                                        lhs) ||
             !py_make_cached_pair_ts_arg(*cache, 1, cache->shape.layout[1],
-                                        bundle[1], lease, rhs)) {
+                                        cache->arg_at(input, bundle, 1), lease,
+                                        rhs)) {
           return;
         }
         if (py_has_active_runtime_global_state()) {
@@ -1094,8 +1131,8 @@ struct py_fast_compute_node {
       } else {
         TSInputView input = cache->input.borrowed_ref(now);
         nb::list call_args;
-        if (!py_assemble_fast_args(cache->shape.layout, input, cache->scalars,
-                                   lease, call_args)) {
+        if (!py_assemble_fast_args(*cache, cache->shape.layout, input,
+                                   cache->scalars, lease, call_args)) {
           return;
         }
         auto call_kwargs = py_peel_kwargs(call_args, cache->shape.kw_names);

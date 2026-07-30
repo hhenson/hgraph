@@ -483,10 +483,14 @@ Prepared-slot contract
 A prepared slot exists per canonical **actively observed value input** of a
 node whose front-end plans the route array — the static-node builder and
 the lifted-kernel builder, which share the machinery in
-``runtime/prepared_input_routes.h``.  Three per-tick consumers read it: the
-static-node invocation frame, the lifted-kernel child projection, and the
-common readiness gate (all other node kinds keep the existing projection
-path unchanged).  Each slot holds exactly two non-owning words of route
+``runtime/prepared_input_routes.h``.  Per-tick consumers (issue #203 extended
+the original three): the static-node invocation frame, the lifted-kernel
+child projection, the common readiness gate, the python fast-compute cache
+(one route per ts-arg below the args root, acquired at node start), and the
+retained capture views of the service and shared-output nodes
+(``TSInputView::routed_child_at`` — a retained view carrying its route
+resolves reads through the trie handle).  All other node kinds keep the
+existing projection path unchanged.  Each slot holds exactly two non-owning words of route
 state:
 
 * a pointer to the slot's active-trie root node

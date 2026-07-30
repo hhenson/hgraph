@@ -1,6 +1,7 @@
 #ifndef HGRAPH_CPP_ROOT_TIME_SERIES_VISITOR_H
 #define HGRAPH_CPP_ROOT_TIME_SERIES_VISITOR_H
 
+#include <hgraph/types/detail/visitor.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
 
@@ -109,35 +110,12 @@ namespace hgraph
             }
         };
 
-        template <typename... Handlers> struct TSEndpointOverload : Handlers...
-        {
-            using Handlers::operator()...;
-        };
-
-        template <typename... Handlers> TSEndpointOverload(Handlers...) -> TSEndpointOverload<Handlers...>;
-
         template <typename Visitor, typename SpecialisedView, typename BaseView>
         inline constexpr bool endpoint_branch_invocable_v =
-            std::invocable<Visitor &, SpecialisedView> || std::invocable<Visitor &, BaseView>;
-
-        template <typename Visitor, typename SpecialisedView, typename BaseView,
-                  bool HasSpecialised = std::invocable<Visitor &, SpecialisedView>>
-        struct TSEndpointBranchResult;
+            visitor_branch_invocable_v<Visitor, SpecialisedView, BaseView>;
 
         template <typename Visitor, typename SpecialisedView, typename BaseView>
-        struct TSEndpointBranchResult<Visitor, SpecialisedView, BaseView, true>
-        {
-            using type = std::invoke_result_t<Visitor &, SpecialisedView>;
-        };
-
-        template <typename Visitor, typename SpecialisedView, typename BaseView>
-        struct TSEndpointBranchResult<Visitor, SpecialisedView, BaseView, false>
-        {
-            using type = std::invoke_result_t<Visitor &, BaseView>;
-        };
-
-        template <typename Visitor, typename SpecialisedView, typename BaseView>
-        using endpoint_branch_result_t = typename TSEndpointBranchResult<Visitor, SpecialisedView, BaseView>::type;
+        using endpoint_branch_result_t = visitor_branch_result_t<Visitor, SpecialisedView, BaseView>;
 
         template <typename SpecialisedView, typename Visitor>
         decltype(auto) invoke_input_endpoint_visitor(Visitor &visitor, const TSInputView &view)
@@ -167,25 +145,10 @@ namespace hgraph
 
         template <typename Result, typename Visitor, typename SpecialisedView, typename BaseView>
         inline constexpr bool endpoint_branch_same_result_v =
-            std::same_as<Result, endpoint_branch_result_t<Visitor, SpecialisedView, BaseView>>;
-
-        template <typename Result> struct TSEndpointBorrowedRangeResult : std::false_type
-        {
-        };
-
-        template <typename Value> struct TSEndpointBorrowedRangeResult<Range<Value>> : std::true_type
-        {
-        };
-
-        template <typename Key, typename Value>
-        struct TSEndpointBorrowedRangeResult<KeyValueRange<Key, Value>> : std::true_type
-        {
-        };
+            visitor_branch_same_result_v<Result, Visitor, SpecialisedView, BaseView>;
 
         template <typename Result>
-        inline constexpr bool endpoint_result_safe_v =
-            !std::is_reference_v<Result> &&
-            !TSEndpointBorrowedRangeResult<std::remove_cv_t<Result>>::value;
+        inline constexpr bool endpoint_result_safe_v = visitor_result_safe_v<Result>;
     }  // namespace detail
 
     /**
@@ -200,7 +163,7 @@ namespace hgraph
     decltype(auto) visit(const TSInputView &view, Handlers &&...handlers)
     {
         static_assert(sizeof...(Handlers) > 0, "time-series endpoint visit requires at least one handler");
-        auto visitor = detail::TSEndpointOverload<std::decay_t<Handlers>...>{std::forward<Handlers>(handlers)...};
+        auto visitor = detail::VisitorOverload<std::decay_t<Handlers>...>{std::forward<Handlers>(handlers)...};
         using Visitor = decltype(visitor);
 
         constexpr bool complete = detail::endpoint_branch_invocable_v<Visitor, TSValueInputView, TSInputView> &&
@@ -274,7 +237,7 @@ namespace hgraph
     decltype(auto) visit(const TSOutputView &view, Handlers &&...handlers)
     {
         static_assert(sizeof...(Handlers) > 0, "time-series endpoint visit requires at least one handler");
-        auto visitor = detail::TSEndpointOverload<std::decay_t<Handlers>...>{std::forward<Handlers>(handlers)...};
+        auto visitor = detail::VisitorOverload<std::decay_t<Handlers>...>{std::forward<Handlers>(handlers)...};
         using Visitor = decltype(visitor);
 
         constexpr bool complete = detail::endpoint_branch_invocable_v<Visitor, TSValueOutputView, TSOutputView> &&

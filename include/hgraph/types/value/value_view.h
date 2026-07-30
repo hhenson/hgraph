@@ -14,8 +14,24 @@
 
 namespace hgraph
 {
+    namespace detail
+    {
+        struct ValueVisitorAccess;
+
+        /**
+         * Construction token used after value visitation has already checked
+         * the semantic value kind.
+         */
+        class TrustedValueKind
+        {
+            constexpr TrustedValueKind() noexcept = default;
+            friend struct ValueVisitorAccess;
+        };
+    }  // namespace detail
+
     class IndexedValueView;
     class MutableIndexedValueView;
+    class AtomicView;
     class TupleView;
     class BundleView;
     class ListView;
@@ -292,6 +308,8 @@ namespace hgraph
         }
 
         // -- kind-specialised view casts (definitions in specialised_views.h) --
+        [[nodiscard]] AtomicView as_atomic() const;
+        [[nodiscard]] std::optional<AtomicView> try_as_atomic() const;
         [[nodiscard]] IndexedValueView as_indexed_view() const;
         [[nodiscard]] std::optional<IndexedValueView> try_as_indexed_view() const;
         [[nodiscard]] IndexedValueView as_indexed() const;
@@ -369,6 +387,8 @@ namespace hgraph
 #endif
 
       private:
+        friend struct detail::ValueVisitorAccess;
+
         struct TrustedPointer
         {};
 

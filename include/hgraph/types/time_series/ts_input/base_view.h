@@ -155,6 +155,11 @@ namespace hgraph
          */
         [[nodiscard]] detail::PreparedInputSlotRoute prepare_child_route(std::size_t index) const;
         [[nodiscard]] TSInputView child_from_prepared(const detail::PreparedInputSlotRoute &route) const;
+        /** One-shot convenience for RETAINED child views (issue #203): the
+            projected child carries its prepared route, so subsequent reads
+            resolve through the trie handle instead of re-running route
+            resolution. Equivalent to ``indexed_child_at`` in behaviour. */
+        [[nodiscard]] TSInputView routed_child_at(std::size_t index) const;
 
         [[nodiscard]] TSSInputView as_set() &;
         [[nodiscard]] TSSInputView as_set() const &;

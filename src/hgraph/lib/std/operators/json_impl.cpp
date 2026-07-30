@@ -1,5 +1,6 @@
 #include <hgraph/lib/std/operators/impl/json_impl.h>
 #include <hgraph/types/time_series/visitor.h>
+#include <hgraph/types/value/visitor.h>
 
 #include <fmt/format.h>
 #include <simdjson.h>
@@ -141,26 +142,37 @@ namespace hgraph::stdlib::json_tree
     {
         const auto *meta = value.schema();
         if (meta == json_meta()) { return Value{value}; }
-        switch (meta->value_kind())
+
+        // JSON assigns a concrete meaning to an empty dynamic box. The
+        // general value visitor rejects absence, so preserve that policy here
+        // and let populated boxes recurse into their contained value.
+        if (value.is_any())
         {
-            case ValueTypeKind::Atomic:
-                return box(Value{value});
-            case ValueTypeKind::List:
-            case ValueTypeKind::Tuple: {
-                ListBuilder items{json_value_binding()};
-                const auto values = value.as_indexed_view();
-                for (const auto element : values)
-                {
-                    Value node = to_node(element);
-                    items.push_back_copy(node.view().data());
-                }
-                return box(items.build());
+            auto boxed = value.as_any();
+            return boxed.has_value() ? to_node(boxed.get()) : box(Value{});
+        }
+
+        const auto indexed_to_node = [](const IndexedValueView &values) {
+            ListBuilder items{json_value_binding()};
+            for (const auto element : values)
+            {
+                Value node = to_node(element);
+                items.push_back_copy(node.view().data());
             }
-            case ValueTypeKind::Map: {
+            return box(items.build());
+        };
+
+        return visit(
+            value,
+            [](AtomicView scalar) {
+                return box(Value{static_cast<const ValueView &>(scalar)});
+            },
+            [&](ListView values) { return indexed_to_node(values); },
+            [&](TupleView values) { return indexed_to_node(values); },
+            [](MapView values) {
                 MapBuilder entries{ValuePlanFactory::instance().type_for(
                                        scalar_descriptor<Str>::value_meta()),
                                    json_value_binding()};
-                const auto values = value.as_map();
                 for (const auto [key, item] : values)
                 {
                     Value       key_text;
@@ -183,14 +195,10 @@ namespace hgraph::stdlib::json_tree
                     entries.set_item_copy(key_text.view().data(), node.view().data());
                 }
                 return box(entries.build());
-            }
-            case ValueTypeKind::Any: {
-                auto boxed = value.as_any();
-                return boxed.has_value() ? to_node(boxed.get()) : box(Value{});
-            }
-            default:
+            },
+            [](ValueView) -> Value {
                 throw std::invalid_argument("JSON tree: unsupported value kind");
-        }
+            });
     }
 
     ValueView unbox(const ValueView &node)
