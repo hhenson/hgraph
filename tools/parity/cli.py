@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from .campaign import render_campaign_markdown, run_campaign
+from .surface import compare_surfaces, probe_surface, render_surface_markdown
 from .catalog import catalogue_json, validate_recipe
 from .compare import compare_outcomes
 from .coverage import coverage_json, render_coverage_markdown
@@ -192,6 +193,19 @@ def command_coverage(args) -> int:
     return 0
 
 
+def command_surface(args) -> int:
+    environments = _prepare(args)
+    reference = probe_surface(environments.reference_python)
+    candidate = probe_surface(environments.candidate_python)
+    report = compare_surfaces(reference, candidate)
+    output_dir = Path(args.output_dir) if args.output_dir else PARITY_ROOT / "results" / "surface"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "surface.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    (output_dir / "surface.md").write_text(render_surface_markdown(report))
+    print(render_surface_markdown(report))
+    return 0 if not report["findings"] or args.exit_zero else 1
+
+
 def command_campaign(args) -> int:
     profile_defaults = CAMPAIGN_PROFILES[args.profile]
     examples = (
@@ -356,6 +370,12 @@ def build_parser() -> argparse.ArgumentParser:
     campaign.add_argument("--exit-zero", action="store_true")
     _environment_arguments(campaign)
     campaign.set_defaults(func=command_campaign)
+
+    surface = subparsers.add_parser("surface")
+    surface.add_argument("--output-dir")
+    surface.add_argument("--exit-zero", action="store_true")
+    _environment_arguments(surface)
+    surface.set_defaults(func=command_surface)
 
     publish = subparsers.add_parser("publish-issues")
     publish.add_argument("reports", nargs="+")
