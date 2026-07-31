@@ -251,33 +251,33 @@ Larger graph and collection profiles favour hg_cpp, increasingly with scale:
      - hg_cpp
      - hg/released
    * - Large wide/deep graph
-     - 20.7
+     - 21.6
      - 19.0
-     - 0.92
+     - 0.88
    * - Large dense TSD map/reduce
      - 4.5
-     - 2.5
-     - 0.56
+     - 2.6
+     - 0.58
    * - Large sparse retained capacity
-     - 446.5
-     - 106.1
+     - 444.9
+     - 106.0
      - 0.24
    * - Long monotonic key growth
      - 68.8
      - 23.2
      - 0.34
    * - Long clear/repopulate
-     - 75.0
-     - 7.2
+     - 75.5
+     - 7.3
      - 0.10
    * - Large keyed switch
      - 8.6
      - 4.1
      - 0.48
    * - Large dependency mesh
-     - 5.2
-     - 3.4
-     - 0.65
+     - 5.1
+     - 3.6
+     - 0.70
 
 The hg_cpp duration series are bounded where the data structure is bounded.
 Scalar loops, Python compute chains, strings, the fixed 64-item tick window,
@@ -289,7 +289,7 @@ Monotonic key growth scales intentionally: native reported storage rises from
 
 The sparse-capacity profile also quantifies the attribution gap. At the large
 point, Inspector attributes 33.2 MiB of nested graph slots while process peak
-is 106.1 MiB. Approximately 72.9 MiB remains in key/value/index payloads,
+is 106.0 MiB. Approximately 72.8 MiB remains in key/value/index payloads,
 wiring/Python state, or allocator overhead. TSS cardinality produces a visible
 RSS slope while Inspector reports zero dynamic bytes. These are stronger
 reasons to extend structural accounting than to tune the already-accounted
@@ -313,7 +313,7 @@ warm plateau:
      - 1.0
    * - Small graph, 100 executions
      - 10.1
-     - 10.8
+     - 10.7
    * - Service/adaptor graph, 10 executions
      - 1.0
      - 0.6
