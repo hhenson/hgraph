@@ -56,6 +56,8 @@ MEMORY_FIELDS = (
     "post_gc_uss_mb",
     "retained_increment_mb",
     "retained_uss_increment_mb",
+    "repeat_growth_mb",
+    "repeat_uss_growth_mb",
     "seconds",
 )
 
@@ -289,18 +291,27 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
             retained_headers = " | ".join(
                 f"{MODE_LABELS[mode]} retained" for mode in display_modes
             )
+            repeat_headers = (
+                " | " + " | ".join(
+                    f"{MODE_LABELS[mode]} first-to-last growth"
+                    for mode in display_modes
+                )
+                if current_group == "Process lifetime" else ""
+            )
             ratio_header = (
                 " | hg/baseline"
                 if baseline_mode is not None and "hg-cpp" in display_modes
                 else ""
             )
             numeric_columns = (
-                len(display_modes) * 2 + 2 + (1 if ratio_header else 0)
+                len(display_modes) * (3 if repeat_headers else 2)
+                + 2 + (1 if ratio_header else 0)
             )
             lines += [
                 "", f"## {current_group}", "",
                 f"| profile | axis | {peak_headers}{ratio_header} | "
-                f"{retained_headers} | planned KiB | peak dynamic KiB |",
+                f"{retained_headers}{repeat_headers} | planned KiB | "
+                "peak dynamic KiB |",
                 "|---|---|" + "---:|" * numeric_columns,
             ]
         peaks = {
@@ -322,6 +333,17 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
             )
             for mode in display_modes
         ]
+        repeat_cells = (
+            [
+                _cell(
+                    per_mode.get(mode, {}).get("repeat_growth_mb")
+                    if per_mode.get(mode, {}).get("ok") else None,
+                    per_mode.get(mode, {}).get("repeat_growth_mb_mad"),
+                )
+                for mode in display_modes
+            ]
+            if current_group == "Process lifetime" else []
+        )
         ratio_cells = []
         if baseline_mode is not None and "hg-cpp" in display_modes:
             baseline_peak = peaks[baseline_mode]
@@ -336,7 +358,9 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
         dynamic = structural.get("peak_dynamic_reserved_bytes")
         lines.append(
             f"| {profile.label} (`{profile_id}`) | {profile.growth_axis} | "
-            + " | ".join(peak_cells + ratio_cells + retained_cells)
+            + " | ".join(
+                peak_cells + ratio_cells + retained_cells + repeat_cells
+            )
             + " | "
             f"{_cell(planned / 1024 if planned is not None else None)} | "
             f"{_cell(dynamic / 1024 if dynamic is not None else None)} |"

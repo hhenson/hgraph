@@ -19,6 +19,7 @@ class MemoryProfile:
     size_scale: float
     growth_axis: str
     expectation: str
+    repetitions: int = 1
 
 
 def _series(
@@ -62,6 +63,38 @@ PROFILES.update(_series(
     "peak and retained memory should be approximately duration independent",
     (("short", 0.1, 1.0), ("medium", 0.5, 1.0), ("long", 1.0, 1.0)),
 ))
+
+# Long-lived hosts repeatedly wire and tear down graphs within one interpreter.
+# These profiles reveal per-run retention that fresh-process duration profiles
+# intentionally isolate away.
+for suffix, repetitions in (("once", 1), ("ten", 10), ("hundred", 100)):
+    PROFILES[f"construct_std__repeat_{suffix}"] = MemoryProfile(
+        group="Process lifetime",
+        label=f"Repeated small graph - {suffix}",
+        scenario="construct_std",
+        cycle_scale=1.0,
+        size_scale=0.1,
+        growth_axis="graph executions",
+        expectation=(
+            "post-GC memory should reach a warm plateau rather than grow "
+            "proportionally with repeated graph lifecycles"
+        ),
+        repetitions=repetitions,
+    )
+for suffix, repetitions in (("once", 1), ("ten", 10), ("fifty", 50)):
+    PROFILES[f"service_adaptor_py__repeat_{suffix}"] = MemoryProfile(
+        group="Process lifetime",
+        label=f"Repeated service/adaptor graph - {suffix}",
+        scenario="service_adaptor_py",
+        cycle_scale=0.005,
+        size_scale=1.0,
+        growth_axis="graph executions",
+        expectation=(
+            "service and adaptor registration should deduplicate or be released "
+            "rather than retain one graph's state per execution"
+        ),
+        repetitions=repetitions,
+    )
 
 # Value representations exercise heap-owned strings, native compound values,
 # the Python bridge, and a fixed-capacity tick window.

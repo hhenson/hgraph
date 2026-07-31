@@ -20,6 +20,7 @@ def _sample(peak, retained, ready=100.0):
         "ok": True,
         "measurement": "process",
         "cycles": 100,
+        "repetitions": 1,
         "process_start_rss_mb": 20.0,
         "process_start_uss_mb": 18.0,
         "ready_rss_mb": ready,
@@ -36,6 +37,8 @@ def _sample(peak, retained, ready=100.0):
         "post_gc_uss_mb": ready - 10 + retained,
         "retained_increment_mb": retained,
         "retained_uss_increment_mb": retained,
+        "repeat_growth_mb": 0.0,
+        "repeat_uss_growth_mb": 0.0,
         "seconds": 1.0,
     }
 
@@ -121,6 +124,26 @@ def test_python_reference_remains_reportable_on_demand():
     assert "Python retained" in report
     assert "30.0 +/- 0.0" in report
     assert "hg/baseline" not in report
+
+
+def test_process_lifetime_profiles_report_first_to_last_growth():
+    legacy_sample = _sample(2.0, 2.0)
+    legacy_sample["repeat_growth_mb"] = 1.0
+    candidate_sample = _sample(3.0, 3.0)
+    candidate_sample["repeat_growth_mb"] = 0.5
+    report = memory.render(
+        {"construct_std__repeat_ten": {
+            "upstream-cpp": memory.aggregate_samples([legacy_sample] * 3),
+            "hg-cpp": memory.aggregate_samples([candidate_sample] * 3),
+        }},
+        {},
+        samples=3,
+        interval_ms=5.0,
+    )
+
+    assert "legacy C++ first-to-last growth" in report
+    assert "hg_cpp first-to-last growth" in report
+    assert "1.0 +/- 0.0 | 0.5 +/- 0.0" in report
 
 
 def test_memory_baseline_cache_requires_exact_identity(tmp_path):

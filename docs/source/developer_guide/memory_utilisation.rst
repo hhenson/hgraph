@@ -59,6 +59,57 @@ next graph's delta.
 Static ownership audit
 ----------------------
 
+Audit scope and method
+~~~~~~~~~~~~~~~~~~~~~~
+
+The initial audit traced every graph/node owner from its public erased handle
+through its ``StoragePlan`` construction/destruction hooks, then followed all
+dynamic allocation and capacity-reporting sites in the runtime and time-series
+value layers. It separately inventoried function-static registries, intern
+tables, explicit ``new``/``make_unique``/``make_shared`` calls, standard
+containers, observer spill paths, and Python-owned bridge state. The primary
+source areas were:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Ownership area
+     - Primary implementation
+     - Accounting status
+   * - Erased owners and storage plans
+     - ``types/utils/memory_utils.h`` and value/node/graph/executor owners
+     - Plan layout is reported for the root graph
+   * - Fixed time-series layout
+     - ``metadata/ts_data_fixed_structured_*`` and ``time_series/ts_data``
+     - Included when embedded in the graph plan
+   * - Key/value slots and indices
+     - ``key_slot_store.h``, ``value_slot_store.h``, and
+       ``stable_slot_storage.h``
+     - Nested graph blocks are reported; keys/values/indices are incomplete
+   * - Nested graph policies
+     - ``map_node.cpp``, ``reduce_node.cpp``, ``ordered_reduce_node.cpp``,
+       ``switch_node.cpp``, ``mesh_node.cpp``, and ``tsl_map_node.cpp``
+     - Implemented policies report slot live/reserved peaks
+   * - Value containers
+     - ``compact_storage.h``, ``mutable_container_ops.h``, and value builders
+     - Payload allocation is not currently attributed by Inspector
+   * - Target/observer state
+     - ``ts_input/target_link*``, TS data observer sets, and slot observers
+     - Inline state is planned; spill/transitions are not fully attributed
+   * - Canonical registries
+     - type/plan/ops registries, ``InternTable``, and policy context stores
+     - Process-lifetime ownership; excluded from per-graph Inspector totals
+   * - Python bridge
+     - ``py_nodes.cpp``, ``py_ports.cpp``, ``py_wiring.cpp``, and
+       ``value_conversion.cpp``
+     - Included in process metrics only
+
+The audit did not infer heap size from container ``sizeof`` or add allocator
+estimates to Inspector totals. Such estimates look precise but miss capacity,
+load factor, alignment, small-string optimisation, shared ownership, and
+allocator metadata. The growth profiles provide the empirical bound until
+each owner exposes a cold-path metric.
+
 Planned graph memory
 ~~~~~~~~~~~~~~~~~~~~
 

@@ -105,6 +105,7 @@ def _base_result(profile_id, profile, scenario, process_start) -> dict:
         "hgraph": _implementation_label(),
         "python": ".".join(map(str, sys.version_info[:3])),
         "psutil": psutil.__version__,
+        "repetitions": profile.repetitions,
         "process_start_rss_mb": process_start["rss_mb"],
         "process_start_uss_mb": process_start["uss_mb"],
     }
@@ -126,26 +127,33 @@ def run_process(profile_id, profile, scenario, interval_ms: float,
     graph_fn, cycles = scenario.build(profile.cycle_scale, profile.size_scale)
     gc.collect()
     pre_run = _full_memory(process)
-    start = hg.MIN_ST
-    end = start + (cycles + 2) * hg.MIN_TD
-
+    cycles_per_run = cycles
+    post_gc_series = []
+    post_gc_uss_series = []
     t0 = time.perf_counter()
     with _PeakRssSampler(process, interval_ms / 1000.0) as sampler:
-        output = hg.run_graph(
-            graph_fn, start_time=start, end_time=end, print_progress=False
-        )
+        for _ in range(profile.repetitions):
+            start = hg.MIN_ST
+            end = start + (cycles + 2) * hg.MIN_TD
+            output = hg.run_graph(
+                graph_fn, start_time=start, end_time=end, print_progress=False
+            )
+            post_run = _full_memory(process)
+            del output
+            gc.collect()
+            gc.collect()
+            checkpoint = _full_memory(process)
+            post_gc_series.append(checkpoint["rss_mb"])
+            post_gc_uss_series.append(checkpoint["uss_mb"])
     seconds = time.perf_counter() - t0
-    post_run = _full_memory(process)
-    del output, graph_fn
-    gc.collect()
-    gc.collect()
-    post_gc = _full_memory(process)
+    post_gc = checkpoint
 
     peak_mb = _mb(sampler.peak_bytes)
     return {
         "ok": True,
         "measurement": "process",
-        "cycles": cycles,
+        "cycles": cycles_per_run * profile.repetitions,
+        "cycles_per_run": cycles_per_run,
         "seconds": round(seconds, 6),
         "ready_rss_mb": ready["rss_mb"],
         "ready_uss_mb": ready["uss_mb"],
@@ -168,6 +176,16 @@ def run_process(profile_id, profile, scenario, interval_ms: float,
             round(post_gc["uss_mb"] - pre_run["uss_mb"], 3)
             if post_gc["uss_mb"] is not None and pre_run["uss_mb"] is not None
             else None
+        ),
+        "post_gc_rss_series_mb": post_gc_series,
+        "post_gc_uss_series_mb": post_gc_uss_series,
+        "repeat_growth_mb": round(
+            post_gc_series[-1] - post_gc_series[0], 3
+        ),
+        "repeat_uss_growth_mb": (
+            round(post_gc_uss_series[-1] - post_gc_uss_series[0], 3)
+            if post_gc_uss_series[-1] is not None
+            and post_gc_uss_series[0] is not None else None
         ),
         "sampling_interval_ms": interval_ms,
         "rss_samples": sampler.samples,
