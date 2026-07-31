@@ -1,0 +1,34 @@
+{
+  "rules": [
+    {
+      "module": "hgraph",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "hgraph's curated __all__ is the recorded API contract (parity_matrix.rst); upstream's un-curated dir() surface is not a target"
+    },
+    {
+      "module": "*",
+      "kind": "name-missing",
+      "side": "reference",
+      "reason": "candidate-side additions are allowed API extensions"
+    },
+    {
+      "module": "*",
+      "kind": "method-missing",
+      "side": "reference",
+      "reason": "candidate-side additions are allowed API extensions"
+    },
+    {
+      "module": "*",
+      "kind": "module-missing",
+      "side": "reference",
+      "reason": "candidate-only modules are allowed API extensions"
+    },
+    {
+      "module": "*",
+      "kind": "import-asymmetry",
+      "side": "reference",
+      "reason": "reference-side import failure (upstream bug or optional dependency absent from the reference environment)"
+    }
+  ]
+}

@@ -5,10 +5,19 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 from .campaign import render_campaign_markdown, run_campaign
+from .surface import (
+    SURFACE_EXTRA_DEPENDENCIES,
+    classify_findings,
+    compare_surfaces,
+    load_known_surface,
+    probe_surface,
+    render_surface_markdown,
+)
 from .catalog import catalogue_json, validate_recipe
 from .compare import compare_outcomes
 from .coverage import coverage_json, render_coverage_markdown
@@ -192,6 +201,36 @@ def command_coverage(args) -> int:
     return 0
 
 
+def command_surface(args) -> int:
+    environments = _prepare(args)
+    if args.with_extras:
+        # One shared dependency list into BOTH environments: adaptor imports
+        # become symmetric by construction, so the deep adaptor surfaces are
+        # audited instead of skipped.
+        for python in (environments.reference_python, environments.candidate_python):
+            subprocess.run(
+                ["uv", "pip", "install", "--python", str(python),
+                 *SURFACE_EXTRA_DEPENDENCIES],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+    reference = probe_surface(environments.reference_python)
+    candidate = probe_surface(environments.candidate_python)
+    report = compare_surfaces(reference, candidate)
+    known_path = Path(args.known) if args.known else Path(__file__).with_name("surface_known.json")
+    rules = load_known_surface(known_path) if known_path.exists() else []
+    actionable, accepted = classify_findings(report["findings"], rules)
+    report["actionable"] = actionable
+    report["accepted"] = accepted
+    output_dir = Path(args.output_dir) if args.output_dir else PARITY_ROOT / "results" / "surface"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "surface.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    (output_dir / "surface.md").write_text(render_surface_markdown(report))
+    print(render_surface_markdown(report))
+    return 0 if not report["actionable"] or args.exit_zero else 1
+
+
 def command_campaign(args) -> int:
     profile_defaults = CAMPAIGN_PROFILES[args.profile]
     examples = (
@@ -356,6 +395,14 @@ def build_parser() -> argparse.ArgumentParser:
     campaign.add_argument("--exit-zero", action="store_true")
     _environment_arguments(campaign)
     campaign.set_defaults(func=command_campaign)
+
+    surface = subparsers.add_parser("surface")
+    surface.add_argument("--output-dir")
+    surface.add_argument("--exit-zero", action="store_true")
+    surface.add_argument("--with-extras", action="store_true")
+    surface.add_argument("--known")
+    _environment_arguments(surface)
+    surface.set_defaults(func=command_surface)
 
     publish = subparsers.add_parser("publish-issues")
     publish.add_argument("reports", nargs="+")
