@@ -40,6 +40,13 @@ class _Operator:
         self.__name__ = fn.__name__
         self.__qualname__ = getattr(fn, "__qualname__", fn.__name__)
         self.__doc__ = fn.__doc__
+        # Present the DECLARED signature to introspection (upstream parity;
+        # dispatch still accepts any call shape and resolves overloads).
+        import inspect
+        try:
+            self.__signature__ = inspect.signature(fn)
+        except (ValueError, TypeError):
+            pass
         self._registry_name = f"__pyop__{self.__qualname__}_{id(self):x}"
         self._delegate = _OperatorFunction(self._registry_name)
         self._overloads = []   # (impl, wiring signature) - dispatch_ reads these

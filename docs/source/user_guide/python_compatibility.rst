@@ -88,9 +88,11 @@ spellings (ruling 2026-07-31); port test code onto the formal API:
 - record: ``set_record_replay_config`` / ``record_replay_scope`` with the
   in-memory model, and read results back through ``get_recorded_value`` or
   ``Run.recorded(key)``;
-- replay: seed inputs through the run's replay configuration
-  (``record_replay_scope`` + the recorder API) instead of
-  ``set_replay_values``/``SimpleArrayReplaySource``;
+- replay: seed inputs with ``Wiring.set_replay(key, values, ts_type=...)``
+  before running (the same mechanism ``eval_node`` uses — per-cycle vectors
+  with ``None`` for no-tick), replacing
+  ``set_replay_values``/``SimpleArrayReplaySource``; read results back with
+  ``Run.recorded(key)`` or ``get_recorded_value``;
 - for simple per-cycle vectors, ``hgraph.test.eval_node`` already provides
   the seed-and-capture loop directly.
 

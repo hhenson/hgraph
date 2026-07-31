@@ -148,13 +148,6 @@
       "reason": "parameter names match upstream (node, *args); output_type/__scalars__ are allowed extensions and the None start default is engine-equivalent to MIN_ST"
     },
     {
-      "module": "hgraph.test",
-      "name": "*",
-      "kind": "name-missing",
-      "side": "candidate",
-      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 names available at the hgraph package root where they are defined"
-    },
-    {
       "module": "*",
       "name": "EvaluationTrace.__init__",
       "kind": "constructor-signature-mismatch",
@@ -171,6 +164,83 @@
       "name": "WiringTracer.__init__",
       "kind": "constructor-signature-mismatch",
       "reason": "nanobind-bound native observers: introspection shows *args/**kwargs; keyword construction is covered by tests"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "EvaluationLifeCycleObserver",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "GlobalState",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "GraphConfiguration",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "MAX_ET",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "MIN_DT",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "MIN_ST",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "MIN_TD",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "WiringError",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "evaluate_graph",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "graph",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "get_recorded_value",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
     }
   ]
 }
