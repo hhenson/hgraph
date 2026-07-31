@@ -224,6 +224,119 @@ adding a cache without a bounded key space. Changes in those areas require the
 full native/Python suites plus Linux validation and ASan as described in
 ``debugging``.
 
+Initial measured findings
+-------------------------
+
+The first controlled macOS baseline used Python 3.14.6, three fresh-process
+samples, and an Apple M4 Max. The complete report and raw samples are committed
+as ``benchmarks/results/memory-matrix-20260731-mac-main.md`` and
+``benchmarks/results/memory-raw-20260731-mac-main.json``. The raw metadata
+records the exact source revision and environment fingerprint used for the
+run.
+
+The loaded hg_cpp process floor was 63.5 MiB RSS, compared with 86.2 MiB for
+released C++ hgraph. Small run deltas favour the legacy runtime because hg_cpp
+touches an approximately 1.3--1.5 MiB one-time set of pages on first graph use;
+USS shows that only about 0.1 MiB remains uniquely resident for the scalar
+duration series. Ratios at this scale are allocator/page effects and should not
+drive node-level optimisation.
+
+Larger graph and collection profiles favour hg_cpp, increasingly with scale:
+
+.. list-table:: macOS peak RSS delta (median MiB)
+   :header-rows: 1
+
+   * - Profile
+     - Released C++
+     - hg_cpp
+     - hg/released
+   * - Large wide/deep graph
+     - 20.7
+     - 19.0
+     - 0.92
+   * - Large dense TSD map/reduce
+     - 4.5
+     - 2.5
+     - 0.56
+   * - Large sparse retained capacity
+     - 446.5
+     - 106.1
+     - 0.24
+   * - Long monotonic key growth
+     - 68.8
+     - 23.2
+     - 0.34
+   * - Long clear/repopulate
+     - 75.0
+     - 7.2
+     - 0.10
+   * - Large keyed switch
+     - 8.6
+     - 4.1
+     - 0.48
+   * - Large dependency mesh
+     - 5.2
+     - 3.4
+     - 0.65
+
+The hg_cpp duration series are bounded where the data structure is bounded.
+Scalar loops, Python compute chains, strings, the fixed 64-item tick window,
+key reactivation, and clear/repopulate have no material cycle-proportional
+slope. Native peak reserved storage is constant at 501 KiB for bounded TSD
+churn, 302.5 KiB for key reactivation, and 1,408 KiB for clear/repopulate.
+Monotonic key growth scales intentionally: native reported storage rises from
+819 KiB to 6,560 KiB, while process peak rises from 3.6 MiB to 23.2 MiB.
+
+The sparse-capacity profile also quantifies the attribution gap. At the large
+point, Inspector attributes 33.2 MiB of nested graph slots while process peak
+is 106.1 MiB. Approximately 72.9 MiB remains in key/value/index payloads,
+wiring/Python state, or allocator overhead. TSS cardinality produces a visible
+RSS slope while Inspector reports zero dynamic bytes. These are stronger
+reasons to extend structural accounting than to tune the already-accounted
+slot block in isolation.
+
+Repeated graph lifecycle finding
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The same graph callable was wired, executed, stopped, and collected repeatedly
+inside one process. The post-GC series is nearly linear rather than reaching a
+warm plateau:
+
+.. list-table:: macOS first-to-last post-GC growth (median MiB)
+   :header-rows: 1
+
+   * - Profile
+     - Released C++
+     - hg_cpp
+   * - Small graph, 10 executions
+     - 1.0
+     - 1.0
+   * - Small graph, 100 executions
+     - 10.1
+     - 10.8
+   * - Service/adaptor graph, 10 executions
+     - 1.0
+     - 0.6
+   * - Service/adaptor graph, 50 executions
+     - 4.9
+     - 3.1
+
+RSS and USS growth are effectively identical for these series, so this is live
+or allocator-retained private memory rather than shared-library accounting.
+The comparable released-runtime slope suggests a wider authoring/runtime
+lifecycle pattern, but hg_cpp's static ownership makes its candidate sources
+concrete: ``NodeRuntimeRegistry::make_type`` and the graph runtime registry
+append schemas, ops, contexts, and names before type interning, while several
+node policies append unique contexts to intentionally program-lifetime
+vectors. Rewiring an already-known graph can therefore retain new backing
+records even if the canonical type record is deduplicated.
+
+This is an evidence-backed root-cause hypothesis, not yet an allocation-level
+proof. The leading follow-up is a focused repeated-wiring profile with registry
+cardinality counters, followed by allocation tracing. Any fix must preserve
+the stable context addresses referenced by published ops tables; moving or
+freeing registry entries after publication is not valid.
+
 Initial optimisation priorities
 -------------------------------
 
@@ -241,10 +354,10 @@ audit suggests this order:
 3. Use duration profiles as leak/boundedness guards. A statistically material
    slope for scalar, fixed-window, churn, reactivation, or clear/repopulate
    workloads is higher priority than a one-time import or allocator step.
-4. Measure process-lifetime registries separately with repeated identical and
-   novel schemas. Preserve canonical stable addresses; optimise duplicate
-   keys, context breadth, or reset/test policy rather than freeing records that
-   live graphs can reference.
+4. Address repeated-wiring growth. Instrument process-lifetime registry and
+   policy-context cardinalities, deduplicate before allocating published
+   backing records, and preserve stable addresses for records referenced by
+   live graphs. Add novel-schema wiring as a separate intentional-growth axis.
 5. Continue demand-driven Python materialisation. A Python mirror is useful
    only when a Python consumer/observer will read the output; Python-only
    storage is useful only when no native consumer requires native expansion.
