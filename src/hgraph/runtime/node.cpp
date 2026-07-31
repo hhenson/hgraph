@@ -1466,10 +1466,25 @@ namespace hgraph
         const NodeOps &node_ops = ops();
         if (node_ops.storage_metrics_impl != nullptr)
         {
-            NodeStorageMetrics dynamic = node_ops.storage_metrics_impl(
+            result = node_ops.storage_metrics_impl(
                 node_ops.extended_view_context, data());
-            dynamic.static_bytes = result.static_bytes;
-            return dynamic;
+            result.static_bytes = type().plan() != nullptr ? type().plan()->layout.size : 0;
+        }
+
+        const auto add_ts_data_storage = [&result](const TSOutputView &view) noexcept {
+            const DynamicStorageMetrics metrics = view.data_view().dynamic_storage_metrics();
+            result.dynamic_live_bytes += metrics.live_bytes;
+            result.dynamic_reserved_bytes += metrics.reserved_bytes;
+        };
+        try
+        {
+            if (has_output()) { add_ts_data_storage(output(MIN_DT)); }
+            if (has_error_output()) { add_ts_data_storage(error_output(MIN_DT)); }
+            if (has_recordable_state()) { add_ts_data_storage(recordable_state(MIN_DT)); }
+        }
+        catch (...)
+        {
+            // Inspector is a cold-path diagnostic and must not affect graph execution.
         }
         return result;
     }

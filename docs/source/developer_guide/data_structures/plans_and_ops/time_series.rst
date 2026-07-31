@@ -136,7 +136,8 @@ The implementation uses the following names consistently:
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 4. ABI 4 represents destructive value
+    ``TS_DATA_OPS_ABI_VERSION`` is 5. ABI 5 adds the cold-path dynamic-storage
+    attribution hook used by Inspector. ABI 4 represented destructive value
     assignment sources as writable ``ValueView`` pointers rather than owning
     ``Value&&`` objects.
 
@@ -447,7 +448,7 @@ runtime implementation identifier. Consequently attach,
 reparent, and invalidation cannot follow a visible TargetLink projection into
 producer-owned storage. This projection is private lifecycle infrastructure;
 it adds no storage-layout cost, and its ops-table ABI contribution is tracked by
-``TS_DATA_OPS_ABI_VERSION``, currently 4.
+``TS_DATA_OPS_ABI_VERSION``, currently 5.
 
 Fixed to-REF alternatives are the exception to the general legacy-alternative
 rule. Their allocation is owned through the canonical Data-role record. At the

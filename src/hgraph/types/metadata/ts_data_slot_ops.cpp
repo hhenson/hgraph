@@ -87,6 +87,16 @@ namespace hgraph::ts_data_plan_factory_detail
             return seed;
         }
 
+        template <typename Block, typename Allocator>
+        [[nodiscard]] DynamicStorageMetrics dynamic_bitset_metrics(
+            const sul::dynamic_bitset<Block, Allocator> &bits) noexcept
+        {
+            return {
+                .live_bytes = bits.num_blocks() * sizeof(Block),
+                .reserved_bytes = (bits.capacity() / bits.bits_per_block) * sizeof(Block),
+            };
+        }
+
         template <typename Storage, typename Member>
         [[nodiscard]] std::size_t debug_offset(const Storage &storage, const Member &member) noexcept
         {
@@ -137,6 +147,13 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] KeySlotStore &keys() noexcept { return keys_; }
             [[nodiscard]] std::size_t size() const noexcept { return keys_.size(); }
             [[nodiscard]] std::size_t slot_capacity() const noexcept { return keys_.slot_capacity(); }
+            [[nodiscard]] DynamicStorageMetrics key_set_dynamic_storage_metrics() const noexcept
+            {
+                DynamicStorageMetrics result = keys_.dynamic_storage_metrics();
+                result += dynamic_bitset_metrics(added_);
+                result += dynamic_bitset_metrics(removed_);
+                return result;
+            }
             [[nodiscard]] bool slot_occupied(std::size_t slot) const noexcept { return keys_.slot_constructed(slot); }
             [[nodiscard]] bool slot_live(std::size_t slot) const noexcept { return keys_.slot_live(slot); }
             [[nodiscard]] bool slot_added(std::size_t slot) const noexcept
@@ -355,6 +372,30 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] KeySlotStore &keys() noexcept { return keys_; }
             [[nodiscard]] std::size_t size() const noexcept { return keys_.size(); }
             [[nodiscard]] std::size_t slot_capacity() const noexcept { return keys_.slot_capacity(); }
+            [[nodiscard]] DynamicStorageMetrics key_set_dynamic_storage_metrics() const noexcept
+            {
+                DynamicStorageMetrics result = keys_.dynamic_storage_metrics();
+                result += dynamic_bitset_metrics(added_);
+                result += dynamic_bitset_metrics(removed_);
+                return result;
+            }
+            [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+            {
+                DynamicStorageMetrics result = key_set_dynamic_storage_metrics();
+                result += values_.dynamic_storage_metrics();
+                result += dynamic_bitset_metrics(modified_);
+                result += dynamic_bitset_metrics(value_published_);
+
+                const TSDataOps *child_ops = element_type_.ops();
+                if (child_ops == nullptr) { return result; }
+                for (std::size_t slot = 0; slot < keys_.slot_capacity(); ++slot)
+                {
+                    if (!keys_.slot_constructed(slot)) { continue; }
+                    result += child_ops->dynamic_storage_metrics_impl(
+                        child_ops->context, values_.value_memory(slot));
+                }
+                return result;
+            }
             [[nodiscard]] bool slot_occupied(std::size_t slot) const noexcept { return keys_.slot_constructed(slot); }
             [[nodiscard]] bool slot_live(std::size_t slot) const noexcept { return keys_.slot_live(slot); }
             [[nodiscard]] bool slot_added(std::size_t slot) const noexcept
@@ -1021,6 +1062,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .mutable_tracking_impl     = &tss_mutable_tracking,
                     .has_current_value_impl    = &tss_has_current_value,
                     .all_valid_impl            = &tss_all_valid,
+                    .dynamic_storage_metrics_impl = &tss_dynamic_storage_metrics,
                     .value_memory_impl         = &tss_value_memory,
                     .mutable_value_memory_impl = &tss_mutable_value_memory,
                     .delta_memory_impl         = &tss_delta_memory,
@@ -1250,6 +1292,12 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static bool tss_all_valid(const void *, const void *memory) noexcept
             {
                 return storage<Storage>(memory).tracking().last_modified_time != MIN_DT;
+            }
+
+            [[nodiscard]] static DynamicStorageMetrics tss_dynamic_storage_metrics(
+                const void *, const void *memory) noexcept
+            {
+                return storage<Storage>(memory).key_set_dynamic_storage_metrics();
             }
 
             [[nodiscard]] static const void *tss_value_memory(const void *, const void *memory) noexcept
@@ -1978,6 +2026,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 base_ops.mutable_tracking_impl = &tsd_mutable_tracking;
                 base_ops.has_current_value_impl = &tsd_has_current_value;
                 base_ops.all_valid_impl = &tsd_all_valid;
+                base_ops.dynamic_storage_metrics_impl = &tsd_dynamic_storage_metrics;
                 base_ops.value_memory_impl = &tsd_value_memory;
                 base_ops.mutable_value_memory_impl = &tsd_mutable_value_memory;
                 base_ops.delta_memory_impl = &tsd_delta_memory;
@@ -2506,6 +2555,12 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static const void *tsd_child_at_slot(const void *, const void *memory, std::size_t slot)
             {
                 return storage<TSDSlotStorage>(memory).child_at_slot(slot);
+            }
+
+            [[nodiscard]] static DynamicStorageMetrics tsd_dynamic_storage_metrics(
+                const void *, const void *memory) noexcept
+            {
+                return storage<TSDSlotStorage>(memory).dynamic_storage_metrics();
             }
 
             [[nodiscard]] static bool tsd_slot_modified(const void *, const void *memory, std::size_t slot)

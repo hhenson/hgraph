@@ -39,6 +39,12 @@ def test_native_inspector_observes_eval_node_and_owns_its_snapshot():
     assert mapped.peak_storage.nested_graph_count == 2
     assert mapped.peak_storage.dynamic_reserved_bytes > 0
     assert mapped.storage.nested_graph_count == 0
+    assert any(
+        entry.kind == InspectionEntityKind.NODE
+        and entry.peak_storage.nested_graph_capacity == 0
+        and entry.peak_storage.dynamic_reserved_bytes > 0
+        for entry in snapshot.entries
+    )
 
     rows = inspection_rows(snapshot)
     assert len(rows) == len(snapshot.entries)

@@ -102,6 +102,16 @@ namespace hgraph
         /** Bound storage plan for the held value type, or ``nullptr`` if unbound. */
         [[nodiscard]] const MemoryUtils::StoragePlan *plan() const noexcept { return m_value_plan; }
 
+        /** Exact occupied/retained heap bytes owned by the value slots. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            DynamicStorageMetrics result = value_storage.dynamic_storage_metrics(constructed.count());
+            result += updated.dynamic_storage_metrics();
+            result += constructed.dynamic_storage_metrics();
+            result += observers.dynamic_storage_metrics();
+            return result;
+        }
+
         /**
          * Bind this store to ``plan``.
          *
@@ -370,6 +380,12 @@ namespace hgraph
 
         /** Stable storage metadata used to publish debugger-only slot offsets. */
         [[nodiscard]] const ValueSlotStore &debug_values() const noexcept { return m_values; }
+
+        /** Exact occupied/retained heap bytes owned by the mirrored value slots. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            return m_values.dynamic_storage_metrics();
+        }
 
         /**
          * True when the key slot is constructed. This is the public lifetime

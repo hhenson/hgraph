@@ -2,6 +2,7 @@
 #define HGRAPH_CPP_TS_DATA_OPS_H
 
 #include <hgraph/hgraph_export.h>
+#include <hgraph/types/storage_metrics.h>
 #include <hgraph/types/time_series/ts_data/types.h>
 #include <hgraph/types/utils/slot_observer.h>
 #include <hgraph/types/value/value_range.h>
@@ -37,6 +38,10 @@ namespace hgraph
         [[nodiscard]] void *missing_mutable_delta_memory(const void *, void *);
         void noop_reset_delta(const void *, void *);
         void noop_record_child_modified(const void *, void *, std::size_t, DateTime);
+        [[nodiscard]] inline DynamicStorageMetrics no_dynamic_storage_metrics(const void *, const void *) noexcept
+        {
+            return {};
+        }
         [[nodiscard]] bool missing_copy_value_from(const void *, void *, const ValueView &, DateTime);
         [[nodiscard]] bool missing_move_value_from(const void *, void *, ValueView, DateTime);
         [[nodiscard]] Value missing_empty_delta(const TSRoleTypeRef &);
@@ -133,6 +138,10 @@ namespace hgraph
         bool (*has_current_value_impl)(const void *context,
                                        const void *memory) = &ts_data_detail::missing_has_current_value;
         bool (*all_valid_impl)(const void *context, const void *memory) = &ts_data_detail::missing_all_valid;
+        // Cold-path attribution for heap storage owned by this TSData root.
+        DynamicStorageMetrics (*dynamic_storage_metrics_impl)(const void *context,
+                                                               const void *memory) noexcept =
+            &ts_data_detail::no_dynamic_storage_metrics;
         // Optional whole-view projection for aliases whose runtime value
         // binding cannot be represented by this table's fixed layout.
         ValueView (*value_view_impl)(const void *context, const void *memory) = nullptr;

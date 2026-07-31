@@ -574,6 +574,60 @@ TEST_CASE("TSOutput TSD move mutation moves keys and child values without remova
     REQUIRE(MoveTrackedScalar::move_assign_count == 2);
 }
 
+TEST_CASE("TSData dynamic storage metrics include TSS capacity and nested TSD children", "[memory]")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *str_meta = registry.register_scalar<std::string>("string");
+    const auto *tss_int = registry.tss(int_meta);
+    const auto *outer_tsd = registry.tsd(str_meta, tss_int);
+    const auto t1 = MIN_ST;
+
+    TSOutput set_output{*tss_int};
+    const auto set_before = set_output.data_view().dynamic_storage_metrics();
+    {
+        auto set_data = set_output.data_view();
+        auto set = set_data.as_set();
+        auto mutation = set.begin_mutation(t1);
+        mutation.reserve(64);
+    }
+    const auto set_after = set_output.data_view().dynamic_storage_metrics();
+    CHECK(set_after.live_bytes > set_before.live_bytes);
+    CHECK(set_after.reserved_bytes > set_before.reserved_bytes);
+    CHECK(set_after.reserved_bytes >= set_after.live_bytes);
+
+    TSOutput outer{*outer_tsd};
+    Value key{std::string{"nested"}};
+    {
+        auto outer_data = outer.data_view();
+        auto dict = outer_data.as_dict();
+        auto mutation = dict.begin_mutation(t1);
+        static_cast<void>(mutation.at(key.view()));
+    }
+
+    auto outer_data = outer.data_view();
+    auto dict = outer_data.as_dict();
+    auto child = dict.at(key.view());
+    const auto outer_before = outer.data_view().dynamic_storage_metrics();
+    const auto child_before = child.dynamic_storage_metrics();
+    {
+        auto child_set = child.as_set();
+        auto mutation = child_set.begin_mutation(t1);
+        mutation.reserve(64);
+    }
+    const auto outer_after = outer.data_view().dynamic_storage_metrics();
+    const auto child_after = child.dynamic_storage_metrics();
+
+    REQUIRE(child_after.reserved_bytes > child_before.reserved_bytes);
+    CHECK(outer_after.reserved_bytes - outer_before.reserved_bytes ==
+          child_after.reserved_bytes - child_before.reserved_bytes);
+    CHECK(outer_after.live_bytes - outer_before.live_bytes ==
+          child_after.live_bytes - child_before.live_bytes);
+    CHECK(outer_after.reserved_bytes >= outer_after.live_bytes);
+}
+
 TEST_CASE("TSOutputHandle stores output identity without evaluation time")
 {
     using namespace hgraph;

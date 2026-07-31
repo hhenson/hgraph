@@ -2,6 +2,7 @@
 #define HGRAPH_CPP_ROOT_V2_STABLE_SLOT_STORAGE_H
 
 #include <hgraph/types/utils/memory_utils.h>
+#include <hgraph/types/storage_metrics.h>
 
 #include <algorithm>
 #include <bit>
@@ -206,6 +207,18 @@ namespace hgraph
         [[nodiscard]] size_t alignment() const noexcept { return slot_alignment; }
         /** Allocator used to back this storage. */
         [[nodiscard]] const MemoryUtils::AllocatorOps &allocator() const noexcept { return *m_allocator; }
+
+        /** Exact occupied/retained heap bytes for this slot allocation. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics(size_t constructed_count) const noexcept
+        {
+            const size_t pointer_bytes = slot_count * sizeof(std::byte *);
+            const size_t live_block_metadata = blocks.size() * sizeof(StableSlotBlock);
+            const size_t reserved_block_metadata = blocks.capacity() * sizeof(StableSlotBlock);
+            return {
+                .live_bytes = pointer_bytes + live_block_metadata + constructed_count * slot_stride,
+                .reserved_bytes = pointer_bytes + reserved_block_metadata + slot_count * slot_stride,
+            };
+        }
 
         /** Pointer for ``slot``, or ``nullptr`` if the slot is out of range. */
         [[nodiscard]] std::byte *slot_data(size_t slot) const noexcept
