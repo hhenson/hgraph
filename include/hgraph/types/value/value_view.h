@@ -381,6 +381,13 @@ namespace hgraph
             return type().ops_ref().format_string(data());
         }
 
+        /** Heap storage exclusively owned by the referenced payload. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            return valid() ? type().ops_ref().dynamic_storage_metrics(data())
+                           : DynamicStorageMetrics{};
+        }
+
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
         [[nodiscard]] nb::object to_python() const;
         void from_python(nb::handle source);

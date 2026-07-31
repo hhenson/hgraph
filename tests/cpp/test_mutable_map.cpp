@@ -100,6 +100,23 @@ TEST_CASE("mutable map: insert, lookup, contains, replace, and erase")
     CHECK(map.as_map().at(Value{std::int32_t{1}}.view()).checked_as<std::int32_t>() == 100);
 }
 
+TEST_CASE("mutable map: metrics distinguish the key-set projection from values", "[memory]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *str_meta = registry.register_scalar<std::string>("str");
+    Value map = make_mutable_map(str_meta, str_meta);
+    const std::string key(256, 'k');
+    const std::string value(384, 'v');
+
+    map.as_map().begin_mutation().set_item(Value{key}.view(), Value{value}.view());
+    const auto full = map.view().dynamic_storage_metrics();
+    const auto key_set = map.as_map().key_set().dynamic_storage_metrics();
+    CHECK(full.live_bytes > key_set.live_bytes);
+    CHECK(full.reserved_bytes > key_set.reserved_bytes);
+    CHECK(key_set.live_bytes >= key.size() + 1);
+}
+
 TEST_CASE("mutable map: iteration over keys, values and entries; clear")
 {
     using namespace hgraph;

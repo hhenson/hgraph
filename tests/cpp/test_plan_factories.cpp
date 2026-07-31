@@ -1451,6 +1451,150 @@ TEST_CASE("TSDataPlanFactory: duration TSW stores a timestamped queue current wi
     REQUIRE(window.capacity() == retained_capacity);
 }
 
+TEST_CASE("TSDataPlanFactory: TSW dynamic storage metrics distinguish live and retained buffers", "[memory]")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    auto       &factory  = TSDataPlanFactory::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+
+    const auto slot_bytes = [](const TSWDataLayout &layout) {
+        const auto aligned_size = [](const MemoryUtils::StoragePlan &plan) {
+            const auto alignment = plan.layout.alignment;
+            return alignment <= 1
+                       ? plan.layout.size
+                       : ((plan.layout.size + alignment - 1) / alignment) * alignment;
+        };
+        return aligned_size(layout.element_binding.checked_plan()) +
+               aligned_size(layout.time_binding.checked_plan());
+    };
+
+    SECTION("fixed window reserves its configured capacity and keeps it after clear")
+    {
+        const auto *schema = registry.tsw(int_meta, 3, 1);
+        TSData      data{factory.data_type_for(schema)};
+        auto        view   = data.view();
+        auto        window = view.as_window();
+        const auto  stride = slot_bytes(window.layout());
+
+        CHECK(view.dynamic_storage_metrics().live_bytes == 0);
+        CHECK(view.dynamic_storage_metrics().reserved_bytes == 3 * stride);
+
+        for (std::int32_t value = 1; value <= 4; ++value)
+        {
+            Value item{value};
+            auto mutation = window.begin_mutation(MIN_ST + TimeDelta{value});
+            mutation.push(item.view());
+        }
+        CHECK(view.dynamic_storage_metrics().live_bytes == 3 * stride);
+        CHECK(view.dynamic_storage_metrics().reserved_bytes == 3 * stride);
+        CHECK(view.value().dynamic_storage_metrics().live_bytes == 3 * stride);
+
+        window.begin_mutation(MIN_ST + TimeDelta{5}).clear();
+        CHECK(view.dynamic_storage_metrics().live_bytes == 0);
+        CHECK(view.dynamic_storage_metrics().reserved_bytes == 3 * stride);
+    }
+
+    SECTION("duration window reports geometric capacity retained after eviction and clear")
+    {
+        const auto *schema = registry.tsw_duration(int_meta, TimeDelta{100});
+        TSData      data{factory.data_type_for(schema)};
+        auto        view   = data.view();
+        auto        window = view.as_window();
+        const auto  stride = slot_bytes(window.layout());
+
+        CHECK(view.dynamic_storage_metrics().live_bytes == 0);
+        CHECK(view.dynamic_storage_metrics().reserved_bytes == 0);
+
+        for (std::int32_t value = 1; value <= 5; ++value)
+        {
+            Value item{value};
+            auto mutation = window.begin_mutation(MIN_ST + TimeDelta{value});
+            mutation.push(item.view());
+        }
+        CHECK(view.dynamic_storage_metrics().live_bytes == 5 * stride);
+        CHECK(view.dynamic_storage_metrics().reserved_bytes == 8 * stride);
+
+        Value item{6};
+        window.begin_mutation(MIN_ST + TimeDelta{200}).push(item.view());
+        CHECK(view.dynamic_storage_metrics().live_bytes == stride);
+        CHECK(view.dynamic_storage_metrics().reserved_bytes == 8 * stride);
+
+        window.begin_mutation(MIN_ST + TimeDelta{201}).clear();
+        CHECK(view.dynamic_storage_metrics().live_bytes == 0);
+        CHECK(view.dynamic_storage_metrics().reserved_bytes == 8 * stride);
+    }
+}
+
+TEST_CASE("TSData storage metrics recurse through atomic, structured, and keyed values", "[memory]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    auto &factory = TSDataPlanFactory::instance();
+    const auto *str_meta = registry.register_scalar<std::string>("string");
+    const auto *ts_str = registry.ts(str_meta);
+    const std::string text(256, 'x');
+    Value source{text};
+
+    SECTION("atomic")
+    {
+        TSData data{factory.data_type_for(ts_str)};
+        auto view = data.view();
+        REQUIRE(view.begin_mutation(MIN_ST).copy_value_from(source.view()));
+        const auto metrics = view.dynamic_storage_metrics();
+        CHECK(metrics.live_bytes == text.size() + 1);
+        CHECK(metrics.reserved_bytes >= metrics.live_bytes);
+    }
+
+    SECTION("fixed TSL")
+    {
+        TSData data{factory.data_type_for(registry.tsl(ts_str, 2))};
+        auto view = data.view();
+        auto list = view.as_list();
+        REQUIRE(list.at(0).begin_mutation(MIN_ST).copy_value_from(source.view()));
+        const auto metrics = view.dynamic_storage_metrics();
+        CHECK(metrics.live_bytes >= text.size() + 1);
+        CHECK(view.value().dynamic_storage_metrics().live_bytes == metrics.live_bytes);
+    }
+
+    SECTION("dynamic TSL")
+    {
+        TSData data{factory.data_type_for(registry.tsl(ts_str, 0))};
+        auto view = data.view();
+        auto values = stdlib::make_list<std::string>({text, text});
+        REQUIRE(view.begin_mutation(MIN_ST).copy_value_from(values.view()));
+        const auto metrics = view.dynamic_storage_metrics();
+        CHECK(metrics.live_bytes > 2 * (text.size() + 1));
+        CHECK(metrics.reserved_bytes >= metrics.live_bytes);
+        CHECK(view.value().dynamic_storage_metrics().live_bytes == metrics.live_bytes);
+    }
+
+    SECTION("TSS and TSD keys plus nested values")
+    {
+        Value key{text};
+        TSData set_data{factory.data_type_for(registry.tss(str_meta))};
+        auto set_view = set_data.view();
+        auto set = set_view.as_set();
+        REQUIRE(set.begin_mutation(MIN_ST).add(key.view()));
+        const auto set_metrics = set.base().dynamic_storage_metrics();
+        CHECK(set_metrics.live_bytes >= text.size() + 1);
+        CHECK(set.value().dynamic_storage_metrics().live_bytes == set_metrics.live_bytes);
+
+        TSData dict_data{factory.data_type_for(registry.tsd(str_meta, ts_str))};
+        auto dict_view = dict_data.view();
+        auto dict = dict_view.as_dict();
+        dict.begin_mutation(MIN_ST).set(key.view(), source.view());
+        const auto full = dict.base().dynamic_storage_metrics();
+        const auto keys = dict.key_set().base().dynamic_storage_metrics();
+        CHECK(keys.live_bytes >= text.size() + 1);
+        CHECK(full.live_bytes > keys.live_bytes);
+        CHECK(full.reserved_bytes >= full.live_bytes);
+        CHECK(dict.value().dynamic_storage_metrics().live_bytes == full.live_bytes);
+        CHECK(dict.key_set().value().dynamic_storage_metrics().live_bytes == keys.live_bytes);
+    }
+}
+
 TEST_CASE("TSDataPlanFactory: fixed structured TSData recursively embeds child layouts")
 {
     using namespace hgraph;

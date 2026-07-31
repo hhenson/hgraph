@@ -61,6 +61,12 @@ namespace hgraph
             return value.has_value() ? value.format_string() : std::string{"None"};
         }
 
+        DynamicStorageMetrics any_dynamic_storage_metrics(
+            const void *, const void *memory) noexcept
+        {
+            return static_cast<const Value *>(memory)->dynamic_storage_metrics();
+        }
+
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
         nb::object any_to_python(const void *, const void *memory)
         {
@@ -116,6 +122,7 @@ namespace hgraph
             .to_python_buffer_impl = nullptr,
 #endif
             .format_string_impl = &any_format_string,
+            .dynamic_storage_metrics_impl = &any_dynamic_storage_metrics,
         };
         return ops;
     }

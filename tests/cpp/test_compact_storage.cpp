@@ -118,6 +118,57 @@ TEST_CASE("ListBuilder: works with non-trivial element types (std::string)")
     REQUIRE(as_const<std::string>(storage.element_at(2)) == "gamma");
 }
 
+TEST_CASE("compact containers expose raw, index, and recursive payload metrics", "[memory]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    (void)registry.register_scalar<std::string>("string");
+    const auto binding = registry.scalar_type<std::string>();
+    const std::string first(256, 'a');
+    const std::string second(320, 'b');
+
+    ListBuilder list_builder{binding};
+    list_builder.push_back(first);
+    list_builder.push_back(second);
+    auto list = list_builder.build_storage();
+    const auto list_metrics = list.dynamic_storage_metrics();
+    CHECK(list_metrics.live_bytes >= 2 * sizeof(std::string) + first.size() + second.size() + 2);
+    CHECK(list_metrics.reserved_bytes >= list_metrics.live_bytes);
+    CHECK(compact_list_ops().dynamic_storage_metrics(&list).live_bytes == list_metrics.live_bytes);
+
+    CyclicBufferBuilder cyclic_builder{binding, 2};
+    cyclic_builder.push_back(first);
+    cyclic_builder.push_back(second);
+    auto cyclic = cyclic_builder.build_storage();
+    CHECK(compact_cyclic_buffer_ops().dynamic_storage_metrics(&cyclic).live_bytes >=
+          list_metrics.live_bytes);
+
+    QueueBuilder queue_builder{binding};
+    queue_builder.push(first);
+    queue_builder.push(second);
+    auto queue = queue_builder.build_storage();
+    CHECK(compact_queue_ops().dynamic_storage_metrics(&queue).live_bytes >=
+          list_metrics.live_bytes);
+
+    SetBuilder set_builder{binding};
+    REQUIRE(set_builder.insert(first));
+    REQUIRE(set_builder.insert(second));
+    auto set = set_builder.build_storage();
+    const auto set_metrics = compact_set_ops().dynamic_storage_metrics(&set);
+    CHECK(set_metrics.live_bytes > list_metrics.live_bytes);
+    CHECK(set_metrics.reserved_bytes >= set_metrics.live_bytes);
+
+    MapBuilder map_builder{binding, binding};
+    map_builder.set_item(first, second);
+    map_builder.set_item(second, first);
+    auto map = map_builder.build_storage();
+    const auto map_metrics = compact_map_ops().dynamic_storage_metrics(&map);
+    const auto key_set_metrics = compact_map_key_set_ops().dynamic_storage_metrics(&map);
+    CHECK(map_metrics.live_bytes > key_set_metrics.live_bytes);
+    CHECK(map_metrics.reserved_bytes > key_set_metrics.reserved_bytes);
+    CHECK(key_set_metrics.live_bytes >= set_metrics.live_bytes);
+}
+
 TEST_CASE("CyclicBufferBuilder: rotates after capacity is reached")
 {
     using namespace hgraph;

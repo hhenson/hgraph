@@ -44,6 +44,7 @@ namespace
                    }));
             static_cast<void>(wire<stdlib::const_, TSS<Int>>(
                 w, stdlib::make_set<Int>({Int{1}, Int{2}, Int{3}})));
+            static_cast<void>(wire<stdlib::to_window>(w, scalar, Int{64}, Int{1}));
             static_cast<void>(wire<stdlib::map_>(w, fn<InspectAddOne>(), dict));
             static_cast<void>(wire<stdlib::mesh_>(w, fn<InspectAddOne>(), dict));
             static_cast<void>(wire<stdlib::reduce_>(w, fn<stdlib::add_>(), dict));
@@ -174,6 +175,10 @@ TEST_CASE("inspector: native snapshots own hierarchy, timings, schedules and sto
                    entry.storage.dynamic_reserved_bytes > 0;
         });
     CHECK(keyed_output_nodes >= 2);
+
+    const InspectionEntry &window = entry_containing(live, "to_window");
+    CHECK(window.storage.dynamic_live_bytes > 0);
+    CHECK(window.storage.dynamic_reserved_bytes > window.storage.dynamic_live_bytes);
 
     for (const InspectionEntry &entry : live.entries)
     {

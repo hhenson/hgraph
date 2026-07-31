@@ -79,6 +79,25 @@ TEST_CASE("Any: an empty box reports no contained value")
     CHECK(any.to_string() == "None");
 }
 
+TEST_CASE("Any: storage metrics recurse through the active contained value", "[memory]")
+{
+    using namespace hgraph;
+    (void)TypeRegistry::instance().register_scalar<std::string>("str");
+
+    const std::string text(256, 'a');
+    Value any = make_any(Value{text});
+    const auto direct = any.as_any().get().dynamic_storage_metrics();
+    const auto boxed = any.view().dynamic_storage_metrics();
+
+    CHECK(boxed.live_bytes >= direct.live_bytes);
+    CHECK(boxed.reserved_bytes >= direct.reserved_bytes);
+    CHECK(boxed.live_bytes >= text.size() + 1);
+
+    any.as_any().begin_mutation().clear();
+    CHECK(any.view().dynamic_storage_metrics().live_bytes == 0);
+    CHECK(any.view().dynamic_storage_metrics().reserved_bytes == 0);
+}
+
 TEST_CASE("Any: set / get a contained value and clear it")
 {
     using namespace hgraph;

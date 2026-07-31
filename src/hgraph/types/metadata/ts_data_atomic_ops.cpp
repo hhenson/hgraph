@@ -47,6 +47,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 .mutable_tracking_impl     = &atomic_mutable_tracking,
                 .has_current_value_impl    = &atomic_has_current_value,
                 .all_valid_impl            = &atomic_has_current_value,
+                .dynamic_storage_metrics_impl = &atomic_dynamic_storage_metrics,
                 .value_memory_impl         = &atomic_value_memory,
                 .mutable_value_memory_impl = &atomic_mutable_value_memory,
                 .delta_memory_impl         = &atomic_delta_memory,
@@ -177,6 +178,14 @@ namespace hgraph::ts_data_plan_factory_detail
         [[nodiscard]] static void *atomic_mutable_delta_memory(const void *context, void *memory) noexcept
         {
             return atomic_mutable_value_memory(context, memory);
+        }
+
+        [[nodiscard]] static DynamicStorageMetrics atomic_dynamic_storage_metrics(
+            const void *context, const void *memory) noexcept
+        {
+            const auto *layout = atomic_layout(context);
+            return layout->value_binding.ops_ref().dynamic_storage_metrics(
+                atomic_value_memory(context, memory));
         }
 
         /** Same binding, or distinct schema identities over ONE layout

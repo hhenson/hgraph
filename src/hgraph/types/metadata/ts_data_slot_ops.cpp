@@ -152,6 +152,14 @@ namespace hgraph::ts_data_plan_factory_detail
                 DynamicStorageMetrics result = keys_.dynamic_storage_metrics();
                 result += dynamic_bitset_metrics(added_);
                 result += dynamic_bitset_metrics(removed_);
+                const auto &ops = key_binding_.ops_ref();
+                for (std::size_t slot = 0; slot < keys_.slot_capacity(); ++slot)
+                {
+                    if (keys_.slot_constructed(slot))
+                    {
+                        result += ops.dynamic_storage_metrics(keys_.key_memory(slot));
+                    }
+                }
                 return result;
             }
             [[nodiscard]] bool slot_occupied(std::size_t slot) const noexcept { return keys_.slot_constructed(slot); }
@@ -377,6 +385,14 @@ namespace hgraph::ts_data_plan_factory_detail
                 DynamicStorageMetrics result = keys_.dynamic_storage_metrics();
                 result += dynamic_bitset_metrics(added_);
                 result += dynamic_bitset_metrics(removed_);
+                const auto &ops = key_binding_.ops_ref();
+                for (std::size_t slot = 0; slot < keys_.slot_capacity(); ++slot)
+                {
+                    if (keys_.slot_constructed(slot))
+                    {
+                        result += ops.dynamic_storage_metrics(keys_.key_memory(slot));
+                    }
+                }
                 return result;
             }
             [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
@@ -1108,6 +1124,7 @@ namespace hgraph::ts_data_plan_factory_detail
             void configure_set_value_ops()
             {
                 value_set_ops = set_ops_for_surface<SlotSetSurface::Live>();
+                value_set_ops.dynamic_storage_metrics_impl = &tss_dynamic_storage_metrics;
             }
 
             void configure_delta_ops()
@@ -2065,6 +2082,7 @@ namespace hgraph::ts_data_plan_factory_detail
             void configure_map_value_ops()
             {
                 value_map_ops = map_ops_for_surface<SlotMapSurface::Live>();
+                value_map_ops.dynamic_storage_metrics_impl = &tsd_dynamic_storage_metrics;
                 value_map_ops.owning_type_impl      = &canonical_value_binding;
                 value_map_ops.copy_construct_view_impl = &map_copy_construct_view<SlotMapSurface::Live>;
                 value_map_ops.copy_assign_view_impl    = &map_copy_assign_view<SlotMapSurface::Live>;
@@ -2084,6 +2102,7 @@ namespace hgraph::ts_data_plan_factory_detail
                      nullptr},
                     &map_contains_key,
                 };
+                key_set_value_ops.dynamic_storage_metrics_impl = &tss_dynamic_storage_metrics;
                 key_set_value_ops.owning_type_impl      = &canonical_value_binding;
                 key_set_value_ops.copy_construct_view_impl = &set_copy_construct_view<SlotSetSurface::Live>;
                 key_set_value_ops.copy_assign_view_impl    = &set_copy_assign_view<SlotSetSurface::Live>;

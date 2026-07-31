@@ -73,3 +73,46 @@ def test_native_inspector_rejects_reset_from_an_active_python_node():
         __observers__=[inspector],
     ) == [True]
     assert inspector.snapshot().entries
+
+
+def test_native_inspector_attributes_tsw_buffers_through_python_wiring():
+    @hg.graph
+    def app(value: hg.TS[int]) -> hg.TSW[int]:
+        return hg.to_window(value, 8, 1)
+
+    inspector = Inspector()
+    assert hg.eval_node(
+        app,
+        [1, 2, 3],
+        __observers__=[inspector],
+    ) == [1, 2, 3]
+
+    window = next(
+        entry for entry in inspector.snapshot().entries if "to_window" in entry.label
+    )
+    assert window.storage.dynamic_reserved_bytes == 0
+    assert window.peak_storage.dynamic_live_bytes > 0
+    assert (
+        window.peak_storage.dynamic_reserved_bytes
+        > window.peak_storage.dynamic_live_bytes
+    )
+
+
+def test_native_inspector_recurses_into_python_visible_value_payloads():
+    @hg.graph
+    def app(value: hg.TS[str]) -> hg.TSW[str]:
+        return hg.to_window(value, 8, 1)
+
+    values = ["a" * 256, "b" * 320, "c" * 384]
+    inspector = Inspector()
+    assert hg.eval_node(app, values, __observers__=[inspector]) == values
+
+    window = next(
+        entry for entry in inspector.snapshot().entries if "to_window" in entry.label
+    )
+    assert window.storage.dynamic_reserved_bytes == 0
+    assert window.peak_storage.dynamic_live_bytes > sum(len(value) for value in values)
+    assert (
+        window.peak_storage.dynamic_reserved_bytes
+        > window.peak_storage.dynamic_live_bytes
+    )

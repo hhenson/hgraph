@@ -120,6 +120,51 @@ namespace hgraph
             ValueTypeRef binding{nullptr};
             const void             *owner{nullptr};
             const void *(*at)(const void *owner, std::size_t slot) noexcept{nullptr};
+            std::size_t allocated_bytes{0};
+        };
+
+        template <typename T>
+        struct SlotIndexAllocator
+        {
+            using value_type = T;
+            using propagate_on_container_move_assignment = std::true_type;
+            using is_always_equal = std::false_type;
+
+            SlotIndexContext *context{nullptr};
+
+            constexpr SlotIndexAllocator() noexcept = default;
+            explicit constexpr SlotIndexAllocator(SlotIndexContext *value) noexcept
+                : context{value}
+            {
+            }
+
+            template <typename U>
+            constexpr SlotIndexAllocator(const SlotIndexAllocator<U> &other) noexcept
+                : context{other.context}
+            {
+            }
+
+            [[nodiscard]] T *allocate(std::size_t count)
+            {
+                T *result = std::allocator<T>{}.allocate(count);
+                if (context != nullptr) { context->allocated_bytes += count * sizeof(T); }
+                return result;
+            }
+
+            void deallocate(T *memory, std::size_t count) noexcept
+            {
+                if (context != nullptr) { context->allocated_bytes -= count * sizeof(T); }
+                std::allocator<T>{}.deallocate(memory, count);
+            }
+
+            template <typename U>
+            [[nodiscard]] constexpr bool operator==(const SlotIndexAllocator<U> &other) const noexcept
+            {
+                return context == other.context;
+            }
+
+            template <typename>
+            friend struct SlotIndexAllocator;
         };
 
         // The hash/equal functors hold a RAW pointer to the SlotIndexContext the
@@ -179,10 +224,13 @@ namespace hgraph
         {
           public:
             using slot_type = std::int32_t;
+            using index_type = ankerl::unordered_dense::set<
+                slot_type, SlotHash, SlotEqual, SlotIndexAllocator<slot_type>>;
 
             SlotIndex()
                 : context_{std::make_unique<SlotIndexContext>()}
-                , slots_{0, SlotHash{context_.get()}, SlotEqual{context_.get()}}
+                , slots_{0, SlotHash{context_.get()}, SlotEqual{context_.get()},
+                         SlotIndexAllocator<slot_type>{context_.get()}}
             {
             }
 
@@ -200,8 +248,8 @@ namespace hgraph
             {
                 if (this != &other)
                 {
-                    context_ = std::move(other.context_);
                     slots_   = std::move(other.slots_);
+                    context_ = std::move(other.context_);
                     other.reset_empty_context();
                 }
                 return *this;
@@ -209,17 +257,24 @@ namespace hgraph
 
             void reset(SlotIndexContext context, std::size_t reserve)
             {
-                *context_ = context;
+                rebind(context);
                 slots_.clear();
                 slots_.reserve(reserve);
             }
 
-            void rebind(SlotIndexContext context) noexcept { *context_ = context; }
+            void rebind(SlotIndexContext context) noexcept
+            {
+                context_->binding = context.binding;
+                context_->owner   = context.owner;
+                context_->at      = context.at;
+            }
 
             void clear() noexcept
             {
                 slots_.clear();
-                *context_ = {};
+                context_->binding = nullptr;
+                context_->owner   = nullptr;
+                context_->at      = nullptr;
             }
 
             [[nodiscard]] bool empty() const noexcept { return slots_.empty(); }
@@ -240,6 +295,17 @@ namespace hgraph
 
             [[nodiscard]] bool contains(const void *key) const { return find(key).has_value(); }
 
+            [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+            {
+                const auto live_index_bytes = slots_.size() *
+                    (sizeof(typename index_type::value_type) +
+                     sizeof(typename index_type::bucket_type));
+                return {
+                    .live_bytes = sizeof(SlotIndexContext) + live_index_bytes,
+                    .reserved_bytes = sizeof(SlotIndexContext) + context_->allocated_bytes,
+                };
+            }
+
           private:
             [[nodiscard]] static slot_type checked_slot(std::size_t slot)
             {
@@ -251,7 +317,7 @@ namespace hgraph
             }
 
             std::unique_ptr<SlotIndexContext> context_;
-            ankerl::unordered_dense::set<slot_type, SlotHash, SlotEqual> slots_;
+            index_type slots_;
 
             // A moved-from SlotIndex gets a fresh context + empty set so it stays
             // fully usable (reset/rebind/find) — the move transfers the uniquely
@@ -260,8 +326,9 @@ namespace hgraph
             void reset_empty_context()
             {
                 context_ = std::make_unique<SlotIndexContext>();
-                slots_   = ankerl::unordered_dense::set<slot_type, SlotHash, SlotEqual>{
-                    0, SlotHash{context_.get()}, SlotEqual{context_.get()}};
+                slots_   = index_type{
+                    0, SlotHash{context_.get()}, SlotEqual{context_.get()},
+                    SlotIndexAllocator<slot_type>{context_.get()}};
             }
         };
     }  // namespace compact_detail
@@ -380,6 +447,32 @@ namespace hgraph
             return validity_.empty() || (index < validity_.size() && validity_[index]);
         }
 
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            if (element_binding_ == nullptr) { return {}; }
+
+            const auto stride = element_binding_.checked_plan().layout.size;
+            DynamicStorageMetrics result{};
+            const auto &ops = element_binding_.ops_ref();
+            for (std::size_t index = 0; index < size_; ++index)
+            {
+                result += ops.dynamic_storage_metrics(element_at(index));
+            }
+
+            result.live_bytes += size_ * stride;
+            result.reserved_bytes += size_ * stride;
+            if (!validity_.empty())
+            {
+                constexpr std::size_t bits_per_byte =
+                    std::numeric_limits<unsigned char>::digits;
+                result.live_bytes +=
+                    (validity_.size() + bits_per_byte - 1U) / bits_per_byte;
+                result.reserved_bytes +=
+                    (validity_.capacity() + bits_per_byte - 1U) / bits_per_byte;
+            }
+            return result;
+        }
+
         [[nodiscard]] static constexpr std::size_t debug_data_offset() noexcept
         {
             return offsetof(ListStorage, bytes_);
@@ -479,6 +572,11 @@ namespace hgraph
             list-only concern - element validity). */
         [[nodiscard]] bool element_set(std::size_t) const noexcept { return true; }
 
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            return storage_.dynamic_storage_metrics();
+        }
+
         [[nodiscard]] static constexpr std::size_t debug_data_offset() noexcept
         {
             return offsetof(CyclicBufferStorage, storage_) + ListStorage::debug_data_offset();
@@ -529,6 +627,11 @@ namespace hgraph
         /** Dense container: every element is live (holes are a
             list-only concern - element validity). */
         [[nodiscard]] bool element_set(std::size_t) const noexcept { return true; }
+
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            return storage_.dynamic_storage_metrics();
+        }
 
         [[nodiscard]] static constexpr std::size_t debug_data_offset() noexcept
         {
@@ -615,6 +718,13 @@ namespace hgraph
         {
             if (storage_.empty() || element_binding_ == nullptr) { return false; }
             return index_.contains(key);
+        }
+
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            DynamicStorageMetrics result = storage_.dynamic_storage_metrics();
+            result += index_.dynamic_storage_metrics();
+            return result;
         }
 
         [[nodiscard]] DebugDynamicLayout debug_layout(std::size_t stride) const noexcept
@@ -782,6 +892,20 @@ namespace hgraph
         }
 
         [[nodiscard]] bool contains(const void *key) const { return find_slot(key) != -1; }
+
+        [[nodiscard]] DynamicStorageMetrics key_set_dynamic_storage_metrics() const noexcept
+        {
+            DynamicStorageMetrics result = keys_.dynamic_storage_metrics();
+            result += index_.dynamic_storage_metrics();
+            return result;
+        }
+
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            DynamicStorageMetrics result = key_set_dynamic_storage_metrics();
+            result += values_.dynamic_storage_metrics();
+            return result;
+        }
 
         [[nodiscard]] const void *value_at(const void *key) const
         {

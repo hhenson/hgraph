@@ -363,6 +363,20 @@ composite_indexed_make_mutable_range(const void *context, void *memory) {
   return state != nullptr && source && source.schema() == state->schema;
 }
 
+[[nodiscard]] DynamicStorageMetrics composite_dynamic_storage_metrics(
+    const void *context, const void *memory) noexcept {
+  const auto *state = static_cast<const CompositeIndexedContext *>(context);
+  DynamicStorageMetrics result{};
+  for (std::size_t index = 0; index < state->child_bindings.size(); ++index) {
+    const auto &binding = state->child_bindings[index];
+    const auto *child = static_cast<const std::byte *>(memory) +
+                        state->offsets[index];
+    const auto metrics = binding.ops_ref().dynamic_storage_metrics(child);
+    result += metrics;
+  }
+  return result;
+}
+
 template <bool Move>
 void composite_assign_from(const void *context, void *dst, ValueTypeRef source,
                            const void *src) {
@@ -963,6 +977,20 @@ array_value_compare(const void *context, const void *lhs,
   return fmt::to_string(out);
 }
 
+[[nodiscard]] DynamicStorageMetrics array_dynamic_storage_metrics(
+    const void *context, const void *memory) noexcept {
+  const auto *state = static_cast<const ArrayIndexedContext *>(context);
+  const auto &ops = state->element_binding.ops_ref();
+  DynamicStorageMetrics result{};
+  const auto size = array_indexed_size(context, memory);
+  for (std::size_t index = 0; index < size; ++index) {
+    const auto *child = static_cast<const std::byte *>(memory) +
+                        state->data_offset + index * state->stride;
+    result += ops.dynamic_storage_metrics(child);
+  }
+  return result;
+}
+
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 [[nodiscard]] nb::object array_value_to_python(const void *context,
                                                const void *memory) {
@@ -1104,6 +1132,7 @@ struct OwnedValueEntry {
     ops.concrete_type_impl = &concrete_type;
     ops.concrete_memory_impl = &concrete_memory;
     ops.mutable_concrete_memory_impl = &mutable_concrete_memory;
+    ops.dynamic_storage_metrics_impl = &dynamic_storage_metrics;
     ops.size = &indexed_size;
     ops.element_at = &element_at;
     ops.element_binding = &element_binding;
@@ -1460,6 +1489,23 @@ struct OwnedValueEntry {
       return type.ops_ref().mutable_concrete_memory(owned_payload(*allocation));
     });
   }
+
+  [[nodiscard]] static DynamicStorageMetrics dynamic_storage_metrics(
+      const void *, const void *memory) noexcept {
+    const auto *allocation = owned_allocation(memory);
+    if (allocation == nullptr) {
+      return {};
+    }
+
+    const auto type = allocation_type(allocation);
+    const auto layout = owned_allocation_layout(type.checked_plan());
+    DynamicStorageMetrics result{
+        .live_bytes = layout.size,
+        .reserved_bytes = layout.size,
+    };
+    result += type.ops_ref().dynamic_storage_metrics(owned_payload(*allocation));
+    return result;
+  }
 };
 
 struct CompositeIndexedOpsEntry {
@@ -1536,6 +1582,7 @@ struct CompositeIndexedOpsEntry {
     ops.accepts_source_impl = &composite_accepts_source;
     ops.copy_assign_from_impl = &composite_copy_assign_from;
     ops.move_assign_from_impl = &composite_move_assign_from;
+    ops.dynamic_storage_metrics_impl = &composite_dynamic_storage_metrics;
   }
 
   CompositeIndexedOpsEntry(const ValueTypeMetaData &schema,
@@ -1618,6 +1665,7 @@ struct ArrayIndexedOpsEntry {
         &array_indexed_make_mutable_range,
     };
     ops.resize = bounded ? &array_indexed_resize : nullptr;
+    ops.dynamic_storage_metrics_impl = &array_dynamic_storage_metrics;
   }
 };
 

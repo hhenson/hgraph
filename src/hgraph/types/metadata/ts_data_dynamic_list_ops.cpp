@@ -190,6 +190,29 @@ namespace hgraph::ts_data_plan_factory_detail
                 binding_rollback.release();
             }
 
+            [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+            {
+                DynamicStorageMetrics result{
+                    .live_bytes = elements_.size() * sizeof(TSDataErasedOwner) +
+                                  ordinal_keys_.size() * sizeof(DynamicTSLIndexEntry),
+                    .reserved_bytes = elements_.capacity() * sizeof(TSDataErasedOwner) +
+                                      ordinal_keys_.capacity() * sizeof(DynamicTSLIndexEntry),
+                };
+                const auto *ops = element_type_.ops();
+                for (const auto &element : elements_)
+                {
+                    const auto bytes = element.plan()->layout.size;
+                    result.live_bytes += bytes;
+                    result.reserved_bytes += bytes;
+                    if (ops != nullptr)
+                    {
+                        result += ops->dynamic_storage_metrics_impl(
+                            ops->context, element.data());
+                    }
+                }
+                return result;
+            }
+
           private:
             TSRoleTypeRef                   element_type_{};
             TSDataTracking                    tracking_{};
@@ -364,6 +387,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .mutable_tracking_impl     = &dynamic_mutable_tracking,
                     .has_current_value_impl    = &dynamic_has_current_value,
                     .all_valid_impl            = &dynamic_all_valid,
+                    .dynamic_storage_metrics_impl = &dynamic_storage_metrics,
                     .value_memory_impl         = &dynamic_value_memory,
                     .mutable_value_memory_impl = &dynamic_mutable_value_memory,
                     .delta_memory_impl         = &dynamic_delta_memory,
@@ -404,6 +428,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 value_list_ops.owning_type_impl      = &canonical_value_binding;
                 value_list_ops.copy_construct_view_impl = &dynamic_value_copy_construct_view;
                 value_list_ops.copy_assign_view_impl    = &dynamic_value_copy_assign_view;
+                value_list_ops.dynamic_storage_metrics_impl = &dynamic_storage_metrics;
 
                 delta_map_ops = MapValueOps{
                     {{ValueOpsKind::Map, this, false, &dynamic_delta_map_hash, &dynamic_delta_map_equals,
@@ -479,6 +504,13 @@ namespace hgraph::ts_data_plan_factory_detail
                     if (!ops.all_valid_impl(ops.context, store.child_memory(index))) { return false; }
                 }
                 return true;
+            }
+
+            [[nodiscard]] static DynamicStorageMetrics dynamic_storage_metrics(
+                const void *, const void *memory) noexcept
+            {
+                return memory != nullptr ? storage(memory).dynamic_storage_metrics()
+                                         : DynamicStorageMetrics{};
             }
 
             [[nodiscard]] static const void *dynamic_value_memory(const void *, const void *memory) noexcept

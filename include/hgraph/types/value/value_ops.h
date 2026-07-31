@@ -4,6 +4,8 @@
 #include <hgraph/config.h>
 #include <hgraph/hgraph_export.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
+#include <hgraph/types/primitive_types.h>
+#include <hgraph/types/storage_metrics.h>
 #include <hgraph/types/utils/memory_utils.h>
 #include <hgraph/types/value/value_type_ref.h>
 
@@ -24,7 +26,6 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/chrono.h>
-#include <hgraph/types/primitive_types.h>   // Time, Bytes (conversion traits)
 #include <nanobind/ndarray.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
@@ -50,7 +51,7 @@ namespace hgraph
     };
 
     static_assert(sizeof(ValueOpsKind) == 1);
-    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 3;
+    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 4;
 
     struct ValueOps;
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
@@ -147,6 +148,8 @@ namespace hgraph
         bool (*can_materialize_source_impl)(const void *context,
                                             ValueTypeRef source,
                                             const void *memory) = nullptr;
+        DynamicStorageMetrics (*dynamic_storage_metrics_impl)(const void *context,
+                                                              const void *memory) noexcept = nullptr;
 
         [[nodiscard]] std::size_t hash(const void *memory) const
         {
@@ -342,6 +345,14 @@ namespace hgraph
                        ? mutable_concrete_memory_impl(context, memory)
                        : memory;
         }
+
+        /** Heap storage exclusively owned by this value payload. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics(const void *memory) const noexcept
+        {
+            return memory != nullptr && dynamic_storage_metrics_impl != nullptr
+                       ? dynamic_storage_metrics_impl(context, memory)
+                       : DynamicStorageMetrics{};
+        }
     };
 
     static_assert(offsetof(ValueOps, kind) == 0);
@@ -491,6 +502,38 @@ namespace hgraph
                 return *static_cast<const bool *>(memory) ? "True" : "False";
             }
             return to_string_thunk<T>(context, memory);
+        }
+
+        [[nodiscard]] inline DynamicStorageMetrics string_dynamic_storage_metrics(
+            const std::string &value) noexcept
+        {
+            const auto object_begin = reinterpret_cast<std::uintptr_t>(std::addressof(value));
+            const auto object_end   = object_begin + sizeof(value);
+            const auto data         = reinterpret_cast<std::uintptr_t>(value.data());
+            if (data >= object_begin && data < object_end) { return {}; }
+
+            return {
+                .live_bytes = value.size() + 1,
+                .reserved_bytes = value.capacity() + 1,
+            };
+        }
+
+        template <typename T>
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics_thunk(
+            const void *, const void *memory) noexcept
+        {
+            if constexpr (std::is_same_v<T, std::string>)
+            {
+                return string_dynamic_storage_metrics(*static_cast<const std::string *>(memory));
+            }
+            else if constexpr (std::is_same_v<T, Bytes>)
+            {
+                return string_dynamic_storage_metrics(static_cast<const Bytes *>(memory)->data);
+            }
+            else
+            {
+                return {};
+            }
         }
 
     }  // namespace value_ops_detail
@@ -796,6 +839,7 @@ namespace hgraph
             .to_python_buffer_impl = &value_ops_detail::to_python_buffer_thunk<T>,
 #endif
             .format_string_impl = &value_ops_detail::format_string_thunk<T>,
+            .dynamic_storage_metrics_impl = &value_ops_detail::dynamic_storage_metrics_thunk<T>,
         };
         return ops;
     }
