@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from _hgraph import EvaluationProfiler, EvaluationProfileEntry, EvaluationProfilePhase, EvaluationProfileSnapshot, EvaluationTrace, Inspector, WiringTracer
 
 from .._wiring import eval_node
+from ._breakpoint import breakpoint_
 
 
 @contextmanager
@@ -22,6 +23,7 @@ def use_wiring(wiring):
         _wiring_stack.pop()
 
 __all__ = [
+    "breakpoint_",
     "eval_node", "EvaluationProfiler", "EvaluationProfileEntry",
     "EvaluationProfilePhase", "EvaluationProfileSnapshot", "EvaluationTrace", "WiringTracer",
     "Inspector",
