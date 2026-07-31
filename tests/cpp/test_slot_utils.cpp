@@ -212,6 +212,21 @@ TEST_CASE("stable slot storage preserves existing slot addresses across chained 
     CHECK(storage.slot_data(7) != slot1);
 }
 
+TEST_CASE("stable slot storage reports occupied and retained allocation bytes", "[v2 slot utils][memory]")
+{
+    StableSlotStorage storage;
+    storage.reserve_to(8, sizeof(std::int64_t), alignof(std::int64_t));
+
+    const DynamicStorageMetrics metrics = storage.dynamic_storage_metrics(3);
+    CHECK(metrics.live_bytes ==
+          8 * sizeof(std::byte *) + storage.blocks.size() * sizeof(StableSlotBlock) +
+              3 * storage.stride());
+    CHECK(metrics.reserved_bytes ==
+          8 * sizeof(std::byte *) + storage.blocks.capacity() * sizeof(StableSlotBlock) +
+              8 * storage.stride());
+    CHECK(metrics.reserved_bytes >= metrics.live_bytes);
+}
+
 TEST_CASE("stable slot storage rejects layout changes after binding", "[v2 slot utils]") {
     StableSlotStorage storage;
     storage.reserve_to(4, sizeof(std::uint32_t), alignof(std::uint32_t));
@@ -602,6 +617,30 @@ TEST_CASE("key slot store tracks pending removals until explicit erase", "[v2 sl
     REQUIRE(store.try_key<std::int32_t>(second.slot) == nullptr);
 
     CHECK(observer.events == std::vector<std::string>{"capacity:0->4", "insert:0", "insert:1", "remove:1", "erase:1"});
+}
+
+TEST_CASE("key and mirrored value slots report index and payload capacity", "[v2 slot utils][memory]")
+{
+    KeySlotStore keys(MemoryUtils::plan_for<std::int32_t>(), key_slot_store_ops_for<std::int32_t>());
+    KeyMirroredValueSlotStore values(keys, MemoryUtils::plan_for<std::int64_t>());
+
+    const auto empty_keys = keys.dynamic_storage_metrics();
+    const auto empty_values = values.dynamic_storage_metrics();
+    CHECK(empty_keys.reserved_bytes >= empty_keys.live_bytes);
+    CHECK(empty_values.reserved_bytes >= empty_values.live_bytes);
+
+    keys.reserve_to(32);
+    REQUIRE(keys.insert(11).inserted);
+    REQUIRE(keys.insert(22).inserted);
+
+    const auto populated_keys = keys.dynamic_storage_metrics();
+    const auto populated_values = values.dynamic_storage_metrics();
+    CHECK(populated_keys.live_bytes > empty_keys.live_bytes);
+    CHECK(populated_keys.reserved_bytes > empty_keys.reserved_bytes);
+    CHECK(populated_values.live_bytes > empty_values.live_bytes);
+    CHECK(populated_values.reserved_bytes > empty_values.reserved_bytes);
+    CHECK(populated_keys.reserved_bytes >= populated_keys.live_bytes);
+    CHECK(populated_values.reserved_bytes >= populated_values.live_bytes);
 }
 
 TEST_CASE("key slot store mixes type-erased identity hashes", "[v2 slot utils][hash]")

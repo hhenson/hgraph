@@ -6,6 +6,7 @@
 #include <hgraph/util/scope.h>
 
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace hgraph
@@ -34,7 +35,9 @@ namespace hgraph
             }
             if (record.ops_abi_version != TS_DATA_OPS_ABI_VERSION)
             {
-                throw std::invalid_argument("TSRoleTypeRef requires TSData ops ABI version 4");
+                throw std::invalid_argument(
+                    "TSRoleTypeRef requires TSData ops ABI version " +
+                    std::to_string(TS_DATA_OPS_ABI_VERSION));
             }
             const auto *ops = static_cast<const TSDataOps *>(record.ops);
             if (!migrated_kind(*schema) || ops == nullptr || ops->kind != schema->kind)

@@ -15,6 +15,7 @@
 #include <memory>
 #include <span>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -228,8 +229,9 @@ namespace hgraph
                 m_value_binding       = std::exchange(other.m_value_binding, {});
                 m_free_slots          = std::move(other.m_free_slots);
                 m_pending_erase_slots = std::move(other.m_pending_erase_slots);
-                m_index_owner         = std::move(other.m_index_owner);
+                // Destroy the current index while its allocation tracker is still alive.
                 m_index               = std::move(other.m_index);
+                m_index_owner         = std::move(other.m_index_owner);
                 if (m_index_owner != nullptr) { m_index_owner->store = this; }
                 other.constructed.clear();
                 other.live.clear();
@@ -257,6 +259,32 @@ namespace hgraph
         [[nodiscard]] std::span<const size_t> pending_erase_slots() const noexcept
         {
             return m_pending_erase_slots;
+        }
+
+        /** Exact occupied/retained heap bytes owned by keys, indices, bitmaps, and bookkeeping. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            DynamicStorageMetrics result = key_storage.dynamic_storage_metrics(constructed.count());
+            result += constructed.dynamic_storage_metrics();
+            result += live.dynamic_storage_metrics();
+            result += observers.dynamic_storage_metrics();
+            result += vector_metrics(m_free_slots);
+            result += vector_metrics(m_pending_erase_slots);
+
+            if (m_index_owner != nullptr)
+            {
+                result.live_bytes += sizeof(IndexBackPtr);
+                result.reserved_bytes += sizeof(IndexBackPtr);
+            }
+            if (m_index != nullptr)
+            {
+                const size_t live_index_entries = m_index->size();
+                result.live_bytes += sizeof(IndexSet) +
+                                     live_index_entries *
+                                         (sizeof(typename IndexSet::value_type) + sizeof(typename IndexSet::bucket_type));
+                result.reserved_bytes += sizeof(IndexSet) + m_index_owner->allocated_bytes;
+            }
+            return result;
         }
 
         /**
@@ -587,6 +615,46 @@ namespace hgraph
         struct IndexBackPtr
         {
             const KeySlotStore *store{nullptr};
+            size_t              allocated_bytes{0};
+        };
+
+        /** Allocator shared by the dense values and bucket arrays so retained bytes are exact. */
+        template <typename T>
+        struct IndexAllocator
+        {
+            using value_type = T;
+            using propagate_on_container_move_assignment = std::true_type;
+            using is_always_equal = std::false_type;
+
+            IndexBackPtr *owner{nullptr};
+
+            constexpr IndexAllocator() noexcept = default;
+            explicit constexpr IndexAllocator(IndexBackPtr *owner_) noexcept : owner(owner_) {}
+
+            template <typename U>
+            constexpr IndexAllocator(const IndexAllocator<U> &other) noexcept : owner(other.owner) {}
+
+            [[nodiscard]] T *allocate(size_t count)
+            {
+                T *result = std::allocator<T>{}.allocate(count);
+                if (owner != nullptr) { owner->allocated_bytes += count * sizeof(T); }
+                return result;
+            }
+
+            void deallocate(T *memory, size_t count) noexcept
+            {
+                if (owner != nullptr) { owner->allocated_bytes -= count * sizeof(T); }
+                std::allocator<T>{}.deallocate(memory, count);
+            }
+
+            template <typename U>
+            [[nodiscard]] constexpr bool operator==(const IndexAllocator<U> &other) const noexcept
+            {
+                return owner == other.owner;
+            }
+
+            template <typename>
+            friend struct IndexAllocator;
         };
 
         struct IndexHash
@@ -645,7 +713,16 @@ namespace hgraph
             [[nodiscard]] bool operator()(const ValueView &key, size_t slot) const { return (*this)(slot, key); }
         };
 
-        using IndexSet = ankerl::unordered_dense::set<size_t, IndexHash, IndexEqual>;
+        using IndexSet = ankerl::unordered_dense::set<size_t, IndexHash, IndexEqual, IndexAllocator<size_t>>;
+
+        template <typename T>
+        [[nodiscard]] static DynamicStorageMetrics vector_metrics(const std::vector<T> &values) noexcept
+        {
+            return {
+                .live_bytes = values.size() * sizeof(T),
+                .reserved_bytes = values.capacity() * sizeof(T),
+            };
+        }
 
         [[nodiscard]] size_t hash_at_slot(size_t slot) const { return m_ops.hash_key(key_memory(slot)); }
 
@@ -705,7 +782,8 @@ namespace hgraph
 
         [[nodiscard]] std::unique_ptr<IndexSet> make_index() const {
             return std::make_unique<IndexSet>(0, IndexHash{.owner = m_index_owner.get()},
-                                              IndexEqual{.owner = m_index_owner.get()});
+                                              IndexEqual{.owner = m_index_owner.get()},
+                                              IndexAllocator<size_t>{m_index_owner.get()});
         }
 
         void rebuild_index() {

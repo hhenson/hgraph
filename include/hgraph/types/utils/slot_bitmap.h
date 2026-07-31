@@ -1,6 +1,8 @@
 #ifndef HGRAPH_TYPES_UTILS_SLOT_BITMAP_H
 #define HGRAPH_TYPES_UTILS_SLOT_BITMAP_H
 
+#include <hgraph/types/storage_metrics.h>
+
 #include <algorithm>
 #include <bit>
 #include <cstddef>
@@ -143,6 +145,15 @@ namespace hgraph
                 result += static_cast<std::size_t>(std::popcount(words[index]));
             }
             return result;
+        }
+
+        /** Exact occupied/retained heap bytes for the bitmap words. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            return {
+                .live_bytes = word_count() * sizeof(std::uint64_t),
+                .reserved_bytes = word_capacity * sizeof(std::uint64_t),
+            };
         }
 
       private:

@@ -2,6 +2,7 @@
 #define HGRAPH_CPP_ROOT_V2_SLOT_OBSERVER_H
 
 #include <hgraph/hgraph_export.h>
+#include <hgraph/types/storage_metrics.h>
 
 #include <algorithm>
 #include <cassert>
@@ -93,6 +94,15 @@ namespace hgraph
         [[nodiscard]] bool empty() const noexcept { return m_observers.empty(); }
         /** Read-only access to the registered observer pointers. */
         [[nodiscard]] const std::vector<SlotObserver *> &entries() const noexcept { return m_observers; }
+
+        /** Exact occupied/retained heap bytes for observer pointer storage. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            return {
+                .live_bytes = m_observers.size() * sizeof(SlotObserver *),
+                .reserved_bytes = m_observers.capacity() * sizeof(SlotObserver *),
+            };
+        }
 
         /** Drop every registered observer without notifying. */
         void clear() noexcept

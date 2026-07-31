@@ -236,6 +236,9 @@ namespace hgraph
         /** True when this node and all required descendants are valid. */
         [[nodiscard]] bool all_valid() const;
 
+        /** Occupied and retained heap bytes owned by this TSData root and its owned descendants. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
+
         /** Shape-erased indexed child projection for TSB/TSL-like data. */
         [[nodiscard]] std::size_t indexed_child_count() const;
         [[nodiscard]] TSDataView indexed_child_at(std::size_t index) const;

@@ -5,6 +5,8 @@
 #include <hgraph/types/metadata/type_record.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/storage_metrics.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/visitor.h>
 #include <hgraph/types/type_pointer.h>
 #include <hgraph/types/type_resolution.h>
@@ -38,6 +40,7 @@ int main()
     static_assert(std::is_trivially_copyable_v<TypeRecord>);
     static_assert(std::is_standard_layout_v<AnyPtr>);
     static_assert(std::is_trivially_copyable_v<AnyPtr>);
+    static_assert(TS_DATA_OPS_ABI_VERSION == 5);
     using ConsumerScalar =
         Bundle<"consumer::Scalar", Field<"number", Int>, Field<"label", Str>>;
     using ConsumerBundle = TSBFromScalar<ConsumerScalar>;
@@ -112,6 +115,20 @@ int main()
     if (!visited_value)
     {
         throw std::runtime_error("installed endpoint visitor dispatched the wrong time-series kind");
+    }
+
+    const auto *tss_int = registry.tss(scalar_descriptor<Int>::value_meta());
+    TSOutput set_output{*tss_int};
+    {
+        auto set_data = set_output.data_view();
+        auto set = set_data.as_set();
+        auto mutation = set.begin_mutation(MIN_ST);
+        mutation.reserve(16);
+    }
+    const DynamicStorageMetrics set_storage = set_output.data_view().dynamic_storage_metrics();
+    if (set_storage.live_bytes == 0 || set_storage.reserved_bytes < set_storage.live_bytes)
+    {
+        throw std::runtime_error("installed TSData dynamic storage metrics are unusable");
     }
 
     using TypedFrame = FrameOf<Bundle<"consumer::Row", Field<"value", Int>>,

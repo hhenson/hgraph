@@ -175,6 +175,18 @@ bool TSDataView::all_valid() const {
   return table.all_valid_impl(table.context, data());
 }
 
+DynamicStorageMetrics TSDataView::dynamic_storage_metrics() const noexcept {
+  if (!valid()) {
+    return {};
+  }
+  try {
+    const auto &table = ops();
+    return table.dynamic_storage_metrics_impl(table.context, data());
+  } catch (...) {
+    return {};
+  }
+}
+
 std::size_t TSDataView::indexed_child_count() const {
   const auto &table = ops();
   return table.indexed_child_count_impl(table.context, data());

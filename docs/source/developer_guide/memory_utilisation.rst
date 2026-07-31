@@ -48,9 +48,10 @@ They must not be combined into one apparent total.
 
 ``Inspector dynamic bytes``
   Live/reserved nested-graph slot-store bytes reported by map, mesh, switch,
-  TSL map, and reducer implementations. The peak survives graph teardown in
-  the owned snapshot. Current dynamic reporting is a lower bound, not a native
-  heap total.
+  TSL map, and reducer implementations, plus keyed TSS/TSD output storage
+  attributed through the common TSData ops surface. The peak survives graph
+  teardown in the owned snapshot. Current dynamic reporting is a lower bound,
+  not a native heap total.
 
 ``runtime registry growth``
   Final-minus-pre-run counts for retained node runtime types, graph programs,
@@ -101,7 +102,8 @@ source areas were:
    * - Key/value slots and indices
      - ``key_slot_store.h``, ``value_slot_store.h``, and
        ``stable_slot_storage.h``
-     - Nested graph blocks are reported; keys/values/indices are incomplete
+     - TSS/TSD key/value blocks, exact dense-index allocations, bitmaps, and
+       slot bookkeeping are reported
    * - Nested graph policies
      - ``map_node.cpp``, ``reduce_node.cpp``, ``ordered_reduce_node.cpp``,
        ``switch_node.cpp``, ``mesh_node.cpp``, and ``tsl_map_node.cpp``
@@ -178,6 +180,22 @@ address-stability and churn behaviour, not automatically a leak. The bounded
 churn, clear/repopulate, and reactivation profiles distinguish reuse from
 monotonic growth.
 
+TSS and TSD use the same allocation-level distinction. Their cold-path
+``TSDataOps`` hook reports the occupied portion and retained capacity of stable
+key/value blocks, pointer tables, block descriptors, slot and delta bitmaps,
+free/pending vectors, observer-pointer vectors, and the dense hash index. The
+index uses a contained counting allocator, so its values and rebound bucket
+allocations are measured rather than inferred from load factor. TSD recursively
+adds dynamic ownership reported by constructed child TSData. The child's fixed
+storage is already part of the parent value-slot stride and is therefore not
+counted again.
+
+The hook is sampled by Inspector only. It adds no work to graph evaluation and
+does not include allocator headers or fragmentation. A projected TSD key-set
+reports its key-set allocation surface; the owning TSD root reports the full
+dictionary and descendants. Node attribution samples only owned output roots,
+not input aliases or projections.
+
 Unaccounted dynamic ownership
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -186,11 +204,9 @@ Inspector currently reports native dynamic storage only where a node's
 categories are visible to process metrics but are not fully attributed in an
 inspection snapshot:
 
-* key/value slot-store indices, hash-table buckets, key payloads, and value
-  payloads outside nested graph slots;
 * compact and mutable value-container allocations for list, set, map, queue,
   cyclic buffer, string, and compound values;
-* TSD/TSS/TSW data-level dynamic capacity and observer spill storage;
+* TSW data-level dynamic capacity and TSData observer spill storage;
 * input target-link active trees and transient structural-transition objects;
 * wiring builders, signatures, labels, service/adaptor registries, and result
   capture;
