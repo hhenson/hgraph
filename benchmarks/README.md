@@ -102,3 +102,68 @@ construction, startup, steady-state execution, and teardown. Dedicated graph
 construction scenarios expose fixed setup costs; use longer cycle scales when
 the objective is steady-state throughput. The C++ microbenchmark pack is the
 appropriate tool for operation-level timing and allocation counts.
+
+## Memory-utilisation campaign
+
+The memory campaign is deliberately separate from the timing interval while
+reusing the same stable scenario implementations. Its profile registry
+(`memory_profiles.py`) selects scale series for static graph size, bounded
+duration, value representations, collection cardinality, retained capacity,
+key churn, monotonic growth, repeated graph lifecycles in a long-lived process,
+nested graphs, mesh, and services.
+
+```sh
+# current Python, hgraph C++, and hg_cpp, plus the native structural pass
+uv run python benchmarks/memory_orchestrate.py
+
+# focused iteration
+uv run python benchmarks/memory_orchestrate.py \
+  --group "Keyed collections" --samples 5
+uv run python benchmarks/memory_orchestrate.py \
+  --profile tsd_churn_std__long --mode hg-cpp
+
+# setup benchmark environments without measuring
+uv run python benchmarks/memory_orchestrate.py --setup-only
+
+# force a new released-runtime memory baseline
+uv run python benchmarks/memory_orchestrate.py --refresh-baseline
+```
+
+Each process sample starts a new interpreter. After importing and building the
+scenario callable, a background sampler records RSS during `run_graph` (5 ms by
+default). The result records pre-run memory, peak RSS, post-run memory, and
+memory retained after graph teardown plus two Python GC passes. USS and PSS are
+also recorded where the operating system exposes them. Multiple samples are
+aggregated with a median and median absolute deviation; every original sample
+remains in the raw JSON.
+
+Profiles with ``repetitions > 1`` reuse the same graph callable inside one
+interpreter and record post-GC RSS/USS after every execution. Their report rows
+include first-to-last retained growth, exposing process-lifetime registry or
+cache slopes that independent process samples intentionally hide.
+
+RSS includes Python, native libraries, allocator fragmentation, and runtime
+caches. It is the whole-process ground truth, but it cannot explain ownership.
+For hg_cpp, a second fresh process attaches the native `Inspector` and records
+planned graph bytes, peak dynamic live/reserved bytes, nested graph capacity,
+and the largest dynamic owners. This pass is kept separate because Inspector
+owns one record per observed graph/node and would otherwise inflate RSS.
+
+The default matrix reports peak and retained memory for current Python,
+hgraph C++, and hg_cpp. It includes explicit ``hg_cpp/Python`` and
+``hg_cpp/hgraph-C++`` peak-memory ratios so improvements can be judged against
+both reference runtimes. Either reference can still be selected independently
+with ``--mode``.
+
+Successful Python and hgraph-C++ measurements are cached in the platform-specific
+`memory-baseline-*.json`. The cache identity includes the CPU, hgraph and
+psutil versions, Python/platform/architecture, complete profile/scenario pack,
+sampling policy, and sample count. Normal hg_cpp iterations therefore rerun
+only hg_cpp. Raw data and markdown matrices use `memory-raw-*` and
+`memory-matrix-*` names in `benchmarks/results/`.
+
+Memory figures are diagnostic baselines, not hard CI thresholds. Resident
+memory is page- and allocator-granular, so compare controlled runs on the same
+host and use a scale series rather than a single small delta. The static audit
+and interpretation guidance are in the developer guide's
+``Memory utilisation and accounting`` page.

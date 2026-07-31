@@ -31,3 +31,4 @@ The developer guide describes the internal design of the C++ implementation. The
    type_reflection
    notebook
    testing
+   memory_utilisation

@@ -13,6 +13,7 @@
 benchmarks/.venv-upstream*/
 benchmarks/.venv-hg-cpp*/
 benchmarks/results/baseline-*.json
+benchmarks/results/memory-baseline-*.json
 /reports/
 /.parity/
 
