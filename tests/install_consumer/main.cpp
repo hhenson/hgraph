@@ -1,4 +1,5 @@
 #include <hgraph/lib/std/standard_types.h>
+#include <hgraph/runtime/registry_snapshot.h>
 #include <hgraph/types/frame.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/type_resolution.h>
@@ -44,6 +45,14 @@ int main()
 
     auto &registry = TypeRegistry::instance();
     registry.register_scalar<std::int32_t>("int32");
+
+    const RuntimeRegistrySnapshot runtime_registries =
+        runtime_registry_snapshot();
+    if (runtime_registries.type_records == 0)
+    {
+        throw std::runtime_error(
+            "installed runtime registry snapshot did not observe seeded types");
+    }
 
     Value value{std::int32_t{41}};
     auto view = value.view();

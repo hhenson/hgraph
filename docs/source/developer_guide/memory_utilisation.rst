@@ -13,6 +13,8 @@ campaign in ``benchmarks/memory_orchestrate.py`` produces:
   hgraph C++, and hg_cpp;
 * growth series for graph size, duration, cardinality, retained capacity, and
   client count;
+* hg_cpp process-lifetime runtime-registry cardinalities for identical and
+  intentionally novel graph wiring;
 * an independent native ``Inspector`` snapshot for planned and dynamic graph
   storage; and
 * raw JSON containing every sample and the largest native dynamic owners.
@@ -50,6 +52,13 @@ They must not be combined into one apparent total.
   the owned snapshot. Current dynamic reporting is a lower bound, not a native
   heap total.
 
+``runtime registry growth``
+  Final-minus-pre-run counts for retained node runtime types, graph programs,
+  graph runtime types, executor runtime types, and all common type records.
+  These cold-path counts are captured without Inspector through
+  ``runtime_registry_snapshot()``. They describe process-lifetime structural
+  ownership, not live graph instances or allocated bytes.
+
 The process pass never attaches Inspector. Inspector retains an owned record
 and strings for every graph/node it observes, so using it during RSS sampling
 would change the quantity being measured. Each profile and each sample runs in
@@ -58,6 +67,10 @@ next graph's delta. For repeated-lifecycle profiles, the Inspector pass runs
 one execution and reports the per-graph structural footprint; only the
 uninstrumented process pass is used to infer cross-execution retention because
 Inspector would retain its own records across those executions.
+The identical repeated-wiring profiles reuse one graph callable. The novel
+control rebuilds ``construct_std`` with a different graph shape on each run,
+so legitimate growth for new programs is visible separately from avoidable
+growth when an unchanged program is wired again.
 
 Static ownership audit
 ----------------------

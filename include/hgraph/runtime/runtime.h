@@ -16,6 +16,7 @@
 #include <hgraph/runtime/ordered_reduce_node.h>
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/push_source_node.h>
+#include <hgraph/runtime/registry_snapshot.h>
 #include <hgraph/runtime/switch_node.h>
 #include <hgraph/runtime/map_node.h>
 #include <hgraph/runtime/reduce_node.h>

@@ -42,6 +42,8 @@ namespace hgraph
 
         [[nodiscard]] const TypeRecord &intern(const TypeRecordDefinition &definition);
         [[nodiscard]] const TypeRecord *find(const TypeRecordKey &key) const noexcept;
+        /** Cold-path cardinality used by registry diagnostics. */
+        [[nodiscard]] std::size_t size() const noexcept;
         void reset() noexcept;
 
     private:

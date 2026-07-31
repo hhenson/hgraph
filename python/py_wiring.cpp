@@ -7,6 +7,8 @@
 #include "py_wiring.h"
 #include "py_bindings.h"
 
+#include <hgraph/runtime/registry_snapshot.h>
+
 #include <spdlog/sinks/base_sink.h>
 
 #include <mutex>
@@ -839,6 +841,14 @@ namespace hgraph::python_bridge
         .def(nb::init<std::size_t>(), nb::arg("recent_window") = 100)
         .def("snapshot", &Inspector::snapshot)
         .def("reset", &Inspector::reset);
+    nb::class_<RuntimeRegistrySnapshot>(m, "RuntimeRegistrySnapshot")
+        .def_ro("node_runtime_types", &RuntimeRegistrySnapshot::node_runtime_types)
+        .def_ro("graph_programs", &RuntimeRegistrySnapshot::graph_programs)
+        .def_ro("graph_runtime_types", &RuntimeRegistrySnapshot::graph_runtime_types)
+        .def_ro("executor_runtime_types", &RuntimeRegistrySnapshot::executor_runtime_types)
+        .def_ro("type_records", &RuntimeRegistrySnapshot::type_records);
+    m.def("runtime_registry_snapshot", &runtime_registry_snapshot,
+          "Capture cold-path process-lifetime runtime registry cardinalities.");
 
     nb::class_<WiringTracer>(m, "WiringTracer")
         .def(nb::init<std::string, bool, bool>(), nb::arg("filter") = "",

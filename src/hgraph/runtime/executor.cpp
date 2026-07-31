@@ -1,5 +1,8 @@
 #include <hgraph/runtime/diagnostic_path.h>
 #include <hgraph/runtime/executor.h>
+
+#include "registry_snapshot_detail.h"
+
 #include <hgraph/runtime/lifecycle_observer.h>
 #include <hgraph/runtime/logger.h>
 #include <hgraph/types/metadata/type_record_registry.h>
@@ -1195,6 +1198,11 @@ namespace hgraph
     void clear_executor_runtime_types() noexcept
     {
         executor_runtime_registry().clear();
+    }
+
+    std::size_t detail::executor_runtime_type_count() noexcept
+    {
+        return executor_runtime_registry().entries.size();
     }
 
 }  // namespace hgraph

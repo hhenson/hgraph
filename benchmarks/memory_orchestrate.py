@@ -63,6 +63,11 @@ MEMORY_FIELDS = (
     "repeat_growth_mb",
     "repeat_uss_growth_mb",
     "seconds",
+    "node_runtime_types_growth",
+    "graph_programs_growth",
+    "graph_runtime_types_growth",
+    "executor_runtime_types_growth",
+    "type_records_growth",
 )
 
 
@@ -369,6 +374,36 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
             f"{_cell(planned / 1024 if planned is not None else None)} | "
             f"{_cell(dynamic / 1024 if dynamic is not None else None)} |"
         )
+
+    registry_rows = []
+    for profile_id, per_mode in results.items():
+        candidate = per_mode.get("hg-cpp", {})
+        if candidate.get("node_runtime_types_growth") is None:
+            continue
+        registry_rows.append((profile_id, candidate))
+    if registry_rows:
+        lines += [
+            "", "## hg_cpp retained runtime registry growth", "",
+            "Counts are final-minus-pre-run cold-path cardinalities. They are "
+            "process-lifetime structural records, not live graph instances.", "",
+            "| profile | node types | graph programs | graph types | executor types | all type records |",
+            "|---|---:|---:|---:|---:|---:|",
+        ]
+        for profile_id, candidate in registry_rows:
+            cells = [
+                _cell(
+                    candidate.get(f"{field}_growth"),
+                    candidate.get(f"{field}_growth_mad"),
+                )
+                for field in (
+                    "node_runtime_types",
+                    "graph_programs",
+                    "graph_runtime_types",
+                    "executor_runtime_types",
+                    "type_records",
+                )
+            ]
+            lines.append(f"| `{profile_id}` | " + " | ".join(cells) + " |")
 
     lines += ["", "## Interpretation contract", ""]
     for profile_id in results:

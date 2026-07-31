@@ -18,6 +18,13 @@ import psutil
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 _MIB = 1024 * 1024
+_REGISTRY_FIELDS = (
+    "node_runtime_types",
+    "graph_programs",
+    "graph_runtime_types",
+    "executor_runtime_types",
+    "type_records",
+)
 
 
 def _mb(value: int | float) -> float:
@@ -50,6 +57,19 @@ def _full_memory(process: psutil.Process) -> dict[str, float | None]:
         result["uss_mb"] = _mb(full.uss) if hasattr(full, "uss") else None
         result["pss_mb"] = _mb(full.pss) if hasattr(full, "pss") else None
     return result
+
+
+def _runtime_registry_snapshot() -> dict[str, int] | None:
+    """Capture hg_cpp-only cold-path counts without requiring Inspector."""
+    try:
+        from hgraph.debug import runtime_registry_snapshot
+    except (ImportError, AttributeError):
+        return None
+    snapshot = runtime_registry_snapshot()
+    return {
+        field: int(getattr(snapshot, field))
+        for field in _REGISTRY_FIELDS
+    }
 
 
 class _PeakRssSampler:
@@ -98,6 +118,7 @@ def _base_result(profile_id, profile, scenario, process_start) -> dict:
         "scenario_group": scenario.group,
         "cycle_scale": profile.cycle_scale,
         "size_scale": profile.size_scale,
+        "size_step": profile.size_step,
         "use_cpp": os.environ.get("HGRAPH_USE_CPP", ""),
         "source_fingerprint": os.environ.get(
             "HGRAPH_BENCHMARK_SOURCE_FINGERPRINT", ""
@@ -127,12 +148,20 @@ def run_process(profile_id, profile, scenario, interval_ms: float,
     graph_fn, cycles = scenario.build(profile.cycle_scale, profile.size_scale)
     gc.collect()
     pre_run = _full_memory(process)
+    pre_run_registry = _runtime_registry_snapshot()
     cycles_per_run = cycles
+    total_cycles = 0
     post_gc_series = []
     post_gc_uss_series = []
+    registry_series = []
     t0 = time.perf_counter()
     with _PeakRssSampler(process, interval_ms / 1000.0) as sampler:
-        for _ in range(profile.repetitions):
+        for repetition in range(profile.repetitions):
+            if repetition and profile.size_step:
+                graph_fn, cycles = scenario.build(
+                    profile.cycle_scale,
+                    profile.size_scale + repetition * profile.size_step,
+                )
             start = hg.MIN_ST
             end = start + (cycles + 2) * hg.MIN_TD
             output = hg.run_graph(
@@ -146,14 +175,16 @@ def run_process(profile_id, profile, scenario, interval_ms: float,
             checkpoint = _full_memory(process)
             post_gc_series.append(checkpoint["rss_mb"])
             post_gc_uss_series.append(checkpoint["uss_mb"])
+            registry_series.append(_runtime_registry_snapshot())
+            total_cycles += cycles
     seconds = time.perf_counter() - t0
     post_gc = checkpoint
 
     peak_mb = _mb(sampler.peak_bytes)
-    return {
+    result = {
         "ok": True,
         "measurement": "process",
-        "cycles": cycles_per_run * profile.repetitions,
+        "cycles": total_cycles,
         "cycles_per_run": cycles_per_run,
         "seconds": round(seconds, 6),
         "ready_rss_mb": ready["rss_mb"],
@@ -180,6 +211,8 @@ def run_process(profile_id, profile, scenario, interval_ms: float,
         ),
         "post_gc_rss_series_mb": post_gc_series,
         "post_gc_uss_series_mb": post_gc_uss_series,
+        "pre_run_registry": pre_run_registry,
+        "post_gc_registry_series": registry_series,
         "repeat_growth_mb": round(
             post_gc_series[-1] - post_gc_series[0], 3
         ),
@@ -191,6 +224,14 @@ def run_process(profile_id, profile, scenario, interval_ms: float,
         "sampling_interval_ms": interval_ms,
         "rss_samples": sampler.samples,
     }
+    final_registry = registry_series[-1] if registry_series else None
+    for field in _REGISTRY_FIELDS:
+        result[f"{field}_growth"] = (
+            final_registry[field] - pre_run_registry[field]
+            if final_registry is not None and pre_run_registry is not None
+            else None
+        )
+    return result
 
 
 def run_inspector(profile_id, profile, scenario) -> dict:

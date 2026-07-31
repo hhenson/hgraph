@@ -135,6 +135,12 @@ namespace hgraph
         return found == m_entries.end() ? nullptr : &found->second->record;
     }
 
+    std::size_t TypeRecordRegistry::size() const noexcept
+    {
+        std::lock_guard lock(m_mutex);
+        return m_entries.size();
+    }
+
     void TypeRecordRegistry::reset() noexcept
     {
         std::lock_guard lock(m_mutex);
