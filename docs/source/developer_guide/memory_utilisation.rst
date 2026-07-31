@@ -237,12 +237,12 @@ as ``benchmarks/results/memory-matrix-20260731-mac-main.md`` and
 records the exact source revision and environment fingerprint used for the
 run.
 
-The loaded hg_cpp process floor was 63.5 MiB RSS, compared with 86.2 MiB for
-released C++ hgraph. Small run deltas favour the legacy runtime because hg_cpp
-touches an approximately 1.3--1.5 MiB one-time set of pages on first graph use;
-USS shows that only about 0.1 MiB remains uniquely resident for the scalar
-duration series. Ratios at this scale are allocator/page effects and should not
-drive node-level optimisation.
+The loaded hg_cpp process floor was 63.5 MiB RSS, compared with 83.8 MiB for
+Python hgraph and 86.2 MiB for hgraph C++. Small run deltas favour both reference
+runtimes because hg_cpp touches an approximately 1.3--1.5 MiB one-time set of
+pages on first graph use; USS shows that only about 0.1 MiB remains uniquely
+resident for the scalar duration series. Ratios at this scale are allocator/page
+effects and should not drive node-level optimisation.
 
 Larger graph and collection profiles favour hg_cpp, increasingly with scale:
 
@@ -250,37 +250,53 @@ Larger graph and collection profiles favour hg_cpp, increasingly with scale:
    :header-rows: 1
 
    * - Profile
-     - Released C++
+     - Python
+     - hgraph C++
      - hg_cpp
-     - hg/released
+     - hg/Python
+     - hg/hgraph C++
    * - Large wide/deep graph
+     - 19.0
      - 21.6
      - 19.0
+     - 1.00
      - 0.88
    * - Large dense TSD map/reduce
-     - 4.5
-     - 2.6
-     - 0.58
+     - 5.8
+     - 4.6
+     - 2.5
+     - 0.43
+     - 0.55
    * - Large sparse retained capacity
-     - 444.9
-     - 106.0
+     - 616.5
+     - 448.3
+     - 106.1
+     - 0.17
      - 0.24
    * - Long monotonic key growth
-     - 68.8
-     - 23.2
+     - 98.3
+     - 68.7
+     - 23.1
+     - 0.24
      - 0.34
    * - Long clear/repopulate
-     - 75.5
+     - 100.6
+     - 75.8
      - 7.3
+     - 0.07
      - 0.10
    * - Large keyed switch
+     - 37.8
      - 8.6
-     - 4.1
+     - 4.2
+     - 0.11
      - 0.48
    * - Large dependency mesh
-     - 5.1
-     - 3.6
-     - 0.70
+     - 10.0
+     - 5.2
+     - 3.5
+     - 0.35
+     - 0.66
 
 The hg_cpp duration series are bounded where the data structure is bounded.
 Scalar loops, Python compute chains, strings, the fixed 64-item tick window,
@@ -292,7 +308,7 @@ Monotonic key growth scales intentionally: native reported storage rises from
 
 The sparse-capacity profile also quantifies the attribution gap. At the large
 point, Inspector attributes 33.2 MiB of nested graph slots while process peak
-is 106.0 MiB. Approximately 72.8 MiB remains in key/value/index payloads,
+is 106.1 MiB. Approximately 72.9 MiB remains in key/value/index payloads,
 wiring/Python state, or allocator overhead. TSS cardinality produces a visible
 RSS slope while Inspector reports zero dynamic bytes. These are stronger
 reasons to extend structural accounting than to tune the already-accounted
@@ -309,24 +325,29 @@ warm plateau:
    :header-rows: 1
 
    * - Profile
-     - Released C++
+     - Python
+     - hgraph C++
      - hg_cpp
    * - Small graph, 10 executions
+     - 0.9
      - 1.0
      - 1.0
    * - Small graph, 100 executions
-     - 10.1
+     - 8.6
+     - 10.5
      - 10.7
    * - Service/adaptor graph, 10 executions
+     - 0.8
      - 1.0
      - 0.6
    * - Service/adaptor graph, 50 executions
+     - 4.1
      - 4.9
      - 3.1
 
 RSS and USS growth are effectively identical for these series, so this is live
 or allocator-retained private memory rather than shared-library accounting.
-The comparable released-runtime slope suggests a wider authoring/runtime
+The comparable Python and hgraph-C++ slopes suggest a wider authoring/runtime
 lifecycle pattern, but hg_cpp's static ownership makes its candidate sources
 concrete: ``NodeRuntimeRegistry::make_type`` and the graph runtime registry
 append schemas, ops, contexts, and names before type interning, while several
