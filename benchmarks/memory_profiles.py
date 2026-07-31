@@ -146,4 +146,3 @@ PROFILES.update(_series(
     "initial capacity", "native slot storage should scale with list capacity",
     (("small", 0.1, 0.25), ("medium", 0.1, 1.0), ("large", 0.1, 4.0)),
 ))
-
