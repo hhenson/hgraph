@@ -21,6 +21,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/runtime/push_source_node.cpp
     hgraph/runtime/race_tsd_node.cpp
     hgraph/runtime/reduce_node.cpp
+    hgraph/runtime/registry_snapshot.cpp
     hgraph/runtime/service_node.cpp
     hgraph/runtime/shared_output_node.cpp
     hgraph/runtime/switch_node.cpp

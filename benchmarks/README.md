@@ -141,6 +141,11 @@ Profiles with ``repetitions > 1`` reuse the same graph callable inside one
 interpreter and record post-GC RSS/USS after every execution. Their report rows
 include first-to-last retained growth, exposing process-lifetime registry or
 cache slopes that independent process samples intentionally hide.
+The hg_cpp process pass also records cold-path node, graph, executor, and common
+type-record cardinalities before the first run and after each teardown. The
+``construct_std__novel_ten`` profile deliberately changes the graph shape on
+each repetition, providing an intentional-growth control for the otherwise
+identical repeated-wiring profiles.
 
 RSS includes Python, native libraries, allocator fragmentation, and runtime
 caches. It is the whole-process ground truth, but it cannot explain ownership.

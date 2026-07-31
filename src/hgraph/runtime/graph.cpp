@@ -1,4 +1,7 @@
 #include <hgraph/runtime/graph.h>
+
+#include "registry_snapshot_detail.h"
+
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 
@@ -1895,6 +1898,19 @@ GraphValue GraphBuilder::make_nested_graph(
 void clear_graph_runtime_types() noexcept {
   clear_debug_descriptors(TypeFamily::Graph);
   graph_runtime_registry().clear();
+}
+
+std::size_t detail::graph_program_count() noexcept {
+  return graph_runtime_registry().entries.size();
+}
+
+std::size_t detail::graph_runtime_type_count() noexcept {
+  std::size_t count = 0;
+  for (const auto &entry : graph_runtime_registry().entries) {
+    count += entry.root_type ? 1U : 0U;
+    count += entry.nested_type ? 1U : 0U;
+  }
+  return count;
 }
 
 } // namespace hgraph

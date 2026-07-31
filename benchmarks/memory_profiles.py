@@ -20,6 +20,9 @@ class MemoryProfile:
     growth_axis: str
     expectation: str
     repetitions: int = 1
+    # Rebuild the comparative scenario with a different graph shape on each
+    # repetition.  Zero keeps one identical graph callable for every run.
+    size_step: float = 0.0
 
 
 def _series(
@@ -81,6 +84,20 @@ for suffix, repetitions in (("once", 1), ("ten", 10), ("hundred", 100)):
         ),
         repetitions=repetitions,
     )
+PROFILES["construct_std__novel_ten"] = MemoryProfile(
+    group="Process lifetime",
+    label="Repeated novel graph programs - ten",
+    scenario="construct_std",
+    cycle_scale=1.0,
+    size_scale=0.1,
+    growth_axis="distinct graph programs",
+    expectation=(
+        "registry cardinality should grow for intentionally different graph "
+        "programs, distinguishing legitimate retention from identical rewiring"
+    ),
+    repetitions=10,
+    size_step=0.02,
+)
 for suffix, repetitions in (("once", 1), ("ten", 10), ("fifty", 50)):
     PROFILES[f"service_adaptor_py__repeat_{suffix}"] = MemoryProfile(
         group="Process lifetime",

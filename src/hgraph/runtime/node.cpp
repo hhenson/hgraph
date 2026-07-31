@@ -1,5 +1,7 @@
 #include <hgraph/runtime/node.h>
 
+#include "registry_snapshot_detail.h"
+
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node_error.h>
@@ -1723,6 +1725,11 @@ namespace hgraph
     {
         clear_debug_descriptors(TypeFamily::Node);
         node_runtime_registry().clear();
+    }
+
+    std::size_t detail::node_runtime_type_count() noexcept
+    {
+        return node_runtime_registry().schemas.size();
     }
 
 }  // namespace hgraph

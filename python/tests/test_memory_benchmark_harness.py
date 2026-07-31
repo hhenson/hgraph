@@ -39,6 +39,11 @@ def _sample(peak, retained, ready=100.0):
         "retained_uss_increment_mb": retained,
         "repeat_growth_mb": 0.0,
         "repeat_uss_growth_mb": 0.0,
+        "node_runtime_types_growth": None,
+        "graph_programs_growth": None,
+        "graph_runtime_types_growth": None,
+        "executor_runtime_types_growth": None,
+        "type_records_growth": None,
         "seconds": 1.0,
     }
 
@@ -51,6 +56,7 @@ def test_memory_profiles_reference_stable_scenarios_and_have_growth_context():
         assert profile.expectation
         assert profile.cycle_scale > 0
         assert profile.size_scale > 0
+        assert profile.size_step >= 0
 
 
 def test_memory_samples_use_median_and_preserve_raw_samples():
@@ -151,6 +157,29 @@ def test_process_lifetime_profiles_report_first_to_last_growth():
     assert "hgraph C++ first-to-last growth" in report
     assert "hg_cpp first-to-last growth" in report
     assert "1.0 +/- 0.0 | 0.5 +/- 0.0" in report
+
+
+def test_hg_cpp_registry_growth_is_reported_separately_from_live_memory():
+    candidate = _sample(3.0, 3.0)
+    candidate.update(
+        node_runtime_types_growth=42,
+        graph_programs_growth=10,
+        graph_runtime_types_growth=10,
+        executor_runtime_types_growth=10,
+        type_records_growth=72,
+    )
+    report = memory.render(
+        {"construct_std__repeat_ten": {
+            "hg-cpp": memory.aggregate_samples([candidate] * 3),
+        }},
+        {},
+        samples=3,
+        interval_ms=5.0,
+    )
+
+    assert "retained runtime registry growth" in report
+    assert "process-lifetime structural records" in report
+    assert "42.0 +/- 0.0 | 10.0 +/- 0.0 | 10.0 +/- 0.0" in report
 
 
 def test_memory_baseline_cache_requires_exact_identity(tmp_path):

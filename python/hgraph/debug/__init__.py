@@ -11,6 +11,8 @@ from _hgraph import (
     InspectionSnapshot,
     Inspector,
     NodeStorageMetrics,
+    RuntimeRegistrySnapshot,
+    runtime_registry_snapshot,
 )
 
 
@@ -52,5 +54,7 @@ __all__ = [
     "InspectionSnapshot",
     "Inspector",
     "NodeStorageMetrics",
+    "RuntimeRegistrySnapshot",
     "inspection_rows",
+    "runtime_registry_snapshot",
 ]
