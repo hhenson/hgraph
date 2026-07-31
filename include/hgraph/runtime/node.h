@@ -382,9 +382,11 @@ namespace hgraph
         /**
          * Build from a descriptor whose callbacks/ops are identified by a
          * process-stable token and may therefore share a canonical runtime
-         * type with equivalent descriptors.  The token must be non-null and
-         * outlive every graph using the descriptor.  Captured per-builder
-         * state must use ``from_descriptor`` instead.
+         * type with equivalent descriptors.  The token must be non-null, and
+         * its address must remain allocated and must not be reused until the
+         * node runtime registry is cleared; a process-lifetime object is the
+         * normal choice.  Captured per-builder state must use
+         * ``from_descriptor`` instead.
          */
         [[nodiscard]] static NodeBuilder
         from_canonical_descriptor(NodeTypeDescriptor descriptor,

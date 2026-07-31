@@ -208,10 +208,12 @@ shape as the lower layers:
     Callback-backed extensions use ``NodeBuilder::from_descriptor`` by default;
     each call receives a fresh runtime type because its callbacks may capture
     builder-specific state. An extension may instead call
-    ``NodeBuilder::from_canonical_descriptor`` with a non-null token that remains
-    alive for the process, but only when every descriptor using that token has
-    interchangeable callbacks and ops. Per-node values belong in builder
-    scalars or runtime storage, not in a canonical callback capture.
+    ``NodeBuilder::from_canonical_descriptor`` with a non-null token whose
+    address remains allocated and is not reused until the node runtime registry
+    is cleared. A process-lifetime token is the normal choice. Every descriptor
+    using that token must have interchangeable callbacks and ops. Per-node
+    values belong in builder scalars or runtime storage, not in a canonical
+    callback capture.
 
     Graph runtime types are likewise reused only when the graph label, ordered
     node runtime types, edge paths, and push-source boundary all match. Executor
