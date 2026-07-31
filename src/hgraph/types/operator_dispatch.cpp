@@ -329,8 +329,17 @@ namespace hgraph
                 rank_adjustment +=
                     tail_rank * static_cast<int>(args.size() - fixed_params) + 1;
             }
-            // A kwargs collector is less specific than an exact signature.
-            if (impl.has_kwargs) { ++rank_adjustment; }
+            // A kwargs collector is less specific than an exact signature; an
+            // ANNOTATED collector additionally ranks by its pack pattern so a
+            // concrete pack beats TSB[TS_SCHEMA] at equal fixed specificity.
+            if (impl.has_kwargs)
+            {
+                ++rank_adjustment;
+                if (impl.has_kwargs_pattern)
+                {
+                    rank_adjustment += ts_pattern_rank(impl.kwargs_pattern);
+                }
+            }
 
             if (expected_output != nullptr && impl.has_output)
             {
@@ -482,7 +491,32 @@ namespace hgraph
                     }
                     pack_fields.emplace_back(kw_name, field);
                 }
-                const auto *pack = TypeRegistry::instance().un_named_tsb(pack_fields);
+                const TSValueTypeMetaData *pack = nullptr;
+                const bool tsd_collector =
+                    impl.kwargs_pattern.kind == TypePattern::Kind::TSD ||
+                    (impl.kwargs_pattern.kind == TypePattern::Kind::Concrete &&
+                     impl.kwargs_pattern.meta != nullptr &&
+                     impl.kwargs_pattern.meta->kind == TSTypeKind::TSD);
+                if (tsd_collector)
+                {
+                    // A TSD-annotated collector (mirrors the python
+                    // combine_tsd branch): string keys, one common value
+                    // schema across every supplied keyword.
+                    for (const auto &[kw_name, field] : pack_fields)
+                    {
+                        static_cast<void>(kw_name);
+                        if (field != pack_fields.front().second)
+                        {
+                            why = fmt::format(
+                                "TSD **kwargs requires one common value type; got {} and {}",
+                                pack_fields.front().second->name(), field->name());
+                            return false;
+                        }
+                    }
+                    pack = TypeRegistry::instance().tsd(
+                        scalar_descriptor<Str>::value_meta(), pack_fields.front().second);
+                }
+                else { pack = TypeRegistry::instance().un_named_tsb(pack_fields); }
                 if (!input_ts_pattern_match(impl.kwargs_pattern, pack, map))
                 {
                     why = fmt::format("supplied keywords {} do not match **kwargs pattern {}",

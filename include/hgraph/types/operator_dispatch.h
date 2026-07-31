@@ -131,10 +131,15 @@ namespace hgraph
      * arguments that match no declared parameter land here as
      * ``(name, port)`` pairs in call order.
      */
-    template <fixed_string Name>
+    template <fixed_string Name, typename Schema = void>
     struct VarKwIn
     {
         static constexpr auto field_name = Name;
+        /** Optional declared PACK schema (issue #224): a ts schema (e.g. a
+            TSB over a schema var) matched at dispatch against the
+            synthesized pack of supplied keywords, binding pack-level type
+            vars for the output pattern. ``void`` = untyped collector. */
+        using pack_schema = Schema;
 
         std::vector<std::pair<std::string, WiringPortRef>> ports{};
 
@@ -157,8 +162,8 @@ namespace hgraph
         struct is_var_kw_in : std::false_type
         {
         };
-        template <fixed_string N>
-        struct is_var_kw_in<VarKwIn<N>> : std::true_type
+        template <fixed_string N, typename S>
+        struct is_var_kw_in<VarKwIn<N, S>> : std::true_type
         {
         };
     }  // namespace operator_dispatch_detail
@@ -1469,6 +1474,18 @@ namespace hgraph
 
         using layout = operator_dispatch_detail::graph_param_layout<Impl>;
         impl.has_kwargs        = layout::kwargs_count != 0;
+        if constexpr (layout::kwargs_count != 0)
+        {
+            using params_tuple = typename StaticGraphSignature<Impl>::param_types;
+            using kw_param =
+                std::tuple_element_t<std::tuple_size_v<params_tuple> - 1, params_tuple>;
+            using pack_schema = typename kw_param::pack_schema;
+            if constexpr (!std::is_void_v<pack_schema>)
+            {
+                impl.has_kwargs_pattern = true;
+                impl.kwargs_pattern     = to_pattern<pack_schema>();
+            }
+        }
         impl.variadic          = layout::variadic;
         impl.positional_params = layout::prefix_count + (layout::variadic ? 0 : layout::kwonly_count);
 
