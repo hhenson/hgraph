@@ -9,8 +9,8 @@ for graph memory. It is intended to direct optimisation work from reproducible
 evidence, not to establish a platform-independent byte limit. The associated
 campaign in ``benchmarks/memory_orchestrate.py`` produces:
 
-* comparative, fresh-process RSS/USS/PSS samples for released C++ hgraph and
-  hg_cpp;
+* comparative, fresh-process RSS/USS/PSS samples for current Python hgraph,
+  hgraph C++, and hg_cpp;
 * growth series for graph size, duration, cardinality, retained capacity, and
   client count;
 * an independent native ``Inspector`` snapshot for planned and dynamic graph
@@ -374,8 +374,10 @@ Baseline and comparison procedure
 
 Run the complete profile pack on an otherwise idle host from a clean main
 revision. Use the same build type, Python version, sample count, sampling
-interval, and CPU for comparisons. The default report compares released C++
-hgraph with hg_cpp and adds hg_cpp Inspector data. Preserve the raw JSON; the
+interval, and CPU for comparisons. The default report compares current Python
+hgraph, hgraph C++, and hg_cpp and adds hg_cpp Inspector data. It reports both
+``hg_cpp/Python`` and ``hg_cpp/hgraph-C++`` peak-memory ratios; values below one
+mean hg_cpp used less incremental resident memory. Preserve the raw JSON; the
 markdown matrix is a presentation view and intentionally rounds values.
 
 For optimisation work, first select the affected group and increase to five or

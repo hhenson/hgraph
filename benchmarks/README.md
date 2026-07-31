@@ -113,7 +113,7 @@ key churn, monotonic growth, repeated graph lifecycles in a long-lived process,
 nested graphs, mesh, and services.
 
 ```sh
-# released C++ runtime vs hg_cpp, plus the hg_cpp native structural pass
+# current Python, hgraph C++, and hg_cpp, plus the native structural pass
 uv run python benchmarks/memory_orchestrate.py
 
 # focused iteration
@@ -149,7 +149,13 @@ planned graph bytes, peak dynamic live/reserved bytes, nested graph capacity,
 and the largest dynamic owners. This pass is kept separate because Inspector
 owns one record per observed graph/node and would otherwise inflate RSS.
 
-Successful released-runtime measurements are cached in the platform-specific
+The default matrix reports peak and retained memory for current Python,
+hgraph C++, and hg_cpp. It includes explicit ``hg_cpp/Python`` and
+``hg_cpp/hgraph-C++`` peak-memory ratios so improvements can be judged against
+both reference runtimes. Either reference can still be selected independently
+with ``--mode``.
+
+Successful Python and hgraph-C++ measurements are cached in the platform-specific
 `memory-baseline-*.json`. The cache identity includes the CPU, hgraph and
 psutil versions, Python/platform/architecture, complete profile/scenario pack,
 sampling policy, and sample count. Normal hg_cpp iterations therefore rerun

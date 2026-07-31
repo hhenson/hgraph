@@ -44,6 +44,7 @@ def _sample(peak, retained, ready=100.0):
 
 
 def test_memory_profiles_reference_stable_scenarios_and_have_growth_context():
+    assert memory.DEFAULT_MODES == memory.MODES
     for profile in memory.memory_profiles.PROFILES.values():
         assert profile.scenario in memory.scenarios.SCENARIOS
         assert profile.growth_axis
@@ -89,10 +90,12 @@ def test_memory_sample_failure_is_not_hidden():
 
 
 def test_memory_report_keeps_process_and_inspector_units_distinct():
+    python = memory.aggregate_samples([_sample(30.0, 5.0)] * 3)
     legacy = memory.aggregate_samples([_sample(20.0, 4.0)] * 3)
     candidate = memory.aggregate_samples([_sample(10.0, 2.0)] * 3)
     report = memory.render(
         {"tick_std__short": {
+            "upstream-py": python,
             "upstream-cpp": legacy,
             "hg-cpp": candidate,
         }},
@@ -107,6 +110,9 @@ def test_memory_report_keeps_process_and_inspector_units_distinct():
 
     assert "Peak delta" in report
     assert "native-accounted bytes, not RSS" in report
+    assert "hg/Python" in report
+    assert "hg/hgraph C++" in report
+    assert "0.33x" in report
     assert "0.50x" in report
     assert "| 64.0 | 32.0 |" in report
 
@@ -123,7 +129,8 @@ def test_python_reference_remains_reportable_on_demand():
     assert "Python peak delta" in report
     assert "Python retained" in report
     assert "30.0 +/- 0.0" in report
-    assert "hg/baseline" not in report
+    assert "hg/Python" not in report
+    assert "hg/hgraph C++" not in report
 
 
 def test_process_lifetime_profiles_report_first_to_last_growth():
@@ -141,7 +148,7 @@ def test_process_lifetime_profiles_report_first_to_last_growth():
         interval_ms=5.0,
     )
 
-    assert "legacy C++ first-to-last growth" in report
+    assert "hgraph C++ first-to-last growth" in report
     assert "hg_cpp first-to-last growth" in report
     assert "1.0 +/- 0.0 | 0.5 +/- 0.0" in report
 

@@ -1,8 +1,9 @@
 """Orchestrate comparative process and hg_cpp structural memory profiles.
 
-Each RSS sample is a fresh subprocess.  Released C++ results are cached until
-the host, hgraph version, profile pack, psutil version, or sample policy
-changes.  The native Inspector pass is intentionally separate from RSS.
+Each RSS sample is a fresh subprocess.  Current Python and hgraph C++ results
+are cached until the host, hgraph version, profile pack, psutil version, or
+sample policy changes.  The native Inspector pass is intentionally separate
+from RSS.
 """
 import argparse
 import copy
@@ -28,9 +29,12 @@ import scenarios
 RUNNER = BENCH_DIR / "memory_runner.py"
 RESULTS_DIR = BENCH_DIR / "results"
 MODES = ("upstream-py", "upstream-cpp", "hg-cpp")
-DEFAULT_MODES = ("upstream-cpp", "hg-cpp")
+DEFAULT_MODES = MODES
 BASELINE_MODES = ("upstream-py", "upstream-cpp")
-MODE_LABELS = performance.MODE_LABELS
+MODE_LABELS = {
+    **performance.MODE_LABELS,
+    "upstream-cpp": "hgraph C++",
+}
 BASELINE_CACHE_SCHEMA = 1
 BASELINE_CACHE = RESULTS_DIR / f"memory-baseline-{performance.ENVIRONMENT_KEY}.json"
 PACK_INPUTS = (
@@ -225,11 +229,10 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
         mode for mode in MODES
         if any(mode in per_mode for per_mode in results.values())
     ]
-    baseline_mode = (
-        "upstream-cpp" if "upstream-cpp" in display_modes
-        else "upstream-py" if "upstream-py" in display_modes
-        else None
-    )
+    ratio_modes = [
+        mode for mode in ("upstream-py", "upstream-cpp")
+        if mode in display_modes and "hg-cpp" in display_modes
+    ]
     reused = sum(
         bool(value.get("baseline_reused"))
         for per_mode in results.values()
@@ -255,7 +258,7 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
         "Peak delta is measured from the post-import/pre-run process state. "
         "Retained delta is measured after graph teardown and two Python GC passes.",
         "Inspector columns are a separate hg_cpp run and are native-accounted "
-        "bytes, not RSS; they are intentionally absent from legacy modes.",
+        "bytes, not RSS; they are intentionally absent from reference modes.",
     ]
     lines += ["", "## Process floor", ""]
     lines += [
@@ -299,13 +302,14 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
                 if current_group == "Process lifetime" else ""
             )
             ratio_header = (
-                " | hg/baseline"
-                if baseline_mode is not None and "hg-cpp" in display_modes
-                else ""
+                " | " + " | ".join(
+                    f"hg/{MODE_LABELS[mode]}" for mode in ratio_modes
+                )
+                if ratio_modes else ""
             )
             numeric_columns = (
                 len(display_modes) * (3 if repeat_headers else 2)
-                + 2 + (1 if ratio_header else 0)
+                + 2 + len(ratio_modes)
             )
             lines += [
                 "", f"## {current_group}", "",
@@ -345,8 +349,8 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
             if current_group == "Process lifetime" else []
         )
         ratio_cells = []
-        if baseline_mode is not None and "hg-cpp" in display_modes:
-            baseline_peak = peaks[baseline_mode]
+        for ratio_mode in ratio_modes:
+            baseline_peak = peaks[ratio_mode]
             candidate_peak = peaks["hg-cpp"]
             ratio_cells.append(
                 f"{candidate_peak / baseline_peak:.2f}x"
