@@ -1,6 +1,8 @@
+#include <hgraph/lib/std/value_util.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_input/detail.h>
 #include <hgraph/types/value/value.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -1214,6 +1216,191 @@ TEST_CASE("TSInput shape casts return endpoint views for slot collections")
 
     active_set.make_passive();
     active_dict_child.make_passive();
+}
+
+TEST_CASE("TSInput endpoint operations own structural projections")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    auto       &factory = TSDataPlanFactory::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int = registry.ts(int_meta);
+    const auto *tss = registry.tss(int_meta);
+    const auto *tsd = registry.tsd(int_meta, ts_int);
+
+    TSData set_data{factory.data_type_for(tss)};
+    auto set_source = set_data.view();
+    auto set_structural = detail::structural_observation_for(set_source);
+    REQUIRE(set_structural.data() == set_source.data());
+    REQUIRE(set_structural.schema() == tss);
+
+    TSData dict_data{factory.data_type_for(tsd)};
+    auto dict_source = dict_data.view();
+    auto expected_key_set = dict_source.as_dict().key_set().base();
+    auto dict_structural = detail::structural_observation_for(dict_source);
+    REQUIRE(dict_structural.data() == expected_key_set.data());
+    REQUIRE(dict_structural.schema() == expected_key_set.schema());
+    REQUIRE(dict_structural.schema()->kind == TSTypeKind::TSS);
+
+    TSData scalar_data{factory.data_type_for(ts_int)};
+    REQUIRE_THROWS_AS(detail::structural_observation_for(scalar_data.view()),
+                      std::invalid_argument);
+    REQUIRE_THROWS_AS(detail::structural_observation_for(TSDataView{}),
+                      std::logic_error);
+}
+
+TEST_CASE("TSInput structural activation survives an unbound target link")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int = registry.ts(int_meta);
+    const auto *tss = registry.tss(int_meta);
+    const auto *tsd = registry.tsd(int_meta, ts_int);
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+
+    TSInput set_input{TSInputBuilderFactory::checked_builder_for(
+        *tss, TSEndpointSchema::peered(tss))};
+    TSInput dict_input{TSInputBuilderFactory::checked_builder_for(
+        *tsd, TSEndpointSchema::peered(tsd))};
+    TSInput scalar_input{TSInputBuilderFactory::checked_builder_for(
+        *ts_int, TSEndpointSchema::peered(ts_int))};
+    TSOutput set_output{*tss};
+    TSOutput dict_output{*tsd};
+    RecordingNotifiable set_notifications;
+    RecordingNotifiable dict_notifications;
+    RecordingNotifiable scalar_notifications;
+
+    auto active_set = set_input.view(&set_notifications, t1);
+    auto active_dict = dict_input.view(&dict_notifications, t1);
+    active_set.make_structural_active();
+    active_dict.make_structural_active();
+    REQUIRE(active_set.active());
+    REQUIRE(active_dict.active());
+
+    auto unsupported = scalar_input.view(&scalar_notifications, t1);
+    REQUIRE_THROWS_AS(unsupported.make_structural_active(), std::invalid_argument);
+
+    auto set_binding = set_input.view(nullptr, t1);
+    auto dict_binding = dict_input.view(nullptr, t1);
+    set_binding.bind_output(set_output.view(t1));
+    dict_binding.bind_output(dict_output.view(t1));
+
+    Value key{std::int32_t{7}};
+    Value value{std::int32_t{42}};
+    {
+        auto data = set_output.data_view();
+        auto mutation = data.as_set().begin_mutation(t2);
+        REQUIRE(mutation.add(key.view()));
+    }
+    {
+        auto data = dict_output.data_view();
+        auto mutation = data.as_dict().begin_mutation(t2);
+        auto child = mutation.at(key.view());
+        auto child_mutation = child.begin_mutation(t2);
+        REQUIRE(child_mutation.copy_value_from(value.view()));
+    }
+
+    REQUIRE(set_notifications.notified == std::vector<DateTime>{t2});
+    REQUIRE(dict_notifications.notified == std::vector<DateTime>{t2});
+
+    active_set.make_passive();
+    active_dict.make_passive();
+}
+
+TEST_CASE("TSInput endpoint operations preserve published structural state semantics")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    auto       &factory = TSDataPlanFactory::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int = registry.ts(int_meta);
+    const auto *tss = registry.tss(int_meta);
+    const auto *tsd = registry.tsd(int_meta, ts_int);
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+    const auto t3 = t2 + TimeDelta{1};
+    const auto t4 = t3 + TimeDelta{1};
+    const auto t5 = t4 + TimeDelta{1};
+    Value key{std::int32_t{7}};
+    Value other_key{std::int32_t{8}};
+    Value value{std::int32_t{42}};
+
+    TSData set_data{factory.data_type_for(tss)};
+    auto set_source = set_data.view();
+    auto set = set_source.as_set();
+    REQUIRE_FALSE(detail::has_published_structural_state(set_source, t1));
+    {
+        auto empty = stdlib::make_set<std::int32_t>({});
+        auto mutation = set.begin_mutation(t1);
+        REQUIRE(mutation.copy_value_from(empty.view()));
+    }
+    REQUIRE_FALSE(detail::has_published_structural_state(set_source, t1));
+    REQUIRE(detail::has_published_structural_state(set_source, t2));
+    {
+        auto mutation = set.begin_mutation(t2);
+        REQUIRE(mutation.add(key.view()));
+    }
+    REQUIRE_FALSE(detail::has_published_structural_state(set_source, t2));
+    {
+        auto mutation = set.begin_mutation(t3);
+        REQUIRE(mutation.remove(key.view()));
+    }
+    REQUIRE(detail::has_published_structural_state(set_source, t3));
+
+    TSData empty_dict_data{factory.data_type_for(tsd)};
+    auto empty_dict_source = empty_dict_data.view();
+    {
+        auto empty = stdlib::make_map<std::int32_t, std::int32_t>({});
+        auto mutation = empty_dict_source.as_dict().begin_mutation(t1);
+        REQUIRE(mutation.copy_value_from(empty.view()));
+    }
+    REQUIRE_FALSE(detail::has_published_structural_state(empty_dict_source, t1));
+    REQUIRE(detail::has_published_structural_state(empty_dict_source, t2));
+
+    TSData dict_data{factory.data_type_for(tsd)};
+    auto dict_source = dict_data.view();
+    auto dict = dict_source.as_dict();
+    {
+        auto mutation = dict.begin_mutation(t1);
+        static_cast<void>(mutation.at(key.view()));
+    }
+    REQUIRE_FALSE(detail::has_published_structural_state(dict_source, t1));
+    REQUIRE(detail::has_published_structural_state(dict_source, t2));
+    {
+        auto mutation = dict.begin_mutation(t2);
+        static_cast<void>(mutation.at(other_key.view()));
+    }
+    REQUIRE_FALSE(detail::has_published_structural_state(dict_source, t2));
+    {
+        auto mutation = dict.begin_mutation(t3);
+        auto child = mutation.at(key.view());
+        auto child_mutation = child.begin_mutation(t3);
+        REQUIRE(child_mutation.copy_value_from(value.view()));
+    }
+    REQUIRE_FALSE(detail::has_published_structural_state(dict_source, t3));
+    REQUIRE(detail::has_published_structural_state(dict_source, t4));
+    {
+        auto child = dict.at(key.view());
+        auto mutation = child.begin_mutation(t4);
+        REQUIRE(mutation.invalidate());
+    }
+    REQUIRE_FALSE(detail::has_published_structural_state(dict_source, t4));
+    {
+        auto mutation = dict.begin_mutation(t5);
+        REQUIRE(mutation.erase(key.view()));
+    }
+    REQUIRE(detail::has_published_structural_state(dict_source, t5));
+
+    TSData scalar_data{factory.data_type_for(ts_int)};
+    REQUIRE_THROWS_AS(
+        detail::has_published_structural_state(scalar_data.view(), t1),
+        std::invalid_argument);
+    REQUIRE_FALSE(detail::has_published_structural_state(TSDataView{}, t1));
 }
 
 TEST_CASE("TSW input removed value is limited to the current evaluation cycle")

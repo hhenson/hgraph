@@ -28,6 +28,9 @@ namespace hgraph::detail
     [[nodiscard]] const TSDataView &empty_ts_data_view() noexcept;
     void validate_input_view_kind(const TSValueTypeMetaData *schema, TSTypeKind expected, const char *what);
     [[nodiscard]] const TSInputEndpointOps &input_endpoint_ops_for(const TSValueTypeMetaData *schema);
+    [[nodiscard]] TSDataView structural_observation_for(const TSDataView &source);
+    [[nodiscard]] bool has_published_structural_state(const TSDataView &source,
+                                                       DateTime transition_time);
     [[nodiscard]] TSRoleTypeRef output_data_storage_type_for(const TSEndpointSchema &endpoint_schema);
 
     [[nodiscard]] TSInputChildProjection input_child_projection(const TSDataView &parent, std::size_t index);
@@ -58,6 +61,8 @@ namespace hgraph::detail
                                                                std::size_t                index) noexcept;
         using target_child_fn = TSDataView (*)(const TSDataView &parent, std::size_t index);
         using structural_observation_fn = TSDataView (*)(const TSDataView &source);
+        using has_published_structural_state_fn = bool (*)(const TSDataView &source,
+                                                           DateTime transition_time);
         /** Convert a non-peered input projection of this shape to a reference token. */
         using reference_fn = TimeSeriesReference (*)(const TSInputView &view);
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
@@ -78,6 +83,7 @@ namespace hgraph::detail
         child_schema_fn  child_schema{nullptr};
         target_child_fn  target_child{nullptr};
         structural_observation_fn structural_observation{nullptr};
+        has_published_structural_state_fn has_published_structural_state{nullptr};
         reference_fn     reference{nullptr};
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
         to_python_fn       to_python{nullptr};

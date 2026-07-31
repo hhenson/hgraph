@@ -152,46 +152,8 @@ namespace hgraph::detail
             {
                 throw std::logic_error("Target-link slot observer requires a bound structural target");
             }
-            if (target.schema()->kind == TSTypeKind::TSD) { return target.as_dict().key_set(); }
-            if (target.schema()->kind == TSTypeKind::TSS) { return target.as_set(); }
-            throw std::logic_error(
-                "Target-link slot observer requires a TSS or TSD target, got " +
-                std::string{target.schema()->name()});
-        }
-
-        [[nodiscard]] bool has_published_structural_key(const TSDataView &target,
-                                                        DateTime transition_time)
-        {
-            if (!target.valid() || target.schema() == nullptr) { return false; }
-            const bool modified_now = target.modified(transition_time);
-            // A previously published empty collection is still structural
-            // state. It must produce a sampled empty transition when a
-            // forwarding endpoint moves to a fresh, currently-unset target.
-            if (!modified_now && target.has_current_value()) { return true; }
-            if (target.schema()->kind == TSTypeKind::TSS)
-            {
-                auto set = target.as_set();
-                for (std::size_t slot = 0; slot < set.slot_capacity(); ++slot)
-                {
-                    if (!set.slot_occupied(slot) || (modified_now && set.slot_added(slot))) { continue; }
-                    if (set.slot_live(slot) || set.slot_removed(slot)) { return true; }
-                }
-                return false;
-            }
-            if (target.schema()->kind == TSTypeKind::TSD)
-            {
-                auto dict = target.as_dict();
-                for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
-                {
-                    if (!dict.slot_occupied(slot) || (modified_now && dict.slot_added(slot))) { continue; }
-                    if (dict.slot_removed(slot) ||
-                        (dict.slot_live(slot) && dict.at_slot(slot).has_current_value()))
-                    {
-                        return true;
-                    }
-                }
-            }
-            return false;
+            auto structural = structural_observation_for(target);
+            return structural.as_set();
         }
 
         [[nodiscard]] bool project_target_path(TSDataView &current,
@@ -232,13 +194,7 @@ namespace hgraph::detail
                 return observed;
             }
 
-            const auto *observed_schema = target_schema_at_node(&schema, &node);
-            const auto &ops = input_endpoint_ops_for(observed_schema);
-            if (ops.structural_observation == nullptr)
-            {
-                throw std::logic_error("Structural input activity is not supported for this time-series shape");
-            }
-            auto structural = ops.structural_observation(observed.data_view());
+            auto structural = structural_observation_for(observed.data_view());
             return TSOutputHandle{link.target_output().output(), std::move(structural)};
         }
 
@@ -521,12 +477,13 @@ namespace hgraph::detail
             throw std::invalid_argument("TSInput target binding schema does not match the input slot schema");
         }
 
-        const bool structural = schema.kind == TSTypeKind::TSS || schema.kind == TSTypeKind::TSD;
+        const bool structural =
+            input_endpoint_ops_for(&schema).structural_observation != nullptr;
         const bool previous_was_valid =
             sampled && state_.target.bound() && state_.target.view(modified_time).valid();
-        const bool previous_has_published_key =
+        const bool previous_has_published_state =
             sampled && structural && state_.target.bound() &&
-            has_published_structural_key(state_.target.data_view(), modified_time);
+            has_published_structural_state(state_.target.data_view(), modified_time);
         if (state_.target.bound()) { detach_target(sampled && structural, modified_time); }
         else if (!sampled || structural_transition_time() != modified_time)
         {
@@ -549,7 +506,7 @@ namespace hgraph::detail
         subscribe_slot_observers();
         resubscribe_active_target(schema);
         const bool publish_sampled_transition =
-            sampled && (output.valid() || previous_was_valid || previous_has_published_key);
+            sampled && (output.valid() || previous_was_valid || previous_has_published_state);
         if (publish_sampled_transition)
         {
             if (structural)
@@ -580,10 +537,10 @@ namespace hgraph::detail
             throw std::invalid_argument("Structural TSInput target unbinding requires an evaluation time");
         }
         if (!state_.target.bound()) { return; }
-        const bool has_published_key =
-            has_published_structural_key(state_.target.data_view(), modified_time);
-        detach_target(has_published_key, modified_time);
-        if (!has_published_key) { return; }
+        const bool has_published_state =
+            has_published_structural_state(state_.target.data_view(), modified_time);
+        detach_target(has_published_state, modified_time);
+        if (!has_published_state) { return; }
         record_key_set_modified(modified_time);
         record_target_modified(modified_time);
     }
