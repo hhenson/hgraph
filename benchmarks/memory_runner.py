@@ -246,7 +246,7 @@ def main() -> int:
 
     profile = memory_profiles.PROFILES[args.profile]
     scenario = scenarios.SCENARIOS[profile.scenario]
-    result = _base_result(args.profile, profile, scenario, _PROCESS_START)
+    result = _base_result(args.profile, profile, scenario, process_start)
     try:
         if args.measurement == "process":
             result.update(run_process(
