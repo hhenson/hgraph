@@ -1273,12 +1273,17 @@ namespace hgraph::python_bridge
         "register_python_overload",
         [](const std::string &name, nb::list params, nb::object output, nb::object wire_fn,
            nb::object resolver_fn, nb::object requires_fn, bool variadic, bool has_kwargs,
-           std::optional<std::size_t> positional_params) {
+           std::optional<std::size_t> positional_params, nb::object kwargs_pattern) {
             OperatorImpl impl;
             impl.name       = name;
             impl.source     = OperatorImpl::Source::Python;
             impl.variadic   = variadic;
             impl.has_kwargs = has_kwargs;
+            if (!kwargs_pattern.is_none() && nb::isinstance<PyTypePattern>(kwargs_pattern))
+            {
+                impl.has_kwargs_pattern = true;
+                impl.kwargs_pattern     = nb::cast<PyTypePattern &>(kwargs_pattern).pattern;
+            }
             for (nb::handle item : params)
             {
                 auto         entry = nb::cast<nb::tuple>(item);
@@ -1323,7 +1328,14 @@ namespace hgraph::python_bridge
                                : scalar_pattern_to_string(impl.params[i].scalar);
                     if (impl.params[i].default_value.has_value()) { out += "=…"; }
                 }
-                if (impl.has_kwargs) { out += impl.params.empty() ? "**kwargs" : ", **kwargs"; }
+                if (impl.has_kwargs)
+                {
+                    out += impl.params.empty() ? "**kwargs" : ", **kwargs";
+                    if (impl.has_kwargs_pattern)
+                    {
+                        out += ": " + ts_pattern_to_string(impl.kwargs_pattern);
+                    }
+                }
                 out += ") [py]";
                 if (impl.has_output) { out += " -> " + ts_pattern_to_string(impl.output); }
                 return out;
@@ -1405,6 +1417,7 @@ namespace hgraph::python_bridge
         nb::arg("name"), nb::arg("params"), nb::arg("output").none(), nb::arg("wire_fn"),
         nb::arg("resolver_fn").none() = nb::none(), nb::arg("requires_fn").none() = nb::none(),
         nb::arg("variadic") = false,
-        nb::arg("has_kwargs") = false, nb::arg("positional_params") = nb::none());
+        nb::arg("has_kwargs") = false, nb::arg("positional_params") = nb::none(),
+        nb::arg("kwargs_pattern").none() = nb::none());
     }
 }  // namespace hgraph::python_bridge

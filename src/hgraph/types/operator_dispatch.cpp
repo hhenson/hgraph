@@ -455,6 +455,42 @@ namespace hgraph
                 }
             }
 
+            // Issue #224: a declared ``**kwargs`` pack pattern (e.g.
+            // TSB[TS_SCHEMA]) matches against the synthesized un-named TSB of
+            // the supplied keywords — call order, ports verbatim (no REF
+            // deref; upstream takes output_type as-is), scalars as
+            // TS[inferred] (the const-lift rule). This is what binds
+            // pack-level schema vars so the output pattern can resolve. An
+            // empty pack deliberately binds nothing: a zero-keyword call
+            // keeps today's rejection rather than selecting the collector.
+            if (impl.has_kwargs && impl.has_kwargs_pattern && !kwargs.empty())
+            {
+                std::vector<std::pair<std::string, const TSValueTypeMetaData *>> pack_fields;
+                pack_fields.reserve(kwargs.size());
+                for (const auto &[kw_name, kw_arg] : kwargs)
+                {
+                    const TSValueTypeMetaData *field = nullptr;
+                    if (kw_arg.kind == WiringArg::Kind::TimeSeries) { field = kw_arg.port.schema; }
+                    else if (kw_arg.scalar_meta != nullptr)
+                    {
+                        field = TypeRegistry::instance().ts(kw_arg.scalar_meta);
+                    }
+                    if (field == nullptr)
+                    {
+                        why = fmt::format("keyword argument '{}' has no wireable type", kw_name);
+                        return false;
+                    }
+                    pack_fields.emplace_back(kw_name, field);
+                }
+                const auto *pack = TypeRegistry::instance().un_named_tsb(pack_fields);
+                if (!input_ts_pattern_match(impl.kwargs_pattern, pack, map))
+                {
+                    why = fmt::format("supplied keywords {} do not match **kwargs pattern {}",
+                                      pack->name(), ts_pattern_to_string(impl.kwargs_pattern));
+                    return false;
+                }
+            }
+
             OperatorCallContext context{args, impl.params, kwargs, global_state};
             if (impl.default_resolver)
             {

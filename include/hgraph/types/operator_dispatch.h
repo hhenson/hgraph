@@ -236,6 +236,12 @@ namespace hgraph
         std::size_t                positional_params{static_cast<std::size_t>(-1)};
         /** Unmatched keyword time-series args collect into the candidate (``**kwargs``). */
         bool                       has_kwargs{false};
+        /** Declared pack pattern for ``**kwargs`` (issue #224): matched at
+            dispatch against the synthesized un-named TSB of the supplied
+            keywords, which binds pack-level schema vars (TSB[TS_SCHEMA]) so
+            the output pattern can resolve. Empty when unannotated. */
+        bool                       has_kwargs_pattern{false};
+        TypePattern                kwargs_pattern{};
         bool                       has_output{false};
         TypePattern                output{};
         const LiftedKernel        *lifted_kernel{nullptr};
@@ -1114,6 +1120,10 @@ namespace hgraph
             {
                 if (!params.empty()) { out += ", "; }
                 out += "**kwargs";
+                if (impl.has_kwargs_pattern)
+                {
+                    out += ": " + ts_pattern_to_string(impl.kwargs_pattern);
+                }
             }
             out += ")";
             if (impl.has_output) { out += " -> " + ts_pattern_to_string(impl.output); }
