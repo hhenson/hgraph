@@ -248,6 +248,36 @@ namespace hgraph
             return source.as_dict().key_set().base();
         }
 
+        [[nodiscard]] bool tss_has_published_structural_state(const TSDataView &source,
+                                                              DateTime transition_time)
+        {
+            const bool modified_now = source.modified(transition_time);
+            auto set = source.as_set();
+            for (std::size_t slot = 0; slot < set.slot_capacity(); ++slot)
+            {
+                if (!set.slot_occupied(slot) || (modified_now && set.slot_added(slot))) { continue; }
+                if (set.slot_live(slot) || set.slot_removed(slot)) { return true; }
+            }
+            return false;
+        }
+
+        [[nodiscard]] bool tsd_has_published_structural_state(const TSDataView &source,
+                                                              DateTime transition_time)
+        {
+            const bool modified_now = source.modified(transition_time);
+            auto dict = source.as_dict();
+            for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
+            {
+                if (!dict.slot_occupied(slot) || (modified_now && dict.slot_added(slot))) { continue; }
+                if (dict.slot_removed(slot) ||
+                    (dict.slot_live(slot) && dict.at_slot(slot).has_current_value()))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         [[nodiscard]] TimeSeriesReference input_leaf_reference(const TSInputView &view)
         {
             return TimeSeriesReference::empty(view.schema());
@@ -313,6 +343,7 @@ namespace hgraph
             .find_key = &no_endpoint_find_key,
             .child_schema = &no_endpoint_child_schema,
             .structural_observation = &tss_structural_observation,
+            .has_published_structural_state = &tss_has_published_structural_state,
             .reference = &input_leaf_reference,
         };
 
@@ -324,6 +355,7 @@ namespace hgraph
             .child_schema = &tsd_endpoint_child_schema,
             .target_child = &tsd_target_child_at,
             .structural_observation = &tsd_structural_observation,
+            .has_published_structural_state = &tsd_has_published_structural_state,
             .reference = &input_leaf_reference,
         };
 
@@ -2299,6 +2331,41 @@ namespace hgraph
         const TSInputEndpointOps &input_endpoint_ops_for(const TSValueTypeMetaData *schema)
         {
             return ::hgraph::input_endpoint_ops_for(schema);
+        }
+
+        TSDataView structural_observation_for(const TSDataView &source)
+        {
+            if (!source.valid() || source.schema() == nullptr)
+            {
+                throw std::logic_error("Structural observation requires live TSData with a schema");
+            }
+
+            const auto &ops = input_endpoint_ops_for(source.schema());
+            if (ops.structural_observation == nullptr)
+            {
+                throw std::invalid_argument(
+                    "Structural input activity is not supported for this time-series shape");
+            }
+            return ops.structural_observation(source);
+        }
+
+        bool has_published_structural_state(const TSDataView &source,
+                                            DateTime transition_time)
+        {
+            if (!source.valid() || source.schema() == nullptr) { return false; }
+
+            const auto &ops = input_endpoint_ops_for(source.schema());
+            if (ops.has_published_structural_state == nullptr)
+            {
+                throw std::invalid_argument(
+                    "Published structural state is not supported for this time-series shape");
+            }
+
+            // A previously published empty collection is still structural
+            // state. It must produce a sampled empty transition when a
+            // forwarding endpoint moves to a fresh, currently-unset target.
+            if (!source.modified(transition_time) && source.has_current_value()) { return true; }
+            return ops.has_published_structural_state(source, transition_time);
         }
 
         TSRoleTypeRef output_data_storage_type_for(const TSEndpointSchema &endpoint_schema)

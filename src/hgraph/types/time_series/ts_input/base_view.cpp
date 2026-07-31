@@ -209,15 +209,23 @@ namespace hgraph
     void TSInputView::InputDataCursor::make_structural_active(
         TSInput *input, Notifiable *scheduling_notifier) const
     {
-        const auto *value_schema = schema();
-        const auto &ops = detail::input_endpoint_ops_for(value_schema);
-        if (ops.structural_observation == nullptr)
+        TSDataView observed{};
+        if (value_live())
         {
-            throw std::invalid_argument("Structural input activity is not supported for this time-series shape");
+            observed = detail::structural_observation_for(value_data);
+        }
+        else
+        {
+            // Unbound target-link positions still accept structural
+            // activation so that a later bind can subscribe them.
+            const auto &ops = detail::input_endpoint_ops_for(schema());
+            if (ops.structural_observation == nullptr)
+            {
+                throw std::invalid_argument(
+                    "Structural input activity is not supported for this time-series shape");
+            }
         }
 
-        TSDataView observed{};
-        if (value_live()) { observed = ops.structural_observation(value_data); }
         if (is_target_position())
         {
             detail::make_target_link_active(raw_data, target_path_node(), observed,
