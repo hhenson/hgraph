@@ -20,6 +20,7 @@
 #include <memory>
 #include <stdexcept>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 
 namespace hgraph {
@@ -1080,6 +1081,61 @@ struct GraphRuntimeRegistry {
     GraphTypeRef nested{};
   };
 
+  [[nodiscard]] static std::size_t combine_hash(std::size_t seed,
+                                                std::size_t value) noexcept {
+    return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U));
+  }
+
+  [[nodiscard]] static std::size_t hash_builder(const GraphBuilder &builder) {
+    std::size_t result = std::hash<std::string_view>{}(builder.label());
+    for (const NodeBuilder &node : builder.nodes()) {
+      result = combine_hash(result, std::hash<NodeTypeRef>{}(node.type()));
+    }
+    for (const GraphEdge &edge : builder.edges()) {
+      result = combine_hash(result, edge.source_node);
+      for (const std::size_t component : edge.source_path) {
+        result = combine_hash(result, component);
+      }
+      result = combine_hash(result, edge.target_node);
+      for (const std::size_t component : edge.target_path) {
+        result = combine_hash(result, component);
+      }
+    }
+    return result;
+  }
+
+  [[nodiscard]] static bool edges_equivalent(const GraphEdge &lhs,
+                                             const GraphEdge &rhs) noexcept {
+    return lhs.source_node == rhs.source_node &&
+           lhs.source_path == rhs.source_path &&
+           lhs.target_node == rhs.target_node &&
+           lhs.target_path == rhs.target_path;
+  }
+
+  [[nodiscard]] static bool entry_equivalent(const Entry &entry,
+                                             const GraphBuilder &builder) {
+    if (entry.schema.name() != builder.label() ||
+        entry.schema.nodes.size() != builder.nodes().size() ||
+        entry.schema.edges.size() != builder.edges().size() ||
+        entry.schema.push_source_nodes_end !=
+            compute_push_source_nodes_end(builder)) {
+      return false;
+    }
+    for (std::size_t index = 0; index < builder.nodes().size(); ++index) {
+      if (entry.root_context.node_locations[index].type !=
+          builder.nodes()[index].type()) {
+        return false;
+      }
+    }
+    for (std::size_t index = 0; index < builder.edges().size(); ++index) {
+      if (!edges_equivalent(entry.schema.edges[index],
+                            builder.edges()[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   GraphTypeMetaData make_meta(const GraphBuilder &builder) {
     GraphTypeMetaData meta;
     names.push_back(
@@ -1105,6 +1161,16 @@ struct GraphRuntimeRegistry {
   }
 
   Types make_types(const GraphBuilder &builder) {
+    const std::size_t key = hash_builder(builder);
+    if (const auto found = canonical_entries.find(key);
+        found != canonical_entries.end()) {
+      for (const Entry *candidate : found->second) {
+        if (entry_equivalent(*candidate, builder)) {
+          return Types{candidate->root_type, candidate->nested_type};
+        }
+      }
+    }
+
     entries.push_back({});
     auto &entry = entries.back();
     entry.schema = make_meta(builder);
@@ -1125,6 +1191,7 @@ struct GraphRuntimeRegistry {
       entry.nested_type = intern_graph_type(
           entry.schema, nested_plan, entry.nested_ops, "hgraph.graph.nested");
     }
+    canonical_entries[key].push_back(&entry);
     return Types{entry.root_type, entry.nested_type};
   }
 
@@ -1197,8 +1264,11 @@ struct GraphRuntimeRegistry {
 
   std::deque<Entry> entries{};
   std::vector<std::unique_ptr<std::string>> names{};
+  std::unordered_map<std::size_t, std::vector<const Entry *>>
+      canonical_entries{};
 
   void clear() noexcept {
+    canonical_entries.clear();
     entries.clear();
     names.clear();
   }

@@ -468,6 +468,10 @@ namespace hgraph
 
             NodeTypeDescriptor descriptor;
             descriptor.schema             = std::move(schema);
+            // The lifted implementation and its callbacks are fixed by this
+            // template specialization; values specific to one wired instance
+            // live in the node scalars, not in the callback objects.
+            static const std::byte runtime_type_token{};
             descriptor.callbacks.evaluate = &evaluate_lifted_node_callback<F, Identity>;
             descriptor.ops.evaluate_impl  = &evaluate_lifted_node<F, Identity>;
             if constexpr (arity_v<F> > 0)
@@ -487,7 +491,8 @@ namespace hgraph
                 }
             }
 
-            NodeBuilder builder = NodeBuilder::from_descriptor(std::move(descriptor));
+            NodeBuilder builder = NodeBuilder::from_canonical_descriptor(
+                std::move(descriptor), &runtime_type_token);
             builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
                 input_schema, std::span<const WiringPortRef>{inputs.data(), inputs.size()}));
 

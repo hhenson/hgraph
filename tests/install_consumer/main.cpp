@@ -1,12 +1,13 @@
 #include <hgraph/lib/std/standard_types.h>
+#include <hgraph/runtime/node.h>
 #include <hgraph/runtime/registry_snapshot.h>
 #include <hgraph/types/frame.h>
-#include <hgraph/types/static_schema.h>
-#include <hgraph/types/type_resolution.h>
 #include <hgraph/types/metadata/type_record.h>
 #include <hgraph/types/metadata/type_registry.h>
-#include <hgraph/types/type_pointer.h>
+#include <hgraph/types/static_schema.h>
 #include <hgraph/types/time_series/visitor.h>
+#include <hgraph/types/type_pointer.h>
+#include <hgraph/types/type_resolution.h>
 #include <hgraph/types/value/any_ops.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
@@ -14,6 +15,7 @@
 
 #include <arrow/api.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <stdexcept>
 #include <type_traits>
@@ -52,6 +54,20 @@ int main()
     {
         throw std::runtime_error(
             "installed runtime registry snapshot did not observe seeded types");
+    }
+
+    static const std::byte consumer_node_type_id{};
+    NodeTypeDescriptor first_node_descriptor;
+    first_node_descriptor.schema.display_name = "consumer_canonical_node";
+    const NodeBuilder first_node = NodeBuilder::from_canonical_descriptor(
+        std::move(first_node_descriptor), &consumer_node_type_id);
+    NodeTypeDescriptor repeated_node_descriptor;
+    repeated_node_descriptor.schema.display_name = "consumer_canonical_node";
+    const NodeBuilder repeated_node = NodeBuilder::from_canonical_descriptor(
+        std::move(repeated_node_descriptor), &consumer_node_type_id);
+    if (repeated_node.type() != first_node.type()) {
+      throw std::runtime_error(
+          "installed canonical node descriptor did not reuse its runtime type");
     }
 
     Value value{std::int32_t{41}};

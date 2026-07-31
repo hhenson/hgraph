@@ -19,6 +19,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 namespace hgraph
@@ -95,6 +96,7 @@ namespace hgraph
             NodeCallbacks                    callbacks{};
             NodeRuntimeLayout                layout{};
             const MemoryUtils::StoragePlan  *plan{nullptr};
+            const void *runtime_type_id{nullptr};
         };
 
         [[nodiscard]] const NodeRuntimeContext &runtime_context(const void *context)
@@ -892,40 +894,136 @@ namespace hgraph
 
         struct NodeRuntimeRegistry
         {
-            NodeTypeRef make_type(
-                NodeTypeMetaData schema,
-                NodeCallbacks callbacks,
-                const MemoryUtils::StoragePlan &plan,
-                NodeOps ops,
-                std::string_view implementation_label,
-                std::vector<DebugField> debug_fields = {},
-                std::optional<NodeTypeDescriptor::DynamicDebug> dynamic_debug = {})
-            {
-                names.push_back(std::make_unique<std::string>(
-                    schema.display_name != nullptr ? std::string{schema.display_name} : std::string{}));
-                if (!names.back()->empty()) { schema.display_name = names.back()->c_str(); }
-                schema.header = SchemaHeader{TypeFamily::Node,
-                                             static_cast<TypeKind>(schema.node_kind),
-                                             schema.display_name != nullptr && schema.display_name[0] != '\0'
-                                                 ? schema.display_name
-                                                 : "node"};
-
-                contexts.push_back(NodeRuntimeContext{
-                    .callbacks = std::move(callbacks),
-                    .layout = layout_for(plan),
-                    .plan = &plan,
-                });
-                schemas.push_back(std::move(schema));
-                fill_default_ops(ops);
-                ops.context = &contexts.back();
-                ops_storage.push_back(ops);
-
-                return intern_node_type(
-                    schemas.back(), plan, ops_storage.back(), implementation_label, debug_fields,
-                    dynamic_debug.has_value() ? dynamic_debug->key_type : nullptr,
-                    dynamic_debug.has_value() ? dynamic_debug->element_type : nullptr,
-                    dynamic_debug.has_value() ? &dynamic_debug->layout : nullptr);
+          [[nodiscard]] static bool
+          endpoint_schema_equivalent(const TSEndpointSchema &lhs,
+                                     const TSEndpointSchema &rhs) noexcept {
+            if (lhs.empty() || rhs.empty()) {
+              return lhs.empty() == rhs.empty();
             }
+            if (lhs.role() != rhs.role() || lhs.schema() != rhs.schema() ||
+                lhs.child_count() != rhs.child_count()) {
+              return false;
+            }
+            for (std::size_t index = 0; index < lhs.child_count(); ++index) {
+              if (!endpoint_schema_equivalent(lhs.child(index),
+                                              rhs.child(index))) {
+                return false;
+              }
+            }
+            return true;
+          }
+
+          [[nodiscard]] static bool
+          schema_equivalent(const NodeTypeMetaData &lhs,
+                            const NodeTypeMetaData &rhs) noexcept {
+            const std::string_view lhs_name =
+                lhs.display_name != nullptr ? lhs.display_name : "";
+            const std::string_view rhs_name =
+                rhs.display_name != nullptr ? rhs.display_name : "";
+            return lhs_name == rhs_name &&
+                   lhs.input_schema == rhs.input_schema &&
+                   lhs.output_schema == rhs.output_schema &&
+                   endpoint_schema_equivalent(lhs.output_endpoint_schema,
+                                              rhs.output_endpoint_schema) &&
+                   lhs.error_output_schema == rhs.error_output_schema &&
+                   lhs.recordable_state_schema == rhs.recordable_state_schema &&
+                   lhs.state_schema == rhs.state_schema &&
+                   lhs.scalar_schema == rhs.scalar_schema &&
+                   lhs.node_kind == rhs.node_kind &&
+                   lhs.uses_scheduler == rhs.uses_scheduler &&
+                   lhs.uses_global_state == rhs.uses_global_state &&
+                   lhs.uses_evaluation_clock == rhs.uses_evaluation_clock &&
+                   lhs.uses_python_values == rhs.uses_python_values &&
+                   lhs.schedule_on_start == rhs.schedule_on_start &&
+                   lhs.captures_errors == rhs.captures_errors &&
+                   lhs.error_capture == rhs.error_capture &&
+                   lhs.active_inputs == rhs.active_inputs &&
+                   lhs.structural_inputs == rhs.structural_inputs &&
+                   lhs.valid_inputs == rhs.valid_inputs &&
+                   lhs.all_valid_inputs == rhs.all_valid_inputs;
+          }
+
+          [[nodiscard]] NodeTypeRef
+          find_canonical(const void *runtime_type_id,
+                         const NodeTypeMetaData &schema,
+                         const MemoryUtils::StoragePlan &plan,
+                         std::string_view implementation_label,
+                         const std::vector<DebugField> &debug_fields,
+                         const std::optional<NodeTypeDescriptor::DynamicDebug>
+                             &dynamic_debug) const {
+            // Supplied debug descriptors are uncommon and may carry
+            // caller-owned names.  Keep them on the conservative path
+            // until their complete value contract is part of this key.
+            if (runtime_type_id == nullptr || !debug_fields.empty() ||
+                dynamic_debug.has_value()) {
+              return {};
+            }
+            const auto found = canonical_types.find(runtime_type_id);
+            if (found == canonical_types.end()) {
+              return {};
+            }
+            for (const NodeTypeRef candidate : found->second) {
+              if (candidate.plan() == &plan &&
+                  candidate.record()->implementation_name() ==
+                      implementation_label &&
+                  schema_equivalent(*candidate.schema(), schema)) {
+                return candidate;
+              }
+            }
+            return {};
+          }
+
+          NodeTypeRef make_type(NodeTypeMetaData schema,
+                                NodeCallbacks callbacks,
+                                const MemoryUtils::StoragePlan &plan,
+                                NodeOps ops,
+                                std::string_view implementation_label,
+                                const void *runtime_type_id = nullptr,
+                                std::vector<DebugField> debug_fields = {},
+                                std::optional<NodeTypeDescriptor::DynamicDebug>
+                                    dynamic_debug = {}) {
+            if (const NodeTypeRef existing = find_canonical(
+                    runtime_type_id, schema, plan, implementation_label,
+                    debug_fields, dynamic_debug)) {
+              return existing;
+            }
+            names.push_back(std::make_unique<std::string>(
+                schema.display_name != nullptr
+                    ? std::string{schema.display_name}
+                    : std::string{}));
+            if (!names.back()->empty()) {
+              schema.display_name = names.back()->c_str();
+            }
+            schema.header = SchemaHeader{
+                TypeFamily::Node, static_cast<TypeKind>(schema.node_kind),
+                schema.display_name != nullptr && schema.display_name[0] != '\0'
+                    ? schema.display_name
+                    : "node"};
+
+            contexts.push_back(NodeRuntimeContext{
+                .callbacks = std::move(callbacks),
+                .layout = layout_for(plan),
+                .plan = &plan,
+                .runtime_type_id = runtime_type_id,
+            });
+            schemas.push_back(std::move(schema));
+            fill_default_ops(ops);
+            ops.context = &contexts.back();
+            ops_storage.push_back(ops);
+
+            const NodeTypeRef type = intern_node_type(
+                schemas.back(), plan, ops_storage.back(), implementation_label,
+                debug_fields,
+                dynamic_debug.has_value() ? dynamic_debug->key_type : nullptr,
+                dynamic_debug.has_value() ? dynamic_debug->element_type
+                                          : nullptr,
+                dynamic_debug.has_value() ? &dynamic_debug->layout : nullptr);
+            if (runtime_type_id != nullptr && debug_fields.empty() &&
+                !dynamic_debug.has_value()) {
+              canonical_types[runtime_type_id].push_back(type);
+            }
+            return type;
+          }
 
             static void fill_default_ops(NodeOps &ops)
             {
@@ -971,12 +1069,15 @@ namespace hgraph
                 contexts.clear();
                 schemas.clear();
                 names.clear();
+                canonical_types.clear();
             }
 
             std::deque<NodeTypeMetaData>                 schemas{};
             std::deque<NodeRuntimeContext>               contexts{};
             std::deque<NodeOps>                          ops_storage{};
             std::vector<std::unique_ptr<std::string>>    names{};
+            std::unordered_map<const void *, std::vector<NodeTypeRef>>
+                canonical_types{};
         };
 
         NodeRuntimeRegistry &node_runtime_registry()
@@ -1447,36 +1548,57 @@ namespace hgraph
     }
 
     NodeBuilder NodeBuilder::from_descriptor(NodeTypeDescriptor descriptor,
-                                             TSEndpointSchema input_endpoint)
-    {
-        if (descriptor.schema.input_schema != nullptr && !input_endpoint.empty() &&
-            !time_series_schema_equivalent(descriptor.schema.input_schema, input_endpoint.schema()))
-        {
-            throw std::invalid_argument("NodeBuilder input endpoint schema does not match node input schema");
-        }
-        if (descriptor.schema.output_schema != nullptr && !descriptor.schema.output_endpoint_schema.empty() &&
-            !time_series_schema_equivalent(descriptor.schema.output_schema,
-                                           descriptor.schema.output_endpoint_schema.schema()))
-        {
-            throw std::invalid_argument("NodeBuilder output endpoint schema does not match node output schema");
-        }
-        if (descriptor.schema.output_schema == nullptr && !descriptor.schema.output_endpoint_schema.empty())
-        {
-            throw std::invalid_argument("NodeBuilder output endpoint requires a node output schema");
-        }
+                                             TSEndpointSchema input_endpoint) {
+      return from_descriptor_impl(std::move(descriptor), nullptr,
+                                  std::move(input_endpoint));
+    }
 
-        const auto &plan = descriptor.storage_plan != nullptr
-                               ? *descriptor.storage_plan
-                               : node_storage_plan_for(descriptor.schema);
-        const auto type = node_runtime_registry().make_type(
-            std::move(descriptor.schema),
-            std::move(descriptor.callbacks),
-            plan,
-            descriptor.ops,
-            descriptor.implementation_label,
-            std::move(descriptor.debug_fields),
-            std::move(descriptor.dynamic_debug));
-        return NodeBuilder{type, std::move(input_endpoint)};
+    NodeBuilder
+    NodeBuilder::from_canonical_descriptor(NodeTypeDescriptor descriptor,
+                                           const void *runtime_type_id,
+                                           TSEndpointSchema input_endpoint) {
+      if (runtime_type_id == nullptr) {
+        throw std::invalid_argument(
+            "from_canonical_descriptor requires a non-null runtime type id");
+      }
+      return from_descriptor_impl(std::move(descriptor), runtime_type_id,
+                                  std::move(input_endpoint));
+    }
+
+    NodeBuilder
+    NodeBuilder::from_descriptor_impl(NodeTypeDescriptor descriptor,
+                                      const void *runtime_type_id,
+                                      TSEndpointSchema input_endpoint) {
+      if (descriptor.schema.input_schema != nullptr &&
+          !input_endpoint.empty() &&
+          !time_series_schema_equivalent(descriptor.schema.input_schema,
+                                         input_endpoint.schema())) {
+        throw std::invalid_argument("NodeBuilder input endpoint schema does "
+                                    "not match node input schema");
+      }
+      if (descriptor.schema.output_schema != nullptr &&
+          !descriptor.schema.output_endpoint_schema.empty() &&
+          !time_series_schema_equivalent(
+              descriptor.schema.output_schema,
+              descriptor.schema.output_endpoint_schema.schema())) {
+        throw std::invalid_argument("NodeBuilder output endpoint schema does "
+                                    "not match node output schema");
+      }
+      if (descriptor.schema.output_schema == nullptr &&
+          !descriptor.schema.output_endpoint_schema.empty()) {
+        throw std::invalid_argument(
+            "NodeBuilder output endpoint requires a node output schema");
+      }
+
+      const auto &plan = descriptor.storage_plan != nullptr
+                             ? *descriptor.storage_plan
+                             : node_storage_plan_for(descriptor.schema);
+      const auto type = node_runtime_registry().make_type(
+          std::move(descriptor.schema), std::move(descriptor.callbacks), plan,
+          descriptor.ops, descriptor.implementation_label, runtime_type_id,
+          std::move(descriptor.debug_fields),
+          std::move(descriptor.dynamic_debug));
+      return NodeBuilder{type, std::move(input_endpoint)};
     }
 
     NodeBuilder::NodeBuilder(NodeTypeRef type, TSEndpointSchema input_endpoint)
@@ -1584,9 +1706,9 @@ namespace hgraph
             extra_fields.push_back(NodeStorageField{node_prepared_inputs_field, prepared->plan});
         }
         const auto &plan = node_storage_plan_for(schema, extra_fields);
-        const auto type =
-            node_runtime_registry().make_type(std::move(schema), origin.callbacks, plan, NodeOps{},
-                                              type_.record()->implementation_name());
+        const auto type = node_runtime_registry().make_type(
+            std::move(schema), origin.callbacks, plan, NodeOps{},
+            type_.record()->implementation_name(), origin.runtime_type_id);
 
         NodeBuilder result{type, input_endpoint_};
         result.output_endpoint_ = output_endpoint_;
@@ -1649,9 +1771,9 @@ namespace hgraph
             extra_fields.push_back(NodeStorageField{node_prepared_inputs_field, prepared->plan});
         }
         const auto &plan = node_storage_plan_for(schema, extra_fields);
-        const auto type =
-            node_runtime_registry().make_type(std::move(schema), origin.callbacks, plan, node_ops,
-                                              type_.record()->implementation_name());
+        const auto type = node_runtime_registry().make_type(
+            std::move(schema), origin.callbacks, plan, node_ops,
+            type_.record()->implementation_name(), origin.runtime_type_id);
 
         NodeBuilder result{type, input_endpoint_};
         result.output_endpoint_ = output_endpoint_;

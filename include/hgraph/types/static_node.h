@@ -2195,6 +2195,14 @@ namespace hgraph
         // the framework schedules the node for the start cycle (see node.cpp).
         template <typename T> concept has_schedule_on_start = requires { T::schedule_on_start; };
         template <typename T> concept has_uses_python_values = requires { T::uses_python_values; };
+
+        /** Process-stable token for one stateless static-node implementation.
+         */
+        template <typename TImplementation>
+        [[nodiscard]] const void *static_node_runtime_type_id() noexcept {
+          static const std::byte token{};
+          return &token;
+        }
     }  // namespace static_node_detail
 
     // -----------------------------------------------------------------
@@ -3028,7 +3036,10 @@ namespace hgraph
                 }
             }
             descriptor.callbacks = static_node_callbacks<TImplementation>();
-            return NodeBuilder::from_descriptor(std::move(descriptor), std::move(parts.input_endpoint));
+            return NodeBuilder::from_canonical_descriptor(
+                std::move(descriptor),
+                static_node_runtime_type_id<TImplementation>(),
+                std::move(parts.input_endpoint));
         }
     }  // namespace static_node_detail
 
