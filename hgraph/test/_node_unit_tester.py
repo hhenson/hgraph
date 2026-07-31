@@ -24,6 +24,8 @@ from hgraph import (
 )
 from hgraph._impl._operators._record_replay_in_memory import replay_from_memory, record_to_memory
 
+__all__ = ("eval_node",)
+
 
 def eval_node(
     node,
