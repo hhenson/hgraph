@@ -109,7 +109,8 @@ The memory campaign is deliberately separate from the timing interval while
 reusing the same stable scenario implementations. Its profile registry
 (`memory_profiles.py`) selects scale series for static graph size, bounded
 duration, value representations, collection cardinality, retained capacity,
-key churn, monotonic growth, nested graphs, mesh, and services.
+key churn, monotonic growth, repeated graph lifecycles in a long-lived process,
+nested graphs, mesh, and services.
 
 ```sh
 # released C++ runtime vs hg_cpp, plus the hg_cpp native structural pass
@@ -135,6 +136,11 @@ memory retained after graph teardown plus two Python GC passes. USS and PSS are
 also recorded where the operating system exposes them. Multiple samples are
 aggregated with a median and median absolute deviation; every original sample
 remains in the raw JSON.
+
+Profiles with ``repetitions > 1`` reuse the same graph callable inside one
+interpreter and record post-GC RSS/USS after every execution. Their report rows
+include first-to-last retained growth, exposing process-lifetime registry or
+cache slopes that independent process samples intentionally hide.
 
 RSS includes Python, native libraries, allocator fragmentation, and runtime
 caches. It is the whole-process ground truth, but it cannot explain ownership.

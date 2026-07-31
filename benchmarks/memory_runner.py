@@ -63,13 +63,19 @@ class _PeakRssSampler:
 
     def _sample(self) -> None:
         while not self._stop.wait(self._interval_seconds):
-            try:
-                self.peak_bytes = max(
-                    self.peak_bytes, self._process.memory_info().rss
-                )
-                self.samples += 1
-            except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+            if not self.observe():
                 return
+
+    def observe(self) -> bool:
+        """Record an immediate sample; false means the process was unavailable."""
+        try:
+            self.peak_bytes = max(
+                self.peak_bytes, self._process.memory_info().rss
+            )
+            self.samples += 1
+        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+            return False
+        return True
 
     def __enter__(self):
         self._thread.start()
@@ -78,13 +84,7 @@ class _PeakRssSampler:
     def __exit__(self, *_):
         self._stop.set()
         self._thread.join()
-        try:
-            self.peak_bytes = max(
-                self.peak_bytes, self._process.memory_info().rss
-            )
-            self.samples += 1
-        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
-            pass
+        self.observe()
 
 
 def _base_result(profile_id, profile, scenario, process_start) -> dict:
@@ -139,6 +139,7 @@ def run_process(profile_id, profile, scenario, interval_ms: float,
                 graph_fn, start_time=start, end_time=end, print_progress=False
             )
             post_run = _full_memory(process)
+            sampler.observe()  # before teardown can return pages to the OS
             del output
             gc.collect()
             gc.collect()
