@@ -199,7 +199,25 @@ shape as the lower layers:
 ``NodeBuilder``
     Cached construction recipe. It resolves the node schema and endpoint
     annotations to a canonical ``NodeTypeRef``, then constructs ``NodeValue``
-    instances on demand.
+    instances on demand. Static implementations and lifted stateless callables
+    reuse an existing runtime type when their process-stable implementation
+    identity and complete runtime schema match. Derived bindings such as passive
+    inputs and error capture are canonicalised independently, so a changed
+    policy never aliases the original type.
+
+    Callback-backed extensions use ``NodeBuilder::from_descriptor`` by default;
+    each call receives a fresh runtime type because its callbacks may capture
+    builder-specific state. An extension may instead call
+    ``NodeBuilder::from_canonical_descriptor`` with a non-null token that remains
+    alive for the process, but only when every descriptor using that token has
+    interchangeable callbacks and ops. Per-node values belong in builder
+    scalars or runtime storage, not in a canonical callback capture.
+
+    Graph runtime types are likewise reused only when the graph label, ordered
+    node runtime types, edge paths, and push-source boundary all match. Executor
+    runtime types are reused by mode and label. Node labels, scalar values,
+    endpoint bindings, graph state, clocks, and executor options remain
+    instance-owned and are reconstructed for every run.
 
 The C++ runtime supplies callback-backed and specialised ``NodeOps``
 implementations through this structure. Python-authored compute, sink, and

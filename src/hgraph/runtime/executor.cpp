@@ -22,6 +22,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -653,6 +654,23 @@ namespace hgraph
 
         struct ExecutorRuntimeRegistry
         {
+          struct Key {
+            GraphExecutorMode mode{GraphExecutorMode::Simulation};
+            std::string label{};
+
+            [[nodiscard]] bool operator==(const Key &) const noexcept = default;
+          };
+
+          struct KeyHash {
+            [[nodiscard]] std::size_t
+            operator()(const Key &key) const noexcept {
+              std::size_t result = std::hash<std::string>{}(key.label);
+              return result ^
+                     (static_cast<std::size_t>(key.mode) +
+                      0x9e3779b97f4a7c15ULL + (result << 6U) + (result >> 2U));
+            }
+          };
+
             struct Entry
             {
                 GraphExecutorTypeMetaData schema{};
@@ -663,6 +681,11 @@ namespace hgraph
 
             ExecutorTypeRef make_type(const GraphExecutorBuilder &builder)
             {
+              Key key{builder.mode(), std::string{builder.label()}};
+              if (const auto found = canonical_types.find(key);
+                  found != canonical_types.end()) {
+                return found->second;
+              }
                 names.push_back(std::make_unique<std::string>(std::string{builder.label()}));
                 entries.push_back({});
                 auto &entry = entries.back();
@@ -685,6 +708,7 @@ namespace hgraph
                         entry.ops = simulation_executor_ops(&entry.context);
                         entry.type = intern_executor_type(entry.schema, plan, entry.ops,
                                                           "hgraph.executor.simulation");
+                        canonical_types.emplace(std::move(key), entry.type);
                         return entry.type;
                     }
                     case GraphExecutorMode::RealTime: {
@@ -695,6 +719,7 @@ namespace hgraph
                         entry.ops = realtime_executor_ops(&entry.context);
                         entry.type = intern_executor_type(entry.schema, plan, entry.ops,
                                                           "hgraph.executor.realtime");
+                        canonical_types.emplace(std::move(key), entry.type);
                         return entry.type;
                     }
                 }
@@ -703,12 +728,14 @@ namespace hgraph
 
             void clear() noexcept
             {
-                entries.clear();
-                names.clear();
+              canonical_types.clear();
+              entries.clear();
+              names.clear();
             }
 
             std::deque<Entry>                          entries{};
             std::vector<std::unique_ptr<std::string>>  names{};
+            std::unordered_map<Key, ExecutorTypeRef, KeyHash> canonical_types{};
         };
 
         ExecutorRuntimeRegistry &executor_runtime_registry()

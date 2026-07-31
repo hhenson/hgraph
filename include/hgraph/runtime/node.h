@@ -380,6 +380,18 @@ namespace hgraph
                                                          TSEndpointSchema input_endpoint = {});
 
         /**
+         * Build from a descriptor whose callbacks/ops are identified by a
+         * process-stable token and may therefore share a canonical runtime
+         * type with equivalent descriptors.  The token must be non-null and
+         * outlive every graph using the descriptor.  Captured per-builder
+         * state must use ``from_descriptor`` instead.
+         */
+        [[nodiscard]] static NodeBuilder
+        from_canonical_descriptor(NodeTypeDescriptor descriptor,
+                                  const void *runtime_type_id,
+                                  TSEndpointSchema input_endpoint = {});
+
+        /**
          * Typed front-end over ``native``: build this node from a static node
          * implementation ``TImplementation`` (a stateless struct with a static
          * ``eval`` taking ``In<>`` / ``Out<>`` / ``State<>`` parameters, plus
@@ -459,6 +471,10 @@ namespace hgraph
       private:
         friend class NodeValue;
 
+        [[nodiscard]] static NodeBuilder
+        from_descriptor_impl(NodeTypeDescriptor descriptor,
+                             const void *runtime_type_id,
+                             TSEndpointSchema input_endpoint);
         NodeBuilder(NodeTypeRef type, TSEndpointSchema input_endpoint);
 
         NodeTypeRef            type_{};
