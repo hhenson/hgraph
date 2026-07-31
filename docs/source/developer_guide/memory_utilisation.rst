@@ -54,7 +54,10 @@ The process pass never attaches Inspector. Inspector retains an owned record
 and strings for every graph/node it observes, so using it during RSS sampling
 would change the quantity being measured. Each profile and each sample runs in
 a fresh process so process-global state from one graph cannot contaminate the
-next graph's delta.
+next graph's delta. For repeated-lifecycle profiles, the Inspector pass runs
+one execution and reports the per-graph structural footprint; only the
+uninstrumented process pass is used to infer cross-execution retention because
+Inspector would retain its own records across those executions.
 
 Static ownership audit
 ----------------------
