@@ -2,6 +2,7 @@
 #define HGRAPH_CPP_ROOT_TS_DATA_PLAN_FACTORY_DETAIL_H
 
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/ts_data.h>
 #include <hgraph/types/utils/memory_utils.h>
 
@@ -14,7 +15,11 @@ namespace hgraph::ts_data_plan_factory_detail
                                                       const ValueTypeRef         &value_binding,
                                                       const ValueTypeRef         &delta_binding,
                                                       const MemoryUtils::StoragePlan &plan, std::size_t value_offset,
-                                                      std::size_t tracking_offset);
+                                                      std::size_t tracking_offset,
+                                                      ValueStorageVariant storage =
+                                                          ValueStorageVariant::Native,
+                                                      std::size_t python_value_offset =
+                                                          ValueStorageSelection::no_offset);
 
     void clear_atomic_ts_data_ops() noexcept;
 

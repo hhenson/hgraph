@@ -686,15 +686,118 @@ struct RankedGraphBuild {
   std::unordered_map<const WiringInstance *, std::size_t> index_of{};
 };
 
+struct OutputReaders {
+  bool python{false};
+  bool native{false};
+};
+
+void collect_output_reader(
+    const WiringPortRef &source, bool python_reader,
+    const std::unordered_set<const WiringInstance *> &owned,
+    std::unordered_map<const WiringInstance *, OutputReaders> &readers) {
+  if (source.is_peered_source()) {
+    const WiringInstance *producer = source.peered_node();
+    if (!owned.contains(producer) ||
+        source.peered_output_kind() != GraphEdgeSourceKind::Output) {
+      return;
+    }
+    auto &entry = readers[producer];
+    // Child projections and other structural access can require native
+    // value views even when the terminal callable is Python.
+    const bool plain_root = source.peered_path().empty();
+    if (python_reader && plain_root) {
+      entry.python = true;
+    } else {
+      entry.native = true;
+    }
+    return;
+  }
+  if (!source.is_structural_source()) {
+    return;
+  }
+  for (const WiringPortRef &child : source.structural_children()) {
+    collect_output_reader(child, python_reader, owned, readers);
+  }
+}
+
+void collect_escaped_output_producers(
+    const WiringPortRef &source,
+    const std::unordered_map<const WiringInstance *, std::size_t>
+        &external_sources,
+    std::unordered_set<const WiringInstance *> &escaped_outputs) {
+  if (source.is_peered_source()) {
+    if (source.peered_output_kind() == GraphEdgeSourceKind::Output &&
+        !external_sources.contains(source.peered_node())) {
+      escaped_outputs.insert(source.peered_node());
+    }
+    return;
+  }
+  if (!source.is_structural_source()) {
+    return;
+  }
+  for (const WiringPortRef &child : source.structural_children()) {
+    collect_escaped_output_producers(child, external_sources,
+                                     escaped_outputs);
+  }
+}
+
+void select_output_value_storage(
+    std::deque<WiringInstance> &instances,
+    const std::unordered_set<const WiringInstance *> &owned,
+    const std::unordered_set<const WiringInstance *> *escaped_outputs) {
+  std::unordered_map<const WiringInstance *, OutputReaders> readers;
+  readers.reserve(owned.size());
+  for (WiringInstance &instance : instances) {
+    instance.builder.output_value_storage(ValueStorageVariant::Native);
+    if (!owned.contains(&instance)) {
+      continue;
+    }
+    const auto *consumer_schema = instance.builder.type().schema();
+    const bool python_reader =
+        consumer_schema != nullptr && consumer_schema->uses_python_values;
+    for (const WiringInputRef &input : instance.inputs) {
+      collect_output_reader(input.source, python_reader, owned, readers);
+    }
+  }
+  if (escaped_outputs != nullptr) {
+    for (const WiringInstance *producer : *escaped_outputs) {
+      if (owned.contains(producer)) {
+        readers[producer].native = true;
+      }
+    }
+  }
+
+  for (WiringInstance &instance : instances) {
+    if (!owned.contains(&instance)) {
+      continue;
+    }
+    const auto *producer_schema = instance.builder.type().schema();
+    const auto found = readers.find(&instance);
+    if (producer_schema == nullptr || !producer_schema->has_output() ||
+        producer_schema->output_schema->kind != TSTypeKind::TS ||
+        !instance.builder.output_endpoint().empty() ||
+        found == readers.end() || !found->second.python) {
+      continue;
+    }
+    const bool python_only =
+        producer_schema->uses_python_values && !found->second.native;
+    instance.builder.output_value_storage(
+        python_only ? ValueStorageVariant::PythonOnly
+                    : ValueStorageVariant::NativeWithPythonCache);
+  }
+}
+
 // The one rank-and-build pass behind both ``finish`` flavours: Kahn
 // topological sort (an input edge is producer -> consumer; insertion
 // order breaks ties), then nodes + edges into a GraphBuilder.
 [[nodiscard]] RankedGraphBuild
-build_ranked_graph(const std::deque<WiringInstance> &instances,
+build_ranked_graph(std::deque<WiringInstance> &instances,
                    std::vector<NestedGraphInputBinding> *boundary_bindings,
                    OuterCaptureCollector *captures = nullptr,
                    const std::unordered_map<const WiringInstance *, std::size_t>
-                       *external_sources = nullptr) {
+                       *external_sources = nullptr,
+                   const std::unordered_set<const WiringInstance *>
+                       *escaped_outputs = nullptr) {
   std::vector<const WiringInstance *> all;
   all.reserve(instances.size());
   for (const auto &instance : instances) {
@@ -703,6 +806,7 @@ build_ranked_graph(const std::deque<WiringInstance> &instances,
     }
   }
   std::unordered_set<const WiringInstance *> owned{all.begin(), all.end()};
+  select_output_value_storage(instances, owned, escaped_outputs);
 
   std::unordered_map<const WiringInstance *, std::size_t> indegree;
   std::unordered_map<const WiringInstance *,
@@ -2433,8 +2537,18 @@ CompiledSubGraph Wiring::finish_subgraph(
                                  index);
   }
 
+  if (output.has_value() && output->is_delayed_source()) {
+    output = resolve_delayed_source(*output);
+  }
+  std::unordered_set<const WiringInstance *> escaped_outputs;
+  if (output.has_value()) {
+    collect_escaped_output_producers(*output, external_sources,
+                                     escaped_outputs);
+  }
+
   RankedGraphBuild build = build_ranked_graph(
-      impl_->instances, &compiled.input_bindings, &captures, &external_sources);
+      impl_->instances, &compiled.input_bindings, &captures, &external_sources,
+      &escaped_outputs);
   validate_same_cycle_pairs(build.index_of);
   // GraphBuilder's default construction honours an active top-level
   // GlobalContext. A compiled child must instead share its root graph's
@@ -2448,9 +2562,6 @@ CompiledSubGraph Wiring::finish_subgraph(
   compiled.graph_builder = std::move(build.graph_builder);
   const auto &index_of = build.index_of;
 
-  if (output.has_value() && output->is_delayed_source()) {
-    output = resolve_delayed_source(*output);
-  }
   if (output.has_value()) {
     if (output->is_boundary_source()) {
       // Pass-through: the sub-graph returns a boundary input directly

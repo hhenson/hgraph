@@ -333,8 +333,26 @@ namespace hgraph
         return output_type_cache_.try_emplace(schema, type).first->second;
     }
 
+    TSOutputTypeRef TSDataPlanFactory::output_type_for(
+        const TSValueTypeMetaData *schema,
+        ValueStorageVariant requested)
+    {
+        if (requested == ValueStorageVariant::Native ||
+            schema == nullptr ||
+            schema->kind != TSTypeKind::TS ||
+            !plan_detail::is_compact_atomic_ts_data(*schema))
+        {
+            return output_type_for(schema);
+        }
+        return output_type_for(
+            schema,
+            ValuePlanFactory::instance().type_for(schema->value_schema),
+            requested);
+    }
+
     TSOutputTypeRef TSDataPlanFactory::output_type_for(const TSValueTypeMetaData *schema,
-                                                       ValueTypeRef value_binding)
+                                                       ValueTypeRef value_binding,
+                                                       ValueStorageVariant requested)
     {
         if (schema == nullptr || !migrated_root(schema))
         {
@@ -349,7 +367,23 @@ namespace hgraph
                 "realized output_type_for requires an atomic or fixed TS and a binding for its declared value schema");
         }
 
-        const RealizedOutputKey key{schema, value_binding};
+        const auto selection =
+            scalar && schema->kind == TSTypeKind::TS
+                ? ValuePlanFactory::instance().storage_for(value_binding,
+                                                           requested)
+                : ValueStorageSelection{
+                      .effective = ValueStorageVariant::Native,
+                      .value_binding = value_binding,
+                      .storage_plan = value_binding.plan(),
+                  };
+        if (scalar && selection.effective == ValueStorageVariant::Native &&
+            value_binding ==
+                ValuePlanFactory::instance().type_for(schema->value_schema))
+        {
+            return output_type_for(schema);
+        }
+        const RealizedOutputKey key{schema, value_binding,
+                                    selection.effective};
         {
             std::lock_guard lock(mutex_);
             if (const auto found = realized_output_type_cache_.find(key);
@@ -364,7 +398,9 @@ namespace hgraph
                   : value_binding;
         auto builder = MemoryUtils::named_tuple();
         builder.reserve(2);
-        builder.add_field("value", storage_binding.checked_plan());
+        builder.add_field(
+            "value",
+            scalar ? *selection.storage_plan : storage_binding.checked_plan());
         if (scalar) { builder.add_field("tracking", MemoryUtils::plan_for<TSDataTracking>()); }
         else
         {
@@ -377,10 +413,24 @@ namespace hgraph
         if (scalar)
         {
             const auto &tracking = plan.component("tracking");
+            const auto value_offset = value.offset + selection.value_offset;
+            const auto python_value_offset =
+                selection.has_python_value()
+                    ? value.offset + selection.python_value_offset
+                    : ValueStorageSelection::no_offset;
             const auto &ops = plan_detail::atomic_ts_data_ops(
-                schema->kind, value_binding, value_binding, plan, value.offset, tracking.offset);
+                schema->kind, selection.value_binding,
+                selection.value_binding, plan, value_offset, tracking.offset,
+                selection.effective, python_value_offset);
             type = checked_ts_role_type(
-                intern_ts_type(*schema, TypeRole::Output, plan, ops, "ts.output.realized"),
+                intern_ts_type(
+                    *schema, TypeRole::Output, plan, ops,
+                    selection.effective == ValueStorageVariant::PythonOnly
+                        ? "ts.output.python_only"
+                    : selection.effective ==
+                              ValueStorageVariant::NativeWithPythonCache
+                        ? "ts.output.python_cached"
+                        : "ts.output.realized"),
                 std::integral_constant<TypeRole, TypeRole::Output>{});
         }
         else

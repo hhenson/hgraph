@@ -7,6 +7,7 @@
 
 #include <nanobind/nanobind.h>
 
+#include <utility>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -25,6 +26,30 @@ class ValueTypeRef;
  */
 namespace hgraph::python_bridge {
 namespace nb = nanobind;
+
+/**
+ * One output-owned retained Python value.  It is deliberately only a holder:
+ * schema validation and read-shape normalization remain value-factory policy.
+ */
+struct HGRAPH_LOCAL PythonValueHolder {
+  PyObject *object{nullptr};
+
+  PythonValueHolder() noexcept = default;
+  PythonValueHolder(const PythonValueHolder &other);
+  PythonValueHolder(PythonValueHolder &&other) noexcept;
+  PythonValueHolder &operator=(const PythonValueHolder &other);
+  PythonValueHolder &operator=(PythonValueHolder &&other) noexcept;
+  ~PythonValueHolder();
+
+  void clear() noexcept;
+  void set(nb::handle source);
+  [[nodiscard]] nb::object get() const;
+  [[nodiscard]] bool has_value() const noexcept { return object != nullptr; }
+
+  void swap(PythonValueHolder &other) noexcept {
+    std::swap(object, other.object);
+  }
+};
 
 [[nodiscard]] HGRAPH_EXPORT nb::object &cmp_result_enum_slot();
 [[nodiscard]] HGRAPH_EXPORT nb::object &divide_by_zero_enum_slot();
@@ -61,7 +86,7 @@ using PyInferValueFn = void *; // set as Value (*)(nb::handle) by the module
  */
 [[nodiscard]] HGRAPH_EXPORT nb::dict &bundle_class_registry();
 
-struct HGRAPH_LOCAL PyBundleClassInfo {
+struct HGRAPH_LOCAL NB_EXPORT_SHARED PyBundleClassInfo {
   using Allocator = PyObject *(*)(PyTypeObject *, Py_ssize_t);
 
   nb::object type{};
@@ -101,6 +126,10 @@ register_python_bundle_binding(const ValueTypeMetaData *schema);
 /** True when ``schema`` has a Python-owned Bundle storage policy. */
 [[nodiscard]] HGRAPH_EXPORT bool
 is_python_bundle_schema(const ValueTypeMetaData *schema) noexcept;
+
+/** True when ``binding`` is one of the Python-owned Bundle realizations. */
+[[nodiscard]] HGRAPH_EXPORT bool
+is_python_bundle_binding(ValueTypeRef binding) noexcept;
 
 /**
  * Return the Python-owned binding for ``schema`` with the supplied realized

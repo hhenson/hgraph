@@ -344,7 +344,7 @@ namespace hgraph::python_bridge
                         run->executor.view().graph().global_state());
                 }
             });
-            py_active_cycle_gil = cycle_gil;
+            py_active_cycle_gil     = cycle_gil;
             auto clear_cycle_gil = UnwindCleanupGuard([&] {
                 // Final balance: a preceding observer throwing out of the LAST
                 // cycle's after-notification would leak the hold past the run
@@ -372,7 +372,7 @@ namespace hgraph::python_bridge
                             std::current_exception(),
                             std::shared_ptr<PyRun>{std::move(run)}};
                     }
-                });
+            });
             clear_cycle_gil.complete();
             clear_runtime_state.complete();
             copy_runtime_state.complete();

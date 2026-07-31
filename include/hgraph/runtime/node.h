@@ -92,6 +92,10 @@ namespace hgraph
         bool     uses_scheduler{false};
         bool     uses_global_state{false};
         bool     uses_evaluation_clock{false};
+        // True when this node consumes and/or produces time-series values
+        // through the Python object boundary. Wiring uses this to request
+        // output-local Python-aware storage from upstream producers.
+        bool     uses_python_values{false};
         // When set, the framework schedules this node for the current cycle during
         // ``start`` (the declarative form of a source doing schedule_now() itself).
         bool     schedule_on_start{false};
@@ -410,6 +414,14 @@ namespace hgraph
         NodeBuilder &output_endpoint(TSEndpointSchema endpoint);
         [[nodiscard]] const TSEndpointSchema &output_endpoint() const noexcept;
 
+        /**
+         * Request the physical value representation for this instance's owned
+         * output. Forwarding endpoints and unsupported schemas ignore the
+         * request conservatively.
+         */
+        NodeBuilder &output_value_storage(ValueStorageVariant storage) noexcept;
+        [[nodiscard]] ValueStorageVariant output_value_storage() const noexcept;
+
         /** Per-instance immutable scalar configuration (its shape is the schema's ``scalar_schema``). */
         NodeBuilder &scalars(Value scalars);
         [[nodiscard]] const Value &scalars() const noexcept;
@@ -452,6 +464,8 @@ namespace hgraph
         NodeTypeRef            type_{};
         TSEndpointSchema       input_endpoint_{};
         TSEndpointSchema       output_endpoint_{};
+        ValueStorageVariant    output_value_storage_{
+            ValueStorageVariant::Native};
         std::string            label_{};
         Value                  scalars_{};
     };

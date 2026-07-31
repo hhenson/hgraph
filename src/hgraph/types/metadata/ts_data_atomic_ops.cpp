@@ -3,10 +3,16 @@
 #include <hgraph/types/utils/intern_table.h>
 #include <hgraph/types/value/value.h>
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+#include <hgraph/python/bridge_state.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
+#endif
+
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 
 namespace hgraph::ts_data_plan_factory_detail
 {
@@ -14,10 +20,16 @@ namespace hgraph::ts_data_plan_factory_detail
     {
         TSDataLayout layout{};
         TSDataOps    ops{};
+        ValueStorageVariant storage{ValueStorageVariant::Native};
+        std::size_t python_value_offset{ValueStorageSelection::no_offset};
 
         AtomicTSDataOpsEntry(TSTypeKind kind, const ValueTypeRef &value_binding,
                              const ValueTypeRef &delta_binding,
-                             std::size_t value_offset, std::size_t tracking_offset)
+                             std::size_t value_offset, std::size_t tracking_offset,
+                             ValueStorageVariant value_storage,
+                             std::size_t python_offset)
+            : storage(value_storage),
+              python_value_offset(python_offset)
         {
             layout = TSDataLayout{
                 .value_binding   = value_binding,
@@ -39,8 +51,16 @@ namespace hgraph::ts_data_plan_factory_detail
                 .mutable_value_memory_impl = &atomic_mutable_value_memory,
                 .delta_memory_impl         = &atomic_delta_memory,
                 .mutable_delta_memory_impl = &atomic_mutable_delta_memory,
-                .copy_value_from_impl      = &atomic_copy_value_from,
-                .move_value_from_impl      = &atomic_move_value_from,
+                .copy_value_from_impl =
+                    value_storage ==
+                            ValueStorageVariant::NativeWithPythonCache
+                        ? &atomic_copy_value_from<true>
+                        : &atomic_copy_value_from<false>,
+                .move_value_from_impl =
+                    value_storage ==
+                            ValueStorageVariant::NativeWithPythonCache
+                        ? &atomic_move_value_from<true>
+                        : &atomic_move_value_from<false>,
                 // REF data is whole-value like TS: the delta IS the carried
                 // reference value (the opaque-reference ruling - map_ over
                 // REF-returning functions forwards elements through these).
@@ -50,26 +70,64 @@ namespace hgraph::ts_data_plan_factory_detail
                 .delta_has_effect_impl     = &ts_data_detail::delta_has_effect_atomic,
                 .apply_delta_impl          = &ts_data_detail::apply_delta_atomic,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
-                .from_python_impl          = &atomic_from_python,
-                .to_python_impl            = &atomic_to_python,
-                .delta_to_python_impl      = &atomic_delta_to_python,
+                .from_python_impl =
+                    value_storage == ValueStorageVariant::PythonOnly
+                        ? &atomic_from_python<
+                              ValueStorageVariant::PythonOnly>
+                    : value_storage ==
+                              ValueStorageVariant::NativeWithPythonCache
+                        ? &atomic_from_python<
+                              ValueStorageVariant::NativeWithPythonCache>
+                        : &atomic_from_python<ValueStorageVariant::Native>,
+                .to_python_impl =
+                    value_storage == ValueStorageVariant::PythonOnly
+                        ? &atomic_to_python<ValueStorageVariant::PythonOnly>
+                    : value_storage ==
+                              ValueStorageVariant::NativeWithPythonCache
+                        ? &atomic_to_python<
+                              ValueStorageVariant::NativeWithPythonCache>
+                        : &atomic_to_python<ValueStorageVariant::Native>,
+                .delta_to_python_impl =
+                    value_storage == ValueStorageVariant::PythonOnly
+                        ? &atomic_delta_to_python<
+                              ValueStorageVariant::PythonOnly>
+                    : value_storage ==
+                              ValueStorageVariant::NativeWithPythonCache
+                        ? &atomic_delta_to_python<
+                              ValueStorageVariant::NativeWithPythonCache>
+                        : &atomic_delta_to_python<
+                              ValueStorageVariant::Native>,
 #endif
             };
         }
 
         AtomicTSDataOpsEntry(const AtomicTSDataOpsEntry &other) : layout(other.layout), ops(other.ops)
         {
+            storage = other.storage;
+            python_value_offset = other.python_value_offset;
             ops.context = &layout;
         }
 
         AtomicTSDataOpsEntry(AtomicTSDataOpsEntry &&other) noexcept : layout(other.layout), ops(other.ops)
         {
+            storage = other.storage;
+            python_value_offset = other.python_value_offset;
             ops.context = &layout;
         }
 
         [[nodiscard]] static const TSDataLayout *atomic_layout(const void *context) noexcept
         {
             return static_cast<const TSDataLayout *>(context);
+        }
+
+        [[nodiscard]] static const AtomicTSDataOpsEntry &entry(
+            const void *context) noexcept
+        {
+            // ``layout`` is the first member of this standard-layout cache
+            // entry, so its address is pointer-interconvertible with the
+            // enclosing entry. Native operations continue to receive the
+            // exact TSDataLayout context used before Python-aware storage.
+            return *reinterpret_cast<const AtomicTSDataOpsEntry *>(context);
         }
 
         [[nodiscard]] static const void *advance(const void *memory, std::size_t offset) noexcept
@@ -133,8 +191,10 @@ namespace hgraph::ts_data_plan_factory_detail
             return source.plan() == bound.plan();
         }
 
-        [[nodiscard]] static bool atomic_copy_value_from(const void *context, void *memory, const ValueView &source,
-                                                         DateTime modified_time)
+        template <bool InvalidatePythonCache>
+        [[nodiscard]] static bool atomic_copy_value_from(
+            const void *context, void *memory, const ValueView &source,
+            DateTime modified_time)
         {
             if (memory == nullptr)
             {
@@ -164,6 +224,12 @@ namespace hgraph::ts_data_plan_factory_detail
             const auto *tracking       = atomic_tracking(context, memory);
             const bool  first_for_time = tracking->last_modified_time != modified_time;
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+            if constexpr (InvalidatePythonCache)
+            {
+                invalidate_python_value(context, memory);
+            }
+#endif
             layout->value_binding.ops_ref().copy_assign_from(
                 layout->value_binding,
                 atomic_mutable_value_memory(context, memory),
@@ -172,8 +238,10 @@ namespace hgraph::ts_data_plan_factory_detail
             return first_for_time;
         }
 
-        [[nodiscard]] static bool atomic_move_value_from(const void *context, void *memory, ValueView source,
-                                                         DateTime modified_time)
+        template <bool InvalidatePythonCache>
+        [[nodiscard]] static bool atomic_move_value_from(
+            const void *context, void *memory, ValueView source,
+            DateTime modified_time)
         {
             if (memory == nullptr)
             {
@@ -201,6 +269,12 @@ namespace hgraph::ts_data_plan_factory_detail
             const auto *tracking       = atomic_tracking(context, memory);
             const bool  first_for_time = tracking->last_modified_time != modified_time;
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+            if constexpr (InvalidatePythonCache)
+            {
+                invalidate_python_value(context, memory);
+            }
+#endif
             layout->value_binding.ops_ref().move_assign_from(
                 layout->value_binding,
                 atomic_mutable_value_memory(context, memory),
@@ -210,10 +284,43 @@ namespace hgraph::ts_data_plan_factory_detail
         }
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] static bool atomic_from_python(const void *context,
-                                                     void       *memory,
-                                                     nb::handle  source,
-                                                     DateTime modified_time)
+        [[nodiscard]] static python_bridge::PythonValueHolder *
+        python_value(const void *context, void *memory) noexcept
+        {
+            const auto &self = entry(context);
+            if (self.python_value_offset == ValueStorageSelection::no_offset)
+            {
+                return nullptr;
+            }
+            return MemoryUtils::cast<python_bridge::PythonValueHolder>(
+                advance(memory, self.python_value_offset));
+        }
+
+        [[nodiscard]] static const python_bridge::PythonValueHolder *
+        python_value(const void *context, const void *memory) noexcept
+        {
+            return python_value(context, const_cast<void *>(memory));
+        }
+
+        static void invalidate_python_value(const void *context,
+                                            void *memory) noexcept
+        {
+            const auto &self = entry(context);
+            if (self.storage != ValueStorageVariant::NativeWithPythonCache)
+            {
+                return;
+            }
+            if (auto *cached = python_value(context, memory);
+                cached != nullptr)
+            {
+                cached->clear();
+            }
+        }
+
+        template <ValueStorageVariant Storage>
+        [[nodiscard]] static bool atomic_from_python(
+            const void *context, void *memory, nb::handle source,
+            DateTime modified_time)
         {
             if (memory == nullptr)
             {
@@ -231,29 +338,86 @@ namespace hgraph::ts_data_plan_factory_detail
             const auto *layout = atomic_layout(context);
             const auto *tracking = atomic_tracking(context, memory);
             const bool  first_for_time = tracking->last_modified_time != modified_time;
-            layout->value_binding.ops_ref().from_python(
-                layout->value_binding,
-                atomic_mutable_value_memory(context, memory),
-                source);
+            if constexpr (Storage == ValueStorageVariant::PythonOnly)
+            {
+                layout->value_binding.ops_ref().from_python(
+                    layout->value_binding,
+                    atomic_mutable_value_memory(context, memory), source);
+                return first_for_time;
+            }
+            if constexpr (Storage ==
+                          ValueStorageVariant::NativeWithPythonCache)
+            {
+                nb::object retained =
+                    ValuePlanFactory::instance().prepare_python_storage_value(
+                        layout->value_binding.schema(), source);
+                layout->value_binding.ops_ref().from_python(
+                    layout->value_binding,
+                    atomic_mutable_value_memory(context, memory), source);
+                python_value(context, memory)->set(retained);
+            }
+            else
+            {
+                layout->value_binding.ops_ref().from_python(
+                    layout->value_binding,
+                    atomic_mutable_value_memory(context, memory), source);
+            }
             return first_for_time;
         }
 
-        [[nodiscard]] static nb::object atomic_to_python(const void *context, const void *memory)
+        template <ValueStorageVariant Storage>
+        [[nodiscard]] static nb::object atomic_to_python(
+            const void *context, const void *memory)
         {
             const auto *layout = atomic_layout(context);
-            return layout->value_binding.ops_ref().to_python(atomic_value_memory(context, memory));
+            if constexpr (Storage !=
+                          ValueStorageVariant::NativeWithPythonCache)
+            {
+                return layout->value_binding.ops_ref().to_python(
+                    atomic_value_memory(context, memory));
+            }
+            else
+            {
+                if (const auto *retained = python_value(context, memory);
+                    retained != nullptr && retained->has_value())
+                {
+                    return retained->get();
+                }
+                nb::object converted =
+                    layout->value_binding.ops_ref().to_python(
+                        atomic_value_memory(context, memory));
+                if (auto *cached =
+                        python_value(context, const_cast<void *>(memory));
+                    cached != nullptr)
+                {
+                    cached->set(converted);
+                }
+                return converted;
+            }
         }
 
-        [[nodiscard]] static nb::object atomic_delta_to_python(const void *context,
-                                                               const void *memory,
-                                                               DateTime evaluation_time)
+        template <ValueStorageVariant Storage>
+        [[nodiscard]] static nb::object atomic_delta_to_python(
+            const void *context, const void *memory,
+            DateTime evaluation_time)
         {
             if (atomic_tracking(context, memory)->last_modified_time != evaluation_time) { return nb::none(); }
-            const auto *layout = atomic_layout(context);
-            return layout->delta_binding.ops_ref().to_python(atomic_delta_memory(context, memory));
+            if constexpr (Storage == ValueStorageVariant::Native)
+            {
+                const auto *layout = atomic_layout(context);
+                return layout->delta_binding.ops_ref().to_python(
+                    atomic_delta_memory(context, memory));
+            }
+            else
+            {
+                return atomic_to_python<Storage>(context, memory);
+            }
         }
 #endif
     };
+
+    static_assert(std::is_standard_layout_v<AtomicTSDataOpsEntry>);
+    static_assert(offsetof(AtomicTSDataOpsEntry, layout) == 0);
 
     struct AtomicTSDataOpsKey
     {
@@ -263,6 +427,8 @@ namespace hgraph::ts_data_plan_factory_detail
         TSTypeKind                      kind{TSTypeKind::TS};
         std::size_t                     value_offset{0};
         std::size_t                     tracking_offset{0};
+        ValueStorageVariant             storage{ValueStorageVariant::Native};
+        std::size_t python_value_offset{ValueStorageSelection::no_offset};
 
         [[nodiscard]] bool operator==(const AtomicTSDataOpsKey &) const noexcept = default;
     };
@@ -280,6 +446,10 @@ namespace hgraph::ts_data_plan_factory_detail
                     (seed << 6U) + (seed >> 2U);
             seed ^= std::hash<std::size_t>{}(key.value_offset) + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
             seed ^= std::hash<std::size_t>{}(key.tracking_offset) + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
+            seed ^= std::hash<std::uint8_t>{}(static_cast<std::uint8_t>(key.storage)) +
+                    0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
+            seed ^= std::hash<std::size_t>{}(key.python_value_offset) +
+                    0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
             return seed;
         }
     };
@@ -295,11 +465,16 @@ namespace hgraph::ts_data_plan_factory_detail
                                                       const ValueTypeRef         &value_binding,
                                                       const ValueTypeRef         &delta_binding,
                                                       const MemoryUtils::StoragePlan &plan, std::size_t value_offset,
-                                                      std::size_t tracking_offset)
+                                                      std::size_t tracking_offset,
+                                                      ValueStorageVariant storage,
+                                                      std::size_t python_value_offset)
     {
         return atomic_ts_data_ops_cache()
-            .emplace(AtomicTSDataOpsKey{value_binding, delta_binding, &plan, kind, value_offset, tracking_offset},
-                     kind, value_binding, delta_binding, value_offset, tracking_offset)
+            .emplace(AtomicTSDataOpsKey{value_binding, delta_binding, &plan, kind,
+                                       value_offset, tracking_offset, storage,
+                                       python_value_offset},
+                     kind, value_binding, delta_binding, value_offset,
+                     tracking_offset, storage, python_value_offset)
             .ops;
     }
 

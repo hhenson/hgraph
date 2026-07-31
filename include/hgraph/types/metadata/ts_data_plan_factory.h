@@ -2,6 +2,7 @@
 #define HGRAPH_CPP_ROOT_TS_DATA_PLAN_FACTORY_H
 
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/ts_data.h>
 #include <hgraph/types/time_series/ts_type_ref.h>
 #include <hgraph/types/utils/memory_utils.h>
@@ -67,9 +68,15 @@ namespace hgraph
         [[nodiscard]] TSDataTypeRef data_type_for(const TSValueTypeMetaData *schema);
         /** Canonical output role record. */
         [[nodiscard]] TSOutputTypeRef output_type_for(const TSValueTypeMetaData *schema);
+        /** Output role using the value factory's requested storage variant. */
+        [[nodiscard]] TSOutputTypeRef output_type_for(
+            const TSValueTypeMetaData *schema,
+            ValueStorageVariant requested);
         /** Atomic or fixed-TSB output role using an explicitly realized value binding. */
         [[nodiscard]] TSOutputTypeRef output_type_for(const TSValueTypeMetaData *schema,
-                                                      ValueTypeRef value_binding);
+                                                      ValueTypeRef value_binding,
+                                                      ValueStorageVariant requested =
+                                                          ValueStorageVariant::Native);
         /** TSD output role using an explicitly realized child TS binding. */
         [[nodiscard]] TSOutputTypeRef output_type_for(const TSValueTypeMetaData *schema,
                                                       TSRoleTypeRef element_type);
@@ -102,6 +109,7 @@ namespace hgraph
         {
             const TSValueTypeMetaData *schema{nullptr};
             ValueTypeRef value{};
+            ValueStorageVariant storage{ValueStorageVariant::Native};
             bool operator==(const RealizedOutputKey &) const noexcept = default;
         };
         struct RealizedOutputKeyHash
@@ -109,8 +117,12 @@ namespace hgraph
             std::size_t operator()(const RealizedOutputKey &key) const noexcept
             {
                 auto seed = std::hash<const TSValueTypeMetaData *>{}(key.schema);
-                return seed ^ (std::hash<ValueTypeRef>{}(key.value) + 0x9e3779b9U +
-                               (seed << 6U) + (seed >> 2U));
+                seed ^= std::hash<ValueTypeRef>{}(key.value) + 0x9e3779b9U +
+                        (seed << 6U) + (seed >> 2U);
+                return seed ^
+                       (std::hash<std::uint8_t>{}(
+                            static_cast<std::uint8_t>(key.storage)) +
+                        0x9e3779b9U + (seed << 6U) + (seed >> 2U));
             }
         };
         std::unordered_map<RealizedOutputKey, TSOutputTypeRef, RealizedOutputKeyHash>

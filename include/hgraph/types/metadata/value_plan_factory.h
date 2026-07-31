@@ -6,12 +6,44 @@
 #include <hgraph/types/utils/memory_utils.h>
 #include <hgraph/types/value/value_ops.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <mutex>
 #include <span>
 #include <unordered_map>
 
 namespace hgraph
 {
+    /**
+     * Wiring-time request for the physical representation of an output value.
+     *
+     * The declared value schema is unchanged.  The factory may conservatively
+     * downgrade either Python-aware request to ``Native`` when a schema cannot
+     * preserve its Python boundary semantics without canonical C++ storage.
+     */
+    enum class ValueStorageVariant : std::uint8_t
+    {
+        Native,
+        NativeWithPythonCache,
+        PythonOnly,
+    };
+
+    struct HGRAPH_EXPORT ValueStorageSelection
+    {
+        static constexpr std::size_t no_offset = static_cast<std::size_t>(-1);
+
+        ValueStorageVariant effective{ValueStorageVariant::Native};
+        ValueTypeRef value_binding{};
+        const MemoryUtils::StoragePlan *storage_plan{nullptr};
+        std::size_t value_offset{0};
+        std::size_t python_value_offset{no_offset};
+
+        [[nodiscard]] bool has_python_value() const noexcept
+        {
+            return python_value_offset != no_offset;
+        }
+    };
+
     /**
      * Factory that maps a value-layer ``ValueTypeMetaData`` schema to its
      * canonical ``MemoryUtils::StoragePlan`` and default
@@ -106,6 +138,29 @@ namespace hgraph
          * bindings and interned through ``ValueTypeRef``.
          */
         [[nodiscard]] ValueTypeRef type_for(const ValueTypeMetaData *schema);
+
+        /**
+         * Select output-local value storage for ``native_binding``.
+         *
+         * ``NativeWithPythonCache`` keeps the canonical C++ value and an
+         * optional retained Python object in the same planned allocation.
+         * ``PythonOnly`` retains the Python object as the value itself.  The
+         * latter is only a representation request: wiring must first prove
+         * that no native reader or graph boundary can observe the output.
+         */
+        [[nodiscard]] ValueStorageSelection storage_for(
+            ValueTypeRef native_binding,
+            ValueStorageVariant requested);
+
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+        /**
+         * Validate and, where the canonical Python read shape requires it,
+         * normalize an object before it is retained in Python-aware storage.
+         */
+        [[nodiscard]] nb::object prepare_python_storage_value(
+            const ValueTypeMetaData *schema,
+            nb::handle source) const;
+#endif
 
         /**
          * Build a graph-realized Tuple/Bundle binding from explicit field

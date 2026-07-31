@@ -301,6 +301,7 @@ namespace hgraph
                                          const NodeTypeMetaData   &schema,
                                          TSEndpointSchema          input_endpoint,
                                          TSEndpointSchema          output_endpoint_override,
+                                         ValueStorageVariant       output_value_storage,
                                          std::string               runtime_label,
                                          const Value              &scalars,
                                          void                     *memory)
@@ -344,7 +345,8 @@ namespace hgraph
                 {
                     std::construct_at(MemoryUtils::cast<TSOutput>(
                                           MemoryUtils::advance(memory, component->offset)),
-                                      *schema.output_schema);
+                                      *schema.output_schema,
+                                      output_value_storage);
                 }
                 else
                 {
@@ -1586,6 +1588,7 @@ namespace hgraph
 
         NodeBuilder result{type, input_endpoint_};
         result.output_endpoint_ = output_endpoint_;
+        result.output_value_storage_ = output_value_storage_;
         result.label_           = label_;
         result.scalars_         = scalars_;
         return result;
@@ -1650,6 +1653,7 @@ namespace hgraph
 
         NodeBuilder result{type, input_endpoint_};
         result.output_endpoint_ = output_endpoint_;
+        result.output_value_storage_ = output_value_storage_;
         result.label_           = label_;
         result.scalars_         = scalars_;
         return result;
@@ -1680,6 +1684,17 @@ namespace hgraph
         return output_endpoint_;
     }
 
+    NodeBuilder &NodeBuilder::output_value_storage(ValueStorageVariant storage) noexcept
+    {
+        output_value_storage_ = storage;
+        return *this;
+    }
+
+    ValueStorageVariant NodeBuilder::output_value_storage() const noexcept
+    {
+        return output_value_storage_;
+    }
+
     void NodeBuilder::construct_node_storage(void *memory, std::size_t node_index) const
     {
         if (memory == nullptr) { throw std::logic_error("NodeBuilder::construct_node_storage requires memory"); }
@@ -1690,6 +1705,7 @@ namespace hgraph
                                     *type.schema(),
                                     input_endpoint(),
                                     output_endpoint(),
+                                    output_value_storage(),
                                     std::string{label()},
                                     scalars(),
                                     memory);

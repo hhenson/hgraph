@@ -4,12 +4,15 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/types/primitive_types.h>
+#include <hgraph/types/static_schema.h>
 #endif
 
 #include <hgraph/types/utils/intern_table.h>
 #include <hgraph/types/value/any_ops.h>
 #include <hgraph/types/value/compact_container_ops.h>
 #include <hgraph/types/value/mutable_container_ops.h>
+#include <hgraph/types/value/value.h>
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
@@ -804,11 +807,11 @@ void composite_value_from_python(const void *context, const ValueTypeRef &,
       static_cast<const std::byte *>(memory) + state->size_offset);
 }
 
-void array_indexed_resize(const void *context, void *memory,
-                          std::size_t size) {
+void array_indexed_resize(const void *context, void *memory, std::size_t size) {
   const auto *state = static_cast<const ArrayIndexedContext *>(context);
   if (!state->bounded || size > state->capacity) {
-    throw std::out_of_range("bounded Array resize exceeds its declared capacity");
+    throw std::out_of_range(
+        "bounded Array resize exceeds its declared capacity");
   }
   *reinterpret_cast<std::size_t *>(static_cast<std::byte *>(memory) +
                                    state->size_offset) = size;
@@ -873,9 +876,8 @@ array_indexed_make_mutable_range(const void *context, void *memory) {
   std::size_t seed = 0;
   const auto size = array_indexed_size(context, memory);
   for (std::size_t index = 0; index < size; ++index) {
-    const auto *child =
-        static_cast<const std::byte *>(memory) + state->data_offset +
-        index * state->stride;
+    const auto *child = static_cast<const std::byte *>(memory) +
+                        state->data_offset + index * state->stride;
     seed = combine_hash(seed, ops.hash(child));
   }
   return seed;
@@ -894,12 +896,10 @@ array_indexed_make_mutable_range(const void *context, void *memory) {
     }
     const auto &ops = state->element_binding.ops_ref();
     for (std::size_t index = 0; index < lhs_size; ++index) {
-      const auto *a =
-          static_cast<const std::byte *>(lhs) + state->data_offset +
-          index * state->stride;
-      const auto *b =
-          static_cast<const std::byte *>(rhs) + state->data_offset +
-          index * state->stride;
+      const auto *a = static_cast<const std::byte *>(lhs) + state->data_offset +
+                      index * state->stride;
+      const auto *b = static_cast<const std::byte *>(rhs) + state->data_offset +
+                      index * state->stride;
       if (!ops.equals(a, b)) {
         return false;
       }
@@ -922,12 +922,10 @@ array_value_compare(const void *context, const void *lhs,
     const auto rhs_size = array_indexed_size(context, rhs);
     const auto common_size = std::min(lhs_size, rhs_size);
     for (std::size_t index = 0; index < common_size; ++index) {
-      const auto *a =
-          static_cast<const std::byte *>(lhs) + state->data_offset +
-          index * state->stride;
-      const auto *b =
-          static_cast<const std::byte *>(rhs) + state->data_offset +
-          index * state->stride;
+      const auto *a = static_cast<const std::byte *>(lhs) + state->data_offset +
+                      index * state->stride;
+      const auto *b = static_cast<const std::byte *>(rhs) + state->data_offset +
+                      index * state->stride;
       const auto c = ops.compare(a, b);
       if (c != 0) {
         return c;
@@ -957,9 +955,8 @@ array_value_compare(const void *context, const void *lhs,
     if (index > 0) {
       fmt::format_to(std::back_inserter(out), ", ");
     }
-    const auto *child =
-        static_cast<const std::byte *>(memory) + state->data_offset +
-        index * state->stride;
+    const auto *child = static_cast<const std::byte *>(memory) +
+                        state->data_offset + index * state->stride;
     fmt::format_to(std::back_inserter(out), "{}", ops.to_string(child));
   }
   fmt::format_to(std::back_inserter(out), "]");
@@ -989,26 +986,26 @@ array_value_compare(const void *context, const void *lhs,
              owner_state->state->data_offset +
              index * owner_state->state->stride;
     };
-    return ops.to_python_buffer(state->element_binding,
-                                ValueArraySource{
-                                    .owner = &owner,
-                                    .size = size,
-                                    .element_at = element_at,
-                                    .first =
-                                        ValueArraySpan{
-                                            .data = static_cast<const std::byte *>(memory) +
-                                                    state->data_offset,
-                                            .size = size,
-                                            .stride = state->stride,
-                                        },
-                                });
+    return ops.to_python_buffer(
+        state->element_binding,
+        ValueArraySource{
+            .owner = &owner,
+            .size = size,
+            .element_at = element_at,
+            .first =
+                ValueArraySpan{
+                    .data = static_cast<const std::byte *>(memory) +
+                            state->data_offset,
+                    .size = size,
+                    .stride = state->stride,
+                },
+        });
   }
 
   nb::list result;
   for (std::size_t index = 0; index < size; ++index) {
-    const auto *child =
-        static_cast<const std::byte *>(memory) + state->data_offset +
-        index * state->stride;
+    const auto *child = static_cast<const std::byte *>(memory) +
+                        state->data_offset + index * state->stride;
     result.append(ops.to_python(child));
   }
   return result;
@@ -1038,13 +1035,13 @@ void array_value_from_python(const void *context, const ValueTypeRef &,
   if ((!state->bounded && count != state->capacity) ||
       (state->bounded && count > state->capacity)) {
     if (state->bounded) {
-      throw std::invalid_argument(fmt::format(
-          "Array value accepts at most {} elements, got {}",
-          state->capacity, count));
+      throw std::invalid_argument(
+          fmt::format("Array value accepts at most {} elements, got {}",
+                      state->capacity, count));
     }
-    throw std::invalid_argument(fmt::format(
-        "Fixed List value expects {} elements, got {}", state->capacity,
-        count));
+    throw std::invalid_argument(
+        fmt::format("Fixed List value expects {} elements, got {}",
+                    state->capacity, count));
   }
   if (state->bounded) {
     array_indexed_resize(context, memory, count);
@@ -1783,6 +1780,454 @@ void clear_structured_indexed_ops() noexcept {
   owned_value_cache().clear();
   realized_composite_cache().clear();
 }
+
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+[[nodiscard]] bool
+retained_python_supported(const ValueTypeMetaData *schema) noexcept {
+  if (schema == nullptr) {
+    return false;
+  }
+  if (python_bridge::is_python_bundle_schema(schema)) {
+    return true;
+  }
+  switch (schema->value_kind()) {
+  case ValueTypeKind::Atomic:
+    return schema == scalar_descriptor<Bool>::value_meta() ||
+           schema == scalar_descriptor<Int>::value_meta() ||
+           schema == scalar_descriptor<Float>::value_meta() ||
+           schema == scalar_descriptor<Str>::value_meta() ||
+           schema == scalar_descriptor<Bytes>::value_meta();
+  case ValueTypeKind::Tuple:
+    for (std::size_t index = 0; index < schema->field_count; ++index) {
+      if (!retained_python_supported(schema->fields[index].type)) {
+        return false;
+      }
+    }
+    return true;
+  case ValueTypeKind::List:
+    return schema->fixed_size == 0 &&
+           !schema->has(ValueTypeFlags::ShapedArray) &&
+           retained_python_supported(schema->element_type);
+  case ValueTypeKind::Bundle:
+    return python_bundle_info(schema) != nullptr;
+  case ValueTypeKind::Set:
+  case ValueTypeKind::Map:
+  case ValueTypeKind::CyclicBuffer:
+  case ValueTypeKind::Queue:
+  case ValueTypeKind::Any:
+    return false;
+  }
+  return false;
+}
+
+[[nodiscard]] bool python_cache_beneficial(
+    ValueTypeRef native_binding) noexcept {
+  const auto *schema = native_binding.schema();
+  return retained_python_supported(schema) &&
+         !python_bridge::is_python_bundle_binding(native_binding) &&
+         schema != scalar_descriptor<Bool>::value_meta() &&
+         schema != scalar_descriptor<Int>::value_meta() &&
+         schema != scalar_descriptor<Float>::value_meta();
+}
+
+[[nodiscard]] ValueTypeRef
+python_bundle_storage_binding(ValueTypeRef source_binding) {
+  if (python_bridge::is_python_bundle_binding(source_binding)) {
+    return source_binding;
+  }
+  const auto *schema = source_binding.schema();
+  if (!python_bridge::is_python_bundle_schema(schema)) {
+    return {};
+  }
+  const auto *ops = try_value_ops<IndexedValueOps>(source_binding);
+  if (ops == nullptr || ops->element_binding == nullptr) {
+    return {};
+  }
+  std::vector<ValueTypeRef> fields;
+  fields.reserve(schema->field_count);
+  for (std::size_t index = 0; index < schema->field_count; ++index) {
+    const auto field =
+        ops->element_binding(ops->context, nullptr, index);
+    if (!field) {
+      return {};
+    }
+    fields.push_back(field);
+  }
+  return python_bridge::python_bundle_binding_for(schema, fields);
+}
+
+[[noreturn]] void invalid_retained_python_value(const ValueTypeMetaData &schema,
+                                                std::string_view reason) {
+  throw nb::type_error(("Python value for '" + std::string{schema.name()} +
+                        "' " + std::string{reason})
+                           .c_str());
+}
+
+[[nodiscard]] nb::object
+prepare_retained_python_value(const ValueTypeMetaData *schema,
+                              nb::handle source) {
+  if (schema == nullptr || !source.is_valid() || source.is_none()) {
+    throw nb::type_error(
+        "retained Python output storage requires a typed non-None value");
+  }
+  if (schema->value_kind() == ValueTypeKind::Bundle) {
+    const auto *info = python_bundle_info(schema);
+    if (info == nullptr || !info->type.is_valid()) {
+      invalid_retained_python_value(*schema,
+                                    "has no registered Python class");
+    }
+    if (nb::isinstance(source, info->type)) {
+      return nb::borrow<nb::object>(source);
+    }
+    // Dict and other accepted bridge inputs must retain the declared Python
+    // read shape, not the raw source object.
+    const auto binding = ValuePlanFactory::instance().type_for(schema);
+    Value normalized{binding};
+    binding.ops_ref().from_python(
+        binding, const_cast<void *>(normalized.view().data()), source);
+    return binding.ops_ref().to_python(normalized.view().data());
+  }
+
+  if (schema->value_kind() == ValueTypeKind::Atomic) {
+    if (schema == scalar_descriptor<Bool>::value_meta()) {
+      if (!PyBool_Check(source.ptr())) {
+        invalid_retained_python_value(*schema, "requires bool");
+      }
+      return nb::borrow<nb::object>(source);
+    }
+    if (schema == scalar_descriptor<Int>::value_meta()) {
+      if (PyLong_CheckExact(source.ptr())) {
+        static_cast<void>(PyLong_AsLongLong(source.ptr()));
+        if (PyErr_Occurred() != nullptr) {
+          throw nb::python_error();
+        }
+        return nb::borrow<nb::object>(source);
+      }
+      if (PyUnicode_Check(source.ptr()) || PyBytes_Check(source.ptr())) {
+        invalid_retained_python_value(*schema, "requires an integer");
+      }
+      nb::object normalized = nb::steal(PyNumber_Long(source.ptr()));
+      if (!normalized.is_valid()) {
+        throw nb::python_error();
+      }
+      static_cast<void>(PyLong_AsLongLong(normalized.ptr()));
+      if (PyErr_Occurred() != nullptr) {
+        throw nb::python_error();
+      }
+      return normalized;
+    }
+    if (schema == scalar_descriptor<Float>::value_meta()) {
+      if (PyFloat_CheckExact(source.ptr())) {
+        return nb::borrow<nb::object>(source);
+      }
+      if (PyUnicode_Check(source.ptr()) || PyBytes_Check(source.ptr())) {
+        invalid_retained_python_value(*schema, "requires a number");
+      }
+      nb::object normalized = nb::steal(PyNumber_Float(source.ptr()));
+      if (!normalized.is_valid()) {
+        throw nb::python_error();
+      }
+      return normalized;
+    }
+    if (schema == scalar_descriptor<Str>::value_meta()) {
+      if (!PyUnicode_Check(source.ptr())) {
+        invalid_retained_python_value(*schema, "requires str");
+      }
+      return PyUnicode_CheckExact(source.ptr())
+                 ? nb::borrow<nb::object>(source)
+                 : nb::steal(PyUnicode_FromObject(source.ptr()));
+    }
+    if (schema == scalar_descriptor<Bytes>::value_meta()) {
+      if (!PyBytes_Check(source.ptr())) {
+        invalid_retained_python_value(*schema, "requires bytes");
+      }
+      if (PyBytes_CheckExact(source.ptr())) {
+        return nb::borrow<nb::object>(source);
+      }
+      char *buffer = nullptr;
+      Py_ssize_t length = 0;
+      if (PyBytes_AsStringAndSize(source.ptr(), &buffer, &length) != 0) {
+        throw nb::python_error();
+      }
+      return nb::steal(PyBytes_FromStringAndSize(buffer, length));
+    }
+    invalid_retained_python_value(*schema, "has no Python-only storage policy");
+  }
+
+  if (schema->value_kind() == ValueTypeKind::Tuple) {
+    if (PySequence_Check(source.ptr()) == 0) {
+      invalid_retained_python_value(*schema, "expects a Python list or tuple");
+    }
+    const Py_ssize_t count = PySequence_Size(source.ptr());
+    if (count < 0) {
+      throw nb::python_error();
+    }
+    const auto field_count = static_cast<Py_ssize_t>(schema->field_count);
+    if (count < field_count) {
+      invalid_retained_python_value(
+          *schema, "does not provide every declared tuple field");
+    }
+    bool exact = PyTuple_CheckExact(source.ptr()) && count == field_count;
+    nb::tuple normalized = nb::steal<nb::tuple>(PyTuple_New(field_count));
+    if (!normalized.is_valid()) {
+      throw nb::python_error();
+    }
+    for (Py_ssize_t index = 0; index < field_count; ++index) {
+      nb::object item = nb::steal(PySequence_GetItem(source.ptr(), index));
+      if (!item.is_valid()) {
+        throw nb::python_error();
+      }
+      nb::object prepared =
+          item.is_none()
+              ? nb::none()
+              : prepare_retained_python_value(
+                    schema->fields[static_cast<std::size_t>(index)].type, item);
+      exact = exact && prepared.is(item);
+      if (PyTuple_SetItem(normalized.ptr(), index, prepared.release().ptr()) !=
+          0) {
+        throw nb::python_error();
+      }
+    }
+    return exact ? nb::borrow<nb::object>(source)
+                 : nb::object{std::move(normalized)};
+  }
+
+  if (schema->value_kind() == ValueTypeKind::List && schema->fixed_size == 0) {
+    const bool sequence = PyList_Check(source.ptr()) ||
+                          PyTuple_Check(source.ptr()) ||
+                          nb::hasattr(source, "__array_interface__");
+    if (!sequence) {
+      invalid_retained_python_value(*schema, "expects a Python list or tuple");
+    }
+    nb::object source_object = nb::borrow<nb::object>(source);
+    nb::list prepared_items;
+    bool unchanged = schema->has(ValueTypeFlags::VariadicTuple)
+                         ? PyTuple_CheckExact(source.ptr())
+                         : PyList_CheckExact(source.ptr());
+    for (nb::handle item : nb::iter(source_object)) {
+      if (item.is_none()) {
+        invalid_retained_python_value(*schema, "does not allow None elements");
+      }
+      nb::object prepared =
+          prepare_retained_python_value(schema->element_type, item);
+      unchanged = unchanged && prepared.is(item);
+      prepared_items.append(std::move(prepared));
+    }
+    if (unchanged) {
+      return source_object;
+    }
+    return schema->has(ValueTypeFlags::VariadicTuple)
+               ? nb::object{nb::tuple(prepared_items)}
+               : nb::object{std::move(prepared_items)};
+  }
+
+  invalid_retained_python_value(*schema, "has no Python-only storage policy");
+}
+
+struct PythonRetainedBindingEntry {
+  const ValueTypeMetaData *schema{nullptr};
+  ValueOps ops{};
+  ValueTypeRef binding{};
+
+  explicit PythonRetainedBindingEntry(const ValueTypeMetaData *value_schema)
+      : schema(value_schema) {
+    if (!retained_python_supported(schema) ||
+        python_bridge::is_python_bundle_schema(schema)) {
+      throw std::invalid_argument(
+          "Python-retained binding requires a supported non-native schema");
+    }
+    ops.kind = ValueOpsKind::Base;
+    ops.context = this;
+    ops.allows_mutation = false;
+    ops.hash_impl = schema->is_hashable() ? &hash : nullptr;
+    ops.equals_impl = schema->is_equatable() ? &equals : nullptr;
+    ops.compare_impl = schema->is_comparable() ? &compare : nullptr;
+    ops.to_string_impl = &to_string;
+    ops.to_python_impl = &to_python;
+    ops.from_python_impl = &from_python;
+    ops.accepts_source_impl = &accepts_source;
+    ops.copy_assign_from_impl = &copy_assign_from;
+    ops.move_assign_from_impl = &move_assign_from;
+    ops.format_string_impl = &to_string;
+    binding = intern_value_type(
+        *schema, MemoryUtils::plan_for<python_bridge::PythonValueHolder>(),
+        ops);
+  }
+
+  [[nodiscard]] static const PythonRetainedBindingEntry &
+  entry(const void *context) noexcept {
+    return *static_cast<const PythonRetainedBindingEntry *>(context);
+  }
+
+  [[nodiscard]] static python_bridge::PythonValueHolder &value(void *memory) {
+    if (memory == nullptr) {
+      throw std::logic_error(
+          "Python-retained value operation requires live memory");
+    }
+    return *static_cast<python_bridge::PythonValueHolder *>(memory);
+  }
+
+  [[nodiscard]] static const python_bridge::PythonValueHolder &
+  value(const void *memory) {
+    if (memory == nullptr) {
+      throw std::logic_error(
+          "Python-retained value operation requires live memory");
+    }
+    return *static_cast<const python_bridge::PythonValueHolder *>(memory);
+  }
+
+  static std::size_t hash(const void *, const void *memory) {
+    const auto &stored = value(memory);
+    if (stored.object == nullptr) {
+      throw std::logic_error("cannot hash an empty Python-retained value");
+    }
+    nb::gil_scoped_acquire gil;
+    const Py_hash_t result = PyObject_Hash(stored.object);
+    if (result == -1) {
+      throw nb::python_error();
+    }
+    return static_cast<std::size_t>(result);
+  }
+
+  static bool equals(const void *, const void *lhs, const void *rhs) {
+    const auto &left = value(lhs);
+    const auto &right = value(rhs);
+    if (left.object == right.object) {
+      return true;
+    }
+    if (left.object == nullptr || right.object == nullptr) {
+      return false;
+    }
+    nb::gil_scoped_acquire gil;
+    const int result =
+        PyObject_RichCompareBool(left.object, right.object, Py_EQ);
+    if (result < 0) {
+      throw nb::python_error();
+    }
+    return result == 1;
+  }
+
+  static std::partial_ordering compare(const void *, const void *lhs,
+                                       const void *rhs) noexcept {
+    nb::gil_scoped_acquire gil;
+    try {
+      const auto &left = value(lhs);
+      const auto &right = value(rhs);
+      if (left.object == right.object) {
+        return std::partial_ordering::equivalent;
+      }
+      if (left.object == nullptr || right.object == nullptr) {
+        return left.object == nullptr ? std::partial_ordering::less
+                                      : std::partial_ordering::greater;
+      }
+      const int less =
+          PyObject_RichCompareBool(left.object, right.object, Py_LT);
+      if (less < 0) {
+        PyErr_Clear();
+        return std::partial_ordering::unordered;
+      }
+      if (less == 1) {
+        return std::partial_ordering::less;
+      }
+      const int greater =
+          PyObject_RichCompareBool(left.object, right.object, Py_GT);
+      if (greater < 0) {
+        PyErr_Clear();
+        return std::partial_ordering::unordered;
+      }
+      return greater == 1 ? std::partial_ordering::greater
+                          : std::partial_ordering::equivalent;
+    } catch (...) {
+      PyErr_Clear();
+      return std::partial_ordering::unordered;
+    }
+  }
+
+  static std::string to_string(const void *, const void *memory) {
+    const auto &stored = value(memory);
+    if (stored.object == nullptr) {
+      return "<empty Python-retained value>";
+    }
+    nb::gil_scoped_acquire gil;
+    nb::object text = nb::steal(PyObject_Str(stored.object));
+    if (!text.is_valid()) {
+      throw nb::python_error();
+    }
+    return nb::cast<std::string>(text);
+  }
+
+  static nb::object to_python(const void *, const void *memory) {
+    return value(memory).get();
+  }
+
+  static void from_python(const void *context, const ValueTypeRef &,
+                          void *memory, nb::handle source) {
+    const auto &self = entry(context);
+    value(memory).set(prepare_retained_python_value(self.schema, source));
+  }
+
+  static bool accepts_source(const void *context, ValueTypeRef binding,
+                             ValueTypeRef source) noexcept {
+    const auto &self = entry(context);
+    return binding == self.binding && source && source.schema() == self.schema;
+  }
+
+  static void copy_assign_from(const void *context, ValueTypeRef, void *dst,
+                               ValueTypeRef source, const void *src) {
+    const auto &self = entry(context);
+    if (source == self.binding) {
+      value(dst) = value(src);
+      return;
+    }
+    nb::gil_scoped_acquire gil;
+    value(dst).set(prepare_retained_python_value(
+        self.schema, source.ops_ref().to_python(src)));
+  }
+
+  static void move_assign_from(const void *context, ValueTypeRef binding,
+                               void *dst, ValueTypeRef source, void *src) {
+    const auto &self = entry(context);
+    if (source == self.binding) {
+      value(dst) = std::move(value(src));
+      return;
+    }
+    copy_assign_from(context, binding, dst, source, src);
+  }
+};
+
+struct PythonRetainedBindings {
+  std::mutex mutex{};
+  std::unordered_map<const ValueTypeMetaData *, PythonRetainedBindingEntry *>
+      current{};
+  std::vector<std::unique_ptr<PythonRetainedBindingEntry>> immortal{};
+};
+
+[[nodiscard]] PythonRetainedBindings &python_retained_bindings() noexcept {
+  static auto *bindings = new PythonRetainedBindings{};
+  return *bindings;
+}
+
+[[nodiscard]] ValueTypeRef
+python_retained_binding_for(const ValueTypeMetaData *schema) {
+  auto &bindings = python_retained_bindings();
+  std::lock_guard lock(bindings.mutex);
+  if (const auto found = bindings.current.find(schema);
+      found != bindings.current.end()) {
+    return found->second->binding;
+  }
+  auto created = std::make_unique<PythonRetainedBindingEntry>(schema);
+  const auto result = created->binding;
+  bindings.current.emplace(schema, created.get());
+  bindings.immortal.push_back(std::move(created));
+  return result;
+}
+
+void clear_python_retained_bindings() noexcept {
+  auto &bindings = python_retained_bindings();
+  std::lock_guard lock(bindings.mutex);
+  bindings.current.clear();
+}
+#endif
 } // namespace
 
 ValuePlanFactory &ValuePlanFactory::instance() {
@@ -1934,6 +2379,80 @@ ValueTypeRef ValuePlanFactory::type_for(const ValueTypeMetaData *schema) {
   return synthesise_type(schema);
 }
 
+ValueStorageSelection
+ValuePlanFactory::storage_for(ValueTypeRef native_binding,
+                              ValueStorageVariant requested) {
+  if (!native_binding) {
+    throw std::invalid_argument(
+        "ValuePlanFactory::storage_for requires a native value binding");
+  }
+  ValueStorageSelection native{
+      .effective = ValueStorageVariant::Native,
+      .value_binding = native_binding,
+      .storage_plan = native_binding.plan(),
+  };
+#if !HGRAPH_ENABLE_PYTHON_USER_NODES
+  static_cast<void>(requested);
+  return native;
+#else
+  if (requested == ValueStorageVariant::Native) {
+    return native;
+  }
+  const auto *schema = native_binding.schema();
+  if (requested == ValueStorageVariant::PythonOnly) {
+    if (const auto python_binding =
+            python_bundle_storage_binding(native_binding);
+        python_binding) {
+      return ValueStorageSelection{
+          .effective = ValueStorageVariant::PythonOnly,
+          .value_binding = python_binding,
+          .storage_plan = python_binding.plan(),
+      };
+    }
+    if (!python_cache_beneficial(native_binding) ||
+        python_bridge::is_python_bundle_schema(schema)) {
+      return native;
+    }
+    const auto retained = python_retained_binding_for(schema);
+    return ValueStorageSelection{
+        .effective = ValueStorageVariant::PythonOnly,
+        .value_binding = retained,
+        .storage_plan = retained.plan(),
+        .value_offset = 0,
+        .python_value_offset = 0,
+    };
+  }
+  if (!python_cache_beneficial(native_binding)) {
+    return native;
+  }
+  auto builder = MemoryUtils::named_tuple();
+  builder.reserve(2);
+  builder.add_field("native", native_binding.checked_plan());
+  builder.add_field("python",
+                    MemoryUtils::plan_for<python_bridge::PythonValueHolder>());
+  const auto &plan = builder.build();
+  return ValueStorageSelection{
+      .effective = ValueStorageVariant::NativeWithPythonCache,
+      .value_binding = native_binding,
+      .storage_plan = &plan,
+      .value_offset = plan.component("native").offset,
+      .python_value_offset = plan.component("python").offset,
+  };
+#endif
+}
+
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+nb::object
+ValuePlanFactory::prepare_python_storage_value(const ValueTypeMetaData *schema,
+                                               nb::handle source) const {
+  if (!retained_python_supported(schema)) {
+    throw std::logic_error(
+        "ValuePlanFactory has no retained-Python policy for this schema");
+  }
+  return prepare_retained_python_value(schema, source);
+}
+#endif
+
 ValueTypeRef
 ValuePlanFactory::find_type(const ValueTypeMetaData *schema) const {
   if (schema == nullptr) {
@@ -1978,9 +2497,8 @@ ValueTypeRef ValuePlanFactory::realized_composite_type_for(
 ValueTypeRef ValuePlanFactory::projected_composite_type_for(
     const ValueTypeMetaData *schema,
     std::span<const ValueTypeRef> field_bindings) {
-  if (schema == nullptr ||
-      (schema->value_kind() != ValueTypeKind::Tuple &&
-       schema->value_kind() != ValueTypeKind::Bundle)) {
+  if (schema == nullptr || (schema->value_kind() != ValueTypeKind::Tuple &&
+                            schema->value_kind() != ValueTypeKind::Bundle)) {
     throw std::invalid_argument(
         "projected_composite_type_for requires a Tuple or Bundle schema");
   }
@@ -2011,6 +2529,9 @@ void ValuePlanFactory::reset() noexcept {
   type_cache_.clear();
   clear_structured_indexed_ops();
   clear_value_debug_descriptors();
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+  clear_python_retained_bindings();
+#endif
 }
 
 const MemoryUtils::StoragePlan *

@@ -10,6 +10,7 @@
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/time_series/ts_delta.h>
 
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -59,6 +60,60 @@ namespace
     {
         static constexpr auto name = "add_one";
         static void           eval(In<"in", TS<Int>> in, Out<TS<Int>> out) { out.set(in.value() + 1); }
+    };
+
+    struct PythonValueSource
+    {
+        static constexpr auto name = "python_value_source";
+        static constexpr bool uses_python_values = true;
+        static void eval(Out<TS<Int>> out) { out.set(Int{1}); }
+    };
+
+    struct PythonValueSink
+    {
+        static constexpr auto name = "python_value_sink";
+        static constexpr bool uses_python_values = true;
+        static void eval(In<"in", TS<Int>> in) { static_cast<void>(in); }
+    };
+
+    struct NativeValueSink
+    {
+        static constexpr auto name = "native_value_sink";
+        static void eval(In<"in", TS<Int>> in) { static_cast<void>(in); }
+    };
+
+    struct PythonOnlyStorageGraph
+    {
+        static void compose(Wiring &w)
+        {
+            wire<PythonValueSink>(w, wire<PythonValueSource>(w));
+        }
+    };
+
+    struct NativeCachedStorageGraph
+    {
+        static void compose(Wiring &w)
+        {
+            wire<PythonValueSink>(w, wire<ConstantSource>(w));
+        }
+    };
+
+    struct MixedStorageGraph
+    {
+        static void compose(Wiring &w)
+        {
+            auto source = wire<PythonValueSource>(w);
+            wire<PythonValueSink>(w, source);
+            wire<NativeValueSink>(w, source);
+        }
+    };
+
+    struct PythonTerminalSubGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w)
+        {
+            return wire<PythonValueSource>(w);
+        }
     };
 
     // source -> add_one, wired declaratively.
@@ -966,6 +1021,44 @@ TEST_CASE("graph wiring: build_graph wires source -> add_one and runs in simulat
     REQUIRE(graph.node_count() == 2);
     // The rank pass orders source (no inputs) before add_one, so node 1 is add_one.
     CHECK(graph.node_at(1).output(MIN_ST).value().checked_as<Int>() == Int{42});
+}
+
+TEST_CASE("graph wiring: Python output storage is selected from complete readership")
+{
+    using namespace hgraph;
+
+    SECTION("Python producer with only Python readers requests Python-only storage")
+    {
+        const GraphBuilder graph = build_graph<PythonOnlyStorageGraph>();
+        REQUIRE(graph.node_count() == 2);
+        CHECK(graph.nodes()[0].output_value_storage() ==
+              ValueStorageVariant::PythonOnly);
+    }
+
+    SECTION("native producer read by Python keeps native storage and requests a cache")
+    {
+        const GraphBuilder graph = build_graph<NativeCachedStorageGraph>();
+        REQUIRE(graph.node_count() == 2);
+        CHECK(graph.nodes()[0].output_value_storage() ==
+              ValueStorageVariant::NativeWithPythonCache);
+    }
+
+    SECTION("one native reader prevents Python-only storage")
+    {
+        const GraphBuilder graph = build_graph<MixedStorageGraph>();
+        REQUIRE(graph.node_count() == 3);
+        CHECK(graph.nodes()[0].output_value_storage() ==
+              ValueStorageVariant::NativeWithPythonCache);
+    }
+
+    SECTION("a subgraph return is an escaping native boundary")
+    {
+        const CompiledSubGraph compiled =
+            compile_subgraph<PythonTerminalSubGraph>();
+        REQUIRE(compiled.graph_builder.node_count() == 1);
+        CHECK(compiled.graph_builder.nodes()[0].output_value_storage() ==
+              ValueStorageVariant::Native);
+    }
 }
 
 TEST_CASE("graph wiring: identical nodes are interned to one")

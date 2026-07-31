@@ -211,6 +211,50 @@ stays: **GIL scopes move verbatim** — when relocating code, never widen or
 narrow an acquire/release, and keep the ruling comments attached to
 ``PyWiring::run``, ``py_nodes.cpp``, and the sender.
 
+Consumer-selected Python value storage
+--------------------------------------
+
+Issue #204 avoids repeated Python-to-C++-to-Python conversion without a
+run-global side table. During graph completion, wiring classifies every
+ordinary ``TS`` output by its readers and asks ``ValuePlanFactory`` for one of
+three physical representations:
+
+* native-only outputs keep the canonical C++ value;
+* outputs with both Python and native readers keep the canonical C++ value
+  plus one inline, optional retained ``PyObject``;
+* Python-produced outputs whose complete readership is Python retain the
+  normalized Python value directly and do not construct the corresponding C++
+  value.
+
+The declared schema does not change. The value factory owns the representation
+policy and may conservatively decline either Python-aware request. The first
+implementation retains standard scalar strings/bytes, Python-owned named
+Bundles, fixed tuples, and dynamic lists or variadic tuples whose elements are
+recursively retainable. It declines Python-aware storage for cheap
+bool/int/float values, mutable set/map storage, shaped arrays, ``Any``, and
+other schemas until measurement and a complete read-shape policy justify them.
+Existing Python-owned named-Bundle bindings already provide the direct
+representation.
+
+Python-only storage requires a complete proof: the producer is a Python node,
+every direct reader is a Python node, and the output does not cross a graph or
+nested-graph boundary. Native readers, child projections, forwarding
+endpoints, record/replay boundaries, and escaped graph outputs force native
+storage. A mixed output leaves its ordinary value binding canonical so typed
+C++ ``ValueView`` checks remain valid; its retained object is an adjacent field
+in the same planned allocation.
+
+Writes validate and normalize the Python read shape before retaining the
+object. For example, a list returned for ``TS[tuple[T, ...]]`` is retained as a
+tuple. Mixed writes populate both fields, native writes invalidate the inline
+cache, and a Python read lazily fills an empty cache after converting a native
+value. The holder is destroyed with the output's normal planned storage, so
+nested graph deletion, slot reuse, exceptions, and run teardown all follow the
+existing output lifetime protocol; no TLS lookup, per-tick hash probe, or
+node-stop cleanup hook is involved. Returning the same object is within
+contract because output values are immutable by graph semantics (mutating one
+from Python is UB) and matches upstream hgraph's reference-passing behaviour.
+
 Python-owned Bundle bindings
 ----------------------------
 
