@@ -20,7 +20,14 @@ from pathlib import Path
 from typing import Any
 
 _PROBE = r"""
-import importlib, inspect, json, pkgutil, sys
+import importlib, inspect, json, pkgutil, re, sys
+
+_ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
+
+def _default_repr(value):
+    # Identity sentinels (``object()`` defaults) repr with a process-local
+    # address; normalize so two probes of the same implementation agree.
+    return _ADDRESS.sub("", repr(value))
 
 def describe_callable(obj):
     try:
@@ -32,7 +39,7 @@ def describe_callable(obj):
         params.append({
             "name": p.name,
             "kind": str(p.kind),
-            "default": repr(p.default) if p.default is not inspect.Parameter.empty else None,
+            "default": _default_repr(p.default) if p.default is not inspect.Parameter.empty else None,
         })
     return {"signature": params}
 
@@ -53,6 +60,12 @@ def describe_module(name):
             surface[name_] = {"kind": "missing-attr"}
             continue
         if inspect.isclass(obj):
+            # The constructor IS public API: required-parameter changes must
+            # surface even when the method map is unchanged.
+            try:
+                constructor = describe_callable(obj)
+            except BaseException:  # noqa: BLE001
+                constructor = {"signature": None}
             methods = {}
             for m in sorted(dir(obj)):
                 if m.startswith("_"):
@@ -63,7 +76,8 @@ def describe_module(name):
                         methods[m] = describe_callable(getattr(obj, m))
                     except BaseException:  # noqa: BLE001
                         methods[m] = {"signature": None}
-            surface[name_] = {"kind": "class", "methods": methods}
+            surface[name_] = {"kind": "class", "methods": methods,
+                              "constructor": constructor.get("signature")}
         elif callable(obj):
             entry = describe_callable(obj)
             entry["kind"] = "callable"
@@ -73,12 +87,22 @@ def describe_module(name):
     return {"surface": surface, "has_all": exported is not None}
 
 modules = ["hgraph", "hgraph.test", "hgraph.adaptors"]
-try:
-    import hgraph.adaptors as _adaptors
-    for info in pkgutil.iter_modules(_adaptors.__path__):
-        modules.append(f"hgraph.adaptors.{info.name}")
-except BaseException as error:  # noqa: BLE001
-    pass
+
+def _collect(package_name):
+    # Recursive discovery: nested paths (hgraph.adaptors.sql.sql_connection)
+    # break independently of their parent package. Each discovered module is
+    # probed via describe_module, which contains its own import guard.
+    try:
+        package = importlib.import_module(package_name)
+    except BaseException:  # noqa: BLE001
+        return
+    for info in pkgutil.iter_modules(getattr(package, "__path__", [])):
+        qualified = f"{package_name}.{info.name}"
+        modules.append(qualified)
+        if info.ispkg:
+            _collect(qualified)
+
+_collect("hgraph.adaptors")
 
 print(json.dumps({name: describe_module(name) for name in sorted(set(modules))}))
 """
@@ -151,6 +175,14 @@ def compare_surfaces(
                     "candidate": _signature_key(c),
                 })
             if r.get("kind") == "class":
+                if r.get("constructor") != c.get("constructor"):
+                    findings.append({
+                        "module": module,
+                        "name": f"{name}.__init__",
+                        "kind": "constructor-signature-mismatch",
+                        "reference": r.get("constructor"),
+                        "candidate": c.get("constructor"),
+                    })
                 rm, cm = r.get("methods", {}), c.get("methods", {})
                 for method in sorted(set(rm) | set(cm)):
                     mr, mc = rm.get(method), cm.get(method)
