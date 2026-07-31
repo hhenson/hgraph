@@ -230,9 +230,9 @@ full native/Python suites plus Linux validation and ASan as described in
 Initial measured findings
 -------------------------
 
-The first controlled macOS baseline used Python 3.14.6, three fresh-process
-samples, and an Apple M4 Max. The complete report and raw samples are committed
-as ``benchmarks/results/memory-matrix-20260731-mac-main.md`` and
+The first controlled macOS baseline used hgraph 0.5.33, Python 3.14.6, three
+fresh-process samples, and an Apple M4 Max. The complete report and raw samples
+are committed as ``benchmarks/results/memory-matrix-20260731-mac-main.md`` and
 ``benchmarks/results/memory-raw-20260731-mac-main.json``. The raw metadata
 records the exact source revision and environment fingerprint used for the
 run.
@@ -360,6 +360,76 @@ proof. The leading follow-up is a focused repeated-wiring profile with registry
 cardinality counters, followed by allocation tracing. Any fix must preserve
 the stable context addresses referenced by published ops tables; moving or
 freeing registry entries after publication is not valid.
+
+Native Linux cross-check
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The corresponding native x86_64 Linux baseline used hgraph 0.5.33, Python
+3.14.4, and an Intel Core Ultra 7 155H. Its report and raw samples are committed
+as ``benchmarks/results/memory-matrix-20260731-linux-main.md`` and
+``benchmarks/results/memory-raw-20260731-linux-main.json``. The loaded process
+floors are 76.8 MiB for Python, 79.8 MiB for hgraph C++, and 65.4 MiB for
+hg_cpp.
+
+The absolute deltas differ from macOS, as expected from the loader and
+allocator, but the material ratios agree:
+
+.. list-table:: Linux peak RSS delta (median MiB)
+   :header-rows: 1
+
+   * - Profile
+     - Python
+     - hgraph C++
+     - hg_cpp
+     - hg/Python
+     - hg/hgraph C++
+   * - Large wide/deep graph
+     - 19.6
+     - 20.9
+     - 19.2
+     - 0.98
+     - 0.92
+   * - Large dense TSD map/reduce
+     - 6.0
+     - 4.6
+     - 3.2
+     - 0.53
+     - 0.69
+   * - Large sparse retained capacity
+     - 615.3
+     - 450.4
+     - 111.2
+     - 0.18
+     - 0.25
+   * - Long monotonic key growth
+     - 101.0
+     - 72.2
+     - 24.2
+     - 0.24
+     - 0.34
+   * - Long clear/repopulate
+     - 116.2
+     - 64.7
+     - 7.8
+     - 0.07
+     - 0.12
+   * - Large keyed switch
+     - 33.1
+     - 8.8
+     - 4.5
+     - 0.14
+     - 0.51
+   * - Large dependency mesh
+     - 10.1
+     - 5.4
+     - 4.0
+     - 0.40
+     - 0.75
+
+Repeated-lifecycle growth also reproduces: 100 small executions retain 8.7 MiB
+for Python, 10.9 MiB for hgraph C++, and 11.2 MiB for hg_cpp. This makes the
+lifecycle finding a cross-platform signal rather than a macOS allocator
+artifact.
 
 Initial optimisation priorities
 -------------------------------
