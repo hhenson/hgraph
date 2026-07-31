@@ -14,10 +14,30 @@ import in the candidate.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import subprocess
 from pathlib import Path
 from typing import Any
+
+#: One shared dependency list for ``--with-extras``: installed into BOTH
+#: environments so adaptor imports are symmetric by construction (the two
+#: packages spell their extras differently — upstream ``web``/``messaging``
+#: vs the candidate's per-adaptor extras — so extras names cannot be used).
+SURFACE_EXTRA_DEPENDENCIES: tuple[str, ...] = (
+    "tornado>=6.5",
+    "perspective-python<5.0.0",
+    "requests",
+    "pandas>=2.0",
+    "kafka-python>=2.1.5",
+    "boto3>=1.34",
+    "deltalake>=1.0",
+    "polars>=1.32",
+    "sqlalchemy>=2.0",
+    "duckdb>=1.4",
+    "connectorx>=0.4.5",
+    "adbc-driver-snowflake>=1.8",
+)
 
 _PROBE = r"""
 import importlib, inspect, json, pkgutil, re, sys
@@ -208,11 +228,67 @@ def compare_surfaces(
     }
 
 
+def _finding_side(finding: dict[str, Any]) -> str | None:
+    if finding["kind"] == "import-asymmetry":
+        return "reference" if finding.get("reference_error") else "candidate"
+    return finding.get("side")
+
+
+def load_known_surface(path: Path | str) -> list[dict[str, Any]]:
+    data = json.loads(Path(path).read_text())
+    rules = data["rules"] if isinstance(data, dict) else data
+    for rule in rules:
+        if "reason" not in rule:
+            raise ValueError(f"surface known-rule missing a reason: {rule}")
+    return rules
+
+
+def classify_findings(
+    findings: list[dict[str, Any]], rules: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split findings into (actionable, accepted-with-reason)."""
+
+    def matches(rule: dict[str, Any], finding: dict[str, Any]) -> bool:
+        if not fnmatch.fnmatchcase(finding["module"], rule.get("module", "*")):
+            return False
+        if "name" in rule and not fnmatch.fnmatchcase(
+            finding.get("name", ""), rule["name"]
+        ):
+            return False
+        if rule.get("kind", "*") not in ("*", finding["kind"]):
+            return False
+        if "side" in rule and rule["side"] != _finding_side(finding):
+            return False
+        return True
+
+    actionable: list[dict[str, Any]] = []
+    accepted: list[dict[str, Any]] = []
+    for finding in findings:
+        rule = next((r for r in rules if matches(r, finding)), None)
+        if rule is None:
+            actionable.append(finding)
+        else:
+            accepted.append({**finding, "accepted_reason": rule["reason"]})
+    return actionable, accepted
+
+
 def render_surface_markdown(report: dict[str, Any]) -> str:
     lines = ["# API surface parity", ""]
-    findings = report["findings"]
-    lines.append(f"Modules compared: {len(report['modules_compared'])}; findings: {len(findings)}")
+    findings = report.get("actionable", report["findings"])
+    accepted = report.get("accepted", [])
+    lines.append(
+        f"Modules compared: {len(report['modules_compared'])}; "
+        f"actionable findings: {len(findings)}; accepted (known): {len(accepted)}"
+    )
     lines.append("")
+    if accepted:
+        reasons: dict[str, int] = {}
+        for entry in accepted:
+            reasons[entry["accepted_reason"]] = reasons.get(entry["accepted_reason"], 0) + 1
+        lines.append("Accepted by reason:")
+        for reason, count in sorted(reasons.items()):
+            lines.append(f"- {count} — {reason}")
+        lines.append("")
     by_module: dict[str, list[dict[str, Any]]] = {}
     for finding in findings:
         by_module.setdefault(finding["module"], []).append(finding)
