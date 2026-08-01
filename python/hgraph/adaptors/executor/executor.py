@@ -2,6 +2,8 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 
 from hgraph import STATE, TS, compute_node, const, graph
 
+__all__ = ("adaptor_executor",)
+
 
 @compute_node
 def _executor(trigger: TS[bool], pool_size: int, state: STATE = None) -> TS[Executor]:
