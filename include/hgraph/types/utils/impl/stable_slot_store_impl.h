@@ -122,9 +122,10 @@ namespace hgraph::detail
     {
         SlotBitmap result;
         result.resize(size);
-        if (source.word_count() != 0)
+        const std::size_t preserved_words = std::min(source.word_count(), result.word_count());
+        for (std::size_t index = 0; index < preserved_words; ++index)
         {
-            std::copy_n(source.words, source.word_count(), result.words);
+            result.words[index] = source.words[index];
         }
         return result;
     }
@@ -293,7 +294,12 @@ namespace hgraph::detail
         std::byte **slots_{nullptr};
         std::size_t slot_count_{0};
         SlotBitmap constructed_{};
-        [[no_unique_address]] LiveBitmap live_{};
+#if defined(_MSC_VER)
+        [[msvc::no_unique_address]]
+#else
+        [[no_unique_address]]
+#endif
+        LiveBitmap live_{};
 
         [[nodiscard]] LiveBitmap resized_live_bitmap(std::size_t size) const
         {
