@@ -19,12 +19,20 @@ from hgraph.adaptors.kafka._impl import KafkaMessageState
 
 
 class _Consumer:
-    def __init__(self, batches, partitions=(0, 1)):
+    def __init__(
+            self, batches, partitions=(0, 1), *,
+            start_offsets=None, end_offsets=None):
         self._batches = list(batches)
         self._partitions = set(partitions)
+        self._start_offsets = start_offsets or {
+            partition: 0 for partition in self._partitions}
+        self._end_offsets = end_offsets or dict(self._start_offsets)
+        self._positions = {}
         self._lock = threading.Lock()
         self.assigned = None
         self.offset_requests = None
+        self.end_offset_requests = None
+        self.position_requests = []
         self.seeked = []
         self.close_count = 0
 
@@ -38,18 +46,43 @@ class _Consumer:
     def offsets_for_times(self, timestamps):
         self.offset_requests = dict(timestamps)
         return {
-            partition: SimpleNamespace(offset=10 + partition.partition)
+            partition: (
+                SimpleNamespace(offset=self._start_offsets[partition.partition])
+                if self._start_offsets.get(partition.partition) is not None
+                else None
+            )
             for partition in timestamps
         }
 
+    def end_offsets(self, partitions):
+        self.end_offset_requests = tuple(partitions)
+        return {
+            partition: self._end_offsets[partition.partition]
+            for partition in partitions
+        }
+
     def seek(self, partition, offset):
-        self.seeked.append((partition, offset))
+        with self._lock:
+            self.seeked.append((partition, offset))
+            self._positions[partition.partition] = offset
+
+    def position(self, partition):
+        with self._lock:
+            self.position_requests.append(partition)
+            return self._positions[partition.partition]
 
     def poll(self, **kwargs):
         del kwargs
         with self._lock:
             if self._batches:
-                return self._batches.pop(0)
+                batch = self._batches.pop(0)
+                for records in batch.values():
+                    for record in records:
+                        self._positions[record.partition] = max(
+                            self._positions.get(record.partition, 0),
+                            record.offset + 1,
+                        )
+                return batch
         time.sleep(0.005)
         return {}
 
@@ -169,6 +202,54 @@ def test_message_publisher_uses_the_configured_producer_via_eval_node():
 
     producer.send.assert_called_once_with("test", b"payload")
     # One timer-driven flush plus the lifecycle flush on stop.
+    assert producer.flush.call_count == 2
+
+
+def test_publisher_flush_timer_is_not_postponed_by_continuous_messages():
+    producer = MagicMock()
+
+    @hg.generator
+    def messages() -> hg.TS[bytes]:
+        for index in range(5):
+            yield (
+                hg.MIN_ST + timedelta(milliseconds=50 * index),
+                str(index).encode(),
+            )
+
+    @message_publisher(topic="test")
+    def publisher(value: hg.TS[bytes]) -> hg.TS[bytes]:
+        return value
+
+    @hg.graph
+    def app():
+        register_kafka_adaptor({"producer": producer})
+        publisher(value=messages())
+
+    with hg.GlobalContext(hg.GlobalState()):
+        assert hg.eval_node(app) is None
+
+    assert producer.send.call_count == 5
+    # Flush at 100 ms and 250 ms, then once more during lifecycle stop.
+    assert producer.flush.call_count == 3
+
+
+def test_publisher_flushes_after_1000_pending_messages():
+    producer = MagicMock()
+
+    @message_publisher(topic="test")
+    def publisher(value: hg.TS[bytes]) -> hg.TS[bytes]:
+        return value
+
+    @hg.graph
+    def app(value: hg.TS[bytes]):
+        register_kafka_adaptor({"producer": producer})
+        publisher(value=value)
+
+    with hg.GlobalContext(hg.GlobalState()):
+        assert hg.eval_node(app, [b"payload"] * 1000) is None
+
+    assert producer.send.call_count == 1000
+    # One count-driven flush plus the lifecycle flush on stop.
     assert producer.flush.call_count == 2
 
 
@@ -306,12 +387,20 @@ def test_live_subscribers_share_one_consumer_and_preserve_structured_message():
     seen_b = []
 
     @hg.sink_node
-    def capture_a(msg: hg.TS[KafkaMessage]):
+    def capture_a(
+            msg: hg.TS[KafkaMessage],
+            _engine: hg.EvaluationEngineApi = None):
         seen_a.append(msg.value)
+        if seen_b:
+            _engine.request_engine_stop()
 
     @hg.sink_node
-    def capture_b(msg: hg.TS[KafkaMessage]):
+    def capture_b(
+            msg: hg.TS[KafkaMessage],
+            _engine: hg.EvaluationEngineApi = None):
         seen_b.append(msg.value)
+        if seen_a:
+            _engine.request_engine_stop()
 
     @message_subscriber(topic="test")
     def subscriber_a(msg: hg.TS[KafkaMessage]):
@@ -331,7 +420,7 @@ def test_live_subscribers_share_one_consumer_and_preserve_structured_message():
         hg.run_graph(
             app,
             run_mode=hg.EvaluationMode.REAL_TIME,
-            end_time=hg.utc_now() + timedelta(seconds=0.2),
+            end_time=hg.utc_now() + timedelta(seconds=5),
         )
 
     expected = KafkaMessage(
@@ -350,20 +439,26 @@ def test_live_subscribers_share_one_consumer_and_preserve_structured_message():
 def test_replay_seeks_from_graph_start_orders_history_and_hands_off_to_live():
     start_time = hg.utc_now() - timedelta(milliseconds=100)
     start_ms = int(start_time.replace(tzinfo=UTC).timestamp() * 1000)
-    later = _record(b"history-2", start_ms + 20, partition=1, offset=2)
-    earlier = _record(b"history-1", start_ms + 10, partition=0, offset=1)
-    live = _record(b"live", start_ms + 120, partition=0, offset=3)
+    partition_one = _record(
+        b"history-1", start_ms + 10, partition=1, offset=20)
+    partition_zero = _record(
+        b"history-0", start_ms + 10, partition=0, offset=10)
+    live = _record(b"live", start_ms + 120, partition=0, offset=11)
     consumer = _Consumer([
-        {1: [later], 0: [earlier]},
         {},
+        {1: [partition_one], 0: [partition_zero]},
         {0: [live]},
-    ])
+    ], start_offsets={0: 10, 1: 20}, end_offsets={0: 11, 1: 21})
     messages = []
     recovered_values = []
 
     @hg.sink_node
-    def capture_message(msg: hg.TS[bytes]):
+    def capture_message(
+            msg: hg.TS[bytes],
+            _engine: hg.EvaluationEngineApi = None):
         messages.append(msg.value)
+        if msg.value == b"live":
+            _engine.request_engine_stop()
 
     @hg.sink_node
     def capture_recovered(recovered: hg.TS[bool]):
@@ -384,13 +479,15 @@ def test_replay_seeks_from_graph_start_orders_history_and_hands_off_to_live():
             app,
             run_mode=hg.EvaluationMode.REAL_TIME,
             start_time=start_time,
-            end_time=hg.utc_now() + timedelta(seconds=0.25),
+            end_time=hg.utc_now() + timedelta(seconds=5),
         )
 
-    assert messages == [b"history-1", b"history-2", b"live"]
+    assert messages == [b"history-0", b"history-1", b"live"]
     assert recovered_values == [False, True]
     assert set(consumer.offset_requests.values()) == {start_ms}
-    assert [offset for _, offset in consumer.seeked] == [10, 11]
+    assert len(consumer.end_offset_requests) == 2
+    assert consumer.position_requests
+    assert [offset for _, offset in consumer.seeked] == [10, 20, 11, 21]
     assert consumer.close_count == 1
 
 
@@ -398,9 +495,8 @@ def test_replay_aware_publisher_republishes_history_and_closes_history_consumer(
     start_time = hg.utc_now() - timedelta(milliseconds=50)
     start_ms = int(start_time.replace(tzinfo=UTC).timestamp() * 1000)
     consumer = _Consumer([
-        {0: [_record(b"history", start_ms + 10, offset=1)]},
-        {},
-    ], partitions=(0,))
+        {0: [_record(b"history", start_ms + 10, offset=10)]},
+    ], partitions=(0,), start_offsets={0: 10}, end_offsets={0: 11})
     producer = MagicMock()
 
     @message_publisher(topic="test")

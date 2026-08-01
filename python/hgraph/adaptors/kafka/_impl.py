@@ -7,7 +7,6 @@ from frozendict import frozendict
 
 from hgraph import (
     EvaluationEngineApi,
-    EvaluationMode,
     GlobalState,
     MIN_TD,
     TS,
@@ -80,6 +79,7 @@ def _record_order(record):
     return (
         getattr(record, "timestamp", 0),
         getattr(record, "topic", ""),
+        getattr(record, "partition", 0),
         getattr(record, "offset", 0),
     )
 
@@ -336,34 +336,51 @@ def _message_subscriber_history_aggregator(
 ) -> TSB["msg" : TS[KafkaMessage], "recovered" : TS[bool]]:
     consumer, topic_partitions = session.prepare()
     start_time = _api.start_time
-    end_time = (
-        _api.end_time
-        if _api.evaluation_mode == EvaluationMode.SIMULATION
-        else _api.evaluation_clock.now
-    )
+    recovery_offsets = consumer.end_offsets(topic_partitions)
+    recovery_offsets_by_partition = {
+        (partition.topic, partition.partition): offset
+        for partition, offset in recovery_offsets.items()
+    }
     timestamp_ms = int(start_time.replace(tzinfo=UTC).timestamp() * 1000)
     offsets = consumer.offsets_for_times(
         {partition: timestamp_ms for partition in topic_partitions})
-    for partition, offset in offsets.items():
-        if offset is not None:
-            consumer.seek(partition, offset.offset)
+    for partition in topic_partitions:
+        offset = offsets.get(partition)
+        consumer.seek(
+            partition,
+            offset.offset if offset is not None else recovery_offsets[partition],
+        )
+
+    def recovery_complete():
+        return all(
+            consumer.position(partition) >= recovery_offsets[partition]
+            for partition in topic_partitions
+        )
 
     last_time = start_time
     try:
         yield start_time, {"recovered": False}
-        while last_time < end_time:
+        while not recovery_complete():
             records = consumer.poll(timeout_ms=500, max_records=1000) or {}
-            if not records:
-                break
             messages = [record for batch in records.values() for record in batch]
             if len(records) > 1:
                 messages.sort(key=_record_order)
             for record in messages:
+                boundary = recovery_offsets_by_partition[
+                    (record.topic, record.partition)]
+                if record.offset >= boundary:
+                    continue
                 message_time = _timestamp_to_datetime(record.timestamp)
                 if message_time <= last_time:
                     message_time = last_time + MIN_TD
                 last_time = message_time
                 yield message_time, {"msg": _record_to_kafka_message(record)}
+
+        # A poll may fetch records published after the recovery snapshot. Rewind
+        # each partition to that snapshot so the same consumer's live phase
+        # observes every post-recovery record exactly once.
+        for partition in topic_partitions:
+            consumer.seek(partition, recovery_offsets[partition])
         yield last_time + MIN_TD, {"recovered": True}
     finally:
         session.history_finished()

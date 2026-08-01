@@ -11,6 +11,7 @@ from hgraph import (
     EvaluationEngineApi,
     EvaluationMode,
     SCHEDULER,
+    STATE,
     TS,
     TSB,
     compute_node,
@@ -30,6 +31,14 @@ __all__ = (
     "MessageState",
     "KafkaMessage",
 )
+
+_FLUSH_INTERVAL = timedelta(milliseconds=100)
+_FLUSH_MESSAGE_COUNT = 1000
+
+
+@dataclass
+class _PublisherFlushState:
+    pending_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -83,25 +92,32 @@ def get_message_state():
     return KafkaMessageState.instance()
 
 
-def _publish_and_flush(msg, topic, message_state, scheduler, api):
+def _publish_and_flush(msg, topic, message_state, scheduler, api, state):
     flush_due = scheduler.is_scheduled_now
     if msg.modified:
         message_state.publish(topic, msg.value)
+        state.pending_count += 1
+
+    if flush_due or state.pending_count >= _FLUSH_MESSAGE_COUNT:
+        message_state.flush()
+        state.pending_count = 0
+        scheduler.reset()
+    elif msg.modified and not scheduler.is_scheduled:
         scheduler.schedule(
-            timedelta(milliseconds=100),
+            _FLUSH_INTERVAL,
             tag="flush_timer",
             on_wall_clock=api.evaluation_mode == EvaluationMode.REAL_TIME,
         )
-    if flush_due:
-        message_state.flush()
 
 
 @sink_node
 def _publish_bytes(
         msg: TS[bytes], topic: str, message_state: object,
         _scheduler: SCHEDULER = None,
-        _api: EvaluationEngineApi = None):
-    _publish_and_flush(msg, topic, message_state, _scheduler, _api)
+        _api: EvaluationEngineApi = None,
+        _state: STATE[_PublisherFlushState] = None):
+    _publish_and_flush(
+        msg, topic, message_state, _scheduler, _api, _state)
 
 
 @_publish_bytes.start
@@ -119,8 +135,10 @@ def _stop_publish_bytes(message_state: object):
 def _publish_message(
         msg: TS[KafkaMessage], topic: str, message_state: object,
         _scheduler: SCHEDULER = None,
-        _api: EvaluationEngineApi = None):
-    _publish_and_flush(msg, topic, message_state, _scheduler, _api)
+        _api: EvaluationEngineApi = None,
+        _state: STATE[_PublisherFlushState] = None):
+    _publish_and_flush(
+        msg, topic, message_state, _scheduler, _api, _state)
 
 
 @_publish_message.start
