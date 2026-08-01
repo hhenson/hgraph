@@ -99,10 +99,10 @@ class _MemoryRecording(list):
 class GlobalState:
     """Python seed/result owner for the C++ graph GlobalState copy lifecycle."""
 
-    def __init__(self, **values):
+    def __init__(self, **kwargs):
         self._impl = _hgraph._GlobalState()
         self._compat_context = None
-        for key, value in values.items():
+        for key, value in kwargs.items():
             self[key] = value
 
     def __len__(self):

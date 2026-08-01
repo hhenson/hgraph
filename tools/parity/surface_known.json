@@ -318,6 +318,156 @@
       "kind": "method-missing",
       "side": "candidate",
       "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "runtime views are engine-constructed, never user-constructed; the upstream constructor is an implementation detail"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "runtime views are engine-constructed, never user-constructed; the upstream constructor is an implementation detail"
+    },
+    {
+      "module": "hgraph",
+      "name": "Graph.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "runtime views are engine-constructed, never user-constructed; the upstream constructor is an implementation detail"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationClock.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "runtime views are engine-constructed, never user-constructed; the upstream constructor is an implementation detail"
+    },
+    {
+      "module": "hgraph",
+      "name": "TimeSeries.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "runtime views are engine-constructed, never user-constructed; the upstream constructor is an implementation detail"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "runtime views are engine-constructed, never user-constructed; the upstream constructor is an implementation detail"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeClass.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "GraphWiringNodeClass.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "OperatorWiringNodeClass.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonWiringNodeClass.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonGeneratorWiringNodeClass.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringPort.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "MeshWiringPort.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "annotation/marker classes are subscripted, not constructed (theme-A ruling 2026-08-01)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "annotation/marker classes are subscripted, not constructed (theme-A ruling 2026-08-01)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "annotation/marker classes are subscripted, not constructed (theme-A ruling 2026-08-01)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "annotation/marker classes are subscripted, not constructed (theme-A ruling 2026-08-01)"
+    },
+    {
+      "module": "hgraph",
+      "name": "STATE.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "annotation/marker classes are subscripted, not constructed (theme-A ruling 2026-08-01)"
+    },
+    {
+      "module": "hgraph",
+      "name": "GraphConfiguration.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "parameter names/order match upstream; defaults are engine-equivalent representations (string mode, None->MIN_ST/MAX_ET, logger factory)"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationMode.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "python Enum introspection artifact; members and values match"
+    },
+    {
+      "module": "hgraph",
+      "name": "RecordReplayEnum.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "python Enum introspection artifact; members and values match"
+    },
+    {
+      "module": "hgraph",
+      "name": "IncorrectTypeBinding.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "error types are raised internally with prebuilt messages; upstream's structured constructor is not contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "RequirementsNotMetWiringError.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "error types are raised internally with prebuilt messages; upstream's structured constructor is not contract"
     }
   ]
 }
