@@ -488,10 +488,17 @@ Optional clients are declared as ``sql``, ``snowflake``, ``kafka``, ``delta``,
 may inject a DB-API connection, ``DeltaBackend``, Kafka producer/consumer
 factory, or Perspective client, which also keeps transport tests deterministic.
 
+Kafka retains the released hgraph user contract. Publishers and subscribers
+accept raw bytes or structured ``KafkaMessage`` values; replay-aware graphs
+receive historical messages from the graph start time together with the
+``recovered`` signal. Partition offsets are selected by timestamp, historical
+records are ordered deterministically, and the same per-topic consumer is
+handed to the native live reference service after recovery so there is no
+history-to-live subscription gap. Producer flushing and consumer-thread
+teardown remain graph lifecycle operations.
+
 The following deliberate restrictions replace advanced Python-first code:
 
-- Kafka historical replay is rejected explicitly; normal publish/subscribe,
-  structured messages, headers, lifecycle flush, and consumer cleanup work.
 - SQL's batch adaptor preserves query/result behaviour but does not coalesce
   requests in Python. Normal read/write/execute and catalogue routing work.
 - Delta scheduled maintenance and a second Python batching buffer are omitted;
