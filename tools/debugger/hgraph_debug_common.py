@@ -10,7 +10,7 @@ TYPE_KIND_NONE = 0xFF
 DEBUG_DESCRIPTOR_MAGIC = 0x48474444
 DEBUG_DESCRIPTOR_ABI_VERSION = 3
 DEBUG_DYNAMIC_LAYOUT_MAGIC = 0x4847444C
-DEBUG_DYNAMIC_LAYOUT_ABI_VERSION = 2
+DEBUG_DYNAMIC_LAYOUT_ABI_VERSION = 3
 
 FAMILY_NAMES = {
     0: "Invalid",
@@ -133,7 +133,9 @@ DEBUG_DYNAMIC_ELEMENTS_ARE_POINTERS = 1 << 9
 DEBUG_DYNAMIC_DATA_POINTERS_TAGGED = 1 << 10
 DEBUG_DYNAMIC_KEY_POINTERS_TAGGED = 1 << 11
 DEBUG_DYNAMIC_SLOT_STATE_TAGGED = 1 << 12
-KNOWN_DEBUG_DYNAMIC_FLAGS = (1 << 13) - 1
+DEBUG_DYNAMIC_SLOT_INDEX_INDIRECT = 1 << 13
+DEBUG_DYNAMIC_SLOT_SIZE_INDIRECT = 1 << 14
+KNOWN_DEBUG_DYNAMIC_FLAGS = (1 << 15) - 1
 DEBUG_OWNER_STATE_MASK = 0x3
 DEBUG_OWNER_INLINE_STATE = 1
 DEBUG_OWNER_HEAP_STATE = 2
@@ -308,7 +310,6 @@ def debug_dynamic_layout_valid(snapshot):
         and snapshot.get("abi_version") == DEBUG_DYNAMIC_LAYOUT_ABI_VERSION
         and kind in DEBUG_DYNAMIC_KIND_NAMES
         and snapshot.get("reserved0", 0) == 0
-        and snapshot.get("reserved1", 0) == 0
         and (flags & ~KNOWN_DEBUG_DYNAMIC_FLAGS) == 0
         and snapshot.get("stride", 0) > 0
         and bool(flags & DEBUG_DYNAMIC_SIZE_CONSTANT)
@@ -343,6 +344,36 @@ def debug_dynamic_layout_valid(snapshot):
             )
         )
         and not (
+            flags & DEBUG_DYNAMIC_SLOT_INDEX_INDIRECT
+            and (
+                kind != 2
+                or not flags & DEBUG_DYNAMIC_DATA_INDIRECT
+                or not flags & DEBUG_DYNAMIC_DATA_POINTER_TABLE
+                or flags & DEBUG_DYNAMIC_HAS_HEAD
+                or (
+                    snapshot.get("key_stride", 0)
+                    and (
+                        not flags & DEBUG_DYNAMIC_KEY_DATA_INDIRECT
+                        or not flags & DEBUG_DYNAMIC_KEY_DATA_POINTER_TABLE
+                    )
+                )
+            )
+        )
+        and not (
+            flags & DEBUG_DYNAMIC_SLOT_SIZE_INDIRECT
+            and (
+                not flags & DEBUG_DYNAMIC_SLOT_INDEX_INDIRECT
+                or flags & DEBUG_DYNAMIC_SIZE_CONSTANT
+            )
+        )
+        and not (
+            snapshot.get("key_auxiliary_offset", 0)
+            and (
+                not flags & DEBUG_DYNAMIC_SLOT_INDEX_INDIRECT
+                or not snapshot.get("key_stride", 0)
+            )
+        )
+        and not (
             flags & DEBUG_DYNAMIC_ELEMENTS_ARE_OWNERS
             and flags & DEBUG_DYNAMIC_ELEMENTS_ARE_POINTERS
         )
@@ -355,7 +386,7 @@ def debug_dynamic_layout_summary(snapshot):
     return (
         "DebugDynamicLayout{{{} kind={} flags=0x{:x} size_offset={} size_constant={} "
         "data_offset={} stride={} key_data_offset={} key_stride={} state_offset={} "
-        "auxiliary_offset={} entry_offset={}}}"
+        "auxiliary_offset={} key_auxiliary_offset={} entry_offset={}}}"
     ).format(
         state,
         kind,
@@ -368,6 +399,7 @@ def debug_dynamic_layout_summary(snapshot):
         snapshot.get("key_stride", 0),
         snapshot.get("state_offset", 0),
         snapshot.get("auxiliary_offset", 0),
+        snapshot.get("key_auxiliary_offset", 0),
         snapshot.get("entry_offset", 0),
     )
 

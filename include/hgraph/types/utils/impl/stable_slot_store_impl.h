@@ -1,10 +1,9 @@
 #ifndef HGRAPH_TYPES_UTILS_IMPL_STABLE_SLOT_STORE_IMPL_H
 #define HGRAPH_TYPES_UTILS_IMPL_STABLE_SLOT_STORE_IMPL_H
 
-#include <hgraph/types/storage_metrics.h>
 #include <hgraph/types/utils/slot_bitmap.h>
 #include <hgraph/types/utils/stable_slot_storage.h>
-#include <hgraph/types/utils/stable_slot_store_fwd.h>
+#include <hgraph/types/utils/stable_slot_store.h>
 #include <hgraph/util/tagged_ptr.h>
 
 #include <algorithm>
@@ -145,6 +144,12 @@ namespace hgraph::detail
                                   const MemoryUtils::AllocatorOps &allocator)
             : blocks_(layout, allocator)
         {
+        }
+
+        void bind(MemoryUtils::StorageLayout layout,
+                  const MemoryUtils::AllocatorOps &allocator)
+        {
+            blocks_.bind(layout, allocator);
         }
 
         BitmapStableSlotStoreImpl(const BitmapStableSlotStoreImpl &) = delete;
@@ -323,6 +328,16 @@ namespace hgraph::detail
             {
                 throw std::logic_error("Tagged stable slots require pointer-aligned payloads");
             }
+        }
+
+        void bind(MemoryUtils::StorageLayout layout,
+                  const MemoryUtils::AllocatorOps &allocator)
+        {
+            if (layout.alignment < alignof(std::uintptr_t))
+            {
+                throw std::logic_error("Tagged stable slots require pointer-aligned payloads");
+            }
+            blocks_.bind(layout, allocator);
         }
 
         TaggedPointerStableSlotStoreImpl(const TaggedPointerStableSlotStoreImpl &) = delete;

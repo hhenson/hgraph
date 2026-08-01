@@ -71,7 +71,7 @@ def dynamic_layout(**overrides):
         "flags": common.DEBUG_DYNAMIC_DATA_INDIRECT
         | common.DEBUG_DYNAMIC_DATA_POINTER_TABLE
         | common.DEBUG_DYNAMIC_HAS_SLOT_STATE,
-        "reserved1": 0,
+        "key_auxiliary_offset": 0,
         "size_offset": 16,
         "size_constant": 0,
         "data_offset": 8,
@@ -237,6 +237,38 @@ class CommonDebuggerFormattingTest(unittest.TestCase):
         )
         self.assertTrue(
             common.debug_dynamic_layout_valid(dynamic_layout(flags=tagged_flags))
+        )
+        erased_flags = (
+            dynamic_layout()["flags"]
+            | common.DEBUG_DYNAMIC_SLOT_INDEX_INDIRECT
+            | common.DEBUG_DYNAMIC_SLOT_SIZE_INDIRECT
+        )
+        self.assertTrue(
+            common.debug_dynamic_layout_valid(
+                dynamic_layout(flags=erased_flags, auxiliary_offset=32)
+            )
+        )
+        keyed_erased_flags = (
+            erased_flags
+            | common.DEBUG_DYNAMIC_KEY_DATA_INDIRECT
+            | common.DEBUG_DYNAMIC_KEY_DATA_POINTER_TABLE
+        )
+        self.assertTrue(
+            common.debug_dynamic_layout_valid(
+                dynamic_layout(
+                    flags=keyed_erased_flags,
+                    key_stride=8,
+                    key_auxiliary_offset=48,
+                )
+            )
+        )
+        self.assertFalse(
+            common.debug_dynamic_layout_valid(
+                dynamic_layout(
+                    flags=dynamic_layout()["flags"]
+                    | common.DEBUG_DYNAMIC_SLOT_SIZE_INDIRECT
+                )
+            )
         )
         self.assertFalse(
             common.debug_dynamic_layout_valid(

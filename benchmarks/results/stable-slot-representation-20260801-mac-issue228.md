@@ -27,7 +27,8 @@ remove/resurrect, deferred erase, and slot reuse.
 index, and block descriptors. `Total B/slot` additionally includes the common
 prototype free-slot and pending-erase vectors, both pre-reserved to capacity.
 Allocation counts include the payload block, slot index/bitmap allocations,
-the two common management vectors, and the block-descriptor vector.
+the two common management vectors, and the block-descriptor vector. Production
+rows additionally include the fixed erased strategy object.
 
 | Payload | Representation | Stride | Representation B/slot | Total B/slot | Allocations | Sequential live read ns | Random live read ns | Remove/resurrect ns per transition | Erase/reinsert ns per transition |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -78,33 +79,41 @@ pointers, while every weaker alignment retains the existing bitmap
 representation without padding. Parent-tracked trivial values and the inline
 state byte remain benchmark-only alternatives.
 
-The production façade was rerun at 31 samples after migrating the real slot
-owners. The direct rows isolate each representation; the production rows add
-the alignment-selected, type-erased façade used by TSS, TSD, nested graph
-storage, and mutable collection storage.
+The production façade was rerun at 31 samples after replacing its closed
+`std::variant` with the project's passive ops-table and explicit
+`ErasedOwner` pattern. The direct rows isolate each representation; the
+production rows add the alignment-selected, type-erased façade used by TSS,
+TSD, nested graph storage, and mutable collection storage.
 
 | Payload | Measurement | Representation B/slot | Allocations | Sequential live read ns | Random live read ns | Remove/resurrect ns per transition | Erase/reinsert ns per transition |
 |---|---|---:|---:|---:|---:|---:|---:|
-| aligned non-trivial, 8 B / align 8 | direct bitmap baseline | 16.251 | 7 | 0.382 | 1.019 | 1.058 | 3.463 |
-| aligned non-trivial, 8 B / align 8 | direct tagged pointer | 16.001 | 5 | 0.336 | 1.016 | 1.320 | 2.711 |
-| aligned non-trivial, 8 B / align 8 | production tagged façade | 16.001 | 5 | 0.377 | 1.023 | 1.129 | 5.049 |
-| packed non-trivial, 9 B / align 1 | direct bitmap baseline | 17.251 | 7 | 0.388 | 1.013 | 1.346 | 3.179 |
-| packed non-trivial, 9 B / align 1 | production bitmap façade | 17.251 | 7 | 0.382 | 1.012 | 1.934 | 5.225 |
+| aligned non-trivial, 8 B / align 8 | direct bitmap baseline | 16.251 | 7 | 0.396 | 1.017 | 1.183 | 3.422 |
+| aligned non-trivial, 8 B / align 8 | direct tagged pointer | 16.001 | 5 | 0.332 | 0.995 | 1.312 | 2.696 |
+| aligned non-trivial, 8 B / align 8 | production tagged façade | 16.002 | 6 | 1.508 | 1.909 | 2.548 | 4.129 |
+| packed non-trivial, 9 B / align 1 | direct bitmap baseline | 17.251 | 7 | 0.382 | 1.005 | 1.190 | 3.331 |
+| packed non-trivial, 9 B / align 1 | production bitmap façade | 17.253 | 8 | 1.520 | 1.984 | 2.587 | 4.602 |
 
 For aligned storage, the production representation removes the two lifecycle
-bitmap allocations and 0.25 B/slot without changing payload stride. Live-read
-cost is effectively unchanged from the bitmap baseline in this run. The raw
-transition microbenchmarks expose façade dispatch overhead: remove/resurrect
-was 6.7% slower and erase/reinsert was 45.8% slower. The weak-alignment façade
-preserves the bitmap footprint and read cost, with the same dispatch overhead
-visible when lifecycle transitions are measured in isolation.
+bitmap allocations but adds one fixed 64-byte strategy allocation. The net
+result is one fewer allocation and a 0.249 B/slot saving at this capacity,
+without changing payload stride. The weak-alignment strategy object is 112
+bytes and one allocation; its per-slot footprint remains effectively the
+bitmap footprint.
 
-These mutation figures are conservative for the actual owners because the
-microbenchmark excludes key hashing, observer publication, destructor work,
-and free/pending queue maintenance. They establish the cost of the reusable
-type-erased boundary itself; an owner-level benchmark is the appropriate
-follow-up if lifecycle transitions become measurable in an application hot
-path.
+The indirect passive-ops call is measurable in these deliberately tiny loops.
+Against the direct bitmap baseline, aligned production sequential/random reads
+were 281%/88% slower, remove/resurrect was 115% slower, and erase/reinsert was
+21% slower. The packed bitmap façade showed the same shape. This is the cost of
+keeping semantic owners independent of the closed set of concrete strategies;
+the type-erased boundary is not a zero-cost abstraction in an isolated slot
+operation benchmark.
+
+These figures isolate the boundary and therefore make it a larger fraction of
+the measured work than it is for owners that also hash keys, publish observers,
+run destructors, and maintain free/pending queues. They establish both the
+fixed memory cost and the per-call dispatch cost of the reusable type-erased
+boundary; an owner-level benchmark remains the appropriate follow-up before
+further hot-path changes.
 
 ## Reproduction
 
@@ -139,18 +148,21 @@ Historical prototype validation:
 
 Production implementation validation after migrating the real owners:
 
-- Fresh macOS native Release suite: 1,343/1,343 passed.
-- Fresh Linux native Release suite under GCC 15: 1,343/1,343 passed.
+- Fresh macOS native Release suite: 1,344/1,344 passed.
+- Fresh Linux native Release suite under GCC 15: 1,344/1,344 passed.
 - Stable-ABI wheel built with Python 3.12 and tested from fresh Python 3.14
   environments on macOS and Linux: 1,760 passed, 10 skipped (`not wip`) on
   each platform.
 - The macOS installed-SDK consumer compiled and passed using the public
   `StableSlotStore` header and both alignment strategies.
-- Focused AppleClang ASan + UBSan lifecycle suite: 200/200 passed. Leak
+- Focused AppleClang ASan + UBSan lifecycle suite: 19/19 passed. Leak
   detection is not supported by the macOS ASan runtime and was disabled.
 - The complete Linux Python compatibility suite passed under GCC 15 ASan +
   UBSan: 1,760 passed, 10 skipped. Leak detection was disabled for the
   process-wide Python run, following the documented sanitizer workflow.
 - Debugger common-layer tests: 12/12 passed; the native debugger fixture also
-  passed as part of the full Release suite.
+  passed as part of the full Release suites, and the LLDB smoke test passed.
+  The GDB smoke navigated the erased stable-slot collections before reaching
+  an unrelated optimized-GCC fixture limitation: complete `TSInput` and
+  `TSOutput` owning types were not emitted in its debug information.
 - Sphinx documentation build with warnings treated as errors: passed.

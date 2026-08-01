@@ -89,19 +89,22 @@ struct PrototypeMemoryReport {
   std::size_t slot_index_bytes{0};
   std::size_t lifecycle_index_bytes{0};
   std::size_t block_descriptor_bytes{0};
+  std::size_t implementation_bytes{0};
   std::size_t payload_allocations{0};
   std::size_t slot_index_allocations{0};
   std::size_t slot_management_allocations{0};
   std::size_t block_descriptor_allocations{0};
+  std::size_t implementation_allocations{0};
 
   [[nodiscard]] constexpr std::size_t total_bytes() const noexcept {
     return payload_bytes + slot_index_bytes + lifecycle_index_bytes +
-           block_descriptor_bytes;
+           block_descriptor_bytes + implementation_bytes;
   }
 
   [[nodiscard]] constexpr std::size_t total_allocations() const noexcept {
     return payload_allocations + slot_index_allocations +
-           slot_management_allocations + block_descriptor_allocations;
+           slot_management_allocations + block_descriptor_allocations +
+           implementation_allocations;
   }
 };
 

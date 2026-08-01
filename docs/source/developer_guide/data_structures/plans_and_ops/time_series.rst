@@ -1287,6 +1287,11 @@ do not use the slot stores.
     contract is declared separately from its concrete strategies under
     ``hgraph/types/utils/impl``.
 
+    The facade owns the selected concrete strategy through
+    ``MemoryUtils::ErasedOwner`` and calls a canonical passive
+    ``StableSlotStoreOps`` table. Semantic owners therefore do not contain a
+    ``std::variant`` or name either representation.
+
     Strategy selection happens once when the immutable ``StorageLayout`` is
     bound. Payloads aligned to at least ``uintptr_t`` use two low pointer bits
     for ``live`` (``00``), pending erase, staged construction, and free. A

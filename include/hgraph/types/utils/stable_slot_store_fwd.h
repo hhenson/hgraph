@@ -20,6 +20,8 @@ namespace hgraph
         Bitmap,
     };
 
+    struct StableSlotStoreOps;
+
     template <StableSlotStateModel Model>
     class StableSlotStore;
 }  // namespace hgraph

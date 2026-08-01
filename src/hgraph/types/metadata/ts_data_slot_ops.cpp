@@ -119,7 +119,9 @@ namespace hgraph::ts_data_plan_factory_detail
             const StableSlotDebugView slots = keys.debug_slot_view();
             DebugDynamicFlags flags = DebugDynamicFlags::DataIsIndirect |
                                       DebugDynamicFlags::DataIsPointerTable |
-                                      DebugDynamicFlags::HasSlotState;
+                                      DebugDynamicFlags::HasSlotState |
+                                      DebugDynamicFlags::SlotIndexIsIndirect |
+                                      DebugDynamicFlags::SlotSizeIsIndirect;
             if (slots.pointers_tagged) { flags = flags | DebugDynamicFlags::DataPointersAreTagged; }
             if (slots.state_tagged) { flags = flags | DebugDynamicFlags::SlotStateIsTaggedPointer; }
             return DebugDynamicLayout{
@@ -127,10 +129,11 @@ namespace hgraph::ts_data_plan_factory_detail
                 .abi_version = DEBUG_DYNAMIC_LAYOUT_ABI_VERSION,
                 .kind = DebugDynamicKind::StableSlots,
                 .flags = flags,
-                .size_offset = debug_address_offset(sample, slots.slot_count),
-                .data_offset = debug_address_offset(sample, slots.pointer_table),
+                .size_offset = slots.slot_count_offset,
+                .data_offset = debug_address_offset(sample, slots.implementation_pointer),
                 .stride = key_binding.checked_plan().layout.size,
-                .state_offset = debug_address_offset(sample, slots.state),
+                .state_offset = slots.state_offset,
+                .auxiliary_offset = slots.pointer_table_offset,
             };
         }
 
@@ -2166,17 +2169,22 @@ namespace hgraph::ts_data_plan_factory_detail
                                           DebugDynamicFlags::KeyDataIsIndirect |
                                           DebugDynamicFlags::DataIsPointerTable |
                                           DebugDynamicFlags::KeyDataIsPointerTable |
-                                          DebugDynamicFlags::HasSlotState;
+                                          DebugDynamicFlags::HasSlotState |
+                                          DebugDynamicFlags::SlotIndexIsIndirect |
+                                          DebugDynamicFlags::SlotSizeIsIndirect;
                 if (value_slots.pointers_tagged) { flags = flags | DebugDynamicFlags::DataPointersAreTagged; }
                 if (key_slots.pointers_tagged) { flags = flags | DebugDynamicFlags::KeyPointersAreTagged; }
                 if (key_slots.state_tagged) { flags = flags | DebugDynamicFlags::SlotStateIsTaggedPointer; }
                 debug_layout.flags = flags;
-                debug_layout.size_offset = debug_address_offset(sample, key_slots.slot_count);
-                debug_layout.data_offset = debug_address_offset(sample, value_slots.pointer_table);
+                debug_layout.key_auxiliary_offset =
+                    static_cast<std::uint32_t>(key_slots.pointer_table_offset);
+                debug_layout.size_offset = key_slots.slot_count_offset;
+                debug_layout.data_offset = debug_address_offset(sample, value_slots.implementation_pointer);
                 debug_layout.stride = element_type.checked_plan().layout.size;
-                debug_layout.key_data_offset = debug_address_offset(sample, key_slots.pointer_table);
+                debug_layout.key_data_offset = debug_address_offset(sample, key_slots.implementation_pointer);
                 debug_layout.key_stride = key_binding.checked_plan().layout.size;
-                debug_layout.state_offset = debug_address_offset(sample, key_slots.state);
+                debug_layout.state_offset = key_slots.state_offset;
+                debug_layout.auxiliary_offset = value_slots.pointer_table_offset;
                 const auto &debug = intern_dynamic_debug_descriptor(
                     value_schema->header, plan_, DebugLayoutKind::KeyedSlots,
                     key_binding.record(), dict_layout.element_value_binding.record(), debug_layout,

@@ -284,14 +284,26 @@ public:
                    hgraph::SlotBitmap::bits_per_word) *
                   sizeof(std::uint64_t)
             : 0;
+    const std::size_t payload_bytes = capacity() * store_.stride();
+    const std::size_t slot_index_bytes =
+        capacity() * sizeof(void *) + bitmap_bytes;
+    const std::size_t block_descriptor_bytes =
+        store_.block_count() * sizeof(hgraph::StableSlotBlock);
+    const std::size_t described_store_bytes =
+        payload_bytes + slot_index_bytes + block_descriptor_bytes;
+    const std::size_t reserved_store_bytes =
+        store_.dynamic_storage_metrics().reserved_bytes;
     return PrototypeMemoryReport{
-        .payload_bytes = capacity() * store_.stride(),
-        .slot_index_bytes = capacity() * sizeof(void *) + bitmap_bytes,
+        .payload_bytes = payload_bytes,
+        .slot_index_bytes = slot_index_bytes,
         .lifecycle_index_bytes =
             free_slots_.capacity() * sizeof(std::size_t) +
             pending_slots_.capacity() * sizeof(std::size_t),
-        .block_descriptor_bytes =
-            store_.block_count() * sizeof(hgraph::StableSlotBlock),
+        .block_descriptor_bytes = block_descriptor_bytes,
+        .implementation_bytes =
+            reserved_store_bytes >= described_store_bytes
+                ? reserved_store_bytes - described_store_bytes
+                : 0,
         .payload_allocations = store_.block_count(),
         .slot_index_allocations =
             capacity() == 0
@@ -304,6 +316,8 @@ public:
                                             : std::size_t{1}),
         .block_descriptor_allocations =
             store_.block_count() == 0 ? std::size_t{0} : std::size_t{1},
+        .implementation_allocations = store_.bound() ? std::size_t{1}
+                                                     : std::size_t{0},
     };
   }
 
@@ -350,7 +364,8 @@ void run_store_suite_impl(std::string_view representation_name,
   const PrototypeMemoryReport report = store.memory_report();
   const std::size_t representation_bytes = report.payload_bytes +
                                            report.slot_index_bytes +
-                                           report.block_descriptor_bytes;
+                                           report.block_descriptor_bytes +
+                                           report.implementation_bytes;
   std::cout << "memory"
             << " representation=" << representation_name
             << " payload_size=" << sizeof(Value)
@@ -361,6 +376,7 @@ void run_store_suite_impl(std::string_view representation_name,
             << " slot_index_bytes=" << report.slot_index_bytes
             << " slot_management_bytes=" << report.lifecycle_index_bytes
             << " block_descriptor_bytes=" << report.block_descriptor_bytes
+            << " implementation_bytes=" << report.implementation_bytes
             << " representation_bytes=" << representation_bytes
             << " representation_bytes_per_slot="
             << static_cast<double>(representation_bytes) /
@@ -375,6 +391,8 @@ void run_store_suite_impl(std::string_view representation_name,
             << report.slot_management_allocations
             << " block_descriptor_allocations="
             << report.block_descriptor_allocations
+            << " implementation_allocations="
+            << report.implementation_allocations
             << " total_allocations=" << report.total_allocations() << '\n';
 
   const std::string prefix{representation_name};

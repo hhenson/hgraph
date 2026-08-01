@@ -178,7 +178,9 @@ namespace hgraph
             DebugDynamicFlags flags = DebugDynamicFlags::DataIsIndirect |
                                       DebugDynamicFlags::DataIsPointerTable |
                                       DebugDynamicFlags::HasSlotState |
-                                      DebugDynamicFlags::ElementsArePointers;
+                                      DebugDynamicFlags::ElementsArePointers |
+                                      DebugDynamicFlags::SlotIndexIsIndirect |
+                                      DebugDynamicFlags::SlotSizeIsIndirect;
             const StableSlotDebugView slots = storage_.debug_view();
             if (slots.pointers_tagged) { flags = flags | DebugDynamicFlags::DataPointersAreTagged; }
             if (slots.state_tagged) { flags = flags | DebugDynamicFlags::SlotStateIsTaggedPointer; }
@@ -194,12 +196,15 @@ namespace hgraph
                 .abi_version = DEBUG_DYNAMIC_LAYOUT_ABI_VERSION,
                 .kind = DebugDynamicKind::StableSlots,
                 .flags = flags,
-                .size_offset = offset_of(slots.slot_count),
-                .data_offset = offset_of(slots.pointer_table),
+                .key_auxiliary_offset =
+                    keys_are_owners ? static_cast<std::uint32_t>(slots.pointer_table_offset) : 0,
+                .size_offset = slots.slot_count_offset,
+                .data_offset = offset_of(slots.implementation_pointer),
                 .stride = slot_layout_.size,
-                .key_data_offset = keys_are_owners ? offset_of(slots.pointer_table) : 0,
+                .key_data_offset = keys_are_owners ? offset_of(slots.implementation_pointer) : 0,
                 .key_stride = keys_are_owners ? std::size_t{1} : 0,
-                .state_offset = offset_of(slots.state),
+                .state_offset = slots.state_offset,
+                .auxiliary_offset = slots.pointer_table_offset,
                 .entry_offset = graph_pointer_offset,
             };
         }

@@ -169,7 +169,7 @@ def dynamic_layout_snapshot(value):
         "kind": integer(field(value, "kind")),
         "reserved0": integer(field(value, "reserved0")),
         "flags": integer(field(value, "flags")),
-        "reserved1": integer(field(value, "reserved1")),
+        "key_auxiliary_offset": integer(field(value, "key_auxiliary_offset")),
         "size_offset": integer(field(value, "size_offset")),
         "size_constant": integer(field(value, "size_constant")),
         "data_offset": integer(field(value, "data_offset")),
@@ -374,10 +374,28 @@ def dynamic_pointer(value):
 
 def dynamic_child_addresses(data_address, layout):
     flags = layout["flags"]
+    slot_index_indirect = bool(flags & common.DEBUG_DYNAMIC_SLOT_INDEX_INDIRECT)
+    data_implementation = 0
+    key_implementation = 0
+    if slot_index_indirect:
+        data_implementation = read_unsigned(data_address + layout["data_offset"])
+        if not data_implementation:
+            return
+        if layout["key_stride"]:
+            key_implementation = read_unsigned(data_address + layout["key_data_offset"])
+            if not key_implementation:
+                return
+        else:
+            key_implementation = data_implementation
+    size_base = (
+        key_implementation
+        if flags & common.DEBUG_DYNAMIC_SLOT_SIZE_INDIRECT
+        else data_address
+    )
     size = (
         layout["size_constant"]
         if flags & common.DEBUG_DYNAMIC_SIZE_CONSTANT
-        else read_unsigned(data_address + layout["size_offset"])
+        else read_unsigned(size_base + layout["size_offset"])
     )
     if size is None or size > (1 << 30):
         return
@@ -389,14 +407,22 @@ def dynamic_child_addresses(data_address, layout):
     )
     if head is None:
         return
-    data_base = data_address + layout["data_offset"]
+    data_base = (
+        data_implementation + layout["auxiliary_offset"]
+        if slot_index_indirect
+        else data_address + layout["data_offset"]
+    )
     if flags & common.DEBUG_DYNAMIC_DATA_INDIRECT:
         data_base = read_unsigned(data_base)
     if data_base is None:
         return
     key_base = 0
     if layout["key_stride"]:
-        key_base = data_address + layout["key_data_offset"]
+        key_base = (
+            key_implementation + layout["key_auxiliary_offset"]
+            if slot_index_indirect
+            else data_address + layout["key_data_offset"]
+        )
         if flags & common.DEBUG_DYNAMIC_KEY_DATA_INDIRECT:
             key_base = read_unsigned(key_base)
         if key_base is None:
@@ -404,11 +430,12 @@ def dynamic_child_addresses(data_address, layout):
     state_words = 0
     state_bits = 0
     if flags & common.DEBUG_DYNAMIC_HAS_SLOT_STATE:
-        state_words = read_unsigned(data_address + layout["state_offset"])
+        state_base = key_implementation if slot_index_indirect else data_address
+        state_words = read_unsigned(state_base + layout["state_offset"])
         state_bits = (
             size
             if flags & common.DEBUG_DYNAMIC_SLOT_STATE_TAGGED
-            else read_unsigned(data_address + layout["state_offset"] + target_pointer_size())
+            else read_unsigned(state_base + layout["state_offset"] + target_pointer_size())
         )
         if state_words is None or state_bits is None:
             return

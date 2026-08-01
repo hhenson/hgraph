@@ -26,7 +26,7 @@ namespace hgraph
         static_assert(CommonErasedOwner::debug_storage_offset() == DEBUG_OWNER_STORAGE_OFFSET);
         inline constexpr std::uint32_t KNOWN_DESCRIPTOR_FLAGS = 1u;
         inline constexpr std::uint32_t KNOWN_FIELD_FLAGS = (1u << 4u) - 1u;
-        inline constexpr std::uint32_t KNOWN_DYNAMIC_FLAGS = (1u << 13u) - 1u;
+        inline constexpr std::uint32_t KNOWN_DYNAMIC_FLAGS = (1u << 15u) - 1u;
         inline constexpr std::uint32_t VALIDITY_WORD_SIZE = sizeof(std::uint64_t);
 
         struct DescriptorKey
@@ -375,7 +375,7 @@ namespace hgraph
         const auto kind_value = static_cast<std::uint8_t>(kind);
         if (magic != DEBUG_DYNAMIC_LAYOUT_MAGIC || abi_version != DEBUG_DYNAMIC_LAYOUT_ABI_VERSION ||
             kind_value < static_cast<std::uint8_t>(DebugDynamicKind::Contiguous) ||
-            kind_value > static_cast<std::uint8_t>(DebugDynamicKind::StableSlots) || reserved0 != 0 || reserved1 != 0 ||
+            kind_value > static_cast<std::uint8_t>(DebugDynamicKind::StableSlots) || reserved0 != 0 ||
             (static_cast<std::uint32_t>(flags) & ~KNOWN_DYNAMIC_FLAGS) != 0 || stride == 0)
             return false;
         if (has_flag(flags, DebugDynamicFlags::SizeIsConstant) == (size_offset != 0)) return false;
@@ -400,6 +400,22 @@ namespace hgraph
             (!has_flag(flags, DebugDynamicFlags::HasSlotState) || state_offset == 0 ||
              (!has_flag(flags, DebugDynamicFlags::DataPointersAreTagged) &&
               !has_flag(flags, DebugDynamicFlags::KeyPointersAreTagged))))
+            return false;
+        if (has_flag(flags, DebugDynamicFlags::SlotIndexIsIndirect) &&
+            (kind != DebugDynamicKind::StableSlots ||
+             !has_flag(flags, DebugDynamicFlags::DataIsIndirect) ||
+             !has_flag(flags, DebugDynamicFlags::DataIsPointerTable) ||
+             has_flag(flags, DebugDynamicFlags::HasHead) ||
+             (key_stride != 0 &&
+              (!has_flag(flags, DebugDynamicFlags::KeyDataIsIndirect) ||
+               !has_flag(flags, DebugDynamicFlags::KeyDataIsPointerTable)))))
+            return false;
+        if (has_flag(flags, DebugDynamicFlags::SlotSizeIsIndirect) &&
+            (!has_flag(flags, DebugDynamicFlags::SlotIndexIsIndirect) ||
+             has_flag(flags, DebugDynamicFlags::SizeIsConstant)))
+            return false;
+        if (key_auxiliary_offset != 0 &&
+            (!has_flag(flags, DebugDynamicFlags::SlotIndexIsIndirect) || key_stride == 0))
             return false;
         return true;
     }

@@ -538,18 +538,34 @@ records to physical plan offsets. Tuple and bundle descriptors also publish the
 validity-word offset and one bit index per field, so an unset child is displayed
 as typed-null rather than reading uninitialised payload bytes.
 
-The version-two dynamic layout is 88 bytes on supported 64-bit platforms. It
-distinguishes contiguous storage from stable pointer slots and records whether
+The version-three dynamic layout remains 88 bytes on supported 64-bit
+platforms. It distinguishes contiguous storage from stable pointer slots and
+records whether
 size is fixed, data is indirect, a pointer table is used, a ring head is
 present, or keys/elements are embedded erased owners or typed pointers. Version
 two adds independent tagged-data-pointer, tagged-key-pointer, and tagged-slot-
-state flags. For a tagged stable-slot index, ``state_offset`` may identify the
-same pointer table as data or keys: readers accept tag ``00`` as live and mask
-the low two bits before dereferencing other encoded states. Bitmap-backed
-stable slots continue to publish the public ``SlotBitmap`` words and bit count.
-Both strategies are exposed through ``StableSlotDebugView``, so descriptor
-factories do not inspect the selected implementation or a standard-library
-container.
+state flags. Version three also describes an erased stable-slot strategy whose
+index lives behind an implementation pointer. In that form ``data_offset``
+(and ``key_data_offset`` for maps) locates the implementation pointer,
+``auxiliary_offset`` locates the value pointer table within that implementation,
+and ``key_auxiliary_offset`` independently locates a keyed store's pointer
+table. The size/state offsets are interpreted in the key implementation when
+their corresponding flags are set. For a tagged stable-slot index,
+``state_offset`` may identify the same
+pointer table as data or keys: readers accept tag ``00`` as live and mask the
+low two bits before dereferencing other encoded states. Bitmap-backed stable
+slots continue to publish the public ``SlotBitmap`` words and bit count. Both
+strategies are exposed through ``StableSlotDebugView``, so descriptor factories
+do not inspect the selected implementation or a standard-library container.
+
+The semantic ``StableSlotStore`` facade does not contain a closed
+``std::variant`` of those concrete strategies. It owns the selected strategy
+through ``MemoryUtils::ErasedOwner`` and dispatches through one canonical
+passive ``StableSlotStoreOps`` table. The ops table is the public behavioural
+contract; tagged-pointer and bitmap classes stay under the implementation
+boundary. This is the standard boundary for reusable representation policy:
+separate erased behaviour from explicit erased ownership, and reserve
+``std::variant`` for a sum type that is itself part of the semantic contract.
 
 The common embedded-owner field flag describes the three-word
 ``ErasedOwner<InlineStoragePolicy<>, TypeRecord>`` ABI. The record is read
