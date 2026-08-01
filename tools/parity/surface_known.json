@@ -2663,6 +2663,81 @@
       "name": "EvaluationEngineApi.add_after_evaluation_notification",
       "kind": "method-signature-mismatch",
       "reason": "nanobind builtin: inspect.signature unavailable; keyword calling via nb::arg('fn') and behaviour pinned by test_eval_notifications"
+    },
+    {
+      "module": "hgraph.adaptors.tornado",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "issue #215 defines hgraph.adaptors.tornado.__all__ as the curated Tornado user API; upstream imported symbols, transport managers, handlers and type variables are not package API"
+    },
+    {
+      "module": "hgraph.adaptors.tornado.*",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "issue #215 makes each Tornado module's __all__ authoritative; upstream import leaks and internal managers/handlers/markers are excluded while retained names are pinned by test_public_api"
+    },
+    {
+      "module": "hgraph.adaptors.tornado*",
+      "name": "*.from_dict",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "Tornado CompoundScalar values use the native typed value-conversion contract; upstream inherited dict serialization helpers are a Python representation detail outside issue #215's curated API"
+    },
+    {
+      "module": "hgraph.adaptors.tornado*",
+      "name": "*.to_dict",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "Tornado CompoundScalar values use the native typed value-conversion contract; upstream inherited dict serialization helpers are a Python representation detail outside issue #215's curated API"
+    },
+    {
+      "module": "hgraph.adaptors.tornado*",
+      "name": "*.to_scalar_schema",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "Tornado TimeSeriesSchema classes are wiring annotations; scalar-schema reflection is native and upstream's Python conversion helper is not user API"
+    },
+    {
+      "module": "hgraph.adaptors.tornado.websocket_server_adaptor",
+      "name": "WebSocket*.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "WebSocketServerRequest, WebSocketClientRequest and WebSocketResponse are TimeSeriesSchema wiring annotations, not user-constructed values; construction uses typed TSB wiring"
+    },
+    {
+      "module": "hgraph.adaptors.tornado*",
+      "name": "rest_create",
+      "kind": "signature-mismatch",
+      "reason": "AUTO_RESOLVE is the native authoring layer's stable representation of upstream's anonymous object sentinel; parameter order, optionality and generic resolution behaviour match"
+    },
+    {
+      "module": "hgraph.adaptors.tornado*",
+      "name": "rest_read",
+      "kind": "signature-mismatch",
+      "reason": "AUTO_RESOLVE is the native authoring layer's stable representation of upstream's anonymous object sentinel; parameter order, optionality and generic resolution behaviour match"
+    },
+    {
+      "module": "hgraph.adaptors.tornado*",
+      "name": "rest_update",
+      "kind": "signature-mismatch",
+      "reason": "AUTO_RESOLVE is the native authoring layer's stable representation of upstream's anonymous object sentinel; parameter order, optionality and generic resolution behaviour match"
+    },
+    {
+      "module": "hgraph.adaptors.tornado*",
+      "name": "*adaptor_impl",
+      "kind": "kind-mismatch",
+      "reason": "C++-first adaptor implementations are passive registration tokens (including the typed WebSocket implementation group), not directly invoked Python graph callables; register_adaptor behaviour is parity-tested"
+    },
+    {
+      "module": "hgraph.adaptors.tornado*",
+      "name": "websocket_server_adaptor_helper",
+      "kind": "kind-mismatch",
+      "reason": "the public helper is a passive registration marker because the shared C++ registry owns discovered typed routes; its register_adaptor operation matches upstream without duplicating implementations"
+    },
+    {
+      "module": "hgraph.adaptors.tornado._tornado_web",
+      "name": "TornadoWeb.add_handler",
+      "kind": "method-signature-mismatch",
+      "reason": "TornadoWeb is an internal transport manager excluded by issue #215; the candidate's optional options argument supports the same internal calls"
     }
   ]
 }

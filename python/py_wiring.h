@@ -80,6 +80,10 @@ namespace hgraph::python_bridge
 
     struct PyWiring
     {
+        struct BorrowedTag
+        {
+        };
+
         // Owned by default; a BORROWED PyWiring (python graph callables run
         // against a Wiring the C++ side owns - e.g. a sub-graph compile)
         // aliases without ownership and cannot be run/finished.
@@ -117,10 +121,14 @@ namespace hgraph::python_bridge
         {
         }
 
+        explicit PyWiring(BorrowedTag) noexcept {}
+
         [[nodiscard]] static PyWiring borrow(Wiring &target)
         {
-            PyWiring result;
-            result.owned.reset();
+            // A borrowed wrapper aliases an already-configured wiring. It
+            // must not select the dense top-level testing model while a
+            // seeded graph is compiling a nested Python graph.
+            PyWiring result{BorrowedTag{}};
             result.raw = &target;
             return result;
         }

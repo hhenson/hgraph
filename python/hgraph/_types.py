@@ -1577,7 +1577,7 @@ class _TsExpr:
                         call["__strict__"] = False
                 return _wire("combine", output_type=self, **call)
 
-        strict_cs = kwargs.pop("__strict__", True)
+        strict_cs = kwargs.pop("__strict__", None)
         if (kwargs and not ports and self.handle.is_ts_bundle and not getattr(self, "_json", False)):
             # combine[TS[CompoundScalar]](field=...): a structural TSB of the
             # provided fields feeds the erased combine_cs node (CS IS a
@@ -1585,6 +1585,11 @@ class _TsExpr:
             # const-lift at their inferred types.
             call = dict(kwargs)
             cs_class = getattr(self, "_cs_class", None)
+            if strict_cs is None:
+                # A TimeSeriesSchema bundle publishes each available field
+                # delta independently.  A TS[CompoundScalar] remains strict by
+                # default because it constructs one atomic scalar value.
+                strict_cs = cs_class is not None
             field_types = {}
             if cs_class is not None:
                 field_types.update(_structured_specialized_field_types(

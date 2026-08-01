@@ -10,7 +10,6 @@ import pytest
 
 import hgraph as hg
 from hgraph.adaptors.tornado import (
-    HttpAdaptorManager,
     HttpDeleteRequest,
     HttpGetRequest,
     HttpPostRequest,
@@ -39,6 +38,7 @@ from hgraph.adaptors.tornado import (
     rest_read,
     rest_update,
 )
+from hgraph.adaptors.tornado.http_server_adaptor import HttpAdaptorManager
 
 
 URL = "http://localhost/test"

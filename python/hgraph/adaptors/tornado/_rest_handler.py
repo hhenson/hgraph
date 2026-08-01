@@ -460,7 +460,6 @@ def convert_from_rest_response(
 
 
 __all__ = (
-    "REST_RESPONSE",
     "RestCreateRequest",
     "RestCreateResponse",
     "RestDeleteRequest",

@@ -25,6 +25,7 @@ The developer guide describes the internal design of the C++ implementation. The
    operators
    parity_matrix
    parity_testing
+   tornado_parity
    record_replay_table
    python_integration
    python_bridge

@@ -32,11 +32,7 @@ from hgraph import (
 from hgraph._types import _TsExpr
 from hgraph._wiring import _GraphFn, _PyNode
 from hgraph._wiring._core import _current_wiring
-from hgraph._wiring._markers import (
-    LOGGER,
-    _INJECTABLE_MARKERS,
-    _RecordableStateExpr,
-)
+from hgraph._wiring._operator import _is_hidden_node_parameter
 
 from ._tornado_web import BaseHandler, TornadoWeb
 
@@ -44,13 +40,14 @@ logger = logging.getLogger(__name__)
 
 
 def _handler_parameters(signature):
+    # The canonical runtime-supplied-parameter predicate covers the full
+    # injectable family (markers, LOGGER, STATE[T]/RECORDABLE_STATE/context
+    # expressions, _output) — a hand-rolled subset here silently leaked
+    # typed STATE parameters into the public handler signature.
     return tuple(
         parameter
         for name, parameter in signature.parameters.items()
-        if name != "request"
-        and parameter.annotation not in _INJECTABLE_MARKERS
-        and parameter.annotation is not LOGGER
-        and not isinstance(parameter.annotation, _RecordableStateExpr)
+        if name != "request" and not _is_hidden_node_parameter(parameter)
     )
 
 
@@ -429,9 +426,29 @@ def http_server_handler(fn=None, *, url: str):
 @adaptor
 def http_server_adaptor(
     response: TSD[int, TS[HttpResponse]],
-    path: str = "http_server",
+    path: str,
 ) -> TSD[int, TS[HttpRequest]]:
     """Expose a graph request/response stream as an HTTP route."""
+
+
+class _HttpServerAdaptorHelperRegistration:
+    """Compatibility marker for explicitly wired HTTP handler graphs.
+
+    The C++ registry discovers those graph-side clients directly, so this
+    marker deliberately leaves ownership with the shared catch-all
+    implementation instead of registering a second implementation per route.
+    """
+
+    __name__ = "http_server_adaptor_helper"
+
+    @staticmethod
+    def _register_adaptor(path, *, resolution_dict=None, port=80):
+        del path, port
+        if resolution_dict:
+            raise TypeError("http_server_adaptor_helper is not generic")
+
+
+_http_server_adaptor_helper = _HttpServerAdaptorHelperRegistration()
 
 
 @adaptor_impl(interfaces=())
@@ -442,7 +459,8 @@ def http_server_adaptor_impl(path: str, port: int = 80) -> None:
     clients = WiringGraphContext.instance().registered_service_clients(
         http_server_adaptor)
     endpoints = set()
-    routes = set()
+    routes = []
+    seen_routes = set()
     for endpoint, type_map, _node, receive in clients:
         if type_map:
             raise TypeError("HTTP server adaptor does not support generic bindings")
@@ -451,7 +469,15 @@ def http_server_adaptor_impl(path: str, port: int = 80) -> None:
                 f"duplicate HTTP adaptor client for {endpoint!r} and direction {receive}")
         endpoints.add((endpoint, receive))
         base = endpoint.removesuffix("/from_graph").removesuffix("/to_graph")
-        routes.add(base)
+        if base not in seen_routes:
+            routes.append(base)
+            seen_routes.add(base)
+
+    handler_priority = {
+        route: index for index, route in enumerate(_HTTP_SERVER_HANDLERS)
+    }
+    routes.sort(key=lambda base: handler_priority.get(
+        http_server_adaptor.path_from_full_path(base), len(handler_priority)))
 
     queue_key = f"http_server_adaptor://{port}/queue"
     manager = HttpAdaptorManager.instance(port)
@@ -503,6 +529,7 @@ def register_http_server_adaptor(port: int) -> None:
     registration = _HTTP_SERVER_REGISTRATIONS.setdefault(wiring, port)
     if registration != port:
         raise ValueError("one wiring graph cannot register the HTTP server on two ports")
+    register_adaptor(None, _http_server_adaptor_helper, port=port)
     register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=port)
     for _path, handler in handlers:
         if handler.auto_wire:
@@ -510,10 +537,8 @@ def register_http_server_adaptor(port: int) -> None:
 
 
 __all__ = (
-    "HttpAdaptorManager",
     "HttpDeleteRequest",
     "HttpGetRequest",
-    "HttpHandler",
     "HttpPostRequest",
     "HttpPutRequest",
     "HttpRequest",
