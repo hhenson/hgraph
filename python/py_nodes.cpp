@@ -349,7 +349,14 @@ struct PyFastComputeCache {
                      TSOutputHandle output_, GlobalStateView global_state_)
       : record(record_), shape(std::move(shape_)), input(std::move(input_)),
         scalars(std::move(scalars_)), output(std::move(output_)),
-        global_state(std::move(global_state_)) {}
+        global_state(std::move(global_state_)) {
+    auto &active_guard = py_active_runtime_guard();
+    if (active_guard == nullptr) {
+      throw std::logic_error(
+          "fast python node requires an active runtime lease guard");
+    }
+    call_lease.guard = active_guard;
+  }
 
   const PyNodeRecord *record{nullptr};
   PyCallShape shape{};
@@ -357,6 +364,10 @@ struct PyFastComputeCache {
   ValueView scalars{};
   TSOutputHandle output{};
   GlobalStateView global_state{};
+  // The runtime guard is shared once for the node lifetime. Per-evaluation
+  // code advances only the generation, avoiding shared_ptr reference-count
+  // traffic at every Python callback while preserving retained-view safety.
+  PyTsLease call_lease{};
   PyObject *input_object{nullptr};
   PyTimeSeries *input_wrapper{nullptr};
   std::array<PyObject *, 2> pair_objects{};
@@ -405,10 +416,12 @@ struct PyFastComputeStateRef {
 [[nodiscard]] bool py_make_ts_arg(char kind, TSInputView child,
                                   const PyTsLease &lease, nb::object &result) {
   const auto &evaluation_data = child.data_view();
+  const bool has_current_value =
+      evaluation_data.valid() && evaluation_data.has_current_value();
   // 'u'/'U' = UNCHECKED (hgraph's valid=(...) opt-out): the
   // python fn sees the view and guards itself.
   if (kind != 'u' && kind != 'U' &&
-      (!evaluation_data.valid() || !evaluation_data.has_current_value())) {
+      !has_current_value) {
     return false;
   }
   if ((kind == 'a' || kind == 'A') && !evaluation_data.all_valid()) {
@@ -419,7 +432,9 @@ struct PyFastComputeStateRef {
   const auto evaluation_storage = evaluation_data.valid()
                                       ? evaluation_data.storage_ref()
                                       : TSDataStorageRef<>{};
-  result = nb::cast(PyTimeSeries{std::move(child), lease, evaluation_storage});
+  PyTimeSeries wrapped{std::move(child), lease, evaluation_storage};
+  wrapped.refresh_evaluation_data(evaluation_storage, has_current_value);
+  result = nb::cast(std::move(wrapped));
   return true;
 }
 
@@ -429,8 +444,10 @@ struct PyFastComputeStateRef {
   TSInputView child = cache.input.borrowed_ref(now);
   const auto &evaluation_data = child.data_view();
   const char kind = cache.shape.layout.front();
+  const bool has_current_value =
+      evaluation_data.valid() && evaluation_data.has_current_value();
   if (kind != 'u' && kind != 'U' &&
-      (!evaluation_data.valid() || !evaluation_data.has_current_value())) {
+      !has_current_value) {
     return false;
   }
   if ((kind == 'a' || kind == 'A') && !evaluation_data.all_valid()) {
@@ -439,13 +456,15 @@ struct PyFastComputeStateRef {
   const auto evaluation_storage = evaluation_data.valid()
                                       ? evaluation_data.storage_ref()
                                       : TSDataStorageRef<>{};
-  PyTimeSeries wrapped{std::move(child), lease, evaluation_storage};
 
   // Repoint only the cache's sole reference. If Python retained the
   // previous argument, leave that expired object untouched and replace
   // the cache entry with a fresh wrapper.
   if (cache.input_object != nullptr && Py_REFCNT(cache.input_object) == 1) {
-    *cache.input_wrapper = std::move(wrapped);
+    cache.input_wrapper->view = std::move(child);
+    cache.input_wrapper->lease.generation = lease.generation;
+    cache.input_wrapper->refresh_evaluation_data(evaluation_storage,
+                                                 has_current_value);
     result = nb::borrow<nb::object>(nb::handle(cache.input_object));
     return true;
   }
@@ -455,6 +474,8 @@ struct PyFastComputeStateRef {
     cache.input_object = nullptr;
     cache.input_wrapper = nullptr;
   }
+  PyTimeSeries wrapped{std::move(child), lease, evaluation_storage};
+  wrapped.refresh_evaluation_data(evaluation_storage, has_current_value);
   result = nb::cast(std::move(wrapped));
   cache.input_object = result.ptr();
   cache.input_wrapper = std::addressof(nb::cast<PyTimeSeries &>(result));
@@ -468,8 +489,10 @@ struct PyFastComputeStateRef {
                                               const PyTsLease &lease,
                                               nb::object &result) {
   const auto &evaluation_data = child.data_view();
+  const bool has_current_value =
+      evaluation_data.valid() && evaluation_data.has_current_value();
   if (kind != 'u' && kind != 'U' &&
-      (!evaluation_data.valid() || !evaluation_data.has_current_value())) {
+      !has_current_value) {
     return false;
   }
   if ((kind == 'a' || kind == 'A') && !evaluation_data.all_valid()) {
@@ -478,12 +501,14 @@ struct PyFastComputeStateRef {
   const auto evaluation_storage = evaluation_data.valid()
                                       ? evaluation_data.storage_ref()
                                       : TSDataStorageRef<>{};
-  PyTimeSeries wrapped{std::move(child), lease, evaluation_storage};
 
   PyObject *&cached_object = cache.pair_objects.at(slot);
   PyTimeSeries *&cached_wrapper = cache.pair_wrappers.at(slot);
   if (cached_object != nullptr && Py_REFCNT(cached_object) == 1) {
-    *cached_wrapper = std::move(wrapped);
+    cached_wrapper->view = std::move(child);
+    cached_wrapper->lease.generation = lease.generation;
+    cached_wrapper->refresh_evaluation_data(evaluation_storage,
+                                            has_current_value);
     result = nb::borrow<nb::object>(nb::handle(cached_object));
     return true;
   }
@@ -493,6 +518,8 @@ struct PyFastComputeStateRef {
     cached_object = nullptr;
     cached_wrapper = nullptr;
   }
+  PyTimeSeries wrapped{std::move(child), lease, evaluation_storage};
+  wrapped.refresh_evaluation_data(evaluation_storage, has_current_value);
   result = nb::cast(std::move(wrapped));
   cached_object = result.ptr();
   cached_wrapper = std::addressof(nb::cast<PyTimeSeries &>(result));
@@ -1045,7 +1072,8 @@ struct py_fast_compute_node {
     }
 
     translate_python_error([&] {
-      auto lease = py_ts_lease_for_call();
+      PyTsLease &lease = cache->call_lease;
+      lease.generation = ++lease.guard->generation;
       auto invalid = UnwindCleanupGuard([&] { lease.invalidate(); });
       nb::object result;
       if (cache->direct()) {
