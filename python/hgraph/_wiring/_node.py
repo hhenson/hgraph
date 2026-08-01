@@ -556,6 +556,10 @@ class _PyNode:
                         packed_group = _hgraph.bundle_port(entries, [False] * len(entries))
                     else:
                         packed_group = _hgraph.tsl_port(entries)
+                    # Match the PACK against the declared annotation (issue
+                    # #224): binds pack-level schema/type vars so a generic
+                    # return (e.g. TSL[E, SIZE]) can resolve.
+                    self._check_binding(scope, param, packed_group)
                     layout.append(_group_layout(param))
                     _note(param.name)
                     ports.append(packed_group)
@@ -572,6 +576,10 @@ class _PyNode:
                         tsb_type = _hgraph.un_named_tsb_type(
                             [(k, v.ts_type) for k, v in extras.items()])
                         packed_group = _hgraph.tsb_port(tsb_type, extras)
+                    # Match the PACK against the declared annotation (issue
+                    # #224): binds TSB[TS_SCHEMA] so the generic return
+                    # resolves from the supplied keywords.
+                    self._check_binding(scope, param, packed_group)
                     layout.append(_group_layout(param))
                     _note(param.name)
                     ports.append(packed_group)

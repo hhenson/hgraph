@@ -268,6 +268,7 @@ def _register_overload(target, impl, requires=None):
     # signature no longer shows *args/**kwargs.
     sig = getattr(impl, "_wiring_signature", None) or inspect.signature(fn, eval_str=True)
     param_options, variadic, has_kwargs = [], False, False
+    kwargs_pattern = None
     positional = None
     for parameter in sig.parameters.values():
         annotation = parameter.annotation
@@ -275,6 +276,15 @@ def _register_overload(target, impl, requires=None):
             continue
         if parameter.kind is inspect.Parameter.VAR_KEYWORD:
             has_kwargs = True
+            # Keep the pack annotation (issue #224): a ts-typed **kwargs
+            # (e.g. TSB[TS_SCHEMA]) becomes the candidate's kwargs pattern,
+            # matched at dispatch against the synthesized un-named TSB of
+            # the supplied keywords — which is what binds the schema var.
+            if annotation is not inspect.Parameter.empty:
+                try:
+                    kwargs_pattern = _pattern_of(annotation)
+                except Exception:
+                    kwargs_pattern = None
             continue
         if parameter.kind is inspect.Parameter.KEYWORD_ONLY and positional is None:
             positional = len(param_options)
@@ -348,7 +358,7 @@ def _register_overload(target, impl, requires=None):
     for params in product(*param_options):
         _hgraph.register_python_overload(
             name, list(params), output, wire_fn, resolver_fn, requires_fn,
-            variadic, has_kwargs, positional)
+            variadic, has_kwargs, positional, kwargs_pattern)
 
 
 # ---------------------------------------------------------------------------
