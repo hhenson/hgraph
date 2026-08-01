@@ -15,7 +15,7 @@ namespace hgraph
     struct GraphExecutorOps;
     struct GraphExecutorTypeMetaData;
 
-    inline constexpr std::uint16_t EXECUTOR_OPS_ABI_VERSION = 3;
+    inline constexpr std::uint16_t EXECUTOR_OPS_ABI_VERSION = 4;
 
     class ExecutorTypeRef
     {

@@ -58,6 +58,12 @@ class _Operator:
         return extract_signature(self.fn, WiringNodeType.OPERATOR)
 
     def __call__(self, *args, **kwargs):
+        deprecated = getattr(self, "_deprecated", False)
+        if deprecated:
+            import warnings
+            message = deprecated if isinstance(deprecated, str) else \
+                f"operator '{self.__name__}' is deprecated"
+            warnings.warn(message, DeprecationWarning, stacklevel=2)
         return self._delegate(*args, **kwargs)
 
     def __getitem__(self, item):
@@ -69,11 +75,22 @@ class _Operator:
         return self
 
 
-def operator(fn=None):
-    """hgraph's @operator decorator."""
+def operator(fn=None, deprecated=False):
+    """hgraph's @operator decorator. ``deprecated`` accepts upstream's flag:
+    a truthy value (True or a message string) emits a DeprecationWarning
+    when the operator is wired."""
     if fn is None:
+        if deprecated:
+            def _decorate(inner):
+                op = _Operator(inner)
+                op._deprecated = deprecated
+                return op
+            return _decorate
         return _Operator
-    return _Operator(fn)
+    op = _Operator(fn)
+    if deprecated:
+        op._deprecated = deprecated
+    return op
 
 
 def _overload_registry_name(target):

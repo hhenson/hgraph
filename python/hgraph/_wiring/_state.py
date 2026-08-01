@@ -99,10 +99,10 @@ class _MemoryRecording(list):
 class GlobalState:
     """Python seed/result owner for the C++ graph GlobalState copy lifecycle."""
 
-    def __init__(self, **values):
+    def __init__(self, **kwargs):
         self._impl = _hgraph._GlobalState()
         self._compat_context = None
-        for key, value in values.items():
+        for key, value in kwargs.items():
             self[key] = value
 
     def __len__(self):
@@ -128,6 +128,14 @@ class GlobalState:
 
     def keys(self):
         return self._impl.keys()
+
+    def items(self):
+        # dict-parity (theme-C ruling 2026-08-01): reset/set_instance are
+        # deliberately NOT provided.
+        return [(key, self[key]) for key in self.keys()]
+
+    def values(self):
+        return [self[key] for key in self.keys()]
 
     def __iter__(self):
         return iter(self.keys())
@@ -225,7 +233,8 @@ def set_record_replay_config(model):
     GlobalState.instance()["__record_replay_model__"] = model
 
 
-def set_as_of(value):
+def set_as_of(dt):
+    value = dt
     _hgraph._set_as_of(GlobalState.instance()._impl, value)
     # python-readable mirror (the data-frame record/replay model reads it
     # at wiring/replay time; the C++ config has no python getter)

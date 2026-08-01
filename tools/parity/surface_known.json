@@ -241,6 +241,443 @@
       "kind": "name-missing",
       "side": "candidate",
       "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph",
+      "name": "TS.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TimeSeries.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "CONTEXT.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "STATE.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "SCHEDULER.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "runtime views are engine-constructed, never user-constructed; the upstream constructor is an implementation detail"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "runtime views are engine-constructed, never user-constructed; the upstream constructor is an implementation detail"
+    },
+    {
+      "module": "hgraph",
+      "name": "Graph.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "runtime views are engine-constructed, never user-constructed; the upstream constructor is an implementation detail"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationClock.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "runtime views are engine-constructed, never user-constructed; the upstream constructor is an implementation detail"
+    },
+    {
+      "module": "hgraph",
+      "name": "TimeSeries.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "runtime views are engine-constructed, never user-constructed; the upstream constructor is an implementation detail"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "runtime views are engine-constructed, never user-constructed; the upstream constructor is an implementation detail"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeClass.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "GraphWiringNodeClass.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "OperatorWiringNodeClass.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonWiringNodeClass.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonGeneratorWiringNodeClass.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringPort.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "MeshWiringPort.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "wiring machinery is internally constructed; constructor shape is not contract (methods surface pending the WiringGraphContext review)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "annotation/marker classes are subscripted, not constructed (theme-A ruling 2026-08-01)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "annotation/marker classes are subscripted, not constructed (theme-A ruling 2026-08-01)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "annotation/marker classes are subscripted, not constructed (theme-A ruling 2026-08-01)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "annotation/marker classes are subscripted, not constructed (theme-A ruling 2026-08-01)"
+    },
+    {
+      "module": "hgraph",
+      "name": "STATE.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "annotation/marker classes are subscripted, not constructed (theme-A ruling 2026-08-01)"
+    },
+    {
+      "module": "hgraph",
+      "name": "GraphConfiguration.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "parameter names/order match upstream; defaults are engine-equivalent representations (string mode, None->MIN_ST/MAX_ET, logger factory)"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationMode.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "python Enum introspection artifact; members and values match"
+    },
+    {
+      "module": "hgraph",
+      "name": "RecordReplayEnum.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "python Enum introspection artifact; members and values match"
+    },
+    {
+      "module": "hgraph",
+      "name": "IncorrectTypeBinding.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "error types are raised internally with prebuilt messages; upstream's structured constructor is not contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "RequirementsNotMetWiringError.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "error types are raised internally with prebuilt messages; upstream's structured constructor is not contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.reset",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not provided (ruling 2026-08-01): reset/set_instance are unwanted lifecycle mutation, and the *_mt multithreading family does not apply to the single-threaded runtime"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.set_instance",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not provided (ruling 2026-08-01): reset/set_instance are unwanted lifecycle mutation, and the *_mt multithreading family does not apply to the single-threaded runtime"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.set_instance_mt",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not provided (ruling 2026-08-01): reset/set_instance are unwanted lifecycle mutation, and the *_mt multithreading family does not apply to the single-threaded runtime"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.instance_mt",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not provided (ruling 2026-08-01): reset/set_instance are unwanted lifecycle mutation, and the *_mt multithreading family does not apply to the single-threaded runtime"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.has_instance_mt",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not provided (ruling 2026-08-01): reset/set_instance are unwanted lifecycle mutation, and the *_mt multithreading family does not apply to the single-threaded runtime"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.init_multithreading",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not provided (ruling 2026-08-01): reset/set_instance are unwanted lifecycle mutation, and the *_mt multithreading family does not apply to the single-threaded runtime"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.add_life_cycle_observer",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "lifecycle observers and component lifecycle stay C++-only (recorded native-observer rule; verified 2026-08-01 that no adaptor incl. tornado uses these)"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.remove_life_cycle_observer",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "lifecycle observers and component lifecycle stay C++-only (recorded native-observer rule; verified 2026-08-01 that no adaptor incl. tornado uses these)"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.dispose",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "lifecycle observers and component lifecycle stay C++-only (recorded native-observer rule; verified 2026-08-01 that no adaptor incl. tornado uses these)"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.initialise",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "lifecycle observers and component lifecycle stay C++-only (recorded native-observer rule; verified 2026-08-01 that no adaptor incl. tornado uses these)"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.start",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "lifecycle observers and component lifecycle stay C++-only (recorded native-observer rule; verified 2026-08-01 that no adaptor incl. tornado uses these)"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.stop",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "lifecycle observers and component lifecycle stay C++-only (recorded native-observer rule; verified 2026-08-01 that no adaptor incl. tornado uses these)"
+    },
+    {
+      "module": "hgraph",
+      "name": "REMOVE",
+      "kind": "kind-mismatch",
+      "reason": "sentinel naming and behaviour match upstream (REMOVE strictness recorded 2026-07-17; pinned by ported suites); the concrete sentinel class is a representation choice"
+    },
+    {
+      "module": "hgraph",
+      "name": "REMOVE_IF_EXISTS",
+      "kind": "kind-mismatch",
+      "reason": "sentinel naming and behaviour match upstream (REMOVE strictness recorded 2026-07-17; pinned by ported suites); the concrete sentinel class is a representation choice"
+    },
+    {
+      "module": "hgraph",
+      "name": "REQUIRED",
+      "kind": "kind-mismatch",
+      "reason": "sentinel naming and behaviour match upstream (REMOVE strictness recorded 2026-07-17; pinned by ported suites); the concrete sentinel class is a representation choice"
+    },
+    {
+      "module": "hgraph",
+      "name": "NUMBER",
+      "kind": "kind-mismatch",
+      "reason": "constrained type-variable representation differs (upstream TypeVar vs native-constrained var); wiring resolution behaviour is equivalent and suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "NUMBER_2",
+      "kind": "kind-mismatch",
+      "reason": "constrained type-variable representation differs (upstream TypeVar vs native-constrained var); wiring resolution behaviour is equivalent and suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "TABLE",
+      "kind": "kind-mismatch",
+      "reason": "constrained type-variable representation differs (upstream TypeVar vs native-constrained var); wiring resolution behaviour is equivalent and suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD_OUT",
+      "kind": "kind-mismatch",
+      "reason": "*_OUT markers are IDE-discovery neatness; from a wiring perspective they are the underlying TS kinds (ruling 2026-08-01) \u2014 pyi stubs are an optional future enhancement"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS_OUT",
+      "kind": "kind-mismatch",
+      "reason": "*_OUT markers are IDE-discovery neatness; from a wiring perspective they are the underlying TS kinds (ruling 2026-08-01) \u2014 pyi stubs are an optional future enhancement"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSW_OUT",
+      "kind": "kind-mismatch",
+      "reason": "*_OUT markers are IDE-discovery neatness; from a wiring perspective they are the underlying TS kinds (ruling 2026-08-01) \u2014 pyi stubs are an optional future enhancement"
+    },
+    {
+      "module": "hgraph",
+      "name": "Frame",
+      "kind": "kind-mismatch",
+      "reason": "Frame is first-class here (serialization rulings; RFC 0001) \u2014 the metaclass representation differs by design"
+    },
+    {
+      "module": "hgraph",
+      "name": "default_path",
+      "kind": "kind-mismatch",
+      "reason": "default service path is the empty-string representation; service-path behaviour is pinned by the ported service suites"
+    },
+    {
+      "module": "hgraph",
+      "name": "push_queue",
+      "kind": "signature-mismatch",
+      "reason": "candidate-only additions are allowed extensions (conflate on push_queue, kwargs on reduce, direct-fn decorator forms)"
+    },
+    {
+      "module": "hgraph",
+      "name": "reduce",
+      "kind": "signature-mismatch",
+      "reason": "candidate-only additions are allowed extensions (conflate on push_queue, kwargs on reduce, direct-fn decorator forms)"
+    },
+    {
+      "module": "hgraph",
+      "name": "adaptor_impl",
+      "kind": "signature-mismatch",
+      "reason": "candidate-only additions are allowed extensions (conflate on push_queue, kwargs on reduce, direct-fn decorator forms)"
+    },
+    {
+      "module": "hgraph",
+      "name": "service_adaptor_impl",
+      "kind": "signature-mismatch",
+      "reason": "candidate-only additions are allowed extensions (conflate on push_queue, kwargs on reduce, direct-fn decorator forms)"
+    },
+    {
+      "module": "hgraph",
+      "name": "extract_signature",
+      "kind": "signature-mismatch",
+      "reason": "signature/wiring machinery surface pending the WiringGraphContext review (theme B) \u2014 internal construction, not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "extract_kwargs",
+      "kind": "signature-mismatch",
+      "reason": "signature/wiring machinery surface pending the WiringGraphContext review (theme B) \u2014 internal construction, not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "get_service_inputs",
+      "kind": "signature-mismatch",
+      "reason": "service-stub helper API: first parameter naming reflects the stub-based design; __pre_resolved_types__ pre-resolution is not carried (generic resolution happens natively) \u2014 revisit with the theme-B review if adaptor ports need it"
+    },
+    {
+      "module": "hgraph",
+      "name": "set_service_output",
+      "kind": "signature-mismatch",
+      "reason": "service-stub helper API: first parameter naming reflects the stub-based design; __pre_resolved_types__ pre-resolution is not carried (generic resolution happens natively) \u2014 revisit with the theme-B review if adaptor ports need it"
+    },
+    {
+      "module": "hgraph",
+      "name": "get_context",
+      "kind": "signature-mismatch",
+      "reason": "singleton-callable representation; parameters and defaults are behaviourally equivalent"
+    },
+    {
+      "module": "hgraph",
+      "name": "drop_dups",
+      "kind": "signature-mismatch",
+      "reason": "operator-wrapper introspection on a non-@operator dispatch helper; call shapes match upstream"
     }
   ]
 }
