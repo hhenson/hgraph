@@ -644,6 +644,20 @@ namespace hgraph::python_bridge
         TSInputView       view;
         PyTsLease         lease;
         TSDataStorageRef<> evaluation_data{};
+        const TSDataOps   *python_value_ops{nullptr};
+
+        void refresh_evaluation_data(TSDataStorageRef<> storage,
+                                     bool has_current_value)
+        {
+            evaluation_data = storage;
+            if (!has_current_value || !storage.has_value())
+            {
+                python_value_ops = nullptr;
+                return;
+            }
+            const auto *ops = storage.type_ref().ops();
+            python_value_ops = ops != nullptr && ops->kind == TSTypeKind::TS ? ops : nullptr;
+        }
 
         /** Throws when the view outlived its node's evaluation. */
         void require_alive() const
@@ -661,6 +675,21 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] nb::object value() const
         {
+            if (python_value_ops != nullptr)
+            {
+                // The argument assembler already proved that this atomic TS
+                // has a current value. Retain that fact for the callback so
+                // its common ``ts.value`` read avoids both a schema lookup and
+                // a duplicate has-current-value dispatch.
+                require_alive();
+                nb::object result = python_value_ops->to_python_impl(
+                    python_value_ops->context, evaluation_data.data());
+                if (PySet_CheckExact(result.ptr()))
+                {
+                    return nb::steal(PyFrozenSet_New(result.ptr()));
+                }
+                return result;
+            }
             const auto &v = checked();
             const auto *schema = v.schema();
             if (schema != nullptr && schema->kind == TSTypeKind::TS)
