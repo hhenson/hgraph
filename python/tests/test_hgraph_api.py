@@ -180,6 +180,58 @@ def test_eval_node_scalar_inputs_follow_ts_annotations():
     check(eval_node(total, 4.0, 5.0, 6.0) == [15.0], "scalar eval_node inputs")
 
 
+def test_eval_node_resolution_dict_validates_decorated_targets():
+    @graph
+    def passthrough(tsd: TS[int], scale: int = 1) -> TS[int]:
+        return tsd * scale
+
+    @hg.compute_node
+    def python_passthrough(tsd: TS[int]) -> TS[int]:
+        return tsd.value
+
+    @hg.compute_node
+    def packed_passthrough(*values: TSL[TS[int], Size[2]]) -> TS[int]:
+        return sum(value.value for value in values)
+
+    check(
+        eval_node(passthrough, [1, 2], resolution_dict={"tsd": TS[int]}) == [1, 2],
+        "valid graph resolution",
+    )
+    check(
+        eval_node(python_passthrough, [1, 2], resolution_dict={"tsd": TS[int]}) == [1, 2],
+        "valid node resolution",
+    )
+    check(
+        eval_node(
+            packed_passthrough,
+            [1, 3],
+            [2, 4],
+            resolution_dict={"values": TS[int]},
+        ) == [3, 7],
+        "valid packed vararg resolution",
+    )
+
+    for target in (passthrough, python_passthrough):
+        with pytest.raises(
+            hg.WiringError,
+            match=(
+                r"resolution_dict contains unknown parameter\(s\): 'other', 'ts'; "
+                r"valid time-series parameters: 'tsd'"
+            ),
+        ):
+            eval_node(
+                target,
+                [1],
+                resolution_dict={"ts": TS[str], "other": TS[int]},
+            )
+
+    with pytest.raises(
+        hg.WiringError,
+        match=r"unknown parameter\(s\): 'scale'.*valid time-series parameters: 'tsd'",
+    ):
+        eval_node(passthrough, [1], resolution_dict={"scale": TS[int]})
+
+
 
 
 

@@ -7,10 +7,10 @@ from datetime import timedelta
 
 import _hgraph
 
-from .._types import (_GenericTsExpr, _TsExpr, _TypeVarSentinel,
-                      _type_var_is_scalar)
-from ._core import (WiringPort, _OperatorFunction, _unwrap, _wiring_stack,
-                    wire)
+from .._types import (_ContextExpr, _GenericTsExpr, _TsExpr,
+                      _TypeVarSentinel, _type_var_is_scalar)
+from ._core import (WiringError, WiringPort, _OperatorFunction, _unwrap,
+                    _wiring_stack, wire)
 from ._graph import _GraphFn
 from ._node import _PyNode
 from ._sentinels import _simplify_delta
@@ -419,6 +419,33 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
               if p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)]
     param_names = {p.name for p in params}
     annotations_by_name = {p.name: p.annotation for p in params}
+
+    # Decorated Python graphs and nodes expose an authoritative set of
+    # time-series inputs. Reject misspellings before they silently fall
+    # through to inference. Native operators deliberately retain their
+    # positional/variadic resolution fallback because overload families do
+    # not yet expose one complete set of accepted parameter names.
+    if resolution_dict and isinstance(fn, (_GraphFn, _PyNode)):
+        if isinstance(fn, _PyNode):
+            # Vararg nodes rewrite their runtime callable to receive one
+            # packed TSL/TSB input, so inspect.signature(fn.fn) no longer
+            # carries the original annotation. _ts_names is calculated from
+            # the user signature before that rewrite.
+            resolution_parameters = fn._ts_names - {
+                param.name for param in fn._params
+                if isinstance(param.annotation, _ContextExpr)
+            }
+        else:
+            resolution_parameters = fn.signature.time_series_args
+        unknown_parameters = set(resolution_dict) - resolution_parameters
+        if unknown_parameters:
+            unknown = ", ".join(repr(name) for name in sorted(
+                unknown_parameters, key=repr))
+            valid = ", ".join(repr(name) for name in sorted(
+                resolution_parameters, key=repr)) or "<none>"
+            raise WiringError(
+                f"eval_node resolution_dict contains unknown parameter(s): {unknown}; "
+                f"valid time-series parameters: {valid}")
 
     pinned_scope = None
     if isinstance(fn, _PyNode) and fn._pins:
