@@ -5,7 +5,6 @@
  * RuntimeGlobalState, RecordableStateView, clock/scheduler), including the
  * enum/sentinel slot setters.
  */
-#include "py_eval_notifications.h"
 #include "py_runtime.h"
 #include "py_wiring.h"
 #include "py_bindings.h"
@@ -23,7 +22,37 @@ namespace hgraph::python_bridge
             CPython's attribute lookup, where def_prop_ro routes through an
             nb_func vectorcall (~15-20ns per read on the python-node
             boundary). */
+/** Wrap a python callable for the C++ notification queues: the call
+    AND the eventual destruction of the captured object both re-acquire
+    the GIL (the engine drains and destroys queue entries outside any
+    python scope). */
+[[nodiscard]] inline std::function<void()> py_notification_thunk(nb::object fn)
+{
+    struct GilSafeCallable
+    {
+        PyObject *fn;
+        explicit GilSafeCallable(nb::object object) : fn(object.release().ptr()) {}
+        ~GilSafeCallable()
+        {
+            if (fn != nullptr)
+            {
+                const PyGILState_STATE gil = PyGILState_Ensure();
+                Py_DECREF(fn);
+                PyGILState_Release(gil);
+            }
+        }
+    };
+    auto holder = std::make_shared<GilSafeCallable>(std::move(fn));
+    return [holder]() {
+        const PyGILState_STATE gil = PyGILState_Ensure();
+        auto release = UnwindCleanupGuard([&]() noexcept { PyGILState_Release(gil); });
+        nb::borrow<nb::object>(nb::handle(holder->fn))();
+        release.complete();
+    };
+}
+
         template <auto Member>
+
         PyObject *py_ts_raw_get(PyObject *self, void *) noexcept
         {
             return py_error_on_exception<PyObject *>(nullptr, [&] {
@@ -719,23 +748,19 @@ namespace hgraph::python_bridge
         .def_prop_ro("next_cycle_evaluation_time",
                      [](const PyEvalClock &clock) { return clock.next_cycle_evaluation_time; });
     nb::class_<PyEvaluationEngineApi>(m, "EvaluationEngineApi")
-        // One-shot cycle-boundary notifications (theme-C ruling 2026-08-01;
-        // lifecycle observers themselves stay C++-only).
+        // One-shot cycle-boundary notifications: python sugar over the
+        // C++-primary EngineControlView facility (C++-first ruling; the
+        // wrapper re-acquires the GIL because drains run outside the
+        // cycle hold). Lifecycle observers themselves stay C++-only.
         .def("add_before_evaluation_notification",
              [](PyEvaluationEngineApi &self, nb::object fn) {
-                 static_cast<void>(self.checked());
-                 if (auto *notifications = py_active_eval_notifications; notifications != nullptr)
-                 {
-                     notifications->add_before(std::move(fn));
-                 }
+                 self.checked().add_before_evaluation_notification(
+                     py_notification_thunk(std::move(fn)));
              })
         .def("add_after_evaluation_notification",
              [](PyEvaluationEngineApi &self, nb::object fn) {
-                 static_cast<void>(self.checked());
-                 if (auto *notifications = py_active_eval_notifications; notifications != nullptr)
-                 {
-                     notifications->add_after(std::move(fn));
-                 }
+                 self.checked().add_after_evaluation_notification(
+                     py_notification_thunk(std::move(fn)));
              })
         .def_prop_ro("evaluation_mode", [](const PyEvaluationEngineApi &self) {
             return self.checked().mode() == GraphExecutorMode::RealTime ? "real_time" : "simulation";

@@ -57,3 +57,47 @@ TEST_CASE("stop_engine: the current cycle completes and later cycles do not run"
     CHECK_OUTPUT(eval_node<StopAfterFirstGraph>(values<bool>(true, true, true)),
                  {true, none, none});
 }
+
+namespace
+{
+    // One-shot cycle-boundary notifications (2026-08-01): the C++-primary
+    // facility behind python's add_*_evaluation_notification.
+    std::vector<std::string> &notification_log()
+    {
+        static std::vector<std::string> log;
+        return log;
+    }
+
+    struct NotificationProbe
+    {
+        static constexpr auto name = "notification_probe";
+
+        static void eval(In<"trigger", TS<Int>> trigger, EngineControlView engine,
+                         Out<TS<Int>> out)
+        {
+            const auto tick = trigger.value();
+            notification_log().push_back("eval-" + std::to_string(tick));
+            engine.add_after_evaluation_notification(
+                [tick] { notification_log().push_back("after-" + std::to_string(tick)); });
+            engine.add_before_evaluation_notification(
+                [tick] { notification_log().push_back("before-next-" + std::to_string(tick)); });
+            out.set(tick);
+        }
+    };
+}  // namespace
+
+TEST_CASE("engine control: one-shot evaluation notifications fire at cycle boundaries")
+{
+    notification_log().clear();
+
+    CHECK_OUTPUT(eval_node<NotificationProbe>(values<Int>(1, 2)), values<Int>(1, 2));
+
+    // after-N at the end of N's cycle; before-next-N before the following
+    // cycle; each exactly once (a re-queue would duplicate entries).
+    const std::vector<std::string> expected{
+        "eval-1", "after-1", "before-next-1", "eval-2", "after-2"};
+    CHECK(std::vector<std::string>(notification_log().begin(),
+                                   notification_log().begin() +
+                                       std::min<std::size_t>(5, notification_log().size())) ==
+          expected);
+}

@@ -155,8 +155,8 @@ def _log_evaluation_profile(logger, snapshot):
 
 
 def evaluate_graph(graph, config=None, *args, **kwargs):
-    fn = graph
     """Run ``fn`` under a :class:`GraphConfiguration`."""
+    fn = graph
     return _evaluate_graph(fn, config or GraphConfiguration(), args, kwargs)
 
 def _times_for(values, start_time):
@@ -189,13 +189,13 @@ def run_graph(
         __trace_back_depth__=1,
         __capture_values__=False,
         **kwargs):
-    graph_fn = graph
     """Wire and evaluate ``graph_fn`` in simulation. Returns hgraph's
     evaluate_graph shape - [(time, value), ...] of the graph output ticks -
     or None for sink graphs. ``end_time`` bounds the run (REQUIRED for
     self-perpetuating graphs, e.g. bound feedback loops). NOTE
     (divergence): the simulation clock is cycle-aligned from MIN_ST in
     MIN_TD steps."""
+    graph_fn = graph
     del print_progress  # progress rendering is a presentation concern
     config = GraphConfiguration(
         run_mode=run_mode,

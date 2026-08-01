@@ -133,3 +133,15 @@ above); revisit this split only if that proves insufficient.
 ``PushMessageReceiver``
     Queue of external messages addressed to push-source nodes. Each queued item is logically ``(node_index, message)``.
 
+One-shot evaluation notifications
+---------------------------------
+
+``EngineControlView::add_before/after_evaluation_notification`` (2026-08-01)
+queue one-shot callables on the executor storage, drained by the run loop at
+the root cycle boundaries (before the next ``graph.evaluate``; right after it
+— i.e. before any real-time wait). One-shot semantics swap the queue before
+draining, so a callback that re-queues itself fires at the NEXT boundary;
+exceptions propagate as run failures. This is the C++-primary facility behind
+python's ``EvaluationEngineApi.add_*_evaluation_notification`` — the bridge
+wraps python callables in GIL-acquiring thunks whose captured object is also
+destroyed under the GIL.

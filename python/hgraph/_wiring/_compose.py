@@ -178,23 +178,23 @@ class DelayedBinding:
 
 
 def passive(ts):
-    port = ts
     """hgraph's passive marker: the receiving node's input for THIS usage is
     removed from its active list (ticks no longer schedule the node; values
     still read normally). Returns a marked copy - the original port is
     unaffected."""
+    port = ts
     return WiringPort(_hgraph.passive(_unwrap(port)))
 
 
 def pass_through(tsd):
-    ts = tsd
     """map_'s pass-through marker: do NOT demultiplex this argument."""
+    ts = tsd
     return WiringPort(_hgraph.pass_through_tag(_unwrap(ts)))
 
 
 def no_key(tsd):
-    ts = tsd
     """map_'s no-key marker: demultiplex, but exclude from key inference."""
+    ts = tsd
     return WiringPort(_hgraph.no_key_tag(_unwrap(ts)))
 
 
@@ -209,8 +209,8 @@ def feedback(tp_or_wp, default=None):
 
 
 def delayed_binding(tp_):
-    tp_or_wp = tp_
     """Create a typed source placeholder and bind its producer later."""
+    tp_or_wp = tp_
     from .._types import _TsExpr
 
     w = _current_wiring()

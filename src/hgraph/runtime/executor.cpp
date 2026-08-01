@@ -71,6 +71,10 @@ namespace hgraph
             std::uint32_t    immediate_cycle_limit{0};
             std::uint32_t    consecutive_immediate_cycles{0};
             ErrorCaptureOptions error_capture_options{};
+            // One-shot cycle-boundary notifications (2026-08-01): drained by
+            // the run loop at the root cycle boundaries; eval-thread only.
+            std::vector<std::function<void()>> before_evaluation_notifications{};
+            std::vector<std::function<void()>> after_evaluation_notifications{};
             std::atomic_bool stop_requested{false};
             bool             cleanup_on_error{true};
             bool             run_logging_enabled{false};
@@ -111,6 +115,10 @@ namespace hgraph
             std::uint32_t                consecutive_immediate_cycles{0};
             ErrorCaptureOptions          error_capture_options{};
             bool                         cleanup_on_error{true};
+            // One-shot cycle-boundary notifications (2026-08-01): drained by
+            // the run loop at the root cycle boundaries; eval-thread only.
+            std::vector<std::function<void()>> before_evaluation_notifications{};
+            std::vector<std::function<void()>> after_evaluation_notifications{};
 
             mutable std::mutex           mutex{};
             std::condition_variable      condition{};
@@ -407,6 +415,17 @@ namespace hgraph
             throw RecursiveEvaluationError(message);
         }
 
+        /** One-shot semantics: swap first so a callback that re-queues
+            itself fires at the NEXT boundary; exceptions propagate (a failing
+            notification is a run failure). */
+        inline void drain_evaluation_notifications(std::vector<std::function<void()>> &queue)
+        {
+            if (queue.empty()) { return; }
+            std::vector<std::function<void()>> pending;
+            pending.swap(queue);
+            for (auto &fn : pending) { fn(); }
+        }
+
         template <typename Storage, typename Advance>
         void run_storage(Storage &state, Advance advance)
         {
@@ -467,7 +486,9 @@ namespace hgraph
                 auto remove_recorder = UnwindCleanupGuard([&] {
                     if (recording_this_cycle) { state.lifecycle_observers.remove(&recorder); }
                 });
+                drain_evaluation_notifications(state.before_evaluation_notifications);
                 const bool completed = graph.evaluate(evaluation_time);
+                drain_evaluation_notifications(state.after_evaluation_notifications);
                 remove_recorder.complete();
                 if (recording_this_cycle) { recorded_cycle = true; }
                 if (!completed)
@@ -510,6 +531,22 @@ namespace hgraph
             state.stop_requested.store(true, std::memory_order_release);
             std::lock_guard lock{state.mutex};
             state.condition.notify_all();
+        }
+
+        void simulation_add_evaluation_notification_impl(const void *, void *memory,
+                                                          std::function<void()> fn, bool before)
+        {
+            auto &state = simulation_storage(memory);
+            (before ? state.before_evaluation_notifications
+                    : state.after_evaluation_notifications).push_back(std::move(fn));
+        }
+
+        void realtime_add_evaluation_notification_impl(const void *, void *memory,
+                                                       std::function<void()> fn, bool before)
+        {
+            auto &state = realtime_storage(memory);
+            (before ? state.before_evaluation_notifications
+                    : state.after_evaluation_notifications).push_back(std::move(fn));
         }
 
         bool simulation_stop_requested_impl(const void *, const void *memory) noexcept
@@ -614,6 +651,7 @@ namespace hgraph
                 .context = context,
                 .run_impl = &simulation_run_impl,
                 .request_stop_impl = &simulation_request_stop_impl,
+                .add_evaluation_notification_impl = &simulation_add_evaluation_notification_impl,
                 .stop_requested_impl = &simulation_stop_requested_impl,
                 .start_time_impl = &simulation_start_time_impl,
                 .end_time_impl = &simulation_end_time_impl,
@@ -636,6 +674,7 @@ namespace hgraph
                 .context = context,
                 .run_impl = &realtime_run_impl,
                 .request_stop_impl = &realtime_request_stop_impl,
+                .add_evaluation_notification_impl = &realtime_add_evaluation_notification_impl,
                 .stop_requested_impl = &realtime_stop_requested_impl,
                 .start_time_impl = &realtime_start_time_impl,
                 .end_time_impl = &realtime_end_time_impl,
@@ -931,6 +970,30 @@ namespace hgraph
     void EngineControlView::request_stop() const noexcept
     {
         GraphExecutorView{pointer_}.request_stop();
+    }
+
+    void EngineControlView::add_before_evaluation_notification(std::function<void()> fn) const
+    {
+        GraphExecutorView view{pointer_};
+        if (!view.valid()) { throw std::logic_error("no active graph executor"); }
+        const auto &table = view.type().ops_ref();
+        if (table.add_evaluation_notification_impl == nullptr)
+        {
+            throw std::logic_error("executor does not support evaluation notifications");
+        }
+        table.add_evaluation_notification_impl(table.context, view.data(), std::move(fn), true);
+    }
+
+    void EngineControlView::add_after_evaluation_notification(std::function<void()> fn) const
+    {
+        GraphExecutorView view{pointer_};
+        if (!view.valid()) { throw std::logic_error("no active graph executor"); }
+        const auto &table = view.type().ops_ref();
+        if (table.add_evaluation_notification_impl == nullptr)
+        {
+            throw std::logic_error("executor does not support evaluation notifications");
+        }
+        table.add_evaluation_notification_impl(table.context, view.data(), std::move(fn), false);
     }
 
     GraphExecutorView::GraphExecutorView() noexcept = default;
