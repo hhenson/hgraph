@@ -655,8 +655,8 @@ namespace hgraph::python_bridge
                 python_value_ops = nullptr;
                 return;
             }
-            const auto &ops = storage.ops();
-            python_value_ops = ops.kind == TSTypeKind::TS ? &ops : nullptr;
+            const auto *ops = storage.type_ref().ops();
+            python_value_ops = ops != nullptr && ops->kind == TSTypeKind::TS ? ops : nullptr;
         }
 
         /** Throws when the view outlived its node's evaluation. */
