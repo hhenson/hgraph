@@ -57,6 +57,27 @@ namespace
         }
     };
 
+    struct PhaseRunnerIdentityNode
+    {
+        [[maybe_unused]] static constexpr auto name = "phase_runner_identity_node";
+        static constexpr bool requires_phase_runner = true;
+
+        static void eval(In<"value", TS<Int>> value, Out<TS<Int>> out)
+        {
+            out.set(value.value());
+        }
+    };
+
+    struct PhaseRunnerIdentityGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "phase_runner_identity_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value)
+        {
+            return wire<PhaseRunnerIdentityNode>(w, value).as<TS<Int>>();
+        }
+    };
+
     void require_arrow(const arrow::Status &status)
     {
         if (!status.ok())
@@ -154,6 +175,72 @@ TEST_CASE("lower executes a C++ graph over staggered Arrow frame inputs")
     CHECK(value_at(*result, 2) == Int{6});
     const std::vector<std::string> expected_columns{"date", "value"};
     CHECK(frame_column_names(*result) == expected_columns);
+}
+
+TEST_CASE("lower forwards its executor phase runner")
+{
+    stdlib::register_standard_operators();
+    const std::array inputs{
+        input_frame({{MIN_ST, Int{1}}, {MIN_ST + MIN_TD, Int{2}}}),
+        input_frame({{MIN_ST, Int{3}}, {MIN_ST + MIN_TD * 2, Int{4}}}),
+    };
+
+    std::vector<GraphExecutorPhase> phases;
+    stdlib::LowerOptions options;
+    options.phase_runner = [&](GraphExecutorPhase phase,
+                               GraphExecutorPhaseAction action) {
+        phases.push_back(phase);
+        action();
+    };
+    const auto result = stdlib::lower<AddGraph>(inputs, std::move(options));
+
+    REQUIRE(result.has_value());
+    REQUIRE(phases.size() == 5);
+    CHECK(phases.front() == GraphExecutorPhase::Start);
+    CHECK(phases[1] == GraphExecutorPhase::Evaluation);
+    CHECK(phases[2] == GraphExecutorPhase::Evaluation);
+    CHECK(phases[3] == GraphExecutorPhase::Evaluation);
+    CHECK(phases.back() == GraphExecutorPhase::Stop);
+}
+
+TEST_CASE("lower can restrict its phase runner to opted-in graph plans")
+{
+    stdlib::register_standard_operators();
+    const std::array inputs{
+        input_frame({{MIN_ST, Int{1}}, {MIN_ST + MIN_TD, Int{2}}}),
+    };
+
+    std::vector<GraphExecutorPhase> native_phases;
+    stdlib::LowerOptions native_options;
+    native_options.phase_runner_requires_graph_opt_in = true;
+    native_options.phase_runner = [&](GraphExecutorPhase phase,
+                                      GraphExecutorPhaseAction action) {
+        native_phases.push_back(phase);
+        action();
+    };
+    const auto native_result = stdlib::lower<IdentityGraph>(inputs,
+                                                            std::move(native_options));
+    REQUIRE(native_result.has_value());
+    CHECK(native_phases.empty());
+
+    std::vector<GraphExecutorPhase> opted_in_phases;
+    stdlib::LowerOptions opted_in_options;
+    opted_in_options.phase_runner_requires_graph_opt_in = true;
+    opted_in_options.phase_runner = [&](GraphExecutorPhase phase,
+                                        GraphExecutorPhaseAction action) {
+        opted_in_phases.push_back(phase);
+        action();
+    };
+    const auto opted_in_result = stdlib::lower<PhaseRunnerIdentityGraph>(
+        inputs, std::move(opted_in_options));
+    REQUIRE(opted_in_result.has_value());
+    const std::vector expected{
+        GraphExecutorPhase::Start,
+        GraphExecutorPhase::Evaluation,
+        GraphExecutorPhase::Evaluation,
+        GraphExecutorPhase::Stop,
+    };
+    CHECK(opted_in_phases == expected);
 }
 
 TEST_CASE("lower can retain one fixed as-of column and keeps private state private")

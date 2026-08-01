@@ -217,6 +217,8 @@ namespace hgraph
         SingleNestedGraphNodeSpec spec,
         SingleNestedGraphNodeOptions options)
     {
+        meta.requires_phase_runner =
+            meta.requires_phase_runner || spec.graph_builder.requires_phase_runner();
         if (spec.output_binding.has_value() && !options.manage_output_externally)
         {
             if (meta.output_schema == nullptr)

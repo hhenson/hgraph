@@ -33,6 +33,11 @@ namespace hgraph::stdlib
         std::optional<DateTime> as_of{};
         /** Borrowed; must outlive the prepared execution and its run. */
         LifecycleObserver *observer{nullptr};
+        /** Optional lexical wrapper for each complete executor phase. */
+        GraphExecutorPhaseRunner phase_runner{};
+        /** Install ``phase_runner`` only when the finished graph or a nested
+            child plan opts into it. */
+        bool phase_runner_requires_graph_opt_in{false};
     };
 
     /**

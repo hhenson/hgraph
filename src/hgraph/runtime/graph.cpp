@@ -1907,6 +1907,12 @@ std::size_t GraphBuilder::node_count() const noexcept { return nodes_.size(); }
 const std::vector<NodeBuilder> &GraphBuilder::nodes() const noexcept {
   return nodes_;
 }
+bool GraphBuilder::requires_phase_runner() const noexcept {
+  return std::ranges::any_of(nodes_, [](const NodeBuilder &node) {
+    const auto *schema = node.type().schema();
+    return schema != nullptr && schema->requires_phase_runner;
+  });
+}
 const std::vector<GraphEdge> &GraphBuilder::edges() const noexcept {
   return edges_;
 }

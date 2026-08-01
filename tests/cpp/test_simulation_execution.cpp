@@ -29,9 +29,11 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -107,6 +109,22 @@ namespace
         static void           eval(In<"in", TS<std::int32_t>> in, Out<TS<std::int32_t>> out) { out.set(in.value() + 1); }
     };
 
+    struct PhaseRunnerNode
+    {
+        static constexpr auto name                  = "phase_runner_node";
+        static constexpr bool requires_phase_runner = true;
+        static void eval(In<"input", TS<std::int32_t>>) {}
+    };
+
+    struct PhaseRunnerGraph
+    {
+        static constexpr auto name = "phase_runner_graph";
+        static void compose(Wiring &w)
+        {
+            wire<PhaseRunnerNode>(w, wire<TickingSource>(w, 1));
+        }
+    };
+
     struct TickGraph
     {
         static constexpr auto name = "tick_graph";
@@ -117,6 +135,16 @@ namespace
         }
     };
 }  // namespace
+
+TEST_CASE("graph builder records a static node phase-runner requirement")
+{
+    using namespace hgraph;
+
+    GraphBuilder graph_builder = build_graph<PhaseRunnerGraph>();
+    REQUIRE(graph_builder.node_count() == 2);
+    CHECK(graph_builder.nodes().back().type().schema()->requires_phase_runner);
+    CHECK(graph_builder.requires_phase_runner());
+}
 
 TEST_CASE("simulation: a constant source drives exactly one cycle (no tick injection yet)")
 {
@@ -153,6 +181,220 @@ TEST_CASE("simulation: a constant source drives exactly one cycle (no tick injec
     // reschedules and the loop ends. This pins the current limitation.
     CHECK(source_evals == 1);
     CHECK(add_one_evals == 1);
+}
+
+TEST_CASE("simulation: phase runner wraps each complete executor phase once")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int   = registry.ts(int_meta);
+
+    std::optional<GraphExecutorPhase> active_phase;
+    std::vector<GraphExecutorPhase>   runner_phases;
+    std::vector<GraphExecutorPhase>   node_phases;
+    std::vector<GraphExecutorPhase>   notification_phases;
+
+    NodeTypeMetaData schema;
+    schema.display_name      = "phase_observer_source";
+    schema.output_schema     = ts_int;
+    schema.node_kind         = NodeKind::PullSource;
+    schema.schedule_on_start = true;
+    NodeCallbacks callbacks;
+    callbacks.start = [&](const NodeView &view, DateTime) {
+        REQUIRE(active_phase == GraphExecutorPhase::Start);
+        node_phases.push_back(*active_phase);
+        const EngineControlView engine = view.graph().executor().engine_control();
+        engine.add_before_evaluation_notification([&] {
+            REQUIRE(active_phase == GraphExecutorPhase::Evaluation);
+            notification_phases.push_back(*active_phase);
+        });
+        engine.add_after_evaluation_notification([&] {
+            REQUIRE(active_phase == GraphExecutorPhase::Evaluation);
+            notification_phases.push_back(*active_phase);
+        });
+    };
+    callbacks.evaluate = [&](const NodeView &view, DateTime evaluation_time) {
+        REQUIRE(active_phase == GraphExecutorPhase::Evaluation);
+        node_phases.push_back(*active_phase);
+        testing::set_output_value(view, evaluation_time, 1);
+    };
+    callbacks.stop = [&](const NodeView &, DateTime) {
+        REQUIRE(active_phase == GraphExecutorPhase::Stop);
+        node_phases.push_back(*active_phase);
+    };
+
+    GraphBuilder graph_builder;
+    graph_builder.add_node(
+        NodeBuilder::native(std::move(schema), std::move(callbacks)));
+
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph_builder))
+        .start_time(MIN_ST)
+        .end_time(MIN_ST + TimeDelta{3})
+        .phase_runner([&](GraphExecutorPhase phase,
+                          GraphExecutorPhaseAction action) {
+            REQUIRE_FALSE(active_phase.has_value());
+            active_phase = phase;
+            runner_phases.push_back(phase);
+            try
+            {
+                action();
+            }
+            catch (...)
+            {
+                active_phase.reset();
+                throw;
+            }
+            active_phase.reset();
+        });
+
+    GraphExecutorValue executor = executor_builder.make_executor();
+    executor.view().run();
+
+    REQUIRE(runner_phases.size() == 3);
+    CHECK(runner_phases[0] == GraphExecutorPhase::Start);
+    CHECK(runner_phases[1] == GraphExecutorPhase::Evaluation);
+    CHECK(runner_phases[2] == GraphExecutorPhase::Stop);
+    CHECK(node_phases == runner_phases);
+    REQUIRE(notification_phases.size() == 2);
+    CHECK(notification_phases[0] == GraphExecutorPhase::Evaluation);
+    CHECK(notification_phases[1] == GraphExecutorPhase::Evaluation);
+    CHECK_FALSE(active_phase.has_value());
+}
+
+TEST_CASE("simulation: phase runner unwinds before failed-run cleanup")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int   = registry.ts(int_meta);
+
+    NodeTypeMetaData schema;
+    schema.display_name      = "failing_phase_source";
+    schema.output_schema     = ts_int;
+    schema.node_kind         = NodeKind::PullSource;
+    schema.schedule_on_start = true;
+    NodeCallbacks callbacks;
+    callbacks.evaluate = [](const NodeView &, DateTime) {
+        throw std::runtime_error("phase failure");
+    };
+
+    GraphBuilder graph_builder;
+    graph_builder.add_node(
+        NodeBuilder::native(std::move(schema), std::move(callbacks)));
+
+    std::optional<GraphExecutorPhase> active_phase;
+    std::vector<GraphExecutorPhase>   runner_phases;
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph_builder))
+        .start_time(MIN_ST)
+        .end_time(MIN_ST + TimeDelta{3})
+        .phase_runner([&](GraphExecutorPhase phase,
+                          GraphExecutorPhaseAction action) {
+            REQUIRE_FALSE(active_phase.has_value());
+            active_phase = phase;
+            runner_phases.push_back(phase);
+            try
+            {
+                action();
+            }
+            catch (...)
+            {
+                active_phase.reset();
+                throw;
+            }
+            active_phase.reset();
+        });
+
+    GraphExecutorValue executor = executor_builder.make_executor();
+    CHECK_THROWS_AS(executor.view().run(), std::runtime_error);
+    REQUIRE(runner_phases.size() == 3);
+    CHECK(runner_phases[0] == GraphExecutorPhase::Start);
+    CHECK(runner_phases[1] == GraphExecutorPhase::Evaluation);
+    CHECK(runner_phases[2] == GraphExecutorPhase::Stop);
+    CHECK_FALSE(active_phase.has_value());
+}
+
+TEST_CASE("simulation: retained failed run enters its stop phase at destruction")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int   = registry.ts(int_meta);
+
+    std::optional<GraphExecutorPhase> active_phase;
+    std::vector<GraphExecutorPhase>   runner_phases;
+    std::vector<GraphExecutorPhase>   node_phases;
+
+    NodeTypeMetaData schema;
+    schema.display_name      = "retained_failing_phase_source";
+    schema.output_schema     = ts_int;
+    schema.node_kind         = NodeKind::PullSource;
+    schema.schedule_on_start = true;
+    NodeCallbacks callbacks;
+    callbacks.evaluate = [&](const NodeView &, DateTime) {
+        REQUIRE(active_phase == GraphExecutorPhase::Evaluation);
+        node_phases.push_back(*active_phase);
+        throw std::runtime_error("retained phase failure");
+    };
+    callbacks.stop = [&](const NodeView &, DateTime) {
+        REQUIRE(active_phase == GraphExecutorPhase::Stop);
+        node_phases.push_back(*active_phase);
+    };
+
+    GraphBuilder graph_builder;
+    graph_builder.add_node(
+        NodeBuilder::native(std::move(schema), std::move(callbacks)));
+
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph_builder))
+        .start_time(MIN_ST)
+        .end_time(MIN_ST + TimeDelta{3})
+        .cleanup_on_error(false)
+        .phase_runner([&](GraphExecutorPhase phase,
+                          GraphExecutorPhaseAction action) {
+            REQUIRE_FALSE(active_phase.has_value());
+            active_phase = phase;
+            runner_phases.push_back(phase);
+            try
+            {
+                action();
+            }
+            catch (...)
+            {
+                active_phase.reset();
+                throw;
+            }
+            active_phase.reset();
+        });
+
+    {
+        GraphExecutorValue executor = executor_builder.make_executor();
+        CHECK_THROWS_AS(executor.view().run(), std::runtime_error);
+        const std::vector before_destruction{
+            GraphExecutorPhase::Start,
+            GraphExecutorPhase::Evaluation,
+        };
+        CHECK(runner_phases == before_destruction);
+        CHECK(node_phases ==
+              (std::vector<GraphExecutorPhase>{GraphExecutorPhase::Evaluation}));
+    }
+
+    const std::vector after_destruction{
+        GraphExecutorPhase::Start,
+        GraphExecutorPhase::Evaluation,
+        GraphExecutorPhase::Stop,
+    };
+    CHECK(runner_phases == after_destruction);
+    CHECK(node_phases == (std::vector{
+        GraphExecutorPhase::Evaluation,
+        GraphExecutorPhase::Stop,
+    }));
+    CHECK_FALSE(active_phase.has_value());
 }
 
 TEST_CASE("simulation: a node that does not schedule itself in start is never evaluated")

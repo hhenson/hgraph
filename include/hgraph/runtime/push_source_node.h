@@ -132,7 +132,8 @@ namespace hgraph
     [[nodiscard]] HGRAPH_EXPORT NodeBuilder make_push_source_node(
         const TSValueTypeMetaData &output_schema,
         PushSourcePolicy policy,
-        PushSourceStartCallback on_start = {});
+        PushSourceStartCallback on_start = {},
+        bool requires_phase_runner = false);
 
     [[nodiscard]] HGRAPH_EXPORT NodeBuilder make_push_source_node(
         const TSValueTypeMetaData &output_schema,

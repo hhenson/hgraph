@@ -145,9 +145,10 @@ NB_MODULE(_hgraph, m)
                                "' has no registered python member '" + name + "'");
     };
 
-    // Route the diagnostic sinks (debug_print / print_) through python's
-    // sys.stdout/sys.stderr so redirection and pytest capture behave like
-    // hgraph's python prints (the run loop releases the GIL - acquire).
+    // Route the diagnostic sinks (debug_print / print_) through Python's
+    // sys.stdout/sys.stderr. These are native nodes whose schema does not
+    // otherwise require the Python phase runner, so the adapter retains its
+    // own guard.
     stdlib::io_write_slot() = [](std::string_view line, bool to_stdout) {
         nb::gil_scoped_acquire gil;
         nb::object stream = nb::module_::import_("sys").attr(to_stdout ? "stdout" : "stderr");

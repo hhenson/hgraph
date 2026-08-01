@@ -1,24 +1,18 @@
 /**
  * Python user nodes (@compute_node / @generator / @sink_node).
- * Ruling (refined 2026-07-30): graph-thread only, both modes; the GIL is
- * RELEASED on entering the run loop and held COARSE-GRAINED per cycle once
- * the run is known to contain python nodes: the node START trampolines call
- * py_cycle_gil_note_python_call() (once per node instance — the note's
- * thread-local read stays off the per-tick path; general-dynamic TLS
- * through this .so is the expensive access pattern), which arms
- * PyCycleGilObserver to take the GIL at each root cycle start and release
- * it at cycle end. Every trampoline keeps its ordinary
- * nb::gil_scoped_acquire — a cheap recursive ensure while the cycle holds
- * the lock. The startless diagnostic nodes (type_py / getattr_type_name)
- * keep plain per-call acquires. Values cross the boundary through the
- * module converters.
+ * Ruling (refined 2026-08-01): graph-thread only, both modes; the GIL is
+ * RELEASED on entering the native run loop. The Python bridge's executor
+ * phase runner holds one ordinary ``nb::gil_scoped_acquire`` across the
+ * complete root start phase, each complete evaluation cycle, and the complete
+ * stop phase. These node trampolines therefore run under that phase guard and
+ * do not acquire independently. Values cross the boundary through the module
+ * converters.
  *
  * Everything here is TU-local by design (the node/op structs' typeid IS
  * node identity, but registration happens only in this file through
  * register_python_overloads()).
  */
 #include "py_bindings.h"
-#include "py_cycle_gil.h"
 #include "py_runtime.h"
 
 namespace nb = nanobind;
@@ -861,13 +855,9 @@ void py_call_lifecycle(const PyNodeRef &fn, bool enabled,
                        GlobalStateView global_state, EngineControlView engine,
                        const NodeView &node,
                        const TSInputView *inputs = nullptr) {
-  // Arms the per-cycle GIL hold (start/stop run once per node instance —
-  // the note's thread-local read stays OFF the per-tick path).
-  py_cycle_gil_note_python_call();
   if (!enabled) {
     return;
   }
-  nb::gil_scoped_acquire gil;
   translate_python_error([&] {
     nb::list call_args;
     std::optional<nb::list> context_values;
@@ -891,6 +881,7 @@ struct py_compute_node {
   static constexpr std::string_view implementation_label =
       "hgraph.python.compute";
   static constexpr bool uses_python_values = true;
+  static constexpr bool requires_phase_runner = true;
   using signature_args = std::tuple<
       In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>,
       Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
@@ -932,7 +923,6 @@ struct py_compute_node {
        NodeScheduler scheduler, DateTime now, GlobalStateView global_state,
        EngineControlView engine, NodeView node, Out<TsVar<"O">> out) {
     const PyCallShape shape = parse_py_call_shape(config.value());
-    nb::gil_scoped_acquire gil;
     translate_python_error([&] {
       nb::list call_args;
       std::optional<nb::list> context_values;
@@ -986,6 +976,7 @@ struct py_fast_compute_node {
   static constexpr std::string_view implementation_label =
       "hgraph.python.compute.fast";
   static constexpr bool uses_python_values = true;
+  static constexpr bool requires_phase_runner = true;
   using signature_args = std::tuple<
       In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>,
       Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
@@ -1007,7 +998,6 @@ struct py_fast_compute_node {
         Scalar<"scalars", ScalarVar<"SV">> scalars,
         State<PyFastComputeStateRef> state, SingleShotScheduler initial_sample,
         GlobalStateView global_state, Out<TsVar<"O">> out) {
-    py_cycle_gil_note_python_call();
     PyCallShape shape = parse_py_call_shape(config.value());
     py_apply_input_activity(shape.layout, args.base());
     py_schedule_initial_reference_sample(shape.layout, args.base(),
@@ -1054,7 +1044,6 @@ struct py_fast_compute_node {
       throw std::logic_error("fast python node has no runtime cache");
     }
 
-    nb::gil_scoped_acquire gil;
     translate_python_error([&] {
       auto lease = py_ts_lease_for_call();
       auto invalid = UnwindCleanupGuard([&] { lease.invalidate(); });
@@ -1128,7 +1117,6 @@ struct py_fast_compute_node {
   stop(In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>
            args,
        Scalar<"config", Str> config, State<PyFastComputeStateRef> state) {
-    nb::gil_scoped_acquire gil;
     std::unique_ptr<PyFastComputeCache> cache{state.get().cache};
     state.set(PyFastComputeStateRef{});
     if (cache != nullptr && cache->input_object != nullptr) {
@@ -1156,6 +1144,7 @@ struct py_compute_recordable_node {
   static constexpr std::string_view implementation_label =
       "hgraph.python.compute_recordable";
   static constexpr bool uses_python_values = true;
+  static constexpr bool requires_phase_runner = true;
   using signature_args = std::tuple<
       In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>,
       Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
@@ -1190,14 +1179,12 @@ struct py_compute_recordable_node {
         RecordableState<TsVar<"RS">> state, NodeScheduler scheduler,
         SingleShotScheduler initial_sample, GlobalStateView global_state,
         EngineControlView engine, NodeView node) {
-    py_cycle_gil_note_python_call();
     const auto layout = parse_py_call_shape(eval_config.value()).layout;
     py_apply_input_activity(layout, args.base());
     py_schedule_initial_reference_sample(layout, args.base(), initial_sample);
     if (!enabled.value()) {
       return;
     }
-    nb::gil_scoped_acquire gil;
     translate_python_error([&] {
       nb::list call_args;
       auto lease = py_ts_lease_for_call();
@@ -1227,7 +1214,6 @@ struct py_compute_recordable_node {
        DateTime now, GlobalStateView global_state, EngineControlView engine,
        NodeView node, Out<TsVar<"O">> out) {
     const PyCallShape shape = parse_py_call_shape(config.value());
-    nb::gil_scoped_acquire gil;
     translate_python_error([&] {
       nb::list call_args;
       std::optional<nb::list> context_values;
@@ -1269,7 +1255,6 @@ struct py_compute_recordable_node {
           parse_py_call_shape(eval_config.value()).layout, args.base());
     });
     if (!enabled.value()) { return; }
-    nb::gil_scoped_acquire gil;
     translate_python_error([&] {
       nb::list call_args;
       auto lease = py_ts_lease_for_call();
@@ -1296,6 +1281,7 @@ struct py_sink_node {
   static constexpr auto name = "__py_sink";
   static constexpr std::string_view implementation_label = "hgraph.python.sink";
   static constexpr bool uses_python_values = true;
+  static constexpr bool requires_phase_runner = true;
   using signature_args = std::tuple<
       In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>,
       Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
@@ -1332,7 +1318,6 @@ struct py_sink_node {
        NodeScheduler scheduler, DateTime now, GlobalStateView global_state,
        EngineControlView engine, NodeView node) {
     const PyCallShape shape = parse_py_call_shape(config.value());
-    nb::gil_scoped_acquire gil;
     translate_python_error([&] {
       nb::list call_args;
       std::optional<nb::list> context_values;
@@ -1435,14 +1420,13 @@ struct py_generator_node {
   static constexpr std::string_view implementation_label =
       "hgraph.python.generator";
   static constexpr bool uses_python_values = true;
+  static constexpr bool requires_phase_runner = true;
 
   static void start(Scalar<"fn", PyNodeRef> fn, Scalar<"config", Str> config,
                     Scalar<"scalars", ScalarVar<"SV">> scalars,
                     State<PyGenStateRef> state, NodeScheduler sched,
                     GlobalStateView global_state, EngineControlView engine,
                     NodeView node) {
-    py_cycle_gil_note_python_call();
-    nb::gil_scoped_acquire gil;
     translate_python_error([&] {
       auto handle = std::make_unique<PyGenHandle>();
       auto guard = std::make_shared<PyTsGuard>();
@@ -1490,7 +1474,6 @@ struct py_generator_node {
     static_cast<void>(stop_enabled);
     static_cast<void>(stop_config);
     static_cast<void>(stop_scalars);
-    nb::gil_scoped_acquire gil;
     translate_python_error([&] {
       PyGenHandle *handle = state.get().handle;
       if (handle == nullptr || handle->exhausted) {
@@ -1508,7 +1491,6 @@ struct py_generator_node {
                    Scalar<"stop_scalars", ScalarVar<"XSV">> scalars,
                    NodeScheduler scheduler, GlobalStateView global_state,
                    EngineControlView engine, NodeView node) {
-    nb::gil_scoped_acquire gil;
     std::unique_ptr<PyGenHandle> handle{state.get().handle};
     state.set(PyGenStateRef{});
     if (handle != nullptr) {
@@ -1641,9 +1623,9 @@ struct op_materialize
 struct type_py_node {
   static constexpr auto name = "type_py";
   static constexpr bool uses_python_values = true;
+  static constexpr bool requires_phase_runner = true;
 
   static void eval(In<"ts", TsVar<"S">> ts, Out<TS<AnyValue>> out) {
-    nb::gil_scoped_acquire gil;
     translate_python_error([&] {
       nb::object value = value_to_py(ts.value());
       out.set(Value{PyObj{nb::borrow(value.type())}});
@@ -1656,6 +1638,7 @@ struct type_py_node {
 struct getattr_type_name_node {
   static constexpr auto name = "getattr_type_name";
   static constexpr bool uses_python_values = true;
+  static constexpr bool requires_phase_runner = true;
 
   static bool requires_(const ResolutionMap &, OperatorCallContext context) {
     using namespace hgraph::operator_type_resolution;
@@ -1671,7 +1654,6 @@ struct getattr_type_name_node {
   static void eval(In<"ts", TS<AnyValue>> ts, Scalar<"attr", Str> attr,
                    Out<TS<Str>> out) {
     static_cast<void>(attr);
-    nb::gil_scoped_acquire gil;
     translate_python_error([&] {
       const auto *value = ts.contained_value().try_as<PyObj>();
       if (value == nullptr) {

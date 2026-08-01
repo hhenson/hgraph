@@ -462,8 +462,26 @@ same policy when they eventually reach the root boundary.
 exception propagation. With the default ``true``, the executor stops the
 graph before rethrowing. With ``false``, the failed executor remains started
 while an owner deliberately retains it. Destruction is still the final
-ownership boundary and always performs safe graph teardown; this option must
-not be implemented by leaking storage or bypassing stop/unsubscribe rules.
+ownership boundary and always performs safe graph teardown through the stop
+phase runner; this option must not be implemented by leaking storage or
+bypassing stop/unsubscribe rules.
+
+Executor Phase Runner
+~~~~~~~~~~~~~~~~~~~~~
+
+``GraphExecutorBuilder::phase_runner`` optionally wraps each complete root
+executor phase: start, every evaluation cycle, and stop. The runner receives a
+non-owning ``GraphExecutorPhaseAction`` and must invoke it exactly once and
+synchronously. Evaluation includes before/after evaluation notifications and
+all nested graph work; stop includes notification draining and best-effort
+cleanup. Exceptions propagate through the runner normally, and error cleanup
+enters a separate stop phase.
+
+The default is empty, so ordinary native execution calls the phase body
+directly. Embedding runtimes use the hook when a lexical context must cover a
+whole phase. The Python bridge, for example, constructs one nanobind GIL guard
+in its runner and calls the action within that guard; executor storage and the
+phase action remain Python-independent.
 
 Run Logger Ownership
 ~~~~~~~~~~~~~~~~~~~~

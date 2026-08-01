@@ -96,6 +96,11 @@ namespace hgraph
         // through the Python object boundary. Wiring uses this to request
         // output-local Python-aware storage from upstream producers.
         bool     uses_python_values{false};
+        // True when this node requires the embedding phase runner during
+        // start, evaluation, or stop. Nested-node builders propagate the flag
+        // from their child graph plans so a root executor can select its
+        // runner before dynamic children are constructed.
+        bool     requires_phase_runner{false};
         // When set, the framework schedules this node for the current cycle during
         // ``start`` (the declarative form of a source doing schedule_now() itself).
         bool     schedule_on_start{false};

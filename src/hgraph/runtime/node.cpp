@@ -935,6 +935,7 @@ namespace hgraph
                    lhs.uses_global_state == rhs.uses_global_state &&
                    lhs.uses_evaluation_clock == rhs.uses_evaluation_clock &&
                    lhs.uses_python_values == rhs.uses_python_values &&
+                   lhs.requires_phase_runner == rhs.requires_phase_runner &&
                    lhs.schedule_on_start == rhs.schedule_on_start &&
                    lhs.captures_errors == rhs.captures_errors &&
                    lhs.error_capture == rhs.error_capture &&

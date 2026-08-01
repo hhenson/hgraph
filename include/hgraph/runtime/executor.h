@@ -12,6 +12,7 @@
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node_error.h>
 
+#include <functional>
 #include <memory>
 #include <stdexcept>
 
@@ -22,6 +23,11 @@ namespace spdlog
 
 namespace hgraph
 {
+    namespace detail
+    {
+        struct GraphExecutorPhaseActionAccess;
+    }
+
     class GraphExecutorBuilder;
     class GraphExecutorValue;
     class GraphExecutorView;
@@ -36,6 +42,45 @@ namespace hgraph
         Simulation,
         RealTime,
     };
+
+    /** Complete root-executor phases that may be wrapped by an embedding
+        runtime. Native executors have no wrapper by default. */
+    enum class GraphExecutorPhase : std::uint8_t
+    {
+        Start,
+        Evaluation,
+        Stop,
+    };
+
+    /**
+     * Non-owning invocation of one complete executor phase.
+     *
+     * A ``GraphExecutorPhaseRunner`` must invoke this action exactly once and
+     * synchronously. The action is valid only for the duration of the runner
+     * call and must not be retained.
+     */
+    class HGRAPH_EXPORT GraphExecutorPhaseAction
+    {
+      public:
+        GraphExecutorPhaseAction() noexcept = default;
+
+        void operator()() const;
+        [[nodiscard]] explicit operator bool() const noexcept;
+
+      private:
+        friend struct detail::GraphExecutorPhaseActionAccess;
+
+        using Invoke = void (*)(void *);
+
+        GraphExecutorPhaseAction(void *context, Invoke invoke) noexcept;
+
+        void *context_{nullptr};
+        Invoke invoke_{nullptr};
+    };
+
+    /** Optional embedding wrapper around each complete executor phase. */
+    using GraphExecutorPhaseRunner =
+        std::function<void(GraphExecutorPhase, GraphExecutorPhaseAction)>;
 
     /**
      * Thrown by ``GraphExecutorView::run()`` when the opt-in recursion guard
@@ -244,6 +289,13 @@ namespace hgraph
         GraphExecutorBuilder &error_capture_options(ErrorCaptureOptions options) noexcept;
         GraphExecutorBuilder &cleanup_on_error(bool value) noexcept;
         /**
+         * Wrap complete root start, evaluation-cycle, and stop phases. The
+         * runner must call its action exactly once and synchronously. This is
+         * intended for embedding runtimes that need a lexical context around
+         * a whole phase; ordinary native execution leaves it unset.
+         */
+        GraphExecutorBuilder &phase_runner(GraphExecutorPhaseRunner runner);
+        /**
          * Arm the opt-in recursion guard: after ``limit`` consecutive cycles
          * that each advance evaluation time by exactly ``MIN_TD``, the run
          * records one further cycle's per-node evaluation path and throws
@@ -262,6 +314,7 @@ namespace hgraph
         [[nodiscard]] const std::shared_ptr<spdlog::logger> &logger() const noexcept;
         [[nodiscard]] ErrorCaptureOptions error_capture_options() const noexcept;
         [[nodiscard]] bool cleanup_on_error() const noexcept;
+        [[nodiscard]] const GraphExecutorPhaseRunner &phase_runner() const noexcept;
         [[nodiscard]] std::uint32_t max_consecutive_immediate_cycles() const noexcept;
         [[nodiscard]] const std::vector<LifecycleObserver *> &lifecycle_observers() const noexcept;
         [[nodiscard]] GraphTypeRef graph_type() const;
@@ -279,6 +332,7 @@ namespace hgraph
         std::shared_ptr<spdlog::logger>  logger_{};
         ErrorCaptureOptions             error_capture_options_{};
         bool                            cleanup_on_error_{true};
+        GraphExecutorPhaseRunner        phase_runner_{};
         std::uint32_t                   max_consecutive_immediate_cycles_{0};
         std::vector<LifecycleObserver *> lifecycle_observers_{};
         mutable ExecutorTypeRef          type_{};

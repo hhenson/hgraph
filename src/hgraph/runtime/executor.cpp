@@ -22,14 +22,33 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace hgraph
 {
+    namespace detail
+    {
+        struct GraphExecutorPhaseActionAccess
+        {
+            static GraphExecutorPhaseAction make(void *context,
+                                                 GraphExecutorPhaseAction::Invoke invoke) noexcept
+            {
+                return GraphExecutorPhaseAction{context, invoke};
+            }
+        };
+    }
+
     namespace
     {
+        struct SimulationExecutorStorage;
+        struct RealTimeExecutorStorage;
+
+        template <typename Storage>
+        void stop_storage(Storage &state);
+
         [[nodiscard]] DateTime current_wall_time() noexcept
         {
             return std::chrono::time_point_cast<std::chrono::microseconds>(engine_clock::now());
@@ -49,11 +68,14 @@ namespace hgraph
                   cycle_wall_start(current_wall_time()),
                   error_capture_options(builder.error_capture_options()),
                   cleanup_on_error(builder.cleanup_on_error()),
+                  phase_runner(builder.phase_runner()),
                   run_logging_enabled(builder.logger() != nullptr)
             {
                 immediate_cycle_limit = builder.max_consecutive_immediate_cycles();
                 for (LifecycleObserver *observer : builder.lifecycle_observers()) { lifecycle_observers.add(observer); }
             }
+
+            ~SimulationExecutorStorage();
 
             void set_evaluation_time(DateTime value) noexcept
             {
@@ -76,8 +98,9 @@ namespace hgraph
             std::vector<std::function<void()>> before_evaluation_notifications{};
             std::vector<std::function<void()>> after_evaluation_notifications{};
             std::atomic_bool stop_requested{false};
-            bool             cleanup_on_error{true};
-            bool             run_logging_enabled{false};
+            bool                     cleanup_on_error{true};
+            GraphExecutorPhaseRunner phase_runner{};
+            bool                     run_logging_enabled{false};
         };
 
         struct RealTimeExecutorStorage
@@ -93,11 +116,14 @@ namespace hgraph
                   evaluation_time(builder.start_time()),
                   error_capture_options(builder.error_capture_options()),
                   cleanup_on_error(builder.cleanup_on_error()),
+                  phase_runner(builder.phase_runner()),
                   run_logging_enabled(builder.logger() != nullptr)
             {
                 immediate_cycle_limit = builder.max_consecutive_immediate_cycles();
                 for (LifecycleObserver *observer : builder.lifecycle_observers()) { lifecycle_observers.add(observer); }
             }
+
+            ~RealTimeExecutorStorage();
 
             void set_evaluation_time(DateTime value) noexcept
             {
@@ -125,8 +151,27 @@ namespace hgraph
             std::atomic_bool             stop_requested{false};
             bool                         push_update_pending{false};
             bool                         ready_to_push{false};
+            GraphExecutorPhaseRunner     phase_runner{};
             bool                         run_logging_enabled{false};
         };
+
+        template <typename Storage, typename Fn>
+        void run_executor_phase(Storage &state, GraphExecutorPhase phase, Fn &&fn)
+        {
+            if (!state.phase_runner)
+            {
+                std::forward<Fn>(fn)();
+                return;
+            }
+
+            using Callable = std::remove_reference_t<Fn>;
+            auto invoke = [](void *context) {
+                (*static_cast<Callable *>(context))();
+            };
+            state.phase_runner(
+                phase,
+                detail::GraphExecutorPhaseActionAccess::make(std::addressof(fn), invoke));
+        }
 
         [[nodiscard]] SimulationExecutorStorage &simulation_storage(void *memory)
         {
@@ -437,16 +482,11 @@ namespace hgraph
             }
         }
 
-        template <typename Storage, typename Advance>
-        void run_storage(Storage &state, Advance advance)
+        template <typename Storage>
+        void stop_storage(Storage &state)
         {
-            validate_times(state.start_time, state.end_time);
-            state.stop_requested.store(false, std::memory_order_release);
-            state.set_evaluation_time(state.start_time);
-
             auto graph = state.graph.view();
-            graph.start(state.start_time);
-            auto stop_and_flush = [&] {
+            run_executor_phase(state, GraphExecutorPhase::Stop, [&] {
                 // Stopping nodes can enqueue more cleanup. Always attempt both
                 // queues even when stop or an earlier queue reports a failure.
                 FirstExceptionRecorder cleanup_errors;
@@ -458,11 +498,46 @@ namespace hgraph
                     drain_evaluation_notifications(state.before_evaluation_notifications, true);
                 });
                 cleanup_errors.rethrow_if_any();
-            };
+            });
+        }
+
+        SimulationExecutorStorage::~SimulationExecutorStorage()
+        {
+            if (graph.has_value() && graph.view().started())
+            {
+                static_cast<void>(fallback_on_exception(false, [&] {
+                    stop_storage(*this);
+                    return true;
+                }));
+            }
+        }
+
+        RealTimeExecutorStorage::~RealTimeExecutorStorage()
+        {
+            if (graph.has_value() && graph.view().started())
+            {
+                static_cast<void>(fallback_on_exception(false, [&] {
+                    stop_storage(*this);
+                    return true;
+                }));
+            }
+        }
+
+        template <typename Storage, typename Advance>
+        void run_storage(Storage &state, Advance advance)
+        {
+            validate_times(state.start_time, state.end_time);
+            state.stop_requested.store(false, std::memory_order_release);
+            state.set_evaluation_time(state.start_time);
+
+            auto graph = state.graph.view();
+            run_executor_phase(state, GraphExecutorPhase::Start, [&] {
+                graph.start(state.start_time);
+            });
             auto stop_graph = UnwindCleanupGuard([&] {
                 if (state.cleanup_on_error || std::uncaught_exceptions() == 0)
                 {
-                    stop_and_flush();
+                    stop_storage(state);
                 }
             });
 
@@ -506,20 +581,23 @@ namespace hgraph
                     recorded_cycle = false;
                 }
                 const bool recording_this_cycle = guard_tripped && !recorded_cycle;
-                if (recording_this_cycle) { state.lifecycle_observers.add(&recorder); }
-                auto remove_recorder = UnwindCleanupGuard([&] {
-                    if (recording_this_cycle) { state.lifecycle_observers.remove(&recorder); }
+                bool completed = false;
+                run_executor_phase(state, GraphExecutorPhase::Evaluation, [&] {
+                    if (recording_this_cycle) { state.lifecycle_observers.add(&recorder); }
+                    auto remove_recorder = UnwindCleanupGuard([&] {
+                        if (recording_this_cycle) { state.lifecycle_observers.remove(&recorder); }
+                    });
+                    drain_evaluation_notifications(state.before_evaluation_notifications, true);
+                    // Match Python's try/finally cycle contract: even a partial
+                    // graph evaluation must run the after queue before teardown.
+                    auto drain_after = UnwindCleanupGuard([&] {
+                        drain_evaluation_notifications(state.after_evaluation_notifications, false);
+                    });
+                    completed = graph.evaluate(evaluation_time);
+                    drain_after.complete();
+                    remove_recorder.complete();
+                    if (recording_this_cycle) { recorded_cycle = true; }
                 });
-                drain_evaluation_notifications(state.before_evaluation_notifications, true);
-                // Match Python's try/finally cycle contract: even a partial
-                // graph evaluation must run the after queue before teardown.
-                auto drain_after = UnwindCleanupGuard([&] {
-                    drain_evaluation_notifications(state.after_evaluation_notifications, false);
-                });
-                const bool completed = graph.evaluate(evaluation_time);
-                drain_after.complete();
-                remove_recorder.complete();
-                if (recording_this_cycle) { recorded_cycle = true; }
                 if (!completed)
                 {
                     // The root graph has no enclosing mesh to resolve a pause; a false here
@@ -924,6 +1002,25 @@ namespace hgraph
         return display_name != nullptr ? std::string_view{display_name} : std::string_view{};
     }
 
+    GraphExecutorPhaseAction::GraphExecutorPhaseAction(void *context, Invoke invoke) noexcept
+        : context_(context), invoke_(invoke)
+    {
+    }
+
+    void GraphExecutorPhaseAction::operator()() const
+    {
+        if (invoke_ == nullptr)
+        {
+            throw std::logic_error("GraphExecutorPhaseAction is empty");
+        }
+        invoke_(context_);
+    }
+
+    GraphExecutorPhaseAction::operator bool() const noexcept
+    {
+        return invoke_ != nullptr;
+    }
+
     PushQueueEngineView::PushQueueEngineView() noexcept = default;
 
     PushQueueEngineView::PushQueueEngineView(ExecutorPtr pointer) noexcept : pointer_(pointer) {}
@@ -1238,6 +1335,12 @@ namespace hgraph
         return *this;
     }
 
+    GraphExecutorBuilder &GraphExecutorBuilder::phase_runner(GraphExecutorPhaseRunner runner)
+    {
+        phase_runner_ = std::move(runner);
+        return *this;
+    }
+
     GraphExecutorBuilder &GraphExecutorBuilder::max_consecutive_immediate_cycles(std::uint32_t limit) noexcept
     {
         max_consecutive_immediate_cycles_ = limit;
@@ -1288,6 +1391,11 @@ namespace hgraph
     bool GraphExecutorBuilder::cleanup_on_error() const noexcept
     {
         return cleanup_on_error_;
+    }
+
+    const GraphExecutorPhaseRunner &GraphExecutorBuilder::phase_runner() const noexcept
+    {
+        return phase_runner_;
     }
 
     std::uint32_t GraphExecutorBuilder::max_consecutive_immediate_cycles() const noexcept
