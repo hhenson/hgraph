@@ -677,9 +677,12 @@ TEST_CASE("value slot store uses its bound plan for lifecycle operations", "[v2 
     store.reserve_to(2);
 
     REQUIRE(store.plan() == &MemoryUtils::plan_for<std::string>());
+    REQUIRE(store.try_value_memory(0) == nullptr);
+    REQUIRE(store.try_value_memory(store.slot_capacity()) == nullptr);
 
     store.construct_at(0);
     REQUIRE(store.has_slot(0));
+    REQUIRE(store.try_value_memory(0) == store.value_memory(0));
     REQUIRE(*store.try_value<std::string>(0) == "");
 
     const std::string source = "copied";
@@ -690,6 +693,7 @@ TEST_CASE("value slot store uses its bound plan for lifecycle operations", "[v2 
     store.destroy_all();
     REQUIRE_FALSE(store.has_slot(0));
     REQUIRE_FALSE(store.has_slot(1));
+    REQUIRE(store.try_value_memory(0) == nullptr);
 }
 
 TEST_CASE("value slot stores can share a custom allocator", "[v2 slot utils]") {
@@ -734,12 +738,15 @@ TEST_CASE("key mirrored value slot store derives lifetime from key construction"
     REQUIRE(values.has_slot(first.slot));
     REQUIRE(values.try_value<std::string>(first.slot) != nullptr);
     REQUIRE(*values.try_value<std::string>(first.slot) == "eleven");
+    REQUIRE(*MemoryUtils::cast<std::string>(values.value_memory(first.slot)) == "eleven");
     REQUIRE(values.mirrors_key_construction());
 
     keys.erase_pending();
     REQUIRE_FALSE(keys.slot_constructed(first.slot));
     REQUIRE_FALSE(values.has_slot(first.slot));
     REQUIRE(values.try_value<std::string>(first.slot) == nullptr);
+    REQUIRE_THROWS_AS(static_cast<void>(values.value_memory(first.slot)), std::logic_error);
+    REQUIRE_THROWS_AS(static_cast<void>(values.value_memory(values.slot_capacity())), std::out_of_range);
     REQUIRE(values.mirrors_key_construction());
 }
 

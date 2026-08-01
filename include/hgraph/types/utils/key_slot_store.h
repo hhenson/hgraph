@@ -310,6 +310,7 @@ namespace hgraph
          * erased.
          */
         [[nodiscard]] void *operator[](size_t slot) {
+            if (void *memory = key_memory(slot); memory != nullptr) { return memory; }
             require_constructed_slot(slot);
             return key_storage.slot_memory(slot);
         }
@@ -318,6 +319,7 @@ namespace hgraph
          * Const overload of the constructed-slot accessor.
          */
         [[nodiscard]] const void *operator[](size_t slot) const {
+            if (const void *memory = key_memory(slot); memory != nullptr) { return memory; }
             require_constructed_slot(slot);
             return key_storage.slot_memory(slot);
         }
