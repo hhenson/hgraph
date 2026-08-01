@@ -549,8 +549,10 @@ index lives behind an implementation pointer. In that form ``data_offset``
 (and ``key_data_offset`` for maps) locates the implementation pointer,
 ``auxiliary_offset`` locates the value pointer table within that implementation,
 and ``key_auxiliary_offset`` independently locates a keyed store's pointer
-table. The size/state offsets are interpreted in the key implementation when
-their corresponding flags are set. For a tagged stable-slot index,
+table. Debugger readers clear the implementation handle's low two private tag
+bits before applying those offsets; this is a no-op for the former raw erased-
+owner pointer. The size/state offsets are interpreted in the key implementation
+when their corresponding flags are set. For a tagged stable-slot index,
 ``state_offset`` may identify the same
 pointer table as data or keys: readers accept tag ``00`` as live and mask the
 low two bits before dereferencing other encoded states. Bitmap-backed stable
@@ -559,16 +561,20 @@ strategies are exposed through ``StableSlotDebugView``, so descriptor factories
 do not inspect the selected implementation or a standard-library container.
 
 The semantic ``StableSlotStore`` facade does not contain a closed
-``std::variant`` of those concrete strategies. It owns the selected strategy
-through ``MemoryUtils::ErasedOwner`` and dispatches through one canonical
-passive ``StableSlotStoreOps`` table. The ops table is the public behavioural
-contract; tagged-pointer and bitmap classes stay under the implementation
-boundary. This is the standard boundary for reusable representation policy:
-separate erased behaviour from explicit erased ownership, and reserve
-``std::variant`` for a sum type that is itself part of the semantic contract.
-The facade's ops pointer is always valid: default and moved-from stores use a
-canonical no-op table, allowing ordinary queries to dispatch without nullable-
-implementation guards.
+``std::variant`` of those concrete strategies. It is one tagged implementation
+pointer whose private tags identify the canonical nop, tagged-pointer, and
+bitmap paths. Default and moved-from stores carry the nop tag rather than a
+nullable implementation. Operations use an inline switch while the concrete
+classes stay under the implementation-file boundary and semantic owners use
+only the erased facade. Allocation and destruction continue to use the bound
+``AllocatorOps``.
+
+This is the measured closed-strategy refinement of the general ops-table
+pattern. Use a passive ops table when independently supplied implementations
+must extend a public behavioural contract. When a small internal strategy set
+is closed, its discriminator is not semantic API, and indirect calls are a
+measured hot-path cost, a private tagged handle plus inline dispatch preserves
+the erased surface without exposing ``std::variant`` ownership to callers.
 
 The common embedded-owner field flag describes the three-word
 ``ErasedOwner<InlineStoragePolicy<>, TypeRecord>`` ABI. The record is read

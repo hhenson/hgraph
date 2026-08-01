@@ -3,10 +3,12 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/types/storage_metrics.h>
+#include <hgraph/types/utils/impl/stable_slot_store_impl.h>
 #include <hgraph/types/utils/memory_utils.h>
 #include <hgraph/types/utils/stable_slot_store_fwd.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <utility>
 
@@ -23,84 +25,56 @@ namespace hgraph
         bool state_tagged{false};
     };
 
-    /**
-     * Passive behaviour table for one stable-slot representation.
-     *
-     * The first argument of every hook is the erased implementation memory,
-     * matching the runtime's established ops-table pattern. Concrete tagged
-     * and bitmap types populate canonical tables behind the implementation
-     * boundary; semantic owners call only through this contract.
-     */
-    struct StableSlotStoreOps
-    {
-        StableSlotRepresentation representation{StableSlotRepresentation::Unbound};
-
-        MemoryUtils::StorageLayout (*layout_impl)(const void *implementation) noexcept{nullptr};
-        const MemoryUtils::AllocatorOps *(*allocator_impl)(const void *implementation) noexcept{nullptr};
-        std::size_t (*capacity_impl)(const void *implementation) noexcept{nullptr};
-        std::size_t (*stride_impl)(const void *implementation) noexcept{nullptr};
-        std::size_t (*block_count_impl)(const void *implementation) noexcept{nullptr};
-
-        void (*reserve_to_impl)(void *implementation, std::size_t capacity){nullptr};
-        const void *(*slot_memory_impl)(const void *implementation, std::size_t slot) noexcept{nullptr};
-        const void *(*live_slot_memory_impl)(const void *implementation, std::size_t slot) noexcept{nullptr};
-        const void *(*non_live_slot_memory_impl)(const void *implementation, std::size_t slot) noexcept{nullptr};
-        bool (*constructed_impl)(const void *implementation, std::size_t slot) noexcept{nullptr};
-        bool (*live_impl)(const void *implementation, std::size_t slot) noexcept{nullptr};
-
-        void (*mark_staged_impl)(void *implementation, std::size_t slot) noexcept{nullptr};
-        bool (*mark_live_impl)(void *implementation, std::size_t slot) noexcept{nullptr};
-        bool (*mark_pending_impl)(void *implementation, std::size_t slot) noexcept{nullptr};
-        void (*mark_free_impl)(void *implementation, std::size_t slot) noexcept{nullptr};
-        void (*reset_states_impl)(void *implementation) noexcept{nullptr};
-
-        std::size_t (*constructed_count_impl)(const void *implementation) noexcept{nullptr};
-        DynamicStorageMetrics (*dynamic_storage_metrics_impl)(const void *implementation) noexcept{nullptr};
-        StableSlotDebugView (*debug_view_impl)(const void *implementation) noexcept{nullptr};
-    };
-
     namespace detail
     {
-        using StableSlotStoreImplementationOwner = MemoryUtils::ErasedOwner<>;
-
-        /** Canonical no-op table used by default and moved-from stores. */
-        [[nodiscard]] HGRAPH_EXPORT const StableSlotStoreOps &noop_stable_slot_store_ops() noexcept;
-
-        /** Owning result returned by the implementation-only strategy factory. */
-        struct StableSlotStoreImplementation
+        /**
+         * Private representation tag carried by the erased implementation pointer.
+         *
+         * The aligned implementation deliberately uses tag zero so its pointer can
+         * be consumed without masking on the common live-slot path.  The nop tag is
+         * a non-null logical state even though it has no implementation allocation.
+         */
+        enum class StableSlotStoreImplementationTag : std::uintptr_t
         {
-            StableSlotStoreImplementationOwner owner{};
-            const StableSlotStoreOps *ops{&noop_stable_slot_store_ops()};
-
-            StableSlotStoreImplementation() noexcept = default;
-            StableSlotStoreImplementation(const StableSlotStoreImplementation &) = delete;
-            StableSlotStoreImplementation &operator=(const StableSlotStoreImplementation &) = delete;
-            StableSlotStoreImplementation(StableSlotStoreImplementation &&) noexcept = default;
-            StableSlotStoreImplementation &operator=(StableSlotStoreImplementation &&) noexcept = default;
+            TaggedPointer = 0,
+            Bitmap = 1,
+            Nop = 2,
         };
 
-        /** Select and construct the concrete strategy from immutable layout metadata. */
-        HGRAPH_EXPORT StableSlotStoreImplementation make_stable_slot_store_implementation(
-            StableSlotStateModel model,
-            MemoryUtils::StorageLayout layout,
-            const MemoryUtils::AllocatorOps &allocator);
-    }  // namespace detail
+        inline constexpr std::uintptr_t STABLE_SLOT_STORE_IMPLEMENTATION_TAG_MASK{0x3};
+        inline constexpr std::uintptr_t NOP_STABLE_SLOT_STORE_HANDLE{
+            static_cast<std::uintptr_t>(StableSlotStoreImplementationTag::Nop)};
+
+        /** Select, allocate, and construct a concrete strategy. */
+        [[nodiscard]] HGRAPH_EXPORT std::uintptr_t
+        make_stable_slot_store_implementation(StableSlotStateModel model, MemoryUtils::StorageLayout layout,
+                                              const MemoryUtils::AllocatorOps &allocator);
+
+        /** Destroy and deallocate a concrete strategy selected by its handle tag. */
+        HGRAPH_EXPORT void destroy_stable_slot_store_implementation(StableSlotStateModel model,
+                                                                    std::uintptr_t handle) noexcept;
+    } // namespace detail
 
     /**
      * Payload-type-erased stable slot storage with an alignment-selected index.
      *
-     * Pointer-aligned payloads carry lifecycle state in two low pointer bits.
-     * Weaker alignments retain the existing raw pointer table plus the bitmap
-     * planes required by ``Model``. Selection happens once when the layout is
-     * bound and never changes for the lifetime of the store.
+     * Pointer-aligned payloads carry lifecycle state in two low slot-pointer
+     * bits. Weaker alignments retain a raw pointer table plus the bitmap planes
+     * required by ``Model``. Selection happens once when the layout is bound and
+     * never changes for the lifetime of the store.
      *
-     * Behaviour and ownership are independent: ``StableSlotStoreOps`` erases
-     * representation behaviour while ``ErasedOwner`` owns the selected
-     * implementation according to its storage plan.
+     * The facade owns one tagged implementation pointer. Its low bits select the
+     * canonical nop, tagged-pointer, or bitmap strategy; each public operation
+     * uses an inline representation switch so the compiler can optimize the
+     * concrete hot path. Concrete storage types remain in the implementation
+     * header and semantic owners interact only with this erased surface.
      */
-    template <StableSlotStateModel Model>
-    class StableSlotStore
+    template <StableSlotStateModel Model> class StableSlotStore
     {
+        using TaggedImplementation = detail::TaggedPointerStableSlotStoreImpl<Model>;
+        using BitmapImplementation = detail::BitmapStableSlotStoreImpl<Model>;
+        using ImplementationTag = detail::StableSlotStoreImplementationTag;
+
       public:
         StableSlotStore() noexcept = default;
 
@@ -114,193 +88,380 @@ namespace hgraph
         StableSlotStore &operator=(const StableSlotStore &) = delete;
 
         StableSlotStore(StableSlotStore &&other) noexcept
-            : implementation_(std::move(other.implementation_)),
-              ops_(std::exchange(other.ops_, &detail::noop_stable_slot_store_ops()))
+            : implementation_(std::exchange(other.implementation_, detail::NOP_STABLE_SLOT_STORE_HANDLE))
         {
         }
 
         StableSlotStore &operator=(StableSlotStore &&other) noexcept
         {
-            if (this != &other)
-            {
-                implementation_ = std::move(other.implementation_);
-                ops_ = std::exchange(other.ops_, &detail::noop_stable_slot_store_ops());
+            if (this != &other) {
+                detail::destroy_stable_slot_store_implementation(Model, implementation_);
+                implementation_ = std::exchange(other.implementation_, detail::NOP_STABLE_SLOT_STORE_HANDLE);
             }
             return *this;
         }
 
+        ~StableSlotStore() { detail::destroy_stable_slot_store_implementation(Model, implementation_); }
+
         void bind_layout(MemoryUtils::StorageLayout layout,
                          const MemoryUtils::AllocatorOps &allocator = MemoryUtils::allocator())
         {
-            if (!layout.valid() || layout.size == 0)
-            {
+            if (!layout.valid() || layout.size == 0) {
                 throw std::logic_error("StableSlotStore requires a non-empty valid layout");
             }
-            if (bound())
-            {
-                const auto existing = ops_->layout_impl(implementation());
+            if (bound()) {
+                const auto existing = bound_layout();
                 if (existing.size != layout.size || existing.alignment != layout.alignment ||
-                    ops_->allocator_impl(implementation()) != &allocator)
-                {
+                    &this->allocator() != &allocator) {
                     throw std::logic_error("StableSlotStore layout and allocator must remain constant");
                 }
                 return;
             }
 
-            auto selected = detail::make_stable_slot_store_implementation(Model, layout, allocator);
-            implementation_ = std::move(selected.owner);
-            ops_ = selected.ops;
+            implementation_ = detail::make_stable_slot_store_implementation(Model, layout, allocator);
         }
 
         [[nodiscard]] StableSlotRepresentation representation() const noexcept
         {
-            return ops_->representation;
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return StableSlotRepresentation::TaggedPointer;
+            case ImplementationTag::Bitmap:
+                return StableSlotRepresentation::Bitmap;
+            case ImplementationTag::Nop:
+                return StableSlotRepresentation::Unbound;
+            }
+            return StableSlotRepresentation::Unbound;
         }
-        [[nodiscard]] bool bound() const noexcept
-        {
-            return ops_ != &detail::noop_stable_slot_store_ops();
-        }
+
+        [[nodiscard]] bool bound() const noexcept { return implementation_tag() != ImplementationTag::Nop; }
+
         [[nodiscard]] std::size_t slot_capacity() const noexcept
         {
-            return ops_->capacity_impl(implementation());
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return tagged_implementation()->capacity();
+            case ImplementationTag::Bitmap:
+                return bitmap_implementation()->capacity();
+            case ImplementationTag::Nop:
+                return 0;
+            }
+            return 0;
         }
+
         [[nodiscard]] std::size_t stride() const noexcept
         {
-            return ops_->stride_impl(implementation());
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return tagged_implementation()->stride();
+            case ImplementationTag::Bitmap:
+                return bitmap_implementation()->stride();
+            case ImplementationTag::Nop:
+                return 0;
+            }
+            return 0;
         }
+
         [[nodiscard]] std::size_t block_count() const noexcept
         {
-            return ops_->block_count_impl(implementation());
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return tagged_implementation()->block_count();
+            case ImplementationTag::Bitmap:
+                return bitmap_implementation()->block_count();
+            case ImplementationTag::Nop:
+                return 0;
+            }
+            return 0;
         }
+
         [[nodiscard]] const MemoryUtils::AllocatorOps &allocator() const noexcept
         {
-            return *ops_->allocator_impl(implementation());
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return tagged_implementation()->allocator();
+            case ImplementationTag::Bitmap:
+                return bitmap_implementation()->allocator();
+            case ImplementationTag::Nop:
+                return MemoryUtils::allocator();
+            }
+            return MemoryUtils::allocator();
         }
 
         void reserve_to(std::size_t capacity)
         {
             require_bound();
-            ops_->reserve_to_impl(implementation(), capacity);
+            if (implementation_tag() == ImplementationTag::TaggedPointer)
+                tagged_implementation()->reserve_to(capacity);
+            else
+                bitmap_implementation()->reserve_to(capacity);
         }
 
         [[nodiscard]] void *slot_memory(std::size_t slot) noexcept
         {
             return const_cast<void *>(static_cast<const StableSlotStore &>(*this).slot_memory(slot));
         }
+
         [[nodiscard]] const void *slot_memory(std::size_t slot) const noexcept
         {
-            return ops_->slot_memory_impl(implementation(), slot);
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return tagged_implementation()->slot_memory(slot);
+            case ImplementationTag::Bitmap:
+                return bitmap_implementation()->slot_memory(slot);
+            case ImplementationTag::Nop:
+                return nullptr;
+            }
+            return nullptr;
         }
+
         [[nodiscard]] void *live_slot_memory(std::size_t slot) noexcept
         {
             return const_cast<void *>(static_cast<const StableSlotStore &>(*this).live_slot_memory(slot));
         }
+
         [[nodiscard]] const void *live_slot_memory(std::size_t slot) const noexcept
         {
-            return ops_->live_slot_memory_impl(implementation(), slot);
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return tagged_implementation()->live_slot_memory(slot);
+            case ImplementationTag::Bitmap:
+                return bitmap_implementation()->live_slot_memory(slot);
+            case ImplementationTag::Nop:
+                return nullptr;
+            }
+            return nullptr;
         }
-        /** Constructed, non-live slot memory (pending erase or transiently staged). */
+
+        /** Constructed, non-live slot memory (pending erase or transiently staged).
+         */
         [[nodiscard]] void *non_live_slot_memory(std::size_t slot) noexcept
             requires(Model == StableSlotStateModel::ConstructedAndLive)
         {
             return const_cast<void *>(static_cast<const StableSlotStore &>(*this).non_live_slot_memory(slot));
         }
+
         [[nodiscard]] const void *non_live_slot_memory(std::size_t slot) const noexcept
             requires(Model == StableSlotStateModel::ConstructedAndLive)
         {
-            return ops_->non_live_slot_memory_impl(implementation(), slot);
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return tagged_implementation()->non_live_slot_memory(slot);
+            case ImplementationTag::Bitmap:
+                return bitmap_implementation()->non_live_slot_memory(slot);
+            case ImplementationTag::Nop:
+                return nullptr;
+            }
+            return nullptr;
         }
+
         [[nodiscard]] bool constructed(std::size_t slot) const noexcept
         {
-            return ops_->constructed_impl(implementation(), slot);
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return tagged_implementation()->constructed(slot);
+            case ImplementationTag::Bitmap:
+                return bitmap_implementation()->constructed(slot);
+            case ImplementationTag::Nop:
+                return false;
+            }
+            return false;
         }
+
         [[nodiscard]] bool live(std::size_t slot) const noexcept
         {
-            return ops_->live_impl(implementation(), slot);
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return tagged_implementation()->live(slot);
+            case ImplementationTag::Bitmap:
+                return bitmap_implementation()->live(slot);
+            case ImplementationTag::Nop:
+                return false;
+            }
+            return false;
         }
 
         void mark_staged(std::size_t slot) noexcept
             requires(Model == StableSlotStateModel::ConstructedAndLive)
         {
-            ops_->mark_staged_impl(implementation(), slot);
+            if (implementation_tag() == ImplementationTag::TaggedPointer)
+                tagged_implementation()->mark_staged(slot);
+            else if (implementation_tag() == ImplementationTag::Bitmap)
+                bitmap_implementation()->mark_staged(slot);
         }
+
         void mark_constructed(std::size_t slot) noexcept
             requires(Model == StableSlotStateModel::ConstructedOnly)
         {
-            static_cast<void>(ops_->mark_live_impl(implementation(), slot));
+            static_cast<void>(mark_live_impl(slot));
         }
+
         [[nodiscard]] bool mark_live(std::size_t slot) noexcept
             requires(Model == StableSlotStateModel::ConstructedAndLive)
         {
-            return ops_->mark_live_impl(implementation(), slot);
+            return mark_live_impl(slot);
         }
+
         [[nodiscard]] bool mark_pending_erase(std::size_t slot) noexcept
             requires(Model == StableSlotStateModel::ConstructedAndLive)
         {
-            return ops_->mark_pending_impl(implementation(), slot);
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return tagged_implementation()->mark_pending(slot);
+            case ImplementationTag::Bitmap:
+                return bitmap_implementation()->mark_pending(slot);
+            case ImplementationTag::Nop:
+                return false;
+            }
+            return false;
         }
+
         void mark_free(std::size_t slot) noexcept
         {
-            ops_->mark_free_impl(implementation(), slot);
+            if (implementation_tag() == ImplementationTag::TaggedPointer)
+                tagged_implementation()->mark_free(slot);
+            else if (implementation_tag() == ImplementationTag::Bitmap)
+                bitmap_implementation()->mark_free(slot);
         }
+
         void reset_states() noexcept
         {
-            ops_->reset_states_impl(implementation());
+            if (implementation_tag() == ImplementationTag::TaggedPointer)
+                tagged_implementation()->reset_states();
+            else if (implementation_tag() == ImplementationTag::Bitmap)
+                bitmap_implementation()->reset_states();
         }
 
         [[nodiscard]] std::size_t constructed_count() const noexcept
         {
-            return ops_->constructed_count_impl(implementation());
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return tagged_implementation()->constructed_count();
+            case ImplementationTag::Bitmap:
+                return bitmap_implementation()->constructed_count();
+            case ImplementationTag::Nop:
+                return 0;
+            }
+            return 0;
         }
+
         [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
         {
-            DynamicStorageMetrics result = ops_->dynamic_storage_metrics_impl(implementation());
-            const auto *plan = implementation_.plan();
-            if (plan != nullptr)
-            {
-                result.live_bytes += plan->layout.size;
-                result.reserved_bytes += plan->layout.size;
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer: {
+                auto result = tagged_implementation()->dynamic_storage_metrics();
+                result.live_bytes += sizeof(TaggedImplementation);
+                result.reserved_bytes += sizeof(TaggedImplementation);
+                return result;
             }
-            return result;
+            case ImplementationTag::Bitmap: {
+                auto result = bitmap_implementation()->dynamic_storage_metrics();
+                result.live_bytes += sizeof(BitmapImplementation);
+                result.reserved_bytes += sizeof(BitmapImplementation);
+                return result;
+            }
+            case ImplementationTag::Nop:
+                return {};
+            }
+            return {};
         }
 
         [[nodiscard]] StableSlotDebugView debug_view() const noexcept
         {
-            StableSlotDebugView result = ops_->debug_view_impl(implementation());
-            if (implementation_.stores_heap())
-            {
-                result.implementation_pointer = MemoryUtils::advance(
-                    static_cast<const void *>(&implementation_),
-                    detail::StableSlotStoreImplementationOwner::debug_storage_offset());
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return implementation_debug_view(tagged_implementation(), true);
+            case ImplementationTag::Bitmap:
+                return implementation_debug_view(bitmap_implementation(), false);
+            case ImplementationTag::Nop:
+                return {};
             }
-            return result;
+            return {};
         }
 
         void swap(StableSlotStore &other) noexcept
         {
             using std::swap;
             swap(implementation_, other.implementation_);
-            swap(ops_, other.ops_);
         }
 
       private:
-        detail::StableSlotStoreImplementationOwner implementation_{};
-        const StableSlotStoreOps *ops_{&detail::noop_stable_slot_store_ops()};
+        std::uintptr_t implementation_{detail::NOP_STABLE_SLOT_STORE_HANDLE};
 
-        [[nodiscard]] void *implementation() noexcept { return implementation_.data(); }
-        [[nodiscard]] const void *implementation() const noexcept { return implementation_.data(); }
+        [[nodiscard]] ImplementationTag implementation_tag() const noexcept
+        {
+            return static_cast<ImplementationTag>(implementation_ & detail::STABLE_SLOT_STORE_IMPLEMENTATION_TAG_MASK);
+        }
+
+        [[nodiscard]] TaggedImplementation *tagged_implementation() noexcept
+        {
+            return reinterpret_cast<TaggedImplementation *>(implementation_);
+        }
+
+        [[nodiscard]] const TaggedImplementation *tagged_implementation() const noexcept
+        {
+            return reinterpret_cast<const TaggedImplementation *>(implementation_);
+        }
+
+        [[nodiscard]] BitmapImplementation *bitmap_implementation() noexcept
+        {
+            return reinterpret_cast<BitmapImplementation *>(implementation_ &
+                                                            ~detail::STABLE_SLOT_STORE_IMPLEMENTATION_TAG_MASK);
+        }
+
+        [[nodiscard]] const BitmapImplementation *bitmap_implementation() const noexcept
+        {
+            return reinterpret_cast<const BitmapImplementation *>(implementation_ &
+                                                                  ~detail::STABLE_SLOT_STORE_IMPLEMENTATION_TAG_MASK);
+        }
+
+        [[nodiscard]] MemoryUtils::StorageLayout bound_layout() const noexcept
+        {
+            return implementation_tag() == ImplementationTag::TaggedPointer ? tagged_implementation()->layout()
+                                                                            : bitmap_implementation()->layout();
+        }
+
+        [[nodiscard]] bool mark_live_impl(std::size_t slot) noexcept
+        {
+            switch (implementation_tag()) {
+            case ImplementationTag::TaggedPointer:
+                return tagged_implementation()->mark_live(slot);
+            case ImplementationTag::Bitmap:
+                return bitmap_implementation()->mark_live(slot);
+            case ImplementationTag::Nop:
+                return false;
+            }
+            return false;
+        }
+
+        template <typename Implementation>
+        [[nodiscard]] StableSlotDebugView implementation_debug_view(const Implementation *typed,
+                                                                    bool tagged) const noexcept
+        {
+            const auto *base = reinterpret_cast<const std::byte *>(typed);
+            const auto offset_of = [base](const void *address) {
+                return static_cast<std::size_t>(static_cast<const std::byte *>(address) - base);
+            };
+            return {
+                .implementation_pointer = &implementation_,
+                .slot_count_offset = offset_of(typed->debug_capacity_address()),
+                .pointer_table_offset = offset_of(typed->debug_slots_address()),
+                .state_offset = offset_of(typed->debug_state_address()),
+                .pointers_tagged = tagged,
+                .state_tagged = tagged,
+            };
+        }
 
         void require_bound() const
         {
-            if (ops_ == &detail::noop_stable_slot_store_ops())
-            {
+            if (implementation_tag() == ImplementationTag::Nop) {
                 throw std::logic_error("StableSlotStore has no bound layout");
             }
         }
     };
 
-    static_assert(sizeof(StableSlotStore<StableSlotStateModel::ConstructedOnly>) <= 4 * sizeof(void *));
-    static_assert(sizeof(StableSlotStore<StableSlotStateModel::ConstructedAndLive>) <= 4 * sizeof(void *));
-}  // namespace hgraph
+    static_assert(sizeof(StableSlotStore<StableSlotStateModel::ConstructedOnly>) == sizeof(void *));
+    static_assert(sizeof(StableSlotStore<StableSlotStateModel::ConstructedAndLive>) == sizeof(void *));
+} // namespace hgraph
 
-#endif  // HGRAPH_TYPES_UTILS_STABLE_SLOT_STORE_H
+#endif // HGRAPH_TYPES_UTILS_STABLE_SLOT_STORE_H

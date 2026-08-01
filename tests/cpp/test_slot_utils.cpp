@@ -200,8 +200,8 @@ namespace
     };
 }  // namespace
 
-static_assert(sizeof(StableSlotStore<StableSlotStateModel::ConstructedOnly>) <= 4 * sizeof(void *));
-static_assert(sizeof(StableSlotStore<StableSlotStateModel::ConstructedAndLive>) <= 4 * sizeof(void *));
+static_assert(sizeof(StableSlotStore<StableSlotStateModel::ConstructedOnly>) == sizeof(void *));
+static_assert(sizeof(StableSlotStore<StableSlotStateModel::ConstructedAndLive>) == sizeof(void *));
 static_assert(std::is_nothrow_move_constructible_v<
               StableSlotStore<StableSlotStateModel::ConstructedAndLive>>);
 static_assert(std::is_nothrow_move_assignable_v<
@@ -239,6 +239,9 @@ TEST_CASE("stable slot store selects tagged pointers for pointer-aligned layouts
     CHECK(debug.pointers_tagged);
     CHECK(debug.state_tagged);
     CHECK(debug.pointer_table_offset == debug.state_offset);
+    CHECK((*static_cast<const std::uintptr_t *>(debug.implementation_pointer) &
+           detail::STABLE_SLOT_STORE_IMPLEMENTATION_TAG_MASK) ==
+          static_cast<std::uintptr_t>(detail::StableSlotStoreImplementationTag::TaggedPointer));
 
     storage.mark_free(0);
     CHECK_FALSE(storage.constructed(0));
@@ -301,6 +304,9 @@ TEST_CASE("stable slot store preserves bitmap fallback for weak alignment", "[v2
     CHECK_FALSE(debug.pointers_tagged);
     CHECK_FALSE(debug.state_tagged);
     CHECK(debug.pointer_table_offset != debug.state_offset);
+    CHECK((*static_cast<const std::uintptr_t *>(debug.implementation_pointer) &
+           detail::STABLE_SLOT_STORE_IMPLEMENTATION_TAG_MASK) ==
+          static_cast<std::uintptr_t>(detail::StableSlotStoreImplementationTag::Bitmap));
 }
 
 TEST_CASE("constructed-only stable slot stores use one lifecycle plane", "[v2 slot utils][stable-slot-store]")

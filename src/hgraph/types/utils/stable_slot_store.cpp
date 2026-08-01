@@ -1,172 +1,91 @@
-#include <hgraph/types/utils/impl/stable_slot_store_impl.h>
+#include <hgraph/types/utils/stable_slot_store.h>
 
-#include <utility>
+#include <cassert>
+#include <memory>
+#include <stdexcept>
 
 namespace hgraph
 {
     namespace
     {
-        template <StableSlotStateModel Model, typename Implementation, bool Tagged>
-        [[nodiscard]] const StableSlotStoreOps &stable_slot_store_ops_for() noexcept
+        using Tag = detail::StableSlotStoreImplementationTag;
+
+        template <typename Implementation>
+        [[nodiscard]] std::uintptr_t make_implementation(MemoryUtils::StorageLayout layout,
+                                                         const MemoryUtils::AllocatorOps &allocator, Tag tag)
         {
-            static const StableSlotStoreOps ops{
-                .representation = Tagged ? StableSlotRepresentation::TaggedPointer
-                                         : StableSlotRepresentation::Bitmap,
-                .layout_impl = [](const void *implementation) noexcept {
-                    return MemoryUtils::cast<Implementation>(implementation)->layout();
-                },
-                .allocator_impl = [](const void *implementation) noexcept {
-                    return &MemoryUtils::cast<Implementation>(implementation)->allocator();
-                },
-                .capacity_impl = [](const void *implementation) noexcept {
-                    return MemoryUtils::cast<Implementation>(implementation)->capacity();
-                },
-                .stride_impl = [](const void *implementation) noexcept {
-                    return MemoryUtils::cast<Implementation>(implementation)->stride();
-                },
-                .block_count_impl = [](const void *implementation) noexcept {
-                    return MemoryUtils::cast<Implementation>(implementation)->block_count();
-                },
-                .reserve_to_impl = [](void *implementation, std::size_t capacity) {
-                    MemoryUtils::cast<Implementation>(implementation)->reserve_to(capacity);
-                },
-                .slot_memory_impl = [](const void *implementation, std::size_t slot) noexcept -> const void * {
-                    return MemoryUtils::cast<Implementation>(implementation)->slot_memory(slot);
-                },
-                .live_slot_memory_impl = [](const void *implementation, std::size_t slot) noexcept -> const void * {
-                    return MemoryUtils::cast<Implementation>(implementation)->live_slot_memory(slot);
-                },
-                .non_live_slot_memory_impl = [](const void *implementation, std::size_t slot) noexcept -> const void * {
-                    if constexpr (Model == StableSlotStateModel::ConstructedAndLive)
-                        return MemoryUtils::cast<Implementation>(implementation)->non_live_slot_memory(slot);
-                    else
-                        return nullptr;
-                },
-                .constructed_impl = [](const void *implementation, std::size_t slot) noexcept {
-                    return MemoryUtils::cast<Implementation>(implementation)->constructed(slot);
-                },
-                .live_impl = [](const void *implementation, std::size_t slot) noexcept {
-                    return MemoryUtils::cast<Implementation>(implementation)->live(slot);
-                },
-                .mark_staged_impl = [](void *implementation, std::size_t slot) noexcept {
-                    MemoryUtils::cast<Implementation>(implementation)->mark_staged(slot);
-                },
-                .mark_live_impl = [](void *implementation, std::size_t slot) noexcept {
-                    return MemoryUtils::cast<Implementation>(implementation)->mark_live(slot);
-                },
-                .mark_pending_impl = [](void *implementation, std::size_t slot) noexcept {
-                    if constexpr (Model == StableSlotStateModel::ConstructedAndLive)
-                        return MemoryUtils::cast<Implementation>(implementation)->mark_pending(slot);
-                    else
-                        return false;
-                },
-                .mark_free_impl = [](void *implementation, std::size_t slot) noexcept {
-                    MemoryUtils::cast<Implementation>(implementation)->mark_free(slot);
-                },
-                .reset_states_impl = [](void *implementation) noexcept {
-                    MemoryUtils::cast<Implementation>(implementation)->reset_states();
-                },
-                .constructed_count_impl = [](const void *implementation) noexcept {
-                    return MemoryUtils::cast<Implementation>(implementation)->constructed_count();
-                },
-                .dynamic_storage_metrics_impl = [](const void *implementation) noexcept {
-                    return MemoryUtils::cast<Implementation>(implementation)->dynamic_storage_metrics();
-                },
-                .debug_view_impl = [](const void *implementation) noexcept {
-                    const auto *typed = MemoryUtils::cast<Implementation>(implementation);
-                    const auto *base = static_cast<const std::byte *>(implementation);
-                    const auto offset_of = [base](const void *address) {
-                        return static_cast<std::size_t>(
-                            static_cast<const std::byte *>(address) - base);
-                    };
-                    return StableSlotDebugView{
-                        .slot_count_offset = offset_of(typed->debug_capacity_address()),
-                        .pointer_table_offset = offset_of(typed->debug_slots_address()),
-                        .state_offset = offset_of(typed->debug_state_address()),
-                        .pointers_tagged = Tagged,
-                        .state_tagged = Tagged,
-                    };
-                },
-            };
-            return ops;
+            static_assert(alignof(Implementation) > detail::STABLE_SLOT_STORE_IMPLEMENTATION_TAG_MASK);
+            const auto &plan = MemoryUtils::plan_for<Implementation>();
+            void *storage = allocator.allocate_storage(plan.layout);
+            try {
+                std::construct_at(static_cast<Implementation *>(storage), layout, allocator);
+            } catch (...) {
+                allocator.deallocate_storage(storage, plan.layout);
+                throw;
+            }
+
+            const auto address = reinterpret_cast<std::uintptr_t>(storage);
+            assert((address & detail::STABLE_SLOT_STORE_IMPLEMENTATION_TAG_MASK) == 0);
+            return address | static_cast<std::uintptr_t>(tag);
         }
 
-        template <StableSlotStateModel Model, typename Implementation, bool Tagged>
-        [[nodiscard]] detail::StableSlotStoreImplementation make_implementation(
-            MemoryUtils::StorageLayout layout,
-            const MemoryUtils::AllocatorOps &allocator)
+        template <typename Implementation> void destroy_implementation(std::uintptr_t handle) noexcept
         {
-            detail::StableSlotStoreImplementation result;
-            result.owner = detail::StableSlotStoreImplementationOwner{
-                MemoryUtils::plan_for<Implementation>(), allocator};
-            result.owner.as<Implementation>()->bind(layout, allocator);
-            result.ops = &stable_slot_store_ops_for<Model, Implementation, Tagged>();
-            return result;
+            auto *implementation =
+                reinterpret_cast<Implementation *>(handle & ~detail::STABLE_SLOT_STORE_IMPLEMENTATION_TAG_MASK);
+            const MemoryUtils::AllocatorOps *allocator = &implementation->allocator();
+            const auto layout = MemoryUtils::plan_for<Implementation>().layout;
+            std::destroy_at(implementation);
+            allocator->deallocate_storage(implementation, layout);
         }
-    }  // namespace
 
-    const StableSlotStoreOps &detail::noop_stable_slot_store_ops() noexcept
-    {
-        static const StableSlotStoreOps ops{
-            .representation = StableSlotRepresentation::Unbound,
-            .layout_impl = [](const void *) noexcept { return MemoryUtils::StorageLayout{}; },
-            .allocator_impl = [](const void *) noexcept { return &MemoryUtils::allocator(); },
-            .capacity_impl = [](const void *) noexcept { return std::size_t{0}; },
-            .stride_impl = [](const void *) noexcept { return std::size_t{0}; },
-            .block_count_impl = [](const void *) noexcept { return std::size_t{0}; },
-            .reserve_to_impl = [](void *, std::size_t) {},
-            .slot_memory_impl = [](const void *, std::size_t) noexcept -> const void * {
-                return nullptr;
-            },
-            .live_slot_memory_impl = [](const void *, std::size_t) noexcept -> const void * {
-                return nullptr;
-            },
-            .non_live_slot_memory_impl = [](const void *, std::size_t) noexcept -> const void * {
-                return nullptr;
-            },
-            .constructed_impl = [](const void *, std::size_t) noexcept { return false; },
-            .live_impl = [](const void *, std::size_t) noexcept { return false; },
-            .mark_staged_impl = [](void *, std::size_t) noexcept {},
-            .mark_live_impl = [](void *, std::size_t) noexcept { return false; },
-            .mark_pending_impl = [](void *, std::size_t) noexcept { return false; },
-            .mark_free_impl = [](void *, std::size_t) noexcept {},
-            .reset_states_impl = [](void *) noexcept {},
-            .constructed_count_impl = [](const void *) noexcept { return std::size_t{0}; },
-            .dynamic_storage_metrics_impl = [](const void *) noexcept {
-                return DynamicStorageMetrics{};
-            },
-            .debug_view_impl = [](const void *) noexcept { return StableSlotDebugView{}; },
-        };
-        return ops;
-    }
-
-    detail::StableSlotStoreImplementation detail::make_stable_slot_store_implementation(
-        StableSlotStateModel model,
-        MemoryUtils::StorageLayout layout,
-        const MemoryUtils::AllocatorOps &allocator)
-    {
-        if (!layout.valid() || layout.size == 0)
+        template <StableSlotStateModel Model>
+        [[nodiscard]] std::uintptr_t make_for_model(MemoryUtils::StorageLayout layout,
+                                                    const MemoryUtils::AllocatorOps &allocator)
         {
+            if (layout.alignment >= alignof(std::uintptr_t)) {
+                using Implementation = detail::TaggedPointerStableSlotStoreImpl<Model>;
+                return make_implementation<Implementation>(layout, allocator, Tag::TaggedPointer);
+            }
+
+            using Implementation = detail::BitmapStableSlotStoreImpl<Model>;
+            return make_implementation<Implementation>(layout, allocator, Tag::Bitmap);
+        }
+
+        template <StableSlotStateModel Model> void destroy_for_model(std::uintptr_t handle) noexcept
+        {
+            const auto tag = static_cast<Tag>(handle & detail::STABLE_SLOT_STORE_IMPLEMENTATION_TAG_MASK);
+            switch (tag) {
+            case Tag::TaggedPointer:
+                destroy_implementation<detail::TaggedPointerStableSlotStoreImpl<Model>>(handle);
+                return;
+            case Tag::Bitmap:
+                destroy_implementation<detail::BitmapStableSlotStoreImpl<Model>>(handle);
+                return;
+            case Tag::Nop:
+                return;
+            }
+        }
+    } // namespace
+
+    std::uintptr_t detail::make_stable_slot_store_implementation(StableSlotStateModel model,
+                                                                 MemoryUtils::StorageLayout layout,
+                                                                 const MemoryUtils::AllocatorOps &allocator)
+    {
+        if (!layout.valid() || layout.size == 0) {
             throw std::logic_error("StableSlotStore requires a non-empty valid layout");
         }
 
-        if (layout.alignment >= alignof(std::uintptr_t))
-        {
-            if (model == StableSlotStateModel::ConstructedOnly)
-            {
-                using Implementation = TaggedPointerStableSlotStoreImpl<StableSlotStateModel::ConstructedOnly>;
-                return make_implementation<StableSlotStateModel::ConstructedOnly, Implementation, true>(layout, allocator);
-            }
-            using Implementation = TaggedPointerStableSlotStoreImpl<StableSlotStateModel::ConstructedAndLive>;
-            return make_implementation<StableSlotStateModel::ConstructedAndLive, Implementation, true>(layout, allocator);
-        }
-
         if (model == StableSlotStateModel::ConstructedOnly)
-        {
-            using Implementation = BitmapStableSlotStoreImpl<StableSlotStateModel::ConstructedOnly>;
-            return make_implementation<StableSlotStateModel::ConstructedOnly, Implementation, false>(layout, allocator);
-        }
-        using Implementation = BitmapStableSlotStoreImpl<StableSlotStateModel::ConstructedAndLive>;
-        return make_implementation<StableSlotStateModel::ConstructedAndLive, Implementation, false>(layout, allocator);
+            return make_for_model<StableSlotStateModel::ConstructedOnly>(layout, allocator);
+        return make_for_model<StableSlotStateModel::ConstructedAndLive>(layout, allocator);
     }
-}  // namespace hgraph
+
+    void detail::destroy_stable_slot_store_implementation(StableSlotStateModel model, std::uintptr_t handle) noexcept
+    {
+        if (model == StableSlotStateModel::ConstructedOnly)
+            destroy_for_model<StableSlotStateModel::ConstructedOnly>(handle);
+        else
+            destroy_for_model<StableSlotStateModel::ConstructedAndLive>(handle);
+    }
+} // namespace hgraph

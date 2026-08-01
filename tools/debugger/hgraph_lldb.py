@@ -352,10 +352,16 @@ def dynamic_child_addresses(value, data_address, layout):
     key_implementation = 0
     if slot_index_indirect:
         data_implementation = read_unsigned(value, data_address + layout["data_offset"])
+        if data_implementation is None:
+            return
+        data_implementation &= ~0x3
         if not data_implementation:
             return
         if layout["key_stride"]:
             key_implementation = read_unsigned(value, data_address + layout["key_data_offset"])
+            if key_implementation is None:
+                return
+            key_implementation &= ~0x3
             if not key_implementation:
                 return
         else:

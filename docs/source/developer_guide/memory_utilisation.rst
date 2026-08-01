@@ -170,9 +170,10 @@ store selects its lifecycle representation once from the payload plan:
 pointer-aligned payloads carry state in two low pointer bits, while weaker
 alignment retains one or two compact bitmaps according to the required state
 model. The tagged live state is zero, so dereferencing a known-live pointer
-does not require masking. A four-word semantic facade owns the selected
-concrete strategy through the common erased-owner protocol and dispatches
-through a passive ops table. Reported reserved bytes are approximately:
+does not require masking. A one-word semantic facade owns the selected heap
+strategy through a tagged implementation pointer. Its private tag selects the
+canonical nop, aligned, or bitmap path through an inline switch; the common
+aligned path also uses tag zero. Reported reserved bytes are approximately:
 
 .. code-block:: text
 

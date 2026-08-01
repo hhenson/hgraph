@@ -3,7 +3,7 @@
 
 #include <hgraph/types/utils/slot_bitmap.h>
 #include <hgraph/types/utils/stable_slot_storage.h>
-#include <hgraph/types/utils/stable_slot_store.h>
+#include <hgraph/types/utils/stable_slot_store_fwd.h>
 #include <hgraph/util/tagged_ptr.h>
 
 #include <algorithm>

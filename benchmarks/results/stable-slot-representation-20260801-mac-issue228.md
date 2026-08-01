@@ -79,41 +79,63 @@ pointers, while every weaker alignment retains the existing bitmap
 representation without padding. Parent-tracked trivial values and the inline
 state byte remain benchmark-only alternatives.
 
-The production façade was rerun at 31 samples after replacing its closed
-`std::variant` with the project's passive ops-table and explicit
-`ErasedOwner` pattern. The direct rows isolate each representation; the
-production rows add the alignment-selected, type-erased façade used by TSS,
-TSD, nested graph storage, and mutable collection storage.
+The first production façade was rerun at 31 samples after replacing its closed
+`std::variant` with a passive ops table and explicit `ErasedOwner`. The direct
+rows isolate each representation; the rejected ops-table rows show why that
+otherwise clean boundary required another measured refinement.
 
 | Payload | Measurement | Representation B/slot | Allocations | Sequential live read ns | Random live read ns | Remove/resurrect ns per transition | Erase/reinsert ns per transition |
 |---|---|---:|---:|---:|---:|---:|---:|
 | aligned non-trivial, 8 B / align 8 | direct bitmap baseline | 16.251 | 7 | 0.396 | 1.017 | 1.183 | 3.422 |
 | aligned non-trivial, 8 B / align 8 | direct tagged pointer | 16.001 | 5 | 0.332 | 0.995 | 1.312 | 2.696 |
-| aligned non-trivial, 8 B / align 8 | production tagged façade | 16.002 | 6 | 1.508 | 1.909 | 2.548 | 4.129 |
+| aligned non-trivial, 8 B / align 8 | rejected ops-table tagged façade | 16.002 | 6 | 1.508 | 1.909 | 2.548 | 4.129 |
 | packed non-trivial, 9 B / align 1 | direct bitmap baseline | 17.251 | 7 | 0.382 | 1.005 | 1.190 | 3.331 |
-| packed non-trivial, 9 B / align 1 | production bitmap façade | 17.253 | 8 | 1.520 | 1.984 | 2.587 | 4.602 |
+| packed non-trivial, 9 B / align 1 | rejected ops-table bitmap façade | 17.253 | 8 | 1.520 | 1.984 | 2.587 | 4.602 |
 
-For aligned storage, the production representation removes the two lifecycle
+For aligned storage, the selected representation removes the two lifecycle
 bitmap allocations but adds one fixed 64-byte strategy allocation. The net
 result is one fewer allocation and a 0.249 B/slot saving at this capacity,
 without changing payload stride. The weak-alignment strategy object is 112
 bytes and one allocation; its per-slot footprint remains effectively the
 bitmap footprint.
 
-The indirect passive-ops call is measurable in these deliberately tiny loops.
-Against the direct bitmap baseline, aligned production sequential/random reads
-were 281%/88% slower, remove/resurrect was 115% slower, and erase/reinsert was
-21% slower. The packed bitmap façade showed the same shape. This is the cost of
-keeping semantic owners independent of the closed set of concrete strategies;
-the type-erased boundary is not a zero-cost abstraction in an isolated slot
-operation benchmark.
+The indirect passive-ops call was measurable in these deliberately tiny loops.
+The tagged-dispatch result from #233 motivated an equivalent stable-slot
+prototype: one pointer carries private nop/tagged/bitmap tags and each operation
+uses an inline switch. The common aligned implementation uses tag `00`.
 
-These figures isolate the boundary and therefore make it a larger fraction of
-the measured work than it is for owners that also hash keys, publish observers,
-run destructors, and maintain free/pending queues. They establish both the
-fixed memory cost and the per-call dispatch cost of the reusable type-erased
-boundary; an owner-level benchmark remains the appropriate follow-up before
-further hot-path changes.
+GCC 14.3 on physical `hg-linux`, seven reverse-order process runs with 15
+within-process samples, produced these means of process medians:
+
+| Payload/dispatch | Sequential read ns | Random read ns | Remove/resurrect ns | Erase/reinsert ns |
+|---|---:|---:|---:|---:|
+| aligned ops table | 1.904 | 2.671 | 2.315 | 5.747 |
+| aligned tagged dispatch | 0.393 | 0.733 | 1.313 | 4.005 |
+| packed ops table | 2.735 | 2.974 | 2.878 | 6.800 |
+| packed tagged dispatch | 0.989 | 1.078 | 1.995 | 5.189 |
+
+Aligned operations improved by 30-79%; bitmap-backed operations improved by
+24-64%. The result was insensitive to process order and reproduced on macOS.
+The final façade therefore retains the erased semantic surface and separate
+implementation classes, but replaces indirect ops calls with the private
+tagged switch. Its handle shrinks from four words to one while allocator-owned
+strategy size, payload stride, and allocation count remain unchanged.
+
+A second GCC 14.3 A/B used the merged-main runtime around the store rather than
+isolated slot calls. Five reverse-order processes with seven within-process
+samples produced:
+
+| Runtime workload | Ops-table ns/op | Tagged-dispatch ns/op | Delta |
+|---|---:|---:|---:|
+| dynamic TSL construct/grow four | 386.225 | 356.361 | -7.7% |
+| sparse TSD source cycle | 608.021 | 576.374 | -5.2% |
+| alternating switch nested-graph lifecycle | 114,363.330 | 111,652.110 | -2.4% |
+| dense 1,000-key TSD source cycle | 80,107.790 | 78,606.856 | -1.9% |
+| sparse dynamic TSL source cycle | 419.734 | 418.110 | -0.4% |
+
+The selected owner-level workloads therefore preserve the isolated direction:
+construction and sparse slot activity gain most, while a workload dominated by
+other graph work is effectively flat-to-positive.
 
 ## Reproduction
 

@@ -1287,10 +1287,12 @@ do not use the slot stores.
     contract is declared separately from its concrete strategies under
     ``hgraph/types/utils/impl``.
 
-    The facade owns the selected concrete strategy through
-    ``MemoryUtils::ErasedOwner`` and calls a canonical passive
-    ``StableSlotStoreOps`` table. Semantic owners therefore do not contain a
-    ``std::variant`` or name either representation.
+    The facade is one tagged implementation pointer. Its private tag selects
+    canonical nop, tagged-pointer, or bitmap behaviour through an inline
+    switch. Semantic owners therefore do not contain a ``std::variant`` or
+    name either representation; concrete classes remain under the ``impl``
+    boundary. The implementation allocation still uses the supplied
+    ``MemoryUtils::AllocatorOps``.
 
     Strategy selection happens once when the immutable ``StorageLayout`` is
     bound. Payloads aligned to at least ``uintptr_t`` use two low pointer bits
