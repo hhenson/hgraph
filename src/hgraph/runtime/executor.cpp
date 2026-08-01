@@ -415,15 +415,26 @@ namespace hgraph
             throw RecursiveEvaluationError(message);
         }
 
-        /** One-shot semantics: swap first so a callback that re-queues
-            itself fires at the NEXT boundary; exceptions propagate (a failing
-            notification is a run failure). */
-        inline void drain_evaluation_notifications(std::vector<std::function<void()>> &queue)
+        /** Drain one root-cycle boundary to completion. Before callbacks are
+            FIFO; after callbacks are LIFO so cleanup unwinds in reverse
+            registration order. Swapping each batch makes re-entrant
+            registration safe while the outer loop keeps it on THIS boundary. */
+        inline void drain_evaluation_notifications(std::vector<std::function<void()>> &queue,
+                                                    bool before)
         {
-            if (queue.empty()) { return; }
-            std::vector<std::function<void()>> pending;
-            pending.swap(queue);
-            for (auto &fn : pending) { fn(); }
+            while (!queue.empty())
+            {
+                std::vector<std::function<void()>> pending;
+                pending.swap(queue);
+                if (before)
+                {
+                    for (auto &fn : pending) { fn(); }
+                }
+                else
+                {
+                    for (auto it = pending.rbegin(); it != pending.rend(); ++it) { (*it)(); }
+                }
+            }
         }
 
         template <typename Storage, typename Advance>
@@ -435,10 +446,23 @@ namespace hgraph
 
             auto graph = state.graph.view();
             graph.start(state.start_time);
+            auto stop_and_flush = [&] {
+                // Stopping nodes can enqueue more cleanup. Always attempt both
+                // queues even when stop or an earlier queue reports a failure.
+                FirstExceptionRecorder cleanup_errors;
+                cleanup_errors.capture([&] { graph.stop(); });
+                cleanup_errors.capture([&] {
+                    drain_evaluation_notifications(state.after_evaluation_notifications, false);
+                });
+                cleanup_errors.capture([&] {
+                    drain_evaluation_notifications(state.before_evaluation_notifications, true);
+                });
+                cleanup_errors.rethrow_if_any();
+            };
             auto stop_graph = UnwindCleanupGuard([&] {
                 if (state.cleanup_on_error || std::uncaught_exceptions() == 0)
                 {
-                    graph.stop();
+                    stop_and_flush();
                 }
             });
 
@@ -486,9 +510,14 @@ namespace hgraph
                 auto remove_recorder = UnwindCleanupGuard([&] {
                     if (recording_this_cycle) { state.lifecycle_observers.remove(&recorder); }
                 });
-                drain_evaluation_notifications(state.before_evaluation_notifications);
+                drain_evaluation_notifications(state.before_evaluation_notifications, true);
+                // Match Python's try/finally cycle contract: even a partial
+                // graph evaluation must run the after queue before teardown.
+                auto drain_after = UnwindCleanupGuard([&] {
+                    drain_evaluation_notifications(state.after_evaluation_notifications, false);
+                });
                 const bool completed = graph.evaluate(evaluation_time);
-                drain_evaluation_notifications(state.after_evaluation_notifications);
+                drain_after.complete();
                 remove_recorder.complete();
                 if (recording_this_cycle) { recorded_cycle = true; }
                 if (!completed)

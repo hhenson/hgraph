@@ -70,8 +70,10 @@ namespace hgraph
         void (*run_impl)(const void *context, const GraphExecutorView &executor) = nullptr;
         void (*request_stop_impl)(const void *context, void *memory) noexcept = nullptr;
         /** One-shot cycle-boundary notification (2026-08-01): ``before``
-            selects the queue drained just before the next root evaluation;
-            otherwise the queue drained right after it. Eval-thread only. */
+            selects the FIFO queue drained just before the next root
+            evaluation; otherwise the LIFO queue drained right after it.
+            Each boundary drains re-entrant registrations to completion.
+            Eval-thread only. */
         void (*add_evaluation_notification_impl)(const void *context, void *memory,
                                                  std::function<void()> fn, bool before) = nullptr;
         bool (*stop_requested_impl)(const void *context, const void *memory) noexcept = nullptr;
@@ -138,8 +140,9 @@ namespace hgraph
 
         void request_stop() const noexcept;
 
-        /** One-shot notifications fired at the next root cycle boundary
-            (the C++-primary facility behind the python
+        /** One-shot notifications fired at the applicable root cycle
+            boundary and drained there to completion (the C++-primary
+            facility behind python's
             ``EvaluationEngineApi.add_*_evaluation_notification``). */
         void add_before_evaluation_notification(std::function<void()> fn) const;
         void add_after_evaluation_notification(std::function<void()> fn) const;

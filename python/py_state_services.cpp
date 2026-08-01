@@ -22,37 +22,74 @@ namespace hgraph::python_bridge
             CPython's attribute lookup, where def_prop_ro routes through an
             nb_func vectorcall (~15-20ns per read on the python-node
             boundary). */
-/** Wrap a python callable for the C++ notification queues: the call
-    AND the eventual destruction of the captured object both re-acquire
-    the GIL (the engine drains and destroys queue entries outside any
-    python scope). */
-[[nodiscard]] inline std::function<void()> py_notification_thunk(nb::object fn)
-{
-    struct GilSafeCallable
-    {
-        PyObject *fn;
-        explicit GilSafeCallable(nb::object object) : fn(object.release().ptr()) {}
-        ~GilSafeCallable()
+
+        /** Temporarily reactivate the registering Python call's lease while
+            its notification runs. The run guard still owns the hard lifetime
+            bound; restoring only the generation lets documented callbacks
+            safely read the captured TimeSeries/API views at their boundary. */
+        class PyNotificationLeaseScope
         {
-            if (fn != nullptr)
+          public:
+            explicit PyNotificationLeaseScope(const PyTsLease &lease) noexcept
+                : guard_(lease.guard), generation_(lease.generation)
             {
-                const PyGILState_STATE gil = PyGILState_Ensure();
-                Py_DECREF(fn);
-                PyGILState_Release(gil);
+                if (guard_ != nullptr && guard_->alive)
+                {
+                    previous_generation_ = guard_->generation;
+                    guard_->generation   = generation_;
+                    active_              = true;
+                }
             }
+
+            PyNotificationLeaseScope(const PyNotificationLeaseScope &) = delete;
+            PyNotificationLeaseScope &operator=(const PyNotificationLeaseScope &) = delete;
+
+            ~PyNotificationLeaseScope() noexcept
+            {
+                if (active_ && guard_->alive) { guard_->generation = previous_generation_; }
+            }
+
+          private:
+            std::shared_ptr<PyTsGuard> guard_{};
+            std::uint64_t              generation_{0};
+            std::uint64_t              previous_generation_{0};
+            bool                       active_{false};
+        };
+
+        /** Wrap a python callable for the C++ notification queues: the call
+            AND the eventual destruction of the captured object both
+            re-acquire the GIL (the engine drains and destroys queue entries
+            outside any python scope). */
+        [[nodiscard]] inline std::function<void()> py_notification_thunk(nb::object fn,
+                                                                         PyTsLease lease)
+        {
+            struct GilSafeCallable
+            {
+                PyObject *fn;
+                explicit GilSafeCallable(nb::object object) : fn(object.release().ptr()) {}
+                ~GilSafeCallable()
+                {
+                    if (fn != nullptr)
+                    {
+                        const PyGILState_STATE gil = PyGILState_Ensure();
+                        Py_DECREF(fn);
+                        PyGILState_Release(gil);
+                    }
+                }
+            };
+            auto holder = std::make_shared<GilSafeCallable>(std::move(fn));
+            return [holder, lease = std::move(lease)]() {
+                const PyGILState_STATE gil = PyGILState_Ensure();
+                auto release = UnwindCleanupGuard([&]() noexcept { PyGILState_Release(gil); });
+                {
+                    PyNotificationLeaseScope active_lease{lease};
+                    nb::borrow<nb::object>(nb::handle(holder->fn))();
+                }
+                release.complete();
+            };
         }
-    };
-    auto holder = std::make_shared<GilSafeCallable>(std::move(fn));
-    return [holder]() {
-        const PyGILState_STATE gil = PyGILState_Ensure();
-        auto release = UnwindCleanupGuard([&]() noexcept { PyGILState_Release(gil); });
-        nb::borrow<nb::object>(nb::handle(holder->fn))();
-        release.complete();
-    };
-}
 
         template <auto Member>
-
         PyObject *py_ts_raw_get(PyObject *self, void *) noexcept
         {
             return py_error_on_exception<PyObject *>(nullptr, [&] {
@@ -755,12 +792,12 @@ namespace hgraph::python_bridge
         .def("add_before_evaluation_notification",
              [](PyEvaluationEngineApi &self, nb::object fn) {
                  self.checked().add_before_evaluation_notification(
-                     py_notification_thunk(std::move(fn)));
+                     py_notification_thunk(std::move(fn), self.lease));
              })
         .def("add_after_evaluation_notification",
              [](PyEvaluationEngineApi &self, nb::object fn) {
                  self.checked().add_after_evaluation_notification(
-                     py_notification_thunk(std::move(fn)));
+                     py_notification_thunk(std::move(fn), self.lease));
              })
         .def_prop_ro("evaluation_mode", [](const PyEvaluationEngineApi &self) {
             return self.checked().mode() == GraphExecutorMode::RealTime ? "real_time" : "simulation";
