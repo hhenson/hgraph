@@ -1069,6 +1069,7 @@ class _ServiceImpl:
         self.resolvers = dict(resolvers) if resolvers else None
         self.label = label
         self.deprecated = deprecated
+        self._bound_impl_cache = {}
         if interfaces is None:
             raise TypeError(f"@service_impl '{self.__name__}' requires interfaces=")
         self.manual_adaptor = isinstance(interfaces, (tuple, list))
@@ -1233,6 +1234,23 @@ def _bind_registered_impl(implementation, path, config):
         if ts_type is not None:
             resolved_config[param.name] = _TsExpr(ts_type, f"resolved[{name}]")
 
+    cache_key = None
+    if not registration_contexts:
+        candidate = (
+            implementation.interfaces,
+            path,
+            tuple(sorted(resolved_config.items())),
+        )
+        try:
+            hash(candidate)
+        except TypeError:
+            pass
+        else:
+            cached = implementation._bound_impl_cache.get(candidate)
+            if cached is not None:
+                return cached
+            cache_key = candidate
+
     def bound(*ports):
         if len(ports) != native_ports:
             raise WiringError(
@@ -1297,13 +1315,17 @@ def _bind_registered_impl(implementation, path, config):
     if implementation.resolvers or implementation.deprecated or implementation.label:
         from ._graph import _GraphFn
 
-        return _GraphFn(
+        result = _GraphFn(
             bound,
             resolvers=implementation.resolvers,
             label=implementation.label,
             deprecated=implementation.deprecated,
         )
-    return bound
+    else:
+        result = bound
+    if cache_key is not None:
+        implementation._bound_impl_cache[cache_key] = result
+    return result
 
 
 def _resolve_registered_implementation(implementation, resolution_dict, operation):

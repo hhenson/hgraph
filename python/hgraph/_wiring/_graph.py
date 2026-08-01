@@ -168,12 +168,30 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):
         name: value for name, value in kwargs.items()
         if name.startswith("__")
     }
-    return (
-        _wrap_graph_fn(
-            func, input_names=input_names, scalar_bindings=scalar_bindings),
-        tuple(prepared_args),
-        special_kwargs,
-    )
+    wrapped = None
+    cache = getattr(func, "_wired_fn_cache", None)
+    if cache is not None:
+        candidate = (
+            tuple(input_names),
+            tuple(sorted(scalar_bindings.items())),
+        )
+        try:
+            hash(candidate)
+        except TypeError:
+            pass
+        else:
+            wrapped = cache.get(candidate)
+            if wrapped is None:
+                wrapped = _wrap_graph_fn(
+                    func,
+                    input_names=input_names,
+                    scalar_bindings=scalar_bindings,
+                )
+                cache[candidate] = wrapped
+    if wrapped is None:
+        wrapped = _wrap_graph_fn(
+            func, input_names=input_names, scalar_bindings=scalar_bindings)
+    return wrapped, tuple(prepared_args), special_kwargs
 
 
 def _as_wired(func):
@@ -354,6 +372,7 @@ class _GraphFn:
         self._requires = requires
         self._label = label
         self._deprecated = deprecated
+        self._wired_fn_cache = {}
         out = self._signature.return_annotation
         if isinstance(out, type):
             from .._types import TimeSeriesSchema
@@ -426,6 +445,7 @@ class _GraphFn:
 
         resolved = copy.copy(self)
         resolved._seed_bindings = dict(bindings)
+        resolved._wired_fn_cache = {}
         return resolved
 
     def __call__(self, *args, **kwargs):

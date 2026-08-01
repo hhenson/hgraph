@@ -133,12 +133,19 @@ namespace hgraph
             std::string path,
             std::size_t storage_offset)
         {
+            auto &contexts = subscription_key_source_contexts();
+            const auto existing = std::ranges::find_if(
+                contexts,
+                [&](const auto &context) {
+                    return context->path == path && context->storage_offset == storage_offset;
+                });
+            if (existing != contexts.end()) { return **existing; }
             auto context = std::make_unique<SubscriptionKeySourceContext>(SubscriptionKeySourceContext{
                 .path           = std::move(path),
                 .storage_offset = storage_offset,
             });
             const auto *result = context.get();
-            subscription_key_source_contexts().push_back(std::move(context));
+            contexts.push_back(std::move(context));
             return *result;
         }
 
@@ -153,12 +160,19 @@ namespace hgraph
             std::string path,
             std::size_t storage_offset)
         {
+            auto &contexts = subscription_key_capture_contexts();
+            const auto existing = std::ranges::find_if(
+                contexts,
+                [&](const auto &context) {
+                    return context->path == path && context->storage_offset == storage_offset;
+                });
+            if (existing != contexts.end()) { return **existing; }
             auto context = std::make_unique<SubscriptionKeyCaptureContext>(SubscriptionKeyCaptureContext{
                 .path           = std::move(path),
                 .storage_offset = storage_offset,
             });
             const auto *result = context.get();
-            subscription_key_capture_contexts().push_back(std::move(context));
+            contexts.push_back(std::move(context));
             return *result;
         }
 
@@ -189,12 +203,19 @@ namespace hgraph
             std::string path,
             std::size_t storage_offset)
         {
+            auto &contexts = request_input_source_contexts();
+            const auto existing = std::ranges::find_if(
+                contexts,
+                [&](const auto &context) {
+                    return context->path == path && context->storage_offset == storage_offset;
+                });
+            if (existing != contexts.end()) { return **existing; }
             auto context = std::make_unique<RequestInputSourceContext>(RequestInputSourceContext{
                 .path           = std::move(path),
                 .storage_offset = storage_offset,
             });
             const auto *result = context.get();
-            request_input_source_contexts().push_back(std::move(context));
+            contexts.push_back(std::move(context));
             return *result;
         }
 
@@ -217,12 +238,19 @@ namespace hgraph
             std::string path,
             std::size_t storage_offset)
         {
+            auto &contexts = request_input_capture_contexts();
+            const auto existing = std::ranges::find_if(
+                contexts,
+                [&](const auto &context) {
+                    return context->path == path && context->storage_offset == storage_offset;
+                });
+            if (existing != contexts.end()) { return **existing; }
             auto context = std::make_unique<RequestInputCaptureContext>(RequestInputCaptureContext{
                 .path           = std::move(path),
                 .storage_offset = storage_offset,
             });
             const auto *result = context.get();
-            request_input_capture_contexts().push_back(std::move(context));
+            contexts.push_back(std::move(context));
             return *result;
         }
 
@@ -717,7 +745,12 @@ namespace hgraph
                 throw std::logic_error("request id source failed to publish its id");
             }
         };
-        NodeBuilder builder = NodeBuilder::native(std::move(schema), std::move(callbacks));
+        static const std::byte runtime_type_id{};
+        NodeTypeDescriptor descriptor;
+        descriptor.schema = std::move(schema);
+        descriptor.callbacks = std::move(callbacks);
+        NodeBuilder builder = NodeBuilder::from_canonical_descriptor(
+            std::move(descriptor), &runtime_type_id);
         builder.label("request_id_source");
         return builder;
     }
@@ -748,7 +781,8 @@ namespace hgraph
         descriptor.ops.extended_view_type_id = SubscriptionKeySourceView::node_view_type_id();
         descriptor.ops.extended_view_context = context;
 
-        NodeBuilder builder = NodeBuilder::from_descriptor(std::move(descriptor));
+        NodeBuilder builder = NodeBuilder::from_canonical_descriptor(
+            std::move(descriptor), context);
         builder.label(std::string{"subscription_key_source:"} + context->path);
         return builder;
     }
@@ -787,7 +821,8 @@ namespace hgraph
         descriptor.ops.evaluate_impl          = &subscription_key_capture_evaluate_impl;
         descriptor.ops.extended_view_context  = context;
 
-        NodeBuilder builder = NodeBuilder::from_descriptor(std::move(descriptor));
+        NodeBuilder builder = NodeBuilder::from_canonical_descriptor(
+            std::move(descriptor), context);
         builder.label(std::string{"subscription_key_capture:"} + context->path);
         return builder;
     }
@@ -819,7 +854,8 @@ namespace hgraph
         descriptor.ops.extended_view_type_id = RequestInputSourceView::node_view_type_id();
         descriptor.ops.extended_view_context = context;
 
-        NodeBuilder builder = NodeBuilder::from_descriptor(std::move(descriptor));
+        NodeBuilder builder = NodeBuilder::from_canonical_descriptor(
+            std::move(descriptor), context);
         builder.label(std::string{"request_input_source:"} + context->path);
         return builder;
     }
@@ -869,7 +905,8 @@ namespace hgraph
         descriptor.ops.evaluate_impl         = &request_input_capture_evaluate_impl;
         descriptor.ops.extended_view_context = context;
 
-        NodeBuilder builder = NodeBuilder::from_descriptor(std::move(descriptor));
+        NodeBuilder builder = NodeBuilder::from_canonical_descriptor(
+            std::move(descriptor), context);
         builder.label(std::string{"request_input_capture:"} + context->path);
         return builder;
     }

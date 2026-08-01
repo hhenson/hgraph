@@ -1,5 +1,7 @@
+#include <hgraph/lib/std/std_operators.h>
 #include <hgraph/runtime/registry_snapshot.h>
 #include <hgraph/runtime/runtime.h>
+#include <hgraph/types/service_wiring.h>
 #include <hgraph/types/static_node.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -31,6 +33,67 @@ GraphBuilder canonical_graph(std::string label = "registry_canonical_graph") {
   graph.label(std::move(label)).add_node(std::move(node));
   return graph;
 }
+
+struct RegistryServiceAdaptor : service_adaptor::interface {
+  static constexpr std::string_view name{"registry_service_adaptor"};
+  using input_schema = TS<Int>;
+  using output_schema = TS<Int>;
+};
+
+struct RegistryServiceAdaptorSource {
+  static constexpr auto name = "registry_service_adaptor_source";
+  static constexpr bool schedule_on_start = true;
+
+  static void eval(Out<TS<Int>> out) { out.set(Int{1}); }
+};
+
+struct RegistryServiceAdaptorImpl {
+  static constexpr auto name = "registry_service_adaptor_impl";
+
+  static void eval(
+      In<"requests", TSD<Int, TS<Int>>, InputValidity::Unchecked> requests,
+      Out<TSD<Int, TS<Int>>> out) {
+    (void)requests;
+    (void)out;
+  }
+};
+
+struct RegistryServiceAdaptorGraph {
+  static constexpr auto name = "registry_service_adaptor_graph";
+
+  static void compose(Wiring &w) {
+    const auto custom = service_adaptor::path("registry_reuse");
+    service_adaptor::register_service_adaptor_impl<
+        RegistryServiceAdaptor, RegistryServiceAdaptorImpl>(w, custom);
+    const auto request = wire<RegistryServiceAdaptorSource>(w);
+    static_cast<void>(wire<RegistryServiceAdaptor>(w, custom, request));
+  }
+};
+
+struct RegistryMapSource {
+  static constexpr auto name = "registry_map_source";
+  static constexpr bool schedule_on_start = true;
+
+  static void eval(Out<TSD<Int, TS<Int>>>) {}
+};
+
+struct RegistryMappedGraph {
+  static constexpr auto name = "registry_mapped_graph";
+
+  static Port<TS<Int>> compose(Wiring &, Port<TS<Int>> value) {
+    using namespace hgraph::stdlib::syntax;
+    return (value + Int{1}).as<TS<Int>>();
+  }
+};
+
+struct RegistryMapGraph {
+  static constexpr auto name = "registry_map_graph";
+
+  static void compose(Wiring &w) {
+    const auto values = wire<RegistryMapSource>(w);
+    static_cast<void>(wire<stdlib::map_>(w, fn<RegistryMappedGraph>(), values));
+  }
+};
 } // namespace
 
 TEST_CASE("runtime registry snapshot reports retained type cardinalities")
@@ -180,4 +243,48 @@ TEST_CASE("equivalent graph and executor runtime types are reused") {
       .mode(GraphExecutorMode::RealTime)
       .graph_builder(canonical_graph());
   CHECK(realtime_executor.type() != first_executor_type);
+}
+
+TEST_CASE("native service adaptor wiring reuses runtime types") {
+  using namespace hgraph;
+
+  stdlib::register_standard_operators();
+
+  GraphBuilder first = build_graph<RegistryServiceAdaptorGraph>();
+  static_cast<void>(first.root_type());
+  const RuntimeRegistrySnapshot after_first = runtime_registry_snapshot();
+
+  GraphBuilder repeated = build_graph<RegistryServiceAdaptorGraph>();
+  static_cast<void>(repeated.root_type());
+  const RuntimeRegistrySnapshot after_repeated = runtime_registry_snapshot();
+
+  CHECK(after_repeated.node_runtime_types == after_first.node_runtime_types);
+  CHECK(after_repeated.graph_programs == after_first.graph_programs);
+  CHECK(after_repeated.graph_runtime_types ==
+        after_first.graph_runtime_types);
+  CHECK(after_repeated.executor_runtime_types ==
+        after_first.executor_runtime_types);
+  CHECK(after_repeated.type_records == after_first.type_records);
+}
+
+TEST_CASE("native map wiring reuses runtime types") {
+  using namespace hgraph;
+
+  stdlib::register_standard_operators();
+
+  GraphBuilder first = build_graph<RegistryMapGraph>();
+  static_cast<void>(first.root_type());
+  const RuntimeRegistrySnapshot after_first = runtime_registry_snapshot();
+
+  GraphBuilder repeated = build_graph<RegistryMapGraph>();
+  static_cast<void>(repeated.root_type());
+  const RuntimeRegistrySnapshot after_repeated = runtime_registry_snapshot();
+
+  CHECK(after_repeated.node_runtime_types == after_first.node_runtime_types);
+  CHECK(after_repeated.graph_programs == after_first.graph_programs);
+  CHECK(after_repeated.graph_runtime_types ==
+        after_first.graph_runtime_types);
+  CHECK(after_repeated.executor_runtime_types ==
+        after_first.executor_runtime_types);
+  CHECK(after_repeated.type_records == after_first.type_records);
 }

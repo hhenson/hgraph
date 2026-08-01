@@ -2223,7 +2223,12 @@ WiringPortRef Wiring::add_node(std::type_index def,
 
     NodeBuilder builder = make_builder(); // intern miss: only now pay for (and
                                           // register) the builder
-    builder.scalars(std::move(scalars));
+    // The supplied scalar participates in wiring interning. A specialised
+    // builder may carry a different runtime-only value (for example a nested
+    // graph context); preserve that explicit per-instance configuration.
+    if (!builder.scalars().has_value()) {
+      builder.scalars(std::move(scalars));
+    }
 
     WiringInstance &instance = impl_->instances.emplace_back();
     instance.definition = def;

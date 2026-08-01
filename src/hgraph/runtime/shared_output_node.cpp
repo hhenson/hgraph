@@ -10,6 +10,7 @@
 #include <hgraph/types/time_series/ts_output/base_view.h>
 #include <hgraph/types/time_series_reference.h>
 
+#include <algorithm>
 #include <array>
 #include <deque>
 #include <stdexcept>
@@ -45,9 +46,18 @@ namespace hgraph
             std::size_t storage_offset = 0)
         {
             if (key.empty()) { throw std::invalid_argument("shared output key must not be empty"); }
+            static auto *configs = new std::deque<SharedOutputConfig>;
+            const auto existing = std::ranges::find_if(
+                *configs,
+                [&](const SharedOutputConfig &config) {
+                    return config.key == key &&
+                           config.target_schema == &target_schema &&
+                           config.storage_offset == storage_offset &&
+                           config.strict == strict;
+                });
+            if (existing != configs->end()) { return *existing; }
             // Node callback tables are interned, so builder config storage must
             // outlive every graph instance created from the builder.
-            static auto *configs = new std::deque<SharedOutputConfig>;
             configs->push_back(SharedOutputConfig{
                 .key = std::move(key),
                 .target_schema = &target_schema,
@@ -232,15 +242,14 @@ namespace hgraph
         auto       &registry = TypeRegistry::instance();
         const auto *output_schema = registry.ref(&target_schema);
 
-        NodeTypeMetaData schema;
-        schema.display_name      = "shared_output_source";
-        schema.output_schema     = output_schema;
-        schema.state_schema      = output_schema->value_schema;
-        schema.node_kind         = NodeKind::PullSource;
-        schema.schedule_on_start = true;
+        NodeTypeDescriptor descriptor;
+        descriptor.schema.display_name      = "shared_output_source";
+        descriptor.schema.output_schema     = output_schema;
+        descriptor.schema.state_schema      = output_schema->value_schema;
+        descriptor.schema.node_kind         = NodeKind::PullSource;
+        descriptor.schema.schedule_on_start = true;
 
-        NodeCallbacks callbacks;
-        callbacks.evaluate = [config](const NodeView &view, DateTime evaluation_time) {
+        descriptor.callbacks.evaluate = [config](const NodeView &view, DateTime evaluation_time) {
             const auto  state = view.state();
             const auto &reference = state.checked_as<TimeSeriesReference>();
             if (reference.is_empty() && reference.target_schema() == nullptr)
@@ -256,11 +265,12 @@ namespace hgraph
                 throw std::logic_error("shared output source failed to publish the captured reference");
             }
         };
-        callbacks.stop = [](const NodeView &view, DateTime) {
+        descriptor.callbacks.stop = [](const NodeView &view, DateTime) {
             view.replace_state(Value{TimeSeriesReference{}});
         };
 
-        NodeBuilder builder = NodeBuilder::native(std::move(schema), std::move(callbacks));
+        NodeBuilder builder = NodeBuilder::from_canonical_descriptor(
+            std::move(descriptor), config);
         builder.label(std::string{"shared_output_source:"} + config->key);
         return builder;
     }
@@ -297,7 +307,8 @@ namespace hgraph
         descriptor.ops.evaluate_impl         = &shared_output_capture_evaluate_impl;
         descriptor.ops.extended_view_context = config;
 
-        NodeBuilder builder = NodeBuilder::from_descriptor(std::move(descriptor));
+        NodeBuilder builder = NodeBuilder::from_canonical_descriptor(
+            std::move(descriptor), config);
         builder.label(std::string{"shared_output_capture:"} + config->key);
         return builder;
     }
