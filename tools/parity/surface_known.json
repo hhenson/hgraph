@@ -29,6 +29,218 @@
       "kind": "import-asymmetry",
       "side": "reference",
       "reason": "reference-side import failure (upstream bug or optional dependency absent from the reference environment)"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "WiringTracer.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.*",
+      "kind": "method-signature-mismatch",
+      "reason": "nanobind-bound native class: introspection shows *args/**kwargs; behavioural parity is the contract"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "record_to_memory",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "legacy test-prototyped recording API is not replicated (ruling 2026-07-31); the formal record/replay API is the surface \u2014 see python_compatibility.rst"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "replay_from_memory",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "legacy test-prototyped recording API is not replicated (ruling 2026-07-31); the formal record/replay API is the surface \u2014 see python_compatibility.rst"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "set_replay_values",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "legacy test-prototyped recording API is not replicated (ruling 2026-07-31); the formal record/replay API is the surface \u2014 see python_compatibility.rst"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "SimpleArrayReplaySource",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "legacy test-prototyped recording API is not replicated (ruling 2026-07-31); the formal record/replay API is the surface \u2014 see python_compatibility.rst"
+    },
+    {
+      "module": "*",
+      "name": "HgTypeMetaData",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "HgTypeMetaData family is documented as NOT ported; the reflection API replaces it (python_compatibility.rst)"
+    },
+    {
+      "module": "*",
+      "name": "HgTSTypeMetaData",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "HgTypeMetaData family is documented as NOT ported; the reflection API replaces it (python_compatibility.rst)"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "datetime",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__); fixed upstream by hgraph#367"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "nullcontext",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__); fixed upstream by hgraph#367"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "zip_longest",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__); fixed upstream by hgraph#367"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "Any",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__); fixed upstream by hgraph#367"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "prepare_kwargs",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "wiring internal leaked by the upstream test module; not test-package API (ruling 2026-07-31)"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "WiringContext",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "wiring internal leaked by the upstream test module; not test-package API (ruling 2026-07-31)"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "eval_node",
+      "kind": "signature-mismatch",
+      "reason": "parameter names match upstream (node, *args); output_type/__scalars__ are allowed extensions and the None start default is engine-equivalent to MIN_ST"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "nanobind-bound native observers: introspection shows *args/**kwargs; keyword construction is covered by tests"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "nanobind-bound native observers: introspection shows *args/**kwargs; keyword construction is covered by tests"
+    },
+    {
+      "module": "*",
+      "name": "WiringTracer.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "nanobind-bound native observers: introspection shows *args/**kwargs; keyword construction is covered by tests"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "EvaluationLifeCycleObserver",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "GlobalState",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "GraphConfiguration",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "MAX_ET",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "MIN_DT",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "MIN_ST",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "MIN_TD",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "WiringError",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "evaluate_graph",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "graph",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph.test",
+      "name": "get_recorded_value",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
     }
   ]
 }

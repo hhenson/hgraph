@@ -392,7 +392,7 @@ def _operator_parameter_annotations(fn):
     return tuple(annotations), variadic
 
 
-def eval_node(fn, *inputs, output_type=None, resolution_dict=None,
+def eval_node(node, *args, output_type=None, resolution_dict=None,
               __trace__=False, __trace_wiring__=False, __observers__=None,
               __start_time__=None, __end_time__=None, __scalars__=None,
               __elide__=False, **kwargs):
@@ -403,6 +403,9 @@ def eval_node(fn, *inputs, output_type=None, resolution_dict=None,
     scheduled. ``__end_time__`` (Python-hgraph parity) bounds a run
     explicitly; a test that cannot quiesce (e.g. a bound feedback loop
     until per-edge passive support lands) must set it and say why."""
+    # Upstream-compatible parameter names (node, *args) are the public
+    # contract; the implementation keeps its internal vocabulary.
+    fn, inputs = node, args
     try:
         fn_sig = inspect.signature(
             fn.fn if isinstance(fn, _GraphFn) or hasattr(fn, "_delegate") else fn,

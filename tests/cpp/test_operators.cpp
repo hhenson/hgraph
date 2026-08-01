@@ -1269,6 +1269,24 @@ namespace
     struct kw_sum_ : Operator<"kw_sum", In<"base", TS<Int>>, VarKwIn<"kwargs">, Out<TS<Int>>>
     {
     };
+    // Issue #224 (review): VarKwIn<Name, Schema> retains the declared pack
+    // pattern; dispatch matches it against the synthesized pack of the
+    // supplied keywords and rejects on mismatch.
+    struct typed_kw_ : Operator<"typed_kw",
+                                VarKwIn<"kwargs", UnNamedTSB<Field<"x", TS<Int>>>>,
+                                Out<TS<Int>>>
+    {
+    };
+    struct typed_kw_impl
+    {
+        static constexpr auto name = "typed_kw_impl";
+        static Port<TS<Int>>  compose(Wiring &w,
+                                      VarKwIn<"kwargs", UnNamedTSB<Field<"x", TS<Int>>>> rest)
+        {
+            REQUIRE(rest.size() == 1);
+            return Port<TS<Int>>{w, rest[0].second};
+        }
+    };
     struct kw_sum_impl
     {
         static constexpr auto name = "kw_sum_impl";
@@ -1402,6 +1420,30 @@ TEST_CASE("operators: unmatched keyword time-series collect into **kwargs")
     std::array<WiringArg, 3> duplicate_args{ts_arg(ts_int), named_ts_arg("x", ts_int), named_ts_arg("x", ts_int)};
     REQUIRE_THROWS_WITH(OperatorRegistry::instance().resolve("kw_sum", std::span<const WiringArg>{duplicate_args}),
                         Catch::Matchers::ContainsSubstring("multiple values for argument 'x'"));
+}
+
+TEST_CASE("operators: a typed **kwargs collector gates candidates on its pack pattern")
+{
+    using namespace hgraph;
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    (void)TypeRegistry::instance().register_scalar<Str>("str");
+
+    register_graph_overload<typed_kw_, typed_kw_impl>();
+
+    const auto *ts_int = ts_type<TS<Int>>();
+    const auto *ts_str = ts_type<TS<Str>>();
+
+    std::array<WiringArg, 1> matching{named_ts_arg("x", ts_int)};
+    auto resolved = OperatorRegistry::instance().resolve(
+        "typed_kw", std::span<const WiringArg>{matching});
+    REQUIRE(resolved.impl->has_kwargs_pattern);
+    CHECK(resolved.kwargs.size() == 1);
+
+    std::array<WiringArg, 1> mismatched{named_ts_arg("x", ts_str)};
+    REQUIRE_THROWS_WITH(
+        OperatorRegistry::instance().resolve("typed_kw",
+                                             std::span<const WiringArg>{mismatched}),
+        Catch::Matchers::ContainsSubstring("**kwargs pattern"));
 }
 
 TEST_CASE("operators: arg<\"name\">(...) flows named arguments through wire<Op>")

@@ -76,6 +76,26 @@ its collected ``lines`` are needed programmatically:
    evaluate_graph(app, GraphConfiguration(wiring_observers=(tracer,)))
    print("\n".join(tracer.lines))
 
+Test-package recording (``record_to_memory`` and friends)
+----------------------------------------------------------
+
+Upstream's in-memory test recording (``record_to_memory``,
+``replay_from_memory``, ``set_replay_values``, ``SimpleArrayReplaySource``)
+was prototyped in the test package and later superseded by the formal
+record/replay machinery. hg_cpp deliberately does not replicate the legacy
+spellings (ruling 2026-07-31); port test code onto the formal API:
+
+- record: ``set_record_replay_config`` / ``record_replay_scope`` with the
+  in-memory model, and read results back through ``get_recorded_value`` or
+  ``Run.recorded(key)``;
+- replay: seed inputs with ``Wiring.set_replay(key, values, ts_type=...)``
+  before running (the same mechanism ``eval_node`` uses — per-cycle vectors
+  with ``None`` for no-tick), replacing
+  ``set_replay_values``/``SimpleArrayReplaySource``; read results back with
+  ``Run.recorded(key)`` or ``get_recorded_value``;
+- for simple per-cycle vectors, ``hgraph.test.eval_node`` already provides
+  the seed-and-capture loop directly.
+
 Python-authored wiring observers are deliberately unsupported. The observer
 interface and its event records are C++ diagnostics APIs; Python configuration
 currently accepts only the bound native ``WiringTracer``.

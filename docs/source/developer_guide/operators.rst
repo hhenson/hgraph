@@ -219,6 +219,23 @@ compatibility, including declared bundle inheritance, is preserved. Scalar
 conversions of the ordinary ``wire<>`` scalar path.
 
 
+Variadic ``**kwargs`` candidates and pack patterns (issue #224)
+---------------------------------------------------------------
+
+A candidate declaring ``**kwargs`` collects every named argument that matches
+no fixed parameter. When the collector carries a ts annotation (canonically
+``TSB[TS_SCHEMA]``), that pattern is retained on the candidate
+(``OperatorImpl::kwargs_pattern``) and matched at dispatch against the
+**synthesized un-named TSB of the supplied keywords**: field names are the
+keyword names in call order, port arguments contribute their schema verbatim
+(no REF dereference — upstream takes ``output_type`` as-is), and plain values
+contribute ``TS[inferred]`` per the const-lift rule. This match is what binds
+pack-level schema variables, letting a generic output (``-> TSB[TS_SCHEMA]``)
+resolve. A zero-keyword call deliberately binds nothing: the collector is not
+selected on an empty pack. The direct (non-operator) python call path applies
+the same rule by matching the packed group against the declared annotation at
+wiring (``_PyNode._check_binding``), which also covers ``*args`` packs.
+
 ``OperatorImpl`` — a type-erased candidate
 ------------------------------------------
 
