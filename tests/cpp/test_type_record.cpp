@@ -122,11 +122,13 @@ TEST_CASE("debug descriptor common enums and layouts are fixed", "[type-erasure]
     STATIC_REQUIRE(DEBUG_DESCRIPTOR_MAGIC == 0x48474444u);
     STATIC_REQUIRE(DEBUG_DESCRIPTOR_ABI_VERSION == 3);
     STATIC_REQUIRE(DEBUG_DYNAMIC_LAYOUT_MAGIC == 0x4847444cu);
-    STATIC_REQUIRE(DEBUG_DYNAMIC_LAYOUT_ABI_VERSION == 1);
+    STATIC_REQUIRE(DEBUG_DYNAMIC_LAYOUT_ABI_VERSION == 3);
     STATIC_REQUIRE(sizeof(DebugLayoutKind) == sizeof(std::uint8_t));
     STATIC_REQUIRE(sizeof(DebugAtomicKind) == sizeof(std::uint8_t));
     STATIC_REQUIRE(sizeof(DebugDescriptorFlags) == sizeof(std::uint32_t));
     STATIC_REQUIRE(sizeof(DebugFieldFlags) == sizeof(std::uint32_t));
+    STATIC_REQUIRE(sizeof(DebugDynamicLayout) == 88);
+    STATIC_REQUIRE(offsetof(DebugDynamicLayout, key_auxiliary_offset) == 12);
     STATIC_REQUIRE(static_cast<std::uint8_t>(DebugLayoutKind::Opaque) == 0);
     STATIC_REQUIRE(static_cast<std::uint8_t>(DebugLayoutKind::Atomic) == 1);
     STATIC_REQUIRE(static_cast<std::uint8_t>(DebugLayoutKind::FixedComposite) == 2);
@@ -143,6 +145,11 @@ TEST_CASE("debug descriptor common enums and layouts are fixed", "[type-erasure]
     STATIC_REQUIRE(static_cast<std::uint8_t>(DebugAtomicKind::FloatingPoint) == 4);
     STATIC_REQUIRE(static_cast<std::uint32_t>(DebugFieldFlags::EmbeddedPointer) == (1u << 2u));
     STATIC_REQUIRE(static_cast<std::uint32_t>(DebugDynamicFlags::ElementsArePointers) == (1u << 9u));
+    STATIC_REQUIRE(static_cast<std::uint32_t>(DebugDynamicFlags::DataPointersAreTagged) == (1u << 10u));
+    STATIC_REQUIRE(static_cast<std::uint32_t>(DebugDynamicFlags::KeyPointersAreTagged) == (1u << 11u));
+    STATIC_REQUIRE(static_cast<std::uint32_t>(DebugDynamicFlags::SlotStateIsTaggedPointer) == (1u << 12u));
+    STATIC_REQUIRE(static_cast<std::uint32_t>(DebugDynamicFlags::SlotIndexIsIndirect) == (1u << 13u));
+    STATIC_REQUIRE(static_cast<std::uint32_t>(DebugDynamicFlags::SlotSizeIsIndirect) == (1u << 14u));
 
     DebugDescriptor descriptor{
         .magic = DEBUG_DESCRIPTOR_MAGIC,
@@ -186,7 +193,41 @@ TEST_CASE("debug descriptor common enums and layouts are fixed", "[type-erasure]
                     DebugDynamicFlags::ElementsAreOwners;
     dynamic.size_offset = sizeof(std::size_t);
     REQUIRE(dynamic.valid());
+
+    dynamic.flags = dynamic.flags | DebugDynamicFlags::DataPointersAreTagged;
+    REQUIRE(dynamic.valid());
+    dynamic.flags = dynamic.flags | DebugDynamicFlags::HasSlotState |
+                    DebugDynamicFlags::SlotStateIsTaggedPointer;
+    dynamic.state_offset = 2 * sizeof(std::size_t);
+    REQUIRE(dynamic.valid());
+    dynamic.flags = static_cast<DebugDynamicFlags>(
+        static_cast<std::uint32_t>(dynamic.flags) &
+        ~static_cast<std::uint32_t>(DebugDynamicFlags::DataPointersAreTagged));
+    REQUIRE_FALSE(dynamic.valid());
+
+    dynamic.flags = DebugDynamicFlags::DataIsIndirect | DebugDynamicFlags::DataIsPointerTable |
+                    DebugDynamicFlags::HasSlotState | DebugDynamicFlags::SlotStateIsTaggedPointer;
+    REQUIRE_FALSE(dynamic.valid());
+    dynamic.flags = DebugDynamicFlags::DataIsIndirect | DebugDynamicFlags::DataIsPointerTable |
+                    DebugDynamicFlags::DataPointersAreTagged | DebugDynamicFlags::SlotStateIsTaggedPointer;
+    REQUIRE_FALSE(dynamic.valid());
+
+    dynamic.flags = DebugDynamicFlags::DataIsIndirect | DebugDynamicFlags::DataIsPointerTable |
+                    DebugDynamicFlags::ElementsAreOwners;
+    dynamic.state_offset = 0;
     dynamic.flags = dynamic.flags | DebugDynamicFlags::ElementsArePointers;
+    REQUIRE_FALSE(dynamic.valid());
+
+    dynamic.flags = DebugDynamicFlags::DataIsIndirect | DebugDynamicFlags::KeyDataIsIndirect |
+                    DebugDynamicFlags::DataIsPointerTable | DebugDynamicFlags::KeyDataIsPointerTable |
+                    DebugDynamicFlags::SlotIndexIsIndirect | DebugDynamicFlags::SlotSizeIsIndirect;
+    dynamic.size_offset = sizeof(std::size_t);
+    dynamic.auxiliary_offset = 2 * sizeof(std::size_t);
+    REQUIRE(dynamic.valid());
+    dynamic.key_stride = sizeof(std::uint32_t);
+    dynamic.key_auxiliary_offset = 3 * sizeof(std::uint32_t);
+    REQUIRE(dynamic.valid());
+    dynamic.flags = dynamic.flags | DebugDynamicFlags::HasHead;
     REQUIRE_FALSE(dynamic.valid());
 }
 

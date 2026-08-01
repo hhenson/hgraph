@@ -18,6 +18,7 @@ permissions:
   contents: read
 
 env:
+  GCC_VERSION: "14"
   SCCACHE_GHA_ENABLED: "true"
 
 jobs:
@@ -238,7 +239,9 @@ jobs:
         shell: bash
         run: |
           g++ --version
-          test "$(g++ -dumpfullversion -dumpversion | cut -d. -f1)" -ge 14
+          test "$(g++ -dumpfullversion -dumpversion | cut -d. -f1)" -eq "$GCC_VERSION"
+          echo "CC=$(command -v gcc)" >> "$GITHUB_ENV"
+          echo "CXX=$(command -v g++)" >> "$GITHUB_ENV"
           /opt/python/cp312-cp312/bin/python --version
       - name: Install wheel build tools
         run: /opt/python/cp312-cp312/bin/python -m pip install --upgrade build abi3audit auditwheel
@@ -351,6 +354,16 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Configure GCC 14 for the installed C++ consumer
+        if: runner.os == 'Linux' && matrix.python-version == '3.12'
+        shell: bash
+        run: |
+          cc_path="$(command -v "gcc-$GCC_VERSION")"
+          cxx_path="$(command -v "g++-$GCC_VERSION")"
+          test "$("$cxx_path" -dumpfullversion -dumpversion | cut -d. -f1)" -eq "$GCC_VERSION"
+          echo "CC=$cc_path" >> "$GITHUB_ENV"
+          echo "CXX=$cxx_path" >> "$GITHUB_ENV"
+          "$cxx_path" --version
       - name: Install uv
         run: python -m pip install --upgrade uv
       - uses: actions/download-artifact@v7
@@ -461,13 +474,16 @@ jobs:
           echo "CC=/usr/bin/clang" >> "$GITHUB_ENV"
           echo "CXX=/usr/bin/clang++" >> "$GITHUB_ENV"
           /usr/bin/clang++ --version
-      - name: Configure GCC 13 on Linux
+      - name: Configure GCC 14 on Linux
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          echo "CC=gcc-13" >> "$GITHUB_ENV"
-          echo "CXX=g++-13" >> "$GITHUB_ENV"
-          g++-13 --version
+          cc_path="$(command -v "gcc-$GCC_VERSION")"
+          cxx_path="$(command -v "g++-$GCC_VERSION")"
+          test "$("$cxx_path" -dumpfullversion -dumpversion | cut -d. -f1)" -eq "$GCC_VERSION"
+          echo "CC=$cc_path" >> "$GITHUB_ENV"
+          echo "CXX=$cxx_path" >> "$GITHUB_ENV"
+          "$cxx_path" --version
       - name: Install native build dependencies
         run: python -m pip install --upgrade "cmake>=3.26" ninja "pyarrow>=24,<25"
       - name: Expose Arrow runtime libraries
@@ -501,6 +517,15 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.10
         with:
           version: v0.15.0
+      - name: Configure GCC 14
+        shell: bash
+        run: |
+          cc_path="$(command -v "gcc-$GCC_VERSION")"
+          cxx_path="$(command -v "g++-$GCC_VERSION")"
+          test "$("$cxx_path" -dumpfullversion -dumpversion | cut -d. -f1)" -eq "$GCC_VERSION"
+          echo "CC=$cc_path" >> "$GITHUB_ENV"
+          echo "CXX=$cxx_path" >> "$GITHUB_ENV"
+          "$cxx_path" --version
       - uses: mamba-org/setup-micromamba@v3
         with:
           environment-name: hgraph-native

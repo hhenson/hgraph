@@ -213,6 +213,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_scope.cpp
     test_small_dense_ptr_map.cpp
     test_slot_utils.cpp
+    test_stable_slot_representation_prototype.cpp
     test_specialized_views.cpp
     test_static_schema.cpp
     test_temporal.cpp
@@ -306,6 +307,17 @@ target_link_libraries(hgraph_type_erasure_perf
 )
 
 hgraph_enable_private_pch(hgraph_type_erasure_perf)
+
+add_executable(hgraph_stable_slot_representation_perf
+    stable_slot_representation_perf.cpp
+)
+
+target_link_libraries(hgraph_stable_slot_representation_perf
+    PRIVATE
+        hgraph::core
+)
+
+hgraph_enable_private_pch(hgraph_stable_slot_representation_perf)
 
 include(Catch)
 catch_discover_tests(hgraph_unit_tests)

@@ -15,6 +15,7 @@
 #include <hgraph/types/utils/memory_utils.h>
 #include <hgraph/types/utils/slot_observer.h>
 #include <hgraph/types/utils/stable_slot_storage.h>
+#include <hgraph/types/utils/stable_slot_store.h>
 #include <hgraph/types/utils/value_slot_store.h>
 #include <hgraph/types/time_series/ts_data.h>
 #include <hgraph/types/time_series/ts_data/base_view.h>
@@ -82,6 +83,11 @@ void instantiate_slot_stores() {
     using hgraph::KeySlotStore;
     using hgraph::KeyMirroredValueSlotStore;
     using hgraph::ValueSlotStore;
+
+    hgraph::StableSlotStore<hgraph::StableSlotStateModel::ConstructedAndLive> stable_slots(
+        MemoryUtils::layout_for<std::int64_t>());
+    stable_slots.reserve_to(8);
+    assert(stable_slots.representation() == hgraph::StableSlotRepresentation::TaggedPointer);
 
     KeySlotStore keys(MemoryUtils::plan_for<std::int32_t>(), hgraph::key_slot_store_ops_for<std::int32_t>());
     KeyMirroredValueSlotStore mirrored_values(keys, MemoryUtils::plan_for<std::int32_t>());

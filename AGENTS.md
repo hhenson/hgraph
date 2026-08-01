@@ -134,6 +134,26 @@ the edited documentation, commands, links, or configuration directly.
 - Preserve type information and ownership explicitly across type-erased APIs;
   do not extend a temporary's lifetime through a reference.
 
+## Type-Erased Strategy Boundaries
+
+- Put a reusable type-erased contract in its own clearly named public header.
+  Keep concrete representation strategies in files under an `impl` boundary;
+  semantic owners should depend on the contract, not name a strategy directly.
+- Select a concrete strategy once from immutable wiring-time or plan metadata.
+  Keep any required dispatch inside the type-erased contract; do not scatter
+  representation-policy branches through semantic owners or leak strategy-
+  specific containers into the public surface.
+- Represent strategy polymorphism with the project's passive ops-table plus
+  explicit erased-ownership pattern. Do not make the semantic facade hold a
+  `std::variant` of concrete strategies; reserve variants for cases where
+  the closed sum type is itself part of the contract.
+- Keep erased ops pointers non-null. Default and moved-from objects bind a
+  canonical no-op table, so ordinary queries dispatch through the contract
+  instead of branching around a missing implementation.
+- Publish explicit data-only inspection views when debugger metadata needs
+  representation details. Debuggers must not infer private implementation
+  member layouts or decode standard-library containers.
+
 ## Test Guidelines
 
 - C++ tests live under `tests/cpp`; Python compatibility tests live under

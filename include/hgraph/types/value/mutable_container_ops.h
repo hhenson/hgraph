@@ -190,14 +190,20 @@ namespace hgraph
             const auto offset_of = [base](const auto *member) {
                 return static_cast<std::size_t>(reinterpret_cast<const std::byte *>(member) - base);
             };
+            const StableSlotDebugView slots = slots_.debug_slot_view();
+            DebugDynamicFlags flags = DebugDynamicFlags::DataIsIndirect |
+                                      DebugDynamicFlags::DataIsPointerTable |
+                                      DebugDynamicFlags::SlotIndexIsIndirect;
+            if (slots.pointers_tagged) { flags = flags | DebugDynamicFlags::DataPointersAreTagged; }
             return DebugDynamicLayout{
                 .magic = DEBUG_DYNAMIC_LAYOUT_MAGIC,
                 .abi_version = DEBUG_DYNAMIC_LAYOUT_ABI_VERSION,
                 .kind = DebugDynamicKind::StableSlots,
-                .flags = DebugDynamicFlags::DataIsIndirect | DebugDynamicFlags::DataIsPointerTable,
+                .flags = flags,
                 .size_offset = offset_of(&size_),
-                .data_offset = offset_of(&slots_.value_storage.slots),
+                .data_offset = offset_of(slots.implementation_pointer),
                 .stride = element_binding_.checked_plan().layout.size,
+                .auxiliary_offset = slots.pointer_table_offset,
             };
         }
 
@@ -648,19 +654,32 @@ namespace hgraph
             const auto offset_of = [base](const auto *member) {
                 return static_cast<std::size_t>(reinterpret_cast<const std::byte *>(member) - base);
             };
+            const StableSlotDebugView key_slots = keys_.debug_slot_view();
+            const StableSlotDebugView value_slots = values_.debug_slot_view();
+            DebugDynamicFlags flags = DebugDynamicFlags::DataIsIndirect |
+                                      DebugDynamicFlags::KeyDataIsIndirect |
+                                      DebugDynamicFlags::DataIsPointerTable |
+                                      DebugDynamicFlags::KeyDataIsPointerTable |
+                                      DebugDynamicFlags::HasSlotState |
+                                      DebugDynamicFlags::SlotIndexIsIndirect |
+                                      DebugDynamicFlags::SlotSizeIsIndirect;
+            if (value_slots.pointers_tagged) { flags = flags | DebugDynamicFlags::DataPointersAreTagged; }
+            if (key_slots.pointers_tagged) { flags = flags | DebugDynamicFlags::KeyPointersAreTagged; }
+            if (key_slots.state_tagged) { flags = flags | DebugDynamicFlags::SlotStateIsTaggedPointer; }
             return DebugDynamicLayout{
                 .magic = DEBUG_DYNAMIC_LAYOUT_MAGIC,
                 .abi_version = DEBUG_DYNAMIC_LAYOUT_ABI_VERSION,
                 .kind = DebugDynamicKind::StableSlots,
-                .flags = DebugDynamicFlags::DataIsIndirect | DebugDynamicFlags::KeyDataIsIndirect |
-                         DebugDynamicFlags::DataIsPointerTable | DebugDynamicFlags::KeyDataIsPointerTable |
-                         DebugDynamicFlags::HasSlotState,
-                .size_offset = offset_of(&keys_.key_storage.slot_count),
-                .data_offset = offset_of(&values_.value_storage.slots),
+                .flags = flags,
+                .key_auxiliary_offset =
+                    static_cast<std::uint32_t>(key_slots.pointer_table_offset),
+                .size_offset = key_slots.slot_count_offset,
+                .data_offset = offset_of(value_slots.implementation_pointer),
                 .stride = value_binding_.checked_plan().layout.size,
-                .key_data_offset = offset_of(&keys_.key_storage.slots),
+                .key_data_offset = offset_of(key_slots.implementation_pointer),
                 .key_stride = key_binding_.checked_plan().layout.size,
-                .state_offset = offset_of(&keys_.live),
+                .state_offset = key_slots.state_offset,
+                .auxiliary_offset = value_slots.pointer_table_offset,
             };
         }
 
@@ -685,7 +704,7 @@ namespace hgraph
             const auto &ops = value_binding_.ops_ref();
             for (std::size_t slot = 0; slot < values_.slot_capacity(); ++slot)
             {
-                if (values_.constructed.test(slot))
+                if (values_.has_slot(slot))
                 {
                     result += ops.dynamic_storage_metrics(values_.value_memory(slot));
                 }
@@ -1178,16 +1197,24 @@ namespace hgraph
             const auto offset_of = [base](const auto *member) {
                 return static_cast<std::size_t>(reinterpret_cast<const std::byte *>(member) - base);
             };
+            const StableSlotDebugView slots = keys_.debug_slot_view();
+            DebugDynamicFlags flags = DebugDynamicFlags::DataIsIndirect |
+                                      DebugDynamicFlags::DataIsPointerTable |
+                                      DebugDynamicFlags::HasSlotState |
+                                      DebugDynamicFlags::SlotIndexIsIndirect |
+                                      DebugDynamicFlags::SlotSizeIsIndirect;
+            if (slots.pointers_tagged) { flags = flags | DebugDynamicFlags::DataPointersAreTagged; }
+            if (slots.state_tagged) { flags = flags | DebugDynamicFlags::SlotStateIsTaggedPointer; }
             return DebugDynamicLayout{
                 .magic = DEBUG_DYNAMIC_LAYOUT_MAGIC,
                 .abi_version = DEBUG_DYNAMIC_LAYOUT_ABI_VERSION,
                 .kind = DebugDynamicKind::StableSlots,
-                .flags = DebugDynamicFlags::DataIsIndirect | DebugDynamicFlags::DataIsPointerTable |
-                         DebugDynamicFlags::HasSlotState,
-                .size_offset = offset_of(&keys_.key_storage.slot_count),
-                .data_offset = offset_of(&keys_.key_storage.slots),
+                .flags = flags,
+                .size_offset = slots.slot_count_offset,
+                .data_offset = offset_of(slots.implementation_pointer),
                 .stride = element_binding_.checked_plan().layout.size,
-                .state_offset = offset_of(&keys_.live),
+                .state_offset = slots.state_offset,
+                .auxiliary_offset = slots.pointer_table_offset,
             };
         }
 

@@ -182,7 +182,7 @@ def dynamic_layout_snapshot(value):
         "kind": integer(child(value, "kind")),
         "reserved0": integer(child(value, "reserved0")),
         "flags": integer(child(value, "flags")),
-        "reserved1": integer(child(value, "reserved1")),
+        "key_auxiliary_offset": integer(child(value, "key_auxiliary_offset")),
         "size_offset": integer(child(value, "size_offset")),
         "size_constant": integer(child(value, "size_constant")),
         "data_offset": integer(child(value, "data_offset")),
@@ -347,10 +347,34 @@ def make_ts_parent_pointer(value, data_address, layout, name):
 
 def dynamic_child_addresses(value, data_address, layout):
     flags = layout["flags"]
+    slot_index_indirect = bool(flags & common.DEBUG_DYNAMIC_SLOT_INDEX_INDIRECT)
+    data_implementation = 0
+    key_implementation = 0
+    if slot_index_indirect:
+        data_implementation = read_unsigned(value, data_address + layout["data_offset"])
+        if data_implementation is None:
+            return
+        data_implementation &= ~0x3
+        if not data_implementation:
+            return
+        if layout["key_stride"]:
+            key_implementation = read_unsigned(value, data_address + layout["key_data_offset"])
+            if key_implementation is None:
+                return
+            key_implementation &= ~0x3
+            if not key_implementation:
+                return
+        else:
+            key_implementation = data_implementation
+    size_base = (
+        key_implementation
+        if flags & common.DEBUG_DYNAMIC_SLOT_SIZE_INDIRECT
+        else data_address
+    )
     size = (
         layout["size_constant"]
         if flags & common.DEBUG_DYNAMIC_SIZE_CONSTANT
-        else read_unsigned(value, data_address + layout["size_offset"])
+        else read_unsigned(value, size_base + layout["size_offset"])
     )
     if size is None or size > (1 << 30):
         return
@@ -362,14 +386,22 @@ def dynamic_child_addresses(value, data_address, layout):
     )
     if head is None:
         return
-    data_base = data_address + layout["data_offset"]
+    data_base = (
+        data_implementation + layout["auxiliary_offset"]
+        if slot_index_indirect
+        else data_address + layout["data_offset"]
+    )
     if flags & common.DEBUG_DYNAMIC_DATA_INDIRECT:
         data_base = read_unsigned(value, data_base)
     if data_base is None:
         return
     key_base = 0
     if layout["key_stride"]:
-        key_base = data_address + layout["key_data_offset"]
+        key_base = (
+            key_implementation + layout["key_auxiliary_offset"]
+            if slot_index_indirect
+            else data_address + layout["key_data_offset"]
+        )
         if flags & common.DEBUG_DYNAMIC_KEY_DATA_INDIRECT:
             key_base = read_unsigned(value, key_base)
         if key_base is None:
@@ -377,10 +409,15 @@ def dynamic_child_addresses(value, data_address, layout):
     state_words = 0
     state_bits = 0
     if flags & common.DEBUG_DYNAMIC_HAS_SLOT_STATE:
-        state_words = read_unsigned(value, data_address + layout["state_offset"])
-        state_bits = read_unsigned(
-            value,
-            data_address + layout["state_offset"] + value.GetTarget().GetAddressByteSize(),
+        state_base = key_implementation if slot_index_indirect else data_address
+        state_words = read_unsigned(value, state_base + layout["state_offset"])
+        state_bits = (
+            size
+            if flags & common.DEBUG_DYNAMIC_SLOT_STATE_TAGGED
+            else read_unsigned(
+                value,
+                state_base + layout["state_offset"] + value.GetTarget().GetAddressByteSize(),
+            )
         )
         if state_words is None or state_bits is None:
             return
@@ -394,16 +431,25 @@ def dynamic_child_addresses(value, data_address, layout):
         if flags & common.DEBUG_DYNAMIC_HAS_SLOT_STATE:
             if physical_index >= state_bits:
                 continue
-            word = read_unsigned(value, state_words + (physical_index // 64) * 8, 8)
-            if word is None or not (word & (1 << (physical_index % 64))):
-                continue
+            if flags & common.DEBUG_DYNAMIC_SLOT_STATE_TAGGED:
+                state = read_unsigned(value, state_words + physical_index * pointer_size)
+                if state is None or state & 0x3:
+                    continue
+            else:
+                word = read_unsigned(value, state_words + (physical_index // 64) * 8, 8)
+                if word is None or not (word & (1 << (physical_index % 64))):
+                    continue
         if flags & common.DEBUG_DYNAMIC_DATA_POINTER_TABLE:
             element = read_unsigned(value, data_base + physical_index * pointer_size)
+            if element is not None and flags & common.DEBUG_DYNAMIC_DATA_POINTERS_TAGGED:
+                element &= ~0x3
         else:
             element = data_base + physical_index * layout["stride"]
         if key_base:
             if flags & common.DEBUG_DYNAMIC_KEY_DATA_POINTER_TABLE:
                 key = read_unsigned(value, key_base + physical_index * pointer_size)
+                if key is not None and flags & common.DEBUG_DYNAMIC_KEY_POINTERS_TAGGED:
+                    key &= ~0x3
             else:
                 key = key_base + physical_index * layout["key_stride"]
         else:

@@ -146,6 +146,9 @@ def test_full_suite_gate_installs_the_wheel_test_extra():
 
 def test_release_workflow_targets_supported_platforms():
     workflow = (ROOT / ".github/workflows/build.yml").read_text()
+    nightly_workflow = (
+        ROOT / ".github/workflows/parity-nightly.yml"
+    ).read_text()
 
     assert "macos-15-intel" not in workflow
     assert "          - os: macos-26" in workflow
@@ -163,7 +166,13 @@ def test_release_workflow_targets_supported_platforms():
     assert "--exclude libnanobind-abi3.so" in workflow
     assert "tests/python_extension_consumer/check.py" in workflow
     assert "libarrow-acero=24" in workflow
-    assert "g++-13 --version" in workflow
+    for linux_workflow in (workflow, nightly_workflow):
+        assert 'GCC_VERSION: "14"' in linux_workflow
+        assert 'command -v "gcc-$GCC_VERSION"' in linux_workflow
+        assert 'command -v "g++-$GCC_VERSION"' in linux_workflow
+        assert '-eq "$GCC_VERSION"' in linux_workflow
+        assert "gcc-13" not in linux_workflow
+        assert "g++-13" not in linux_workflow
     assert "runs-on: ubuntu-24.04" in workflow
     # Windows builds with Ninja over cl (vcvars via msvc-dev-cmd): the
     # Visual Studio generator ignores CMAKE_CXX_COMPILER_LAUNCHER, so the

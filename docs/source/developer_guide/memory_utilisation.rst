@@ -163,16 +163,24 @@ Python mirrors.
 Stable dynamic slots
 ~~~~~~~~~~~~~~~~~~~~
 
-Keyed nested graphs use ``StableSlotStorage`` and
-``InPlaceGraphSlotStore``. Capacity growth appends a payload block so already
-published graph addresses never move. A separate pointer table is replaced as
-capacity grows; a bitmap tracks constructed slots. Reported reserved bytes are
-approximately:
+Keyed nested graphs use ``StableSlotStore`` and ``InPlaceGraphSlotStore``.
+Capacity growth appends a payload block so already published graph addresses
+never move. A separate pointer table is replaced as capacity grows. The slot
+store selects its lifecycle representation once from the payload plan:
+pointer-aligned payloads carry state in two low pointer bits, while weaker
+alignment retains one or two compact bitmaps according to the required state
+model. The tagged live state is zero, so dereferencing a known-live pointer
+does not require masking. A one-word semantic facade owns the selected heap
+strategy through a tagged implementation pointer. Its private tag selects the
+canonical nop, aligned, or bitmap path through an inline switch; the common
+aligned path also uses tag zero. Reported reserved bytes are approximately:
 
 .. code-block:: text
 
    capacity * (aligned entry-plus-graph stride + pointer size)
-   + constructed-bitmap word capacity
+   + block descriptors
+   + weak-alignment lifecycle-bitmap word capacity
+   + one fixed erased strategy object
 
 Map and reducers may maintain multiple banks/generations for safe structural
 transition. Ordered reduce deliberately retains a previous chain for one
@@ -281,9 +289,10 @@ Allocation and lifecycle risk review
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The audited graph/nested-graph paths use owning RAII types and explicit
-placement lifecycle operations. ``StableSlotStorage`` destroys payloads before
-releasing blocks; its allocator-aware deleter pairs layout/alignment with the
-matching deallocation. Graph deletion follows stop, unsubscribe, then erase.
+placement lifecycle operations. Owners destroy constructed ``StableSlotStore``
+payloads before releasing its blocks; the allocator-aware block deleter pairs
+layout/alignment with the matching deallocation. Graph deletion follows stop,
+unsubscribe, then erase.
 No retired-object side container was found in these paths.
 
 The highest-risk future changes are therefore not simple missing ``delete``

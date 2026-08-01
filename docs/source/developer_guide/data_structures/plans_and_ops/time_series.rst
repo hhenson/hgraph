@@ -1271,7 +1271,7 @@ at the TSS layer first lets TSD's value side reuse them directly.
 The Slot Store Family
 ---------------------
 
-Three primitives in ``hgraph/types/utils/`` express the slot machinery.
+Layered utilities in ``hgraph/types/utils/`` express the slot machinery.
 The ``SlotTSDataStorage`` implementations for collection-shaped
 time-series data build on these primitives so they can support
 per-element insert / remove / replace with stable addresses and the
@@ -1280,16 +1280,38 @@ per-slot bitsets needed to surface deltas. The value-layer
 by design (see *Scalar Plans and Ops > Container Storage Shapes*) and
 do not use the slot stores.
 
+``StableSlotStore<StateModel>``
+    The reusable payload-type-erased contract for non-relocating slots.
+    ``slot_id`` maps through a replaceable pointer table into chained payload
+    blocks, so growth never moves previously published payloads. The public
+    contract is declared separately from its concrete strategies under
+    ``hgraph/types/utils/impl``.
+
+    The facade is one tagged implementation pointer. Its private tag selects
+    canonical nop, tagged-pointer, or bitmap behaviour through an inline
+    switch. Semantic owners therefore do not contain a ``std::variant`` or
+    name either representation; concrete classes remain under the ``impl``
+    boundary. The implementation allocation still uses the supplied
+    ``MemoryUtils::AllocatorOps``.
+
+    Strategy selection happens once when the immutable ``StorageLayout`` is
+    bound. Payloads aligned to at least ``uintptr_t`` use two low pointer bits
+    for ``live`` (``00``), pending erase, staged construction, and free. A
+    known-live access can therefore use the encoded word directly. Weaker
+    alignment preserves the payload's compact stride and uses the existing
+    raw pointer table with one constructed bitmap, or constructed and live
+    bitmaps when delayed erase is required. The implementation deliberately
+    does not over-align weak payloads merely to enable tagging.
+
 ``StableSlotStorage``
-    Non-relocating, double-indexed slot storage. ``slots`` is a
-    logical slot-id → payload-pointer table; ``blocks`` owns the
-    chained heap allocations behind those pointers. Growth appends a
-    block; previously issued slot pointers never move.
+    Lower-level allocation-only compatibility utility. It exposes a raw slot
+    pointer table and chained blocks but does not model lifecycle state. New
+    lifecycle-owning structures should use ``StableSlotStore`` instead.
 
 ``KeySlotStore``
     Stable slot-backed key storage with delayed-erase semantics. Owns
     homogeneous keys keyed off a ``StoragePlan`` and a small ops vtable
-    (``hash``, ``equal``). Maintains two parallel bitmaps:
+    (``hash``, ``equal``). Its full lifecycle state model exposes:
 
     - ``constructed[slot]`` — payload object exists in slot memory
     - ``live[slot]`` — payload is currently a member of the set
@@ -1304,12 +1326,12 @@ do not use the slot stores.
 
 ``ValueSlotStore``
     Standalone parallel value memory keyed off externally supplied slot
-    ids. As a reusable utility it owns a per-slot ``constructed`` bit
+    ids. As a reusable utility it owns per-slot constructed state
     so it can be used independently and still destroy its payloads
     correctly. A TSD-specific value side should not treat that bit as a
     second source of truth: TSD key construction and value construction
     happen together, so ``KeySlotStore.constructed`` is authoritative
-    and any reused value-store constructed bit is only a derived mirror.
+    and any reused value-store constructed state is only a derived mirror.
 
 ``KeyMirroredValueSlotStore``
     Wrapper for keyed value storage that enforces the TSD-style
@@ -1349,9 +1371,8 @@ primitives. A TS set data store owns one ``KeySlotStore``. A TS map
 data store owns one ``KeySlotStore`` for keys plus value payload
 storage indexed by the key slots. If the generic ``ValueSlotStore`` is
 reused for that value side, use ``KeyMirroredValueSlotStore`` or the
-same rule internally: its constructed bitmap must be kept as a strict
-mirror of the key store's constructed bitmap rather than a separate
-state surface.
+same rule internally: its constructed state must be kept as a strict mirror
+of the key store's constructed state rather than a separate state surface.
 
 Slot stores are deliberately **not** used for scalar values. The
 delayed-erase, per-slot-bit, and observer machinery exists to support
@@ -1408,7 +1429,7 @@ The value side is itself a recursive time-series layer: each value-
 slot holds a complete time-series value (most often a ``TS``, but
 ``SIGNAL``, ``TSS``, ``TSB``, fixed ``TSL``, ``TSW``, or further nested
 ``TSD`` are all permitted by the schema). Memory stability is preserved by the underlying
-``StableSlotStorage`` so consumers can bind to a specific slot's value
+``StableSlotStore`` so consumers can bind to a specific slot's value
 without worrying about future structural changes.
 
 Slot-backed TSData must be updated in place. Its erased storage plans
