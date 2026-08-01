@@ -1005,7 +1005,8 @@ namespace hgraph
     {
         GraphExecutorView view{pointer_};
         if (!view.valid()) { throw std::logic_error("no active graph executor"); }
-        const auto &table = view.type().ops_ref();
+        const ExecutorTypeRef executor_type = view.type();
+        const auto           &table         = executor_type.ops_ref();
         if (table.add_evaluation_notification_impl == nullptr)
         {
             throw std::logic_error("executor does not support evaluation notifications");
@@ -1017,7 +1018,8 @@ namespace hgraph
     {
         GraphExecutorView view{pointer_};
         if (!view.valid()) { throw std::logic_error("no active graph executor"); }
-        const auto &table = view.type().ops_ref();
+        const ExecutorTypeRef executor_type = view.type();
+        const auto           &table         = executor_type.ops_ref();
         if (table.add_evaluation_notification_impl == nullptr)
         {
             throw std::logic_error("executor does not support evaluation notifications");
