@@ -183,6 +183,60 @@ TEST_CASE("TSInput builds a non-peered TSB root with nested peered terminals")
     REQUIRE(nested_leaf.value().checked_as<std::int32_t>() == 42);
 }
 
+TEST_CASE("TSInput dynamic storage metrics include activation and target-link tries", "[memory]")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int = registry.ts(int_meta);
+    const auto *root = registry.tsb("TSInputMetricsRoot", {{"value", ts_int}});
+    const auto endpoint = TSEndpointSchema::non_peered(
+        root, {TSEndpointSchema::peered(ts_int)});
+
+    TSInput input{TSInputBuilderFactory::checked_builder_for(*root, endpoint)};
+    TSOutput output{*ts_int};
+    auto binding_root = input.view();
+    auto binding = binding_root.as_bundle();
+    binding.field("value").bind_output(output.view());
+    const auto passive = input.dynamic_storage_metrics();
+
+    RecordingNotifiable notifier;
+    auto active_root = input.view(&notifier);
+    auto active = active_root.as_bundle();
+    active.field("value").make_active();
+    const auto active_metrics = input.dynamic_storage_metrics();
+    CHECK(active_metrics.live_bytes > passive.live_bytes);
+    CHECK(active_metrics.reserved_bytes > passive.reserved_bytes);
+    CHECK(active_metrics.reserved_bytes >= active_metrics.live_bytes);
+}
+
+TEST_CASE("TSInput dynamic storage metrics do not follow borrowed output storage", "[memory]")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int = registry.ts(int_meta);
+
+    TSOutput output{*ts_int};
+    RecordingNotifiable first;
+    RecordingNotifiable second;
+    output.subscribe(&first);
+    output.subscribe(&second);
+    REQUIRE(output.dynamic_storage_metrics().live_bytes > 0);
+
+    TSInput input{TSInputBuilderFactory::checked_builder_for(
+        *ts_int, TSEndpointSchema::peered(ts_int))};
+    input.view().bind_output(output.view());
+
+    CHECK(input.dynamic_storage_metrics().live_bytes == 0);
+    CHECK(input.dynamic_storage_metrics().reserved_bytes == 0);
+
+    output.unsubscribe(&second);
+    output.unsubscribe(&first);
+}
+
 TEST_CASE("TSInput construction uses generic endpoint annotations")
 {
     using namespace hgraph;

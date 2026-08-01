@@ -123,6 +123,9 @@ namespace hgraph
         [[nodiscard]] ValueView value() const;
         [[nodiscard]] ValueView delta_value() const;
 
+        /** Dynamic storage owned by this view's complete output endpoint. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
+
         /** Modification and validity status. */
         [[nodiscard]] bool bound() const noexcept { return output_ != nullptr && data_.valid(); }
         [[nodiscard]] DateTime last_modified_time() const;

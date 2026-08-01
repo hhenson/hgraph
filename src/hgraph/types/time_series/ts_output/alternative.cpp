@@ -1622,26 +1622,26 @@ namespace hgraph::detail
 
 }  // namespace hgraph::detail
 
-namespace std
+namespace hgraph::detail
 {
-    void default_delete<hgraph::detail::TSOutputAlternativeStore::ToRefAlternativeState>::operator()(
-        hgraph::detail::TSOutputAlternativeStore::ToRefAlternativeState *p) noexcept
+    void TSOutputAlternativeStore::ToRefAlternativeDelete::operator()(
+        ToRefAlternativeState *p) const noexcept
     {
         delete p;
     }
 
-    void default_delete<hgraph::detail::TSOutputAlternativeStore::RefLinkAlternativeState>::operator()(
-        hgraph::detail::TSOutputAlternativeStore::RefLinkAlternativeState *p) noexcept
+    void TSOutputAlternativeStore::RefLinkAlternativeDelete::operator()(
+        RefLinkAlternativeState *p) const noexcept
     {
         delete p;
     }
 
-    void default_delete<hgraph::detail::TSOutputAlternativeStore::InteriorFromRefAlternativeState>::operator()(
-        hgraph::detail::TSOutputAlternativeStore::InteriorFromRefAlternativeState *p) noexcept
+    void TSOutputAlternativeStore::InteriorFromRefAlternativeDelete::operator()(
+        InteriorFromRefAlternativeState *p) const noexcept
     {
         delete p;
     }
-}  // namespace std
+}  // namespace hgraph::detail
 
 namespace hgraph::detail
 {
@@ -1652,18 +1652,49 @@ namespace hgraph::detail
 
     void TSOutputAlternativeStore::release_subscriptions(DateTime release_time) noexcept
     {
-        for (auto &[key, state] : to_ref_alternatives_)
-        {
-            if (state != nullptr) { state->release_subscriptions(); }
-        }
-        for (auto &[key, state] : ref_link_alternatives_)
-        {
-            if (state != nullptr) { state->release_subscriptions(release_time); }
-        }
-        for (auto &[key, state] : interior_from_ref_alternatives_)
-        {
-            if (state != nullptr) { state->release_subscriptions(release_time); }
-        }
+        to_ref_alternatives_.for_each([](const AlternativeKey &, ToRefAlternativeState &state) {
+            state.release_subscriptions();
+        });
+        ref_link_alternatives_.for_each([&](const AlternativeKey &, RefLinkAlternativeState &state) {
+            state.release_subscriptions(release_time);
+        });
+        interior_from_ref_alternatives_.for_each(
+            [&](const AlternativeKey &, InteriorFromRefAlternativeState &state) {
+                state.release_subscriptions(release_time);
+            });
+    }
+
+    DynamicStorageMetrics TSOutputAlternativeStore::dynamic_storage_metrics() const noexcept
+    {
+        DynamicStorageMetrics result = to_ref_alternatives_.dynamic_storage_metrics();
+        result += ref_link_alternatives_.dynamic_storage_metrics();
+        result += interior_from_ref_alternatives_.dynamic_storage_metrics();
+
+        to_ref_alternatives_.for_each([&](const AlternativeKey &, const ToRefAlternativeState &state) {
+            result.live_bytes += sizeof(ToRefAlternativeState);
+            result.reserved_bytes += sizeof(ToRefAlternativeState);
+            const auto view = state.data.view();
+            result += view.dynamic_storage_metrics();
+            result += input_target_link_dynamic_storage_metrics(view);
+        });
+        ref_link_alternatives_.for_each([&](const AlternativeKey &, const RefLinkAlternativeState &state) {
+            result.live_bytes += sizeof(RefLinkAlternativeState) +
+                                 state.reference_sources.size() * sizeof(TSOutputHandle);
+            result.reserved_bytes += sizeof(RefLinkAlternativeState) +
+                                     state.reference_sources.capacity() * sizeof(TSOutputHandle);
+            const auto view = state.data.view();
+            result += view.dynamic_storage_metrics();
+            result += input_target_link_dynamic_storage_metrics(view);
+        });
+        interior_from_ref_alternatives_.for_each(
+            [&](const AlternativeKey &, const InteriorFromRefAlternativeState &state) {
+                result.live_bytes += sizeof(InteriorFromRefAlternativeState);
+                result.reserved_bytes += sizeof(InteriorFromRefAlternativeState);
+                const auto view = state.data.view();
+                result += view.dynamic_storage_metrics();
+                result += input_target_link_dynamic_storage_metrics(view);
+            });
+        return result;
     }
 
     std::size_t TSOutputAlternativeStore::AlternativeKeyHash::operator()(const AlternativeKey &key) const noexcept
@@ -1752,63 +1783,66 @@ namespace hgraph::detail
                                                             const TSOutputView &source,
                                                             const TSValueTypeMetaData &requested_schema)
     {
-        auto it = to_ref_alternatives_.find(key);
-        if (it == to_ref_alternatives_.end())
+        auto *state = to_ref_alternatives_.find(key);
+        if (state == nullptr)
         {
-            auto state = std::make_unique<ToRefAlternativeState>(requested_schema, source);
-            it = to_ref_alternatives_.emplace(key, std::move(state)).first;
+            std::unique_ptr<ToRefAlternativeState, ToRefAlternativeDelete> inserted{
+                new ToRefAlternativeState(requested_schema, source)};
+            state = to_ref_alternatives_.insert(key, std::move(inserted)).first;
         }
         else
         {
-            if (it->second->requested_schema != &requested_schema)
+            if (state->requested_schema != &requested_schema)
             {
                 throw std::logic_error("TSOutput to-REF alternative cache key resolved to the wrong requested schema");
             }
-            it->second->rebind(source);
+            state->rebind(source);
         }
-        return it->second->handle(source.output());
+        return state->handle(source.output());
     }
 
     TSOutputHandle TSOutputAlternativeStore::from_ref_binding(const AlternativeKey &key,
                                                               const TSOutputView &source,
                                                               const TSValueTypeMetaData &requested_schema)
     {
-        auto it = ref_link_alternatives_.find(key);
-        if (it == ref_link_alternatives_.end())
+        auto *state = ref_link_alternatives_.find(key);
+        if (state == nullptr)
         {
-            auto state = std::make_unique<RefLinkAlternativeState>(requested_schema, source);
-            it = ref_link_alternatives_.emplace(key, std::move(state)).first;
+            std::unique_ptr<RefLinkAlternativeState, RefLinkAlternativeDelete> inserted{
+                new RefLinkAlternativeState(requested_schema, source)};
+            state = ref_link_alternatives_.insert(key, std::move(inserted)).first;
         }
         else
         {
-            if (it->second->requested_schema != &requested_schema)
+            if (state->requested_schema != &requested_schema)
             {
                 throw std::logic_error("TSOutput from-REF alternative cache key resolved to the wrong requested schema");
             }
-            it->second->rebind(source);
+            state->rebind(source);
         }
-        return it->second->handle(source.output());
+        return state->handle(source.output());
     }
 
     TSOutputHandle TSOutputAlternativeStore::from_ref_interior_binding(const AlternativeKey &key,
                                                                        const TSOutputView &source,
                                                                        const TSValueTypeMetaData &requested_schema)
     {
-        auto it = interior_from_ref_alternatives_.find(key);
-        if (it == interior_from_ref_alternatives_.end())
+        auto *state = interior_from_ref_alternatives_.find(key);
+        if (state == nullptr)
         {
-            auto state = std::make_unique<InteriorFromRefAlternativeState>(requested_schema, source);
-            it = interior_from_ref_alternatives_.emplace(key, std::move(state)).first;
+            std::unique_ptr<InteriorFromRefAlternativeState, InteriorFromRefAlternativeDelete> inserted{
+                new InteriorFromRefAlternativeState(requested_schema, source)};
+            state = interior_from_ref_alternatives_.insert(key, std::move(inserted)).first;
         }
         else
         {
-            if (it->second->requested_schema != &requested_schema)
+            if (state->requested_schema != &requested_schema)
             {
                 throw std::logic_error(
                     "TSOutput interior from-REF alternative cache key resolved to the wrong requested schema");
             }
-            it->second->rebind(source);
+            state->rebind(source);
         }
-        return it->second->handle(source.output());
+        return state->handle(source.output());
     }
 }  // namespace hgraph::detail

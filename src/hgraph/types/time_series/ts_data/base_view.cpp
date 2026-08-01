@@ -13,6 +13,37 @@
 #include <utility>
 
 namespace hgraph {
+namespace {
+DynamicStorageMetrics observer_storage_metrics(const TSDataView &view) noexcept {
+  if (!view.valid()) {
+    return {};
+  }
+  try {
+    DynamicStorageMetrics result =
+        view.tracking().observers.dynamic_storage_metrics();
+    const auto &table = view.ops();
+    const auto *ownership = table.ownership_ops;
+    if (ownership == nullptr) {
+      return result;
+    }
+
+    const std::size_t child_count =
+        ownership->child_count(table.context, view.data());
+    for (std::size_t index = 0; index < child_count; ++index) {
+      const auto child = ownership->child_at(
+          table.context, const_cast<void *>(view.data()), index);
+      if (!child.type || child.data == nullptr) {
+        continue;
+      }
+      result += observer_storage_metrics(TSDataView{child.type, child.data});
+    }
+    return result;
+  } catch (...) {
+    return {};
+  }
+}
+} // namespace
+
 const TSParentLink &TSDataView::parent_link() const {
   return tracking().parent;
 }
@@ -181,7 +212,8 @@ DynamicStorageMetrics TSDataView::dynamic_storage_metrics() const noexcept {
   }
   try {
     const auto &table = ops();
-    return table.dynamic_storage_metrics_impl(table.context, data());
+    return table.dynamic_storage_metrics_impl(table.context, data()) +
+           observer_storage_metrics(*this);
   } catch (...) {
     return {};
   }

@@ -103,6 +103,9 @@ namespace hgraph
         [[nodiscard]] ValueView value() const;
         [[nodiscard]] ValueView delta_value() const;
 
+        /** Dynamic storage owned by this view's complete input endpoint. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
+
         /**
          * Convert this input projection to a reference token.
          *
