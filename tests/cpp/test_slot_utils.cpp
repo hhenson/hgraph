@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -140,6 +141,22 @@ namespace
             list->remove(this);
         }
 
+        void on_remove(size_t) override {}
+        void on_erase(size_t) override {}
+        void on_clear() override {}
+    };
+
+    struct CallbackSlotObserver final : SlotObserver
+    {
+        std::function<void(std::size_t)> insert{};
+        int                             calls{0};
+
+        void on_capacity(size_t, size_t) override {}
+        void on_insert(size_t slot) override
+        {
+            ++calls;
+            if (insert) { insert(slot); }
+        }
         void on_remove(size_t) override {}
         void on_erase(size_t) override {}
         void on_clear() override {}
@@ -591,6 +608,96 @@ TEST_CASE("slot observer list supports reentrant removal", "[v2 slot utils]") {
     observers.notify_insert(4);
     REQUIRE(first.calls == 1);
     REQUIRE(second.events == std::vector<std::string>{"insert:3", "insert:4"});
+}
+
+TEST_CASE("slot observer list uses compact null one many storage", "[v2 slot utils][memory]") {
+    STATIC_REQUIRE(sizeof(SlotObserverList) == sizeof(void *));
+
+    SlotObserverList  observers;
+    RecordingObserver first;
+    RecordingObserver second;
+
+    CHECK(observers.empty());
+    CHECK(observers.size() == 0);
+    CHECK(observers.dynamic_storage_metrics().live_bytes == 0);
+    CHECK(observers.dynamic_storage_metrics().reserved_bytes == 0);
+
+    observers.add(&first);
+    CHECK_FALSE(observers.empty());
+    CHECK(observers.size() == 1);
+    CHECK(observers.contains(&first));
+    CHECK(observers.dynamic_storage_metrics().live_bytes == 0);
+    CHECK(observers.dynamic_storage_metrics().reserved_bytes == 0);
+
+    observers.add(&second);
+    CHECK(observers.size() == 2);
+    CHECK(observers.contains(&second));
+    CHECK(observers.dynamic_storage_metrics().live_bytes > 2 * sizeof(void *));
+
+    std::vector<SlotObserver *> visited;
+    observers.for_each([&](SlotObserver *observer) { visited.push_back(observer); });
+    CHECK(visited == std::vector<SlotObserver *>{&first, &second});
+
+    observers.remove(&second);
+    CHECK(observers.size() == 1);
+    CHECK(observers.contains(&first));
+    CHECK(observers.dynamic_storage_metrics().live_bytes == 0);
+    CHECK(observers.dynamic_storage_metrics().reserved_bytes == 0);
+
+    SlotObserverList copied{observers};
+    CHECK(copied.size() == 1);
+    CHECK(copied.contains(&first));
+
+    SlotObserverList moved{std::move(copied)};
+    CHECK(copied.empty());
+    CHECK(moved.size() == 1);
+    CHECK(moved.contains(&first));
+}
+
+TEST_CASE("slot observer visitor defers additions and survives reentrant clear", "[v2 slot utils]") {
+    SlotObserverList     observers;
+    CallbackSlotObserver first;
+    CallbackSlotObserver second;
+    CallbackSlotObserver added;
+
+    first.insert = [&](std::size_t) {
+        if (!observers.contains(&added)) { observers.add(&added); }
+    };
+    observers.add(&first);
+    observers.add(&second);
+
+    observers.notify_insert(1);
+    CHECK(first.calls == 1);
+    CHECK(second.calls == 1);
+    CHECK(added.calls == 0);
+    CHECK(observers.size() == 3);
+
+    first.insert = [&](std::size_t) { observers.clear(); };
+    observers.notify_insert(2);
+    CHECK(first.calls == 2);
+    CHECK(second.calls == 1);
+    CHECK(added.calls == 0);
+    CHECK(observers.empty());
+    CHECK(observers.dynamic_storage_metrics().live_bytes == 0);
+    CHECK(observers.dynamic_storage_metrics().reserved_bytes == 0);
+}
+
+TEST_CASE("slot observer visitor restores traversal state after exceptions", "[v2 slot utils]") {
+    SlotObserverList     observers;
+    CallbackSlotObserver throwing;
+    CallbackSlotObserver survivor;
+    throwing.insert = [](std::size_t) { throw std::runtime_error("observer failed"); };
+
+    observers.add(&throwing);
+    observers.add(&survivor);
+    REQUIRE_THROWS_AS(observers.notify_insert(1), std::runtime_error);
+
+    observers.remove(&throwing);
+    observers.notify_insert(2);
+    CHECK(survivor.calls == 1);
+    CHECK(observers.size() == 1);
+    CHECK(observers.dynamic_storage_metrics().live_bytes == 0);
+    CHECK(observers.dynamic_storage_metrics().reserved_bytes == 0);
 }
 
 TEST_CASE("value slot store supports default construction before plan binding", "[v2 slot utils]") {

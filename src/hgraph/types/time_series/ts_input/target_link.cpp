@@ -1,5 +1,6 @@
 #include <hgraph/types/time_series/ts_input/target_link.h>
 
+#include "impl/target_link_structural_storage.h"
 #include "target_link_ops.h"
 
 #include <hgraph/types/metadata/type_registry.h>
@@ -15,7 +16,7 @@
 
 namespace hgraph::detail
 {
-    struct TSInputTargetLinkStorage::StructuralTransition
+    struct TSInputTargetLinkStructuralStorage::StructuralTransition
     {
         struct KeySetNotifier final : Notifiable
         {
@@ -153,6 +154,324 @@ namespace hgraph::detail
             return structural.as_set();
         }
 
+        [[nodiscard]] TSInputTargetLinkStructuralStorage &
+        structural_storage(TSInputTargetLinkStorage &owner) noexcept
+        {
+            return static_cast<TSInputTargetLinkStructuralStorage &>(owner);
+        }
+
+        [[nodiscard]] const TSInputTargetLinkStructuralStorage &
+        structural_storage(const TSInputTargetLinkStorage &owner) noexcept
+        {
+            return static_cast<const TSInputTargetLinkStructuralStorage &>(owner);
+        }
+
+        [[nodiscard]] TSInputTargetLinkStructuralStorage::StructuralTransition &
+        ensure_structural_transition(TSInputTargetLinkStorage &owner)
+        {
+            auto &storage = structural_storage(owner);
+            if (!storage.structural_transition)
+            {
+                storage.structural_transition =
+                    std::make_unique<TSInputTargetLinkStructuralStorage::StructuralTransition>(owner);
+            }
+            return *storage.structural_transition;
+        }
+
+        void structural_clear_transition(TSInputTargetLinkStorage &owner) noexcept
+        {
+            auto &transition = structural_storage(owner).structural_transition;
+            if (transition) { transition->clear(); }
+        }
+
+        void structural_record_key_set_modified(TSInputTargetLinkStorage &owner,
+                                                DateTime modified_time)
+        {
+            auto &transition = ensure_structural_transition(owner);
+            static_cast<void>(transition.key_set_tracking.record_modified(modified_time));
+        }
+
+        void structural_key_set_source_invalidated(TSInputTargetLinkStorage &owner,
+                                                   const TSDataTracking *source) noexcept
+        {
+            static_cast<void>(source);
+            auto &transition = structural_storage(owner).structural_transition;
+            if (transition) { transition->key_set_subscribed = false; }
+        }
+
+        void structural_subscribe_key_set_tracking(TSInputTargetLinkStorage &owner)
+        {
+            auto &transition = structural_storage(owner).structural_transition;
+            if (!owner.bound() || !transition || transition->key_set_subscribed) { return; }
+            auto key_set = target_slot_set(owner);
+            key_set.base().subscribe(&transition->key_set_notifier);
+            transition->key_set_subscribed = true;
+            const auto modified_time = key_set.last_modified_time();
+            if (modified_time != MIN_DT) { structural_record_key_set_modified(owner, modified_time); }
+        }
+
+        void structural_unsubscribe_key_set_tracking(TSInputTargetLinkStorage &owner) noexcept
+        {
+            auto &transition = structural_storage(owner).structural_transition;
+            if (!owner.bound() || !transition || !transition->key_set_subscribed) { return; }
+            auto clear_subscribed = make_scope_exit([&] { transition->key_set_subscribed = false; });
+            static_cast<void>(fallback_on_exception(false, [&] {
+                target_slot_set(owner).base().unsubscribe(&transition->key_set_notifier);
+                return true;
+            }));
+        }
+
+        void structural_subscribe_slot_observers(TSInputTargetLinkStorage &owner)
+        {
+            auto &storage = structural_storage(owner);
+            if (!owner.bound() || storage.slot_observers.empty()) { return; }
+
+            auto set = target_slot_set(owner);
+            std::vector<SlotObserver *> subscribed;
+            subscribed.reserve(storage.slot_observers.size());
+            auto rollback = make_scope_exit<true>([&] {
+                for (SlotObserver *observer : subscribed) { set.unsubscribe_slot_observer(observer); }
+            });
+            storage.slot_observers.for_each([&](SlotObserver *observer) {
+                set.subscribe_slot_observer(observer);
+                subscribed.push_back(observer);
+            });
+            storage.slot_observers_subscribed = true;
+            rollback.release();
+        }
+
+        void structural_unsubscribe_slot_observers(TSInputTargetLinkStorage &owner)
+        {
+            auto &storage = structural_storage(owner);
+            if (!owner.bound() || !storage.slot_observers_subscribed) { return; }
+            auto clear_subscribed = make_scope_exit([&] { storage.slot_observers_subscribed = false; });
+            auto set = target_slot_set(owner);
+            storage.slot_observers.for_each(
+                [&](SlotObserver *observer) { set.unsubscribe_slot_observer(observer); });
+        }
+
+        void structural_unsubscribe_slot_observers_noexcept(TSInputTargetLinkStorage &owner) noexcept
+        {
+            auto &storage = structural_storage(owner);
+            if (!owner.bound() || !storage.slot_observers_subscribed) { return; }
+            static_cast<void>(fallback_on_exception(false, [&] {
+                structural_unsubscribe_slot_observers(owner);
+                return true;
+            }));
+        }
+
+        void structural_publish_sampled_transition(TSInputTargetLinkStorage &owner,
+                                                   DateTime modified_time)
+        {
+            auto &transition = ensure_structural_transition(owner);
+            transition.modified_time = modified_time;
+            transition.sampled_current = true;
+            structural_record_key_set_modified(owner, modified_time);
+        }
+
+        void structural_detach_target(TSInputTargetLinkStorage &owner,
+                                      bool retain_structural_target,
+                                      DateTime modified_time)
+        {
+            auto &storage = structural_storage(owner);
+            structural_unsubscribe_key_set_tracking(owner);
+            if (owner.state_.target.bound() && storage.slot_observers_subscribed)
+            {
+                storage.slot_observers.notify_clear();
+                structural_unsubscribe_slot_observers(owner);
+            }
+            if (retain_structural_target)
+            {
+                auto &transition = ensure_structural_transition(owner);
+                transition.previous_target = owner.state_.target;
+                transition.modified_time = modified_time;
+                transition.sampled_current = false;
+            }
+            else { structural_clear_transition(owner); }
+        }
+
+        void structural_unbind_noexcept(TSInputTargetLinkStorage &owner) noexcept
+        {
+            auto &storage = structural_storage(owner);
+            structural_unsubscribe_key_set_tracking(owner);
+            if (owner.state_.target.bound() && storage.slot_observers_subscribed)
+            {
+                static_cast<void>(fallback_on_exception(false, [&] {
+                    storage.slot_observers.notify_clear();
+                    return true;
+                }));
+                structural_unsubscribe_slot_observers_noexcept(owner);
+            }
+            structural_clear_transition(owner);
+        }
+
+        void structural_source_invalidated(TSInputTargetLinkStorage &owner) noexcept
+        {
+            auto &storage = structural_storage(owner);
+            const bool notify_slot_clear = storage.slot_observers_subscribed;
+            storage.slot_observers_subscribed = false;
+            if (storage.structural_transition)
+            {
+                storage.structural_transition->key_set_subscribed = false;
+                storage.structural_transition->clear();
+            }
+            if (notify_slot_clear)
+            {
+                static_cast<void>(fallback_on_exception(false, [&] {
+                    storage.slot_observers.notify_clear();
+                    return true;
+                }));
+            }
+        }
+
+        void structural_add_slot_observer(TSInputTargetLinkStorage &owner,
+                                          SlotObserver *observer)
+        {
+            auto &storage = structural_storage(owner);
+            storage.slot_observers.add(observer);
+            auto rollback = make_scope_exit<true>([&] { storage.slot_observers.remove(observer); });
+            if (owner.bound()) { target_slot_set(owner).subscribe_slot_observer(observer); }
+            if (owner.bound()) { storage.slot_observers_subscribed = true; }
+            rollback.release();
+        }
+
+        void structural_remove_slot_observer(TSInputTargetLinkStorage &owner,
+                                             SlotObserver *observer)
+        {
+            auto &storage = structural_storage(owner);
+            if (owner.bound() && storage.slot_observers_subscribed)
+            {
+                target_slot_set(owner).unsubscribe_slot_observer(observer);
+            }
+            storage.slot_observers.remove(observer);
+            if (storage.slot_observers.empty()) { storage.slot_observers_subscribed = false; }
+        }
+
+        const TSDataTracking &structural_key_set_tracking(TSInputTargetLinkStorage &owner)
+        {
+            auto &transition = ensure_structural_transition(owner);
+            structural_subscribe_key_set_tracking(owner);
+            return transition.key_set_tracking;
+        }
+
+        TSDataTracking &structural_mutable_key_set_tracking(TSInputTargetLinkStorage &owner)
+        {
+            auto &transition = ensure_structural_transition(owner);
+            structural_subscribe_key_set_tracking(owner);
+            return transition.key_set_tracking;
+        }
+
+        TSDataView structural_previous_target_view(const TSInputTargetLinkStorage &owner) noexcept
+        {
+            const auto &transition = structural_storage(owner).structural_transition;
+            return transition ? transition->previous_target.data_view() : TSDataView{};
+        }
+
+        bool structural_transition_active(const TSInputTargetLinkStorage &owner) noexcept
+        {
+            const auto &transition = structural_storage(owner).structural_transition;
+            return transition && transition->modified_time != MIN_DT &&
+                   owner.tracking.last_modified_time == transition->modified_time;
+        }
+
+        bool structural_sampled_transition(const TSInputTargetLinkStorage &owner) noexcept
+        {
+            const auto &transition = structural_storage(owner).structural_transition;
+            return structural_transition_active(owner) && transition->sampled_current;
+        }
+
+        DateTime structural_transition_time(const TSInputTargetLinkStorage &owner) noexcept
+        {
+            const auto &transition = structural_storage(owner).structural_transition;
+            return transition ? transition->modified_time : MIN_DT;
+        }
+
+        DynamicStorageMetrics structural_dynamic_storage_metrics(
+            const TSInputTargetLinkStorage &owner) noexcept
+        {
+            const auto &storage = structural_storage(owner);
+            DynamicStorageMetrics result = storage.slot_observers.dynamic_storage_metrics();
+            if (storage.structural_transition)
+            {
+                result.live_bytes += sizeof(TSInputTargetLinkStructuralStorage::StructuralTransition);
+                result.reserved_bytes += sizeof(TSInputTargetLinkStructuralStorage::StructuralTransition);
+                result += storage.structural_transition->key_set_tracking.observers.dynamic_storage_metrics();
+            }
+            return result;
+        }
+
+        void structural_before_move_assignment_source(TSInputTargetLinkStorage &owner) noexcept
+        {
+            auto &storage = structural_storage(owner);
+            if (storage.slot_observers.empty()) { return; }
+            static_cast<void>(fallback_on_exception(false, [&] {
+                storage.slot_observers.notify_clear();
+                return true;
+            }));
+            structural_unsubscribe_slot_observers_noexcept(owner);
+            storage.slot_observers.clear();
+            storage.slot_observers_subscribed = false;
+        }
+
+        void structural_resubscribe_after_move_assignment(TSInputTargetLinkStorage &owner) noexcept
+        {
+            static_cast<void>(fallback_on_exception(false, [&] {
+                structural_subscribe_slot_observers(owner);
+                return true;
+            }));
+        }
+
+        void no_structural_action(TSInputTargetLinkStorage &) noexcept {}
+        void no_structural_action_at(TSInputTargetLinkStorage &, DateTime) {}
+        void no_structural_detach(TSInputTargetLinkStorage &, bool, DateTime) {}
+        void no_structural_source_invalidated(TSInputTargetLinkStorage &) noexcept {}
+        void no_structural_key_source_invalidated(TSInputTargetLinkStorage &,
+                                                  const TSDataTracking *) noexcept {}
+        void no_structural_add(TSInputTargetLinkStorage &, SlotObserver *)
+        {
+            throw std::logic_error("non-structural target links do not support slot observers");
+        }
+        const TSDataTracking &no_structural_key_tracking(TSInputTargetLinkStorage &)
+        {
+            throw std::logic_error("non-structural target links do not expose key-set tracking");
+        }
+        TSDataTracking &no_structural_mutable_key_tracking(TSInputTargetLinkStorage &)
+        {
+            throw std::logic_error("non-structural target links do not expose key-set tracking");
+        }
+        TSDataView no_structural_previous_target(const TSInputTargetLinkStorage &) noexcept { return {}; }
+        bool no_structural_flag(const TSInputTargetLinkStorage &) noexcept { return false; }
+        DateTime no_structural_time(const TSInputTargetLinkStorage &) noexcept { return MIN_DT; }
+        DynamicStorageMetrics no_structural_metrics(const TSInputTargetLinkStorage &) noexcept { return {}; }
+
+        [[nodiscard]] const TSInputTargetLinkStructuralOps &target_link_structural_ops() noexcept
+        {
+            static const TSInputTargetLinkStructuralOps ops{
+                .supports_structural = true,
+                .clear_transition = &structural_clear_transition,
+                .subscribe_key_set_tracking = &structural_subscribe_key_set_tracking,
+                .subscribe_slot_observers = &structural_subscribe_slot_observers,
+                .publish_sampled_transition = &structural_publish_sampled_transition,
+                .detach_target = &structural_detach_target,
+                .unbind_noexcept = &structural_unbind_noexcept,
+                .source_invalidated = &structural_source_invalidated,
+                .add_slot_observer = &structural_add_slot_observer,
+                .remove_slot_observer = &structural_remove_slot_observer,
+                .key_set_tracking = &structural_key_set_tracking,
+                .mutable_key_set_tracking = &structural_mutable_key_set_tracking,
+                .record_key_set_modified = &structural_record_key_set_modified,
+                .key_set_source_invalidated = &structural_key_set_source_invalidated,
+                .previous_target_view = &structural_previous_target_view,
+                .transition_active = &structural_transition_active,
+                .sampled_transition = &structural_sampled_transition,
+                .transition_time = &structural_transition_time,
+                .dynamic_storage_metrics = &structural_dynamic_storage_metrics,
+                .before_move_assignment_source = &structural_before_move_assignment_source,
+                .resubscribe_after_move_assignment = &structural_resubscribe_after_move_assignment,
+            };
+            return ops;
+        }
+
         [[nodiscard]] bool project_target_path(TSDataView &current,
                                                const TSValueTypeMetaData *&current_schema,
                                                const TSInputTargetActiveNode *node)
@@ -220,6 +539,71 @@ namespace hgraph::detail
             });
         }
     }  // namespace
+
+    const TSInputTargetLinkStructuralOps &target_link_no_structural_ops() noexcept
+    {
+        static const TSInputTargetLinkStructuralOps ops{
+            .supports_structural = false,
+            .clear_transition = &no_structural_action,
+            .subscribe_key_set_tracking = &no_structural_action,
+            .subscribe_slot_observers = &no_structural_action,
+            .publish_sampled_transition = &no_structural_action_at,
+            .detach_target = &no_structural_detach,
+            .unbind_noexcept = &no_structural_action,
+            .source_invalidated = &no_structural_source_invalidated,
+            .add_slot_observer = &no_structural_add,
+            .remove_slot_observer = &no_structural_add,
+            .key_set_tracking = &no_structural_key_tracking,
+            .mutable_key_set_tracking = &no_structural_mutable_key_tracking,
+            .record_key_set_modified = &no_structural_action_at,
+            .key_set_source_invalidated = &no_structural_key_source_invalidated,
+            .previous_target_view = &no_structural_previous_target,
+            .transition_active = &no_structural_flag,
+            .sampled_transition = &no_structural_flag,
+            .transition_time = &no_structural_time,
+            .dynamic_storage_metrics = &no_structural_metrics,
+            .before_move_assignment_source = &no_structural_action,
+            .resubscribe_after_move_assignment = &no_structural_action,
+        };
+        return ops;
+    }
+
+    const MemoryUtils::StoragePlan &target_link_storage_plan_for(TSTypeKind kind) noexcept
+    {
+        if (kind == TSTypeKind::TSS || kind == TSTypeKind::TSD)
+        {
+            return MemoryUtils::plan_for<TSInputTargetLinkStructuralStorage>();
+        }
+        return MemoryUtils::plan_for<TSInputTargetLinkStorage>();
+    }
+
+    const TSInputTargetLinkStorageAccessOps &target_link_storage_access_for(
+        TSTypeKind kind) noexcept
+    {
+        static const TSInputTargetLinkStorageAccessOps common{
+            .get_const = [](const void *memory) noexcept -> const TSInputTargetLinkStorage * {
+                return memory != nullptr ? MemoryUtils::cast<TSInputTargetLinkStorage>(memory) : nullptr;
+            },
+            .get_mutable = [](void *memory) noexcept -> TSInputTargetLinkStorage * {
+                return memory != nullptr ? MemoryUtils::cast<TSInputTargetLinkStorage>(memory) : nullptr;
+            },
+        };
+        static const TSInputTargetLinkStorageAccessOps structural{
+            .get_const = [](const void *memory) noexcept -> const TSInputTargetLinkStorage * {
+                return memory != nullptr
+                           ? static_cast<const TSInputTargetLinkStorage *>(
+                                 MemoryUtils::cast<TSInputTargetLinkStructuralStorage>(memory))
+                           : nullptr;
+            },
+            .get_mutable = [](void *memory) noexcept -> TSInputTargetLinkStorage * {
+                return memory != nullptr
+                           ? static_cast<TSInputTargetLinkStorage *>(
+                                 MemoryUtils::cast<TSInputTargetLinkStructuralStorage>(memory))
+                           : nullptr;
+            },
+        };
+        return kind == TSTypeKind::TSS || kind == TSTypeKind::TSD ? structural : common;
+    }
 
     TSInputTargetActiveNode *TSInputTargetActiveNode::child_at(std::size_t slot_index) const noexcept
     {
@@ -346,13 +730,28 @@ namespace hgraph::detail
     }
 
     TSInputTargetLinkStorage::TSInputTargetLinkStorage() noexcept
-        : state_(*this)
+        : TSInputTargetLinkStorage(target_link_no_structural_ops())
+    {
+    }
+
+    TSInputTargetLinkStorage::TSInputTargetLinkStorage(
+        const TSInputTargetLinkStructuralOps &structural_ops) noexcept
+        : state_(*this),
+          structural_ops_(&structural_ops)
     {
     }
 
     TSInputTargetLinkStorage::TSInputTargetLinkStorage(const TSInputTargetLinkStorage &other)
+        : TSInputTargetLinkStorage(other, target_link_no_structural_ops())
+    {
+    }
+
+    TSInputTargetLinkStorage::TSInputTargetLinkStorage(
+        const TSInputTargetLinkStorage &other,
+        const TSInputTargetLinkStructuralOps &structural_ops)
         : tracking(other.tracking),
-          state_(*this)
+          state_(*this),
+          structural_ops_(&structural_ops)
     {
     }
 
@@ -369,14 +768,17 @@ namespace hgraph::detail
     }
 
     TSInputTargetLinkStorage::TSInputTargetLinkStorage(TSInputTargetLinkStorage &&other) noexcept
+        : TSInputTargetLinkStorage(std::move(other), target_link_no_structural_ops())
+    {
+    }
+
+    TSInputTargetLinkStorage::TSInputTargetLinkStorage(
+        TSInputTargetLinkStorage &&other,
+        const TSInputTargetLinkStructuralOps &structural_ops) noexcept
         : tracking(std::move(other.tracking)),
           state_(*this),
-          slot_observers_(std::move(other.slot_observers_)),
-          slot_observers_subscribed_(std::exchange(other.slot_observers_subscribed_, false)),
-          structural_transition_(std::move(other.structural_transition_))
+          structural_ops_(&structural_ops)
     {
-        other.slot_observers_.clear();
-        if (structural_transition_) { structural_transition_->rebind_owner(*this); }
         state_.move_from(other.state_);
     }
 
@@ -390,23 +792,10 @@ namespace hgraph::detail
             // Published target links are stable and are not move-assigned.
             // Preserve any observers of this destination identity; observers
             // of the moved-from identity see that source disappear.
-            if (!other.slot_observers_.empty())
-            {
-                static_cast<void>(fallback_on_exception(false, [&] {
-                    other.slot_observers_.notify_clear();
-                    return true;
-                }));
-                other.unsubscribe_slot_observers_noexcept();
-                other.slot_observers_.clear();
-            }
+            other.structural_ops_->before_move_assignment_source(other);
             tracking = std::move(other.tracking);
             state_.move_from(other.state_);
-            structural_transition_ = std::move(other.structural_transition_);
-            if (structural_transition_) { structural_transition_->rebind_owner(*this); }
-            static_cast<void>(fallback_on_exception(false, [&] {
-                subscribe_slot_observers();
-                return true;
-            }));
+            structural_ops_->resubscribe_after_move_assignment(*this);
         }
         return *this;
     }
@@ -414,6 +803,59 @@ namespace hgraph::detail
     TSInputTargetLinkStorage::~TSInputTargetLinkStorage() noexcept
     {
         unbind_noexcept();
+    }
+
+    void TSInputTargetLinkStorage::set_structural_ops(
+        const TSInputTargetLinkStructuralOps &structural_ops) noexcept
+    {
+        structural_ops_ = &structural_ops;
+    }
+
+    TSInputTargetLinkStructuralStorage::TSInputTargetLinkStructuralStorage() noexcept
+        : TSInputTargetLinkStorage(target_link_structural_ops())
+    {
+    }
+
+    TSInputTargetLinkStructuralStorage::TSInputTargetLinkStructuralStorage(
+        const TSInputTargetLinkStructuralStorage &other)
+        : TSInputTargetLinkStorage(other, target_link_structural_ops())
+    {
+    }
+
+    TSInputTargetLinkStructuralStorage &TSInputTargetLinkStructuralStorage::operator=(
+        const TSInputTargetLinkStructuralStorage &other)
+    {
+        TSInputTargetLinkStorage::operator=(other);
+        return *this;
+    }
+
+    TSInputTargetLinkStructuralStorage::TSInputTargetLinkStructuralStorage(
+        TSInputTargetLinkStructuralStorage &&other) noexcept
+        : TSInputTargetLinkStorage(std::move(other), target_link_structural_ops()),
+          slot_observers(std::move(other.slot_observers)),
+          slot_observers_subscribed(std::exchange(other.slot_observers_subscribed, false)),
+          structural_transition(std::move(other.structural_transition))
+    {
+        other.slot_observers.clear();
+        if (structural_transition) { structural_transition->rebind_owner(*this); }
+    }
+
+    TSInputTargetLinkStructuralStorage &TSInputTargetLinkStructuralStorage::operator=(
+        TSInputTargetLinkStructuralStorage &&other) noexcept
+    {
+        if (this != &other)
+        {
+            TSInputTargetLinkStorage::operator=(std::move(other));
+            structural_transition = std::move(other.structural_transition);
+            if (structural_transition) { structural_transition->rebind_owner(*this); }
+        }
+        return *this;
+    }
+
+    TSInputTargetLinkStructuralStorage::~TSInputTargetLinkStructuralStorage() noexcept
+    {
+        unbind_noexcept();
+        set_structural_ops(target_link_no_structural_ops());
     }
 
     bool TSInputTargetLinkStorage::bound() const noexcept
@@ -477,8 +919,7 @@ namespace hgraph::detail
             throw std::invalid_argument("TSInput target binding schema does not match the input slot schema");
         }
 
-        const bool structural =
-            input_endpoint_ops_for(&schema).structural_observation != nullptr;
+        const bool structural = structural_ops_->supports_structural;
         const bool previous_was_valid =
             sampled && state_.target.bound() && state_.target.view(modified_time).valid();
         const bool previous_has_published_state =
@@ -487,7 +928,7 @@ namespace hgraph::detail
         if (state_.target.bound()) { detach_target(sampled && structural, modified_time); }
         else if (!sampled || structural_transition_time() != modified_time)
         {
-            if (structural_transition_) { structural_transition_->clear(); }
+            structural_ops_->clear_transition(*this);
         }
 
         auto &state = state_;
@@ -502,26 +943,17 @@ namespace hgraph::detail
         {
             record_target_modified(state.target.data_view().last_modified_time());
         }
-        subscribe_key_set_tracking();
-        subscribe_slot_observers();
+        structural_ops_->subscribe_key_set_tracking(*this);
+        structural_ops_->subscribe_slot_observers(*this);
         resubscribe_active_target(schema);
         const bool publish_sampled_transition =
             sampled && (output.valid() || previous_was_valid || previous_has_published_state);
         if (publish_sampled_transition)
         {
-            if (structural)
-            {
-                if (!structural_transition_)
-                {
-                    structural_transition_ = std::make_unique<StructuralTransition>(*this);
-                }
-                structural_transition_->modified_time = modified_time;
-                structural_transition_->sampled_current = true;
-                record_key_set_modified(modified_time);
-            }
+            structural_ops_->publish_sampled_transition(*this, modified_time);
             record_target_modified(modified_time);
         }
-        else if (sampled && structural && structural_transition_) { structural_transition_->clear(); }
+        else if (sampled) { structural_ops_->clear_transition(*this); }
         rollback.release();
     }
 
@@ -547,125 +979,35 @@ namespace hgraph::detail
 
     void TSInputTargetLinkStorage::detach_target(bool retain_structural_target, DateTime modified_time)
     {
-        unsubscribe_key_set_tracking();
-        if (state_.target.bound() && slot_observers_subscribed_)
-        {
-            slot_observers_.notify_clear();
-            unsubscribe_slot_observers();
-        }
+        structural_ops_->detach_target(*this, retain_structural_target, modified_time);
         unsubscribe_active_target();
         if (state_.target.bound()) { state_.target.data_view().unsubscribe(&state_); }
-        if (retain_structural_target)
-        {
-            if (!structural_transition_)
-            {
-                structural_transition_ = std::make_unique<StructuralTransition>(*this);
-            }
-            structural_transition_->previous_target = state_.target;
-            structural_transition_->modified_time = modified_time;
-            structural_transition_->sampled_current = false;
-        }
-        else if (structural_transition_) { structural_transition_->clear(); }
         state_.target.reset();
     }
 
     void TSInputTargetLinkStorage::unbind_noexcept() noexcept
     {
-        unsubscribe_key_set_tracking();
-        if (state_.target.bound() && slot_observers_subscribed_)
-        {
-            static_cast<void>(fallback_on_exception(false, [&] {
-                slot_observers_.notify_clear();
-                return true;
-            }));
-            unsubscribe_slot_observers_noexcept();
-        }
+        structural_ops_->unbind_noexcept(*this);
         if (state_.active_root_node) { unsubscribe_tree_noexcept(*state_.active_root_node, state_.scheduling_notifier); }
         unsubscribe_handle_noexcept(state_.target, &state_);
-        if (structural_transition_) { structural_transition_->clear(); }
     }
 
     void TSInputTargetLinkStorage::source_invalidated(const TSDataTracking *source) noexcept
     {
         static_cast<void>(source);
-        const bool notify_slot_clear = slot_observers_subscribed_;
-        slot_observers_subscribed_ = false;
         state_.clear_active_observed();
         state_.target.reset();
-        if (structural_transition_)
-        {
-            structural_transition_->key_set_subscribed = false;
-            structural_transition_->clear();
-        }
-        if (notify_slot_clear)
-        {
-            static_cast<void>(fallback_on_exception(false, [&] {
-                slot_observers_.notify_clear();
-                return true;
-            }));
-        }
+        structural_ops_->source_invalidated(*this);
     }
 
     void TSInputTargetLinkStorage::add_slot_observer(SlotObserver *observer)
     {
-        slot_observers_.add(observer);
-        auto rollback = make_scope_exit<true>([&] { slot_observers_.remove(observer); });
-        if (bound())
-        {
-            target_slot_set(*this).subscribe_slot_observer(observer);
-        }
-        if (bound()) { slot_observers_subscribed_ = true; }
-        rollback.release();
+        structural_ops_->add_slot_observer(*this, observer);
     }
 
     void TSInputTargetLinkStorage::remove_slot_observer(SlotObserver *observer)
     {
-        if (bound() && slot_observers_subscribed_)
-        {
-            target_slot_set(*this).unsubscribe_slot_observer(observer);
-        }
-        slot_observers_.remove(observer);
-        if (slot_observers_.empty()) { slot_observers_subscribed_ = false; }
-    }
-
-    void TSInputTargetLinkStorage::subscribe_slot_observers()
-    {
-        if (!bound() || slot_observers_.empty()) { return; }
-
-        auto set = target_slot_set(*this);
-        std::vector<SlotObserver *> subscribed;
-        subscribed.reserve(slot_observers_.entries().size());
-        auto rollback = make_scope_exit<true>([&] {
-            for (SlotObserver *observer : subscribed) { set.unsubscribe_slot_observer(observer); }
-        });
-        for (SlotObserver *observer : slot_observers_.entries())
-        {
-            if (observer == nullptr) { continue; }
-            set.subscribe_slot_observer(observer);
-            subscribed.push_back(observer);
-        }
-        slot_observers_subscribed_ = true;
-        rollback.release();
-    }
-
-    void TSInputTargetLinkStorage::unsubscribe_slot_observers()
-    {
-        if (!bound() || !slot_observers_subscribed_) { return; }
-        auto clear_subscribed = make_scope_exit([&] { slot_observers_subscribed_ = false; });
-        auto set = target_slot_set(*this);
-        for (SlotObserver *observer : slot_observers_.entries())
-        {
-            if (observer != nullptr) { set.unsubscribe_slot_observer(observer); }
-        }
-    }
-
-    void TSInputTargetLinkStorage::unsubscribe_slot_observers_noexcept() noexcept
-    {
-        if (!bound() || !slot_observers_subscribed_) { return; }
-        static_cast<void>(fallback_on_exception(false, [&] {
-            unsubscribe_slot_observers();
-            return true;
-        }));
+        structural_ops_->remove_slot_observer(*this, observer);
     }
 
     void TSInputTargetLinkStorage::record_target_modified(DateTime modified_time)
@@ -674,64 +1016,25 @@ namespace hgraph::detail
         tracking.parent.notify_child_modified(modified_time);
     }
 
-    TSInputTargetLinkStorage::StructuralTransition &
-    TSInputTargetLinkStorage::ensure_structural_state() const
-    {
-        if (!structural_transition_)
-        {
-            structural_transition_ =
-                std::make_unique<StructuralTransition>(*const_cast<TSInputTargetLinkStorage *>(this));
-        }
-        return *structural_transition_;
-    }
-
     const TSDataTracking &TSInputTargetLinkStorage::key_set_tracking() const
     {
         auto &self = *const_cast<TSInputTargetLinkStorage *>(this);
-        auto &state = self.ensure_structural_state();
-        self.subscribe_key_set_tracking();
-        return state.key_set_tracking;
+        return structural_ops_->key_set_tracking(self);
     }
 
     TSDataTracking &TSInputTargetLinkStorage::mutable_key_set_tracking()
     {
-        auto &state = ensure_structural_state();
-        subscribe_key_set_tracking();
-        return state.key_set_tracking;
+        return structural_ops_->mutable_key_set_tracking(*this);
     }
 
     void TSInputTargetLinkStorage::record_key_set_modified(DateTime modified_time)
     {
-        auto &state = ensure_structural_state();
-        static_cast<void>(state.key_set_tracking.record_modified(modified_time));
+        structural_ops_->record_key_set_modified(*this, modified_time);
     }
 
     void TSInputTargetLinkStorage::key_set_source_invalidated(const TSDataTracking *source) noexcept
     {
-        static_cast<void>(source);
-        if (structural_transition_) { structural_transition_->key_set_subscribed = false; }
-    }
-
-    void TSInputTargetLinkStorage::subscribe_key_set_tracking()
-    {
-        if (!bound() || !structural_transition_ || structural_transition_->key_set_subscribed) { return; }
-        auto key_set = target_slot_set(*this);
-        key_set.base().subscribe(&structural_transition_->key_set_notifier);
-        structural_transition_->key_set_subscribed = true;
-        const auto modified_time = key_set.last_modified_time();
-        if (modified_time != MIN_DT) { record_key_set_modified(modified_time); }
-    }
-
-    void TSInputTargetLinkStorage::unsubscribe_key_set_tracking() noexcept
-    {
-        if (!bound() || !structural_transition_ || !structural_transition_->key_set_subscribed) { return; }
-        auto clear_subscribed = make_scope_exit([&] {
-            structural_transition_->key_set_subscribed = false;
-        });
-        static_cast<void>(fallback_on_exception(false, [&] {
-            target_slot_set(*this).base().unsubscribe(&structural_transition_->key_set_notifier);
-            return true;
-        }));
+        structural_ops_->key_set_source_invalidated(*this, source);
     }
 
     TSInputTargetActiveNode &TSInputTargetLinkStorage::root_node()
@@ -829,9 +1132,7 @@ namespace hgraph::detail
 
     TSDataView TSInputTargetLinkStorage::previous_target_view() const noexcept
     {
-        return structural_transition_ != nullptr
-                   ? structural_transition_->previous_target.data_view()
-                   : TSDataView{};
+        return structural_ops_->previous_target_view(*this);
     }
 
     const TSOutputHandle &TSInputTargetLinkStorage::target_output() const noexcept
@@ -841,19 +1142,17 @@ namespace hgraph::detail
 
     bool TSInputTargetLinkStorage::structural_transition_active() const noexcept
     {
-        return structural_transition_ != nullptr &&
-               structural_transition_->modified_time != MIN_DT &&
-               tracking.last_modified_time == structural_transition_->modified_time;
+        return structural_ops_->transition_active(*this);
     }
 
     bool TSInputTargetLinkStorage::sampled_structural_transition() const noexcept
     {
-        return structural_transition_active() && structural_transition_->sampled_current;
+        return structural_ops_->sampled_transition(*this);
     }
 
     DateTime TSInputTargetLinkStorage::structural_transition_time() const noexcept
     {
-        return structural_transition_ != nullptr ? structural_transition_->modified_time : MIN_DT;
+        return structural_ops_->transition_time(*this);
     }
 
     const TSInputTargetLinkState *TSInputTargetLinkStorage::state() const noexcept
@@ -863,18 +1162,12 @@ namespace hgraph::detail
 
     DynamicStorageMetrics TSInputTargetLinkStorage::dynamic_storage_metrics() const noexcept
     {
-        DynamicStorageMetrics result = slot_observers_.dynamic_storage_metrics();
+        DynamicStorageMetrics result = structural_ops_->dynamic_storage_metrics(*this);
         if (state_.active_root_node != nullptr)
         {
             result.live_bytes += sizeof(TSInputTargetActiveNode);
             result.reserved_bytes += sizeof(TSInputTargetActiveNode);
             result += state_.active_root_node->dynamic_storage_metrics();
-        }
-        if (structural_transition_ != nullptr)
-        {
-            result.live_bytes += sizeof(StructuralTransition);
-            result.reserved_bytes += sizeof(StructuralTransition);
-            result += structural_transition_->key_set_tracking.observers.dynamic_storage_metrics();
         }
         return result;
     }

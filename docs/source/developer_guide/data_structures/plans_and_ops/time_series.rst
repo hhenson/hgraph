@@ -378,13 +378,21 @@ collection. The final scheduling target is a ``Notifiable`` supplied by
 the owning runtime node.
 
 TargetLink in-plan storage is deliberately small: the ordinary
-``TSDataTracking`` record plus inline target-link state. The link state
-owns a borrowed ``TSOutputHandle`` containing the output identity and
-output-owned ``TSDataView``, the target-modified observer, the
-scheduling notifier, and an optional active descendant trie rooted at
-the peered boundary. The state is inline because the normal runtime case
-is a bound link; only the sparse descendant trie nodes are allocated on
-demand.
+``TSDataTracking`` record plus inline target-link state. The common plan owns
+a borrowed ``TSOutputHandle`` containing the output identity and output-owned
+``TSDataView``, the target-modified observer, the scheduling notifier, an
+optional active descendant trie rooted at the peered boundary, and a pointer
+to the immutable structural ops table. The state is inline because the normal
+runtime case is a bound link; only the sparse descendant trie nodes are
+allocated on demand.
+
+Wiring selects a larger concrete plan only for ``TSS`` and ``TSD`` peered
+terminals. That implementation-only representation adds a one-word compact
+slot-observer list and a lazy structural-transition allocation. All other
+terminal kinds use the canonical no-op structural table and pay for neither
+field. Raw storage access is selected alongside the plan, so the rest of the
+input endpoint machinery continues to consume the common TargetLink contract
+without naming the structural representation.
 
 Views are not stored in TargetLink state. Endpoint views materialize
 transient ``TSDataView`` cursors from the stored ``TSOutputHandle`` when

@@ -512,7 +512,15 @@ namespace hgraph
 
         [[nodiscard]] const MemoryUtils::StoragePlan &input_storage_plan(const TSEndpointSchema &endpoint_schema)
         {
-            if (endpoint_schema.is_peered()) { return MemoryUtils::plan_for<detail::TSInputTargetLinkStorage>(); }
+            if (endpoint_schema.is_peered())
+            {
+                const auto *schema = endpoint_schema.schema();
+                if (schema == nullptr)
+                {
+                    throw std::logic_error("TSInput peered endpoint storage requires a TSData schema");
+                }
+                return detail::target_link_storage_plan_for(schema->kind);
+            }
             if (endpoint_schema.is_owned())
             {
                 const auto type = regular_ts_data_type_for(endpoint_schema.schema());

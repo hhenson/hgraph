@@ -3,8 +3,8 @@
 
 #include <hgraph/types/time_series/ts_data.h>
 #include <hgraph/types/time_series/ts_output/base_view.h>
+#include <hgraph/types/time_series/ts_input/target_link_structural_state.h>
 #include <hgraph/types/utils/small_dense_ptr_map.h>
-#include <hgraph/types/utils/slot_observer.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -20,6 +20,7 @@ namespace hgraph::detail
 
     struct TSInputTargetLinkState;
     struct TSInputTargetLinkStorage;
+    struct TSInputTargetLinkStructuralStorage;
 
     /**
      * Non-pruning invariant (RFC 0008 stage 5): an active-trie node, once
@@ -81,8 +82,6 @@ namespace hgraph::detail
 
     struct TSInputTargetLinkStorage
     {
-        struct StructuralTransition;
-
         TSInputTargetLinkStorage() noexcept;
         TSInputTargetLinkStorage(const TSInputTargetLinkStorage &other);
         TSInputTargetLinkStorage &operator=(const TSInputTargetLinkStorage &other);
@@ -132,20 +131,23 @@ namespace hgraph::detail
 
         TSDataTracking tracking{};
         TSInputTargetLinkState state_;
-        SlotObserverList slot_observers_{};
-        bool slot_observers_subscribed_{false};
-        mutable std::unique_ptr<StructuralTransition> structural_transition_{};
 
       private:
+        friend struct TSInputTargetLinkStructuralStorage;
+
+        explicit TSInputTargetLinkStorage(
+            const TSInputTargetLinkStructuralOps &structural_ops) noexcept;
+        TSInputTargetLinkStorage(const TSInputTargetLinkStorage &other,
+                                 const TSInputTargetLinkStructuralOps &structural_ops);
+        TSInputTargetLinkStorage(TSInputTargetLinkStorage &&other,
+                                 const TSInputTargetLinkStructuralOps &structural_ops) noexcept;
+
+        void set_structural_ops(const TSInputTargetLinkStructuralOps &structural_ops) noexcept;
         void bind_impl(const TSValueTypeMetaData &schema, const TSOutputView &output,
                        DateTime modified_time, bool sampled, bool replay_source_time);
         void detach_target(bool retain_structural_target, DateTime modified_time);
-        void subscribe_slot_observers();
-        void unsubscribe_slot_observers();
-        void unsubscribe_slot_observers_noexcept() noexcept;
-        void subscribe_key_set_tracking();
-        void unsubscribe_key_set_tracking() noexcept;
-        [[nodiscard]] StructuralTransition &ensure_structural_state() const;
+
+        const TSInputTargetLinkStructuralOps *structural_ops_{&target_link_no_structural_ops()};
     };
 
     [[nodiscard]] const TSInputTargetLinkStorage *target_link_storage(const TSDataView &view) noexcept;
