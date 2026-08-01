@@ -166,7 +166,9 @@ TEST_CASE("inspector: native snapshots own hierarchy, timings, schedules and sto
     const InspectionEntry &switched = entry_containing(live, "switch");
     CHECK(switched.storage.nested_graph_count == 1);
     CHECK(switched.storage.nested_graph_capacity == 2);
-    CHECK(switched.storage.dynamic_reserved_bytes == 0);
+    CHECK(switched.storage.dynamic_live_bytes > 0);
+    CHECK(switched.storage.dynamic_reserved_bytes >=
+          switched.storage.dynamic_live_bytes);
 
     const auto keyed_output_nodes = std::ranges::count_if(
         live.entries, [](const InspectionEntry &entry) {

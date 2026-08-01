@@ -3,12 +3,12 @@
 
 #include <hgraph/types/time_series/ts_data.h>
 #include <hgraph/types/time_series/ts_output/base_view.h>
+#include <hgraph/types/utils/small_dense_ptr_map.h>
 #include <hgraph/types/utils/slot_observer.h>
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <unordered_map>
 
 namespace hgraph::detail
 {
@@ -38,10 +38,11 @@ namespace hgraph::detail
         bool locally_active{false};
         TSInputObservationKind observation_kind{TSInputObservationKind::Value};
         TSOutputHandle observed{};
-        std::unordered_map<std::size_t, std::unique_ptr<TSInputTargetActiveNode>> children{};
+        SmallDensePtrMap<std::size_t, TSInputTargetActiveNode> children{};
 
         [[nodiscard]] TSInputTargetActiveNode *child_at(std::size_t slot_index) const noexcept;
         [[nodiscard]] bool has_any_active() const noexcept;
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
         TSInputTargetActiveNode &ensure_child(std::size_t slot_index);
         void clear_observed() noexcept;
     };
@@ -127,6 +128,7 @@ namespace hgraph::detail
         [[nodiscard]] bool sampled_structural_transition() const noexcept;
         [[nodiscard]] DateTime structural_transition_time() const noexcept;
         [[nodiscard]] const TSInputTargetLinkState *state() const noexcept;
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
 
         TSDataTracking tracking{};
         TSInputTargetLinkState state_;
@@ -148,6 +150,9 @@ namespace hgraph::detail
 
     [[nodiscard]] const TSInputTargetLinkStorage *target_link_storage(const TSDataView &view) noexcept;
     [[nodiscard]] TSInputTargetLinkStorage *mutable_target_link_storage(const TSDataView &view);
+    /** Target-link trie/observer bytes reachable through an input-shaped TSData tree. */
+    [[nodiscard]] DynamicStorageMetrics input_target_link_dynamic_storage_metrics(
+        const TSDataView &view) noexcept;
     [[nodiscard]] const TSValueTypeMetaData *target_link_schema(const TSDataView &view) noexcept;
 
     [[nodiscard]] bool is_target_link_view(const TSDataView &view) noexcept;

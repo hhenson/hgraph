@@ -69,6 +69,16 @@ namespace hgraph
         }));
     }
 
+    DynamicStorageMetrics TSDataObserverSet::dynamic_storage_metrics() const noexcept
+    {
+        const auto *entries = many();
+        if (entries == nullptr) { return {}; }
+        return {
+            .live_bytes = sizeof(ObserverList) + entries->entries.size() * sizeof(Notifiable *),
+            .reserved_bytes = sizeof(ObserverList) + entries->entries.capacity() * sizeof(Notifiable *),
+        };
+    }
+
     void TSDataObserverSet::subscribe(Notifiable *observer)
     {
         if (observer == nullptr) { return; }

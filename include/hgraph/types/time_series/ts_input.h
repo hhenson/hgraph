@@ -138,6 +138,9 @@ namespace hgraph
         [[nodiscard]] TSInputView view(Notifiable *scheduling_notifier = nullptr,
                                        DateTime evaluation_time = MIN_DT) const;
 
+        /** Dynamic input payload, observer, activation-trie, and target-link storage. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
+
       private:
         friend class TSInputView;
         friend class TSBInputView;

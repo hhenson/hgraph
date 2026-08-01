@@ -1479,8 +1479,8 @@ namespace hgraph
         };
         std::array<TSDataIdentity, 3> attributed_ts_data{};
         std::size_t attributed_count = 0;
-        const auto add_ts_data_storage = [&result, &attributed_ts_data,
-                                          &attributed_count](const TSOutputView &view) noexcept {
+        const auto add_ts_output_storage = [&result, &attributed_ts_data,
+                                            &attributed_count](const TSOutputView &view) noexcept {
             const TSDataView &data = view.data_view();
             const TSDataIdentity identity{
                 .record = data.storage_type().record(),
@@ -1499,7 +1499,7 @@ namespace hgraph
             }
             if (already_attributed) { return; }
             attributed_ts_data[attributed_count++] = identity;
-            const DynamicStorageMetrics metrics = data.dynamic_storage_metrics();
+            const DynamicStorageMetrics metrics = view.dynamic_storage_metrics();
             result.dynamic_live_bytes += metrics.live_bytes;
             result.dynamic_reserved_bytes += metrics.reserved_bytes;
         };
@@ -1512,9 +1512,15 @@ namespace hgraph
         {
             if (has_state()) { add_value_storage(state()); }
             if (has_scalars()) { add_value_storage(scalars()); }
-            if (has_output()) { add_ts_data_storage(output(MIN_DT)); }
-            if (has_error_output()) { add_ts_data_storage(error_output(MIN_DT)); }
-            if (has_recordable_state()) { add_ts_data_storage(recordable_state(MIN_DT)); }
+            if (has_input())
+            {
+                const DynamicStorageMetrics metrics = input(MIN_DT).dynamic_storage_metrics();
+                result.dynamic_live_bytes += metrics.live_bytes;
+                result.dynamic_reserved_bytes += metrics.reserved_bytes;
+            }
+            if (has_output()) { add_ts_output_storage(output(MIN_DT)); }
+            if (has_error_output()) { add_ts_output_storage(error_output(MIN_DT)); }
+            if (has_recordable_state()) { add_ts_output_storage(recordable_state(MIN_DT)); }
         }
         catch (...)
         {

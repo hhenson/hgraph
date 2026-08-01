@@ -4,6 +4,7 @@
 #include <hgraph/runtime/node_fwd.h>
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/types/notifiable.h>
+#include <hgraph/types/storage_metrics.h>
 #include <hgraph/types/time_series/endpoint_owner.h>
 #include <hgraph/types/time_series/ts_type_ref.h>
 #include <hgraph/types/value/value_ops.h>
@@ -225,6 +226,9 @@ namespace hgraph
 
         /** Number of observers registered at this level. */
         [[nodiscard]] std::size_t size() const noexcept;
+
+        /** Exact occupied/retained heap bytes for multi-observer storage. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
 
         /** Register an observer pointer; null is ignored and duplicates assert. */
         void subscribe(Notifiable *observer);

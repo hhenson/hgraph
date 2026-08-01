@@ -209,6 +209,18 @@ TSOutput::binding_for(const TSOutputView &source,
   return alternatives_->binding_for(source, requested_schema);
 }
 
+DynamicStorageMetrics TSOutput::dynamic_storage_metrics() const noexcept {
+  DynamicStorageMetrics result = data_.has_value()
+                                     ? data_.view().dynamic_storage_metrics()
+                                     : DynamicStorageMetrics{};
+  if (alternatives_) {
+    result.live_bytes += sizeof(detail::TSOutputAlternativeStore);
+    result.reserved_bytes += sizeof(detail::TSOutputAlternativeStore);
+    result += alternatives_->dynamic_storage_metrics();
+  }
+  return result;
+}
+
 void TSOutput::release_alternative_subscriptions(
     DateTime release_time) const noexcept {
   if (alternatives_) {

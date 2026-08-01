@@ -107,20 +107,18 @@ namespace hgraph::detail
                               TSInputTargetLinkState::SchedulingNotifier &notifier) noexcept
         {
             unsubscribe_node(node, notifier);
-            for (auto &[slot, child] : node.children)
-            {
-                if (child) { unsubscribe_tree(*child, notifier); }
-            }
+            node.children.for_each([&](std::size_t, TSInputTargetActiveNode &child) {
+                unsubscribe_tree(child, notifier);
+            });
         }
 
         void unsubscribe_tree_noexcept(TSInputTargetActiveNode &node,
                                        TSInputTargetLinkState::SchedulingNotifier &notifier) noexcept
         {
             unsubscribe_handle_noexcept(node.observed, &notifier);
-            for (auto &[slot, child] : node.children)
-            {
-                if (child) { unsubscribe_tree_noexcept(*child, notifier); }
-            }
+            node.children.for_each([&](std::size_t, TSInputTargetActiveNode &child) {
+                unsubscribe_tree_noexcept(child, notifier);
+            });
         }
 
         void replace_observer(const TSOutputHandle &observed,
@@ -139,10 +137,9 @@ namespace hgraph::detail
                                     TSInputTargetLinkState::SchedulingNotifier &replacement) noexcept
         {
             replace_observer(node.observed, &previous, &replacement);
-            for (auto &[slot, child] : node.children)
-            {
-                if (child) { replace_tree_observers(*child, previous, replacement); }
-            }
+            node.children.for_each([&](std::size_t, TSInputTargetActiveNode &child) {
+                replace_tree_observers(child, previous, replacement);
+            });
         }
 
         [[nodiscard]] TSSDataView target_slot_set(const TSInputTargetLinkStorage &link)
@@ -218,49 +215,52 @@ namespace hgraph::detail
                 }
             }
 
-            for (auto &[slot_index, child] : node.children)
-            {
-                if (!child) { continue; }
-                static_cast<void>(slot_index);
-                resubscribe_tree(link, schema, *child);
-            }
+            node.children.for_each([&](std::size_t, TSInputTargetActiveNode &child) {
+                resubscribe_tree(link, schema, child);
+            });
         }
     }  // namespace
 
     TSInputTargetActiveNode *TSInputTargetActiveNode::child_at(std::size_t slot_index) const noexcept
     {
-        if (const auto it = children.find(slot_index); it != children.end()) { return it->second.get(); }
-        return nullptr;
+        return children.find(slot_index);
     }
 
     bool TSInputTargetActiveNode::has_any_active() const noexcept
     {
         if (locally_active) { return true; }
-        return std::ranges::any_of(children, [](const auto &entry) {
-            return entry.second && entry.second->has_any_active();
+        return children.any_of([](std::size_t, const TSInputTargetActiveNode &child) {
+            return child.has_any_active();
         });
+    }
+
+    DynamicStorageMetrics TSInputTargetActiveNode::dynamic_storage_metrics() const noexcept
+    {
+        DynamicStorageMetrics result = children.dynamic_storage_metrics();
+        children.for_each([&](std::size_t, const TSInputTargetActiveNode &child) {
+            result.live_bytes += sizeof(TSInputTargetActiveNode);
+            result.reserved_bytes += sizeof(TSInputTargetActiveNode);
+            result += child.dynamic_storage_metrics();
+        });
+        return result;
     }
 
     TSInputTargetActiveNode &TSInputTargetActiveNode::ensure_child(std::size_t slot_index)
     {
-        auto &child = children[slot_index];
-        if (!child)
-        {
-            child = std::make_unique<TSInputTargetActiveNode>();
+        return children.ensure(slot_index, [&] {
+            auto child = std::make_unique<TSInputTargetActiveNode>();
             child->parent = this;
             child->slot = slot_index;
-        }
-        return *child;
+            return child;
+        });
     }
 
     void TSInputTargetActiveNode::clear_observed() noexcept
     {
         observed.reset();
-        for (auto &[slot_index, child] : children)
-        {
-            static_cast<void>(slot_index);
-            if (child) { child->clear_observed(); }
-        }
+        children.for_each([](std::size_t, TSInputTargetActiveNode &child) {
+            child.clear_observed();
+        });
     }
 
     void TSInputTargetLinkState::SchedulingNotifier::set_target(Notifiable *target) noexcept
@@ -859,6 +859,24 @@ namespace hgraph::detail
     const TSInputTargetLinkState *TSInputTargetLinkStorage::state() const noexcept
     {
         return &state_;
+    }
+
+    DynamicStorageMetrics TSInputTargetLinkStorage::dynamic_storage_metrics() const noexcept
+    {
+        DynamicStorageMetrics result = slot_observers_.dynamic_storage_metrics();
+        if (state_.active_root_node != nullptr)
+        {
+            result.live_bytes += sizeof(TSInputTargetActiveNode);
+            result.reserved_bytes += sizeof(TSInputTargetActiveNode);
+            result += state_.active_root_node->dynamic_storage_metrics();
+        }
+        if (structural_transition_ != nullptr)
+        {
+            result.live_bytes += sizeof(StructuralTransition);
+            result.reserved_bytes += sizeof(StructuralTransition);
+            result += structural_transition_->key_set_tracking.observers.dynamic_storage_metrics();
+        }
+        return result;
     }
 
     bool is_target_link_view(const TSDataView &view) noexcept

@@ -2436,6 +2436,61 @@ namespace hgraph
             return ::hgraph::input_context_for(data.storage_type()) != nullptr;
         }
 
+        DynamicStorageMetrics input_target_link_dynamic_storage_metrics(
+            const TSDataView &view) noexcept
+        {
+            if (!view.valid()) { return {}; }
+            try
+            {
+                if (const auto *link = target_link_storage(view); link != nullptr)
+                {
+                    return link->dynamic_storage_metrics();
+                }
+                if (view.schema() == nullptr) { return {}; }
+
+                DynamicStorageMetrics result{};
+                switch (view.schema()->kind)
+                {
+                    case TSTypeKind::TSB:
+                    case TSTypeKind::TSL:
+                        for (std::size_t index = 0; index < view.indexed_child_count(); ++index)
+                        {
+                            if (has_input_children(view))
+                            {
+                                auto child = input_child_projection(view, index);
+                                result += input_target_link_dynamic_storage_metrics(
+                                    child.target_link.valid() ? child.target_link : child.visible);
+                            }
+                            else
+                            {
+                                result += input_target_link_dynamic_storage_metrics(
+                                    view.indexed_child_at(index));
+                            }
+                        }
+                        break;
+                    case TSTypeKind::TSD:
+                    {
+                        auto dict = view.as_dict();
+                        for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
+                        {
+                            if (dict.slot_occupied(slot))
+                            {
+                                result += input_target_link_dynamic_storage_metrics(dict.at_slot(slot));
+                            }
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                }
+                return result;
+            }
+            catch (...)
+            {
+                return {};
+            }
+        }
+
         TSInputChildProjection input_child_projection(const TSDataView &parent, std::size_t index)
         {
             const auto *context = ::hgraph::input_context_for(parent.storage_type());
@@ -2486,23 +2541,31 @@ namespace hgraph
 
         TSInputActiveTarget *TSInputActiveTarget::child_at(std::size_t slot_) const noexcept
         {
-            if (const auto it = children.find(slot_); it != children.end()) { return it->second.get(); }
-            return nullptr;
+            return children.find(slot_);
         }
 
         bool TSInputActiveTarget::has_any_active() const noexcept
         {
             if (active) { return true; }
-            return std::ranges::any_of(children, [](const auto &entry) {
-                return entry.second && entry.second->has_any_active();
+            return children.any_of([](std::size_t, const TSInputActiveTarget &child) {
+                return child.has_any_active();
             });
+        }
+
+        DynamicStorageMetrics TSInputActiveTarget::dynamic_storage_metrics() const noexcept
+        {
+            DynamicStorageMetrics result = children.dynamic_storage_metrics();
+            children.for_each([&](std::size_t, const TSInputActiveTarget &child) {
+                result.live_bytes += sizeof(TSInputActiveTarget);
+                result.reserved_bytes += sizeof(TSInputActiveTarget);
+                result += child.dynamic_storage_metrics();
+            });
+            return result;
         }
 
         TSInputActiveTarget &TSInputActiveTarget::ensure_child(std::size_t slot_)
         {
-            auto &child = children[slot_];
-            if (!child) { child = std::make_unique<TSInputActiveTarget>(this, slot_); }
-            return *child;
+            return children.ensure(slot_, [&] { return std::make_unique<TSInputActiveTarget>(this, slot_); });
         }
 
         void TSInputActiveTarget::subscribe(const TSDataView &observed_, Notifiable *target_notifier)
@@ -2713,6 +2776,24 @@ namespace hgraph
         return type ? TSInputTypeRef::checked(type) : TSInputTypeRef{};
     }
 
+    DynamicStorageMetrics TSInput::dynamic_storage_metrics() const noexcept
+    {
+        DynamicStorageMetrics result{};
+        if (data_.has_value())
+        {
+            const auto view = data_.view();
+            result += view.dynamic_storage_metrics();
+            result += detail::input_target_link_dynamic_storage_metrics(view);
+        }
+        if (active_root_ != nullptr)
+        {
+            result.live_bytes += sizeof(detail::TSInputActiveTarget);
+            result.reserved_bytes += sizeof(detail::TSInputActiveTarget);
+            result += active_root_->dynamic_storage_metrics();
+        }
+        return result;
+    }
+
     NodeView TSInput::owner_node() const
     {
         return has_value() ? data_.view().owner_node() : NodeView{};
@@ -2799,7 +2880,7 @@ namespace hgraph
             }
             const auto slot = active->slot;
             active = parent;
-            active->children.erase(slot);
+            static_cast<void>(active->children.erase(slot));
         }
     }
 
