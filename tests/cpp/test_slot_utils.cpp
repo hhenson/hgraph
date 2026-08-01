@@ -186,7 +186,114 @@ namespace
 
         ~ThrowingInPlaceEntry() { ++destroyed; }
     };
+
+    struct alignas(std::uintptr_t) PointerAlignedSlot
+    {
+        std::array<std::byte, sizeof(std::uintptr_t)> bytes{};
+    };
+
+    struct WeaklyAlignedSlot
+    {
+        std::array<std::byte, 3> bytes{};
+    };
 }  // namespace
+
+static_assert(sizeof(StableSlotStore<StableSlotStateModel::ConstructedOnly>) <=
+              sizeof(StableSlotStorage) + sizeof(SlotBitmap));
+static_assert(sizeof(StableSlotStore<StableSlotStateModel::ConstructedAndLive>) <=
+              sizeof(StableSlotStorage) + 2 * sizeof(SlotBitmap));
+
+TEST_CASE("stable slot store selects tagged pointers for pointer-aligned layouts", "[v2 slot utils][stable-slot-store]")
+{
+    StableSlotStore<StableSlotStateModel::ConstructedAndLive> storage(
+        MemoryUtils::layout_for<PointerAlignedSlot>());
+    REQUIRE(storage.representation() == StableSlotRepresentation::TaggedPointer);
+
+    storage.reserve_to(2);
+    void *first = storage.slot_memory(0);
+    REQUIRE(first != nullptr);
+    CHECK_FALSE(storage.constructed(0));
+    CHECK_FALSE(storage.live(0));
+
+    storage.mark_staged(0);
+    CHECK(storage.constructed(0));
+    CHECK_FALSE(storage.live(0));
+    REQUIRE(storage.mark_live(0));
+    CHECK(storage.live(0));
+    CHECK(storage.live_slot_memory(0) == first);
+    REQUIRE(storage.mark_pending_erase(0));
+    CHECK(storage.constructed(0));
+    CHECK_FALSE(storage.live(0));
+    CHECK(storage.slot_memory(0) == first);
+    CHECK(storage.non_live_slot_memory(0) == first);
+    CHECK_FALSE(storage.mark_pending_erase(0));
+
+    storage.reserve_to(8);
+    CHECK(storage.slot_memory(0) == first);
+    const auto debug = storage.debug_view();
+    CHECK(debug.pointers_tagged);
+    CHECK(debug.state_tagged);
+    CHECK(debug.pointer_table == debug.state);
+
+    storage.mark_free(0);
+    CHECK_FALSE(storage.constructed(0));
+}
+
+TEST_CASE("stable slot store preserves bitmap fallback for weak alignment", "[v2 slot utils][stable-slot-store]")
+{
+    StableSlotStore<StableSlotStateModel::ConstructedAndLive> storage(
+        MemoryUtils::layout_for<WeaklyAlignedSlot>());
+    REQUIRE(storage.representation() == StableSlotRepresentation::Bitmap);
+
+    storage.reserve_to(130);
+    void *first = storage.slot_memory(0);
+    storage.mark_staged(0);
+    REQUIRE(storage.mark_live(0));
+    storage.mark_staged(65);
+    REQUIRE(storage.mark_pending_erase(0));
+    CHECK(storage.constructed(0));
+    CHECK(storage.constructed(65));
+    CHECK_FALSE(storage.live(0));
+    CHECK_FALSE(storage.live(65));
+    CHECK(storage.non_live_slot_memory(0) == first);
+    CHECK(storage.non_live_slot_memory(65) == storage.slot_memory(65));
+    CHECK(storage.constructed_count() == 2);
+
+    storage.reserve_to(260);
+    CHECK(storage.slot_memory(0) == first);
+    CHECK(storage.constructed(0));
+    CHECK(storage.constructed(65));
+    const auto debug = storage.debug_view();
+    CHECK_FALSE(debug.pointers_tagged);
+    CHECK_FALSE(debug.state_tagged);
+    CHECK(debug.pointer_table != debug.state);
+}
+
+TEST_CASE("constructed-only stable slot stores use one lifecycle plane", "[v2 slot utils][stable-slot-store]")
+{
+    StableSlotStore<StableSlotStateModel::ConstructedOnly> tagged(
+        MemoryUtils::layout_for<PointerAlignedSlot>());
+    StableSlotStore<StableSlotStateModel::ConstructedOnly> bitmap(
+        MemoryUtils::layout_for<WeaklyAlignedSlot>());
+    tagged.reserve_to(8);
+    bitmap.reserve_to(8);
+
+    tagged.mark_constructed(3);
+    bitmap.mark_constructed(3);
+    CHECK(tagged.constructed(3));
+    CHECK(bitmap.constructed(3));
+    CHECK(tagged.live(3));
+    CHECK(bitmap.live(3));
+    CHECK(tagged.dynamic_storage_metrics().reserved_bytes >=
+          tagged.dynamic_storage_metrics().live_bytes);
+    CHECK(bitmap.dynamic_storage_metrics().reserved_bytes >=
+          bitmap.dynamic_storage_metrics().live_bytes);
+
+    tagged.mark_free(3);
+    bitmap.mark_free(3);
+    CHECK_FALSE(tagged.constructed(3));
+    CHECK_FALSE(bitmap.constructed(3));
+}
 
 TEST_CASE("stable slot storage preserves existing slot addresses across chained growth", "[v2 slot utils]") {
     StableSlotStorage storage;
@@ -276,6 +383,7 @@ TEST_CASE("in-place graph slots co-locate stable entries and aligned graph paylo
 
     {
         InPlaceGraphSlotStore<InPlaceEntry> store(graph_layout, allocator);
+        store.bind_graph_layout(graph_layout);
         store.reserve_to(2);
         auto &first  = store.construct_at(0, 11);
         auto &second = store.construct_at(1, 22);
@@ -524,7 +632,7 @@ TEST_CASE("value slot stores can share a custom allocator", "[v2 slot utils]") {
         ValueSlotStore store(MemoryUtils::plan_for<TrackedPayload>(), allocator);
         store.reserve_to(3);
         store.construct_at<TrackedPayload>(1, 17);
-        REQUIRE(&store.value_storage.allocator() == &allocator);
+        REQUIRE(&store.allocator() == &allocator);
         REQUIRE(AllocationProbe::allocations == 1);
     }
 

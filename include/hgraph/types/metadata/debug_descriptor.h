@@ -21,7 +21,7 @@ namespace hgraph
     inline constexpr std::uint32_t DEBUG_DESCRIPTOR_MAGIC = 0x48474444u;
     inline constexpr std::uint16_t DEBUG_DESCRIPTOR_ABI_VERSION = 3;
     inline constexpr std::uint32_t DEBUG_DYNAMIC_LAYOUT_MAGIC = 0x4847444cu;
-    inline constexpr std::uint16_t DEBUG_DYNAMIC_LAYOUT_ABI_VERSION = 1;
+    inline constexpr std::uint16_t DEBUG_DYNAMIC_LAYOUT_ABI_VERSION = 2;
     inline constexpr std::size_t DEBUG_OWNER_IDENTITY_OFFSET = 0;
     inline constexpr std::size_t DEBUG_OWNER_STATE_OFFSET = sizeof(void *);
     inline constexpr std::size_t DEBUG_OWNER_STORAGE_OFFSET = 2 * sizeof(void *);
@@ -86,6 +86,9 @@ namespace hgraph
         ElementsAreOwners = 1u << 7u,
         KeysAreOwners = 1u << 8u,
         ElementsArePointers = 1u << 9u,
+        DataPointersAreTagged = 1u << 10u,
+        KeyPointersAreTagged = 1u << 11u,
+        SlotStateIsTaggedPointer = 1u << 12u,
     };
 
     [[nodiscard]] constexpr DebugDescriptorFlags operator|(DebugDescriptorFlags lhs, DebugDescriptorFlags rhs) noexcept

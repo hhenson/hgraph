@@ -105,20 +105,32 @@ namespace hgraph::ts_data_plan_factory_detail
         }
 
         template <typename Storage>
+        [[nodiscard]] std::size_t debug_address_offset(const Storage &storage, const void *address) noexcept
+        {
+            return static_cast<std::size_t>(static_cast<const std::byte *>(address) -
+                                            reinterpret_cast<const std::byte *>(&storage));
+        }
+
+        template <typename Storage>
         [[nodiscard]] DebugDynamicLayout tss_value_debug_layout(const Storage &sample,
                                                                  const ValueTypeRef &key_binding)
         {
             const auto &keys = sample.keys();
+            const StableSlotDebugView slots = keys.debug_slot_view();
+            DebugDynamicFlags flags = DebugDynamicFlags::DataIsIndirect |
+                                      DebugDynamicFlags::DataIsPointerTable |
+                                      DebugDynamicFlags::HasSlotState;
+            if (slots.pointers_tagged) { flags = flags | DebugDynamicFlags::DataPointersAreTagged; }
+            if (slots.state_tagged) { flags = flags | DebugDynamicFlags::SlotStateIsTaggedPointer; }
             return DebugDynamicLayout{
                 .magic = DEBUG_DYNAMIC_LAYOUT_MAGIC,
                 .abi_version = DEBUG_DYNAMIC_LAYOUT_ABI_VERSION,
                 .kind = DebugDynamicKind::StableSlots,
-                .flags = DebugDynamicFlags::DataIsIndirect | DebugDynamicFlags::DataIsPointerTable |
-                         DebugDynamicFlags::HasSlotState,
-                .size_offset = debug_offset(sample, keys.live.bit_count),
-                .data_offset = debug_offset(sample, keys.key_storage.slots),
+                .flags = flags,
+                .size_offset = debug_address_offset(sample, slots.slot_count),
+                .data_offset = debug_address_offset(sample, slots.pointer_table),
                 .stride = key_binding.checked_plan().layout.size,
-                .state_offset = debug_offset(sample, keys.live.words),
+                .state_offset = debug_address_offset(sample, slots.state),
             };
         }
 
@@ -2147,13 +2159,24 @@ namespace hgraph::ts_data_plan_factory_detail
                 const TSDSlotStorage sample{key_binding, element_type};
                 const auto &keys = sample.keys();
                 const auto &values = sample.debug_values();
+                const StableSlotDebugView key_slots = keys.debug_slot_view();
+                const StableSlotDebugView value_slots = values.debug_slot_view();
                 auto debug_layout = tss_value_debug_layout(sample, key_binding);
-                debug_layout.flags = debug_layout.flags | DebugDynamicFlags::KeyDataIsIndirect |
-                                     DebugDynamicFlags::KeyDataIsPointerTable;
-                debug_layout.data_offset = debug_offset(sample, values.value_storage.slots);
+                DebugDynamicFlags flags = DebugDynamicFlags::DataIsIndirect |
+                                          DebugDynamicFlags::KeyDataIsIndirect |
+                                          DebugDynamicFlags::DataIsPointerTable |
+                                          DebugDynamicFlags::KeyDataIsPointerTable |
+                                          DebugDynamicFlags::HasSlotState;
+                if (value_slots.pointers_tagged) { flags = flags | DebugDynamicFlags::DataPointersAreTagged; }
+                if (key_slots.pointers_tagged) { flags = flags | DebugDynamicFlags::KeyPointersAreTagged; }
+                if (key_slots.state_tagged) { flags = flags | DebugDynamicFlags::SlotStateIsTaggedPointer; }
+                debug_layout.flags = flags;
+                debug_layout.size_offset = debug_address_offset(sample, key_slots.slot_count);
+                debug_layout.data_offset = debug_address_offset(sample, value_slots.pointer_table);
                 debug_layout.stride = element_type.checked_plan().layout.size;
-                debug_layout.key_data_offset = debug_offset(sample, keys.key_storage.slots);
+                debug_layout.key_data_offset = debug_address_offset(sample, key_slots.pointer_table);
                 debug_layout.key_stride = key_binding.checked_plan().layout.size;
+                debug_layout.state_offset = debug_address_offset(sample, key_slots.state);
                 const auto &debug = intern_dynamic_debug_descriptor(
                     value_schema->header, plan_, DebugLayoutKind::KeyedSlots,
                     key_binding.record(), dict_layout.element_value_binding.record(), debug_layout,

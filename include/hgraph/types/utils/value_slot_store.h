@@ -4,7 +4,7 @@
 #include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/utils/slot_observer.h>
 #include <hgraph/types/utils/slot_bitmap.h>
-#include <hgraph/types/utils/stable_slot_storage.h>
+#include <hgraph/types/utils/stable_slot_store.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -25,7 +25,7 @@ namespace hgraph
      * - non-moving slot-backed value memory
      * - one stable bound storage plan
      * - per-slot ``updated`` flags owned and reset by the caller
-     * - per-slot ``constructed`` flags for live payload ownership
+     * - per-slot constructed state for live payload ownership
      * - structural observers mirroring capacity / insert / remove / erase /
      *   clear events
      *
@@ -44,7 +44,7 @@ namespace hgraph
          */
         ValueSlotStore(const MemoryUtils::StoragePlan &plan,
                        const MemoryUtils::AllocatorOps &allocator = MemoryUtils::allocator())
-            : value_storage(allocator)
+            : value_storage(plan.layout, allocator)
         {
             bind_plan(plan);
         }
@@ -56,12 +56,10 @@ namespace hgraph
         ValueSlotStore(ValueSlotStore &&other) noexcept
             : value_storage(std::move(other.value_storage))
             , updated(std::move(other.updated))
-            , constructed(std::move(other.constructed))
             , observers(std::move(other.observers))
             , m_value_plan(std::exchange(other.m_value_plan, nullptr))
         {
             other.updated.clear();
-            other.constructed.clear();
         }
 
         /** Move assignment destroys the existing payloads and adopts ``other``. */
@@ -71,11 +69,9 @@ namespace hgraph
                 destroy_all();
                 value_storage = std::move(other.value_storage);
                 updated = std::move(other.updated);
-                constructed = std::move(other.constructed);
                 observers = std::move(other.observers);
                 m_value_plan = std::exchange(other.m_value_plan, nullptr);
                 other.updated.clear();
-                other.constructed.clear();
             }
             return *this;
         }
@@ -86,12 +82,13 @@ namespace hgraph
             destroy_all();
         }
 
-        /** Stable per-slot byte storage for the bound plan. */
-        StableSlotStorage value_storage{};
+      private:
+        using StableStorage = StableSlotStore<StableSlotStateModel::ConstructedOnly>;
+        StableStorage value_storage{};
+
+      public:
         /** Per-slot caller-managed ``updated`` bit. */
         SlotBitmap updated{};
-        /** Per-slot ``constructed`` bit indicating live payload ownership. */
-        SlotBitmap constructed{};
         /** Structural observer list mirrored against slot lifecycle events. */
         SlotObserverList observers{};
 
@@ -101,13 +98,24 @@ namespace hgraph
         [[nodiscard]] size_t stride() const noexcept { return value_storage.stride(); }
         /** Bound storage plan for the held value type, or ``nullptr`` if unbound. */
         [[nodiscard]] const MemoryUtils::StoragePlan *plan() const noexcept { return m_value_plan; }
+        /** Selected stable-slot index representation. */
+        [[nodiscard]] StableSlotRepresentation slot_representation() const noexcept
+        {
+            return value_storage.representation();
+        }
+        /** Allocator used for stable payload blocks. */
+        [[nodiscard]] const MemoryUtils::AllocatorOps &allocator() const noexcept
+        {
+            return value_storage.allocator();
+        }
+        /** Data-only addresses used when publishing debugger offsets. */
+        [[nodiscard]] StableSlotDebugView debug_slot_view() const noexcept { return value_storage.debug_view(); }
 
         /** Exact occupied/retained heap bytes owned by the value slots. */
         [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
         {
-            DynamicStorageMetrics result = value_storage.dynamic_storage_metrics(constructed.count());
+            DynamicStorageMetrics result = value_storage.dynamic_storage_metrics();
             result += updated.dynamic_storage_metrics();
-            result += constructed.dynamic_storage_metrics();
             result += observers.dynamic_storage_metrics();
             return result;
         }
@@ -127,6 +135,10 @@ namespace hgraph
             }
             if (m_value_plan == nullptr) {
                 m_value_plan = &plan;
+                if (!value_storage.bound())
+                    value_storage.bind_layout(plan.layout);
+                else
+                    value_storage.bind_layout(plan.layout, value_storage.allocator());
                 return;
             }
             if (m_value_plan != &plan) {
@@ -135,22 +147,21 @@ namespace hgraph
         }
 
         /** Mutable byte pointer for ``slot``; not bounds-checked. */
-        [[nodiscard]] void *value_memory(size_t slot) noexcept { return value_storage.slot_data(slot); }
+        [[nodiscard]] void *value_memory(size_t slot) noexcept { return value_storage.slot_memory(slot); }
 
         /** Const byte pointer for ``slot``; not bounds-checked. */
-        [[nodiscard]] const void *value_memory(size_t slot) const noexcept { return value_storage.slot_data(slot); }
+        [[nodiscard]] const void *value_memory(size_t slot) const noexcept { return value_storage.slot_memory(slot); }
 
         /**
          * Grow capacity to at least ``capacity`` slots. Leaves existing
-         * payloads in place; new bits in ``updated`` and ``constructed``
+         * payloads in place; new ``updated`` bits and constructed states
          * default to ``false``.
          */
         void reserve_to(size_t capacity)
         {
-            const auto &plan = require_bound_plan();
-            value_storage.reserve_to(capacity, plan.layout.size, plan.layout.alignment);
+            (void) require_bound_plan();
+            value_storage.reserve_to(capacity);
             updated.resize(capacity);
-            constructed.resize(capacity);
         }
 
         /** Typed overload that asserts the bound plan is the canonical plan for ``T``. */
@@ -170,7 +181,7 @@ namespace hgraph
         /** True if ``slot`` currently holds a constructed payload. */
         [[nodiscard]] bool has_slot(size_t slot) const noexcept
         {
-            return slot < constructed.size() && constructed.test(slot);
+            return value_storage.constructed(slot);
         }
 
         /** Mark ``slot`` as updated. */
@@ -223,7 +234,7 @@ namespace hgraph
             const auto &plan = require_bound_plan();
             require_unconstructed_slot(slot);
             plan.default_construct(value_memory(slot));
-            constructed.set(slot);
+            value_storage.mark_constructed(slot);
         }
 
         /**
@@ -235,7 +246,7 @@ namespace hgraph
             const auto &plan = require_bound_plan();
             require_unconstructed_slot(slot);
             plan.copy_construct(value_memory(slot), src);
-            constructed.set(slot);
+            value_storage.mark_constructed(slot);
         }
 
         /**
@@ -251,7 +262,7 @@ namespace hgraph
 
             T *value = MemoryUtils::cast<T>(value_memory(slot));
             std::construct_at(value, std::forward<Args>(args)...);
-            constructed.set(slot);
+            value_storage.mark_constructed(slot);
             return *value;
         }
 
@@ -267,7 +278,7 @@ namespace hgraph
             }
 
             m_value_plan->destroy(value_memory(slot));
-            constructed.reset(slot);
+            value_storage.mark_free(slot);
             clear_updated(slot);
         }
 
@@ -275,11 +286,11 @@ namespace hgraph
         void destroy_all() noexcept
         {
             if (m_value_plan != nullptr) {
-                for (size_t slot = 0; slot < constructed.size(); ++slot) {
+                for (size_t slot = 0; slot < slot_capacity(); ++slot) {
                     destroy_at(slot);
                 }
             } else {
-                constructed.reset();
+                value_storage.reset_states();
             }
             clear_all_updated();
         }
@@ -329,7 +340,7 @@ namespace hgraph
 
         void require_unconstructed_slot(size_t slot) const
         {
-            if (slot >= constructed.size()) {
+            if (slot >= slot_capacity()) {
                 throw std::out_of_range("ValueSlotStore slot out of range");
             }
             if (has_slot(slot)) {
@@ -341,8 +352,8 @@ namespace hgraph
     /**
      * Value-side storage whose payload lifetime mirrors a ``KeySlotStore``.
      *
-     * ``ValueSlotStore`` is intentionally reusable and owns an internal
-     * constructed bitmap. TSD-style storage should not expose that bitmap as a
+     * ``ValueSlotStore`` is intentionally reusable and owns internal
+     * constructed state. TSD-style storage should not expose that state as a
      * second source of truth. This wrapper registers as a key-store observer
      * and keeps the value payload constructed exactly when the key slot is
      * constructed, including pending-erase slots. The referenced key store
@@ -371,7 +382,7 @@ namespace hgraph
             m_keys.remove_slot_observer(this);
         }
 
-        /** Key store whose constructed bitmap owns value payload lifetime. */
+        /** Key store whose constructed state owns value payload lifetime. */
         [[nodiscard]] const KeySlotStore &key_store() const noexcept { return m_keys; }
         /** Number of value slots currently addressable. */
         [[nodiscard]] size_t slot_capacity() const noexcept { return m_values.slot_capacity(); }
@@ -389,7 +400,7 @@ namespace hgraph
 
         /**
          * True when the key slot is constructed. This is the public lifetime
-         * answer for mirrored storage; the wrapped ``ValueSlotStore`` bitmap is
+         * answer for mirrored storage; the wrapped ``ValueSlotStore`` state is
          * only an internal mirror.
          */
         [[nodiscard]] bool has_slot(size_t slot) const noexcept

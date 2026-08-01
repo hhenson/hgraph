@@ -465,7 +465,7 @@ The common record guarantees shallow inspection of every erased pointer:
 * capabilities and whether deeper navigation is available.
 
 Deeper inspection is described by an immutable ``DebugDescriptor`` produced by
-the same factory that resolves the type record. The version-one ABI is:
+the same factory that resolves the type record. The data-only layouts are:
 
 .. code-block:: cpp
 
@@ -538,14 +538,18 @@ records to physical plan offsets. Tuple and bundle descriptors also publish the
 validity-word offset and one bit index per field, so an unset child is displayed
 as typed-null rather than reading uninitialised payload bytes.
 
-The version-one dynamic layout is 88 bytes on supported 64-bit platforms. It
+The version-two dynamic layout is 88 bytes on supported 64-bit platforms. It
 distinguishes contiguous storage from stable pointer slots and records whether
 size is fixed, data is indirect, a pointer table is used, a ring head is
-present, or keys/elements are embedded erased owners or typed pointers. Stable slots use the
-public ``SlotBitmap`` words and bit count, so live and erased entries are read
-without decoding a standard-library container. ``StableSlotStorage`` exposes a
-raw pointer table for the same reason; this representation is smaller than the
-previous ``std::vector`` member and does not add release-mode debug mirrors.
+present, or keys/elements are embedded erased owners or typed pointers. Version
+two adds independent tagged-data-pointer, tagged-key-pointer, and tagged-slot-
+state flags. For a tagged stable-slot index, ``state_offset`` may identify the
+same pointer table as data or keys: readers accept tag ``00`` as live and mask
+the low two bits before dereferencing other encoded states. Bitmap-backed
+stable slots continue to publish the public ``SlotBitmap`` words and bit count.
+Both strategies are exposed through ``StableSlotDebugView``, so descriptor
+factories do not inspect the selected implementation or a standard-library
+container.
 
 The common embedded-owner field flag describes the three-word
 ``ErasedOwner<InlineStoragePolicy<>, TypeRecord>`` ABI. The record is read

@@ -10,6 +10,7 @@
 #include <hgraph/types/time_series/visitor.h>
 #include <hgraph/types/type_pointer.h>
 #include <hgraph/types/type_resolution.h>
+#include <hgraph/types/utils/stable_slot_store.h>
 #include <hgraph/types/value/any_ops.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
@@ -19,6 +20,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <type_traits>
 
@@ -41,6 +43,31 @@ int main()
     static_assert(std::is_standard_layout_v<AnyPtr>);
     static_assert(std::is_trivially_copyable_v<AnyPtr>);
     static_assert(TS_DATA_OPS_ABI_VERSION == 5);
+
+    StableSlotStore<StableSlotStateModel::ConstructedAndLive> stable_slots{
+        MemoryUtils::StorageLayout{sizeof(std::uintptr_t), alignof(std::uintptr_t)}};
+    stable_slots.reserve_to(4);
+    auto *stable_value = std::construct_at(
+        MemoryUtils::cast<std::uintptr_t>(stable_slots.slot_memory(0)),
+        std::uintptr_t{41});
+    stable_slots.mark_staged(0);
+    if (!stable_slots.mark_live(0) ||
+        stable_slots.representation() != StableSlotRepresentation::TaggedPointer ||
+        stable_slots.live_slot_memory(0) != stable_value)
+    {
+        throw std::runtime_error("installed stable-slot tagged strategy is unusable");
+    }
+    std::destroy_at(stable_value);
+    stable_slots.mark_free(0);
+
+    StableSlotStore<StableSlotStateModel::ConstructedOnly> weak_stable_slots{
+        MemoryUtils::StorageLayout{3, 1}};
+    weak_stable_slots.reserve_to(4);
+    if (weak_stable_slots.representation() != StableSlotRepresentation::Bitmap)
+    {
+        throw std::runtime_error("installed stable-slot bitmap strategy is unusable");
+    }
+
     using ConsumerScalar =
         Bundle<"consumer::Scalar", Field<"number", Int>, Field<"label", Str>>;
     using ConsumerBundle = TSBFromScalar<ConsumerScalar>;

@@ -206,7 +206,7 @@ class CommonDebuggerFormattingTest(unittest.TestCase):
         snapshot = dynamic_layout()
         self.assertTrue(common.debug_dynamic_layout_valid(snapshot))
         self.assertIn("valid kind=StableSlots", common.debug_dynamic_layout_summary(snapshot))
-        self.assertFalse(common.debug_dynamic_layout_valid(dynamic_layout(abi_version=2)))
+        self.assertFalse(common.debug_dynamic_layout_valid(dynamic_layout(abi_version=1)))
         self.assertFalse(common.debug_dynamic_layout_valid(dynamic_layout(flags=1 << 20)))
         self.assertFalse(
             common.debug_dynamic_layout_valid(
@@ -227,6 +227,28 @@ class CommonDebuggerFormattingTest(unittest.TestCase):
                     flags=dynamic_layout()["flags"]
                     | common.DEBUG_DYNAMIC_ELEMENTS_ARE_OWNERS
                     | common.DEBUG_DYNAMIC_ELEMENTS_ARE_POINTERS
+                )
+            )
+        )
+        tagged_flags = (
+            dynamic_layout()["flags"]
+            | common.DEBUG_DYNAMIC_DATA_POINTERS_TAGGED
+            | common.DEBUG_DYNAMIC_SLOT_STATE_TAGGED
+        )
+        self.assertTrue(
+            common.debug_dynamic_layout_valid(dynamic_layout(flags=tagged_flags))
+        )
+        self.assertFalse(
+            common.debug_dynamic_layout_valid(
+                dynamic_layout(
+                    flags=tagged_flags & ~common.DEBUG_DYNAMIC_DATA_POINTERS_TAGGED
+                )
+            )
+        )
+        self.assertFalse(
+            common.debug_dynamic_layout_valid(
+                dynamic_layout(
+                    flags=tagged_flags & ~common.DEBUG_DYNAMIC_HAS_SLOT_STATE
                 )
             )
         )

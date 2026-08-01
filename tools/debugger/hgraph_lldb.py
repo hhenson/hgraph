@@ -378,9 +378,13 @@ def dynamic_child_addresses(value, data_address, layout):
     state_bits = 0
     if flags & common.DEBUG_DYNAMIC_HAS_SLOT_STATE:
         state_words = read_unsigned(value, data_address + layout["state_offset"])
-        state_bits = read_unsigned(
-            value,
-            data_address + layout["state_offset"] + value.GetTarget().GetAddressByteSize(),
+        state_bits = (
+            size
+            if flags & common.DEBUG_DYNAMIC_SLOT_STATE_TAGGED
+            else read_unsigned(
+                value,
+                data_address + layout["state_offset"] + value.GetTarget().GetAddressByteSize(),
+            )
         )
         if state_words is None or state_bits is None:
             return
@@ -394,16 +398,25 @@ def dynamic_child_addresses(value, data_address, layout):
         if flags & common.DEBUG_DYNAMIC_HAS_SLOT_STATE:
             if physical_index >= state_bits:
                 continue
-            word = read_unsigned(value, state_words + (physical_index // 64) * 8, 8)
-            if word is None or not (word & (1 << (physical_index % 64))):
-                continue
+            if flags & common.DEBUG_DYNAMIC_SLOT_STATE_TAGGED:
+                state = read_unsigned(value, state_words + physical_index * pointer_size)
+                if state is None or state & 0x3:
+                    continue
+            else:
+                word = read_unsigned(value, state_words + (physical_index // 64) * 8, 8)
+                if word is None or not (word & (1 << (physical_index % 64))):
+                    continue
         if flags & common.DEBUG_DYNAMIC_DATA_POINTER_TABLE:
             element = read_unsigned(value, data_base + physical_index * pointer_size)
+            if element is not None and flags & common.DEBUG_DYNAMIC_DATA_POINTERS_TAGGED:
+                element &= ~0x3
         else:
             element = data_base + physical_index * layout["stride"]
         if key_base:
             if flags & common.DEBUG_DYNAMIC_KEY_DATA_POINTER_TABLE:
                 key = read_unsigned(value, key_base + physical_index * pointer_size)
+                if key is not None and flags & common.DEBUG_DYNAMIC_KEY_POINTERS_TAGGED:
+                    key &= ~0x3
             else:
                 key = key_base + physical_index * layout["key_stride"]
         else:

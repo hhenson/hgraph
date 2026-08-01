@@ -2,8 +2,7 @@
 #define HGRAPH_RUNTIME_NESTED_GRAPH_STORAGE_H
 
 #include <hgraph/types/metadata/debug_descriptor.h>
-#include <hgraph/types/utils/stable_slot_storage.h>
-#include <hgraph/types/utils/slot_bitmap.h>
+#include <hgraph/types/utils/stable_slot_store.h>
 
 #include <algorithm>
 #include <bit>
@@ -33,9 +32,8 @@ namespace hgraph
         explicit InPlaceGraphSlotStore(
             MemoryUtils::StorageLayout graph_layout,
             const MemoryUtils::AllocatorOps &allocator = MemoryUtils::allocator())
-            : storage_(allocator)
         {
-            bind_graph_layout(graph_layout);
+            bind_graph_layout(graph_layout, allocator);
         }
 
         InPlaceGraphSlotStore(const InPlaceGraphSlotStore &) = delete;
@@ -49,7 +47,6 @@ namespace hgraph
         {
             using std::swap;
             swap(storage_, other.storage_);
-            swap(constructed_, other.constructed_);
             swap(graph_layout_, other.graph_layout_);
             swap(slot_layout_, other.slot_layout_);
             swap(graph_offset_, other.graph_offset_);
@@ -57,6 +54,13 @@ namespace hgraph
         }
 
         void bind_graph_layout(MemoryUtils::StorageLayout graph_layout)
+        {
+            bind_graph_layout(graph_layout,
+                              storage_.bound() ? storage_.allocator() : MemoryUtils::allocator());
+        }
+
+        void bind_graph_layout(MemoryUtils::StorageLayout graph_layout,
+                               const MemoryUtils::AllocatorOps &allocator)
         {
             if (!graph_layout.valid() || graph_layout.size == 0) {
                 throw std::logic_error("InPlaceGraphSlotStore requires a non-empty graph layout");
@@ -66,6 +70,7 @@ namespace hgraph
                     graph_layout.alignment != graph_layout_.alignment) {
                     throw std::logic_error("InPlaceGraphSlotStore graph layout must remain constant");
                 }
+                storage_.bind_layout(slot_layout_, allocator);
                 return;
             }
 
@@ -80,19 +85,20 @@ namespace hgraph
                 throw std::overflow_error("InPlaceGraphSlotStore slot size overflow");
             }
             slot_layout_.size = checked_align_to(graph_offset_ + graph_layout.size, slot_layout_.alignment);
+            storage_.bind_layout(slot_layout_, allocator);
             bound_ = true;
         }
 
         [[nodiscard]] bool bound() const noexcept { return bound_; }
         [[nodiscard]] size_t slot_capacity() const noexcept { return storage_.slot_capacity(); }
-        [[nodiscard]] size_t block_count() const noexcept { return storage_.blocks.size(); }
+        [[nodiscard]] size_t block_count() const noexcept { return storage_.block_count(); }
         [[nodiscard]] MemoryUtils::StorageLayout graph_layout() const noexcept { return graph_layout_; }
         [[nodiscard]] MemoryUtils::StorageLayout slot_layout() const noexcept { return slot_layout_; }
         [[nodiscard]] size_t graph_offset() const noexcept { return graph_offset_; }
-        [[nodiscard]] bool has_entries() const noexcept { return constructed_.any(); }
+        [[nodiscard]] bool has_entries() const noexcept { return storage_.constructed_count() != 0; }
         [[nodiscard]] size_t entry_count() const noexcept
         {
-            return constructed_.count();
+            return storage_.constructed_count();
         }
         [[nodiscard]] size_t live_bytes() const noexcept
         {
@@ -100,40 +106,38 @@ namespace hgraph
         }
         [[nodiscard]] size_t reserved_bytes() const noexcept
         {
-            return slot_capacity() * (slot_layout_.size + sizeof(std::byte *)) +
-                   constructed_.word_capacity * sizeof(std::uint64_t);
+            return storage_.dynamic_storage_metrics().reserved_bytes;
         }
 
         void reserve_to(size_t capacity)
         {
             require_bound();
             if (capacity <= storage_.slot_capacity()) { return; }
-            storage_.reserve_to(capacity, slot_layout_.size, slot_layout_.alignment);
-            constructed_.resize(storage_.slot_capacity());
+            storage_.reserve_to(capacity);
         }
 
         [[nodiscard]] bool has_entry(size_t slot) const noexcept
         {
-            return slot < constructed_.size() && constructed_.test(slot);
+            return storage_.constructed(slot);
         }
 
         [[nodiscard]] Entry *entry_at(size_t slot) noexcept
         {
-            return has_entry(slot) ? MemoryUtils::cast<Entry>(storage_.slot_data(slot)) : nullptr;
+            return has_entry(slot) ? MemoryUtils::cast<Entry>(storage_.slot_memory(slot)) : nullptr;
         }
 
         [[nodiscard]] const Entry *entry_at(size_t slot) const noexcept
         {
-            return has_entry(slot) ? MemoryUtils::cast<Entry>(storage_.slot_data(slot)) : nullptr;
+            return has_entry(slot) ? MemoryUtils::cast<Entry>(storage_.slot_memory(slot)) : nullptr;
         }
 
         template <typename... Args>
         Entry &construct_at(size_t slot, Args &&...args)
         {
             require_available_slot(slot);
-            Entry *entry = MemoryUtils::cast<Entry>(storage_.slot_data(slot));
+            Entry *entry = MemoryUtils::cast<Entry>(storage_.slot_memory(slot));
             std::construct_at(entry, std::forward<Args>(args)...);
-            constructed_.set(slot);
+            storage_.mark_constructed(slot);
             return *entry;
         }
 
@@ -142,24 +146,24 @@ namespace hgraph
             Entry *entry = entry_at(slot);
             if (entry == nullptr) { return; }
             std::destroy_at(entry);
-            constructed_.reset(slot);
+            storage_.mark_free(slot);
         }
 
         void destroy_all() noexcept
         {
-            for (size_t slot = 0; slot < constructed_.size(); ++slot) { destroy_at(slot); }
+            for (size_t slot = 0; slot < slot_capacity(); ++slot) { destroy_at(slot); }
         }
 
         [[nodiscard]] void *graph_memory(size_t slot)
         {
             require_slot(slot);
-            return MemoryUtils::advance(storage_.slot_data(slot), graph_offset_);
+            return MemoryUtils::advance(storage_.slot_memory(slot), graph_offset_);
         }
 
         [[nodiscard]] const void *graph_memory(size_t slot) const
         {
             require_slot(slot);
-            return MemoryUtils::advance(storage_.slot_data(slot), graph_offset_);
+            return MemoryUtils::advance(storage_.slot_memory(slot), graph_offset_);
         }
 
         [[nodiscard]] DebugDynamicLayout debug_layout(std::size_t owner_offset,
@@ -175,30 +179,33 @@ namespace hgraph
                                       DebugDynamicFlags::DataIsPointerTable |
                                       DebugDynamicFlags::HasSlotState |
                                       DebugDynamicFlags::ElementsArePointers;
+            const StableSlotDebugView slots = storage_.debug_view();
+            if (slots.pointers_tagged) { flags = flags | DebugDynamicFlags::DataPointersAreTagged; }
+            if (slots.state_tagged) { flags = flags | DebugDynamicFlags::SlotStateIsTaggedPointer; }
             if (keys_are_owners)
             {
                 flags = flags | DebugDynamicFlags::KeyDataIsIndirect |
                         DebugDynamicFlags::KeyDataIsPointerTable |
                         DebugDynamicFlags::KeysAreOwners;
+                if (slots.pointers_tagged) { flags = flags | DebugDynamicFlags::KeyPointersAreTagged; }
             }
             return DebugDynamicLayout{
                 .magic = DEBUG_DYNAMIC_LAYOUT_MAGIC,
                 .abi_version = DEBUG_DYNAMIC_LAYOUT_ABI_VERSION,
                 .kind = DebugDynamicKind::StableSlots,
                 .flags = flags,
-                .size_offset = offset_of(&storage_.slot_count),
-                .data_offset = offset_of(&storage_.slots),
+                .size_offset = offset_of(slots.slot_count),
+                .data_offset = offset_of(slots.pointer_table),
                 .stride = slot_layout_.size,
-                .key_data_offset = keys_are_owners ? offset_of(&storage_.slots) : 0,
+                .key_data_offset = keys_are_owners ? offset_of(slots.pointer_table) : 0,
                 .key_stride = keys_are_owners ? std::size_t{1} : 0,
-                .state_offset = offset_of(&constructed_),
+                .state_offset = offset_of(slots.state),
                 .entry_offset = graph_pointer_offset,
             };
         }
 
       private:
-        StableSlotStorage             storage_{};
-        SlotBitmap                    constructed_{};
+        StableSlotStore<StableSlotStateModel::ConstructedOnly> storage_{};
         MemoryUtils::StorageLayout    graph_layout_{};
         MemoryUtils::StorageLayout    slot_layout_{};
         size_t                        graph_offset_{0};

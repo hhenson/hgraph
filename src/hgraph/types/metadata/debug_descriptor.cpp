@@ -26,7 +26,7 @@ namespace hgraph
         static_assert(CommonErasedOwner::debug_storage_offset() == DEBUG_OWNER_STORAGE_OFFSET);
         inline constexpr std::uint32_t KNOWN_DESCRIPTOR_FLAGS = 1u;
         inline constexpr std::uint32_t KNOWN_FIELD_FLAGS = (1u << 4u) - 1u;
-        inline constexpr std::uint32_t KNOWN_DYNAMIC_FLAGS = (1u << 10u) - 1u;
+        inline constexpr std::uint32_t KNOWN_DYNAMIC_FLAGS = (1u << 13u) - 1u;
         inline constexpr std::uint32_t VALIDITY_WORD_SIZE = sizeof(std::uint64_t);
 
         struct DescriptorKey
@@ -389,6 +389,17 @@ namespace hgraph
              !has_flag(flags, DebugDynamicFlags::DataIsIndirect)))
             return false;
         if (has_flag(flags, DebugDynamicFlags::HasSlotState) && kind != DebugDynamicKind::StableSlots)
+            return false;
+        if (has_flag(flags, DebugDynamicFlags::DataPointersAreTagged) &&
+            !has_flag(flags, DebugDynamicFlags::DataIsPointerTable))
+            return false;
+        if (has_flag(flags, DebugDynamicFlags::KeyPointersAreTagged) &&
+            !has_flag(flags, DebugDynamicFlags::KeyDataIsPointerTable))
+            return false;
+        if (has_flag(flags, DebugDynamicFlags::SlotStateIsTaggedPointer) &&
+            (!has_flag(flags, DebugDynamicFlags::HasSlotState) || state_offset == 0 ||
+             (!has_flag(flags, DebugDynamicFlags::DataPointersAreTagged) &&
+              !has_flag(flags, DebugDynamicFlags::KeyPointersAreTagged))))
             return false;
         return true;
     }

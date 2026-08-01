@@ -10,7 +10,7 @@ TYPE_KIND_NONE = 0xFF
 DEBUG_DESCRIPTOR_MAGIC = 0x48474444
 DEBUG_DESCRIPTOR_ABI_VERSION = 3
 DEBUG_DYNAMIC_LAYOUT_MAGIC = 0x4847444C
-DEBUG_DYNAMIC_LAYOUT_ABI_VERSION = 1
+DEBUG_DYNAMIC_LAYOUT_ABI_VERSION = 2
 
 FAMILY_NAMES = {
     0: "Invalid",
@@ -130,7 +130,10 @@ DEBUG_DYNAMIC_HAS_HEAD = 1 << 6
 DEBUG_DYNAMIC_ELEMENTS_ARE_OWNERS = 1 << 7
 DEBUG_DYNAMIC_KEYS_ARE_OWNERS = 1 << 8
 DEBUG_DYNAMIC_ELEMENTS_ARE_POINTERS = 1 << 9
-KNOWN_DEBUG_DYNAMIC_FLAGS = (1 << 10) - 1
+DEBUG_DYNAMIC_DATA_POINTERS_TAGGED = 1 << 10
+DEBUG_DYNAMIC_KEY_POINTERS_TAGGED = 1 << 11
+DEBUG_DYNAMIC_SLOT_STATE_TAGGED = 1 << 12
+KNOWN_DEBUG_DYNAMIC_FLAGS = (1 << 13) - 1
 DEBUG_OWNER_STATE_MASK = 0x3
 DEBUG_OWNER_INLINE_STATE = 1
 DEBUG_OWNER_HEAP_STATE = 2
@@ -319,6 +322,26 @@ def debug_dynamic_layout_valid(snapshot):
             )
         )
         and not (flags & DEBUG_DYNAMIC_HAS_SLOT_STATE and kind != 2)
+        and not (
+            flags & DEBUG_DYNAMIC_DATA_POINTERS_TAGGED
+            and not flags & DEBUG_DYNAMIC_DATA_POINTER_TABLE
+        )
+        and not (
+            flags & DEBUG_DYNAMIC_KEY_POINTERS_TAGGED
+            and not flags & DEBUG_DYNAMIC_KEY_DATA_POINTER_TABLE
+        )
+        and not (
+            flags & DEBUG_DYNAMIC_SLOT_STATE_TAGGED
+            and (
+                not flags & DEBUG_DYNAMIC_HAS_SLOT_STATE
+                or snapshot.get("state_offset", 0) == 0
+                or not flags
+                & (
+                    DEBUG_DYNAMIC_DATA_POINTERS_TAGGED
+                    | DEBUG_DYNAMIC_KEY_POINTERS_TAGGED
+                )
+            )
+        )
         and not (
             flags & DEBUG_DYNAMIC_ELEMENTS_ARE_OWNERS
             and flags & DEBUG_DYNAMIC_ELEMENTS_ARE_POINTERS
