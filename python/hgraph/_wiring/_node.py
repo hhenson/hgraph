@@ -319,6 +319,11 @@ class _PyNode:
         raise WiringError(
             f"AUTO_RESOLVE could not resolve '{param.name}' ({arguments[0]!r}) from the wired arguments")
 
+    def _diagnostic_label(self):
+        """User-facing node identity for diagnostics (issue #247): trace,
+        wiring-trace, and profiler render implementation:label."""
+        return self._label or getattr(self.fn, "__name__", None) or self.__name__
+
     def _check_binding(self, scope, param, value):
         """Match the wired port against the parameter's TYPE PATTERN,
         binding type variables into the scope. A mismatch on a concrete
@@ -785,8 +790,10 @@ class _PyNode:
                 raise TypeError(f"@compute_node '{self.__name__}' needs a TS[...] return annotation")
             op_name = ("__py_compute_recordable" if recordable_state_type is not None
                        else "__py_compute")
-            return wire(op_name, packed, output_type=out_tp, **node_kwargs)
-        return wire("__py_sink", packed, **node_kwargs)
+            return wire(op_name, packed, output_type=out_tp,
+                        __node_label__=self._diagnostic_label(), **node_kwargs)
+        return wire("__py_sink", packed,
+                    __node_label__=self._diagnostic_label(), **node_kwargs)
 
 
 def _make_py_node(fn, *, has_output, active, valid, all_valid, resolvers,
@@ -1044,6 +1051,7 @@ class _Generator:
                 stop_scalars.append(value)
         return wire(
             "__py_generator",
+            __node_label__=self._label or getattr(self.fn, "__name__", None),
             fn=_hgraph.node_ref(self.fn),
             config=config,
             scalars=_hgraph.any_list(scalars),

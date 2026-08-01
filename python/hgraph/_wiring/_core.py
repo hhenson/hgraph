@@ -52,6 +52,7 @@ def wire(name, *args, __output_type__=None, **kwargs):
             out_type = _TS[out_type]   # json_encode[str] names the SCALAR
         out_type = out_type.handle if isinstance(out_type, _TsExpr) else out_type
     w = _current_wiring()
+    node_label = kwargs.pop("__node_label__", None)
     sizes = kwargs.pop("__sizes__", None)
     resolutions = kwargs.pop("__resolutions__", None)
     resolution_scope = None
@@ -75,6 +76,8 @@ def wire(name, *args, __output_type__=None, **kwargs):
         # sources inside the C++ call normalisation (the scalar-kwargs rule) -
         # no python-side retry.
         wire_options = {"output_type": out_type}
+        if node_label:
+            wire_options["node_label"] = str(node_label)
         if sizes is not None:
             wire_options["sizes"] = sizes
         if resolution_scope is not None:

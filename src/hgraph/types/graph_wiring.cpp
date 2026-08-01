@@ -1148,6 +1148,12 @@ struct Wiring::Impl {
     const WiringInstance *source{nullptr};
   };
 
+  // Pending diagnostic label (issue #247): applied by add_node to the next
+  // builder whose schema name matches expected_label_operator, then cleared.
+  // The operator-name guard keeps auxiliary nodes (const lifts) unlabeled.
+  std::string pending_label{};
+  std::string expected_label_operator{};
+
   std::deque<WiringInstance> instances{};
   std::unordered_map<InstanceKey, WiringInstance *, InstanceKeyHash> interned{};
   std::unordered_map<std::string, std::string> built_service_paths{};
@@ -1497,9 +1503,32 @@ WiringScopeEvent make_node_wiring_event(
 }
 } // namespace
 
+void Wiring::set_pending_node_label(std::string expected_operator, std::string label) {
+  impl_->expected_label_operator = std::move(expected_operator);
+  impl_->pending_label = std::move(label);
+}
+
+void Wiring::clear_pending_node_label() noexcept {
+  impl_->pending_label.clear();
+  impl_->expected_label_operator.clear();
+}
+
 WiringPortRef Wiring::add_node(std::type_index def, NodeBuilder builder,
                                std::span<const WiringInputRef> inputs,
                                Value scalars) {
+  // Diagnostic label hint (issue #247): consumed before the wiring-observer
+  // event so wiring-trace sees the label too.
+  if (!impl_->pending_label.empty()) {
+    const auto *node_type = builder.type().schema();
+    if (node_type != nullptr &&
+        node_type->name() == impl_->expected_label_operator) {
+      if (builder.label().empty()) {
+        builder.label(impl_->pending_label);
+      }
+      impl_->pending_label.clear();
+      impl_->expected_label_operator.clear();
+    }
+  }
   auto add = [&]() -> WiringPortRef {
   // The passive marker (Python's ``passive(ts)``): a Passive-tagged
   // source removes the receiving slot from THIS node's active list.

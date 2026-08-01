@@ -1269,6 +1269,17 @@ namespace
     struct kw_sum_ : Operator<"kw_sum", In<"base", TS<Int>>, VarKwIn<"kwargs">, Out<TS<Int>>>
     {
     };
+    // issue #247 pending-label probes
+    struct label_probe_
+    {
+        static constexpr auto name = "label_probe";
+        static void eval(In<"ts", TS<Int>> ts, Out<TS<Int>> out) { out.set(ts.value()); }
+    };
+    struct other_probe_
+    {
+        static constexpr auto name = "other_probe";
+        static void eval(In<"ts", TS<Int>> ts, Out<TS<Int>> out) { out.set(ts.value()); }
+    };
     // Issue #224 (review): VarKwIn<Name, Schema> retains the declared pack
     // pattern; dispatch matches it against the synthesized pack of the
     // supplied keywords and rejects on mismatch.
@@ -1420,6 +1431,43 @@ TEST_CASE("operators: unmatched keyword time-series collect into **kwargs")
     std::array<WiringArg, 3> duplicate_args{ts_arg(ts_int), named_ts_arg("x", ts_int), named_ts_arg("x", ts_int)};
     REQUIRE_THROWS_WITH(OperatorRegistry::instance().resolve("kw_sum", std::span<const WiringArg>{duplicate_args}),
                         Catch::Matchers::ContainsSubstring("multiple values for argument 'x'"));
+}
+
+TEST_CASE("wiring: a pending node label attaches to the matching operator only")
+{
+    using namespace hgraph;
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+
+    // Issue #247: the hint labels the next node whose schema name matches;
+    // non-matching nodes (const lifts et al) pass through unlabeled, and the
+    // hint is one-shot.
+    Wiring w;
+    w.set_pending_node_label("label_probe", "user_fn");
+
+    NodeBuilder other;
+    other.implementation<other_probe_>();
+    struct other_tag {};
+    const WiringPortRef other_ref = w.add_node(
+        std::type_index(typeid(other_tag)), std::move(other),
+        std::span<const WiringPortRef>{}, Value{});
+    CHECK(other_ref.peered_node()->builder.label().empty());
+
+    NodeBuilder target;
+    target.implementation<label_probe_>();
+    struct target_tag {};
+    const WiringPortRef target_ref = w.add_node(
+        std::type_index(typeid(target_tag)), std::move(target),
+        std::span<const WiringPortRef>{}, Value{});
+    CHECK(target_ref.peered_node()->builder.label() == "user_fn");
+
+    // one-shot: a second matching node stays unlabeled
+    NodeBuilder again;
+    again.implementation<label_probe_>();
+    struct again_tag {};
+    const WiringPortRef again_ref = w.add_node(
+        std::type_index(typeid(again_tag)), std::move(again),
+        std::span<const WiringPortRef>{}, Value{});
+    CHECK(again_ref.peered_node()->builder.label().empty());
 }
 
 TEST_CASE("operators: a typed **kwargs collector gates candidates on its pack pattern")

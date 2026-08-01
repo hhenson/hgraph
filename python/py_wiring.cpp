@@ -1081,7 +1081,8 @@ namespace hgraph::python_bridge
              nb::arg("capture_values") = false)
         .def("wire", &PyWiring::wire, nb::arg("name"), nb::arg("args") = nb::tuple(),
              nb::arg("kwargs") = nb::dict(), nb::arg("output_type") = nb::none(),
-             nb::arg("sizes") = nb::none(), nb::arg("initial_resolution").none() = nb::none())
+             nb::arg("sizes") = nb::none(), nb::arg("initial_resolution").none() = nb::none(),
+             nb::arg("node_label") = nb::none())
         .def("set_replay", &PyWiring::set_replay, nb::arg("key"), nb::arg("values"),
              nb::arg("ts_type") = nb::none())
         .def("feedback", &PyWiring::feedback, nb::arg("ts_type"), nb::arg("initial") = nb::none())
