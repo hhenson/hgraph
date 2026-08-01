@@ -152,6 +152,18 @@ namespace hgraph
         /** Const byte pointer for ``slot``; not bounds-checked. */
         [[nodiscard]] const void *value_memory(size_t slot) const noexcept { return value_storage.slot_memory(slot); }
 
+        /** Mutable payload pointer when ``slot`` is constructed; ``nullptr`` otherwise. */
+        [[nodiscard]] void *try_value_memory(size_t slot) noexcept
+        {
+            return value_storage.live_slot_memory(slot);
+        }
+
+        /** Const overload of ``try_value_memory``. */
+        [[nodiscard]] const void *try_value_memory(size_t slot) const noexcept
+        {
+            return value_storage.live_slot_memory(slot);
+        }
+
         /**
          * Grow capacity to at least ``capacity`` slots. Leaves existing
          * payloads in place; new ``updated`` bits and constructed states
@@ -421,6 +433,7 @@ namespace hgraph
         /** Mutable payload memory for a constructed key slot. */
         [[nodiscard]] void *value_memory(size_t slot)
         {
+            if (void *memory = m_values.try_value_memory(slot); memory != nullptr) { return memory; }
             require_mirrored_slot(slot);
             return m_values.value_memory(slot);
         }
@@ -428,6 +441,7 @@ namespace hgraph
         /** Const payload memory for a constructed key slot. */
         [[nodiscard]] const void *value_memory(size_t slot) const
         {
+            if (const void *memory = m_values.try_value_memory(slot); memory != nullptr) { return memory; }
             require_mirrored_slot(slot);
             return m_values.value_memory(slot);
         }
