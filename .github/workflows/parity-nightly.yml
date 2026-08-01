@@ -12,6 +12,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  GCC_VERSION: "14"
+
 jobs:
   build-candidate:
     name: Build candidate wheel
@@ -24,6 +27,15 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.10
         with:
           version: v0.15.0
+      - name: Configure GCC 14
+        shell: bash
+        run: |
+          cc_path="$(command -v "gcc-$GCC_VERSION")"
+          cxx_path="$(command -v "g++-$GCC_VERSION")"
+          test "$("$cxx_path" -dumpfullversion -dumpversion | cut -d. -f1)" -eq "$GCC_VERSION"
+          echo "CC=$cc_path" >> "$GITHUB_ENV"
+          echo "CXX=$cxx_path" >> "$GITHUB_ENV"
+          "$cxx_path" --version
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"

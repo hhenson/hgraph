@@ -36,7 +36,7 @@ Supported platforms
    * - Linux x86_64
      - Official ``manylinux_2_28`` image, GCC 14
      - ``cp312-abi3`` wheel, glibc 2.28+
-     - Official wheel; Ubuntu 24.04/GCC 13 is the native and performance host
+     - Official wheel; Ubuntu 24.04/GCC 14 is the native and performance host
    * - macOS arm64
      - macOS 26 runner, current AppleClang, deployment target 15.0
      - ``cp312-abi3`` wheel, macOS 15+
@@ -81,7 +81,7 @@ requires all of the following from a clean checkout:
 - fresh Release native configure/build and the complete C++ suite on macOS;
 - a Python 3.12 ``cp312-abi3`` wheel, installed into a fresh Python 3.14
   environment, and the complete non-WIP Python suite;
-- the same Release gates on Ubuntu 24.04/GCC 13;
+- the same Release gates on Ubuntu 24.04/GCC 14;
 - Linux Debug/AddressSanitizer native and Python suites for type-erasure,
   ownership, nested-graph, or bridge-lifetime changes;
 - strict ``abi3audit`` for every wheel, install/consumer validation for public
