@@ -241,6 +241,83 @@
       "kind": "name-missing",
       "side": "candidate",
       "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
+    },
+    {
+      "module": "hgraph",
+      "name": "TS.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TimeSeries.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "CONTEXT.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "STATE.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "SCHEDULER.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
     }
   ]
 }

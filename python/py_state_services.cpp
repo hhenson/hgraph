@@ -615,6 +615,14 @@ namespace hgraph::python_bridge
                  self.require_alive();
                  self.view.make_active();
              })
+        // The activity STATE query completing the trio (upstream parity —
+        // the annotation-class ABC surface is deliberately not replicated,
+        // but instance behaviour must be: ruling 2026-08-01).
+        .def_prop_ro("active",
+                     [](const PyTimeSeries &self) {
+                         self.require_alive();
+                         return self.view.active();
+                     })
         // value/delta_value/modified/valid are raw tp_getset slots above —
         // a def_prop_ro here would REPLACE the raw descriptor in the type
         // dictionary and silently restore the vectorcall path.
