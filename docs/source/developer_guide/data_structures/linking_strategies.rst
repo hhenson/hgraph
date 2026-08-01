@@ -53,6 +53,28 @@ observer identity; evaluation time belongs on endpoint views, not in the
 link's stored state. Endpoint views recreate transient ``TSDataView``
 cursors from the stored output handle when they need target behaviour.
 
+The wiring-time schema selects one of two target-link storage plans. Scalar,
+fixed, window, reference, and signal terminals allocate only the common
+tracking and binding state plus a non-null no-op structural ops pointer.
+``TSS`` and ``TSD`` terminals allocate the structural representation, which
+adds a compact ``SlotObserverList`` and a lazy sampled-transition record. The
+semantic target-link code dispatches through the selected passive ops table;
+it does not inspect a representation tag or schema kind on the runtime path.
+
+The structural observer list has a narrower purpose than the target-modified
+and scheduling observers below. It is populated only when another keyed-slot
+consumer observes the target link itself, as happens in forwarding and proxy
+chains. The link retains those observer identities across an unbound period,
+subscribes them directly to the current output key store on bind/rebind, and
+unsubscribes or sends ``on_clear`` before the borrowed target disappears. Its
+empty and one-observer forms occupy one tagged pointer; only two or more
+observers allocate a spill list.
+
+A link-local delegation hub was measured but is not used. In the representative
+workloads and complete native suite every exercised forwarding list had one
+observer, so direct and delegated registration retained the same number of
+pointers. Delegation would only add a callback hop in that measured shape.
+
 A subtle point: a peered input terminal carries **two** notification paths:
 
 - **Target-modified path.** Subscribed to the target's modification

@@ -3,11 +3,14 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/types/storage_metrics.h>
+#include <hgraph/util/tagged_ptr.h>
 
-#include <algorithm>
-#include <cassert>
 #include <cstddef>
-#include <vector>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <type_traits>
+#include <utility>
 
 namespace hgraph
 {
@@ -40,179 +43,94 @@ namespace hgraph
     };
 
     /**
-     * Small observer list with de-duplicated registration and explicit
+     * Compact observer list with de-duplicated registration and explicit
      * structural notifications.
      *
-     * Owned by each slot store; observers register and unregister themselves
-     * during their own construction and destruction. Removal uses a swap-
-     * with-back-and-pop so the list stays compact, and re-registration of
-     * the same pointer is asserted against in debug builds.
+     * Empty and single-observer states occupy one tagged pointer. A spill
+     * allocation is introduced only for two or more observers. Traversal is
+     * representation-neutral: callbacks see the non-null observers present
+     * when traversal starts, removals before an observer's turn suppress that
+     * callback, and additions are deferred until the next traversal.
      */
-    class SlotObserverList
+    class HGRAPH_EXPORT SlotObserverList
     {
       public:
-        /** Register an observer; ignored if ``observer`` is null. Asserts on duplicate registration. */
-        void add(SlotObserver *observer)
-        {
-            if (observer == nullptr) {
-                return;
-            }
+        SlotObserverList() noexcept = default;
+        SlotObserverList(const SlotObserverList &other);
+        SlotObserverList &operator=(const SlotObserverList &other);
+        SlotObserverList(SlotObserverList &&other) noexcept;
+        SlotObserverList &operator=(SlotObserverList &&other) noexcept;
+        ~SlotObserverList() noexcept;
 
-            const auto it = std::find(m_observers.begin(), m_observers.end(), observer);
-            assert(it == m_observers.end() && "slot observer registered twice");
-            if (it == m_observers.end()) {
-                m_observers.push_back(observer);
-            }
-        }
-
-        /** Unregister an observer; ignored if ``observer`` is null. Asserts when not registered. */
-        void remove(SlotObserver *observer)
-        {
-            if (observer == nullptr) {
-                return;
-            }
-
-            const auto it = std::find(m_observers.begin(), m_observers.end(), observer);
-            assert(it != m_observers.end() && "removing unregistered slot observer");
-            if (it == m_observers.end()) {
-                return;
-            }
-
-            if (m_notify_depth != 0) {
-                *it = nullptr;
-                m_compact_pending = true;
-                return;
-            }
-
-            if (it != m_observers.end() - 1) {
-                *it = m_observers.back();
-            }
-            m_observers.pop_back();
-        }
+        /** Register an observer; ignored if null and asserted against when duplicated. */
+        void add(SlotObserver *observer);
+        /** Unregister an observer; ignored if null and asserted when not registered. */
+        void remove(SlotObserver *observer);
 
         /** True when no observers are registered. */
-        [[nodiscard]] bool empty() const noexcept { return m_observers.empty(); }
-        /** Read-only access to the registered observer pointers. */
-        [[nodiscard]] const std::vector<SlotObserver *> &entries() const noexcept { return m_observers; }
+        [[nodiscard]] bool empty() const noexcept;
+        /** Number of currently registered, non-null observers. */
+        [[nodiscard]] std::size_t size() const noexcept;
+        /** True when ``observer`` is currently registered. */
+        [[nodiscard]] bool contains(const SlotObserver *observer) const noexcept;
 
-        /** Exact occupied/retained heap bytes for observer pointer storage. */
-        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        /**
+         * Visit each observer without exposing the concrete storage strategy.
+         * The visitor may re-enter this list and may add, remove, or clear
+         * observers. Cleanup remains exception-safe.
+         */
+        template <typename Visitor>
+        void for_each(Visitor &&visitor) const
         {
-            return {
-                .live_bytes = m_observers.size() * sizeof(SlotObserver *),
-                .reserved_bytes = m_observers.capacity() * sizeof(SlotObserver *),
-            };
+            using VisitorType = std::remove_reference_t<Visitor>;
+            auto *context = const_cast<void *>(
+                static_cast<const void *>(std::addressof(visitor)));
+            for_each_erased(context, [](void *erased, SlotObserver *observer) {
+                std::invoke(*static_cast<VisitorType *>(erased), observer);
+            });
         }
+
+        /** Exact occupied/retained heap bytes for multi-observer spill storage. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
 
         /** Drop every registered observer without notifying. */
-        void clear() noexcept
-        {
-            if (m_notify_depth != 0) {
-                std::fill(m_observers.begin(), m_observers.end(), nullptr);
-                m_compact_pending = true;
-                return;
-            }
-            m_observers.clear();
-        }
+        void clear() noexcept;
 
         /** Invoke ``on_capacity`` on every registered observer. */
-        void notify_capacity(size_t old_capacity, size_t new_capacity) const
-        {
-            NotifyGuard guard{*this};
-            const auto limit = m_observers.size();
-            for (size_t index = 0; index < limit; ++index) {
-                auto *observer = m_observers[index];
-                if (observer != nullptr) {
-                    observer->on_capacity(old_capacity, new_capacity);
-                }
-            }
-        }
-
+        void notify_capacity(std::size_t old_capacity, std::size_t new_capacity) const;
         /** Invoke ``on_insert`` on every registered observer. */
-        void notify_insert(size_t slot) const
-        {
-            NotifyGuard guard{*this};
-            const auto limit = m_observers.size();
-            for (size_t index = 0; index < limit; ++index) {
-                auto *observer = m_observers[index];
-                if (observer != nullptr) {
-                    observer->on_insert(slot);
-                }
-            }
-        }
-
+        void notify_insert(std::size_t slot) const;
         /** Invoke ``on_remove`` on every registered observer. */
-        void notify_remove(size_t slot) const
-        {
-            NotifyGuard guard{*this};
-            const auto limit = m_observers.size();
-            for (size_t index = 0; index < limit; ++index) {
-                auto *observer = m_observers[index];
-                if (observer != nullptr) {
-                    observer->on_remove(slot);
-                }
-            }
-        }
-
+        void notify_remove(std::size_t slot) const;
         /** Invoke ``on_erase`` on every registered observer. */
-        void notify_erase(size_t slot) const
-        {
-            NotifyGuard guard{*this};
-            const auto limit = m_observers.size();
-            for (size_t index = 0; index < limit; ++index) {
-                auto *observer = m_observers[index];
-                if (observer != nullptr) {
-                    observer->on_erase(slot);
-                }
-            }
-        }
-
+        void notify_erase(std::size_t slot) const;
         /** Invoke ``on_clear`` on every registered observer. */
-        void notify_clear() const
-        {
-            NotifyGuard guard{*this};
-            const auto limit = m_observers.size();
-            for (size_t index = 0; index < limit; ++index) {
-                auto *observer = m_observers[index];
-                if (observer != nullptr) {
-                    observer->on_clear();
-                }
-            }
-        }
+        void notify_clear() const;
 
       private:
-        struct NotifyGuard
+        struct ObserverList;
+
+        enum class Representation : std::uintptr_t
         {
-            explicit NotifyGuard(const SlotObserverList &owner) noexcept
-                : owner(owner)
-            {
-                ++owner.m_notify_depth;
-            }
-
-            NotifyGuard(const NotifyGuard &) = delete;
-            NotifyGuard &operator=(const NotifyGuard &) = delete;
-
-            ~NotifyGuard() noexcept
-            {
-                --owner.m_notify_depth;
-                if (owner.m_notify_depth == 0 && owner.m_compact_pending) {
-                    owner.compact();
-                }
-            }
-
-            const SlotObserverList &owner;
+            single = 0,
+            many = 1,
         };
 
-        void compact() const noexcept
-        {
-            std::erase(m_observers, nullptr);
-            m_compact_pending = false;
-        }
+        using ObserverStorage = tagged_void_ptr<1, Representation>;
+        using ErasedVisitor = void (*)(void *context, SlotObserver *observer);
 
-        mutable std::vector<SlotObserver *> m_observers{};
-        mutable size_t                      m_notify_depth{0};
-        mutable bool                        m_compact_pending{false};
+        [[nodiscard]] SlotObserver *single() const noexcept;
+        [[nodiscard]] ObserverList *many() const noexcept;
+        void set_single(SlotObserver *observer) noexcept;
+        void set_many(ObserverList *observers) noexcept;
+        void compact_many(ObserverList &observers) noexcept;
+        void for_each_erased(void *context, ErasedVisitor visitor) const;
+
+        ObserverStorage observers_{};
     };
+
+    static_assert(sizeof(SlotObserverList) <= sizeof(void *),
+                  "SlotObserverList should remain a one-word tagged observer handle");
 }  // namespace hgraph
 
 #endif  // HGRAPH_CPP_ROOT_V2_SLOT_OBSERVER_H

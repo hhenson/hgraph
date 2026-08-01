@@ -1181,6 +1181,7 @@ namespace hgraph::detail
         {
             context.schema = &schema;
             context.storage_offset = storage_offset;
+            context.storage_access = &target_link_storage_access_for(schema.kind);
         }
 
         [[nodiscard]] std::unique_ptr<TSInputTargetLinkContext>
@@ -1377,13 +1378,13 @@ namespace hgraph::detail
     const TSInputTargetLinkStorage *target_link_storage_at(const TSInputTargetLinkContext &context,
                                                            const void *memory) noexcept
     {
-        return MemoryUtils::cast<TSInputTargetLinkStorage>(advance(memory, context.storage_offset));
+        return context.storage_access->get_const(advance(memory, context.storage_offset));
     }
 
     TSInputTargetLinkStorage *target_link_storage_at(const TSInputTargetLinkContext &context,
                                                      void *memory) noexcept
     {
-        return MemoryUtils::cast<TSInputTargetLinkStorage>(advance(memory, context.storage_offset));
+        return context.storage_access->get_mutable(advance(memory, context.storage_offset));
     }
 
     namespace

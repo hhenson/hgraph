@@ -3,6 +3,8 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input/detail.h>
+#include <hgraph/types/time_series/ts_input/target_link.h>
+#include <hgraph/types/time_series/ts_input/target_link_structural_state.h>
 #include <hgraph/types/value/value.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -103,6 +105,40 @@ namespace
         for (auto it = range.begin(); it != range.end(); ++it) { ++result; }
         return result;
     }
+}
+
+TEST_CASE("TSInput target-link plans allocate structural state only for keyed slots", "[memory]")
+{
+    using namespace hgraph;
+    using namespace hgraph::detail;
+
+    const auto &common_plan = target_link_storage_plan_for(TSTypeKind::TS);
+    const auto &set_plan = target_link_storage_plan_for(TSTypeKind::TSS);
+    const auto &dict_plan = target_link_storage_plan_for(TSTypeKind::TSD);
+
+    REQUIRE(&common_plan == &target_link_storage_plan_for(TSTypeKind::TSL));
+    REQUIRE(&common_plan == &target_link_storage_plan_for(TSTypeKind::TSW));
+    REQUIRE(&common_plan == &target_link_storage_plan_for(TSTypeKind::TSB));
+    REQUIRE(&common_plan == &target_link_storage_plan_for(TSTypeKind::REF));
+    REQUIRE(&common_plan == &target_link_storage_plan_for(TSTypeKind::SIGNAL));
+    REQUIRE(&set_plan == &dict_plan);
+    REQUIRE(&common_plan != &set_plan);
+    REQUIRE(common_plan.layout.size == sizeof(TSInputTargetLinkStorage));
+    REQUIRE(set_plan.layout.size > common_plan.layout.size);
+
+    MemoryUtils::ErasedOwner<> common_storage{common_plan};
+    MemoryUtils::ErasedOwner<> structural_storage{set_plan};
+    const auto *common_link =
+        target_link_storage_access_for(TSTypeKind::TS).get_const(common_storage.data());
+    const auto *structural_link =
+        target_link_storage_access_for(TSTypeKind::TSS).get_const(structural_storage.data());
+
+    REQUIRE(common_link != nullptr);
+    REQUIRE(structural_link != nullptr);
+    REQUIRE(static_cast<const void *>(common_link) == common_storage.data());
+    REQUIRE(static_cast<const void *>(structural_link) == structural_storage.data());
+    REQUIRE(static_cast<const void *>(&common_link->tracking) == common_storage.data());
+    REQUIRE(static_cast<const void *>(&structural_link->tracking) == structural_storage.data());
 }
 
 TEST_CASE("TSInput builds a non-peered TSB root with nested peered terminals")

@@ -19,6 +19,8 @@ namespace hgraph::detail
 
         const TSValueTypeMetaData *schema{nullptr};
         std::size_t                storage_offset{0};
+        const TSInputTargetLinkStorageAccessOps *storage_access{
+            &target_link_storage_access_for(TSTypeKind::TS)};
         const TSDataLayout        *active_layout{nullptr};
         const TSDataOps           *active_ops{nullptr};
         const TSInputTargetLinkSlotAccess *slot_access{nullptr};
