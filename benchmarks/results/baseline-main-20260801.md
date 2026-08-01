@@ -30,7 +30,7 @@ The current runtime is materially faster than released Python hgraph and, in alm
 
 The cleanup produced its clearest memory gains in graph construction and repeated graph lifetime. On macOS, the large construction delta fell from 19.0 to 10.5 MiB and 100 repeated identical graph executions fell from 12.3 to 1.7 MiB. The repeated graph's first-to-last growth fell from 10.7 to 0.25 MiB. Bounded key churn, clear/repopulate, key reactivation, switches, meshes, and dynamic TSL storage all remain duration- or cardinality-bounded.
 
-The hot-path timing aggregate is essentially unchanged from the July 31 `main` baseline: 0.994x on macOS and 1.010x on Linux. This is a good outcome for a cleanup, but three small keyed/value paths regressed by more than 5% in the same direction on both hosts and should be profiled. Linux also retains three Python-heavy scenarios where legacy C++ is still faster.
+The hot-path timing aggregate is essentially unchanged from the July 31 `main` baseline: 0.994x on macOS and 1.010x on Linux. The initial five-sample matrices identified three small keyed/value movements worth checking. A subsequent 15-sample, same-affinity comparison narrowed that to one Linux-specific signal: sparse reduce is 7.7% slower, while the other movements are below 5%. Linux also retains three Python-heavy scenarios where legacy C++ is still faster.
 
 The main unresolved lifetime issue is structural rather than a live-graph leak: repeated identical service/adaptor wiring continues to add runtime type and graph-program registry records linearly. RSS growth is much smaller than before, but registry identity/deduplication still needs attention.
 
@@ -77,7 +77,7 @@ On macOS, `reduce_tsd_python_combiner` is within 4% of legacy C++ and the other 
 
 The 68-scenario hg_cpp geometric mean is effectively flat: macOS is 0.6% slower and Linux is 1.0% faster. The previous Linux run used a wider CPU affinity set, while the new baseline is pinned to CPU 2, so isolated Linux-only changes should not be treated as regressions without a same-affinity rerun.
 
-Three scenarios moved backwards by more than 5% on both hosts:
+The initial five-sample matrices showed three scenarios moving backwards by more than 5% on both hosts:
 
 | scenario | macOS change | Linux change |
 |---|---:|---:|
@@ -85,7 +85,15 @@ Three scenarios moved backwards by more than 5% on both hosts:
 | `tsd_sparse_reduce_std` | -5.5% | -8.1% |
 | `tsd_explicit_key_set_std` | -5.6% | -5.5% |
 
-The changes are small in absolute time, but the cross-host agreement makes them better profiling candidates than the larger Linux-only movement in sparse-capacity scenarios.
+A follow-up used 15 fresh processes for both `9db88d02` and the current revision, with Linux pinned to CPU 2 for both sides:
+
+| scenario | macOS change | Linux change |
+|---|---:|---:|
+| `tss_add_remove_std` | -3.1% | -4.1% |
+| `tsd_sparse_reduce_std` | +2.5% | -7.7% |
+| `tsd_explicit_key_set_std` | -3.2% | -2.7% |
+
+Here a minus sign means slower and a plus sign means faster. The higher-sample comparison does not reproduce a general cross-host regression. Only Linux sparse reduce remains above 5%; native decomposition attributes roughly 4.8% to sparse source/update work and 2.5% to the reducer, with zero steady-state allocations in both paths.
 
 ## Memory results
 
@@ -163,7 +171,7 @@ The production tracked packed-slot representation remains memory-efficient at 33
 
 ## Recommended focus
 
-1. Profile the three cross-host throughput regressions: set add/remove, sparse reduce, and explicit-key-set map. Start with native allocation counts, slot observation, and scheduling work per changed key. They are small but repeatable across architectures.
+1. Profile the Linux sparse-reduce regression. The source/update and reducer microbenchmarks are both allocation-free, so focus on slot lookup/dispatch, changed-key iteration, and generated code rather than allocator traffic. Keep set add/remove and explicit-key-set map as watch-list cells; their 15-sample changes are below 5%.
 2. Close the Linux Python-heavy gaps. Measure Python/native transitions and time spent inside each complete executor phase for the Python combiner, dense Python map, and Python service adaptor. Preserve the coarse phase-level GIL-guard design unless evidence identifies a specific phase that should be split.
 3. Deduplicate or release service/adaptor wiring registry records. The normal graph path proves that repeated programs can stabilize; service/adaptor identities should be made equally canonical without introducing process globals or bypassing normal graph teardown.
 4. Explain the Linux ready-RSS increase before optimizing graph deltas. Compare loaded libraries and dependency versions in an otherwise identical environment, then rerun the process-floor probe. Also quantify the fixed 1.4–2.1 MiB small-workload floor on macOS.
@@ -174,4 +182,4 @@ The production tracked packed-slot representation remains memory-efficient at 33
 
 ## Bottom line
 
-`main` is in a substantially better construction and lifecycle-memory position without a broad throughput regression. The runtime is roughly 2x faster than legacy C++ across the maintained matrix and dramatically faster than released Python hgraph. The next work should be targeted: three repeatable keyed-path timing regressions, Linux Python-call overhead, service/adaptor registry canonicalization, and the fixed/import memory floors. The bounded-memory invariants for churn, reactivation, clear/repopulate, switches, meshes, and repeated ordinary graph execution are holding.
+`main` is in a substantially better construction and lifecycle-memory position without a broad throughput regression. The runtime is roughly 2x faster than legacy C++ across the maintained matrix and dramatically faster than released Python hgraph. The next work should be targeted: the Linux sparse-reduce path, Linux Python-call overhead, service/adaptor registry canonicalization, and the fixed/import memory floors. The bounded-memory invariants for churn, reactivation, clear/repopulate, switches, meshes, and repeated ordinary graph execution are holding.
