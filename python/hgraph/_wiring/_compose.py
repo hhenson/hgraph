@@ -12,9 +12,18 @@ from ._sentinels import _REDUCE_ZERO
 
 def map_(func, *args, **kwargs):
     """hgraph's map_. ``func`` may be a native operator or a Python-authored
-    graph/node; outputless functions create keyed sink child graphs."""
+    graph/node; outputless functions create keyed sink child graphs.
+
+    Upstream-parity kwargs: ``__keys__`` supplies an explicit key set,
+    ``__key_arg__`` names the parameter receiving the key, and
+    ``__label__`` labels the mapped scope for debugging/tracing.
+    """
+    label = kwargs.pop("__label__", None)
     wired, args, kwargs = _prepare_higher_order_call(
         func, args, kwargs, default_key_arg="key")
+    if label:
+        with _current_wiring()._graph_wiring_scope(str(label)):
+            return wire("map_", wired, *args, **kwargs)
     return wire("map_", wired, *args, **kwargs)
 
 
@@ -168,21 +177,24 @@ class DelayedBinding:
         self._wiring.delayed_binding_bind(self._binding, _unwrap(port))
 
 
-def passive(port):
+def passive(ts):
     """hgraph's passive marker: the receiving node's input for THIS usage is
     removed from its active list (ticks no longer schedule the node; values
     still read normally). Returns a marked copy - the original port is
     unaffected."""
+    port = ts
     return WiringPort(_hgraph.passive(_unwrap(port)))
 
 
-def pass_through(ts):
+def pass_through(tsd):
     """map_'s pass-through marker: do NOT demultiplex this argument."""
+    ts = tsd
     return WiringPort(_hgraph.pass_through_tag(_unwrap(ts)))
 
 
-def no_key(ts):
+def no_key(tsd):
     """map_'s no-key marker: demultiplex, but exclude from key inference."""
+    ts = tsd
     return WiringPort(_hgraph.no_key_tag(_unwrap(ts)))
 
 
@@ -196,8 +208,9 @@ def feedback(tp_or_wp, default=None):
     return Feedback(w, w.feedback(_unwrap(tp_or_wp), default))
 
 
-def delayed_binding(tp_or_wp):
+def delayed_binding(tp_):
     """Create a typed source placeholder and bind its producer later."""
+    tp_or_wp = tp_
     from .._types import _TsExpr
 
     w = _current_wiring()

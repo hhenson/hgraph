@@ -57,3 +57,165 @@ TEST_CASE("stop_engine: the current cycle completes and later cycles do not run"
     CHECK_OUTPUT(eval_node<StopAfterFirstGraph>(values<bool>(true, true, true)),
                  {true, none, none});
 }
+
+namespace
+{
+    // One-shot cycle-boundary notifications (2026-08-01): the C++-primary
+    // facility behind python's add_*_evaluation_notification.
+    std::vector<std::string> &notification_log()
+    {
+        static std::vector<std::string> log;
+        return log;
+    }
+
+    struct NotificationProbe
+    {
+        static constexpr auto name = "notification_probe";
+
+        static void eval(In<"trigger", TS<Int>> trigger, EngineControlView engine,
+                         Out<TS<Int>> out)
+        {
+            const auto tick = trigger.value();
+            notification_log().push_back("eval-" + std::to_string(tick));
+            engine.add_after_evaluation_notification(
+                [tick] { notification_log().push_back("after-" + std::to_string(tick)); });
+            engine.add_before_evaluation_notification(
+                [tick] { notification_log().push_back("before-next-" + std::to_string(tick)); });
+            out.set(tick);
+        }
+    };
+
+    struct ReentrantNotificationProbe
+    {
+        static constexpr auto name = "reentrant_notification_probe";
+
+        static void eval(In<"trigger", TS<Int>> trigger, EngineControlView engine,
+                         Out<TS<Int>> out)
+        {
+            notification_log().push_back("eval-order");
+            engine.add_after_evaluation_notification([engine] {
+                notification_log().push_back("after-first");
+                engine.add_after_evaluation_notification(
+                    [] { notification_log().push_back("nested-first"); });
+            });
+            engine.add_after_evaluation_notification([engine] {
+                notification_log().push_back("after-second");
+                engine.add_after_evaluation_notification(
+                    [] { notification_log().push_back("nested-second"); });
+            });
+            out.set(trigger.value());
+        }
+    };
+
+    struct ReentrantBeforeNotificationProbe
+    {
+        static constexpr auto name = "reentrant_before_notification_probe";
+
+        static void eval(In<"trigger", TS<Int>> trigger, EngineControlView engine,
+                         Out<TS<Int>> out)
+        {
+            const Int tick = trigger.value();
+            notification_log().push_back("eval-before-" + std::to_string(tick));
+            if (tick == 1)
+            {
+                engine.add_before_evaluation_notification([engine] {
+                    notification_log().push_back("before-first");
+                    engine.add_before_evaluation_notification(
+                        [] { notification_log().push_back("nested-before-first"); });
+                });
+                engine.add_before_evaluation_notification([engine] {
+                    notification_log().push_back("before-second");
+                    engine.add_before_evaluation_notification(
+                        [] { notification_log().push_back("nested-before-second"); });
+                });
+            }
+            out.set(tick);
+        }
+    };
+
+    struct StopNotificationProbe
+    {
+        static constexpr auto name              = "stop_notification_probe";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<TS<Bool>> out) { out.set(true); }
+
+        static void stop(EngineControlView engine)
+        {
+            engine.add_after_evaluation_notification(
+                [] { notification_log().push_back("after-stop"); });
+            engine.add_before_evaluation_notification(
+                [] { notification_log().push_back("before-stop"); });
+        }
+    };
+
+    struct FailingNotificationProbe
+    {
+        static constexpr auto name              = "failing_notification_probe";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(EngineControlView engine, Out<TS<Bool>>)
+        {
+            engine.add_after_evaluation_notification(
+                [] { notification_log().push_back("after-error"); });
+            throw std::runtime_error("notification probe failure");
+        }
+    };
+}  // namespace
+
+TEST_CASE("engine control: one-shot evaluation notifications fire at cycle boundaries")
+{
+    notification_log().clear();
+
+    CHECK_OUTPUT(eval_node<NotificationProbe>(values<Int>(1, 2)), values<Int>(1, 2));
+
+    // Clean shutdown drains the final before queue as well: this is the
+    // historical final-tick deferred-release guarantee.
+    const std::vector<std::string> expected{
+        "eval-1", "after-1", "before-next-1", "eval-2", "after-2", "before-next-2"};
+    CHECK(notification_log() == expected);
+}
+
+TEST_CASE("engine control: after notifications are LIFO and drain re-entrant work")
+{
+    notification_log().clear();
+
+    CHECK_OUTPUT(eval_node<ReentrantNotificationProbe>(values<Int>(1)), values<Int>(1));
+
+    const std::vector<std::string> expected{
+        "eval-order", "after-second", "after-first", "nested-first", "nested-second"};
+    CHECK(notification_log() == expected);
+}
+
+TEST_CASE("engine control: before notifications are FIFO and drain re-entrant work")
+{
+    notification_log().clear();
+
+    CHECK_OUTPUT(eval_node<ReentrantBeforeNotificationProbe>(values<Int>(1, 2)),
+                 values<Int>(1, 2));
+
+    const std::vector<std::string> expected{
+        "eval-before-1", "before-first", "before-second", "nested-before-first",
+        "nested-before-second", "eval-before-2"};
+    CHECK(notification_log() == expected);
+}
+
+TEST_CASE("engine control: stop-generated notifications drain before executor teardown")
+{
+    notification_log().clear();
+
+    CHECK_OUTPUT(eval_node<StopNotificationProbe>(), {true});
+
+    const std::vector<std::string> expected{"after-stop", "before-stop"};
+    CHECK(notification_log() == expected);
+}
+
+TEST_CASE("engine control: a failed evaluation still drains its after notifications")
+{
+    notification_log().clear();
+
+    CHECK_THROWS(eval_node<FailingNotificationProbe>());
+
+    const std::vector<std::string> expected{"after-error"};
+    CHECK(notification_log() == expected);
+}

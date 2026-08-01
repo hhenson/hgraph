@@ -211,6 +211,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_runtime_value_view.cpp
     test_schema_examples.cpp
     test_scope.cpp
+    test_small_dense_ptr_map.cpp
     test_slot_utils.cpp
     test_stable_slot_representation_prototype.cpp
     test_specialized_views.cpp

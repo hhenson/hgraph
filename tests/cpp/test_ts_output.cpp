@@ -628,6 +628,34 @@ TEST_CASE("TSData dynamic storage metrics include TSS capacity and nested TSD ch
     CHECK(outer_after.reserved_bytes >= outer_after.live_bytes);
 }
 
+TEST_CASE("TSOutput dynamic storage metrics include multi-observer allocation", "[memory]")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    TSOutput output{*registry.ts(int_meta)};
+    RecordingNotifiable first;
+    RecordingNotifiable second;
+
+    const auto empty = output.dynamic_storage_metrics();
+    output.subscribe(&first);
+    const auto single = output.dynamic_storage_metrics();
+    CHECK(single.live_bytes == empty.live_bytes);
+    CHECK(single.reserved_bytes == empty.reserved_bytes);
+
+    output.subscribe(&second);
+    const auto many = output.dynamic_storage_metrics();
+    CHECK(many.live_bytes > single.live_bytes);
+    CHECK(many.reserved_bytes >= many.live_bytes);
+
+    output.unsubscribe(&second);
+    output.unsubscribe(&first);
+    const auto cleared = output.dynamic_storage_metrics();
+    CHECK(cleared.live_bytes == empty.live_bytes);
+    CHECK(cleared.reserved_bytes == empty.reserved_bytes);
+}
+
 TEST_CASE("TSOutputHandle stores output identity without evaluation time")
 {
     using namespace hgraph;

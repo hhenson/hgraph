@@ -497,8 +497,13 @@ TEST_CASE("TimeSeriesReference: output alternatives are keyed by starting view a
     }
 
     auto source = target.view(MIN_ST);
+    const auto before_alternatives = target.dynamic_storage_metrics();
     auto named_ref_handle = source.binding_for(*ref_named);
     auto structural_ref_handle = source.binding_for(*ref_structural);
+    const auto after_alternatives = target.dynamic_storage_metrics();
+
+    CHECK(after_alternatives.live_bytes > before_alternatives.live_bytes);
+    CHECK(after_alternatives.reserved_bytes > before_alternatives.reserved_bytes);
 
     REQUIRE(named_ref_handle.schema() == ref_named);
     REQUIRE(structural_ref_handle.schema() == ref_structural);

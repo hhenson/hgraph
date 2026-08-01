@@ -448,6 +448,11 @@ namespace hgraph
         throw std::logic_error("TSInputView::delta_value requires a live input view");
     }
 
+    DynamicStorageMetrics TSInputView::dynamic_storage_metrics() const noexcept
+    {
+        return input_ != nullptr ? input_->dynamic_storage_metrics() : DynamicStorageMetrics{};
+    }
+
     TimeSeriesReference TSInputView::reference() const
     {
         const auto *view_schema = schema();

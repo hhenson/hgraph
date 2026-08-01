@@ -61,6 +61,11 @@ namespace hgraph
         return data_.delta_value(evaluation_time_);
     }
 
+    DynamicStorageMetrics TSOutputView::dynamic_storage_metrics() const noexcept
+    {
+        return output_ != nullptr ? output_->dynamic_storage_metrics() : DynamicStorageMetrics{};
+    }
+
     DateTime TSOutputView::last_modified_time() const
     {
         return data_.last_modified_time();

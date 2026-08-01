@@ -45,7 +45,7 @@ def test_switch_defaults_off_and_frames_stay_pyarrow():
     result = eval_node(
         pass_through,
         [_price_table()],
-        resolution_dict={"ts": TS[Frame[PriceRow]]},
+        resolution_dict={"tsd": TS[Frame[PriceRow]]},
     )[0]
     assert isinstance(result, pa.Table)
 
@@ -54,7 +54,7 @@ def test_frames_surface_as_polars_dataframes(polars_frames):
     result = eval_node(
         pass_through,
         [_price_table()],
-        resolution_dict={"ts": TS[Frame[PriceRow]]},
+        resolution_dict={"tsd": TS[Frame[PriceRow]]},
     )[0]
     assert isinstance(result, polars.DataFrame)
     assert result.equals(polars.DataFrame(
@@ -68,7 +68,7 @@ def test_polars_dataframes_accepted_inbound_and_round_trip(polars_frames):
     result = eval_node(
         pass_through,
         [frame],
-        resolution_dict={"ts": TS[Frame[PriceRow]]},
+        resolution_dict={"tsd": TS[Frame[PriceRow]]},
     )[0]
     assert isinstance(result, polars.DataFrame)
     assert result.equals(frame)
@@ -78,7 +78,7 @@ def test_series_surface_as_polars_series(polars_frames):
     result = eval_node(
         pass_through,
         [pa.array([1.0, 2.5])],
-        resolution_dict={"ts": TS[Series[float]]},
+        resolution_dict={"tsd": TS[Series[float]]},
     )[0]
     assert isinstance(result, polars.Series)
     assert result.to_list() == [1.0, 2.5]
@@ -208,7 +208,7 @@ def test_enabled_without_polars_raises_clearly(polars_frames):
             eval_node(
                 pass_through,
                 [_price_table()],
-                resolution_dict={"ts": TS[Frame[PriceRow]]},
+                resolution_dict={"tsd": TS[Frame[PriceRow]]},
             )
     finally:
         sys.modules.update(saved)

@@ -73,6 +73,9 @@ namespace hgraph
         [[nodiscard]] TSOutputHandle binding_for(const TSOutputView &source,
                                                  const TSValueTypeMetaData &requested_schema) const;
 
+        /** Dynamic output payload, observer, and alternative-binding storage. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
+
         /**
          * Stop-time teardown of alternative-store subscriptions/links (the
          * graph stop pass calls this while every producer is alive, so the

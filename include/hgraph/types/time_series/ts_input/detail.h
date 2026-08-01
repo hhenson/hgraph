@@ -5,11 +5,11 @@
 #include <hgraph/types/time_series/ts_input.h>
 
 #include <hgraph/types/time_series/ts_input/target_link.h>
+#include <hgraph/types/utils/small_dense_ptr_map.h>
 
 #include <cstddef>
 #include <memory>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 namespace hgraph::detail
@@ -108,6 +108,7 @@ namespace hgraph::detail
 
         [[nodiscard]] TSInputActiveTarget *child_at(std::size_t slot) const noexcept;
         [[nodiscard]] bool has_any_active() const noexcept;
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
         TSInputActiveTarget &ensure_child(std::size_t slot);
         void subscribe(const TSDataView &observed_, Notifiable *target_notifier);
         void unsubscribe() noexcept;
@@ -117,7 +118,7 @@ namespace hgraph::detail
         bool                 active{false};
         TSDataStorageRef<>   observed{};
         TSInputSchedulingNotifier notifier{};
-        std::unordered_map<std::size_t, std::unique_ptr<TSInputActiveTarget>> children{};
+        SmallDensePtrMap<std::size_t, TSInputActiveTarget> children{};
     };
 
 }  // namespace hgraph::detail

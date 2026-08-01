@@ -2,9 +2,9 @@
 #define HGRAPH_CPP_TS_OUTPUT_ALTERNATIVE_H
 
 #include <hgraph/types/time_series/ts_output/base_view.h>
+#include <hgraph/types/utils/small_dense_ptr_map.h>
 
 #include <memory>
-#include <unordered_map>
 
 namespace hgraph::detail
 {
@@ -31,6 +31,18 @@ namespace hgraph::detail
         struct ToRefAlternativeState;
         struct RefLinkAlternativeState;
         struct InteriorFromRefAlternativeState;
+        struct ToRefAlternativeDelete
+        {
+            void operator()(ToRefAlternativeState *) const noexcept;
+        };
+        struct RefLinkAlternativeDelete
+        {
+            void operator()(RefLinkAlternativeState *) const noexcept;
+        };
+        struct InteriorFromRefAlternativeDelete
+        {
+            void operator()(InteriorFromRefAlternativeState *) const noexcept;
+        };
 
         TSOutputAlternativeStore() noexcept;
         TSOutputAlternativeStore(const TSOutputAlternativeStore &) = delete;
@@ -52,6 +64,7 @@ namespace hgraph::detail
          * stop-time evaluation time (must not be ``MIN_DT``).
          */
         void release_subscriptions(DateTime release_time) noexcept;
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;
         [[nodiscard]] static TimeSeriesReference peered_reference_as(const TSValueTypeMetaData *target_schema,
                                                                      TSOutputHandle target);
         [[nodiscard]] static const TSOutputHandle &peered_reference_target(const TimeSeriesReference &reference);
@@ -88,36 +101,16 @@ namespace hgraph::detail
                                                                const TSOutputView &source,
                                                                const TSValueTypeMetaData &requested_schema);
 
-        std::unordered_map<AlternativeKey, std::unique_ptr<ToRefAlternativeState>, AlternativeKeyHash>
-            to_ref_alternatives_{};
-        std::unordered_map<AlternativeKey, std::unique_ptr<RefLinkAlternativeState>, AlternativeKeyHash>
-            ref_link_alternatives_{};
-        std::unordered_map<AlternativeKey, std::unique_ptr<InteriorFromRefAlternativeState>, AlternativeKeyHash>
+        SmallDensePtrMap<AlternativeKey, ToRefAlternativeState,
+                         ToRefAlternativeDelete, AlternativeKeyHash> to_ref_alternatives_{};
+        SmallDensePtrMap<AlternativeKey, RefLinkAlternativeState,
+                         RefLinkAlternativeDelete, AlternativeKeyHash> ref_link_alternatives_{};
+        SmallDensePtrMap<AlternativeKey, InteriorFromRefAlternativeState,
+                         InteriorFromRefAlternativeDelete, AlternativeKeyHash>
             interior_from_ref_alternatives_{};
     };
 
     void clear_ts_output_alternative_type_cache() noexcept;
 }  // namespace hgraph::detail
-
-namespace std
-{
-    template<>
-    struct default_delete<hgraph::detail::TSOutputAlternativeStore::ToRefAlternativeState>
-    {
-        void operator()(hgraph::detail::TSOutputAlternativeStore::ToRefAlternativeState *) noexcept;
-    };
-
-    template<>
-    struct default_delete<hgraph::detail::TSOutputAlternativeStore::RefLinkAlternativeState>
-    {
-        void operator()(hgraph::detail::TSOutputAlternativeStore::RefLinkAlternativeState *) noexcept;
-    };
-
-    template<>
-    struct default_delete<hgraph::detail::TSOutputAlternativeStore::InteriorFromRefAlternativeState>
-    {
-        void operator()(hgraph::detail::TSOutputAlternativeStore::InteriorFromRefAlternativeState *) noexcept;
-    };
-}  // namespace std
 
 #endif  // HGRAPH_CPP_TS_OUTPUT_ALTERNATIVE_H
