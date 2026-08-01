@@ -51,6 +51,24 @@ def keyed(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
     return map_(add_one, tsd)
 
 
+from hgraph import operator
+
+
+@operator
+def pick(v: TS[int]) -> TS[int]:
+    'overloaded operator: exercises overload-resolution reporting' 
+
+
+@compute_node(overloads=pick)
+def pick_int(v: TS[int]) -> TS[int]:
+    return v.value + 100
+
+
+@graph
+def overloaded(t: TS[int]) -> TS[int]:
+    return pick(t)
+
+
 CHAIN_INPUT = [1, None, 3]
 KEYED_INPUT = [{"a": 1}, {"b": 5}]
 
@@ -60,6 +78,8 @@ print(f"{SENTINEL} trace-keyed", flush=True)
 eval_node(keyed, KEYED_INPUT, __trace__=True)
 print(f"{SENTINEL} wiring-chain", flush=True)
 eval_node(chain, CHAIN_INPUT, __trace_wiring__=True)
+print(f"{SENTINEL} wiring-overload", flush=True)
+eval_node(overloaded, [1], __trace_wiring__=True)
 print(f"{SENTINEL} profile-chain", flush=True)
 try:
     from hgraph.test import EvaluationProfiler
@@ -165,7 +185,20 @@ def normalize_trace(text: str) -> dict[str, Any]:
                 value = re.sub(r"<0x[0-9a-fA-F]+>", "", value)
                 value = re.sub(r"<[-\d, ]+>", "", value)
                 out_values.append(value)
+    key_value_pairs = set()
+    nested_out_rows = 0
+    for line in text.splitlines():
+        if "[OUT]" in line or "[IN]" in line:
+            for m in re.finditer(r"'?([A-Za-z_]\w*)'?\s*:\s*(-?\d+(?:\.\d+)?)\b", line):
+                if m.group(1) not in ("removed", "modified", "removed_strict", "added"):
+                    key_value_pairs.add((m.group(1), m.group(2)))
+        if "[OUT]" in line:
+            scope = re.search(rf"^\[(?:{_TIME})\](?:\[(?:{_TIME})\])?\s*\[([^\]]*)\]", line)
+            if scope and scope.group(1).strip():
+                nested_out_rows += 1
     return {
+        "key_value_pairs": sorted(key_value_pairs),
+        "nested_out_rows_present": nested_out_rows > 0,
         "graph_markers": sorted(graph_markers),
         "node_starts": sorted(node_starts),
         "node_stops": sorted(node_stops),
@@ -177,10 +210,27 @@ def normalize_trace(text: str) -> dict[str, Any]:
     }
 
 
+def _user_operator_name(raw: str) -> str | None:
+    """Map an engine-side operator identity to the user-facing name.
+
+    The candidate registers python operators as ``__pyop__<qualname>_<addr>``;
+    the reference reports the plain function name. Engine-internal operators
+    (``__py_compute``/harness) carry no user identity."""
+    name = raw.strip()
+    if name.startswith("__pyop__"):
+        name = name[len("__pyop__"):]
+        name = re.sub(r"_[0-9a-f]+$", "", name)
+        return name.split(".")[-1]
+    if name.startswith("__") or _is_harness(name):
+        return None
+    return name.split(".")[-1]
+
+
 def normalize_wiring(text: str) -> dict[str, Any]:
     kinds: set[str] = set()
     wired_nodes: set[str] = set()
-    overloads = 0
+    resolved_operators: set[str] = set()
+    resolution_records: list[str] = []
     for line in text.splitlines():
         low = line.lower()
         if "wiring graph" in low:
@@ -189,34 +239,63 @@ def normalize_wiring(text: str) -> dict[str, Any]:
             kinds.add("nested-graph")
         if "wiring node" in low:
             kinds.add("node")
-            m = re.search(r"[Ww]iring node ([A-Za-z_][\w]*)", line)
-            if m and not _is_harness(m.group(1)):
-                wired_nodes.add(m.group(1))
-        if "overload" in low:
-            overloads += 1
+            m = re.search(r"[Ww]iring node ([^\s(]+)", line)
+            if m:
+                # node identity = the last path segment, label part when the
+                # engine renders path/label [implementation] (issue #247).
+                name = m.group(1).split("/")[-1].split(":")[-1]
+                if not _is_harness(name):
+                    wired_nodes.add(name)
+        # candidate: "Resolved operator NAME at PATH to TARGET [rank N]"
+        m = re.search(r"Resolved operator (\S+) at .* to (.+)$", line)
+        if m:
+            resolution_records.append(line.strip())
+            user = _user_operator_name(m.group(1))
+            if user:
+                resolved_operators.add(user)
+        # reference: "Overload resolution for NAME successful"
+        m = re.search(r"Overload resolution for (\S+)", line)
+        if m and "successful" in line:
+            resolution_records.append(line.strip())
+            user = _user_operator_name(m.group(1))
+            if user:
+                resolved_operators.add(user)
     return {
         "kinds": sorted(kinds),
         "user_wired_nodes": sorted(wired_nodes),
-        "overload_resolutions_reported": overloads > 0,
+        "resolved_user_operators": sorted(resolved_operators),
+        "resolution_records": resolution_records,
     }
 
 
 def normalize_profile(text: str) -> dict[str, Any]:
     if "PROFILER-UNAVAILABLE" in text:
         return {"available": False}
-    timed_nodes: set[str] = set()
+    profiled_nodes: set[str] = set()
     has_timings = False
     for line in text.splitlines():
-        if re.search(r"\d+(?:\.\d+)?\s*(?:us|µs|ms|s\b|seconds|nanos|ns)", line) or re.search(r"in\s+\d", line):
+        # candidate: structured snapshot rows PROFILE-ENTRY label count=N total=T
+        m = re.match(r"PROFILE-ENTRY (\S+) count=\d+ total=", line)
+        if m:
             has_timings = True
-            m = re.search(r"([A-Za-z_][\w]*)(?:<\d+>)?\(", line)
+            name = m.group(1).split("/")[-1].split(":")[-1]
+            if not _is_harness(name) and name != "graph":
+                profiled_nodes.add(name)
+            continue
+        if re.match(r"PROFILE-SUMMARY ", line):
+            has_timings = True
+            continue
+        # reference: wall-timestamped lifecycle rows carry the timing
+        # information per node (durations derive from stamp pairs).
+        if re.match(rf"\[{_TIME}\]\[{_TIME}\]", line):
+            has_timings = True
+            m = re.search(r"([A-Za-z_][\w]*)(?:<[-\d, ]+>)?\(", line)
             if m and not _is_harness(m.group(1)):
-                timed_nodes.add(m.group(1))
+                profiled_nodes.add(m.group(1).split(".")[-1])
     return {
         "available": True,
         "has_timings": has_timings,
-        "timed_user_nodes": sorted(timed_nodes),
-        "line_count": len([l for l in text.splitlines() if l.strip()]),
+        "profiled_user_nodes": sorted(profiled_nodes),
     }
 
 
@@ -237,10 +316,24 @@ def compare_diagnostics(reference: dict[str, str], candidate: dict[str, str]) ->
     diff("trace-chain", normalize_trace,
          ["graph_markers", "node_starts", "node_stops", "numeric_out_payloads"])
     diff("trace-keyed", normalize_trace,
-         ["graph_markers", "numeric_out_payloads"])
-    diff("wiring-chain", normalize_wiring,
-         ["kinds", "user_wired_nodes", "overload_resolutions_reported"])
-    diff("profile-chain", normalize_profile, ["available", "has_timings"])
+         ["graph_markers", "numeric_out_payloads", "nested_out_rows_present"])
+    # key->value associations: the candidate must carry every association the
+    # reference records (richer is allowed — we render resolved values where
+    # upstream renders REF plumbing).
+    ref_keyed = normalize_trace(reference.get("trace-keyed", ""))
+    cand_keyed = normalize_trace(candidate.get("trace-keyed", ""))
+    missing_pairs = [p for p in ref_keyed["key_value_pairs"]
+                     if p not in cand_keyed["key_value_pairs"]]
+    if missing_pairs:
+        gap = {"section": "trace-keyed", "key": "key_value_pairs_missing",
+               "reference": missing_pairs, "candidate": cand_keyed["key_value_pairs"]}
+        report["sections"]["trace-keyed"]["gaps"].append(
+            {k: v for k, v in gap.items() if k != "section"})
+        report["gaps"].append(gap)
+    diff("wiring-chain", normalize_wiring, ["kinds", "user_wired_nodes"])
+    diff("wiring-overload", normalize_wiring, ["resolved_user_operators"])
+    diff("profile-chain", normalize_profile,
+         ["available", "has_timings", "profiled_user_nodes"])
     return report
 
 
