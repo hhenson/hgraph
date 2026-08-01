@@ -34,11 +34,6 @@ from hgraph import (
 )
 from hgraph._wiring import _GraphFn, _PyNode
 from hgraph._wiring._core import _current_wiring
-from hgraph._wiring._markers import (
-    LOGGER,
-    _INJECTABLE_MARKERS,
-    _RecordableStateExpr,
-)
 
 from ._tornado_web import BaseHandler, TornadoWeb
 
@@ -321,13 +316,14 @@ class _WebSocketServerHandler:
                 f"WebSocket handler output must be {expected_output!r} with the same message type"
             )
 
+        from hgraph._wiring._operator import _is_hidden_node_parameter
+
+        # Canonical predicate: covers the whole injectable family incl.
+        # typed STATE[T] expressions (review catch on this PR).
         parameters = tuple(
             parameter
             for name, parameter in signature.parameters.items()
-            if name != "request"
-            and parameter.annotation not in _INJECTABLE_MARKERS
-            and parameter.annotation is not LOGGER
-            and not isinstance(parameter.annotation, _RecordableStateExpr)
+            if name != "request" and not _is_hidden_node_parameter(parameter)
         )
         self.__signature__ = signature.replace(parameters=parameters)
         self.auto_wire = all(

@@ -138,3 +138,42 @@ def test_supported_names_remain_available_from_their_documented_modules():
     for module, names in module_names.items():
         for name in names:
             assert getattr(module, name) is not None
+
+
+def test_handler_signatures_exclude_all_runtime_injectables():
+    # Review catch (PR #242): typed STATE[T] annotations (_StateExpr) are
+    # runtime-supplied like the marker injectables — a handler declaring one
+    # must not expose it as a public parameter (nor receive it from a
+    # caller). The filter is the canonical _is_hidden_node_parameter.
+    import inspect
+
+    from hgraph import STATE, TS, TSB, compute_node
+    from hgraph.adaptors.tornado.websocket_server_adaptor import (
+        WebSocketServerRequest,
+        WebSocketResponse,
+        websocket_server_handler,
+    )
+    from hgraph.adaptors.tornado.http_server_adaptor import _handler_parameters
+
+    class _S:
+        count: int = 0
+
+    @websocket_server_handler(url="/state-probe")
+    @compute_node
+    def handler(request: TSB[WebSocketServerRequest[str]],
+                _state: STATE[_S] = None) -> TSB[WebSocketResponse[str]]:
+        """typed-state handler"""
+
+    assert "request" not in inspect.signature(handler).parameters
+    assert "_state" not in inspect.signature(handler).parameters
+
+    # And the shared http-side filter agrees for every injectable family.
+    from hgraph import CLOCK, LOGGER, SCHEDULER
+
+    def probe(request: TS[str], _state: STATE[_S] = None, _clock: CLOCK = None,
+              _log: LOGGER = None, _sched: SCHEDULER = None,
+              plain: TS[int] = None) -> TS[str]:
+        """probe"""
+
+    names = [p.name for p in _handler_parameters(inspect.signature(probe))]
+    assert names == ["plain"]
