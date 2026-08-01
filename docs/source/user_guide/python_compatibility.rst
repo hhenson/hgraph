@@ -76,6 +76,40 @@ its collected ``lines`` are needed programmatically:
    evaluate_graph(app, GraphConfiguration(wiring_observers=(tracer,)))
    print("\n".join(tracer.lines))
 
+Wiring context and lifecycle (``WiringGraphContext`` and friends)
+------------------------------------------------------------------
+
+Upstream spreads wiring-time bookkeeping across ``WiringGraphContext``,
+``WiringContext`` and ``WiringNodeInstanceContext``. Here the native
+``Wiring`` owns all of it; the python ``WiringGraphContext`` is a deliberate
+five-method facade (``instance``, ``build_services``,
+``add_service_build_context``, ``registered_service_clients``,
+``built_services``) — the surface the tornado/perspective server-adaptor
+pattern actually uses (theme-B ruling 2026-08-01). Porting map for the rest:
+
+- ``add_sink_node`` / ``reassign_items`` — the concept is replaced: sink
+  nodes are ordinary interned wiring instances, and reparenting/ordering is
+  expressed with the native ranking primitives (``add_rank_dependency``,
+  ``add_same_cycle_pair``).
+- ``wiring_path_name`` / ``label_nodes`` — diagnostic paths are computed
+  live from ``Wiring.current_wiring_path()``; label scopes come from the
+  wiring-scope machinery (``__label__`` on ``map_``, graph labels).
+- ``register_service_client`` (as a context method) — service registration
+  is native (``Wiring::register_service_client_path``/``_rank``) behind the
+  ordinary service stubs; read back with ``registered_service_clients()``.
+- ``__stack__`` / frame mechanics — a single module-level wiring stack over
+  the active native ``Wiring``.
+
+The runtime ``Graph``/``Node`` **mutating** lifecycle
+(``start``/``stop``/``dispose``/``initialise``/``schedule_node``/
+``evaluate_graph``; ``Graph.copy_with`` is dead code upstream) is
+internal-only in both engines — user-facing control goes through the
+``SCHEDULER`` injectable, ``EvaluationEngineApi`` (notifications,
+``request_engine_stop``), and the run entry points. The read-only
+introspection surface (``graph_id``, ``node_id``, ``nodes``,
+``parent_node``, ``signature``, ``schedule``…) that trace/profiler/inspector
+build on is fully present.
+
 Test-package recording (``record_to_memory`` and friends)
 ----------------------------------------------------------
 

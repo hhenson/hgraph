@@ -678,6 +678,431 @@
       "name": "drop_dups",
       "kind": "signature-mismatch",
       "reason": "operator-wrapper introspection on a non-@operator dispatch helper; call shapes match upstream"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.*",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: facade methods delegate to native Wiring; shapes follow the native records"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeClass.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "GraphWiringNodeClass.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "OperatorWiringNodeClass.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonWiringNodeClass.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonGeneratorWiringNodeClass.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringPort.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "MeshWiringPort.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "Graph.start",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Graph.stop",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Graph.dispose",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Graph.initialise",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Graph.schedule_node",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Graph.evaluate_graph",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Graph.eval",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Graph.notify",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Graph.notify_next_cycle",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.start",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.stop",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.dispose",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.initialise",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.schedule_node",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.evaluate_graph",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.eval",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.notify",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.notify_next_cycle",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.start",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.stop",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.dispose",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.initialise",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.schedule_node",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.evaluate_graph",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.eval",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.notify",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.notify_next_cycle",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01 (survey-backed): mutating lifecycle methods are internal-only even upstream \u2014 callers are the executor and the nested-graph embedders, never user code; the load-bearing user surface is the read-only introspection, which is present"
+    },
+    {
+      "module": "hgraph",
+      "name": "Graph.copy_with",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: dead code upstream \u2014 zero callers in either language beyond its own definition"
+    },
+    {
+      "module": "hgraph",
+      "name": "Graph.*",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.*",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.*",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.*",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.*",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "MeshWiringPort.*",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "RecordReplayEnum.*",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream is an IntFlag (inherits int methods); ours is a plain Enum \u2014 members and combination behaviour match"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringError.print_error",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream debug-print convenience on message-based error types; str(error) carries the content"
+    },
+    {
+      "module": "hgraph",
+      "name": "IncorrectTypeBinding.print_error",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream debug-print convenience on message-based error types; str(error) carries the content"
+    },
+    {
+      "module": "hgraph",
+      "name": "RequirementsNotMetWiringError.print_error",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream debug-print convenience on message-based error types; str(error) carries the content"
+    },
+    {
+      "module": "hgraph",
+      "name": "NodeError.capture_error",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "error capture/serialization is native (error_output/exception_time_series records); dict round-trip helpers are upstream implementation"
+    },
+    {
+      "module": "hgraph",
+      "name": "NodeError.from_dict",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "error capture/serialization is native (error_output/exception_time_series records); dict round-trip helpers are upstream implementation"
+    },
+    {
+      "module": "hgraph",
+      "name": "NodeError.to_dict",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "error capture/serialization is native (error_output/exception_time_series records); dict round-trip helpers are upstream implementation"
+    },
+    {
+      "module": "hgraph",
+      "name": "TimeSeriesSchema.to_scalar_schema",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream TimeSeriesSchema base-class scalar-schema conversion helpers; schema conversion is native (theme-A annotation-class family)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TryExceptResult.from_scalar_schema",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream TimeSeriesSchema base-class scalar-schema conversion helpers; schema conversion is native (theme-A annotation-class family)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TryExceptResult.scalar_type",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream TimeSeriesSchema base-class scalar-schema conversion helpers; schema conversion is native (theme-A annotation-class family)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TryExceptResult.to_scalar_schema",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream TimeSeriesSchema base-class scalar-schema conversion helpers; schema conversion is native (theme-A annotation-class family)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TryExceptTsdMapResult.from_scalar_schema",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream TimeSeriesSchema base-class scalar-schema conversion helpers; schema conversion is native (theme-A annotation-class family)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TryExceptTsdMapResult.scalar_type",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream TimeSeriesSchema base-class scalar-schema conversion helpers; schema conversion is native (theme-A annotation-class family)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TryExceptTsdMapResult.to_scalar_schema",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream TimeSeriesSchema base-class scalar-schema conversion helpers; schema conversion is native (theme-A annotation-class family)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TableSchema.from_dict",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "table-schema serialization is the native TABLE protocol; dict round-trip helpers revisit on concrete demand"
+    },
+    {
+      "module": "hgraph",
+      "name": "TableSchema.to_dict",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "table-schema serialization is the native TABLE protocol; dict round-trip helpers revisit on concrete demand"
+    },
+    {
+      "module": "hgraph",
+      "name": "evaluate_graph",
+      "kind": "signature-mismatch",
+      "reason": "config=None widens upstream's required config (allowed extension)"
+    },
+    {
+      "module": "hgraph",
+      "name": "run_graph",
+      "kind": "signature-mismatch",
+      "reason": "run_mode default is the engine-equivalent string representation of EvaluationMode.SIMULATION"
     }
   ]
 }
