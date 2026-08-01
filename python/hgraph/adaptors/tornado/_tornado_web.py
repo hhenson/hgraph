@@ -7,6 +7,8 @@ import threading
 import tornado.ioloop
 import tornado.web
 
+__all__ = ("TornadoWeb", "BaseHandler")
+
 
 class TornadoWeb:
     """Share one Tornado loop and one server instance per listening port."""

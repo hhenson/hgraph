@@ -2,6 +2,8 @@ import threading
 
 from hgraph import REMOVE
 
+__all__ = ("KeyedAsyncState",)
+
 
 class KeyedAsyncState:
     """Generation-safe bridge from worker completions to a keyed push source."""

@@ -6,6 +6,8 @@ from typing import Any, Type, Union, get_args, get_origin, get_type_hints
 
 from hgraph import CompoundScalar, ParseError
 
+__all__ = ("CS",)
+
 _CLASS_CACHE: dict[type, type[CompoundScalar]] = {}
 
 
