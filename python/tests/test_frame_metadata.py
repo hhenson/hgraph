@@ -83,7 +83,7 @@ def test_typed_frame_metadata_is_encoded_in_arrow_schema_and_round_trips():
     result = eval_node(
         pass_through,
         [value],
-        resolution_dict={"ts": TS[Frame[PriceRow, SnapshotMetadata]]},
+        resolution_dict={"tsd": TS[Frame[PriceRow, SnapshotMetadata]]},
     )[0]
 
     assert isinstance(result, pa.Table)
@@ -93,7 +93,7 @@ def test_typed_frame_metadata_is_encoded_in_arrow_schema_and_round_trips():
     markerless_result = eval_node(
         pass_through,
         [markerless],
-        resolution_dict={"ts": TS[Frame[PriceRow, SnapshotMetadata]]},
+        resolution_dict={"tsd": TS[Frame[PriceRow, SnapshotMetadata]]},
     )[0]
     assert markerless_result.equals(markerless)
     assert frame_metadata(markerless_result, SnapshotMetadata) == metadata
@@ -115,7 +115,7 @@ def test_typed_frame_metadata_contract_is_enforced_at_python_boundary():
         eval_node(
             pass_through,
             [table],
-            resolution_dict={"ts": TS[Frame[PriceRow, SnapshotMetadata]]},
+            resolution_dict={"tsd": TS[Frame[PriceRow, SnapshotMetadata]]},
         )
 
     with pytest.raises(TypeError, match="incompatible"):
@@ -131,7 +131,7 @@ def test_typed_frame_metadata_contract_is_enforced_at_python_boundary():
                     ),
                 )
             ],
-            resolution_dict={"ts": TS[Frame[PriceRow, SnapshotMetadata]]},
+            resolution_dict={"tsd": TS[Frame[PriceRow, SnapshotMetadata]]},
         )
 
     typed = with_frame_metadata(
@@ -146,5 +146,5 @@ def test_typed_frame_metadata_contract_is_enforced_at_python_boundary():
         eval_node(
             pass_through,
             [markerless],
-            resolution_dict={"ts": TS[Frame[PriceRow]]},
+            resolution_dict={"tsd": TS[Frame[PriceRow]]},
         )

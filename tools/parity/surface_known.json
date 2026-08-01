@@ -618,6 +618,66 @@
       "name": "default_path",
       "kind": "kind-mismatch",
       "reason": "default service path is the empty-string representation; service-path behaviour is pinned by the ported service suites"
+    },
+    {
+      "module": "hgraph",
+      "name": "push_queue",
+      "kind": "signature-mismatch",
+      "reason": "candidate-only additions are allowed extensions (conflate on push_queue, kwargs on reduce, direct-fn decorator forms)"
+    },
+    {
+      "module": "hgraph",
+      "name": "reduce",
+      "kind": "signature-mismatch",
+      "reason": "candidate-only additions are allowed extensions (conflate on push_queue, kwargs on reduce, direct-fn decorator forms)"
+    },
+    {
+      "module": "hgraph",
+      "name": "adaptor_impl",
+      "kind": "signature-mismatch",
+      "reason": "candidate-only additions are allowed extensions (conflate on push_queue, kwargs on reduce, direct-fn decorator forms)"
+    },
+    {
+      "module": "hgraph",
+      "name": "service_adaptor_impl",
+      "kind": "signature-mismatch",
+      "reason": "candidate-only additions are allowed extensions (conflate on push_queue, kwargs on reduce, direct-fn decorator forms)"
+    },
+    {
+      "module": "hgraph",
+      "name": "extract_signature",
+      "kind": "signature-mismatch",
+      "reason": "signature/wiring machinery surface pending the WiringGraphContext review (theme B) \u2014 internal construction, not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "extract_kwargs",
+      "kind": "signature-mismatch",
+      "reason": "signature/wiring machinery surface pending the WiringGraphContext review (theme B) \u2014 internal construction, not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "get_service_inputs",
+      "kind": "signature-mismatch",
+      "reason": "service-stub helper API: first parameter naming reflects the stub-based design; __pre_resolved_types__ pre-resolution is not carried (generic resolution happens natively) \u2014 revisit with the theme-B review if adaptor ports need it"
+    },
+    {
+      "module": "hgraph",
+      "name": "set_service_output",
+      "kind": "signature-mismatch",
+      "reason": "service-stub helper API: first parameter naming reflects the stub-based design; __pre_resolved_types__ pre-resolution is not carried (generic resolution happens natively) \u2014 revisit with the theme-B review if adaptor ports need it"
+    },
+    {
+      "module": "hgraph",
+      "name": "get_context",
+      "kind": "signature-mismatch",
+      "reason": "singleton-callable representation; parameters and defaults are behaviourally equivalent"
+    },
+    {
+      "module": "hgraph",
+      "name": "drop_dups",
+      "kind": "signature-mismatch",
+      "reason": "operator-wrapper introspection on a non-@operator dispatch helper; call shapes match upstream"
     }
   ]
 }

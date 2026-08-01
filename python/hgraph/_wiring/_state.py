@@ -233,7 +233,8 @@ def set_record_replay_config(model):
     GlobalState.instance()["__record_replay_model__"] = model
 
 
-def set_as_of(value):
+def set_as_of(dt):
+    value = dt
     _hgraph._set_as_of(GlobalState.instance()._impl, value)
     # python-readable mirror (the data-frame record/replay model reads it
     # at wiring/replay time; the C++ config has no python getter)

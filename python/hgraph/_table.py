@@ -145,7 +145,8 @@ def table_schema(tp) -> _EagerValue:
     )
 
 
-def table_shape(tp):
+def table_shape(ts):
+    tp = ts
     """Return the Python tuple annotation emitted by ``to_table(tp)``."""
     return table_shape_from_schema(table_schema(tp).value)
 

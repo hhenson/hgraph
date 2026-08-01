@@ -154,7 +154,8 @@ def _log_evaluation_profile(logger, snapshot):
             )
 
 
-def evaluate_graph(fn, config=None, *args, **kwargs):
+def evaluate_graph(graph, config=None, *args, **kwargs):
+    fn = graph
     """Run ``fn`` under a :class:`GraphConfiguration`."""
     return _evaluate_graph(fn, config or GraphConfiguration(), args, kwargs)
 
@@ -174,7 +175,7 @@ def _times_for_sparse(values):
 
 
 def run_graph(
-        graph_fn,
+        graph,
         *args,
         run_mode=EvaluationMode.SIMULATION,
         start_time=None,
@@ -188,6 +189,7 @@ def run_graph(
         __trace_back_depth__=1,
         __capture_values__=False,
         **kwargs):
+    graph_fn = graph
     """Wire and evaluate ``graph_fn`` in simulation. Returns hgraph's
     evaluate_graph shape - [(time, value), ...] of the graph output ticks -
     or None for sink graphs. ``end_time`` bounds the run (REQUIRED for
