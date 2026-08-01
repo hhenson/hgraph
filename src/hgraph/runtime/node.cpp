@@ -953,11 +953,10 @@ namespace hgraph
                          const std::vector<DebugField> &debug_fields,
                          const std::optional<NodeTypeDescriptor::DynamicDebug>
                              &dynamic_debug) const {
-            // Supplied debug descriptors are uncommon and may carry
-            // caller-owned names.  Keep them on the conservative path
-            // until their complete value contract is part of this key.
-            if (runtime_type_id == nullptr || !debug_fields.empty() ||
-                dynamic_debug.has_value()) {
+            // Named debug fields may carry caller-owned names. Keep them on
+            // the conservative path until their ownership is part of this
+            // key. Dynamic layouts are data-only and can be compared in full.
+            if (runtime_type_id == nullptr || !debug_fields.empty()) {
               return {};
             }
             const auto found = canonical_types.find(runtime_type_id);
@@ -968,7 +967,8 @@ namespace hgraph
               if (candidate.plan() == &plan &&
                   candidate.record()->implementation_name() ==
                       implementation_label &&
-                  schema_equivalent(*candidate.schema(), schema)) {
+                  schema_equivalent(*candidate.schema(), schema) &&
+                  dynamic_debug_equivalent(candidate, dynamic_debug)) {
                 return candidate;
               }
             }
@@ -1021,10 +1021,24 @@ namespace hgraph
                                           : nullptr,
                 dynamic_debug.has_value() ? &dynamic_debug->layout : nullptr);
             if (runtime_type_id != nullptr && debug_fields.empty() &&
-                !dynamic_debug.has_value()) {
+                (!dynamic_debug.has_value() || dynamic_debug->layout.valid())) {
               canonical_types[runtime_type_id].push_back(type);
             }
             return type;
+          }
+
+          [[nodiscard]] static bool dynamic_debug_equivalent(
+              NodeTypeRef candidate,
+              const std::optional<NodeTypeDescriptor::DynamicDebug>
+                  &requested) noexcept {
+            const DebugDescriptor *debug = candidate.record()->debug;
+            if (!requested.has_value()) {
+              return debug == nullptr || debug->dynamic_layout == nullptr;
+            }
+            return debug != nullptr && debug->dynamic_layout != nullptr &&
+                   debug->key_type == requested->key_type &&
+                   debug->element_type == requested->element_type &&
+                   *debug->dynamic_layout == requested->layout;
           }
 
             static void fill_default_ops(NodeOps &ops)

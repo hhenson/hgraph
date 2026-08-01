@@ -104,6 +104,7 @@ class _PyNode:
         self._node_type = node_type
         self._label = label
         self._deprecated = deprecated
+        self._wired_fn_cache = {}
         self._start_fn = None
         self._stop_fn = None
         self.__name__ = fn.__name__
@@ -245,6 +246,7 @@ class _PyNode:
 
         pinned = copy.copy(self)
         pinned._pins = dict(self._pins)
+        pinned._wired_fn_cache = {}
         items = item if isinstance(item, tuple) else (item,)
         for entry in items:
             if isinstance(entry, slice) and isinstance(entry.start, _TypeVarSentinel):
@@ -265,6 +267,7 @@ class _PyNode:
         resolved = copy.copy(self)
         resolved._pins = dict(self._pins)
         resolved._pins.update(bindings)
+        resolved._wired_fn_cache = {}
         return resolved
 
     @staticmethod

@@ -279,6 +279,8 @@ namespace hgraph
             MemoryUtils::StorageLayout graph_layout{};
         };
 
+        using MapNodeContextPtr = std::shared_ptr<const MapNodeContext>;
+
         struct SourceRepointStatus
         {
             bool mux_repointed{false};    ///< any MULTIPLEXED source re-pointed
@@ -286,34 +288,42 @@ namespace hgraph
             bool broadcast_repointed{false};
         };
 
-        // Program-lifetime, intentionally-leaked context storage — same rationale
-        // as single_nested_graph_contexts (see nested_graph_node.cpp).
-        [[nodiscard]] std::vector<std::unique_ptr<MapNodeContext>> &map_node_contexts() noexcept
+        [[nodiscard]] MapNodeContextPtr make_map_node_context(
+            MapNodeSpec spec,
+            std::size_t storage_offset,
+            MemoryUtils::StorageLayout graph_layout)
         {
-            static auto *contexts = new std::vector<std::unique_ptr<MapNodeContext>>;
-            return *contexts;
-        }
-
-        [[nodiscard]] const MapNodeContext &register_map_node_context(MapNodeSpec spec,
-                                                                      std::size_t storage_offset,
-                                                                      MemoryUtils::StorageLayout graph_layout)
-        {
-            auto context = std::make_unique<MapNodeContext>(MapNodeContext{
+            return std::make_shared<MapNodeContext>(MapNodeContext{
                 .spec           = std::move(spec),
                 .storage_offset = storage_offset,
                 .graph_layout   = graph_layout,
             });
-            const auto *result = context.get();
-            map_node_contexts().push_back(std::move(context));
-            return *result;
+        }
+
+        [[nodiscard]] const ValueTypeMetaData *map_node_context_schema()
+        {
+            return TypeRegistry::instance().register_scalar<MapNodeContextPtr>(
+                "hgraph.runtime.map_node_context");
+        }
+
+        [[nodiscard]] const MapNodeContext &map_node_context(const NodeView &view)
+        {
+            const ValueView scalar_context = view.scalars();
+            const auto &context = scalar_context.checked_as<MapNodeContextPtr>();
+            if (!context)
+            {
+                throw std::logic_error("map node has no runtime context");
+            }
+            return *context;
         }
 
         [[nodiscard]] NodeStorageMetrics map_storage_metrics(
             const void *raw_context, const void *memory) noexcept
         {
-            const auto &context = *static_cast<const MapNodeContext *>(raw_context);
+            const auto &plan = *static_cast<const MemoryUtils::StoragePlan *>(raw_context);
             const auto &storage = *MemoryUtils::cast<const MapNodeStorage>(
-                MemoryUtils::advance(memory, context.storage_offset));
+                MemoryUtils::advance(
+                    memory, plan.component(map_storage_field_name).offset));
             NodeStorageMetrics result{};
             for (const auto *bank : {&storage.entries, &storage.previous_entries})
             {
@@ -1287,10 +1297,10 @@ namespace hgraph
 
     MapNodeView MapNodeView::from_node(NodeView view, const void *context)
     {
-        if (context == nullptr) { throw std::logic_error("MapNodeView requires a typed view context"); }
-        const auto &typed_context = *static_cast<const MapNodeContext *>(context);
+        static_cast<void>(context);
+        const auto &typed_context = map_node_context(view);
         void       *storage = MemoryUtils::advance(view.data(), typed_context.storage_offset);
-        return MapNodeView{std::move(view), context, storage};
+        return MapNodeView{std::move(view), &typed_context, storage};
     }
 
     const NodeView &MapNodeView::node() const noexcept { return view_; }
@@ -1332,9 +1342,16 @@ namespace hgraph
     {
         validate_map_node_spec(meta, spec);
 
+        if (meta.scalar_schema != nullptr)
+        {
+            throw std::invalid_argument(
+                "map_node reserves scalar configuration for its runtime context");
+        }
+
         meta.requires_phase_runner =
             meta.requires_phase_runner || spec.child.graph_builder.requires_phase_runner();
         meta.node_kind = NodeKind::Nested;
+        meta.scalar_schema = map_node_context_schema();
         meta.valid_inputs = std::vector<std::size_t>{};
         if (meta.output_schema != nullptr &&
             spec.output_binding_mode != MapOutputBindingMode::ChildTerminalWritesElement)
@@ -1390,12 +1407,17 @@ namespace hgraph
                 descriptor.storage_plan->component(map_storage_field_name).offset + entries_offset,
                 graph_pointer_offset, true),
         };
-        descriptor.ops.extended_view_context = &register_map_node_context(
+        MapNodeContextPtr context = make_map_node_context(
             std::move(spec),
             descriptor.storage_plan->component(map_storage_field_name).offset,
             graph_layout);
+        descriptor.ops.extended_view_context = descriptor.storage_plan;
 
-        return NodeBuilder::from_descriptor(std::move(descriptor));
+        static const std::byte runtime_type_id{};
+        NodeBuilder builder = NodeBuilder::from_canonical_descriptor(
+            std::move(descriptor), &runtime_type_id);
+        builder.scalars(Value{std::move(context)});
+        return builder;
     }
 
     NodeBuilder map_node_with_error_capture(const NodeBuilder &builder,
@@ -1415,8 +1437,15 @@ namespace hgraph
             throw std::invalid_argument("map_node_with_error_capture requires a TSD map node");
         }
 
-        const auto &context = *static_cast<const MapNodeContext *>(ops.extended_view_context);
+        const ValueView scalar_context = builder.scalars().view();
+        const auto &context = scalar_context.checked_as<MapNodeContextPtr>();
+        if (!context)
+        {
+            throw std::logic_error(
+                "map_node_with_error_capture requires a runtime context");
+        }
         NodeTypeMetaData meta = *type.schema();
+        meta.scalar_schema = nullptr;
         if (meta.output_schema == nullptr || meta.output_schema->kind != TSTypeKind::TSD)
         {
             throw std::invalid_argument("map_node_with_error_capture requires a TSD map output");
@@ -1432,7 +1461,7 @@ namespace hgraph
         meta.captures_errors = true;
         meta.error_capture = options;
 
-        NodeBuilder result = map_node(std::move(meta), context.spec);
+        NodeBuilder result = map_node(std::move(meta), context->spec);
         result.input_endpoint(builder.input_endpoint());
         if (!builder.output_endpoint().empty()) { result.output_endpoint(builder.output_endpoint()); }
         result.label(std::string{builder.label()});
