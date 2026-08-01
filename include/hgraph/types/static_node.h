@@ -2195,6 +2195,7 @@ namespace hgraph
         // the framework schedules the node for the start cycle (see node.cpp).
         template <typename T> concept has_schedule_on_start = requires { T::schedule_on_start; };
         template <typename T> concept has_uses_python_values = requires { T::uses_python_values; };
+        template <typename T> concept has_requires_phase_runner = requires { T::requires_phase_runner; };
 
         /** Process-stable token for one stateless static-node implementation.
          */
@@ -2906,6 +2907,10 @@ namespace hgraph
             if constexpr (has_uses_python_values<TImplementation>)
             {
                 schema.uses_python_values = TImplementation::uses_python_values;
+            }
+            if constexpr (has_requires_phase_runner<TImplementation>)
+            {
+                schema.requires_phase_runner = TImplementation::requires_phase_runner;
             }
             schema.schedule_on_start     = signature::schedule_on_start();
             schema.active_inputs         = signature::active_inputs();

@@ -1553,6 +1553,8 @@ namespace hgraph
     {
         validate_reduce_node_spec(meta, spec);
 
+        meta.requires_phase_runner =
+            meta.requires_phase_runner || spec.child.graph_builder.requires_phase_runner();
         meta.node_kind              = NodeKind::Nested;
         meta.valid_inputs          = std::vector<std::size_t>{};
         meta.output_endpoint_schema = reduce_output_endpoint_schema(meta.output_schema);

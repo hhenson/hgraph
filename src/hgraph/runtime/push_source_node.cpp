@@ -550,7 +550,8 @@ namespace hgraph
 
     NodeBuilder make_push_source_node(const TSValueTypeMetaData &output_schema,
                                       PushSourcePolicy policy,
-                                      PushSourceStartCallback on_start)
+                                      PushSourceStartCallback on_start,
+                                      bool requires_phase_runner)
     {
         if (!policy.output_compatible(output_schema))
         {
@@ -561,6 +562,7 @@ namespace hgraph
         schema.display_name = "push_source";
         schema.output_schema = &output_schema;
         schema.node_kind = NodeKind::PushSource;
+        schema.requires_phase_runner = requires_phase_runner;
 
         const std::array fields{
             NodeStorageField{
@@ -599,6 +601,7 @@ namespace hgraph
         return make_push_source_node(
             output_schema,
             make_push_source_queue_policy(*output_schema.delta_value_schema),
-            std::move(on_start));
+            std::move(on_start),
+            false);
     }
 }  // namespace hgraph

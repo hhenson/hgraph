@@ -174,42 +174,42 @@ GIL boundaries
 --------------
 
 The runtime evaluates without the GIL: ``PyWiring::run`` releases it the
-instant the run loop is entered. Within a run, the hold is **cycle-scoped
-and coarse-grained** (Howard's ruling 2026-07-30, ``python/py_cycle_gil.h``):
-once the run is known to contain python nodes, ``PyCycleGilObserver`` takes
-the GIL at the start of every root evaluation cycle and releases it when the
-*root* graph's after-evaluation notification fires (normal completion and
-escaping exceptions alike). Every python re-entry keeps its ordinary local
-acquire — under the held cycle lock that is a cheap recursive ensure, and
-there is no hold hand-off between trampolines and observer to get wrong.
-The GIL is therefore always free while the real-time loop waits between
-cycles, preserving the sender-liveness guarantee; what changed is only that
-N per-node acquire/release pairs inside one cycle collapsed to one (measured
-at ~6% of ``pthread_mutex`` traffic on dense python graphs).
+instant the native run loop is entered. The Python bridge configures the
+executor's optional phase runner with one ordinary
+``nanobind::gil_scoped_acquire``. That runner invokes the complete root start
+phase, each complete root evaluation cycle, and the complete stop-and-cleanup
+phase inside the guard. Evaluation notifications, lifecycle observers, nested
+graphs, argument/result conversion, user calls, exception translation, and
+Python-owned node teardown therefore share the phase's single acquisition.
 
-"Contains python nodes" is detected at runtime: the node START trampolines
-call ``py_cycle_gil_note_python_call()``, which registers the observer on
-first use — *last* on the executor's lifecycle-observer list, so every other
-observer's after-hook still sees the GIL held. Pure-native runs never
-register it and pay nothing. The note reads a ``thread_local`` holder
-(matching the per-thread active-runtime guard, so concurrent per-thread runs
-each arm only their own observer); that read happens once per node *start*,
-never on the per-tick path — general-dynamic TLS through the bridge ``.so``
-is the expensive access pattern and is deliberately kept off the tick path.
-Two safety nets bound a buggy observer that throws out of the
-after-notification before the release runs: the next root
-before-notification finds the hold still armed and keeps it (no
-double-ensure), and the run wrapper releases on exit, so the ``PyGILState``
-pairing always closes. The startless diagnostic nodes (``type_py``,
-``getattr_type_name``), one-time start/stop bodies, the overload wire
-trampolines and ``requires`` bridges, ``io_write_slot``, the lowered
-``run_lowered`` frame path (no observer is armed there), and push-source
-senders (which *release* around the blocking C++ send from Python threads)
-all keep their plain local acquires. The lock-ordering rules live in
-:doc:`python_integration` (*GIL And Runtime Locks*); the implementation rule
-stays: **GIL scopes move verbatim** — when relocating code, never widen or
-narrow an acquire/release, and keep the ruling comments attached to
-``PyWiring::run``, ``py_nodes.cpp``, and the sender.
+The guard and phase invocation are nested on one C++ stack; no GIL ownership
+state is handed between observers, callbacks, or nodes. An escaping exception
+unwinds the evaluation guard normally, after which error cleanup enters the
+stop phase under a fresh guard. A cycle containing any number of Python nodes
+still performs exactly one acquire/release pair. The GIL is free during native
+executor scheduling and while the real-time loop waits between cycles,
+preserving the sender-liveness guarantee for Python feeder threads.
+
+The phase runner is an optional, first-class C++ executor facility and is
+unset for ordinary native C++ execution. Nodes that need an embedding context
+declare ``requires_phase_runner``; Python nodes do so, and nested-node builders
+propagate that property from their child plans. The Python bridge installs the
+runner only when the finished root graph opts in (or when Python lifecycle
+observers were supplied);
+``lower`` applies the same rule. A pure-native graph authored through Python
+therefore retains the native executor fast path, while dynamically-created
+nested Python graphs remain covered without thread-local activation or
+per-node fallbacks. Python work outside executor phases — wiring callbacks,
+overload resolution, Python-owned values whose lifetime can escape a run, and
+exceptional notification-callable destruction — retains a local guard.
+Push-source senders still *release* the GIL around the blocking C++ send from
+Python threads.
+
+The lock-ordering rules live in :doc:`python_integration` (*GIL And Runtime
+Locks*). Keep the phase guard around the complete executor phase; do not
+extend it across native executor scheduling or waits.
+The controlled before/after performance record is
+``benchmarks/results/gil-guards-20260801-hg-linux.md``.
 
 Consumer-selected Python value storage
 --------------------------------------

@@ -394,6 +394,8 @@ namespace hgraph
     NodeBuilder tsl_map_node(NodeTypeMetaData meta, TslMapNodeSpec spec) {
         validate_tsl_map_node_spec(meta, spec);
 
+        meta.requires_phase_runner =
+            meta.requires_phase_runner || spec.child.graph_builder.requires_phase_runner();
         meta.node_kind    = NodeKind::Nested;
         meta.valid_inputs = std::vector<std::size_t>{};
 

@@ -482,6 +482,13 @@ NodeBuilder switch_node(NodeTypeMetaData meta, SwitchNodeSpec spec) {
     validate_branch(*spec.default_branch);
   }
 
+  meta.requires_phase_runner =
+      meta.requires_phase_runner ||
+      std::ranges::any_of(spec.branches, [](const SwitchBranch &branch) {
+        return branch.spec.graph_builder.requires_phase_runner();
+      }) ||
+      (spec.default_branch.has_value() &&
+       spec.default_branch->graph_builder.requires_phase_runner());
   meta.node_kind = NodeKind::Nested;
   if (meta.output_schema != nullptr) {
     meta.output_endpoint_schema = spec.output_forwards_to_child_terminal

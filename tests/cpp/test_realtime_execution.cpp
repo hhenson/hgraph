@@ -11,6 +11,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -152,6 +153,79 @@ TEST_CASE("real-time executor waits for the future scheduled time")
     CHECK(observed_clock_evaluation_time == observed_evaluation_time);
     CHECK(observed_clock_now >= observed_clock_evaluation_time);
     CHECK(hgraph::testing::wall_now() >= target_time);
+}
+
+TEST_CASE("real-time phase runner releases between complete executor phases")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<Int>("int");
+    const auto *ts_int   = registry.ts(int_meta);
+
+    std::optional<GraphExecutorPhase> active_phase;
+    std::vector<GraphExecutorPhase>   runner_phases;
+    std::vector<GraphExecutorPhase>   node_phases;
+
+    constexpr TimeDelta delay{2'000};
+    NodeTypeMetaData schema;
+    schema.display_name  = "realtime_phase_source";
+    schema.output_schema = ts_int;
+    schema.node_kind     = NodeKind::PullSource;
+    NodeCallbacks callbacks;
+    callbacks.start = [&](const NodeView &view, DateTime start_time) {
+        REQUIRE(active_phase == GraphExecutorPhase::Start);
+        node_phases.push_back(*active_phase);
+        view.graph_value()->schedule_node(view.node_index(), start_time + delay);
+    };
+    callbacks.evaluate = [&](const NodeView &view, DateTime evaluation_time) {
+        REQUIRE(active_phase == GraphExecutorPhase::Evaluation);
+        node_phases.push_back(*active_phase);
+        testing::set_output_value(view, evaluation_time, Int{1});
+    };
+    callbacks.stop = [&](const NodeView &, DateTime) {
+        REQUIRE(active_phase == GraphExecutorPhase::Stop);
+        node_phases.push_back(*active_phase);
+    };
+
+    GraphBuilder graph_builder;
+    graph_builder.add_node(
+        NodeBuilder::native(std::move(schema), std::move(callbacks)));
+
+    const DateTime start_time = hgraph::testing::wall_now();
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph_builder))
+        .mode(GraphExecutorMode::RealTime)
+        .start_time(start_time)
+        .end_time(start_time + TimeDelta{100'000})
+        .phase_runner([&](GraphExecutorPhase phase,
+                          GraphExecutorPhaseAction action) {
+            REQUIRE_FALSE(active_phase.has_value());
+            active_phase = phase;
+            runner_phases.push_back(phase);
+            try
+            {
+                action();
+            }
+            catch (...)
+            {
+                active_phase.reset();
+                throw;
+            }
+            active_phase.reset();
+        });
+
+    GraphExecutorValue executor = executor_builder.make_executor();
+    executor.view().run();
+
+    const std::vector expected{
+        GraphExecutorPhase::Start,
+        GraphExecutorPhase::Evaluation,
+        GraphExecutorPhase::Stop,
+    };
+    CHECK(runner_phases == expected);
+    CHECK(node_phases == expected);
+    CHECK_FALSE(active_phase.has_value());
 }
 
 TEST_CASE("real-time NodeScheduler supports wall-clock alarms")

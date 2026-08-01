@@ -15,6 +15,14 @@
 
 namespace hgraph::python_bridge
 {
+    /** One lexical GIL guard around a complete executor phase. */
+    inline void py_run_executor_phase(GraphExecutorPhase,
+                                      GraphExecutorPhaseAction action)
+    {
+        nb::gil_scoped_acquire gil;
+        action();
+    }
+
     /** Applies a python node's return value to its output (REF whole-move,
         TSS frozenset replace semantics, canonical-delta apply). Defined in
         py_nodes.cpp. */
@@ -155,7 +163,6 @@ namespace hgraph::python_bridge
         PyStateRef ref = state.get();
         if (ref.ns != nullptr)
         {
-            nb::gil_scoped_acquire gil;
             nb::steal(nb::handle(ref.ns));   // drop the held reference
             state.set(PyStateRef{});
         }
@@ -165,7 +172,6 @@ namespace hgraph::python_bridge
     {
         if (state.ns != nullptr)
         {
-            nb::gil_scoped_acquire gil;
             nb::steal(nb::handle(state.ns));
             state = PyStateRef{};
         }

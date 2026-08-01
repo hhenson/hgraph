@@ -1557,6 +1557,8 @@ MeshNodeView::MeshNodeView(NodeView view, const void *context,
     : view_(std::move(view)), context_(context), storage_(storage) {}
 
 NodeBuilder mesh_node(NodeTypeMetaData meta, MeshNodeSpec spec) {
+  meta.requires_phase_runner =
+      meta.requires_phase_runner || spec.child.graph_builder.requires_phase_runner();
   meta.node_kind = NodeKind::Nested;
   meta.valid_inputs = std::vector<std::size_t>{};
   if (meta.output_schema == nullptr ||

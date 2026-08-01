@@ -497,8 +497,18 @@ namespace hgraph::stdlib
         }
 
         GraphBuilder graph = std::move(wiring).finish();
+        const bool install_phase_runner =
+            options.phase_runner &&
+            (!options.phase_runner_requires_graph_opt_in ||
+             graph.requires_phase_runner());
         GraphExecutorBuilder builder;
-        builder.graph_builder(std::move(graph)).start_time(options.start_time).end_time(options.end_time);
+        builder.graph_builder(std::move(graph))
+            .start_time(options.start_time)
+            .end_time(options.end_time);
+        if (install_phase_runner)
+        {
+            builder.phase_runner(std::move(options.phase_runner));
+        }
         if (options.observer != nullptr)
         {
             builder.add_lifecycle_observer(options.observer);

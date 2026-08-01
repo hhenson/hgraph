@@ -394,6 +394,8 @@ struct HGRAPH_EXPORT GraphEdge
         [[nodiscard]] std::string_view label() const noexcept;
         [[nodiscard]] std::size_t node_count() const noexcept;
         [[nodiscard]] const std::vector<NodeBuilder> &nodes() const noexcept;
+        /** True when this graph or a nested child plan needs a phase runner. */
+        [[nodiscard]] bool requires_phase_runner() const noexcept;
         /** Mutable access to a wired node builder (nested operators adjust per-instance endpoints). */
         [[nodiscard]] NodeBuilder &node_at(std::size_t index);
         [[nodiscard]] const std::vector<GraphEdge> &edges() const noexcept;

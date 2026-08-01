@@ -56,10 +56,10 @@ namespace hgraph::python_bridge
             bool                       active_{false};
         };
 
-        /** Wrap a python callable for the C++ notification queues: the call
-            AND the eventual destruction of the captured object both
-            re-acquire the GIL (the engine drains and destroys queue entries
-            outside any python scope). */
+        /** Wrap a Python callable for the C++ notification queues. Invocation
+            and normal queue draining happen under the executor phase guard;
+            the holder retains a local guard for exceptional out-of-phase
+            destruction. */
         [[nodiscard]] inline std::function<void()> py_notification_thunk(nb::object fn,
                                                                          PyTsLease lease)
         {
@@ -71,21 +71,15 @@ namespace hgraph::python_bridge
                 {
                     if (fn != nullptr)
                     {
-                        const PyGILState_STATE gil = PyGILState_Ensure();
+                        nb::gil_scoped_acquire gil;
                         Py_DECREF(fn);
-                        PyGILState_Release(gil);
                     }
                 }
             };
             auto holder = std::make_shared<GilSafeCallable>(std::move(fn));
             return [holder, lease = std::move(lease)]() {
-                const PyGILState_STATE gil = PyGILState_Ensure();
-                auto release = UnwindCleanupGuard([&]() noexcept { PyGILState_Release(gil); });
-                {
-                    PyNotificationLeaseScope active_lease{lease};
-                    nb::borrow<nb::object>(nb::handle(holder->fn))();
-                }
-                release.complete();
+                PyNotificationLeaseScope active_lease{lease};
+                nb::borrow<nb::object>(nb::handle(holder->fn))();
             };
         }
 

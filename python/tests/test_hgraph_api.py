@@ -294,7 +294,8 @@ def test_python_graph_fns_in_higher_order_operators():
 
 def test_python_user_nodes():
     # @compute_node / @sink_node / @generator: python functions as runtime
-    # nodes - graph-thread only, GIL per call, values across the boundary.
+    # nodes - graph-thread only, one GIL scope per complete executor phase,
+    # values across the boundary.
     @hg.compute_node
     def fizzbuzz(n: TS[int]) -> TS[str]:
         n = n.value

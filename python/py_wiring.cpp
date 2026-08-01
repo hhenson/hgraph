@@ -226,7 +226,6 @@ namespace
         template <typename Subject>
         void invoke(std::string_view method, Subject subject)
         {
-            nb::gil_scoped_acquire gil;
             try
             {
                 const nb::handle observer{observer_};
@@ -1184,6 +1183,8 @@ namespace hgraph::python_bridge
             options.start_time       = start_time.value_or(MIN_ST);
             options.end_time         = end_time.value_or(MAX_ET);
             options.observer         = trace;
+            options.phase_runner     = &py_run_executor_phase;
+            options.phase_runner_requires_graph_opt_in = true;
             stdlib::LowerExecution execution = stdlib::prepare_lower(
                 function.fn, std::span<const Frame>{frames.data(), frames.size()},
                 std::move(options));
