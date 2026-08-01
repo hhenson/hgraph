@@ -31,33 +31,6 @@
       "reason": "reference-side import failure (upstream bug or optional dependency absent from the reference environment)"
     },
     {
-      "module": "*",
-      "name": "EvaluationTrace.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
-    },
-    {
-      "module": "*",
-      "name": "EvaluationProfiler.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
-    },
-    {
-      "module": "*",
-      "name": "WiringTracer.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
-    },
-    {
-      "module": "*",
-      "name": "EvaluationTrace.*",
-      "kind": "method-signature-mismatch",
-      "reason": "nanobind-bound native class: introspection shows *args/**kwargs; behavioural parity is the contract"
-    },
-    {
       "module": "hgraph.test",
       "name": "record_to_memory",
       "kind": "name-missing",
@@ -241,83 +214,6 @@
       "kind": "name-missing",
       "side": "candidate",
       "reason": "upstream import leak from _node_unit_tester (no __all__; hgraph#367) \u2014 defined and exported at the hgraph package root"
-    },
-    {
-      "module": "hgraph",
-      "name": "TS.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
-    },
-    {
-      "module": "hgraph",
-      "name": "TSB.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
-    },
-    {
-      "module": "hgraph",
-      "name": "TSD.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
-    },
-    {
-      "module": "hgraph",
-      "name": "TSL.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
-    },
-    {
-      "module": "hgraph",
-      "name": "TSS.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
-    },
-    {
-      "module": "hgraph",
-      "name": "TSB_OUT.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
-    },
-    {
-      "module": "hgraph",
-      "name": "TimeSeries.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
-    },
-    {
-      "module": "hgraph",
-      "name": "CONTEXT.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
-    },
-    {
-      "module": "hgraph",
-      "name": "NODE.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
-    },
-    {
-      "module": "hgraph",
-      "name": "STATE.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
-    },
-    {
-      "module": "hgraph",
-      "name": "SCHEDULER.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
     },
     {
       "module": "hgraph",
@@ -681,75 +577,6 @@
     },
     {
       "module": "hgraph",
-      "name": "WiringGraphContext.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
-    },
-    {
-      "module": "hgraph",
-      "name": "WiringGraphContext.*",
-      "kind": "method-signature-mismatch",
-      "reason": "theme-B ruling 2026-08-01: facade methods delegate to native Wiring; shapes follow the native records"
-    },
-    {
-      "module": "hgraph",
-      "name": "WiringNodeSignature.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
-    },
-    {
-      "module": "hgraph",
-      "name": "WiringNodeClass.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
-    },
-    {
-      "module": "hgraph",
-      "name": "GraphWiringNodeClass.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
-    },
-    {
-      "module": "hgraph",
-      "name": "OperatorWiringNodeClass.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
-    },
-    {
-      "module": "hgraph",
-      "name": "PythonWiringNodeClass.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
-    },
-    {
-      "module": "hgraph",
-      "name": "PythonGeneratorWiringNodeClass.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
-    },
-    {
-      "module": "hgraph",
-      "name": "WiringPort.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
-    },
-    {
-      "module": "hgraph",
-      "name": "MeshWiringPort.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
-    },
-    {
-      "module": "hgraph",
       "name": "Graph.start",
       "kind": "method-missing",
       "side": "candidate",
@@ -946,49 +773,6 @@
     },
     {
       "module": "hgraph",
-      "name": "Graph.*",
-      "kind": "method-signature-mismatch",
-      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
-    },
-    {
-      "module": "hgraph",
-      "name": "Node.*",
-      "kind": "method-signature-mismatch",
-      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
-    },
-    {
-      "module": "hgraph",
-      "name": "NODE.*",
-      "kind": "method-signature-mismatch",
-      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
-    },
-    {
-      "module": "hgraph",
-      "name": "GlobalState.*",
-      "kind": "method-signature-mismatch",
-      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
-    },
-    {
-      "module": "hgraph",
-      "name": "EvaluationEngineApi.*",
-      "kind": "method-signature-mismatch",
-      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
-    },
-    {
-      "module": "hgraph",
-      "name": "MeshWiringPort.*",
-      "kind": "method-signature-mismatch",
-      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
-    },
-    {
-      "module": "hgraph",
-      "name": "RecordReplayEnum.*",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "upstream is an IntFlag (inherits int methods); ours is a plain Enum \u2014 members and combination behaviour match"
-    },
-    {
-      "module": "hgraph",
       "name": "WiringError.print_error",
       "kind": "method-missing",
       "side": "candidate",
@@ -1103,6 +887,1782 @@
       "name": "run_graph",
       "kind": "signature-mismatch",
       "reason": "run_mode default is the engine-equivalent string representation of EvaluationMode.SIMULATION"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.on_after_graph_evaluation",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.on_after_graph_push_nodes_evaluation",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.on_after_node_evaluation",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.on_after_start_graph",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.on_after_start_node",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.on_after_stop_graph",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.on_after_stop_node",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.on_before_graph_evaluation",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.on_before_node_evaluation",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.on_before_start_graph",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.on_before_start_node",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.on_before_stop_graph",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.on_before_stop_node",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.on_after_graph_evaluation",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.on_after_graph_push_nodes_evaluation",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.on_after_node_evaluation",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.on_after_start_graph",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.on_after_start_node",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.on_after_stop_graph",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.on_after_stop_node",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.on_before_graph_evaluation",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.on_before_node_evaluation",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.on_before_start_graph",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.on_before_start_node",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.on_before_stop_graph",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationProfiler.on_before_stop_node",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "WiringTracer.on_enter_graph_wiring",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "WiringTracer.on_enter_nested_graph_wiring",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "WiringTracer.on_enter_node_wiring",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "WiringTracer.on_exit_graph_wiring",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "WiringTracer.on_exit_nested_graph_wiring",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "WiringTracer.on_exit_node_wiring",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "WiringTracer.on_overload_resolution",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "observer hooks are C++-only by recorded design (python_compatibility.rst native-observer rule); informational-content parity tracked separately"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.set_print_all_values",
+      "kind": "method-signature-mismatch",
+      "reason": "nanobind-bound native class: introspection shows *args/**kwargs; behavioural parity is the contract"
+    },
+    {
+      "module": "*",
+      "name": "EvaluationTrace.set_use_logger",
+      "kind": "method-signature-mismatch",
+      "reason": "nanobind-bound native class: introspection shows *args/**kwargs; behavioural parity is the contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "TS.bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TS.do_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TS.do_un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TS.is_reference",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TS.make_active",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TS.make_passive",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TS.re_parent",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TS.un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.copy_with",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.do_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.do_un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.from_ts",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.is_reference",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.key_from_value",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.make_active",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.make_passive",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.modified_items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.modified_keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.modified_values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.re_parent",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.valid_items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.valid_keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.valid_values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB.values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.added_items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.added_keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.added_values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.create",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.do_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.do_un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.from_ts",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.get",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.get_or_create",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.is_reference",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.make_active",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.make_passive",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.modified_items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.modified_keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.modified_values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.re_parent",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.removed_items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.removed_keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.removed_values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.valid_items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.valid_keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.valid_values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD.values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.do_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.do_un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.from_ts",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.is_reference",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.key_from_value",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.make_active",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.make_passive",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.modified_items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.modified_keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.modified_values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.re_parent",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.valid_items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.valid_keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.valid_values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSL.values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.added",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.do_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.do_un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.is_reference",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.make_active",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.make_passive",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.re_parent",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.removed",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.was_added",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS.was_removed",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.apply_result",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.can_apply_result",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.clear",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.copy_from_input",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.copy_from_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.invalidate",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.is_reference",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.key_from_value",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.mark_invalid",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.mark_modified",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.modified_items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.modified_keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.modified_values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.re_parent",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.subscribe",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.unsubscribe",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.valid_items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.valid_keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.valid_values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSB_OUT.values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TimeSeries.is_reference",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TimeSeries.re_parent",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "CONTEXT.bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "CONTEXT.do_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "CONTEXT.do_un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "CONTEXT.is_reference",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "CONTEXT.make_active",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "CONTEXT.make_passive",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "CONTEXT.re_parent",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "CONTEXT.un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.dispose",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.eval",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.initialise",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.start",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.stop",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "STATE.is_updated",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "STATE.items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "STATE.keys",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "STATE.reset_updated",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "STATE.values",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "SCHEDULER.has_tag",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "SCHEDULER.pop_tag",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "SCHEDULER.reset",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "SCHEDULER.schedule",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "SCHEDULER.un_schedule",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.add_built_service_impl",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.add_node",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.add_sink_node",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.find_service_impl",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.has_sink_nodes",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.is_service_built",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.is_strict",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.is_temporary",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.label_nodes",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.pop_context_clients",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.pop_reassignable_items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.pop_service_clients",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.pop_service_stubs",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.pop_sink_nodes",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.reassign_context_clients",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.reassign_items",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.reassign_service_clients",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.reassign_service_stubs",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.register_context_client",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.register_service_client",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.register_service_impl",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.register_service_stub",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.remove_context_clients",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.set_strict",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.shelve_wiring",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.un_shelve_wiring",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.wiring_path",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.wiring_path_name",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: the 5-method facade over native Wiring is the contract; upstream's context bookkeeping (add_sink_node/reassign_items -> ranking primitives; wiring_path_name/label_nodes -> live current_wiring_path; register_service_client -> native service registration; __stack__ -> module wiring stack) is replaced by native equivalents \u2014 see python_compatibility.rst 'Wiring context and lifecycle'"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.add_service_build_context",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: facade methods delegate to native Wiring; shapes follow the native records"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.build_services",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: facade methods delegate to native Wiring; shapes follow the native records"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.built_services",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: facade methods delegate to native Wiring; shapes follow the native records"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringGraphContext.registered_service_clients",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: facade methods delegate to native Wiring; shapes follow the native records"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.as_dict",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.build_resolution_dict",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.convert_kwargs_to_types",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.copy_with",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.resolve_active_inputs",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.resolve_all_valid_inputs",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.resolve_auto_const_and_type_kwargs",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.resolve_auto_resolve_kwargs",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.resolve_context_kwargs",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.resolve_inputs",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.resolve_label",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.resolve_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.resolve_valid_inputs",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.try_build_resolution_dict",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.validate_requirements",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeSignature.validate_resolved_types",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring-signature machinery is internal construction; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeClass.create_node_builder_instance",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringNodeClass.resolve_signature",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "GraphWiringNodeClass.create_node_builder_instance",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "GraphWiringNodeClass.overload",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "GraphWiringNodeClass.resolve_signature",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "GraphWiringNodeClass.resolve_with",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "GraphWiringNodeClass.start",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "GraphWiringNodeClass.stop",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "OperatorWiringNodeClass.create_node_builder_instance",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "OperatorWiringNodeClass.overload",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "OperatorWiringNodeClass.resolve_signature",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonWiringNodeClass.create_node_builder_instance",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonWiringNodeClass.overload",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonWiringNodeClass.resolve_signature",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonWiringNodeClass.resolve_with",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonGeneratorWiringNodeClass.create_node_builder_instance",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonGeneratorWiringNodeClass.overload",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonGeneratorWiringNodeClass.resolve_signature",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonGeneratorWiringNodeClass.resolve_with",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "PythonGeneratorWiringNodeClass.start",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "WiringPort.edges_for",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "MeshWiringPort.edges_for",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "theme-B ruling 2026-08-01: wiring node classes are internally constructed machinery; not user contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.notify",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "Node.notify_next_cycle",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.notify",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "NODE.notify_next_cycle",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.pop",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.setdefault",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.request_engine_stop",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "MeshWiringPort.reduce",
+      "kind": "method-signature-mismatch",
+      "reason": "theme-B ruling 2026-08-01: runtime view methods follow the native engine shapes; behaviour parity is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "RecordReplayEnum.as_integer_ratio",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream is an IntFlag (inherits int methods); ours is a plain Enum \u2014 members and combination behaviour match"
+    },
+    {
+      "module": "hgraph",
+      "name": "RecordReplayEnum.bit_count",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream is an IntFlag (inherits int methods); ours is a plain Enum \u2014 members and combination behaviour match"
+    },
+    {
+      "module": "hgraph",
+      "name": "RecordReplayEnum.bit_length",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream is an IntFlag (inherits int methods); ours is a plain Enum \u2014 members and combination behaviour match"
+    },
+    {
+      "module": "hgraph",
+      "name": "RecordReplayEnum.conjugate",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream is an IntFlag (inherits int methods); ours is a plain Enum \u2014 members and combination behaviour match"
+    },
+    {
+      "module": "hgraph",
+      "name": "RecordReplayEnum.from_bytes",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream is an IntFlag (inherits int methods); ours is a plain Enum \u2014 members and combination behaviour match"
+    },
+    {
+      "module": "hgraph",
+      "name": "RecordReplayEnum.is_integer",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream is an IntFlag (inherits int methods); ours is a plain Enum \u2014 members and combination behaviour match"
+    },
+    {
+      "module": "hgraph",
+      "name": "RecordReplayEnum.to_bytes",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream is an IntFlag (inherits int methods); ours is a plain Enum \u2014 members and combination behaviour match"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.add_before_evaluation_notification",
+      "kind": "method-signature-mismatch",
+      "reason": "nanobind builtin: inspect.signature unavailable; keyword calling via nb::arg('fn') and behaviour pinned by test_eval_notifications"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.add_after_evaluation_notification",
+      "kind": "method-signature-mismatch",
+      "reason": "nanobind builtin: inspect.signature unavailable; keyword calling via nb::arg('fn') and behaviour pinned by test_eval_notifications"
     }
   ]
 }

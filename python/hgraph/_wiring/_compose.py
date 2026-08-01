@@ -10,7 +10,7 @@ from ._graph import _as_wired, _prepare_higher_order_call
 from ._markers import _unbounded_tuple_kind
 from ._sentinels import _REDUCE_ZERO
 
-def map_(func, *args, __keys__=None, __key_arg__=None, __label__=None, **kwargs):
+def map_(func, *args, __label__=None, __keys__=None, __key_arg__=None, **kwargs):
     """hgraph's map_. ``func`` may be a native operator or a Python-authored
     graph/node; outputless functions create keyed sink child graphs.
 
