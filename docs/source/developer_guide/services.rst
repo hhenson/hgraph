@@ -667,5 +667,5 @@ Deferred (see :doc:`roadmap` Priority 1):
 - application-specific authentication, retry, and deployment policy for
   external resources;
 - ``@component`` and the recordable-id/traits ecosystem it depends on;
-- the advanced compatibility restrictions recorded in :doc:`roadmap`, such as
-  Kafka history replay and Perspective multi-client reduction.
+- the remaining advanced compatibility restrictions recorded in
+  :doc:`roadmap`, such as Perspective multi-client reduction.

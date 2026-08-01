@@ -114,6 +114,107 @@ namespace
         using output_schema = TS<Int>;
     };
 
+    using KafkaReplayState =
+        TSB<"KafkaReplayState",
+            Field<"msg", TS<Int>>,
+            Field<"recovered", TS<Bool>>>;
+
+    struct KafkaHistoryService
+    {
+        static constexpr std::string_view name{"kafka_history"};
+        using output_schema = KafkaReplayState;
+    };
+
+    struct KafkaLiveService
+    {
+        static constexpr std::string_view name{"kafka_live"};
+        using output_schema = TS<Int>;
+    };
+
+    struct KafkaHistorySource
+    {
+        static constexpr auto name              = "kafka_history_source";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(NodeScheduler sched, State<Int> cycle,
+                         Out<KafkaReplayState> out)
+        {
+            if (cycle.get() == Int{0})
+            {
+                out.field<"msg">().set(Int{10});
+                out.field<"recovered">().set(Bool{false});
+                cycle.set(Int{1});
+                sched.schedule(MIN_TD);
+            }
+            else
+            {
+                out.field<"recovered">().set(Bool{true});
+            }
+        }
+    };
+
+    struct KafkaLiveSource
+    {
+        static constexpr auto name              = "kafka_live_source";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<TS<Int>> out) { out.set(Int{20}); }
+    };
+
+    inline int kafka_service_compositions = 0;
+
+    struct KafkaReplayAndLiveImpl
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "kafka_replay_and_live_impl";
+
+        static void compose(Wiring &w, Scalar<"path", Str> path)
+        {
+            ++kafka_service_compositions;
+            const auto custom = service::path(path.value());
+            service::impl_output<KafkaHistoryService>(
+                w, custom, wire<KafkaHistorySource>(w));
+            service::impl_output<KafkaLiveService>(
+                w, custom, wire<KafkaLiveSource>(w));
+        }
+    };
+
+    struct KafkaReplayAndLiveClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "kafka_replay_and_live_client_graph";
+
+        static Port<TS<Int>> compose(Wiring &w)
+        {
+            const auto topic = service::path("orders");
+            service::register_services<
+                KafkaReplayAndLiveImpl,
+                KafkaHistoryService,
+                KafkaLiveService>(w, topic);
+
+            auto history = wire<KafkaHistoryService>(w, topic);
+            auto recovered = wire<stdlib::getitem_>(
+                                 w, history, Str{"recovered"})
+                                 .as<TS<Bool>>();
+            auto historical_message = wire<stdlib::getitem_>(
+                                          w, history, Str{"msg"})
+                                          .as<TS<Int>>();
+
+            // Two public clients consume the same per-topic live reference.
+            // The one multi-service implementation is the native sharing
+            // boundary used by the Python Kafka adaptor.
+            auto first_live = wire<KafkaLiveService>(w, topic);
+            auto second_live = wire<KafkaLiveService>(w, topic);
+            auto first = wire<stdlib::if_then_else>(
+                             w, recovered, first_live, historical_message)
+                             .as<TS<Int>>();
+            auto second = wire<stdlib::if_then_else>(
+                              w, recovered, second_live, historical_message)
+                              .as<TS<Int>>();
+            return wire<stdlib::add_>(w, first, second).as<TS<Int>>();
+        }
+    };
+
     struct ReferencePricesImplNode
     {
         static constexpr auto name              = "reference_prices_impl_node";
@@ -1954,6 +2055,17 @@ TEST_CASE("service wiring: multi-interface implementation graph wires explicit s
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<MultiServiceClientGraph>(values<Int>(1)), values<Int>(none, none, 13));
+}
+
+TEST_CASE("service wiring: shared replay service hands clients to the live reference")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    kafka_service_compositions = 0;
+    CHECK_OUTPUT(
+        eval_node<KafkaReplayAndLiveClientGraph>(),
+        values<Int>(20, 40));
+    CHECK(kafka_service_compositions == 1);
 }
 
 TEST_CASE("service wiring: service adaptors collect multiple client requests")

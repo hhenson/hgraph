@@ -603,8 +603,8 @@ Wiring and node-authoring surface
        one time-series request and one time-series response; bundles carry
        multi-field protocols. Tornado HTTP/WebSocket/REST, catalogue, JSON,
        SQL, Delta Lake, Kafka, Perspective, dataframe, executor, and threaded
-       graph families use that boundary. See :doc:`roadmap` for the explicit
-       advanced-feature restrictions.
+       graph families use that boundary. See :doc:`roadmap` for the remaining
+       explicit advanced-feature restrictions.
    * - Contexts
      - Full (wiring and compiled children)
      - Named/default/required compatibility plus native context capture across
