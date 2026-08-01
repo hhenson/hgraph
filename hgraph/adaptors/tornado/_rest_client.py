@@ -27,6 +27,8 @@ from hgraph.adaptors.tornado.http_server_adaptor import (
     HttpDeleteRequest,
 )
 
+__all__ = ("rest_list", "rest_read", "rest_create", "rest_update", "rest_delete", "register_rest_client")
+
 
 @graph
 def rest_list(base_url: TS[str]) -> TS[RestListResponse]:
