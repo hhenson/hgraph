@@ -552,6 +552,72 @@
       "kind": "method-missing",
       "side": "candidate",
       "reason": "lifecycle observers and component lifecycle stay C++-only (recorded native-observer rule; verified 2026-08-01 that no adaptor incl. tornado uses these)"
+    },
+    {
+      "module": "hgraph",
+      "name": "REMOVE",
+      "kind": "kind-mismatch",
+      "reason": "sentinel naming and behaviour match upstream (REMOVE strictness recorded 2026-07-17; pinned by ported suites); the concrete sentinel class is a representation choice"
+    },
+    {
+      "module": "hgraph",
+      "name": "REMOVE_IF_EXISTS",
+      "kind": "kind-mismatch",
+      "reason": "sentinel naming and behaviour match upstream (REMOVE strictness recorded 2026-07-17; pinned by ported suites); the concrete sentinel class is a representation choice"
+    },
+    {
+      "module": "hgraph",
+      "name": "REQUIRED",
+      "kind": "kind-mismatch",
+      "reason": "sentinel naming and behaviour match upstream (REMOVE strictness recorded 2026-07-17; pinned by ported suites); the concrete sentinel class is a representation choice"
+    },
+    {
+      "module": "hgraph",
+      "name": "NUMBER",
+      "kind": "kind-mismatch",
+      "reason": "constrained type-variable representation differs (upstream TypeVar vs native-constrained var); wiring resolution behaviour is equivalent and suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "NUMBER_2",
+      "kind": "kind-mismatch",
+      "reason": "constrained type-variable representation differs (upstream TypeVar vs native-constrained var); wiring resolution behaviour is equivalent and suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "TABLE",
+      "kind": "kind-mismatch",
+      "reason": "constrained type-variable representation differs (upstream TypeVar vs native-constrained var); wiring resolution behaviour is equivalent and suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSD_OUT",
+      "kind": "kind-mismatch",
+      "reason": "*_OUT markers are IDE-discovery neatness; from a wiring perspective they are the underlying TS kinds (ruling 2026-08-01) \u2014 pyi stubs are an optional future enhancement"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSS_OUT",
+      "kind": "kind-mismatch",
+      "reason": "*_OUT markers are IDE-discovery neatness; from a wiring perspective they are the underlying TS kinds (ruling 2026-08-01) \u2014 pyi stubs are an optional future enhancement"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSW_OUT",
+      "kind": "kind-mismatch",
+      "reason": "*_OUT markers are IDE-discovery neatness; from a wiring perspective they are the underlying TS kinds (ruling 2026-08-01) \u2014 pyi stubs are an optional future enhancement"
+    },
+    {
+      "module": "hgraph",
+      "name": "Frame",
+      "kind": "kind-mismatch",
+      "reason": "Frame is first-class here (serialization rulings; RFC 0001) \u2014 the metaclass representation differs by design"
+    },
+    {
+      "module": "hgraph",
+      "name": "default_path",
+      "kind": "kind-mismatch",
+      "reason": "default service path is the empty-string representation; service-path behaviour is pinned by the ported service suites"
     }
   ]
 }
