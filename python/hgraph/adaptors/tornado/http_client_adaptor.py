@@ -12,7 +12,6 @@ from frozendict import frozendict
 from tornado.httpclient import AsyncHTTPClient, HTTPError
 
 from hgraph import (
-    GlobalState,
     TS,
     TSD,
     push_queue,
@@ -267,11 +266,11 @@ def http_client_adaptor_impl(
             max_clients=max_clients,
         )
 
-    queue_key = f"http_client_adaptor://{path}/queue"
+    sender_ref = {}
 
     @push_queue(TSD[int, TS[HttpResponse]])
     def from_web(sender) -> None:
-        GlobalState.instance()[queue_key] = sender
+        sender_ref["sender"] = sender
 
     async def make_http_request(
         request_id: int,
@@ -340,9 +339,8 @@ def http_client_adaptor_impl(
     @sink_node
     def to_web(
         requests: TSD[int, TS[HttpRequest]],
-        _global_state: GlobalState = None,
     ) -> None:
-        sender = _global_state[queue_key]
+        sender = sender_ref["sender"]
         loop = TornadoWeb.get_loop()
         for request_id, request_value in requests.modified_items():
             loop.add_callback(
@@ -357,12 +355,11 @@ def http_client_adaptor_impl(
         TornadoWeb.start_loop()
 
     @to_web.stop
-    def to_web_stop(_global_state: GlobalState = None) -> None:
+    def to_web_stop() -> None:
         try:
             TornadoWeb.stop_loop()
         finally:
-            if queue_key in _global_state:
-                del _global_state[queue_key]
+            sender_ref.clear()
 
     to_web(request)
     return from_web()

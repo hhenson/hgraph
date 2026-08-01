@@ -496,10 +496,17 @@ def test_runtime_global_state_and_graph_seed_injection():
 
     @hg.compute_node
     def apply_offset(value: TS[int], global_state: hg.GlobalState = None) -> TS[int]:
-        check(global_state is hg.GlobalState.instance(), "runtime state identity")
-        runtime_states.append(global_state)
+        runtime_states.append(("eval", global_state))
         global_state["calls"] = global_state.get("calls", 0) + 1
         return value.value + global_state["offset"]
+
+    @apply_offset.start
+    def start(global_state: hg.GlobalState = None):
+        runtime_states.append(("start", global_state))
+
+    @apply_offset.stop
+    def stop(global_state: hg.GlobalState = None):
+        runtime_states.append(("stop", global_state))
 
     @graph
     def app(value: TS[int], global_state: hg.GlobalState = None) -> TS[int]:
@@ -509,9 +516,24 @@ def test_runtime_global_state_and_graph_seed_injection():
     with hg.GlobalContext(state):
         check(eval_node(app, [1, 2]) == [6, 7], "runtime global state")
     check(state["calls"] == 2, "runtime state copied back")
-    check(runtime_states[0] is runtime_states[1], "runtime state is stable for the run")
-    expect_raises(RuntimeError, lambda: runtime_states[0].get("calls"),
-                  "outside its graph execution")
+    check([phase for phase, _ in runtime_states] == ["start", "eval", "eval", "stop"],
+          "runtime state spans complete executor phases")
+    check(all(runtime_state is runtime_states[0][1]
+              for _, runtime_state in runtime_states),
+          "runtime state projection is cached by the owning node")
+    for _, runtime_state in runtime_states:
+        expect_raises(RuntimeError, lambda runtime_state=runtime_state: runtime_state.get("calls"),
+                      "outside its node's evaluation")
+
+
+def test_runtime_global_state_must_be_injected():
+    @hg.compute_node
+    def invalid(value: TS[int]) -> TS[int]:
+        return value.value + hg.GlobalState.instance().get("offset", 0)
+
+    with hg.GlobalContext(hg.GlobalState(offset=5)):
+        expect_raises(RuntimeError, lambda: eval_node(invalid, [1]),
+                      "declare a GlobalState injectable")
 
 
 def test_wiring_failure_releases_global_context():

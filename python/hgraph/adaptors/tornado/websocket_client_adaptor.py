@@ -8,7 +8,6 @@ from tornado import httpclient
 from tornado.websocket import websocket_connect
 
 from hgraph import (
-    GlobalState,
     STATE,
     TSB,
     TSD,
@@ -55,14 +54,11 @@ def _client_implementation(message_type: type):
         request: requests_type,
         path: str = "websocket_client",
     ) -> responses_type:
-        queue_key = (
-            f"websocket_client_adaptor://{path}/"
-            f"{message_type.__module__}.{message_type.__qualname__}/queue"
-        )
+        sender_ref = {}
 
         @push_queue(responses_type)
         def from_web(sender) -> None:
-            GlobalState.instance()[queue_key] = sender
+            sender_ref["sender"] = sender
 
         async def make_websocket_request(state, request_id, request_value, sender):
             try:
@@ -135,9 +131,8 @@ def _client_implementation(message_type: type):
         def to_web(
             requests: requests_type,
             _state: STATE = None,
-            _global_state: GlobalState = None,
         ) -> None:
-            sender = _global_state[queue_key]
+            sender = sender_ref["sender"]
             loop = TornadoWeb.get_loop()
             for request_id in requests.removed_keys():
                 loop.add_callback(remove_request, _state, request_id)
@@ -169,7 +164,6 @@ def _client_implementation(message_type: type):
         @to_web.stop
         def to_web_stop(
             _state: STATE = None,
-            _global_state: GlobalState = None,
         ) -> None:
             completed = threading.Event()
 
@@ -195,8 +189,7 @@ def _client_implementation(message_type: type):
                     raise RuntimeError("WebSocket client tasks did not stop")
             finally:
                 TornadoWeb.stop_loop()
-                if queue_key in _global_state:
-                    del _global_state[queue_key]
+                sender_ref.clear()
 
         to_web(request)
         return from_web()

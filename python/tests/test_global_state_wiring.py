@@ -61,8 +61,8 @@ def test_wiring_time_state_entries_reach_the_run_and_copy_back():
     # An entry written at wiring time lives on the SELECTED state, seeds the
     # run's isolation copy, and the state remains the user's afterwards.
     @hg.compute_node
-    def read_marker(ts: TS[int]) -> TS[str]:
-        return GlobalState.instance()["marker"]
+    def read_marker(ts: TS[int], global_state: GlobalState = None) -> TS[str]:
+        return global_state["marker"]
 
     @hg.graph
     def wired(ts: TS[int]) -> TS[str]:

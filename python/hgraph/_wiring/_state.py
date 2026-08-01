@@ -1,7 +1,4 @@
-"""GlobalState/GlobalContext and record/replay configuration.
-
-``_push_runtime_global_state``/``_pop_runtime_global_state`` are called from
-C++ (py_nodes: the GlobalState injectable) — keep the names stable."""
+"""GlobalState/GlobalContext and record/replay configuration."""
 import threading
 
 import _hgraph
@@ -164,9 +161,11 @@ class GlobalState:
 
     @staticmethod
     def instance():
-        runtime_state = getattr(_global_state_local, "runtime_state", None)
-        if runtime_state is not None:
-            return runtime_state
+        if getattr(_global_state_local, "runtime_active", False):
+            raise RuntimeError(
+                "GlobalState.instance() is wiring-only during graph execution; "
+                "declare a GlobalState injectable on the graph or node instead"
+            )
         state = getattr(_global_state_local, "state", None)
         if state is None:
             state = GlobalState()
@@ -215,15 +214,15 @@ class GlobalContext:
         return False
 
 
-def _push_runtime_global_state(state):
-    if getattr(_global_state_local, "runtime_state", None) is not None:
+def _enter_runtime():
+    if getattr(_global_state_local, "runtime_active", False):
         raise RuntimeError("a runtime GlobalState is already active on this thread")
-    _global_state_local.runtime_state = state
+    _global_state_local.runtime_active = True
 
 
-def _pop_runtime_global_state():
-    if getattr(_global_state_local, "runtime_state", None) is not None:
-        del _global_state_local.runtime_state
+def _exit_runtime():
+    if getattr(_global_state_local, "runtime_active", False):
+        del _global_state_local.runtime_active
 
 
 def set_record_replay_config(model):

@@ -55,8 +55,8 @@ class DataCatalogue:
         self._previous = self._MISSING
 
     @classmethod
-    def instance(cls):
-        state = GlobalState.instance()
+    def instance(cls, global_state=None):
+        state = global_state if global_state is not None else GlobalState.instance()
         catalogue = state.get(cls._STATE_KEY)
         if catalogue is None:
             catalogue = cls()

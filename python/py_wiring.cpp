@@ -1161,12 +1161,6 @@ namespace hgraph::python_bridge
            const std::string &date_column, const std::string &as_of_column,
            bool no_as_of_support, std::optional<DateTime> start_time,
            std::optional<DateTime> end_time, EvaluationTrace *trace) -> nb::object {
-            if (py_has_active_runtime_global_state())
-            {
-                throw std::logic_error(
-                    "lower cannot run while a runtime GlobalState is active");
-            }
-
             std::vector<Frame> frames;
             frames.reserve(nb::len(input_frames));
             for (nb::handle object : input_frames)
@@ -1189,18 +1183,10 @@ namespace hgraph::python_bridge
                 function.fn, std::span<const Frame>{frames.data(), frames.size()},
                 std::move(options));
 
-            auto guard = std::make_shared<PyTsGuard>();
-            nb::object runtime_state = nb::cast(PyRuntimeGlobalState{
-                execution.global_state(), guard});
             nb::object runtime = nb::module_::import_("hgraph._wiring._state");
-            runtime.attr("_push_runtime_global_state")(runtime_state);
-            py_active_runtime_global_state = runtime_state.ptr();
-            py_active_runtime_guard() = guard;
+            runtime.attr("_enter_runtime")();
             auto clear_runtime_state = UnwindCleanupGuard([&] {
-                py_active_runtime_global_state = nullptr;
-                py_active_runtime_guard().reset();
-                guard->alive = false;
-                runtime.attr("_pop_runtime_global_state")();
+                runtime.attr("_exit_runtime")();
             });
             {
                 nb::gil_scoped_release release;

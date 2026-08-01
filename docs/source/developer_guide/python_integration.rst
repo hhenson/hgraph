@@ -481,10 +481,11 @@ Recorded divergences / gaps (the morning-summary list):
   compatibility shorthand.  A top-level Python ``Wiring`` copies from the
   selected seed, the C++ builder and root graph then use their normal owned-copy
   lifecycle, and the bridge replaces the Python seed with the root graph's final
-  state after execution.  At run entry the bridge publishes one guarded
-  ``RuntimeGlobalState`` projection in Python thread-local state; every Python
-  callback in that run sees that same object, and the projection is invalidated
-  when execution ends.  The C++ graph never borrows Python storage.
+  state after execution.  Runtime access is explicit: a graph or node declares
+  the ``GlobalState`` injectable, and each callback receives a guarded projection
+  built from its native ``GlobalStateView``. ``GlobalState.instance()`` is not a
+  runtime lookup and raises during execution. The C++ graph never borrows Python
+  storage.
 - **Services** are surfaced per the runtime-identity rulings
   (services.rst *Runtime service identity*): ``@reference_service`` /
   ``@subscription_service`` / ``@request_reply_service`` decorate
