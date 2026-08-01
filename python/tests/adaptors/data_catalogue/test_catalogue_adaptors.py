@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 import pyarrow as pa
 import pytest
@@ -9,16 +9,15 @@ import hgraph as hg
 from hgraph.adaptors.data_catalogue import (
     DataCatalogue,
     DataCatalogueEntry,
-    DataEnvironment,
-    DataEnvironmentEntry,
     DataSink,
+    DataSource,
     publish,
     publish_adaptor_impl,
+    subscriber_impl_from_graph,
+    subscriber_impl_to_graph,
     subscribe,
     subscribe_adaptor_impl,
 )
-from hgraph.adaptors.json import JsonDataSource
-from hgraph.adaptors.json import json_adaptor_impl
 from hgraph.stream import StreamStatus
 
 
@@ -33,48 +32,67 @@ class _Sink(DataSink):
     table: str
 
 
-def _end_time():
-    # Safety net only: both real-time tests stop their own engine after the
-    # asynchronous adaptor response arrives. Keep enough headroom for a cold
-    # wheel or a stalled shared runner to finish the worker task before the
-    # executor reaches end_time and rejects a late push.
-    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=15)
+@dataclass(frozen=True)
+class _Source(DataSource):
+    table: str
 
 
-def test_catalogue_subscribe_routes_json_source(tmp_path):
-    (tmp_path / "rows.json").write_text('[{"name":"a","value":1}]')
+_ROUTED_FRAME = pa.table({"name": ["a"], "value": [1]})
+
+
+@subscriber_impl_from_graph
+def subscribe_test_from_graph(
+    dce: DataCatalogueEntry, ds: hg.TS[_Source],
+    options: hg.TS[dict[str, object]], request_id: hg.TS[int],
+    _schema: type[hg.SCHEMA] = hg.AUTO_RESOLVE,
+):
+    hg.null_sink(request_id)
+
+
+@subscriber_impl_to_graph
+def subscribe_test_to_graph(
+    dce: DataCatalogueEntry, ds: hg.TS[_Source],
+    options: hg.TS[dict[str, object]], request_id: hg.TS[int],
+    _schema: type[hg.SCHEMA] = hg.AUTO_RESOLVE,
+) -> hg.TSB[hg.stream.Stream[hg.stream.Data[hg.Frame[hg.SCHEMA]]]]:
+    return hg.combine[
+        hg.TSB[hg.stream.Stream[hg.stream.Data[hg.Frame[_schema]]]]
+    ](
+        status=StreamStatus.OK,
+        status_msg="",
+        values=hg.const(_ROUTED_FRAME, tp=hg.TS[hg.Frame[_schema]]),
+        timestamp=hg.MIN_DT,
+    )
+
+
+def test_catalogue_subscribe_routes_matching_source():
     responses = []
     response_type = hg.TSB[hg.stream.Stream[hg.stream.Data[hg.Frame[_Row]]]]
 
     @hg.sink_node
-    def capture(response: response_type, engine: hg.EvaluationEngineApi = None):
+    def capture(response: response_type):
         if response.status.modified:
             responses.append((response.status.value, response.status_msg.value,
                               response["values"].value))
-        if response.status.value in (StreamStatus.OK, StreamStatus.ERROR):
-            engine.request_engine_stop()
 
     @hg.graph
     def app():
         hg.register_adaptor("data-catalogue", subscribe_adaptor_impl)
-        hg.register_adaptor("json", json_adaptor_impl)
         capture(subscribe[_Row]("rows"))
 
     catalogue = DataCatalogue()
-    environment = DataEnvironment()
-    environment.add_entry(DataEnvironmentEntry("json", str(tmp_path)))
     with hg.GlobalContext(hg.GlobalState()):
-        with catalogue, environment:
-            DataCatalogueEntry[JsonDataSource](
+        with catalogue:
+            DataCatalogueEntry[_Source](
                 _Row,
                 "rows",
                 frozendict(),
-                JsonDataSource(source_path="json", file="rows.json"),
+                _Source(source_path="memory", table="rows"),
             )
-            hg.run_graph(app, run_mode=hg.EvaluationMode.REAL_TIME, end_time=_end_time())
+            hg.run_graph(app)
 
     assert responses[0][0] is StreamStatus.OK, responses[0][1]
-    assert responses[0][2].equals(pa.table({"name": ["a"], "value": [1]}))
+    assert responses[0][2].equals(_ROUTED_FRAME)
 
 
 def test_subscriber_handler_requires_concrete_source_annotation():
@@ -98,7 +116,7 @@ def test_catalogue_publish_routes_all_matching_sinks():
         data: hg.TS[hg.Frame[_Row]], options: hg.TS[dict[str, object]],
     ) -> hg.TS[datetime]:
         writes.append((data.value, options.value))
-        return datetime.now(timezone.utc).replace(tzinfo=None)
+        return hg.MIN_DT
 
     @publish_impl_from_graph
     def publish_test_from_graph(
@@ -120,26 +138,16 @@ def test_catalogue_publish_routes_all_matching_sinks():
             status=StreamStatus.OK,
             status_msg="",
             values=capture_write(data, options),
-            timestamp=datetime.now(timezone.utc).replace(tzinfo=None),
+            timestamp=hg.MIN_DT,
         )
 
     frame = pa.table({"name": ["a"], "value": [1]})
 
-    @hg.push_queue(hg.TS[hg.Frame[_Row]])
-    def data(sender):
-        sender(frame)
-
-    response_type = hg.TSB[hg.stream.Stream[hg.stream.Data[datetime]]]
-
-    @hg.sink_node
-    def stop(response: response_type, engine: hg.EvaluationEngineApi = None):
-        if response.status.value is StreamStatus.OK:
-            engine.request_engine_stop()
-
     @hg.graph
     def app():
         hg.register_adaptor("data-catalogue-publish", publish_adaptor_impl)
-        stop(publish[_Row]("rows", data()))
+        data = hg.const(frame, tp=hg.TS[hg.Frame[_Row]])
+        hg.null_sink(publish[_Row]("rows", data))
 
     catalogue = DataCatalogue()
     with hg.GlobalContext(hg.GlobalState()):
@@ -153,6 +161,6 @@ def test_catalogue_publish_routes_all_matching_sinks():
                     table="rows",
                 ),
             )
-            hg.run_graph(app, run_mode=hg.EvaluationMode.REAL_TIME, end_time=_end_time())
+            hg.run_graph(app)
 
     assert writes[0][0].equals(frame)
