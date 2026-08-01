@@ -10,7 +10,6 @@ from tornado.websocket import websocket_connect
 
 import hgraph as hg
 from hgraph.adaptors.tornado import (
-    WebSocketAdaptorManager,
     WebSocketClientRequest,
     WebSocketConnectRequest,
     WebSocketResponse,
@@ -19,8 +18,10 @@ from hgraph.adaptors.tornado import (
     websocket_client_adaptor,
     websocket_client_adaptor_impl,
     websocket_server_handler,
+    websocket_server_adaptor_helper,
     websocket_server_adaptor_impl,
 )
+from hgraph.adaptors.tornado.websocket_server_adaptor import WebSocketAdaptorManager
 
 
 @pytest.fixture
@@ -63,31 +64,55 @@ def test_websocket_manager_buffers_open_until_route_queues_start(free_tcp_port):
         assert await accepted is True
 
         manager.remove_request(request_id)
-        assert connect_events[-1] == {request_id: hg.REMOVE}
-        assert message_events == [{request_id: hg.REMOVE}]
+        assert connect_events[-1] == {request_id: hg.REMOVE_IF_EXISTS}
+        assert message_events == [{request_id: hg.REMOVE_IF_EXISTS}]
 
     asyncio.run(exercise())
 
 
+def test_websocket_managers_are_isolated_by_port_and_message_type(free_tcp_port):
+    text_manager = WebSocketAdaptorManager.instance(free_tcp_port, str)
+    binary_manager = WebSocketAdaptorManager.instance(free_tcp_port, bytes)
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        other_port = sock.getsockname()[1]
+    other_manager = WebSocketAdaptorManager.instance(other_port, str)
+
+    assert text_manager is not binary_manager
+    assert text_manager is not other_manager
+    assert text_manager._web is binary_manager._web
+    assert text_manager._web is not other_manager._web
+
+
+def test_websocket_server_handler_rejects_invalid_authoring_signatures():
+    with pytest.raises(TypeError, match="requires a 'request'"):
+
+        @websocket_server_handler(url="/invalid/missing-request")
+        def missing_request(value: hg.TS[int]) -> hg.TSB[WebSocketResponse[str]]:
+            return value
+
+    with pytest.raises(TypeError, match="WebSocket handler request must be"):
+
+        @websocket_server_handler(url="/invalid/request-type")
+        def wrong_request(request: hg.TS[int]) -> hg.TSB[WebSocketResponse[str]]:
+            return request
+
+
 def test_websocket_server_handler_round_trips_binary_messages(free_tcp_port):
     route = f"/websocket-{free_tcp_port}/(.*)"
-    connections = []
     client_results = []
     client_errors = []
     threads = []
 
     @websocket_server_handler(url=route)
-    @hg.compute_node
     def echo(
         request: hg.TSB[WebSocketServerRequest[bytes]],
+        suffix: hg.TS[bytes],
     ) -> hg.TSB[WebSocketResponse[bytes]]:
-        result = {}
-        if request.connect_request.modified:
-            connections.append(request.connect_request.value)
-            result["connect_response"] = True
-        if request.messages.modified:
-            result["message"] = request.messages.value[-1]
-        return result
+        return hg.combine[hg.TSB[WebSocketResponse[bytes]]](
+            connect_response=suffix == suffix,
+            message=request.messages[-1],
+        )
 
     @hg.push_queue(hg.TS[bool])
     def drive_client(sender):
@@ -135,10 +160,16 @@ def test_websocket_server_handler_round_trips_binary_messages(free_tcp_port):
     def server_graph() -> None:
         done = drive_client()
         hg.register_adaptor(
+            None,
+            websocket_server_adaptor_helper,
+            port=free_tcp_port,
+        )
+        hg.register_adaptor(
             "websocket_server_adaptor",
             websocket_server_adaptor_impl,
             port=free_tcp_port,
         )
+        echo(suffix=hg.const(b"-reply"))
         stop_when_done(done)
 
     state = hg.GlobalState()
@@ -154,9 +185,74 @@ def test_websocket_server_handler_round_trips_binary_messages(free_tcp_port):
 
     assert client_errors == []
     assert client_results == [b"one", b"two"]
-    assert len(connections) == 1
-    assert isinstance(connections[0], WebSocketConnectRequest)
-    assert connections[0].url_parsed_args == ("client",)
+    assert not any(key.startswith("websocket_server_adaptor://") for key in state.keys())
+
+
+def test_websocket_server_handler_rejects_connection(free_tcp_port):
+    route = f"/websocket-reject-{free_tcp_port}/(.*)"
+    client_results = []
+    client_errors = []
+
+    @websocket_server_handler(url=route)
+    @hg.compute_node
+    def reject(
+        request: hg.TSB[WebSocketServerRequest[str]],
+    ) -> hg.TSB[WebSocketResponse[str]]:
+        if request.connect_request.modified:
+            return {"connect_response": False}
+
+    @hg.push_queue(hg.TS[bool])
+    def drive_client(sender):
+        async def communicate():
+            deadline = time.monotonic() + 10.0
+            while True:
+                try:
+                    connection = await websocket_connect(
+                        f"ws://127.0.0.1:{free_tcp_port}/"
+                        f"websocket-reject-{free_tcp_port}/client",
+                        connect_timeout=3.0,
+                    )
+                    client_results.append(await connection.read_message())
+                    return
+                except (ConnectionRefusedError, OSError):
+                    if time.monotonic() >= deadline:
+                        raise
+                    await asyncio.sleep(0.02)
+
+        def run():
+            try:
+                asyncio.run(communicate())
+            except BaseException as error:
+                client_errors.append(error)
+            finally:
+                sender(True)
+
+        Thread(target=run, name="hgraph-websocket-reject-test", daemon=True).start()
+
+    @hg.sink_node
+    def stop_when_done(
+        done: hg.TS[bool],
+        _engine: hg.EvaluationEngineApi = None,
+    ) -> None:
+        _engine.request_engine_stop()
+
+    @hg.graph
+    def server_graph() -> None:
+        done = drive_client()
+        register_websocket_server_adaptor(free_tcp_port)
+        stop_when_done(done)
+
+    state = hg.GlobalState()
+    with hg.GlobalContext(state):
+        hg.run_graph(
+            server_graph,
+            end_time=datetime.now(timezone.utc).replace(tzinfo=None)
+            + timedelta(seconds=5),
+            run_mode=hg.EvaluationMode.REAL_TIME,
+        )
+
+    assert client_errors == []
+    assert client_results == [None]
     assert not any(key.startswith("websocket_server_adaptor://") for key in state.keys())
 
 
@@ -170,7 +266,9 @@ def test_websocket_server_handler_multiplexes_batch_requests(free_tcp_port):
     @hg.compute_node
     def echo(
         request: hg.TSD[int, hg.TSB[WebSocketServerRequest[bytes]]],
+        _state: hg.STATE = None,
     ) -> hg.TSD[int, hg.TSB[WebSocketResponse[bytes]]]:
+        _state.evaluations = getattr(_state, "evaluations", 0) + 1
         responses = {}
         for request_id, request_value in request.modified_items():
             response = {}
@@ -316,7 +414,7 @@ def test_websocket_client_service_adaptor_infers_message_specialization(
     @hg.graph
     def application() -> None:
         register_websocket_server_adaptor(free_tcp_port)
-        hg.register_adaptor("websocket-client-test", websocket_client_adaptor_impl)
+        hg.register_adaptor(None, websocket_client_adaptor_impl)
         request = hg.combine[client_request_type](
             connect_request=hg.const(
                 WebSocketConnectRequest(
@@ -329,7 +427,6 @@ def test_websocket_client_service_adaptor_infers_message_specialization(
         )
         response = websocket_client_adaptor(
             request,
-            path="websocket-client-test",
         )
         capture(response.message)
 

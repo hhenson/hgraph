@@ -13,7 +13,7 @@ from frozendict import frozendict
 from hgraph import (
     CompoundScalar,
     GlobalState,
-    REMOVE,
+    REMOVE_IF_EXISTS,
     TS,
     TSB,
     TSD,
@@ -32,7 +32,13 @@ from hgraph import (
     sink_node,
     to_graph,
 )
+from hgraph._wiring import _GraphFn, _PyNode
 from hgraph._wiring._core import _current_wiring
+from hgraph._wiring._markers import (
+    LOGGER,
+    _INJECTABLE_MARKERS,
+    _RecordableStateExpr,
+)
 
 from ._tornado_web import BaseHandler, TornadoWeb
 
@@ -213,8 +219,11 @@ class WebSocketAdaptorManager:
                 self._pending_connect.pop(path, None)
         senders = self._queues.get(path)
         if senders is not None:
-            senders[0]({request_id: REMOVE})
-            senders[1]({request_id: REMOVE})
+            # A rejected connection never creates a message-series key, and
+            # shutdown may race a sparse keyed input.  Teardown is therefore
+            # deliberately idempotent for both streams.
+            senders[0]({request_id: REMOVE_IF_EXISTS})
+            senders[1]({request_id: REMOVE_IF_EXISTS})
 
 
 class WebSocketHandler(tornado.websocket.WebSocketHandler):
@@ -270,14 +279,14 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
 @adaptor
 def websocket_server_adaptor(
     response: TSD[int, TSB[WebSocketResponse[STR_OR_BYTES]]],
-    path: str = "websocket_server",
+    path: str,
 ) -> TSD[int, TSB[WebSocketServerRequest[STR_OR_BYTES]]]:
     """Expose a typed graph request/response stream as a WebSocket route."""
 
 
 class _WebSocketServerHandler:
     def __init__(self, fn, url: str):
-        self._fn = fn
+        self._fn = fn if isinstance(fn, (_GraphFn, _PyNode)) else graph(fn)
         self.url = url
         self.__name__ = getattr(fn, "__name__", "websocket_server_handler")
 
@@ -316,6 +325,9 @@ class _WebSocketServerHandler:
             parameter
             for name, parameter in signature.parameters.items()
             if name != "request"
+            and parameter.annotation not in _INJECTABLE_MARKERS
+            and parameter.annotation is not LOGGER
+            and not isinstance(parameter.annotation, _RecordableStateExpr)
         )
         self.__signature__ = signature.replace(parameters=parameters)
         self.auto_wire = all(
@@ -439,7 +451,8 @@ def _websocket_server_catch_all(path: str, port: int = 80) -> None:
     clients = WiringGraphContext.instance().registered_service_clients(
         websocket_server_adaptor)
     endpoints = set()
-    grouped = {str: set(), bytes: set()}
+    grouped = {str: [], bytes: []}
+    seen = {str: set(), bytes: set()}
     for endpoint, type_map, _node, receive in clients:
         if (endpoint, receive) in endpoints:
             raise ValueError(
@@ -447,9 +460,17 @@ def _websocket_server_catch_all(path: str, port: int = 80) -> None:
         endpoints.add((endpoint, receive))
         message_type = resolved_type(type_map[STR_OR_BYTES])
         base = endpoint.removesuffix("/from_graph").removesuffix("/to_graph")
-        grouped[message_type].add(base)
+        if base not in seen[message_type]:
+            grouped[message_type].append(base)
+            seen[message_type].add(base)
+    handler_priority = {
+        route: index for index, route in enumerate(_WEBSOCKET_SERVER_HANDLERS)
+    }
     for message_type, entries in grouped.items():
         if entries:
+            interface = websocket_server_adaptor[STR_OR_BYTES:message_type]
+            entries.sort(key=lambda base: handler_priority.get(
+                interface.path_from_full_path(base), len(handler_priority)))
             _wire_websocket_message_type(port, message_type, entries)
 
 def websocket_server_handler(fn=None, *, url: str):
@@ -461,12 +482,32 @@ def websocket_server_handler(fn=None, *, url: str):
     return handler
 
 
+class _WebSocketServerAdaptorHelperRegistration:
+    """Compatibility marker for explicitly wired WebSocket handler graphs.
+
+    Specialized graph-side clients are discovered by the shared catch-all, so
+    the marker must not compete with it for ownership in the C++ registry.
+    """
+
+    __name__ = "websocket_server_adaptor_helper"
+
+    @staticmethod
+    def _register_adaptor(path, *, resolution_dict=None, port=80):
+        del path, port
+        if resolution_dict:
+            raise TypeError("websocket_server_adaptor_helper resolves from its handlers")
+
+
+websocket_server_adaptor_helper = _WebSocketServerAdaptorHelperRegistration()
+
+
 def register_websocket_server_adaptor(port: int) -> None:
     """Register all declared WebSocket routes on ``port``."""
     wiring = _current_wiring()
     registration = _WEBSOCKET_SERVER_REGISTRATIONS.setdefault(wiring, port)
     if registration != port:
         raise ValueError("one wiring graph cannot register the WebSocket server on two ports")
+    register_adaptor(None, websocket_server_adaptor_helper, port=port)
     register_adaptor(
         "websocket_server_adaptor", _websocket_server_catch_all, port=port)
     for _url, handler in tuple(_WEBSOCKET_SERVER_HANDLERS.items()):
@@ -475,9 +516,13 @@ def register_websocket_server_adaptor(port: int) -> None:
 
 
 class _WebSocketServerAdaptorImplementation:
-    """Materialize every typed route behind the generic adaptor registration."""
+    """Public registration token for the shared typed server implementation."""
 
-    def _register_adaptor(self, path, *, resolution_dict=None, port=80):
+    __name__ = "websocket_server_adaptor_impl"
+
+    @staticmethod
+    def _register_adaptor(path, *, resolution_dict=None, port=80):
+        del path
         if resolution_dict:
             raise TypeError(
                 "websocket_server_adaptor_impl resolves message types from its handlers"
@@ -486,17 +531,11 @@ class _WebSocketServerAdaptorImplementation:
 
 
 websocket_server_adaptor_impl = _WebSocketServerAdaptorImplementation()
-# The upstream helper and implementation are two registration entry points
-# for the same generic path-routed graph.
-websocket_server_adaptor_helper = websocket_server_adaptor_impl
 
 
 __all__ = (
-    "STR_OR_BYTES",
-    "WebSocketAdaptorManager",
     "WebSocketClientRequest",
     "WebSocketConnectRequest",
-    "WebSocketHandler",
     "WebSocketResponse",
     "WebSocketServerRequest",
     "register_websocket_server_adaptor",

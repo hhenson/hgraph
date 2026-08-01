@@ -289,6 +289,76 @@ def test_http_client_service_adaptor(
     assert f"http_client_adaptor://{path}/queue" not in state
 
 
+def test_http_client_concurrent_requests_match_upstream_recorded_flow(free_tcp_port):
+    """Near-verbatim port of upstream's real-time HTTP client graph test."""
+    route = f"/recorded-client-{free_tcp_port}/(.*)"
+
+    @http_server_handler(url=route)
+    def echo(request: hg.TS[HttpRequest]) -> hg.TS[HttpResponse]:
+        return hg.combine[hg.TS[HttpResponse]](
+            status_code=200,
+            body=hg.convert[hg.TS[bytes]](request.url_parsed_args[0]),
+        )
+
+    @hg.sink_node
+    def stop_when_all_done(
+        values: hg.TSD[str, hg.TS[bool]],
+        expected_count: int,
+        _engine: hg.EvaluationEngineApi = None,
+        _state: hg.STATE = None,
+    ) -> None:
+        _state.done_count = getattr(_state, "done_count", 0)
+        _state.done_count += sum(bool(value) for value in values.delta_value.values())
+        if _state.done_count >= expected_count:
+            _engine.request_engine_stop()
+
+    @hg.graph
+    def application() -> None:
+        register_http_server_adaptor(free_tcp_port)
+        hg.register_adaptor("http_client", http_client_adaptor_impl)
+        queries = {
+            str(index): HttpGetRequest(
+                f"http://127.0.0.1:{free_tcp_port}/recorded-client-"
+                f"{free_tcp_port}/{index}"
+            )
+            for index in range(10)
+        }
+
+        @hg.graph
+        def send_query(key: hg.TS[str], query: hg.TS[HttpRequest]) -> hg.TS[bool]:
+            response = http_client_adaptor(query)
+            return key == hg.convert[hg.TS[str]](response.body)
+
+        result = hg.map_(
+            send_query,
+            query=hg.const(
+                queries,
+                tp=hg.TSD[str, hg.TS[HttpRequest]],
+                delay=timedelta(milliseconds=2),
+            ),
+        )
+        hg.record(result)
+        stop_when_all_done(result, 10)
+
+    state = hg.GlobalState()
+    with hg.GlobalContext(state):
+        hg.evaluate_graph(
+            application,
+            hg.GraphConfiguration(
+                run_mode=hg.EvaluationMode.REAL_TIME,
+                end_time=timedelta(seconds=3),
+            ),
+        )
+        recorded = hg.get_recorded_value()
+
+    accumulated = {}
+    for _timestamp, delta in recorded:
+        accumulated.update(delta)
+    assert accumulated == {str(index): True for index in range(10)}
+    assert not any(key.startswith("http_client_adaptor://") for key in state.keys())
+    assert not any(key.startswith("http_server_adaptor://") for key in state.keys())
+
+
 def test_http_server_adaptor_round_trips_all_methods(free_tcp_port):
     route = "/items/(.*)"
     received = []
@@ -535,7 +605,7 @@ def test_http_server_supports_late_manual_handler_and_idempotent_call(free_tcp_p
 
 
 def test_http_manager_buffers_request_until_route_queue_starts(free_tcp_port):
-    from hgraph.adaptors.tornado import HttpAdaptorManager
+    from hgraph.adaptors.tornado.http_server_adaptor import HttpAdaptorManager
 
     route = f"/pending-{free_tcp_port}"
     manager = HttpAdaptorManager(free_tcp_port)
@@ -554,7 +624,7 @@ def test_http_manager_buffers_request_until_route_queue_starts(free_tcp_port):
 
 
 def test_http_manager_stop_routes_cancels_outstanding_requests(free_tcp_port):
-    from hgraph.adaptors.tornado import HttpAdaptorManager
+    from hgraph.adaptors.tornado.http_server_adaptor import HttpAdaptorManager
 
     route = f"/stopping-{free_tcp_port}"
     manager = HttpAdaptorManager(free_tcp_port)
@@ -571,6 +641,91 @@ def test_http_manager_stop_routes_cancels_outstanding_requests(free_tcp_port):
         assert request_id not in manager._requests
 
     asyncio.run(exercise())
+
+
+def test_http_route_precedence_follows_handler_registration_order(free_tcp_port):
+    prefix = f"/precedence-{free_tcp_port}"
+    specific_route = f"{prefix}/specific/(.*)"
+    broad_route = f"{prefix}/(.*)"
+    result = []
+    errors = []
+
+    @http_server_handler(url=specific_route)
+    @hg.compute_node
+    def specific(request: hg.TS[HttpRequest]) -> hg.TS[HttpResponse]:
+        return HttpResponse(status_code=200, body=b"specific")
+
+    @http_server_handler(url=broad_route)
+    @hg.compute_node
+    def broad(request: hg.TS[HttpRequest]) -> hg.TS[HttpResponse]:
+        return HttpResponse(status_code=200, body=b"broad")
+
+    @hg.push_queue(hg.TS[bool])
+    def drive_client(sender):
+        def run():
+            try:
+                deadline = time.monotonic() + 10.0
+                while True:
+                    connection = http.client.HTTPConnection(
+                        "127.0.0.1", free_tcp_port, timeout=2.0)
+                    try:
+                        connection.request("GET", f"{prefix}/specific/item")
+                        response = connection.getresponse()
+                        if response.status == 404 and time.monotonic() < deadline:
+                            time.sleep(0.02)
+                            continue
+                        result.append(response.read())
+                        break
+                    except (ConnectionRefusedError, OSError):
+                        if time.monotonic() >= deadline:
+                            raise
+                        time.sleep(0.02)
+                    finally:
+                        connection.close()
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                sender(True)
+
+        Thread(target=run, name="hgraph-http-precedence-test", daemon=True).start()
+
+    @hg.sink_node
+    def stop_when_done(
+        done: hg.TS[bool],
+        _engine: hg.EvaluationEngineApi = None,
+    ) -> None:
+        _engine.request_engine_stop()
+
+    @hg.graph
+    def application() -> None:
+        done = drive_client()
+        register_http_server_adaptor(free_tcp_port)
+        stop_when_done(done)
+
+    with hg.GlobalContext(hg.GlobalState()):
+        hg.run_graph(
+            application,
+            end_time=datetime.now(timezone.utc).replace(tzinfo=None)
+            + timedelta(seconds=5),
+            run_mode=hg.EvaluationMode.REAL_TIME,
+        )
+
+    assert errors == []
+    assert result == [b"specific"]
+
+
+def test_http_server_handler_rejects_invalid_authoring_signatures():
+    with pytest.raises(TypeError, match="requires a 'request'"):
+
+        @http_server_handler(url="/invalid/missing-request")
+        def missing_request(value: hg.TS[int]) -> hg.TS[HttpResponse]:
+            return value
+
+    with pytest.raises(TypeError, match="HTTP handler request must be"):
+
+        @http_server_handler(url="/invalid/request-type")
+        def wrong_request(request: hg.TS[int]) -> hg.TS[HttpResponse]:
+            return request
 
 
 def test_http_server_handler_registers_batch_requests(free_tcp_port):

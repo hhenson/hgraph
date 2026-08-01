@@ -10,10 +10,8 @@ from .http_client_adaptor import (
     http_client_adaptor_impl,
 )
 from .http_server_adaptor import (
-    HttpAdaptorManager,
     HttpDeleteRequest,
     HttpGetRequest,
-    HttpHandler,
     HttpPostRequest,
     HttpPutRequest,
     HttpRequest,
@@ -24,11 +22,8 @@ from .http_server_adaptor import (
     register_http_server_adaptor,
 )
 from .websocket_server_adaptor import (
-    STR_OR_BYTES,
-    WebSocketAdaptorManager,
     WebSocketClientRequest,
     WebSocketConnectRequest,
-    WebSocketHandler,
     WebSocketResponse,
     WebSocketServerRequest,
     register_websocket_server_adaptor,
@@ -42,7 +37,6 @@ from .websocket_client_adaptor import (
     websocket_client_adaptor_impl,
 )
 from ._rest_handler import (
-    REST_RESPONSE,
     RestCreateRequest,
     RestCreateResponse,
     RestDeleteRequest,
@@ -69,10 +63,8 @@ from ._rest_client import (
 
 __all__ = (
     "Credentials",
-    "HttpAdaptorManager",
     "HttpDeleteRequest",
     "HttpGetRequest",
-    "HttpHandler",
     "HttpPostRequest",
     "HttpPutRequest",
     "HttpRequest",
@@ -83,7 +75,6 @@ __all__ = (
     "http_server_adaptor_impl",
     "http_server_handler",
     "register_http_server_adaptor",
-    "REST_RESPONSE",
     "RestCreateRequest",
     "RestCreateResponse",
     "RestDeleteRequest",
@@ -104,11 +95,8 @@ __all__ = (
     "rest_list",
     "rest_read",
     "rest_update",
-    "STR_OR_BYTES",
-    "WebSocketAdaptorManager",
     "WebSocketClientRequest",
     "WebSocketConnectRequest",
-    "WebSocketHandler",
     "WebSocketResponse",
     "WebSocketServerRequest",
     "register_websocket_server_adaptor",

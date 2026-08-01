@@ -14,3 +14,4 @@ The user guide describes the HGraph model from a user point of view: what the fr
    testing_graphs_cpp
    data_and_analytics
    python_compatibility
+   tornado_adaptors

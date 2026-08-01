@@ -599,6 +599,7 @@ class _AdaptorStub(_AdaptorClientStub):
         self._registered_resolutions = (
             registered_resolutions if registered_resolutions is not None else [])
         sig = inspect.signature(fn, eval_str=True)
+        self.__signature__ = sig
         params = [p for p in sig.parameters.values() if _is_ts_annotation(p.annotation)]
         self._signature = sig
         self._request_params = tuple(params)
@@ -732,6 +733,7 @@ class _ServiceAdaptorStub(_AdaptorClientStub):
         self._registered_resolutions = (
             registered_resolutions if registered_resolutions is not None else [])
         sig = inspect.signature(fn, eval_str=True)
+        self.__signature__ = sig
         params = [p for p in sig.parameters.values() if _is_ts_annotation(p.annotation)]
         if not params:
             raise TypeError(
@@ -866,6 +868,19 @@ class _AdaptorImplGroup:
 
     def __init__(self, *implementations):
         self.implementations = implementations
+
+    def _register_adaptor(self, path, *, resolution_dict=None, **kwargs):
+        for implementation in self.implementations:
+            concrete_path = path
+            if concrete_path is None:
+                interface = implementation.interfaces[0]
+                concrete_path = interface._default_path
+            register_adaptor(
+                concrete_path,
+                implementation,
+                resolution_dict=resolution_dict,
+                **kwargs,
+            )
 
     def wire_impl_inputs_stub(self, path=""):
         return _ServiceInputs(impl_input(self, self._resolved_path(path)))
