@@ -129,6 +129,14 @@ class GlobalState:
     def keys(self):
         return self._impl.keys()
 
+    def items(self):
+        # dict-parity (theme-C ruling 2026-08-01): reset/set_instance are
+        # deliberately NOT provided.
+        return [(key, self[key]) for key in self.keys()]
+
+    def values(self):
+        return [self[key] for key in self.keys()]
+
     def __iter__(self):
         return iter(self.keys())
 

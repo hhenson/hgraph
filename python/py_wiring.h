@@ -8,6 +8,7 @@
 #define HGRAPH_PYTHON_PY_WIRING_H
 
 #include "py_cycle_gil.h"
+#include "py_eval_notifications.h"
 #include "py_runtime.h"
 
 namespace hgraph::python_bridge
@@ -36,6 +37,9 @@ namespace hgraph::python_bridge
         std::unique_ptr<EvaluationTrace> trace{};
         std::unique_ptr<EvaluationProfiler> profiler{};
         std::vector<std::unique_ptr<LifecycleObserver>> observers{};
+        /** One-shot before/after evaluation notifications (theme C,
+            ruling 2026-08-01). */
+        PyEvalNotifications eval_notifications{};
         GraphExecutorValue executor;
 
         /** Recorded read-back. DENSE (default): per-cycle values, None = no
@@ -319,6 +323,8 @@ namespace hgraph::python_bridge
             run->executor = eb.make_executor();
             cycle_gil->bind_root(run->executor.view().graph().data(),
                                  &run->executor.view().lifecycle_observers());
+            run->eval_notifications.bind_root(run->executor.view().graph().data(),
+                                              &run->executor.view().lifecycle_observers());
 
             if (py_has_active_runtime_global_state())
             {
@@ -345,7 +351,9 @@ namespace hgraph::python_bridge
                 }
             });
             py_active_cycle_gil     = cycle_gil;
+            py_active_eval_notifications = &run->eval_notifications;
             auto clear_cycle_gil = UnwindCleanupGuard([&] {
+                py_active_eval_notifications = nullptr;
                 // Final balance: a preceding observer throwing out of the LAST
                 // cycle's after-notification would leak the hold past the run
                 // (mid-run leaks self-heal at the next cycle's
@@ -374,6 +382,7 @@ namespace hgraph::python_bridge
                     }
             });
             clear_cycle_gil.complete();
+            run->eval_notifications.clear();
             clear_runtime_state.complete();
             copy_runtime_state.complete();
             return run;

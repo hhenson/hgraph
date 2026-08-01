@@ -468,6 +468,90 @@
       "name": "RequirementsNotMetWiringError.__init__",
       "kind": "constructor-signature-mismatch",
       "reason": "error types are raised internally with prebuilt messages; upstream's structured constructor is not contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.reset",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not provided (ruling 2026-08-01): reset/set_instance are unwanted lifecycle mutation, and the *_mt multithreading family does not apply to the single-threaded runtime"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.set_instance",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not provided (ruling 2026-08-01): reset/set_instance are unwanted lifecycle mutation, and the *_mt multithreading family does not apply to the single-threaded runtime"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.set_instance_mt",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not provided (ruling 2026-08-01): reset/set_instance are unwanted lifecycle mutation, and the *_mt multithreading family does not apply to the single-threaded runtime"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.instance_mt",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not provided (ruling 2026-08-01): reset/set_instance are unwanted lifecycle mutation, and the *_mt multithreading family does not apply to the single-threaded runtime"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.has_instance_mt",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not provided (ruling 2026-08-01): reset/set_instance are unwanted lifecycle mutation, and the *_mt multithreading family does not apply to the single-threaded runtime"
+    },
+    {
+      "module": "hgraph",
+      "name": "GlobalState.init_multithreading",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not provided (ruling 2026-08-01): reset/set_instance are unwanted lifecycle mutation, and the *_mt multithreading family does not apply to the single-threaded runtime"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.add_life_cycle_observer",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "lifecycle observers and component lifecycle stay C++-only (recorded native-observer rule; verified 2026-08-01 that no adaptor incl. tornado uses these)"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.remove_life_cycle_observer",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "lifecycle observers and component lifecycle stay C++-only (recorded native-observer rule; verified 2026-08-01 that no adaptor incl. tornado uses these)"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.dispose",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "lifecycle observers and component lifecycle stay C++-only (recorded native-observer rule; verified 2026-08-01 that no adaptor incl. tornado uses these)"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.initialise",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "lifecycle observers and component lifecycle stay C++-only (recorded native-observer rule; verified 2026-08-01 that no adaptor incl. tornado uses these)"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.start",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "lifecycle observers and component lifecycle stay C++-only (recorded native-observer rule; verified 2026-08-01 that no adaptor incl. tornado uses these)"
+    },
+    {
+      "module": "hgraph",
+      "name": "EvaluationEngineApi.stop",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "lifecycle observers and component lifecycle stay C++-only (recorded native-observer rule; verified 2026-08-01 that no adaptor incl. tornado uses these)"
     }
   ]
 }

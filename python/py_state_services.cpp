@@ -5,6 +5,7 @@
  * RuntimeGlobalState, RecordableStateView, clock/scheduler), including the
  * enum/sentinel slot setters.
  */
+#include "py_eval_notifications.h"
 #include "py_runtime.h"
 #include "py_wiring.h"
 #include "py_bindings.h"
@@ -718,6 +719,24 @@ namespace hgraph::python_bridge
         .def_prop_ro("next_cycle_evaluation_time",
                      [](const PyEvalClock &clock) { return clock.next_cycle_evaluation_time; });
     nb::class_<PyEvaluationEngineApi>(m, "EvaluationEngineApi")
+        // One-shot cycle-boundary notifications (theme-C ruling 2026-08-01;
+        // lifecycle observers themselves stay C++-only).
+        .def("add_before_evaluation_notification",
+             [](PyEvaluationEngineApi &self, nb::object fn) {
+                 static_cast<void>(self.checked());
+                 if (auto *notifications = py_active_eval_notifications; notifications != nullptr)
+                 {
+                     notifications->add_before(std::move(fn));
+                 }
+             })
+        .def("add_after_evaluation_notification",
+             [](PyEvaluationEngineApi &self, nb::object fn) {
+                 static_cast<void>(self.checked());
+                 if (auto *notifications = py_active_eval_notifications; notifications != nullptr)
+                 {
+                     notifications->add_after(std::move(fn));
+                 }
+             })
         .def_prop_ro("evaluation_mode", [](const PyEvaluationEngineApi &self) {
             return self.checked().mode() == GraphExecutorMode::RealTime ? "real_time" : "simulation";
         })
