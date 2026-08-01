@@ -1000,6 +1000,19 @@ namespace hgraph
 
     namespace container_ops_detail
     {
+        template <typename Storage>
+        [[nodiscard]] DynamicStorageMetrics compact_dynamic_storage_metrics(
+            const void *, const void *memory) noexcept
+        {
+            return static_cast<const Storage *>(memory)->dynamic_storage_metrics();
+        }
+
+        [[nodiscard]] inline DynamicStorageMetrics compact_map_key_set_dynamic_storage_metrics(
+            const void *, const void *memory) noexcept
+        {
+            return static_cast<const MapStorage *>(memory)->key_set_dynamic_storage_metrics();
+        }
+
         template <bool VariadicTuple, bool ShapedArray = false>
         [[nodiscard]] const ListValueOps &compact_list_ops_impl() noexcept;
     }
@@ -1009,7 +1022,8 @@ namespace hgraph
         template <bool VariadicTuple, bool ShapedArray>
         [[nodiscard]] const ListValueOps &compact_list_ops_impl() noexcept
         {
-            static const ListValueOps ops = {
+            static const ListValueOps ops = [] {
+                auto value = ListValueOps{
                 {{// ValueOps:
                   ValueOpsKind::List,
                   nullptr,
@@ -1035,7 +1049,11 @@ namespace hgraph
                                                           &container_ops_detail::list_element_binding>,
                  nullptr},
                 // ListValueOps: no additions
-            };
+                };
+                value.dynamic_storage_metrics_impl =
+                    &compact_dynamic_storage_metrics<ListStorage>;
+                return value;
+            }();
             return ops;
         }
     }  // namespace container_ops_detail
@@ -1047,7 +1065,8 @@ namespace hgraph
 
     [[nodiscard]] inline const SetValueOps &compact_set_ops() noexcept
     {
-        static const SetValueOps ops = {
+        static const SetValueOps ops = [] {
+            auto value = SetValueOps{
             {{ValueOpsKind::Set,
               nullptr,
               false,
@@ -1069,7 +1088,11 @@ namespace hgraph
                                                      &container_ops_detail::set_element_binding>,
              nullptr},
             &container_ops_detail::set_contains,
-        };
+            };
+            value.dynamic_storage_metrics_impl =
+                &container_ops_detail::compact_dynamic_storage_metrics<SetStorage>;
+            return value;
+        }();
         return ops;
     }
 
@@ -1079,7 +1102,8 @@ namespace hgraph
         // indexed base point at the key surface so map iteration of
         // the indexed kind yields keys. ``make_kv_range`` exposes the
         // paired (key, value) surface.
-        static const MapValueOps ops = {
+        static const MapValueOps ops = [] {
+            auto value = MapValueOps{
             {{ValueOpsKind::Map,
               nullptr,
               false,
@@ -1119,13 +1143,18 @@ namespace hgraph
                                                         &container_ops_detail::map_key_binding,
                                                         &container_ops_detail::map_value_binding>,
             &compact_map_key_set_thunk,
-        };
+            };
+            value.dynamic_storage_metrics_impl =
+                &container_ops_detail::compact_dynamic_storage_metrics<MapStorage>;
+            return value;
+        }();
         return ops;
     }
 
     [[nodiscard]] inline const CyclicBufferValueOps &compact_cyclic_buffer_ops() noexcept
     {
-        static const CyclicBufferValueOps ops = {
+        static const CyclicBufferValueOps ops = [] {
+            auto value = CyclicBufferValueOps{
             {{ValueOpsKind::CyclicBuffer,
               nullptr,
               false,
@@ -1147,13 +1176,18 @@ namespace hgraph
                                                       &container_ops_detail::cyclic_buffer_element_binding>,
              nullptr},
             &container_ops_detail::cyclic_buffer_head,
-        };
+            };
+            value.dynamic_storage_metrics_impl =
+                &container_ops_detail::compact_dynamic_storage_metrics<CyclicBufferStorage>;
+            return value;
+        }();
         return ops;
     }
 
     [[nodiscard]] inline const QueueValueOps &compact_queue_ops() noexcept
     {
-        static const QueueValueOps ops = {
+        static const QueueValueOps ops = [] {
+            auto value = QueueValueOps{
             {{ValueOpsKind::Queue,
               nullptr,
               false,
@@ -1175,7 +1209,11 @@ namespace hgraph
                                                       &container_ops_detail::queue_element_binding>,
              nullptr},
             &container_ops_detail::queue_front,
-        };
+            };
+            value.dynamic_storage_metrics_impl =
+                &container_ops_detail::compact_dynamic_storage_metrics<QueueStorage>;
+            return value;
+        }();
         return ops;
     }
 
@@ -1185,7 +1223,8 @@ namespace hgraph
         // / ``map_contains`` / range projector from the map ops
         // because the underlying memory is still a ``MapStorage`` —
         // the adapter just reframes the read surface as a Set.
-        static const SetValueOps ops = {
+        static const SetValueOps ops = [] {
+            auto value = SetValueOps{
             {{ValueOpsKind::Set,
               nullptr,
               false,
@@ -1207,7 +1246,11 @@ namespace hgraph
                                                       &container_ops_detail::map_key_binding>,
              nullptr},
             &container_ops_detail::map_contains,
-        };
+            };
+            value.dynamic_storage_metrics_impl =
+                &container_ops_detail::compact_map_key_set_dynamic_storage_metrics;
+            return value;
+        }();
         return ops;
     }
 

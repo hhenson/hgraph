@@ -201,6 +201,25 @@ namespace hgraph
             };
         }
 
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            DynamicStorageMetrics result = slots_.dynamic_storage_metrics();
+            if (!validity_.empty())
+            {
+                using bitset_type = sul::dynamic_bitset<>;
+                result.live_bytes += validity_.num_blocks() * sizeof(typename bitset_type::block_type);
+                result.reserved_bytes +=
+                    (validity_.capacity() / bitset_type::bits_per_block) *
+                    sizeof(typename bitset_type::block_type);
+            }
+            const auto &ops = element_binding_.ops_ref();
+            for (std::size_t index = 0; index < size_; ++index)
+            {
+                result += ops.dynamic_storage_metrics(slots_.value_memory(index));
+            }
+            return result;
+        }
+
       private:
         ValueTypeRef element_binding_{nullptr};
         ValueSlotStore          slots_{};
@@ -448,7 +467,8 @@ namespace hgraph
     [[nodiscard]] inline const MutableListValueOps &mutable_list_ops() noexcept
     {
         using namespace mutable_container_detail;
-        static const MutableListValueOps ops = {
+        static const MutableListValueOps ops = [] {
+            auto value = MutableListValueOps{
             {{{// ValueOps:
                ValueOpsKind::MutableList,
                nullptr,
@@ -476,7 +496,11 @@ namespace hgraph
             &list_pop_back,
             &list_clear,
             &list_push_back_unset,
-        };
+            };
+            value.dynamic_storage_metrics_impl =
+                &container_ops_detail::compact_dynamic_storage_metrics<MutableListStorage>;
+            return value;
+        }();
         return ops;
     }
 
@@ -638,6 +662,35 @@ namespace hgraph
                 .key_stride = key_binding_.checked_plan().layout.size,
                 .state_offset = offset_of(&keys_.live),
             };
+        }
+
+        [[nodiscard]] DynamicStorageMetrics key_set_dynamic_storage_metrics() const noexcept
+        {
+            DynamicStorageMetrics result = keys_.dynamic_storage_metrics();
+            const auto &ops = key_binding_.ops_ref();
+            for (std::size_t slot = 0; slot < keys_.slot_capacity(); ++slot)
+            {
+                if (keys_.slot_constructed(slot))
+                {
+                    result += ops.dynamic_storage_metrics(keys_.key_memory(slot));
+                }
+            }
+            return result;
+        }
+
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            DynamicStorageMetrics result = key_set_dynamic_storage_metrics();
+            result += values_.dynamic_storage_metrics();
+            const auto &ops = value_binding_.ops_ref();
+            for (std::size_t slot = 0; slot < values_.slot_capacity(); ++slot)
+            {
+                if (values_.constructed.test(slot))
+                {
+                    result += ops.dynamic_storage_metrics(values_.value_memory(slot));
+                }
+            }
+            return result;
         }
 
       private:
@@ -940,7 +993,8 @@ namespace hgraph
     [[nodiscard]] inline const SetValueOps &mutable_map_key_set_ops() noexcept
     {
         using namespace mutable_container_detail;
-        static const SetValueOps ops = {
+        static const SetValueOps ops = [] {
+            auto value = SetValueOps{
             {{ValueOpsKind::Set,
               nullptr,
               false,
@@ -960,7 +1014,14 @@ namespace hgraph
              &map_make_keys_range,
              nullptr},
             &map_contains,
-        };
+            };
+            value.dynamic_storage_metrics_impl = [](
+                const void *, const void *memory) noexcept {
+                return static_cast<const MutableMapStorage *>(memory)
+                    ->key_set_dynamic_storage_metrics();
+            };
+            return value;
+        }();
         return ops;
     }
 
@@ -1003,7 +1064,8 @@ namespace hgraph
     [[nodiscard]] inline const MutableMapValueOps &mutable_map_ops() noexcept
     {
         using namespace mutable_container_detail;
-        static const MutableMapValueOps ops = {
+        static const MutableMapValueOps ops = [] {
+            auto value = MutableMapValueOps{
             {{{// ValueOps:
                ValueOpsKind::MutableMap,
                nullptr,
@@ -1038,7 +1100,11 @@ namespace hgraph
             &map_erase,
             &map_clear,
             &map_value_or_emplace,
-        };
+            };
+            value.dynamic_storage_metrics_impl =
+                &container_ops_detail::compact_dynamic_storage_metrics<MutableMapStorage>;
+            return value;
+        }();
         return ops;
     }
 
@@ -1123,6 +1189,20 @@ namespace hgraph
                 .stride = element_binding_.checked_plan().layout.size,
                 .state_offset = offset_of(&keys_.live),
             };
+        }
+
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            DynamicStorageMetrics result = keys_.dynamic_storage_metrics();
+            const auto &ops = element_binding_.ops_ref();
+            for (std::size_t slot = 0; slot < keys_.slot_capacity(); ++slot)
+            {
+                if (keys_.slot_constructed(slot))
+                {
+                    result += ops.dynamic_storage_metrics(keys_.key_memory(slot));
+                }
+            }
+            return result;
         }
 
       private:
@@ -1297,7 +1377,8 @@ namespace hgraph
     [[nodiscard]] inline const MutableSetValueOps &mutable_set_ops() noexcept
     {
         using namespace mutable_container_detail;
-        static const MutableSetValueOps ops = {
+        static const MutableSetValueOps ops = [] {
+            auto value = MutableSetValueOps{
             {{// IndexedValueOps:
               {// ValueOps:
                ValueOpsKind::MutableSet,
@@ -1324,7 +1405,11 @@ namespace hgraph
             &set_add,
             &set_remove,
             &set_clear,
-        };
+            };
+            value.dynamic_storage_metrics_impl =
+                &container_ops_detail::compact_dynamic_storage_metrics<MutableSetStorage>;
+            return value;
+        }();
         return ops;
     }
 

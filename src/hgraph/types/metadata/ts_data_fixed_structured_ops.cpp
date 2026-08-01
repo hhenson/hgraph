@@ -279,6 +279,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 .mutable_tracking_impl     = &fixed_mutable_tracking,
                 .has_current_value_impl    = &fixed_has_current_value,
                 .all_valid_impl            = &fixed_all_valid,
+                .dynamic_storage_metrics_impl = &fixed_dynamic_storage_metrics,
                 .value_memory_impl         = &fixed_value_memory,
                 .mutable_value_memory_impl = &fixed_mutable_value_memory,
                 .delta_memory_impl         = &fixed_delta_memory,
@@ -330,6 +331,7 @@ namespace hgraph::ts_data_plan_factory_detail
             value_indexed_ops.owning_type_impl      = &fixed_owning_binding;
             value_indexed_ops.copy_construct_view_impl = &fixed_value_copy_construct_view;
             value_indexed_ops.copy_assign_view_impl    = &fixed_value_copy_assign_view;
+            value_indexed_ops.dynamic_storage_metrics_impl = &fixed_dynamic_storage_metrics;
 
             delta_bundle_ops = IndexedValueOps{
                 {ValueOpsKind::Indexed, this, false, &fixed_delta_bundle_hash, &fixed_delta_bundle_equals,
@@ -517,6 +519,20 @@ namespace hgraph::ts_data_plan_factory_detail
             }
             const auto offset = state->element_data_offsets[index];
             return offset == 0 ? memory : advance(memory, offset);
+        }
+
+        [[nodiscard]] static DynamicStorageMetrics fixed_dynamic_storage_metrics(
+            const void *context, const void *memory) noexcept
+        {
+            const auto *state = ctx(context);
+            DynamicStorageMetrics result{};
+            for (std::size_t index = 0; index < state->element_count(); ++index)
+            {
+                const auto &ops = child_ops(state->element_type(index));
+                result += ops.dynamic_storage_metrics_impl(
+                    ops.context, child_data(state, memory, index));
+            }
+            return result;
         }
 
         [[nodiscard]] static std::size_t owned_child_count(const void *context, const void *) noexcept

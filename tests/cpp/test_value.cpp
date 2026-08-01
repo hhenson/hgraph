@@ -39,6 +39,60 @@ namespace
     };
 }
 
+TEST_CASE("Value storage metrics expose owned string and bytes allocations", "[memory]")
+{
+    using namespace hgraph;
+
+    auto &registry = TypeRegistry::instance();
+    (void)registry.register_scalar<std::string>("str");
+    (void)registry.register_scalar<Bytes>("bytes");
+
+    const std::string text(256, 'x');
+    Value string_value{text};
+    const auto string_metrics = string_value.view().dynamic_storage_metrics();
+    CHECK(string_metrics.live_bytes == text.size() + 1);
+    CHECK(string_metrics.reserved_bytes >= string_metrics.live_bytes);
+
+    Value bytes_value{Bytes{text}};
+    const auto bytes_metrics = bytes_value.view().dynamic_storage_metrics();
+    CHECK(bytes_metrics.live_bytes == text.size() + 1);
+    CHECK(bytes_metrics.reserved_bytes >= bytes_metrics.live_bytes);
+
+    Value short_value{std::string{"small"}};
+    CHECK(short_value.view().dynamic_storage_metrics().live_bytes == 0);
+    CHECK(short_value.view().dynamic_storage_metrics().reserved_bytes == 0);
+}
+
+TEST_CASE("Value storage metrics recurse through fixed compounds and Owned", "[memory]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    auto &factory = ValuePlanFactory::instance();
+    const auto *str_meta = registry.register_scalar<std::string>("str");
+    const std::string text(256, 'x');
+
+    Value tuple{factory.type_for(registry.tuple({str_meta, str_meta}))};
+    tuple.as_tuple().begin_mutation().at(0).checked_mutable_as<std::string>() = text;
+    CHECK(tuple.view().dynamic_storage_metrics().live_bytes >= text.size() + 1);
+
+    Value fixed_list{factory.type_for(registry.list(str_meta, 2))};
+    fixed_list.begin_mutation().as_mutable_indexed().at(1).checked_mutable_as<std::string>() = text;
+    CHECK(fixed_list.view().dynamic_storage_metrics().live_bytes >= text.size() + 1);
+
+    const auto *bundle_schema = registry.bundle(
+        "MemoryMetricsBundle", {{"label", str_meta}});
+    Value bundle{factory.type_for(bundle_schema)};
+    bundle.as_bundle().begin_mutation().at("label").checked_mutable_as<std::string>() = text;
+    const auto bundle_metrics = bundle.view().dynamic_storage_metrics();
+    CHECK(bundle_metrics.live_bytes >= text.size() + 1);
+
+    Value owned{factory.type_for(registry.owned(bundle_schema))};
+    owned.as_bundle().begin_mutation().at("label").checked_mutable_as<std::string>() = text;
+    const auto owned_metrics = owned.view().dynamic_storage_metrics();
+    CHECK(owned_metrics.live_bytes > bundle_metrics.live_bytes);
+    CHECK(owned_metrics.reserved_bytes >= owned_metrics.live_bytes);
+}
+
 TEST_CASE("Value TypeRecords carry atomic and fixed-composite debug descriptors",
           "[type-erasure][debug-descriptor]")
 {

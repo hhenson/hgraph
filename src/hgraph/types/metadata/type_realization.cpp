@@ -114,6 +114,7 @@ struct TypeRealizationSnapshot::Impl {
       ops.concrete_type_impl = &concrete_type;
       ops.concrete_memory_impl = &concrete_memory;
       ops.mutable_concrete_memory_impl = &mutable_concrete_memory;
+      ops.dynamic_storage_metrics_impl = &dynamic_storage_metrics;
       ops.size = &indexed_size;
       ops.element_at = &element_at;
       ops.element_binding = &element_binding;
@@ -393,6 +394,15 @@ struct TypeRealizationSnapshot::Impl {
     static void *mutable_concrete_memory(const void *context,
                                          void *memory) noexcept {
       return payload(entry(context), memory);
+    }
+
+    [[nodiscard]] static DynamicStorageMetrics dynamic_storage_metrics(
+        const void *context, const void *memory) noexcept {
+      const auto &self = entry(context);
+      const auto active = self.active_type(memory);
+      return active
+                 ? active.ops_ref().dynamic_storage_metrics(payload(self, memory))
+                 : DynamicStorageMetrics{};
     }
 
     [[nodiscard]] static const IndexedValueOps &

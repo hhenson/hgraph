@@ -105,6 +105,15 @@ int main()
 
     static_cast<void>(stdlib::register_standard_types(registry));
 
+    Value long_text{Str(256, 'x')};
+    const DynamicStorageMetrics value_storage =
+        long_text.view().dynamic_storage_metrics();
+    if (value_storage.live_bytes < 257 ||
+        value_storage.reserved_bytes < value_storage.live_bytes)
+    {
+        throw std::runtime_error("installed Value dynamic storage metrics are unusable");
+    }
+
     const auto *ts_int = registry.ts(scalar_descriptor<Int>::value_meta());
     TSOutput    output{*ts_int};
     auto        output_view = output.view(MIN_ST);

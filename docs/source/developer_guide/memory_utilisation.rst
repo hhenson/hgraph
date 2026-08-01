@@ -48,10 +48,12 @@ They must not be combined into one apparent total.
 
 ``Inspector dynamic bytes``
   Live/reserved nested-graph slot-store bytes reported by map, mesh, switch,
-  TSL map, and reducer implementations, plus keyed TSS/TSD output storage
-  attributed through the common TSData ops surface. The peak survives graph
-  teardown in the owned snapshot. Current dynamic reporting is a lower bound,
-  not a native heap total.
+  TSL map, and reducer implementations, plus built-in value and TSData storage
+  attributed through their common erased ops surfaces. This includes node
+  state/scalars, atomic strings and bytes, compound/container payloads, and
+  TS/TSB/TSL/TSS/TSD/TSW output ownership. The peak survives graph teardown in
+  the owned snapshot. Dynamic reporting remains a lower bound, not a native
+  heap total.
 
 ``runtime registry growth``
   Final-minus-pre-run counts for retained node runtime types, graph programs,
@@ -110,7 +112,8 @@ source areas were:
      - Implemented policies report slot live/reserved peaks
    * - Value containers
      - ``compact_storage.h``, ``mutable_container_ops.h``, and value builders
-     - Payload allocation is not currently attributed by Inspector
+     - Raw buffers, validity storage, exact dense indices, retained capacity,
+       and recursive element payloads are reported
    * - Target/observer state
      - ``ts_input/target_link*``, TS data observer sets, and slot observers
      - Inline state is planned; spill/transitions are not fully attributed
@@ -186,15 +189,50 @@ key/value blocks, pointer tables, block descriptors, slot and delta bitmaps,
 free/pending vectors, observer-pointer vectors, and the dense hash index. The
 index uses a contained counting allocator, so its values and rebound bucket
 allocations are measured rather than inferred from load factor. TSD recursively
-adds dynamic ownership reported by constructed child TSData. The child's fixed
-storage is already part of the parent value-slot stride and is therefore not
-counted again.
+adds dynamic ownership reported by constructed child TSData, and both shapes
+include allocations owned by constructed key values. The child's fixed storage
+is already part of the parent value-slot stride and is therefore not counted
+again.
 
 The hook is sampled by Inspector only. It adds no work to graph evaluation and
 does not include allocator headers or fragmentation. A projected TSD key-set
 reports its key-set allocation surface; the owning TSD root reports the full
 dictionary and descendants. Node attribution samples only owned output roots,
 not input aliases or projections.
+
+TSW uses the same hook for its two aligned contiguous allocations: one for
+values and one for evaluation timestamps. Live bytes are the occupied slot
+count multiplied by the two physical strides; reserved bytes use the actual
+retained capacity. A fixed window therefore exposes its configured capacity
+from construction, while a duration window exposes geometric growth retained
+after span eviction or clear. Dynamically allocated element payloads are left
+to the value-storage attribution layer and are added recursively, including the
+separately owned most-recently-evicted value.
+
+Atomic TSData delegates payload attribution to its value binding. Fixed TSB and
+fixed TSL recurse into their embedded children without recounting the fixed
+child bytes already present in the graph plan. Dynamic TSL reports its handle
+and ordinal vectors, each heap-only child allocation, and every child's
+recursive ownership. This makes the same rule hold at every TSData shape:
+static planned bytes are counted once and only separately allocated ownership
+is added dynamically.
+
+The value ops ABI exposes the corresponding cold-path hook. Built-in strings
+and bytes distinguish small-string inline storage from their owned character
+allocation. Fixed tuple, bundle, and list representations recurse through
+their constructed fields; ``Any`` and ``Owned`` recurse through the active
+owner. Compact and mutable list, set, map, queue, and cyclic-buffer storage
+reports raw element/slot buffers, validity metadata, retained capacity, and
+recursive payloads. Hash indices use counting allocators. A map key-set
+projection reports only its keys and index, while the owning map adds the value
+side. Node aggregation also includes scalar configuration and state values and
+deduplicates aliased output roots.
+
+``live_bytes`` describes occupied allocation content and required metadata;
+``reserved_bytes`` describes the complete retained allocation capacity. An
+invalid field may therefore still contribute live payload bytes if its
+constructed storage retains a value. Neither number includes inline object
+bytes, allocator headers, or fragmentation.
 
 Unaccounted dynamic ownership
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -204,14 +242,14 @@ Inspector currently reports native dynamic storage only where a node's
 categories are visible to process metrics but are not fully attributed in an
 inspection snapshot:
 
-* compact and mutable value-container allocations for list, set, map, queue,
-  cyclic buffer, string, and compound values;
-* TSW data-level dynamic capacity and TSData observer spill storage;
+* TSData observer spill storage;
 * input target-link active trees and transient structural-transition objects;
 * wiring builders, signatures, labels, service/adaptor registries, and result
   capture;
 * Python callables, wrappers, generators, values, traceback state, and
   selectively materialised ``PyObject`` mirrors; and
+* opaque or externally shared scalar payloads (for example Arrow-owned buffers)
+  and extension value ops that do not provide the optional metric hook;
 * allocator bookkeeping, fragmentation, thread stacks, shared libraries, and
   pages retained by the system allocator.
 
@@ -467,8 +505,8 @@ Priorities should be re-ranked after each controlled baseline. The static
 audit suggests this order:
 
 1. Extend structural attribution before optimising opaque RSS. Add cold-path
-   metrics for TSD/TSS/TSW key/value capacities, hash/index bytes, observer
-   spill storage, and value-container payloads. Keep collection fast paths
+   metrics for TSData observer spill storage, input target-link trees, and the
+   selectively retained Python bridge state. Keep evaluation fast paths
    unchanged when no Inspector is attached.
 2. Use the cardinality and monotonic-growth profiles to calculate bytes per
    live/reserved key for map, reduce, mesh, and dynamic TSL. Investigate the

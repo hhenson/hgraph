@@ -13,6 +13,7 @@
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <deque>
 #include <exception>
@@ -1471,13 +1472,46 @@ namespace hgraph
             result.static_bytes = type().plan() != nullptr ? type().plan()->layout.size : 0;
         }
 
-        const auto add_ts_data_storage = [&result](const TSOutputView &view) noexcept {
-            const DynamicStorageMetrics metrics = view.data_view().dynamic_storage_metrics();
+        struct TSDataIdentity
+        {
+            const TypeRecord *record{nullptr};
+            const void *memory{nullptr};
+        };
+        std::array<TSDataIdentity, 3> attributed_ts_data{};
+        std::size_t attributed_count = 0;
+        const auto add_ts_data_storage = [&result, &attributed_ts_data,
+                                          &attributed_count](const TSOutputView &view) noexcept {
+            const TSDataView &data = view.data_view();
+            const TSDataIdentity identity{
+                .record = data.storage_type().record(),
+                .memory = data.data(),
+            };
+            bool already_attributed = false;
+            for (std::size_t index = 0; index < attributed_count; ++index)
+            {
+                const auto &existing = attributed_ts_data[index];
+                if (existing.record == identity.record &&
+                    existing.memory == identity.memory)
+                {
+                    already_attributed = true;
+                    break;
+                }
+            }
+            if (already_attributed) { return; }
+            attributed_ts_data[attributed_count++] = identity;
+            const DynamicStorageMetrics metrics = data.dynamic_storage_metrics();
+            result.dynamic_live_bytes += metrics.live_bytes;
+            result.dynamic_reserved_bytes += metrics.reserved_bytes;
+        };
+        const auto add_value_storage = [&result](const ValueView &view) noexcept {
+            const DynamicStorageMetrics metrics = view.dynamic_storage_metrics();
             result.dynamic_live_bytes += metrics.live_bytes;
             result.dynamic_reserved_bytes += metrics.reserved_bytes;
         };
         try
         {
+            if (has_state()) { add_value_storage(state()); }
+            if (has_scalars()) { add_value_storage(scalars()); }
             if (has_output()) { add_ts_data_storage(output(MIN_DT)); }
             if (has_error_output()) { add_ts_data_storage(error_output(MIN_DT)); }
             if (has_recordable_state()) { add_ts_data_storage(recordable_state(MIN_DT)); }

@@ -116,6 +116,23 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] ValueTypeRef time_binding() const { return time_binding_; }
             [[nodiscard]] ValueTypeRef element_binding() const { return element_binding_; }
 
+            /** Exact raw-buffer ownership plus recursively owned payloads. */
+            [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+            {
+                const std::size_t slot_bytes = value_stride() + time_stride();
+                DynamicStorageMetrics result{
+                    .live_bytes     = size_ * slot_bytes,
+                    .reserved_bytes = capacity_ * slot_bytes,
+                };
+                const auto &ops = element_binding_.ops_ref();
+                for (std::size_t index = 0; index < size_; ++index)
+                {
+                    result += ops.dynamic_storage_metrics(element_at(index));
+                }
+                result += evicted_.dynamic_storage_metrics();
+                return result;
+            }
+
             /** The element most recently evicted by a push (hgraph's
                 removed_value) and the evaluation time it fell out. */
             [[nodiscard]] const Value &evicted_element() const noexcept { return evicted_; }
@@ -808,6 +825,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .tracking_impl             = &window_tracking,
                     .mutable_tracking_impl     = &window_mutable_tracking,
                     .has_current_value_impl    = &window_has_current_value,
+                    .dynamic_storage_metrics_impl = &window_dynamic_storage_metrics,
                     .value_memory_impl         = &window_value_memory,
                     .mutable_value_memory_impl = &window_mutable_value_memory,
                     .delta_memory_impl         = &window_delta_memory,
@@ -873,6 +891,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 value_ops.owning_type_impl      = &window_value_owning_binding;
                 value_ops.copy_construct_view_impl = &window_value_copy_construct_view;
                 value_ops.copy_assign_view_impl    = &window_value_copy_assign_view;
+                value_ops.dynamic_storage_metrics_impl = &window_dynamic_storage_metrics;
             }
 
             [[nodiscard]] static const TSWContextBase *ctx(const void *context) noexcept
@@ -920,6 +939,13 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static bool window_has_current_value(const void *context, const void *memory) noexcept
             {
                 return window_tracking(context, memory)->last_modified_time != MIN_DT;
+            }
+
+            [[nodiscard]] static DynamicStorageMetrics window_dynamic_storage_metrics(
+                const void *context, const void *memory) noexcept
+            {
+                if (context == nullptr || memory == nullptr) { return {}; }
+                return storage<Storage>(window_value_memory(context, memory)).dynamic_storage_metrics();
             }
 
             [[nodiscard]] static const void *window_value_memory(const void *context, const void *memory) noexcept

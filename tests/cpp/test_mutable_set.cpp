@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <stdexcept>
+#include <string>
 
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -85,6 +86,25 @@ TEST_CASE("mutable set: add, contains, remove, clear")
 
     set.as_set().begin_mutation().clear();
     CHECK(set.as_set().size() == 0);
+}
+
+TEST_CASE("mutable set: storage metrics include key payloads and retained capacity", "[memory]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *str_meta = registry.register_scalar<std::string>("str");
+    Value set = make_mutable_set(str_meta);
+    const std::string key(256, 'k');
+
+    REQUIRE(set.as_set().begin_mutation().add(Value{key}.view()));
+    const auto populated = set.view().dynamic_storage_metrics();
+    CHECK(populated.live_bytes >= key.size() + 1);
+    CHECK(populated.reserved_bytes >= populated.live_bytes);
+
+    set.as_set().begin_mutation().clear();
+    const auto cleared = set.view().dynamic_storage_metrics();
+    CHECK(cleared.live_bytes < populated.live_bytes);
+    CHECK(cleared.reserved_bytes >= cleared.live_bytes);
 }
 
 TEST_CASE("mutable set: equality is order-independent and a copy is independent")

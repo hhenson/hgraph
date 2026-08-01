@@ -90,6 +90,26 @@ TEST_CASE("mutable list: build empty, append, and read back")
     CHECK(list.to_string() == "[1, 2, 3]");
 }
 
+TEST_CASE("mutable list: storage metrics include nested payloads and retained slots", "[memory]")
+{
+    using namespace hgraph;
+    auto &registry = TypeRegistry::instance();
+    const auto *str_meta = registry.register_scalar<std::string>("str");
+    Value list = make_mutable_list(str_meta);
+    const std::string text(256, 'x');
+
+    list.as_list().begin_mutation().push_back(Value{text}.view());
+    const auto populated = list.view().dynamic_storage_metrics();
+    CHECK(populated.live_bytes >= text.size() + 1);
+    CHECK(populated.reserved_bytes >= populated.live_bytes);
+
+    list.as_list().begin_mutation().clear();
+    const auto cleared = list.view().dynamic_storage_metrics();
+    CHECK(cleared.live_bytes < populated.live_bytes);
+    CHECK(cleared.reserved_bytes > 0);
+    CHECK(cleared.reserved_bytes < populated.reserved_bytes);
+}
+
 TEST_CASE("mutable list: set, pop_back and clear")
 {
     using namespace hgraph;

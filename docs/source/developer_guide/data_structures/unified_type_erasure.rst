@@ -285,6 +285,14 @@ rejected.  This distinction is intentional: a fixed list schema may publish an
 ``Indexed`` table and supports indexed access, but it must not be treated as a
 ``ListValueOps`` object.  Schema kind therefore never implies ops layout.
 
+The value ops ABI also has an optional cold-path ``dynamic_storage_metrics``
+hook. It reports only heap storage exclusively owned by the referenced payload;
+fixed bytes described by the storage plan are not repeated. Built-in compound
+and container implementations recurse through this hook, while extension ops
+may leave it null and report zero. Generic diagnostics can therefore aggregate
+storage without inspecting a concrete representation or running allocation
+estimates on the evaluation path.
+
 ``TypeRecord`` does not own its schema, plan, ops, or debug metadata.  All are
 immutable and have stable addresses for at least the lifetime of the registry.
 Production registries will normally keep them for the process lifetime.  This

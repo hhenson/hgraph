@@ -301,6 +301,22 @@ namespace hgraph
         [[nodiscard]] std::string to_string() const { return view().to_string(); }
         [[nodiscard]] std::string format_string() const { return view().format_string(); }
 
+        /** Heap storage owned by this owner and its constructed payload. */
+        [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
+        {
+            if (!has_value()) { return {}; }
+
+            DynamicStorageMetrics result{};
+            if (storage_.stores_heap())
+            {
+                const auto bytes = storage_.plan()->layout.size;
+                result.live_bytes += bytes;
+                result.reserved_bytes += bytes;
+            }
+            result += binding().ops_ref().dynamic_storage_metrics(storage_.data());
+            return result;
+        }
+
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
         [[nodiscard]] nb::object to_python() const;
         void from_python(nb::handle source);
