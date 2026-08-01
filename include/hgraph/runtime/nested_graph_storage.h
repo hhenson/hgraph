@@ -55,8 +55,7 @@ namespace hgraph
 
         void bind_graph_layout(MemoryUtils::StorageLayout graph_layout)
         {
-            bind_graph_layout(graph_layout,
-                              storage_.bound() ? storage_.allocator() : MemoryUtils::allocator());
+            bind_graph_layout(graph_layout, storage_.allocator());
         }
 
         void bind_graph_layout(MemoryUtils::StorageLayout graph_layout,

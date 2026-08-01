@@ -105,6 +105,41 @@ namespace hgraph
         }
     }  // namespace
 
+    const StableSlotStoreOps &detail::noop_stable_slot_store_ops() noexcept
+    {
+        static const StableSlotStoreOps ops{
+            .representation = StableSlotRepresentation::Unbound,
+            .layout_impl = [](const void *) noexcept { return MemoryUtils::StorageLayout{}; },
+            .allocator_impl = [](const void *) noexcept { return &MemoryUtils::allocator(); },
+            .capacity_impl = [](const void *) noexcept { return std::size_t{0}; },
+            .stride_impl = [](const void *) noexcept { return std::size_t{0}; },
+            .block_count_impl = [](const void *) noexcept { return std::size_t{0}; },
+            .reserve_to_impl = [](void *, std::size_t) {},
+            .slot_memory_impl = [](const void *, std::size_t) noexcept -> const void * {
+                return nullptr;
+            },
+            .live_slot_memory_impl = [](const void *, std::size_t) noexcept -> const void * {
+                return nullptr;
+            },
+            .non_live_slot_memory_impl = [](const void *, std::size_t) noexcept -> const void * {
+                return nullptr;
+            },
+            .constructed_impl = [](const void *, std::size_t) noexcept { return false; },
+            .live_impl = [](const void *, std::size_t) noexcept { return false; },
+            .mark_staged_impl = [](void *, std::size_t) noexcept {},
+            .mark_live_impl = [](void *, std::size_t) noexcept { return false; },
+            .mark_pending_impl = [](void *, std::size_t) noexcept { return false; },
+            .mark_free_impl = [](void *, std::size_t) noexcept {},
+            .reset_states_impl = [](void *) noexcept {},
+            .constructed_count_impl = [](const void *) noexcept { return std::size_t{0}; },
+            .dynamic_storage_metrics_impl = [](const void *) noexcept {
+                return DynamicStorageMetrics{};
+            },
+            .debug_view_impl = [](const void *) noexcept { return StableSlotDebugView{}; },
+        };
+        return ops;
+    }
+
     detail::StableSlotStoreImplementation detail::make_stable_slot_store_implementation(
         StableSlotStateModel model,
         MemoryUtils::StorageLayout layout,

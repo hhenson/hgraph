@@ -244,6 +244,34 @@ TEST_CASE("stable slot store selects tagged pointers for pointer-aligned layouts
     CHECK_FALSE(storage.constructed(0));
 }
 
+TEST_CASE("stable slot store defaults to canonical no-op operations", "[v2 slot utils][stable-slot-store]")
+{
+    StableSlotStore<StableSlotStateModel::ConstructedAndLive> storage;
+
+    CHECK_FALSE(storage.bound());
+    CHECK(storage.representation() == StableSlotRepresentation::Unbound);
+    CHECK(storage.slot_capacity() == 0);
+    CHECK(storage.stride() == 0);
+    CHECK(storage.block_count() == 0);
+    CHECK(&storage.allocator() == &MemoryUtils::allocator());
+    CHECK(storage.slot_memory(3) == nullptr);
+    CHECK(storage.live_slot_memory(3) == nullptr);
+    CHECK(storage.non_live_slot_memory(3) == nullptr);
+    CHECK_FALSE(storage.constructed(3));
+    CHECK_FALSE(storage.live(3));
+    CHECK(storage.constructed_count() == 0);
+    CHECK(storage.dynamic_storage_metrics().live_bytes == 0);
+    CHECK(storage.dynamic_storage_metrics().reserved_bytes == 0);
+    CHECK(storage.debug_view().implementation_pointer == nullptr);
+
+    storage.mark_staged(3);
+    CHECK_FALSE(storage.mark_live(3));
+    CHECK_FALSE(storage.mark_pending_erase(3));
+    storage.mark_free(3);
+    storage.reset_states();
+    CHECK_THROWS_AS(storage.reserve_to(4), std::logic_error);
+}
+
 TEST_CASE("stable slot store preserves bitmap fallback for weak alignment", "[v2 slot utils][stable-slot-store]")
 {
     StableSlotStore<StableSlotStateModel::ConstructedAndLive> storage(
@@ -315,6 +343,9 @@ TEST_CASE("stable slot store moves erased strategies without moving payloads", "
     CHECK_FALSE(source.bound());
     CHECK(source.representation() == StableSlotRepresentation::Unbound);
     CHECK(source.slot_capacity() == 0);
+    CHECK(&source.allocator() == &MemoryUtils::allocator());
+    source.reset_states();
+    CHECK_FALSE(source.mark_live(0));
     CHECK(moved.representation() == StableSlotRepresentation::TaggedPointer);
     CHECK(moved.slot_memory(0) == first);
     CHECK(moved.live(0));

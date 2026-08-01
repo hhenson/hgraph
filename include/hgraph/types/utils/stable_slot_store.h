@@ -63,11 +63,14 @@ namespace hgraph
     {
         using StableSlotStoreImplementationOwner = MemoryUtils::ErasedOwner<>;
 
+        /** Canonical no-op table used by default and moved-from stores. */
+        [[nodiscard]] HGRAPH_EXPORT const StableSlotStoreOps &noop_stable_slot_store_ops() noexcept;
+
         /** Owning result returned by the implementation-only strategy factory. */
         struct StableSlotStoreImplementation
         {
             StableSlotStoreImplementationOwner owner{};
-            const StableSlotStoreOps *ops{nullptr};
+            const StableSlotStoreOps *ops{&noop_stable_slot_store_ops()};
 
             StableSlotStoreImplementation() noexcept = default;
             StableSlotStoreImplementation(const StableSlotStoreImplementation &) = delete;
@@ -112,7 +115,7 @@ namespace hgraph
 
         StableSlotStore(StableSlotStore &&other) noexcept
             : implementation_(std::move(other.implementation_)),
-              ops_(std::exchange(other.ops_, nullptr))
+              ops_(std::exchange(other.ops_, &detail::noop_stable_slot_store_ops()))
         {
         }
 
@@ -121,7 +124,7 @@ namespace hgraph
             if (this != &other)
             {
                 implementation_ = std::move(other.implementation_);
-                ops_ = std::exchange(other.ops_, nullptr);
+                ops_ = std::exchange(other.ops_, &detail::noop_stable_slot_store_ops());
             }
             return *this;
         }
@@ -151,27 +154,27 @@ namespace hgraph
 
         [[nodiscard]] StableSlotRepresentation representation() const noexcept
         {
-            return bound() ? ops_->representation : StableSlotRepresentation::Unbound;
+            return ops_->representation;
         }
         [[nodiscard]] bool bound() const noexcept
         {
-            return ops_ != nullptr && implementation_.has_value();
+            return ops_ != &detail::noop_stable_slot_store_ops();
         }
         [[nodiscard]] std::size_t slot_capacity() const noexcept
         {
-            return bound() ? ops_->capacity_impl(implementation()) : 0;
+            return ops_->capacity_impl(implementation());
         }
         [[nodiscard]] std::size_t stride() const noexcept
         {
-            return bound() ? ops_->stride_impl(implementation()) : 0;
+            return ops_->stride_impl(implementation());
         }
         [[nodiscard]] std::size_t block_count() const noexcept
         {
-            return bound() ? ops_->block_count_impl(implementation()) : 0;
+            return ops_->block_count_impl(implementation());
         }
         [[nodiscard]] const MemoryUtils::AllocatorOps &allocator() const noexcept
         {
-            return bound() ? *ops_->allocator_impl(implementation()) : MemoryUtils::allocator();
+            return *ops_->allocator_impl(implementation());
         }
 
         void reserve_to(std::size_t capacity)
@@ -186,7 +189,7 @@ namespace hgraph
         }
         [[nodiscard]] const void *slot_memory(std::size_t slot) const noexcept
         {
-            return bound() ? ops_->slot_memory_impl(implementation(), slot) : nullptr;
+            return ops_->slot_memory_impl(implementation(), slot);
         }
         [[nodiscard]] void *live_slot_memory(std::size_t slot) noexcept
         {
@@ -194,7 +197,7 @@ namespace hgraph
         }
         [[nodiscard]] const void *live_slot_memory(std::size_t slot) const noexcept
         {
-            return bound() ? ops_->live_slot_memory_impl(implementation(), slot) : nullptr;
+            return ops_->live_slot_memory_impl(implementation(), slot);
         }
         /** Constructed, non-live slot memory (pending erase or transiently staged). */
         [[nodiscard]] void *non_live_slot_memory(std::size_t slot) noexcept
@@ -205,15 +208,15 @@ namespace hgraph
         [[nodiscard]] const void *non_live_slot_memory(std::size_t slot) const noexcept
             requires(Model == StableSlotStateModel::ConstructedAndLive)
         {
-            return bound() ? ops_->non_live_slot_memory_impl(implementation(), slot) : nullptr;
+            return ops_->non_live_slot_memory_impl(implementation(), slot);
         }
         [[nodiscard]] bool constructed(std::size_t slot) const noexcept
         {
-            return bound() && ops_->constructed_impl(implementation(), slot);
+            return ops_->constructed_impl(implementation(), slot);
         }
         [[nodiscard]] bool live(std::size_t slot) const noexcept
         {
-            return bound() && ops_->live_impl(implementation(), slot);
+            return ops_->live_impl(implementation(), slot);
         }
 
         void mark_staged(std::size_t slot) noexcept
@@ -242,16 +245,15 @@ namespace hgraph
         }
         void reset_states() noexcept
         {
-            if (bound()) { ops_->reset_states_impl(implementation()); }
+            ops_->reset_states_impl(implementation());
         }
 
         [[nodiscard]] std::size_t constructed_count() const noexcept
         {
-            return bound() ? ops_->constructed_count_impl(implementation()) : 0;
+            return ops_->constructed_count_impl(implementation());
         }
         [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
         {
-            if (!bound()) { return {}; }
             DynamicStorageMetrics result = ops_->dynamic_storage_metrics_impl(implementation());
             const auto *plan = implementation_.plan();
             if (plan != nullptr)
@@ -264,11 +266,13 @@ namespace hgraph
 
         [[nodiscard]] StableSlotDebugView debug_view() const noexcept
         {
-            if (!bound() || !implementation_.stores_heap()) { return {}; }
             StableSlotDebugView result = ops_->debug_view_impl(implementation());
-            result.implementation_pointer = MemoryUtils::advance(
-                static_cast<const void *>(&implementation_),
-                detail::StableSlotStoreImplementationOwner::debug_storage_offset());
+            if (implementation_.stores_heap())
+            {
+                result.implementation_pointer = MemoryUtils::advance(
+                    static_cast<const void *>(&implementation_),
+                    detail::StableSlotStoreImplementationOwner::debug_storage_offset());
+            }
             return result;
         }
 
@@ -281,14 +285,17 @@ namespace hgraph
 
       private:
         detail::StableSlotStoreImplementationOwner implementation_{};
-        const StableSlotStoreOps *ops_{nullptr};
+        const StableSlotStoreOps *ops_{&detail::noop_stable_slot_store_ops()};
 
         [[nodiscard]] void *implementation() noexcept { return implementation_.data(); }
         [[nodiscard]] const void *implementation() const noexcept { return implementation_.data(); }
 
         void require_bound() const
         {
-            if (!bound()) { throw std::logic_error("StableSlotStore has no bound layout"); }
+            if (ops_ == &detail::noop_stable_slot_store_ops())
+            {
+                throw std::logic_error("StableSlotStore has no bound layout");
+            }
         }
     };
 

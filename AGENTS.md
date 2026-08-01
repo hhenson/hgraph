@@ -147,6 +147,9 @@ the edited documentation, commands, links, or configuration directly.
   explicit erased-ownership pattern. Do not make the semantic facade hold a
   `std::variant` of concrete strategies; reserve variants for cases where
   the closed sum type is itself part of the contract.
+- Keep erased ops pointers non-null. Default and moved-from objects bind a
+  canonical no-op table, so ordinary queries dispatch through the contract
+  instead of branching around a missing implementation.
 - Publish explicit data-only inspection views when debugger metadata needs
   representation details. Debuggers must not infer private implementation
   member layouts or decode standard-library containers.

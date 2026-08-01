@@ -566,6 +566,9 @@ contract; tagged-pointer and bitmap classes stay under the implementation
 boundary. This is the standard boundary for reusable representation policy:
 separate erased behaviour from explicit erased ownership, and reserve
 ``std::variant`` for a sum type that is itself part of the semantic contract.
+The facade's ops pointer is always valid: default and moved-from stores use a
+canonical no-op table, allowing ordinary queries to dispatch without nullable-
+implementation guards.
 
 The common embedded-owner field flag describes the three-word
 ``ErasedOwner<InlineStoragePolicy<>, TypeRecord>`` ABI. The record is read
