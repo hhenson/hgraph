@@ -1212,29 +1212,69 @@ namespace hgraph::service
                       "register_services requires at least one service interface");
         static_assert((detail::service_interface<Services> && ...),
                       "register_services requires service descriptor types");
+
+        // The base path of each interface this implementation provides. These
+        // are the paths a client request must name for the implementation to
+        // be wanted.
+        std::vector<std::string> base_paths;
+        base_paths.reserve(sizeof...(Services));
         (
             [&] {
                 if constexpr (detail::reference_service_interface<Services>)
                 {
-                    w.register_built_service_path(
-                        detail::reference_base_path<Services>(user_path), "reference service");
+                    base_paths.push_back(detail::reference_base_path<Services>(user_path));
                 }
                 else if constexpr (detail::subscription_service_interface<Services>)
                 {
-                    w.register_built_service_path(
-                        detail::subscription_base_path<Services>(user_path), "subscription service");
+                    base_paths.push_back(detail::subscription_base_path<Services>(user_path));
                 }
                 else if constexpr (detail::request_reply_service_interface<Services>)
                 {
-                    w.register_built_service_path(
-                        detail::request_reply_base_path<Services>(user_path), "request/reply service");
+                    base_paths.push_back(detail::request_reply_base_path<Services>(user_path));
                 }
             }(),
             ...);
-        std::vector<WiringServiceImplementationEndpoint> required_endpoints;
-        (detail::append_required_stub_endpoints<Services>(required_endpoints, user_path), ...);
-        detail::wire_service_graph_with_scope<Impl>(
-            w, user_path, "multi-service implementation", std::move(required_endpoints), args...);
+
+        // LAZY, matching register_adaptors and the erased
+        // register_multi_service_impl (RFC 0011 step 4). This was the only
+        // eager registration on either surface, and it diverged from its own
+        // erased counterpart. Being lazy also makes this the single-interface
+        // BY-STUB registration - the quadrant services previously lacked
+        // against register_adaptor / register_automatic_adaptor.
+        auto stored_args = std::tuple<std::decay_t<Args>...>{args...};
+        w.register_service_implementation_candidate(
+            base_paths, "multi-service implementation",
+            [user_path, stored_args = std::move(stored_args)](Wiring &target) {
+                (
+                    [&] {
+                        if constexpr (detail::reference_service_interface<Services>)
+                        {
+                            target.register_built_service_path(
+                                detail::reference_base_path<Services>(user_path), "reference service");
+                        }
+                        else if constexpr (detail::subscription_service_interface<Services>)
+                        {
+                            target.register_built_service_path(
+                                detail::subscription_base_path<Services>(user_path), "subscription service");
+                        }
+                        else if constexpr (detail::request_reply_service_interface<Services>)
+                        {
+                            target.register_built_service_path(
+                                detail::request_reply_base_path<Services>(user_path),
+                                "request/reply service");
+                        }
+                    }(),
+                    ...);
+                std::vector<WiringServiceImplementationEndpoint> required_endpoints;
+                (detail::append_required_stub_endpoints<Services>(required_endpoints, user_path), ...);
+                std::apply(
+                    [&](const auto &...stored) {
+                        detail::wire_service_graph_with_scope<Impl>(
+                            target, user_path, "multi-service implementation",
+                            std::move(required_endpoints), stored...);
+                    },
+                    stored_args);
+            });
     }
 
     template <typename Service>

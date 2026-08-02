@@ -1579,7 +1579,56 @@ namespace
 
         static void compose(Wiring &w)
         {
-            service::register_services<MissingMultiServiceOutputImpl, AddOneService>(w, service::path("missing"));
+            const auto custom = service::path("missing");
+            service::register_services<MissingMultiServiceOutputImpl, AddOneService>(w, custom);
+            // register_services is LAZY (RFC 0011 step 4), so an implementation
+            // nothing asks for is never materialized and never validated. A
+            // client makes the candidate wanted, at which point the
+            // required-endpoint scope fires as before.
+            static_cast<void>(wire<AddOneService>(
+                w, custom, wire<stdlib::const_>(w, Int{1}).as<TS<Int>>()));
+        }
+    };
+
+    inline int single_interface_stub_compositions = 0;
+
+    // RFC 0011 step 4: register_services with ONE interface is the
+    // single-interface BY-STUB registration - the quadrant services lacked
+    // against register_adaptor / register_automatic_adaptor.
+    struct SingleInterfaceStubImpl
+    {
+        [[maybe_unused]] static constexpr auto name = "single_interface_stub_impl";
+
+        static void compose(Wiring &w, Scalar<"path", Str> path)
+        {
+            ++single_interface_stub_compositions;
+            const auto custom = service::path(path.value());
+            auto requests = service::from_graph<AddOneService>(w, custom);
+            service::to_graph<AddOneService>(
+                w, custom, wire<AddOneImplNode>(w, requests).as<TSD<Int, TS<Int>>>());
+        }
+    };
+
+    struct SingleInterfaceStubClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "single_interface_stub_client_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> request)
+        {
+            const auto custom = service::path("single_stub");
+            service::register_services<SingleInterfaceStubImpl, AddOneService>(w, custom);
+            return wire<AddOneService>(w, custom, request);
+        }
+    };
+
+    struct UnrequestedMultiServiceGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "unrequested_multi_service_graph";
+
+        static void compose(Wiring &w)
+        {
+            service::register_services<SingleInterfaceStubImpl, AddOneService>(
+                w, service::path("unrequested"));
         }
     };
 
@@ -2248,6 +2297,30 @@ TEST_CASE("service wiring: multi-interface implementation graph wires explicit s
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<MultiServiceClientGraph>(values<Int>(1)), values<Int>(none, none, 13));
+}
+
+TEST_CASE("service wiring: a single-interface implementation may publish by stub")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // RFC 0011 step 4. register_services with one interface publishes through
+    // from_graph/to_graph rather than by returning a port.
+    single_interface_stub_compositions = 0;
+    CHECK_OUTPUT(eval_node<SingleInterfaceStubClientGraph>(values<Int>(1)),
+                 values<Int>(none, none, 2));
+    CHECK(single_interface_stub_compositions == 1);
+}
+
+TEST_CASE("service wiring: register_services materializes only on demand")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // RFC 0011 step 4: register_services is now LAZY, matching
+    // register_adaptors and the erased register_multi_service_impl. An
+    // implementation nothing requests is never composed.
+    single_interface_stub_compositions = 0;
+    CHECK_NOTHROW(build_graph<UnrequestedMultiServiceGraph>());
+    CHECK(single_interface_stub_compositions == 0);
 }
 
 TEST_CASE("service wiring: service from_graph/to_graph spell the same wiring as impl_input/impl_output")
