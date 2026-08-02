@@ -479,6 +479,38 @@ namespace hgraph
             return ValuePlanFactory::instance().type_for(schema);
         }
 
+        [[nodiscard]] ValueTypeRef realized_input_key_binding_for(const TSValueTypeMetaData &schema)
+        {
+            const auto *key_schema = schema.kind == TSTypeKind::TSS
+                                         ? schema.value_schema != nullptr
+                                               ? schema.value_schema->element_type
+                                               : nullptr
+                                         : schema.kind == TSTypeKind::TSD ? schema.key_type() : nullptr;
+            const auto binding = realized_input_value_binding_for(key_schema);
+            if (!binding) { throw std::logic_error("TSInput owned keyed binding is not resolved"); }
+            return binding;
+        }
+
+        [[nodiscard]] const MemoryUtils::StoragePlan &input_storage_plan(const TSEndpointSchema &endpoint_schema);
+        [[nodiscard]] TSRoleTypeRef input_storage_type_for(const TSEndpointSchema         &endpoint_schema,
+                                                           const MemoryUtils::StoragePlan &root_plan,
+                                                           std::size_t storage_offset,
+                                                           bool root_record,
+                                                           TypeRole storage_role);
+
+        [[nodiscard]] TSRoleTypeRef owned_element_type_for(const TSValueTypeMetaData &schema,
+                                                           TypeRole storage_role)
+        {
+            const auto *element_schema = schema.element_ts();
+            if (element_schema == nullptr)
+            {
+                throw std::logic_error("TSInput owned dynamic element schema is not resolved");
+            }
+            const auto endpoint = TSEndpointSchema::owned(element_schema);
+            const auto &plan = input_storage_plan(endpoint);
+            return input_storage_type_for(endpoint, plan, 0, true, storage_role);
+        }
+
         [[nodiscard]] const MemoryUtils::StoragePlan &
         owned_input_storage_plan(const TSValueTypeMetaData &schema)
         {
@@ -497,8 +529,41 @@ namespace hgraph
             if (schema.kind == TSTypeKind::TSB ||
                 (schema.kind == TSTypeKind::TSL && schema.fixed_size() != 0))
             {
-                const auto *plan = ts_data_plan_factory_detail::synthesise_fixed_plan(schema);
+                const auto *plan = ts_data_plan_factory_detail::synthesise_fixed_plan(
+                    schema, TypeRole::Input);
                 if (plan == nullptr) { throw std::logic_error("TSInput owned fixed storage plan is not resolved"); }
+                return *plan;
+            }
+
+            if (schema.kind == TSTypeKind::TSS)
+            {
+                const auto *plan = ts_data_plan_factory_detail::synthesise_slot_plan(
+                    schema, realized_input_key_binding_for(schema));
+                if (plan == nullptr) { throw std::logic_error("TSInput owned TSS plan is not resolved"); }
+                return *plan;
+            }
+            if (schema.kind == TSTypeKind::TSD)
+            {
+                const auto *plan = ts_data_plan_factory_detail::synthesise_slot_tsd_plan(
+                    schema, realized_input_key_binding_for(schema),
+                    owned_element_type_for(schema, TypeRole::Input));
+                if (plan == nullptr) { throw std::logic_error("TSInput owned TSD plan is not resolved"); }
+                return *plan;
+            }
+            if (schema.kind == TSTypeKind::TSL && schema.fixed_size() == 0)
+            {
+                const auto *plan = ts_data_plan_factory_detail::synthesise_dynamic_list_plan(schema);
+                if (plan == nullptr)
+                {
+                    throw std::logic_error("TSInput owned dynamic TSL plan is not resolved");
+                }
+                return *plan;
+            }
+            if (schema.kind == TSTypeKind::TSW)
+            {
+                const auto *plan = ts_data_plan_factory_detail::synthesise_window_plan(
+                    schema, realized_input_value_binding_for(schema.value_type));
+                if (plan == nullptr) { throw std::logic_error("TSInput owned TSW plan is not resolved"); }
                 return *plan;
             }
 
@@ -507,18 +572,11 @@ namespace hgraph
             return type.checked_plan();
         }
 
-        [[nodiscard]] const MemoryUtils::StoragePlan &input_storage_plan(const TSEndpointSchema &endpoint_schema);
         [[nodiscard]] TSRoleTypeRef input_data_type_for(const TSEndpointSchema         &endpoint_schema,
                                                         const MemoryUtils::StoragePlan &root_plan,
                                                         std::size_t storage_offset,
                                                         TypeRole storage_role,
                                                         std::string_view implementation_label);
-        [[nodiscard]] TSRoleTypeRef input_storage_type_for(const TSEndpointSchema         &endpoint_schema,
-                                                              const MemoryUtils::StoragePlan &root_plan,
-                                                              std::size_t storage_offset,
-                                                              bool root_record,
-                                                              TypeRole storage_role);
-
         [[nodiscard]] std::string child_component_name(const TSValueTypeMetaData *schema, std::size_t index)
         {
             if (schema != nullptr && schema->kind == TSTypeKind::TSB)
@@ -583,8 +641,8 @@ namespace hgraph
                 {
                     throw std::logic_error("TSInput non-peered TSD element type is not resolved");
                 }
-                const auto *plan =
-                    ts_data_plan_factory_detail::synthesise_slot_tsd_plan(*schema, element_type);
+                const auto *plan = ts_data_plan_factory_detail::synthesise_slot_tsd_plan(
+                    *schema, realized_input_key_binding_for(*schema), element_type);
                 if (plan == nullptr)
                 {
                     throw std::logic_error("TSInput non-peered TSD storage plan is not resolved");
@@ -1942,15 +2000,15 @@ namespace hgraph
                 {
                     throw std::logic_error("TSInput non-peered TSD element type is not resolved");
                 }
-                const auto *expected_plan =
-                    ts_data_plan_factory_detail::synthesise_slot_tsd_plan(
-                        *schema, element_type);
+                const auto key_binding = realized_input_key_binding_for(*schema);
+                const auto *expected_plan = ts_data_plan_factory_detail::synthesise_slot_tsd_plan(
+                    *schema, key_binding, element_type);
                 if (expected_plan == nullptr || expected_plan != &root_plan)
                 {
                     throw std::logic_error("TSInput non-peered TSD binding received the wrong storage plan");
                 }
                 const auto &ops = ts_data_plan_factory_detail::slot_tsd_ts_data_ops(
-                    *schema, root_plan, storage_offset, element_type, storage_role);
+                    *schema, root_plan, storage_offset, key_binding, element_type, storage_role);
                 return intern_ts_type(*schema, storage_role, root_plan, ops,
                                       implementation_label);
             }
@@ -2230,6 +2288,48 @@ namespace hgraph
                     (schema->kind == TSTypeKind::TSL && schema->fixed_size() != 0));
         }
 
+        [[nodiscard]] std::string_view dynamic_owned_label(const TSValueTypeMetaData &schema,
+                                                           TypeRole role,
+                                                           bool root_record)
+        {
+            const auto by_role = [role](std::string_view data,
+                                        std::string_view input,
+                                        std::string_view output) {
+                switch (role)
+                {
+                case TypeRole::Data: return data;
+                case TypeRole::Input: return input;
+                case TypeRole::Output: return output;
+                default: throw std::invalid_argument("owned dynamic TSData role is not supported");
+                }
+            };
+            if (schema.kind == TSTypeKind::TSL && schema.fixed_size() == 0)
+            {
+                return root_record
+                           ? by_role("ts.tsl.dynamic.data.root", "ts.tsl.dynamic.input.owned",
+                                     "ts.tsl.dynamic.output.root")
+                           : by_role("ts.tsl.dynamic.data.embedded", "ts.tsl.dynamic.input.embedded",
+                                     "ts.tsl.dynamic.output.embedded");
+            }
+            if (schema.kind == TSTypeKind::TSW)
+            {
+                if (schema.is_duration_based())
+                {
+                    return root_record
+                               ? by_role("ts.tsw.duration.data.root", "ts.tsw.duration.input.owned",
+                                         "ts.tsw.duration.output.root")
+                               : by_role("ts.tsw.duration.data.embedded", "ts.tsw.duration.input.embedded",
+                                         "ts.tsw.duration.output.embedded");
+                }
+                return root_record
+                           ? by_role("ts.tsw.tick.data.root", "ts.tsw.tick.input.owned",
+                                     "ts.tsw.tick.output.root")
+                           : by_role("ts.tsw.tick.data.embedded", "ts.tsw.tick.input.embedded",
+                                     "ts.tsw.tick.output.embedded");
+            }
+            throw std::invalid_argument("owned dynamic TSData label requires dynamic TSL or TSW");
+        }
+
         [[nodiscard]] TSRoleTypeRef input_storage_type_for(const TSEndpointSchema         &endpoint_schema,
                                                               const MemoryUtils::StoragePlan &root_plan,
                                                               std::size_t storage_offset,
@@ -2267,20 +2367,49 @@ namespace hgraph
             if (endpoint_schema.is_owned())
             {
                 const auto &local_plan = input_storage_plan(endpoint_schema);
-                if (dynamic_list || window)
-                    return ts_data_plan_factory_detail::standalone_ts_storage_type(
-                        *schema, storage_role, !root_record);
+                if (dynamic_list)
+                {
+                    const auto element_type = owned_element_type_for(*schema, storage_role);
+                    const auto &ops = ts_data_plan_factory_detail::dynamic_list_ts_data_ops(
+                        *schema, local_plan, 0, element_type, storage_role, !root_record);
+                    return intern_ts_type(
+                        *schema, storage_role, local_plan, ops,
+                        dynamic_owned_label(*schema, storage_role, root_record));
+                }
+                if (window)
+                {
+                    const auto *value = local_plan.find_component("window");
+                    const auto *tracking = local_plan.find_component("tracking");
+                    const auto element_binding = realized_input_value_binding_for(schema->value_type);
+                    if (value == nullptr || tracking == nullptr || !element_binding)
+                    {
+                        throw std::logic_error("owned TSW input storage components are not resolved");
+                    }
+                    const auto &ops = ts_data_plan_factory_detail::window_ts_data_ops(
+                        *schema, local_plan, value->offset, tracking->offset,
+                        element_binding, storage_role, !root_record);
+                    return intern_ts_type(
+                        *schema, storage_role, local_plan, ops,
+                        dynamic_owned_label(*schema, storage_role, root_record));
+                }
                 if (keyed)
                 {
                     const auto &keyed_plan = root_record ? root_plan : local_plan;
-                    const auto &ops = ts_data_plan_factory_detail::slot_ts_data_ops(
-                        *schema, keyed_plan, 0, storage_role, !root_record);
+                    const auto key_binding = realized_input_key_binding_for(*schema);
+                    const auto *ops = schema->kind == TSTypeKind::TSD
+                                          ? &ts_data_plan_factory_detail::slot_tsd_ts_data_ops(
+                                                *schema, keyed_plan, 0, key_binding,
+                                                owned_element_type_for(*schema, storage_role),
+                                                storage_role, !root_record)
+                                          : &ts_data_plan_factory_detail::slot_ts_data_ops(
+                                                *schema, keyed_plan, 0, key_binding,
+                                                storage_role, !root_record);
                     const auto label = schema->kind == TSTypeKind::TSS
                                            ? root_record ? std::string_view{"ts.tss.input.owned"}
                                                          : std::string_view{"ts.tss.input.embedded"}
                                            : root_record ? std::string_view{"ts.tsd.input.owned"}
                                                          : std::string_view{"ts.tsd.input.embedded"};
-                    return intern_ts_type(*schema, storage_role, keyed_plan, ops, label);
+                    return intern_ts_type(*schema, storage_role, keyed_plan, *ops, label);
                 }
                 if (fixed)
                 {
@@ -2319,8 +2448,10 @@ namespace hgraph
                 const auto &child_plan = input_storage_plan(child_schema);
                 const auto element_type = input_storage_type_for(
                     child_schema, child_plan, 0, true, storage_role);
+                const auto key_binding = realized_input_key_binding_for(*schema);
                 const auto &ops = ts_data_plan_factory_detail::slot_tsd_ts_data_ops(
-                    *schema, root_plan, storage_offset, element_type, storage_role, false, true);
+                    *schema, root_plan, storage_offset, key_binding, element_type,
+                    storage_role, false, true);
                 const auto label = storage_role == TypeRole::Output
                                        ? std::string_view{"ts.tsd.output.root"}
                                        : std::string_view{"ts.tsd.input.composite"};

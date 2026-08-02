@@ -730,10 +730,29 @@ namespace hgraph::ts_data_plan_factory_detail
             const MemoryUtils::StoragePlan      *root_plan{nullptr};
         };
 
-        [[nodiscard]] std::unordered_map<const TSValueTypeMetaData *, std::unique_ptr<WindowPlanEntry>> &
+        struct WindowPlanKey
+        {
+            const TSValueTypeMetaData *schema{nullptr};
+            const TypeRecord          *element_binding{nullptr};
+
+            [[nodiscard]] bool operator==(const WindowPlanKey &) const noexcept = default;
+        };
+
+        struct WindowPlanKeyHash
+        {
+            [[nodiscard]] std::size_t operator()(const WindowPlanKey &key) const noexcept
+            {
+                return combine_hash(std::hash<const TSValueTypeMetaData *>{}(key.schema),
+                                    std::hash<const TypeRecord *>{}(key.element_binding));
+            }
+        };
+
+        [[nodiscard]] std::unordered_map<WindowPlanKey, std::unique_ptr<WindowPlanEntry>,
+                                         WindowPlanKeyHash> &
         window_plan_entries() noexcept
         {
-            static std::unordered_map<const TSValueTypeMetaData *, std::unique_ptr<WindowPlanEntry>> entries;
+            static std::unordered_map<WindowPlanKey, std::unique_ptr<WindowPlanEntry>,
+                                      WindowPlanKeyHash> entries;
             return entries;
         }
 
@@ -1458,6 +1477,7 @@ namespace hgraph::ts_data_plan_factory_detail
             const MemoryUtils::StoragePlan *plan{nullptr};
             std::size_t                     value_offset{0};
             std::size_t                     tracking_offset{0};
+            const TypeRecord *element_binding{nullptr};
             TypeRole                        role{TypeRole::Invalid};
             bool                            embedded{false};
 
@@ -1472,6 +1492,7 @@ namespace hgraph::ts_data_plan_factory_detail
                                          std::hash<const MemoryUtils::StoragePlan *>{}(key.plan));
                 seed = combine_hash(seed, key.value_offset);
                 seed = combine_hash(seed, key.tracking_offset);
+                seed = combine_hash(seed, std::hash<const TypeRecord *>{}(key.element_binding));
                 seed = combine_hash(seed, static_cast<std::size_t>(key.role));
                 seed = combine_hash(seed, key.embedded);
                 return seed;
@@ -1500,20 +1521,28 @@ namespace hgraph::ts_data_plan_factory_detail
 
     [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_window_plan(const TSValueTypeMetaData &schema)
     {
+        return synthesise_window_plan(
+            schema, ValuePlanFactory::instance().type_for(schema.value_type));
+    }
+
+    [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_window_plan(
+        const TSValueTypeMetaData &schema,
+        ValueTypeRef element_binding)
+    {
         if (!is_window_ts_data(schema))
         {
             throw std::logic_error("TSDataPlanFactory: TSW storage requires a TSW schema");
         }
-        const auto element_binding = ValuePlanFactory::instance().type_for(schema.value_type);
-        if (!element_binding)
+        if (!element_binding || element_binding.schema() != schema.value_type)
         {
             throw std::logic_error("TSDataPlanFactory: TSW element binding is not resolved");
         }
         const auto time_binding = window_time_binding();
+        const WindowPlanKey key{&schema, element_binding.record()};
 
         std::lock_guard<std::mutex> lock(window_plan_mutex());
         auto                       &entries = window_plan_entries();
-        if (const auto it = entries.find(&schema); it != entries.end()) { return it->second->root_plan; }
+        if (const auto it = entries.find(key); it != entries.end()) { return it->second->root_plan; }
 
         auto entry = std::make_unique<WindowPlanEntry>();
         if (schema.is_duration_based())
@@ -1568,7 +1597,7 @@ namespace hgraph::ts_data_plan_factory_detail
         entry->root_plan = &builder.build();
 
         const auto *result = entry->root_plan;
-        entries.emplace(&schema, std::move(entry));
+        entries.emplace(key, std::move(entry));
         return result;
     }
 
@@ -1579,8 +1608,20 @@ namespace hgraph::ts_data_plan_factory_detail
                                                       TypeRole role,
                                                       bool embedded)
     {
-        const auto element_binding = ValuePlanFactory::instance().type_for(schema.value_type);
-        if (!element_binding)
+        return window_ts_data_ops(
+            schema, plan, value_offset, tracking_offset,
+            ValuePlanFactory::instance().type_for(schema.value_type), role, embedded);
+    }
+
+    [[nodiscard]] const TSDataOps &window_ts_data_ops(const TSValueTypeMetaData      &schema,
+                                                      const MemoryUtils::StoragePlan &plan,
+                                                      std::size_t value_offset,
+                                                      std::size_t tracking_offset,
+                                                      ValueTypeRef element_binding,
+                                                      TypeRole role,
+                                                      bool embedded)
+    {
+        if (!element_binding || element_binding.schema() != schema.value_type)
         {
             throw std::logic_error("TSDataPlanFactory: TSW element binding is not resolved");
         }
@@ -1588,7 +1629,8 @@ namespace hgraph::ts_data_plan_factory_detail
 
         std::lock_guard<std::mutex> lock(window_context_mutex());
         auto                       &contexts = window_contexts();
-        const TSWContextKey         key{&schema, &plan, value_offset, tracking_offset, role, embedded};
+        const TSWContextKey key{
+            &schema, &plan, value_offset, tracking_offset, element_binding.record(), role, embedded};
         if (const auto it = contexts.find(key); it != contexts.end()) { return it->second->ops; }
 
         const auto *window_component = plan.find_component("window");
@@ -1600,13 +1642,13 @@ namespace hgraph::ts_data_plan_factory_detail
         std::unique_ptr<TSWContextCommon> context;
         if (schema.is_duration_based())
         {
-            context = std::make_unique<TimeTSWContext>(schema, *window_component->plan, time_binding, element_binding,
-                                                       value_offset, tracking_offset);
+            context = std::make_unique<TimeTSWContext>(schema, *window_component->plan, time_binding,
+                                                       element_binding, value_offset, tracking_offset);
         }
         else
         {
-            context = std::make_unique<SizeTSWContext>(schema, *window_component->plan, time_binding, element_binding,
-                                                       value_offset, tracking_offset);
+            context = std::make_unique<SizeTSWContext>(schema, *window_component->plan, time_binding,
+                                                       element_binding, value_offset, tracking_offset);
         }
         auto *result = context.get();
         contexts.emplace(key, std::move(context));

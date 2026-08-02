@@ -16,6 +16,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -267,6 +268,351 @@ TEST_CASE("cached composite TSInput builders re-realize owned polymorphic leaves
     const auto second_binding = owned_binding(second_input);
     REQUIRE(second_binding == second_snapshot->type_for(base));
     REQUIRE(second_binding != first_binding);
+}
+
+TEST_CASE("cached owned TSS inputs re-realize polymorphic keys")
+{
+    using namespace hgraph;
+
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *base = registry.bundle("tests.ts_input_cache.tss", "Base", {{"id", integer}}, {}, true);
+    registry.bundle("tests.ts_input_cache.tss", "First", {{"id", integer}, {"value", integer}}, {base});
+    const auto *schema = registry.tss(base);
+    const auto endpoint = TSEndpointSchema::owned(schema);
+    const auto key_binding = [](TSInput &input)
+    {
+        auto root = input.view();
+        return root.as_set().data_view().layout().key_binding;
+    };
+
+    const auto first_snapshot = TypeRealizationSnapshot::capture(registry);
+    const TSInputBuilder *builder = nullptr;
+    TSInput first_input;
+    {
+        TypeRealizationScope scope{first_snapshot.get()};
+        builder = &TSInputBuilderFactory::checked_builder_for(*schema, endpoint);
+        first_input = builder->make_input();
+    }
+    const auto first_binding = key_binding(first_input);
+    auto first_root = first_input.view();
+    const auto *first_plan = first_root.data_view().storage_type().plan();
+    REQUIRE(first_binding == first_snapshot->type_for(base));
+
+    registry.bundle("tests.ts_input_cache.tss", "Second", {{"id", integer}, {"value", integer}, {"other", integer}},
+                    {base});
+    const auto second_snapshot = TypeRealizationSnapshot::capture(registry);
+
+    TSInput second_input;
+    {
+        TypeRealizationScope scope{second_snapshot.get()};
+        const auto &reused = TSInputBuilderFactory::checked_builder_for(*schema, endpoint);
+        REQUIRE(&reused == builder);
+        second_input = reused.make_input();
+    }
+    const auto second_binding = key_binding(second_input);
+    auto second_root = second_input.view();
+    const auto *second_plan = second_root.data_view().storage_type().plan();
+    REQUIRE(second_binding == second_snapshot->type_for(base));
+    REQUIRE(second_binding != first_binding);
+    REQUIRE(second_plan != first_plan);
+}
+
+TEST_CASE("cached owned TSD inputs re-realize polymorphic keys and values")
+{
+    using namespace hgraph;
+
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *key_base = registry.bundle("tests.ts_input_cache.tsd_key", "Base", {{"id", integer}}, {}, true);
+    const auto *value_base = registry.bundle("tests.ts_input_cache.tsd_value", "Base", {{"id", integer}}, {}, true);
+    registry.bundle("tests.ts_input_cache.tsd_key", "First", {{"id", integer}, {"value", integer}}, {key_base});
+    registry.bundle("tests.ts_input_cache.tsd_value", "First", {{"id", integer}, {"value", integer}}, {value_base});
+    const auto *schema = registry.tsd(key_base, registry.ts(value_base));
+    const auto endpoint = TSEndpointSchema::owned(schema);
+    const auto bindings = [](TSInput &input)
+    {
+        auto root = input.view();
+        auto dict = root.as_dict();
+        auto data = dict.data_view();
+        const auto &layout = data.layout();
+        return std::pair{layout.key_binding, layout.element_layout->value_binding};
+    };
+
+    const auto first_snapshot = TypeRealizationSnapshot::capture(registry);
+    const TSInputBuilder *builder = nullptr;
+    TSInput first_input;
+    {
+        TypeRealizationScope scope{first_snapshot.get()};
+        builder = &TSInputBuilderFactory::checked_builder_for(*schema, endpoint);
+        first_input = builder->make_input();
+    }
+    const auto first = bindings(first_input);
+    auto first_root = first_input.view();
+    const auto *first_plan = first_root.data_view().storage_type().plan();
+    REQUIRE(first.first == first_snapshot->type_for(key_base));
+    REQUIRE(first.second == first_snapshot->type_for(value_base));
+
+    registry.bundle("tests.ts_input_cache.tsd_key", "Second", {{"id", integer}, {"value", integer}, {"other", integer}},
+                    {key_base});
+    registry.bundle("tests.ts_input_cache.tsd_value", "Second",
+                    {{"id", integer}, {"value", integer}, {"other", integer}}, {value_base});
+    const auto second_snapshot = TypeRealizationSnapshot::capture(registry);
+
+    TSInput second_input;
+    {
+        TypeRealizationScope scope{second_snapshot.get()};
+        const auto &reused = TSInputBuilderFactory::checked_builder_for(*schema, endpoint);
+        REQUIRE(&reused == builder);
+        second_input = reused.make_input();
+    }
+    const auto second = bindings(second_input);
+    auto second_root = second_input.view();
+    const auto *second_plan = second_root.data_view().storage_type().plan();
+    REQUIRE(second.first == second_snapshot->type_for(key_base));
+    REQUIRE(second.second == second_snapshot->type_for(value_base));
+    REQUIRE(second.first != first.first);
+    REQUIRE(second.second != first.second);
+    REQUIRE(second_plan != first_plan);
+}
+
+TEST_CASE("cached composite TSD inputs re-realize polymorphic keys and owned "
+          "values")
+{
+    using namespace hgraph;
+
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *key_base =
+        registry.bundle("tests.ts_input_cache.composite_tsd_key", "Base", {{"id", integer}}, {}, true);
+    const auto *value_base =
+        registry.bundle("tests.ts_input_cache.composite_tsd_value", "Base", {{"id", integer}}, {}, true);
+    registry.bundle("tests.ts_input_cache.composite_tsd_key", "First", {{"id", integer}, {"value", integer}},
+                    {key_base});
+    registry.bundle("tests.ts_input_cache.composite_tsd_value", "First", {{"id", integer}, {"value", integer}},
+                    {value_base});
+    const auto *element = registry.ts(value_base);
+    const auto *schema = registry.tsd(key_base, element);
+    const auto endpoint = TSEndpointSchema::non_peered_dict(schema, TSEndpointSchema::owned(element));
+    const auto bindings = [](TSInput &input)
+    {
+        auto root = input.view();
+        auto dict = root.as_dict();
+        auto data = dict.data_view();
+        const auto &layout = data.layout();
+        return std::pair{layout.key_binding, layout.element_layout->value_binding};
+    };
+
+    const auto first_snapshot = TypeRealizationSnapshot::capture(registry);
+    const TSInputBuilder *builder = nullptr;
+    TSInput first_input;
+    {
+        TypeRealizationScope scope{first_snapshot.get()};
+        builder = &TSInputBuilderFactory::checked_builder_for(*schema, endpoint);
+        first_input = builder->make_input();
+    }
+    const auto first = bindings(first_input);
+    auto first_root = first_input.view();
+    const auto *first_plan = first_root.data_view().storage_type().plan();
+    REQUIRE(first.first == first_snapshot->type_for(key_base));
+    REQUIRE(first.second == first_snapshot->type_for(value_base));
+
+    registry.bundle("tests.ts_input_cache.composite_tsd_key", "Second",
+                    {{"id", integer}, {"value", integer}, {"other", integer}}, {key_base});
+    registry.bundle("tests.ts_input_cache.composite_tsd_value", "Second",
+                    {{"id", integer}, {"value", integer}, {"other", integer}}, {value_base});
+    const auto second_snapshot = TypeRealizationSnapshot::capture(registry);
+
+    TSInput second_input;
+    {
+        TypeRealizationScope scope{second_snapshot.get()};
+        const auto &reused = TSInputBuilderFactory::checked_builder_for(*schema, endpoint);
+        REQUIRE(&reused == builder);
+        second_input = reused.make_input();
+    }
+    const auto second = bindings(second_input);
+    auto second_root = second_input.view();
+    const auto *second_plan = second_root.data_view().storage_type().plan();
+    REQUIRE(second.first == second_snapshot->type_for(key_base));
+    REQUIRE(second.second == second_snapshot->type_for(value_base));
+    REQUIRE(second.first != first.first);
+    REQUIRE(second.second != first.second);
+    REQUIRE(second_plan != first_plan);
+}
+
+TEST_CASE("cached owned dynamic TSL inputs re-realize polymorphic elements")
+{
+    using namespace hgraph;
+
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *base = registry.bundle("tests.ts_input_cache.dynamic_tsl", "Base", {{"id", integer}}, {}, true);
+    registry.bundle("tests.ts_input_cache.dynamic_tsl", "First", {{"id", integer}, {"value", integer}}, {base});
+    const auto *schema = registry.tsl(registry.ts(base));
+    const auto endpoint = TSEndpointSchema::owned(schema);
+    const auto element_binding = [](TSInput &input)
+    {
+        auto root = input.view();
+        auto list = root.as_list();
+        auto data = list.data_view();
+        const auto &layout = static_cast<const FixedTSLDataLayout &>(data.layout());
+        return layout.element_layout->value_binding;
+    };
+
+    const auto first_snapshot = TypeRealizationSnapshot::capture(registry);
+    const TSInputBuilder *builder = nullptr;
+    TSInput first_input;
+    {
+        TypeRealizationScope scope{first_snapshot.get()};
+        builder = &TSInputBuilderFactory::checked_builder_for(*schema, endpoint);
+        first_input = builder->make_input();
+    }
+    const auto first_binding = element_binding(first_input);
+    auto first_root = first_input.view();
+    const auto *first_plan = first_root.data_view().storage_type().plan();
+    REQUIRE(first_binding == first_snapshot->type_for(base));
+
+    registry.bundle("tests.ts_input_cache.dynamic_tsl", "Second",
+                    {{"id", integer}, {"value", integer}, {"other", integer}}, {base});
+    const auto second_snapshot = TypeRealizationSnapshot::capture(registry);
+
+    TSInput second_input;
+    {
+        TypeRealizationScope scope{second_snapshot.get()};
+        const auto &reused = TSInputBuilderFactory::checked_builder_for(*schema, endpoint);
+        REQUIRE(&reused == builder);
+        second_input = reused.make_input();
+    }
+    const auto second_binding = element_binding(second_input);
+    auto second_root = second_input.view();
+    const auto *second_plan = second_root.data_view().storage_type().plan();
+    REQUIRE(second_binding == second_snapshot->type_for(base));
+    REQUIRE(second_binding != first_binding);
+    REQUIRE(second_plan == first_plan);
+}
+
+TEST_CASE("cached owned TSW inputs re-realize polymorphic elements")
+{
+    using namespace hgraph;
+
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *base = registry.bundle("tests.ts_input_cache.tsw", "Base", {{"id", integer}}, {}, true);
+    registry.bundle("tests.ts_input_cache.tsw", "First", {{"id", integer}, {"value", integer}}, {base});
+    const auto *schema = registry.tsw(base, 3, 1);
+    const auto endpoint = TSEndpointSchema::owned(schema);
+    const auto element_binding = [](TSInput &input)
+    {
+        auto root = input.view();
+        return root.as_window().data_view().layout().element_binding;
+    };
+
+    const auto first_snapshot = TypeRealizationSnapshot::capture(registry);
+    const TSInputBuilder *builder = nullptr;
+    TSInput first_input;
+    {
+        TypeRealizationScope scope{first_snapshot.get()};
+        builder = &TSInputBuilderFactory::checked_builder_for(*schema, endpoint);
+        first_input = builder->make_input();
+    }
+    const auto first_binding = element_binding(first_input);
+    auto first_root = first_input.view();
+    const auto *first_plan = first_root.data_view().storage_type().plan();
+    REQUIRE(first_binding == first_snapshot->type_for(base));
+
+    registry.bundle("tests.ts_input_cache.tsw", "Second", {{"id", integer}, {"value", integer}, {"other", integer}},
+                    {base});
+    const auto second_snapshot = TypeRealizationSnapshot::capture(registry);
+
+    TSInput second_input;
+    {
+        TypeRealizationScope scope{second_snapshot.get()};
+        const auto &reused = TSInputBuilderFactory::checked_builder_for(*schema, endpoint);
+        REQUIRE(&reused == builder);
+        second_input = reused.make_input();
+    }
+    const auto second_binding = element_binding(second_input);
+    auto second_root = second_input.view();
+    const auto *second_plan = second_root.data_view().storage_type().plan();
+    REQUIRE(second_binding == second_snapshot->type_for(base));
+    REQUIRE(second_binding != first_binding);
+    REQUIRE(second_plan != first_plan);
+}
+
+TEST_CASE("cached wholly owned fixed inputs re-realize nested keyed and dynamic storage")
+{
+    using namespace hgraph;
+
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *key_base =
+        registry.bundle("tests.ts_input_cache.nested_key", "Base", {{"id", integer}}, {}, true);
+    const auto *dict_base =
+        registry.bundle("tests.ts_input_cache.nested_dict", "Base", {{"id", integer}}, {}, true);
+    const auto *list_base =
+        registry.bundle("tests.ts_input_cache.nested_list", "Base", {{"id", integer}}, {}, true);
+    registry.bundle("tests.ts_input_cache.nested_key", "First", {{"id", integer}, {"value", integer}}, {key_base});
+    registry.bundle("tests.ts_input_cache.nested_dict", "First", {{"id", integer}, {"value", integer}},
+                    {dict_base});
+    registry.bundle("tests.ts_input_cache.nested_list", "First", {{"id", integer}, {"value", integer}},
+                    {list_base});
+
+    const auto *dict = registry.tsd(key_base, registry.ts(dict_base));
+    const auto *list = registry.tsl(registry.ts(list_base));
+    const auto *root = registry.tsb("TSInputCacheNestedOwnedRoot", {{"dict", dict}, {"list", list}});
+    const auto endpoint = TSEndpointSchema::owned(root);
+    const auto bindings = [](TSInput &input)
+    {
+        auto root_view = input.view();
+        auto bundle = root_view.data_view().as_bundle();
+        auto dict_data = bundle.field("dict");
+        auto list_data = bundle.field("list");
+        const auto &dict_layout =
+            static_cast<const TSDDataLayout &>(dict_data.layout());
+        const auto &list_layout =
+            static_cast<const FixedTSLDataLayout &>(list_data.layout());
+        return std::tuple{
+            dict_layout.key_binding,
+            dict_layout.element_layout->value_binding,
+            list_layout.element_layout->value_binding,
+        };
+    };
+
+    const auto first_snapshot = TypeRealizationSnapshot::capture(registry);
+    const TSInputBuilder *builder = nullptr;
+    TSInput first_input;
+    {
+        TypeRealizationScope scope{first_snapshot.get()};
+        builder = &TSInputBuilderFactory::checked_builder_for(*root, endpoint);
+        first_input = builder->make_input();
+    }
+    const auto first = bindings(first_input);
+    REQUIRE(std::get<0>(first) == first_snapshot->type_for(key_base));
+    REQUIRE(std::get<1>(first) == first_snapshot->type_for(dict_base));
+    REQUIRE(std::get<2>(first) == first_snapshot->type_for(list_base));
+
+    registry.bundle("tests.ts_input_cache.nested_key", "Second",
+                    {{"id", integer}, {"value", integer}, {"other", integer}}, {key_base});
+    registry.bundle("tests.ts_input_cache.nested_dict", "Second",
+                    {{"id", integer}, {"value", integer}, {"other", integer}}, {dict_base});
+    registry.bundle("tests.ts_input_cache.nested_list", "Second",
+                    {{"id", integer}, {"value", integer}, {"other", integer}}, {list_base});
+    const auto second_snapshot = TypeRealizationSnapshot::capture(registry);
+
+    TSInput second_input;
+    {
+        TypeRealizationScope scope{second_snapshot.get()};
+        const auto &reused = TSInputBuilderFactory::checked_builder_for(*root, endpoint);
+        REQUIRE(&reused == builder);
+        second_input = reused.make_input();
+    }
+    const auto second = bindings(second_input);
+    REQUIRE(std::get<0>(second) == second_snapshot->type_for(key_base));
+    REQUIRE(std::get<1>(second) == second_snapshot->type_for(dict_base));
+    REQUIRE(std::get<2>(second) == second_snapshot->type_for(list_base));
+    REQUIRE(std::get<0>(second) != std::get<0>(first));
+    REQUIRE(std::get<1>(second) != std::get<1>(first));
+    REQUIRE(std::get<2>(second) != std::get<2>(first));
 }
 
 TEST_CASE("TSInput builds a non-peered TSB root with nested peered terminals")
