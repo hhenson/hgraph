@@ -1017,24 +1017,43 @@ def service_adaptor(fn=None, resolvers=None):
 
 
 def from_graph(stub, path=""):
-    """Impl-side: the client input of ``stub`` (inside a registered impl)."""
+    """Impl-side: the client input of ``stub`` (inside a registered impl).
+
+    Works for every flavour that has a client input. For services this is the
+    same operation as ``impl_input``/``get_service_inputs`` under the adaptor
+    spelling (RFC 0011 step 3); a reference service has no input and raises.
+    """
     descriptor = stub._require_descriptor() if hasattr(stub, "_require_descriptor") else stub.descriptor
     path = _resolved_service_path(stub, path)
     if stub.flavour == "service_adaptor":
         return WiringPort(_hgraph.service_adaptor_from_graph(
             _current_wiring(), descriptor, path))
-    return WiringPort(_hgraph.adaptor_from_graph(_current_wiring(), descriptor, path))
+    if stub.flavour == "adaptor":
+        return WiringPort(_hgraph.adaptor_from_graph(_current_wiring(), descriptor, path))
+    if stub.flavour == "reference":
+        raise WiringError(
+            f"reference service '{stub.__name__}' has no client input to read")
+    return WiringPort(_hgraph.service_impl_input(_current_wiring(), descriptor, path))
 
 
 def to_graph(stub, out, path=""):
-    """Impl-side: publish the adaptor output of ``stub`` back to clients."""
+    """Impl-side: publish ``stub``'s output back to clients.
+
+    Works for every flavour that has an output. For services this is the same
+    operation as ``impl_output``/``set_service_output`` under the adaptor
+    spelling (RFC 0011 step 3) - the underlying wiring is identical.
+    """
     descriptor = stub._require_descriptor() if hasattr(stub, "_require_descriptor") else stub.descriptor
     path = _resolved_service_path(stub, path)
     if stub.flavour == "service_adaptor":
         _hgraph.service_adaptor_to_graph(
             _current_wiring(), descriptor, path, out=_unwrap(out))
         return
-    _hgraph.adaptor_to_graph(_current_wiring(), descriptor, path, out=_unwrap(out))
+    if stub.flavour == "adaptor":
+        _hgraph.adaptor_to_graph(_current_wiring(), descriptor, path, out=_unwrap(out))
+        return
+    _hgraph.service_impl_output(
+        _current_wiring(), descriptor, path, out=_unwrap(out))
 
 
 def register_adaptor(path, implementation, resolution_dict=None, **kwargs):

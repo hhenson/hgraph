@@ -1599,6 +1599,39 @@ namespace
         }
     };
 
+    // RFC 0011 step 3: the adaptor spelling of impl_input/impl_output. Same
+    // wiring, so the same graph must produce the same result.
+    struct MultiRequestReplyFromToGraphImpl
+    {
+        [[maybe_unused]] static constexpr auto name = "multi_request_reply_from_to_graph_impl";
+
+        static void compose(Wiring &w, Scalar<"path", Str> path)
+        {
+            const auto custom = service::path(path.value());
+            auto add_one_requests = service::from_graph<AddOneService>(w, custom);
+            auto add_ten_requests = service::from_graph<AddTenService>(w, custom);
+            auto add_one_replies = wire<AddOneImplNode>(w, add_one_requests).as<TSD<Int, TS<Int>>>();
+            auto add_ten_replies = wire<AddTenImplNode>(w, add_ten_requests).as<TSD<Int, TS<Int>>>();
+            service::to_graph<AddOneService>(w, custom, add_one_replies);
+            service::to_graph<AddTenService>(w, custom, add_ten_replies);
+        }
+    };
+
+    struct MultiServiceFromToGraphClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "multi_service_from_to_graph_client_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> request)
+        {
+            const auto custom = service::path("multi_from_to");
+            service::register_services<
+                MultiRequestReplyFromToGraphImpl, AddOneService, AddTenService>(w, custom);
+            auto add_one = wire<AddOneService>(w, custom, request);
+            auto add_ten = wire<AddTenService>(w, custom, request);
+            return wire<stdlib::add_>(w, add_one, add_ten).as<TS<Int>>();
+        }
+    };
+
     struct MultiServiceClientGraph
     {
         [[maybe_unused]] static constexpr auto name = "multi_service_client_graph";
@@ -2215,6 +2248,17 @@ TEST_CASE("service wiring: multi-interface implementation graph wires explicit s
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<MultiServiceClientGraph>(values<Int>(1)), values<Int>(none, none, 13));
+}
+
+TEST_CASE("service wiring: service from_graph/to_graph spell the same wiring as impl_input/impl_output")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // RFC 0011 step 3. Identical to the case above, written with the adaptor
+    // verbs - they are aliases onto impl_input/impl_output, not a second
+    // mechanism, so the observable result must match exactly.
+    CHECK_OUTPUT(eval_node<MultiServiceFromToGraphClientGraph>(values<Int>(1)),
+                 values<Int>(none, none, 13));
 }
 
 TEST_CASE("service wiring: shared replay service hands clients to the live reference")

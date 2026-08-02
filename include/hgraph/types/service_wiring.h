@@ -1178,6 +1178,33 @@ namespace hgraph::service
         impl_output<Service>(w, detail::default_service_path<Service>(), std::move(output));
     }
 
+    /**
+     * ``from_graph`` / ``to_graph`` — the adaptor spelling of ``impl_input`` /
+     * ``impl_output`` (RFC 0011 step 3).
+     *
+     * These are aliases, not a second mechanism: ``impl_output`` and
+     * ``adaptor::to_graph`` already build the same stub registration, shared
+     * output source, capture and rank anchor. The adaptor names are the
+     * discoverable ones for "publish this implementation's output", so a
+     * service implementation may use them too and read the same in either
+     * flavour. ``impl_input`` / ``impl_output`` remain and are unchanged.
+     *
+     * A reference service has no client input, so it has no ``from_graph``.
+     */
+    template <typename Service, typename... Args>
+        requires requires(Wiring &w, Args &&...args) { impl_input<Service>(w, std::forward<Args>(args)...); }
+    [[nodiscard]] decltype(auto) from_graph(Wiring &w, Args &&...args)
+    {
+        return impl_input<Service>(w, std::forward<Args>(args)...);
+    }
+
+    template <typename Service, typename... Args>
+        requires requires(Wiring &w, Args &&...args) { impl_output<Service>(w, std::forward<Args>(args)...); }
+    void to_graph(Wiring &w, Args &&...args)
+    {
+        impl_output<Service>(w, std::forward<Args>(args)...);
+    }
+
     template <typename Impl, typename... Services, typename... Args>
     void register_services(Wiring &w, ServicePath user_path, const Args &...args)
     {
