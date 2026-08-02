@@ -1870,6 +1870,19 @@ def impl_output(stub, out, path=""):
 def _register_resolved_service(path, implementation, kwargs, *, wiring=None):
     wiring = _current_wiring() if wiring is None else wiring
     default_fallback = path is None
+    if not implementation.interfaces:
+        # Catch-all: an implementation declaring NO interface claims every
+        # otherwise-unclaimed endpoint. The underlying candidate mechanism
+        # (register_catch_all_service_implementation_candidate) has no
+        # flavour, so this is the same facility adaptors reach through
+        # @adaptor_impl(interfaces=()) - it is simply no longer
+        # adaptor-exclusive (RFC 0011 step 6).
+        implementation_inputs, scalar_kwargs = _registration_inputs(implementation, kwargs)
+        impl_fn = _bind_registered_impl(implementation, path or "", scalar_kwargs)
+        _hgraph.register_unbound_adaptor_impl(
+            wiring, _wrap_graph_fn(impl_fn),
+            [_unwrap(port) for port in implementation_inputs])
+        return
     if len(implementation.interfaces) > 1:
         resolved_paths = {
             _resolved_service_path(stub, path) for stub in implementation.interfaces
