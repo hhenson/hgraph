@@ -11,7 +11,7 @@ This snapshot rebases the maintained performance and memory suites after the key
 - Reference hgraph: `0.5.34`
 - macOS: Apple M4 Max, Python 3.14.6, Apple Clang 21
 - Linux: physical `hg-linux` host (`hhenson-Darter-Pro`), Intel Core Ultra 7 155H, Python 3.14.4, GCC 14.3; timing and native microbenchmarks pinned to CPU 2
-- Timing: all 68 maintained core and diagnostic scenarios, five fresh-process samples; 56 scenarios have both Python and legacy-C++ comparisons and 12 are hg_cpp-only
+- Timing: all 69 maintained core and diagnostic scenarios, five fresh-process samples; 56 scenarios have both Python and legacy-C++ comparisons and 13 are hg_cpp-only
 - Memory: all 59 maintained profiles plus the process floor, three fresh-process RSS samples at 5 ms intervals, followed by native Inspector accounting
 - Native microbenchmarks: type-erasure/runtime, JSON, and stable-slot representation targets from fresh Release configures
 
@@ -27,9 +27,16 @@ Artifacts:
 - [physical-Linux memory matrix](memory-matrix-20260802-192519-linux-main.md) and [raw memory data](memory-raw-20260802-192519-linux-main.json)
 - [physical-Linux five-sample sparse-capacity check](memory-matrix-20260802-193051-linux-sparse-focused.md) and [raw focused data](memory-raw-20260802-193051-linux-sparse-focused.json)
 
+### Post-merge macOS verification
+
+After PR #265 merged, a clean detached worktree at exact `main` revision `05bcef558d024a195da63fc9fbbede393fd357ae` reran every hg_cpp timing and memory cell without the released references:
+
+- Timing: five fresh processes for all 69 scenarios. The geometric ratio to the recorded macOS baseline was 0.993, or 0.7% faster; 66 scenarios were within 5%, two were faster by more than 5%, and one initial dense-map median was 7.2% slower. Because that baseline cell was noisy, a 15-process follow-up measured 0.0724 seconds versus the recorded 0.0705 seconds, a 2.7% difference within the baseline's observed range. No timing slippage was confirmed.
+- Memory: three fresh processes for all 59 profiles plus Inspector. The peak-RSS geometric ratio was 0.996, or 0.4% lower; 58 profiles were within 10%, one was 13.3% lower, and none was more than 10% higher. Ready RSS was 64.41 versus 64.44 MiB, every Inspector high-water mark was byte-for-byte identical, and service/adaptor registry cardinality remained flat.
+
 ## Executive summary
 
-The current main revision is faster and substantially smaller than the August 1 baseline in the areas targeted since then. Across all 68 hg_cpp timing scenarios, the geometric mean improved by 10.6% on macOS and 4.5% on physical Linux. Nested-graph workloads improved by 38.9% and 28.0% respectively; keyed lifecycle improved by 27.6% and 18.5%. No broad native-path regression is visible.
+The current main revision is faster and substantially smaller than the August 1 baseline in the areas targeted since then. Across the 68 hg_cpp timing scenarios shared with the August 1 baseline, the geometric mean improved by 10.6% on macOS and 4.5% on physical Linux. Nested-graph workloads improved by 38.9% and 28.0% respectively; keyed lifecycle improved by 27.6% and 18.5%. No broad native-path regression is visible.
 
 Across the 56 scenarios comparable with both released implementations, hg_cpp is now 28.41x faster than Python and 2.44x faster than legacy C++ on macOS; on Linux it is 20.51x and 2.12x faster. The remaining legacy-C++ gaps are narrowly concentrated in three Linux Python-heavy workloads. macOS has one marginal 5.4% gap in the Python reducer.
 
@@ -68,7 +75,7 @@ Geometric means are over the 56 scenarios supported by all three implementations
 
 | group | macOS change | Linux change |
 |---|---:|---:|
-| All 68 scenarios | 10.6% faster | 4.5% faster |
+| All 68 scenarios shared with August 1 | 10.6% faster | 4.5% faster |
 | Nested graphs | 38.9% faster | 28.0% faster |
 | TSD — key lifecycle | 27.6% faster | 18.5% faster |
 | Graph construction | 16.2% faster | 9.1% faster |
@@ -84,7 +91,7 @@ At the five-percent threshold, macOS has 30 improvements, 37 unchanged scenarios
 | `tsd_key_reactivation_std` | 43.1% faster | 30.3% faster |
 | `tsd_churn_map_std` | 39.7% faster | 27.2% faster |
 
-The only greater-than-five-percent movement reproduced on both hosts is the five-node Python chain: `tick_py` is 6.1% slower than August 1 on macOS and 7.9% slower on Linux. It remains faster than legacy C++ on both hosts (0.0237 versus 0.0253 seconds on macOS; 0.0355 versus 0.0412 seconds on Linux), so this is a focused watch item rather than an executor-wide regression.
+The initial matrices showed the five-node Python chain 6.1% slower than August 1 on macOS and 7.9% slower on Linux. The post-merge macOS rerun measured 0.0226 seconds, only 1.3% above August 1, so the cross-host movement is not confirmed. Linux remains a focused watch item; the current path is still faster than legacy C++ on both hosts.
 
 ### Remaining legacy-C++ gaps
 
@@ -175,7 +182,7 @@ The production tracked packed-slot representation remains 33.253 bytes per slot.
 ## Recommended focus
 
 1. Profile the three Linux Python-heavy legacy gaps. Measure Python/native transition count and phase time for the Python TSD combiner, dense Python map, and Python service adaptor. Preserve the coarse one-guard-per-executor-phase design unless measurements identify a specific phase boundary that should change.
-2. Recheck `tick_py` with a 15-process same-revision comparison before changing code. Its 6–8% movement reproduces across hosts, but hg_cpp remains faster than legacy C++ and the native scheduler groups improved or stayed flat.
+2. Recheck Linux `tick_py` with a 15-process same-revision comparison before changing code. The post-merge macOS run no longer reproduces its initial movement, hg_cpp remains faster than legacy C++, and the native scheduler groups improved or stayed flat.
 3. Quantify the fixed Python-bridge/allocator floor. The macOS service-adaptor large case is 2.3 MiB versus 1.1/1.3 MiB for the references, while Linux is smaller than both; repeated ordinary graphs also show a small macOS-only RSS step with flat Inspector and registry state.
 4. Continue reducing nested lifecycle allocations. Alternating switch lifecycle improved, but roughly 1,100 allocations and 128–136 KiB per operation remain the largest obvious native lifecycle cost after churn-map allocation reuse was fixed.
 5. Reduce JSON temporary bytes, especially semantic equality and re-encoding. Runtime is stable, but approximately 737 kB of allocation per 18 kB semantic-equality payload remains disproportionate.
