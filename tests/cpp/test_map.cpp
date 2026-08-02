@@ -1737,6 +1737,51 @@ namespace
         }
     };
 
+    struct ReturnRightG
+    {
+        static constexpr auto name = "return_right_g";
+        static Port<TS<Int>> compose(Wiring &, Port<TS<Int>>, Port<TS<Int>> rhs)
+        {
+            return rhs;
+        }
+    };
+
+    struct MapNoKeyUnionG
+    {
+        static constexpr auto name = "map_no_key_union_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w,
+                                               Port<TSD<Str, TS<Int>>> keys_source,
+                                               Port<TSD<Str, TS<Int>>> values)
+        {
+            return wire<stdlib::map_>(w, fn<ReturnRightG>(), keys_source,
+                                      stdlib::no_key(values))
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct WholeDictSizeG
+    {
+        static constexpr auto name = "whole_dict_size_g";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>>,
+                                     Port<TSD<Str, TS<Int>>> whole)
+        {
+            return wire<stdlib::len_>(w, whole).as<TS<Int>>();
+        }
+    };
+
+    struct MapPassThroughUnionG
+    {
+        static constexpr auto name = "map_pass_through_union_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w,
+                                               Port<TSD<Str, TS<Int>>> keys_source,
+                                               Port<TSD<Str, TS<Int>>> whole)
+        {
+            return wire<stdlib::map_>(w, fn<WholeDictSizeG>(), keys_source,
+                                      stdlib::pass_through(whole))
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
     struct MapMismatchedKeyTypesG
     {
         static constexpr auto name = "map_mismatched_key_types_g";
@@ -2230,6 +2275,33 @@ TEST_CASE("map_: no_key demultiplexes but is excluded from key inference")
                      values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 1}, {"y"s, 2}})),
                      values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 10}, {"z"s, 30}})))),
                  values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 11}})));
+}
+
+TEST_CASE("map_: no_key keys are observably excluded from the inferred union")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    // ReturnRightG can publish rhs independently of lhs. If the no_key input
+    // contributed to the inferred union, its z key would therefore emit.
+    CHECK_OUTPUT((eval_node<MapNoKeyUnionG>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 1}, {"y"s, 2}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 10}, {"z"s, 30}})))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 10}})));
+}
+
+TEST_CASE("map_: pass_through keys are observably excluded from the inferred union")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    // WholeDictSizeG does not depend on keys_source's value. If the
+    // pass-through input contributed keys, p/q/r would therefore emit.
+    CHECK_OUTPUT((eval_node<MapPassThroughUnionG>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}})),
+                     values<Value>(dict_delta<Str, TS<Int>>(
+                         {{"p"s, 10}, {"q"s, 20}, {"r"s, 30}})))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 3}, {"b"s, 3}})));
 }
 
 TEST_CASE("map_: mismatched multiplexed key types retain the classifier diagnostic")

@@ -12,6 +12,8 @@ from hgraph import (
     graph,
     len_,
     map_,
+    no_key,
+    pass_through,
 )
 from hgraph.test import eval_node
 
@@ -57,6 +59,18 @@ def _add_concrete_dict_size(
     whole: TSD[int, TS[int]], value: TS[int]
 ) -> TS[int]:
     return value + len_(whole)
+
+
+@graph
+def _return_rhs(_lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    return rhs
+
+
+@graph
+def _whole_dict_size(
+    _value: TS[int], whole: TSD[str, TS[int]]
+) -> TS[int]:
+    return len_(whole)
 
 
 def test_map_explicit_keys_restrict_children():
@@ -163,3 +177,35 @@ def test_map_concrete_tsd_before_first_multiplexed_input_is_direct():
         [{1: 10, 2: 20}, {3: 30}],
         [{"a": 1, "b": 2}, None],
     ) == [{"a": 3, "b": 4}, {"a": 4, "b": 5}]
+
+
+def test_map_no_key_input_is_excluded_from_inferred_key_union():
+    @graph
+    def g(
+        keys_source: TSD[str, TS[int]], values: TSD[str, TS[int]]
+    ) -> TSD[str, TS[int]]:
+        return map_(_return_rhs, keys_source, no_key(values))
+
+    # If values contributed to the inferred union, its independently usable
+    # "z" value would produce an observable output child.
+    assert eval_node(
+        g,
+        [{"x": 1, "y": 2}],
+        [{"x": 10, "z": 30}],
+    ) == [{"x": 10}]
+
+
+def test_map_pass_through_input_is_excluded_from_inferred_key_union():
+    @graph
+    def g(
+        keys_source: TSD[str, TS[int]], whole: TSD[str, TS[int]]
+    ) -> TSD[str, TS[int]]:
+        return map_(_whole_dict_size, keys_source, pass_through(whole))
+
+    # The mapped output does not depend on keys_source's values, so any key
+    # incorrectly inferred from whole would be visible in the output.
+    assert eval_node(
+        g,
+        [{"a": 1, "b": 2}],
+        [{"p": 10, "q": 20, "r": 30}],
+    ) == [{"a": 3, "b": 3}]
