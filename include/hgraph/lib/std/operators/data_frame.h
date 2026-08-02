@@ -27,6 +27,24 @@ namespace hgraph::stdlib
     {
     };
 
+    /** Replay successively supplied frame batches without concatenating the
+        source. Each batch must arrive no later than its first retained row. */
+    struct from_data_frame_batches
+        : Operator<"from_data_frame_batches", In<"frames", TS<Frame>>,
+                   Scalar<"dt_col", Str>, Scalar<"key_col", Str>,
+                   Scalar<"value_col", Str>, Scalar<"offset", TimeDelta>,
+                   Out<TsVar<"O">>>
+    {
+    };
+
+    /** Replay a canonical bitemporal table frame through the native table
+        protocol, selecting the latest as-of revision per partition. */
+    struct replay_data_frame
+        : Operator<"replay_data_frame", Scalar<"data_frame", Frame>,
+                   Scalar<"as_of_time", DateTime>, Out<TsVar<"O">>>
+    {
+    };
+
     struct to_data_frame : Operator<"to_data_frame", In<"ts", TsVar<"S">>, Scalar<"dt_col", Str>,
                                     Scalar<"key_col", Str>, Scalar<"value_col", Str>,
                                     Out<TsVar<"__out__">>>

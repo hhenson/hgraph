@@ -113,12 +113,20 @@ class _OperatorFunction:
     hgraph's SUBSCRIPT form ``op[TYPE](...)`` - the type becomes the
     requested output type of the call."""
 
-    __slots__ = ("__name__", "__qualname__", "_output_type", "_sizes", "_ts_hint",
-                 "_resolutions")
+    __slots__ = ("__name__", "__qualname__", "__signature__", "_output_type",
+                 "_sizes", "_ts_hint", "_resolutions")
 
-    def __init__(self, name, output_type=None, sizes=None, ts_hint=None, resolutions=None):
+    def __init__(self, name, output_type=None, sizes=None, ts_hint=None,
+                 resolutions=None, signature=None):
+        import inspect
+
         self.__name__ = name
         self.__qualname__ = name
+        self.__signature__ = (
+            inspect.signature(signature)
+            if callable(signature)
+            else signature
+        )
         self._output_type = output_type
         self._sizes = sizes
         self._ts_hint = ts_hint
@@ -203,8 +211,10 @@ class _OperatorFunction:
             # type is an INPUT constraint; otherwise it names the output.
             ts_hints.append(output_type)
             output_type = None
-        return _OperatorFunction(self.__name__, output_type=output_type, sizes=sizes or None,
-                                 ts_hint=ts_hints or None, resolutions=resolutions or None)
+        return _OperatorFunction(
+            self.__name__, output_type=output_type, sizes=sizes or None,
+            ts_hint=ts_hints or None, resolutions=resolutions or None,
+            signature=self.__signature__)
 
     def _normalise_type_arguments(self, args, kwargs):
         if "tp" in kwargs or "output_type" in kwargs:
@@ -224,8 +234,14 @@ class _OperatorFunction:
         return f"<operator {self.__name__}>"
 
 
-def operator_function(name):
-    return _OperatorFunction(name)
+def operator_function(name, signature=None):
+    """Return a native operator callable with an optional public signature.
+
+    ``signature`` may be an :class:`inspect.Signature` or a callable whose
+    signature describes the user-facing contract.  Native dispatch and
+    subscripted type selection remain unchanged.
+    """
+    return _OperatorFunction(name, signature=signature)
 
 
 # --- hgraph's WiringPort operator sugar (ext/main _operators pattern) ---

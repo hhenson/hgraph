@@ -116,6 +116,7 @@ class TsArrayMockDataSource(PolarsDataFrameSource):
 
 def test_ts_of_array_from_data_source():
     results = eval_node(ts_of_array_from_data_source, TsArrayMockDataSource, "dt")
+    assert all(type(row).__module__ == "numpy" for row in results)
     results = [list(row) for row in results]
     assert results == [
         [1, 4],
@@ -138,6 +139,7 @@ class TsdKeyArrayMockDataSource(PolarsDataFrameSource):
 
 def test_tsd_k_of_array_from_data_source():
     results = eval_node(tsd_k_a_from_data_source, TsdKeyArrayMockDataSource, "dt", "k")
+    assert all(type(next(iter(row.values()))).__module__ == "numpy" for row in results)
     results = [{k: list(v) for k, v in row.items()} for row in results]
     assert results == [
         fd({"a": [1, 4]}),
@@ -159,6 +161,7 @@ class TsdMatrixMockDataSource(PolarsDataFrameSource):
 
 def test_ts_matrix_from_data_source():
     results = eval_node(ts_of_matrix_from_data_source, TsdMatrixMockDataSource, "dt")
+    assert all(type(row).__module__ == "numpy" for row in results)
     results = [[list(i) for i in row] for row in results]
     assert results == [
         [[1, 4], [2, 5]],

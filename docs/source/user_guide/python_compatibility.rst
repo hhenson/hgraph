@@ -293,7 +293,14 @@ honours ``OUT`` exactly and rejects Arrow columns whose type does not match the
 requested scalar schema. It never rewrites an explicit output type from the
 data. The data-source convenience functions infer unresolved key/value types
 from the Arrow schema before wiring, then call the same native operator with a
-concrete output type.
+concrete output type. They pass the executor's configured start and end times
+to ``DataFrameSource.iter_frames`` and consume provider batches once, without
+eagerly combining the complete source.
+
+``PolarsDataFrameSource`` keeps the upstream constructor and converts its
+input at the Python boundary. ``ArrowDataFrameSource`` is an additive
+hg_cpp extension for callers that already hold a PyArrow table; both feed the
+same Arrow-native C++ path.
 
 Intentional differences from upstream hgraph are maintained in
 :doc:`../developer_guide/roadmap` under *Accepted Deviations*. They are part of
