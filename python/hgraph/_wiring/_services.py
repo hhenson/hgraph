@@ -1462,9 +1462,30 @@ def _bind_registered_impl(implementation, path, config):
                     effective_path = effective_path[:-len(typed_suffix)]
         if any(param.name == "path" for param in parameters):
             arguments["path"] = effective_path
-        client_config = (
-            _client_config(matched_stub, effective_path)
-            if matched_stub is not None else {})
+        if matched_stub is not None:
+            client_config = _client_config(matched_stub, effective_path)
+        else:
+            # A MULTI-interface implementation has no single stub, and
+            # service_materialization_path() is only exposed while
+            # materializing default-fallback candidates - so an exact
+            # multi-interface registration would otherwise see no client
+            # configuration at all and silently substitute its own defaults.
+            # Merge across every interface the implementation provides,
+            # rejecting interfaces that disagree at the same path.
+            client_config = {}
+            sources = {}
+            for candidate in implementation.interfaces:
+                for name, value in _client_config(candidate, effective_path).items():
+                    if name in client_config and client_config[name] != value:
+                        raise WiringError(
+                            f"implementation '{implementation.__name__}' clients at path "
+                            f"{effective_path!r} disagree on wiring-time option {name!r}: "
+                            f"{_flavour_label(sources[name].flavour)} "
+                            f"'{sources[name].__name__}' says {client_config[name]!r}, "
+                            f"{_flavour_label(candidate.flavour)} "
+                            f"'{candidate.__name__}' says {value!r}")
+                    client_config[name] = value
+                    sources[name] = candidate
         for param in scalar_parameters:
             configured = resolved_config.get(param.name, inspect.Parameter.empty)
             client_value = client_config.get(param.name, inspect.Parameter.empty)

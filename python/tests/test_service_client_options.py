@@ -167,3 +167,86 @@ def test_distinct_paths_keep_separate_options():
 
     assert eval_node(app) == [7]
     assert sorted(observed) == [("a", 2), ("b", 5)], observed
+
+
+def test_multi_interface_implementation_receives_client_options():
+    """An exact multi-interface registration must still see client options.
+
+    ``_bind_registered_impl`` has no single stub for a multi-interface
+    implementation, and ``service_materialization_path()`` is exposed only
+    while materializing DEFAULT-fallback candidates - so an exact registration
+    saw no client configuration at all and silently substituted its own
+    defaults. Regression for that gap.
+    """
+    observed = []
+
+    @hg.reference_service
+    def rate(path: str = "m", multiplier: int = 1) -> TS[int]: ...
+
+    @hg.request_reply_service
+    def double(value: TS[int], path: str = "m") -> TS[int]: ...
+
+    @hg.service_impl(interfaces=(rate, double))
+    def impl(path: str, multiplier: int = 1):
+        observed.append(multiplier)
+        hg.to_graph(rate, hg.const(multiplier), path)
+        requests = hg.from_graph(double, path)
+        hg.to_graph(double, hg.map_(lambda v: v * 2, requests), path)
+
+    @graph
+    def app(value: TS[int]) -> TS[int]:
+        hg.register_service("m", impl)
+        return rate(path="m", multiplier=7) + double(value, path="m")
+
+    out = eval_node(app, [1], __end_time__=hg.MIN_ST + 6 * hg.MIN_TD)
+    assert observed == [7], observed
+    assert out[-1] == 9, out
+
+
+def test_multi_interface_options_may_come_from_either_interface():
+    observed = []
+
+    @hg.reference_service
+    def rate(path: str = "m") -> TS[int]: ...
+
+    @hg.request_reply_service
+    def double(value: TS[int], path: str = "m", multiplier: int = 1) -> TS[int]: ...
+
+    @hg.service_impl(interfaces=(rate, double))
+    def impl(path: str, multiplier: int = 1):
+        observed.append(multiplier)
+        hg.to_graph(rate, hg.const(0), path)
+        requests = hg.from_graph(double, path)
+        hg.to_graph(double, hg.map_(lambda v: v * multiplier, requests), path)
+
+    @graph
+    def app(value: TS[int]) -> TS[int]:
+        hg.register_service("m", impl)
+        # Only the request/reply interface declares the option.
+        return rate(path="m") + double(value, path="m", multiplier=5)
+
+    out = eval_node(app, [3], __end_time__=hg.MIN_ST + 6 * hg.MIN_TD)
+    assert observed == [5], observed
+    assert out[-1] == 15, out
+
+
+def test_multi_interface_options_must_agree_across_interfaces():
+    @hg.reference_service
+    def rate(path: str = "m", multiplier: int = 1) -> TS[int]: ...
+
+    @hg.request_reply_service
+    def double(value: TS[int], path: str = "m", multiplier: int = 1) -> TS[int]: ...
+
+    @hg.service_impl(interfaces=(rate, double))
+    def impl(path: str, multiplier: int = 1):
+        hg.to_graph(rate, hg.const(multiplier), path)
+        requests = hg.from_graph(double, path)
+        hg.to_graph(double, hg.map_(lambda v: v * multiplier, requests), path)
+
+    @graph
+    def app(value: TS[int]) -> TS[int]:
+        hg.register_service("m", impl)
+        return rate(path="m", multiplier=2) + double(value, path="m", multiplier=3)
+
+    with pytest.raises(hg.WiringError, match="disagree on wiring-time option"):
+        eval_node(app, [1], __end_time__=hg.MIN_ST + 6 * hg.MIN_TD)
