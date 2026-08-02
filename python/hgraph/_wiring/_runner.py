@@ -12,7 +12,7 @@ from .._signature import _is_time_series
 from .._types import (_GenericTsExpr, _TsExpr, _TypeVarSentinel,
                       _type_var_is_scalar)
 from ._core import (WiringError, WiringPort, _OperatorFunction, _unwrap,
-                    _wiring_stack, wire)
+                    _wiring_lock, _wiring_stack, wire)
 from ._graph import _GraphFn
 from ._node import _PyNode
 from ._sentinels import _simplify_delta
@@ -231,7 +231,21 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
     config.graph_logger.setLevel(config.default_log_level)
     w = None
     wiring_pushed = False
+    wiring_lock_held = False
+
+    def wiring_prepared():
+        """End process-wide wiring serialization before native execution."""
+        nonlocal wiring_pushed, wiring_lock_held
+        if wiring_pushed:
+            _wiring_stack.pop()
+            wiring_pushed = False
+        if wiring_lock_held:
+            _wiring_lock.release()
+            wiring_lock_held = False
+
     try:
+        _wiring_lock.acquire()
+        wiring_lock_held = True
         w = _hgraph.Wiring(state._impl)
         w.configure_wiring_observers(
             config.trace_wiring, config.wiring_observers)
@@ -267,7 +281,8 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
                     observers=config.life_cycle_observers,
                     trace_back_depth=config.trace_back_depth,
                     capture_values=config.capture_values,
-                    cleanup_on_error=config.cleanup_on_error)
+                    cleanup_on_error=config.cleanup_on_error,
+                    _on_prepared=wiring_prepared)
     finally:
         if w is not None:
             for line in w.wiring_trace_lines():
@@ -275,6 +290,8 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
             w._release_seed_context()
         if wiring_pushed:
             _wiring_stack.pop()
+        if wiring_lock_held:
+            _wiring_lock.release()
         if previous_logger is missing:
             state.pop(_GRAPH_LOGGER_KEY, None)
         else:

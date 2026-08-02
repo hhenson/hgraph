@@ -677,8 +677,24 @@ def test_time_series_schema_can_be_lifted_from_compound_scalar():
     schema = TimeSeriesSchema.from_scalar_schema(Value)
 
     assert schema.scalar_type() is Value
+    assert schema.to_scalar_schema() is Value
     assert schema.__annotations__ == {"number": TS[int], "label": TS[str]}
     assert TSB[schema].handle.is_tsb
+
+
+def test_time_series_schema_to_scalar_schema_preserves_inheritance():
+    class BaseBundle(TimeSeriesSchema):
+        number: TS[int]
+
+    class DerivedBundle(BaseBundle):
+        label: TS[str]
+
+    base_scalar = BaseBundle.to_scalar_schema()
+    derived_scalar = DerivedBundle.to_scalar_schema()
+
+    assert issubclass(derived_scalar, base_scalar)
+    assert derived_scalar.__annotations__ == {"label": str}
+    assert derived_scalar(number=7, label="seven").number == 7
 
 
 def test_recursive_base_reference_inside_container_uses_owned_storage():

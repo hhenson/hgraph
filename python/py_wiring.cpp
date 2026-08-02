@@ -1143,7 +1143,8 @@ namespace hgraph::python_bridge
              nb::arg("trace_back_depth") = 1,
              nb::arg("capture_values") = false,
              nb::arg("cleanup_on_error") = true,
-             nb::arg("snapshot") = false)
+             nb::arg("snapshot") = false,
+             nb::arg("_on_prepared") = nb::none())
         .def("push_source", &PyWiring::push_source, nb::arg("ts_type"), nb::arg("conflate") = false,
              nb::arg("on_start") = nb::none());
 

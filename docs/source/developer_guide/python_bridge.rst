@@ -97,7 +97,7 @@ global-state push/pop hooks — address ``hgraph._wiring`` directly):
 Module                        Contents
 ============================ ==================================================
 ``_wiring/_core.py``          The wiring stack (``_wiring_stack`` — THE single
-                              list), ``WiringPort`` + all attached sugar,
+                              list) and top-level wiring lock, ``WiringPort`` + all attached sugar,
                               ``wire()``, ``_OperatorFunction``, the wiring
                               error hierarchy, context publication.
 ``_wiring/_sentinels.py``     ``REMOVED``/``Removed``/``_SetDelta`` and delta
@@ -306,17 +306,23 @@ rule. ``reset_registries`` clears the lookup maps and invalidates Python-side
 generation-keyed caches, but already-published binding objects are never
 destroyed during interpreter teardown.
 
-The single-threaded wiring model
---------------------------------
+Serialized wiring, concurrent execution
+---------------------------------------
 
 Wiring state is a module-level stack (``_wiring/_core.py::_wiring_stack``),
-*not* a thread-local — the runtime is single-threaded by design (ruling
-2026-07-02; the standing "no thread_locals" rule). C++ re-enters Python wiring
-through the *borrowed wiring* pattern: when the C++ side calls back into a
-Python graph function (graph-fn wrapper) or a Python overload (wire
-trampoline), it hands over a borrowed ``PyWiring``; the Python side pushes it
-onto ``_wiring_stack``, wires, and pops. Both re-entry sites follow the same
-push/try/finally/pop shape — if you add a third, copy it exactly.
+*not* a thread-local. Top-level ``run_graph`` / ``evaluate_graph`` authoring is
+serialized by ``_wiring_lock`` because both that stack and native operator
+registration are process-wide. The lock remains held through
+``Wiring::finish()`` and service materialization, where C++ can re-enter Python
+wiring, and is released as soon as the native executor has been constructed.
+The executor run therefore does not hold the wiring lock: distinct native
+executors can progress concurrently on different threads.
+
+C++ re-enters Python wiring through the *borrowed wiring* pattern: when the C++
+side calls back into a Python graph function (graph-fn wrapper) or a Python
+overload (wire trampoline), it hands over a borrowed ``PyWiring``; the Python
+side pushes it onto ``_wiring_stack``, wires, and pops. Both re-entry sites
+follow the same push/try/finally/pop shape — if you add a third, copy it exactly.
 
 ``_wiring_stack`` must remain the **same list object** everywhere it is
 visible (``hgraph._wiring._core``, the ``hgraph._wiring`` aggregation, and

@@ -12,6 +12,7 @@ from hgraph import (
     TIME_SERIES_TYPE,
     CompoundScalar,
     EvaluationMode,
+    GraphConfiguration,
     GlobalContext,
     GlobalState,
     TS,
@@ -22,7 +23,7 @@ from hgraph import (
     compute_node,
     const,
     push_queue,
-    run_graph,
+    evaluate_graph,
     service_adaptor,
     service_adaptor_impl,
     sink_node,
@@ -118,6 +119,13 @@ def _as_port(value, output_type):
 
 
 class _RunGraphOnThread:
+    """Run each client graph on its own worker thread.
+
+    Publications retain their order within a client. Relative timing and tick
+    alignment between independently scheduled clients are intentionally not
+    defined.
+    """
+
     __name__ = "run_graph_on_thread"
 
     def __init__(self, output_type=None):
@@ -131,20 +139,32 @@ class _RunGraphOnThread:
         fn,
         global_state=None,
         params=None,
-        *,
+        out_=None,
         path="thread_graph_runner",
     ):
-        if self.output_type is None:
+        output_type = self.output_type
+        if output_type is None:
+            output_type = out_
+        elif out_ is not None and out_ != output_type:
+            raise TypeError(
+                "out_ does not match the bracket-specialized output type")
+        if output_type is None:
             raise TypeError("run_graph_on_thread must be specialized with an output type")
         request = _make_request(
             _as_port(fn, TS[object]),
-            _as_port(global_state or {}, TS[dict[str, object]]),
-            _as_port(params or {}, TS[dict[str, object]]),
+            _as_port(
+                global_state if global_state is not None else {},
+                TS[dict[str, object]],
+            ),
+            _as_port(
+                params if params is not None else {},
+                TS[dict[str, object]],
+            ),
         )
         raw = _run_graph_on_thread(request, path=path)
-        output_schema = RunGraphOutput[self.output_type]
+        output_schema = RunGraphOutput[output_type]
         return TSB[output_schema].from_ts(
-            out=_typed_output[OUT : self.output_type](raw.out),
+            out=_typed_output[OUT : output_type](raw.out),
             started=raw.started,
             finished=raw.finished,
             status=raw.status,
@@ -248,12 +268,25 @@ def _date_at_midnight(value):
 def _run_child(request: _RunGraphRequest, publish):
     params = dict(request.params)
     run_mode = params.pop("run_mode", EvaluationMode.SIMULATION)
-    start_time = params.pop("start_time", None)
-    end_time = params.pop("end_time", None)
+    # Time bounds configure the child engine, but remain available to child
+    # graphs that declare parameters with these names.  This matches the
+    # established Python adaptor contract.
+    start_time = params.get("start_time")
+    end_time = params.get("end_time")
     if start_time is None:
-        start_time = _date_at_midnight(params.pop("start_date", None))
+        start_time = _date_at_midnight(params.get("start_date"))
     if end_time is None:
-        end_time = _date_at_midnight(params.pop("end_date", None))
+        end_time = _date_at_midnight(params.get("end_date"))
+    config_options = {}
+    for name in (
+        "graph_logger",
+        "capture_values",
+        "cleanup_on_error",
+        "trace_back_depth",
+    ):
+        value = params.pop(name, None)
+        if value is not None:
+            config_options[name] = value
 
     state = GlobalState()
     for key, value in request.global_state.items():
@@ -265,11 +298,14 @@ def _run_child(request: _RunGraphRequest, publish):
         def child():
             request.fn(**_wire_graph_parameters(request.fn, params))
 
-        run_graph(
+        evaluate_graph(
             child,
-            start_time=start_time,
-            end_time=end_time,
-            run_mode=run_mode,
+            GraphConfiguration(
+                run_mode=run_mode,
+                start_time=start_time,
+                end_time=end_time,
+                **config_options,
+            ),
         )
     publish({"finished": True, "status": "OK"})
 
