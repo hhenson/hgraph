@@ -68,14 +68,25 @@ the upstream constructor signature.
 constructor signature and ``to_scalar_schema`` helper are therefore not part
 of the curated contract; edits are created by the graph as a typed ``TSB``.
 
-C++-first correspondence
-------------------------
+C++-first correspondence: same behavior, different representation
+-------------------------------------------------------------------
 
-The native service-adaptor contract permits an input-only interface and omits
-``/to_graph`` storage and registration for it.  Multi-input clients are packed
-into one typed request bundle and the service transport snapshots all valid
-fields on the first request before applying later deltas.  This ensures static
-client fields remain present when another field ticks.  Equivalent C++ tests
-cover multiple clients, repeated cycles and static first-request fields; the
-Python tests cover the bridge, row shapes, editable teardown and multi-table
-publication.
+Released hgraph already exposes ``publish_multitable`` as a sink-only service
+adaptor.  hg_cpp preserves that public contract and behavior.  The differences
+described here are internal native representation choices, not parity
+deviations.
+
+The native service-adaptor contract represents an input-only interface
+directly, so it omits unused ``/to_graph`` storage and registration.  This
+changes internal storage and topology only; neither supported public surface
+has a reply channel for this adaptor.
+
+Released hgraph carries multi-input client fields on independent stateful
+request streams, which retain a static field when another field ticks.  hg_cpp
+packs the same fields into one typed native request bundle.  Its transport sends
+a full current-state snapshot for the first request and applies deltas
+thereafter, reproducing the same retained-field semantics.  Equivalent C++
+tests cover multiple clients, repeated cycles and static first-request fields;
+the Python tests cover the bridge, row shapes, editable teardown and
+multi-table publication.  Only the items explicitly listed under
+`Deliberate differences`_ are accepted issue #216 deviations.
