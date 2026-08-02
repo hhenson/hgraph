@@ -23,12 +23,10 @@ namespace hgraph::adaptor
     {
     };
 
-    struct AdaptorPath
-    {
-        std::string   value{};
-        ResolutionMap resolution{};
-        bool          has_typed_suffix{false};
-    };
+    /** Alias of the shared ``hgraph::BoundaryPath`` (RFC 0011 step 8): the
+     *  two path types were field-identical, and a single implementation can
+     *  only span services and adaptors if they are one type. */
+    using AdaptorPath = BoundaryPath;
 
     [[nodiscard]] inline AdaptorPath path(std::string_view value)
     {
@@ -264,7 +262,8 @@ namespace hgraph::adaptor
 
         [[nodiscard]] inline Value path_key_value(const std::string &full_path)
         {
-            return Value{Str{full_path}};
+            // Shared implementation (RFC 0011 step 8).
+            return wiring_path_detail::boundary_path_key(full_path);
         }
 
         // Per-ROLE identity markers (the services runtime-identity ruling,

@@ -25,12 +25,10 @@
 
 namespace hgraph::service
 {
-    struct ServicePath
-    {
-        std::string   value{};
-        ResolutionMap resolution{};
-        bool          has_typed_suffix{false};
-    };
+    /** Alias of the shared ``hgraph::BoundaryPath`` (RFC 0011 step 8): the
+     *  two path types were field-identical, and a single implementation can
+     *  only span services and adaptors if they are one type. */
+    using ServicePath = BoundaryPath;
 
     [[nodiscard]] inline ServicePath path(std::string_view value)
     {
@@ -899,7 +897,10 @@ namespace hgraph::service
             return capture.peered_node();
         }
 
-        template <typename Service, typename Impl>
+        // ``Impl`` was a template parameter here but never used in the body,
+        // so the two call sites' differing arguments interned to the same node
+        // regardless. Dropped (RFC 0011 step 8).
+        template <typename Service>
         const WiringInstance *capture_reference_service_output(Wiring &w,
                                                                Port<reference_output_schema_t<Service>> output,
                                                                Port<REF<reference_output_schema_t<Service>>> shared_output,
@@ -1076,7 +1077,7 @@ namespace hgraph::service
                         return detail::wire_service_impl<Impl, output_schema>(target, user_path, stored...);
                     }, stored_args);
                 const WiringInstance *capture =
-                    detail::capture_reference_service_output<Service, Impl>(
+                    detail::capture_reference_service_output<Service>(
                         target, output, shared_output, user_path);
                 target.register_service_rank_anchor(base_path, capture);
             });
@@ -1143,7 +1144,7 @@ namespace hgraph::service
             user_path.resolution, w.service_implementation_stub_resolution(endpoint));
         w.register_service_implementation_stub(endpoint, "reference service");
         auto shared_output = detail::reference_shared_output_source<Service>(w, user_path);
-        const WiringInstance *capture = detail::capture_reference_service_output<Service, explicit_impl_output_marker>(
+        const WiringInstance *capture = detail::capture_reference_service_output<Service>(
             w, std::move(output), shared_output, user_path);
         w.register_service_rank_anchor(detail::reference_base_path<Service>(user_path), capture);
     }
@@ -1732,7 +1733,8 @@ namespace hgraph::service_adaptor
 
         [[nodiscard]] inline Value path_key_value(const std::string &full_path)
         {
-            return Value{Str{full_path}};
+            // Shared implementation (RFC 0011 step 8).
+            return wiring_path_detail::boundary_path_key(full_path);
         }
 
         struct request_input_source_marker

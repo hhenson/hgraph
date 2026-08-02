@@ -476,6 +476,23 @@ namespace hgraph
             bool          has_typed_suffix{false};
         };
 
+    }   // reopened below; see BoundaryPath
+
+    /**
+     * The wiring path of a service or adaptor boundary: a path string, the
+     * resolution its scalar qualifiers imply, and whether it carries a typed
+     * suffix.
+     *
+     * ``service::ServicePath`` and ``adaptor::AdaptorPath`` were separate but
+     * field-identical structs; they are now aliases of this one type
+     * (RFC 0011 step 8), which is what lets a single implementation span both
+     * families.
+     */
+    using BoundaryPath = wiring_path_detail::TypedPathValue;
+
+    namespace wiring_path_detail
+    {
+
         inline void append_escaped_path_component(std::string &out, std::string_view value)
         {
             constexpr char hex[] = "0123456789ABCDEF";
@@ -707,6 +724,22 @@ namespace hgraph
             path.resolution = std::move(merged);
             return path;
         }
+
+        /**
+         * Helpers shared by the service and adaptor boundary families
+         * (RFC 0011 step 8). These were byte-for-byte copies in both
+         * ``service_wiring.h`` and ``adaptor_wiring.h``, differing only in an
+         * error string; the family name is now a parameter.
+         */
+
+        /** Wiring intern key for a boundary path. Boundary source nodes do not
+         *  carry a path scalar at runtime - this exists only so two nodes at
+         *  the same path dedup. */
+        [[nodiscard]] inline Value boundary_path_key(const std::string &full_path)
+        {
+            return Value{Str{full_path}};
+        }
+
     }  // namespace wiring_path_detail
 
     /**
