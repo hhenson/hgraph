@@ -242,6 +242,16 @@ namespace hgraph
         /** Whether a failed run stops the graph before propagating its error. */
         [[nodiscard]] bool cleanup_on_error() const noexcept;
 
+        /**
+         * Run this executor on the calling thread.
+         *
+         * Distinct executors may run concurrently on different threads without
+         * coordinating their evaluation. The owning ``GraphExecutorValue`` for
+         * this view must outlive the run. A single executor is mutable run state:
+         * invoking ``run()`` concurrently on two views of the same executor is
+         * not supported. User callbacks remain responsible for synchronising any
+         * external state they deliberately share between graphs.
+         */
         void run() const;
         void request_stop() const noexcept;
 

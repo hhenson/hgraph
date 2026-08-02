@@ -1,15 +1,19 @@
 """Wiring stack, ports, the erased ``wire`` verb and the wiring errors.
 
-Wiring state is a module-level stack (the runtime is single-threaded by
-design — the standing no-thread-locals ruling). ``_wiring_stack`` is THE
-single list object: tests and C++ re-entry mutate it in place; nothing may
-rebind it."""
+Wiring state is a module-level stack. Top-level ``run_graph`` wiring is
+serialized because the stack and native operator registry are process-wide;
+the serialization ends once the native executor has been built, so distinct
+executors may run concurrently. ``_wiring_stack`` is THE single list object:
+tests and C++ re-entry mutate it in place; nothing may rebind it."""
+import threading
+
 import _hgraph
 
 from .._types import _TsExpr
 from ._sentinels import _REDUCE_ZERO
 
 _wiring_stack = []
+_wiring_lock = threading.RLock()
 
 
 def _current_wiring():

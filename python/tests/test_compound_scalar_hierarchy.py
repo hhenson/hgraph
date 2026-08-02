@@ -1,10 +1,11 @@
 from dataclasses import InitVar, dataclass, field
+from datetime import timedelta
 from enum import Enum
 from typing import Callable, Generic, Optional, TypeVar
 
 import _hgraph
 import pytest
-from hgraph import CompoundScalar, TS, TSB, TSD, TimeSeriesSchema, combine, compute_node, const, default, from_json_builder, graph, mesh_, operator, to_json_builder
+from hgraph import CompoundScalar, TS, TSB, TSD, TSW, TimeSeriesSchema, WindowSize, combine, compute_node, const, default, from_json_builder, graph, mesh_, operator, to_json_builder
 # White-box: these tests assert on the interned C++ value-type metadata
 # (qualified names, generic specialisation identity), which has no public
 # introspection surface — the module under test is imported directly.
@@ -677,8 +678,35 @@ def test_time_series_schema_can_be_lifted_from_compound_scalar():
     schema = TimeSeriesSchema.from_scalar_schema(Value)
 
     assert schema.scalar_type() is Value
+    assert schema.to_scalar_schema() is Value
     assert schema.__annotations__ == {"number": TS[int], "label": TS[str]}
     assert TSB[schema].handle.is_tsb
+
+
+def test_time_series_schema_to_scalar_schema_preserves_inheritance():
+    class BaseBundle(TimeSeriesSchema):
+        number: TS[int]
+
+    class DerivedBundle(BaseBundle):
+        label: TS[str]
+
+    base_scalar = BaseBundle.to_scalar_schema()
+    derived_scalar = DerivedBundle.to_scalar_schema()
+
+    assert issubclass(derived_scalar, base_scalar)
+    assert derived_scalar.__annotations__ == {"label": str}
+    assert derived_scalar(number=7, label="seven").number == 7
+
+
+def test_time_series_schema_to_scalar_schema_supports_windows():
+    class WindowBundle(TimeSeriesSchema):
+        tick: TSW[int, WindowSize[3]]
+        duration: TSW[str, WindowSize[timedelta(seconds=3)]]
+
+    scalar = WindowBundle.to_scalar_schema()
+
+    assert scalar.__annotations__ == {"tick": int, "duration": str}
+    assert scalar(tick=7, duration="seven").duration == "seven"
 
 
 def test_recursive_base_reference_inside_container_uses_owned_storage():

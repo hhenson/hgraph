@@ -285,7 +285,8 @@ namespace hgraph::python_bridge
             nb::tuple observers, std::int64_t trace_back_depth,
             bool capture_values,
             bool cleanup_on_error,
-            bool snapshot)
+            bool snapshot,
+            nb::object on_prepared)
         {
             ensure_open();
             if (owned == nullptr) { throw std::logic_error("a borrowed Wiring cannot be run"); }
@@ -333,6 +334,12 @@ namespace hgraph::python_bridge
                 eb.add_lifecycle_observer(run->profiler.get());
             }
             run->executor = eb.make_executor();
+
+            // Python's authoring layer serializes the process-wide wiring
+            // stack through executor construction. Notify it at the exact
+            // phase boundary where all wiring/service materialization is
+            // complete and native execution can proceed independently.
+            if (!on_prepared.is_none()) { on_prepared(); }
 
             nb::object runtime = nb::module_::import_("hgraph._wiring._state");
             runtime.attr("_enter_runtime")();

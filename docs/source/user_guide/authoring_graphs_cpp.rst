@@ -1296,6 +1296,14 @@ wakes and stops a sleeping executor:
    // thread when the controlling thread needs to keep going.
    view.request_stop();   // callable from another thread; wakes the executor
 
+Construct one ``GraphExecutorValue`` per run. Distinct executors may call
+``run()`` concurrently on different threads: each owns its graph, scheduler,
+clock, and ``GlobalState``, so a blocked engine does not hold an execution lock
+needed by another engine. ``run()`` is not re-entrant on the *same* executor,
+and callbacks must synchronise any external state they deliberately share.
+Concurrent engines do not promise aligned wall-clock times or evaluation ticks;
+only the ordering produced inside each graph is defined.
+
 .. code-block:: python
 
    run_graph(price_graph, run_mode=EvaluationMode.REAL_TIME, ...)

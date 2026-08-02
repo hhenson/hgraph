@@ -2,6 +2,7 @@
 TSD[str, TS[int]], TSL[TS[int], Size[3]], TSB[Schema]. Each subscription
 resolves to an interned C++ type handle via the _hgraph registry."""
 import datetime
+import functools
 
 import _hgraph
 
@@ -2152,6 +2153,111 @@ class TimeSeriesSchema:
         bundle.__scalar_type__ = schema
         schema.__bundle_type__ = bundle
         return bundle
+
+    @classmethod
+    @functools.lru_cache(maxsize=None)
+    def to_scalar_schema(cls):
+        """Create the full-value ``CompoundScalar`` represented by this TSB.
+
+        This is authoring metadata only: field shapes are derived from the
+        resolved native time-series schemas, while the C++ type registry
+        remains the source of runtime storage and conversion semantics.
+        """
+        import dataclasses
+
+        from ._compat import CompoundScalar
+
+        if cls is TimeSeriesSchema:
+            return CompoundScalar
+        if not issubclass(cls, TimeSeriesSchema):
+            raise TypeError(
+                f"Can only convert bundle schemas to scalar schemas, not {cls!r}")
+
+        scalar_type = cls.__dict__.get("__scalar_type__")
+        if scalar_type is not None:
+            return scalar_type
+
+        bases = tuple(
+            base.to_scalar_schema()
+            if isinstance(base, type) and issubclass(base, TimeSeriesSchema)
+            else base
+            for base in cls.__bases__
+        )
+
+        scalar_schema = type(
+            f"{cls.__name__}Struct",
+            bases,
+            {
+                "__annotations__": {
+                    name: _time_series_full_value_type(field_type)
+                    for name, field_type in _evaluated_annotations(cls).items()
+                },
+                "__module__": cls.__module__,
+            },
+        )
+        if hasattr(scalar_schema, "__dataclass_fields__"):
+            params = scalar_schema.__dataclass_params__
+            scalar_schema = dataclasses.dataclass(
+                scalar_schema,
+                frozen=params.frozen,
+                init=params.init,
+                eq=params.eq,
+                repr=params.repr,
+            )
+        else:
+            scalar_schema = dataclasses.dataclass(frozen=True)(scalar_schema)
+        scalar_schema.__bundle_type__ = cls
+        return scalar_schema
+
+
+def _value_type_python_type(value_type):
+    python_type = _VALUE_SCALAR_TYPES.get(value_type)
+    if python_type is None:
+        python_type = _hgraph.python_type_for_value(value_type)
+    if isinstance(python_type, _hgraph.ValueType):
+        raise TypeError(
+            f"native scalar schema {value_type!r} has no Python type binding")
+    return python_type
+
+
+def _time_series_full_value_type(ts_type):
+    """Python full-value type for one resolved time-series annotation."""
+    if not isinstance(ts_type, _TsExpr):
+        raise TypeError(
+            "to_scalar_schema requires resolved time-series fields, "
+            f"got {ts_type!r}")
+
+    handle = ts_type.handle
+    if handle.is_ref:
+        return _time_series_full_value_type(
+            _TsExpr(_hgraph.ref_target(handle), repr(handle)))
+    if handle.kind == _hgraph.TS_KIND_TSW:
+        return _value_type_python_type(
+            _hgraph.vt_element(_hgraph.ts_value_vt(handle)))
+    if handle.is_ts:
+        python_type = _TS_SCALAR_TYPES.get(handle)
+        return python_type if python_type is not None else _value_type_python_type(
+            _hgraph.ts_value_vt(handle))
+    if handle.is_tss:
+        element = _value_type_python_type(
+            _hgraph.vt_element(_hgraph.ts_value_vt(handle)))
+        return frozenset[element]
+    if handle.is_tsd:
+        key = _value_type_python_type(_hgraph.tsd_key_vt(handle))
+        value = _time_series_full_value_type(
+            _TsExpr(_hgraph.tsd_element_ts(handle), repr(handle)))
+        return dict[key, value]
+    if handle.is_tsl:
+        element = _time_series_full_value_type(
+            _TsExpr(_hgraph.tsl_element_ts(handle), repr(handle)))
+        return tuple[element, ...]
+    if handle.is_tsb:
+        schema = _TSB_SCHEMA_CLASSES.get(handle)
+        if schema is None or not issubclass(schema, TimeSeriesSchema):
+            raise TypeError(f"TSB field {ts_type!r} has no TimeSeriesSchema binding")
+        return schema.to_scalar_schema()
+    raise TypeError(
+        f"to_scalar_schema does not support time-series field {ts_type!r}")
 
 
 class _TSBMeta(type):
