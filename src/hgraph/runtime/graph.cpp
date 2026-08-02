@@ -18,6 +18,7 @@
 #include <deque>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <type_traits>
 #include <unordered_map>
@@ -169,7 +170,11 @@ struct GraphRuntimeBaseStorage {
   bool evaluation_failed{false};
   /** Graph traits (parent-chained key-value metadata; GraphView::trait_or).
       The same value-layer ``Map<string, Any>`` store as GlobalState. */
-  GlobalState traits{};
+  // Most graphs have no local traits. Keep that case allocation-free: a
+  // GlobalState owns a mutable map, so default-constructing one for every
+  // short-lived nested graph would allocate even though trait lookup simply
+  // bubbles to the parent.
+  std::optional<GlobalState> traits{};
   /** The executor-owned lifecycle observer list, cached once at construction
       (root: from the root executor; nested: one hop to the parent graph's own
       cached pointer) so the hot path never walks the nested-parent chain. */
@@ -602,7 +607,7 @@ template <typename Storage>
 ValueView graph_trait_impl(const void *context, void *memory,
                            std::string_view name) noexcept {
   auto &traits = graph_header<Storage>(graph_context(context), memory).traits;
-  return traits.view().get(name);
+  return traits.has_value() ? traits->view().get(name) : ValueView{};
 }
 
 GlobalStateView root_global_state_impl(const void *context, void *memory) {
@@ -1658,7 +1663,9 @@ GraphValue::GraphValue(const GraphBuilder &builder, ExecutorPtr root_executor) {
                 "Root graph construction requires a live executor parent");
           }
           state.global_state = builder.global_state_;
-          state.traits = builder.traits_;
+          if (builder.traits_.as_value().view().as_map().size() != 0) {
+            state.traits.emplace(builder.traits_);
+          }
           state.root_executor_ptr = root_executor;
           state.lifecycle_observers =
               &GraphExecutorView{root_executor}.lifecycle_observers();
@@ -1681,7 +1688,9 @@ GraphValue::GraphValue(const GraphBuilder &builder, NodePtr parent_node) {
   storage_ = storage_type::owning_constructed(*type.record(), [&](void *dst) {
     construct_graph_storage<NestedGraphRuntimeStorage>(
         type, builder, dst, [&](NestedGraphRuntimeStorage &state) {
-          state.traits = builder.traits_;
+          if (builder.traits_.as_value().view().as_map().size() != 0) {
+            state.traits.emplace(builder.traits_);
+          }
           if (!parent_node.has_value()) {
             throw std::invalid_argument(
                 "Nested graph construction requires a live node parent");
@@ -1724,7 +1733,9 @@ GraphValue::GraphValue(const GraphBuilder &builder, NodePtr parent_node,
 
   construct_graph_storage<NestedGraphRuntimeStorage>(
       type, builder, external_memory, [&](NestedGraphRuntimeStorage &state) {
-        state.traits = builder.traits_;
+        if (builder.traits_.as_value().view().as_map().size() != 0) {
+          state.traits.emplace(builder.traits_);
+        }
         if (!parent_node.has_value()) {
           throw std::invalid_argument(
               "Nested graph construction requires a live node parent");
