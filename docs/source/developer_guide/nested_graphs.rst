@@ -944,7 +944,12 @@ Roadmap (this milestone)
 
 Non-goals for the milestone: services/contexts (since landed as their own
 milestone — see :doc:`services`),
-push sources inside nested graphs. (Non-associative reduction and dynamic-TSL
+push sources inside nested graphs — a graph carrying a push prefix never gets a
+nested graph type interned, so ``GraphBuilder::nested_type()`` rejects it. Note
+this bounds nested *children* only: service and adaptor implementations are
+inlined into the top-level graph, so an implementation may own a push source
+(:doc:`services`, "Implementations are inlined, not nested").
+(Non-associative reduction and dynamic-TSL
 reduction have since landed. Explicit ``__keys__`` and the ``pass_through`` /
 ``no_key`` wrappers, originally deferred, landed within the milestone —
 see the ``map_`` section. ``try_except_`` landed as its own follow-on

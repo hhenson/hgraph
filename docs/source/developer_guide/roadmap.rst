@@ -440,11 +440,16 @@ Dynamic-TSL mesh is not a Python parity target: the upstream Python mesh
 contract is TSD-only and :doc:`mesh` records the same accepted restriction.
 Dynamic TSL mapping and reduction remain fully supported independently.
 
-**Remaining boundary mode:** push sources inside nested graphs if a concrete
-adaptor requires them. Service clients inside compiled ``map_``/``mesh_``
-children use the explicit parent-service endpoint import; the current audit
-found Python context-specialization residue around this landed path rather
-than a missing nested-service runtime.
+**Remaining boundary mode:** push sources inside genuine nested children
+(``map_``/``mesh_``/``switch_``/``reduce``/``nested_``/``try_except_``/component)
+if a concrete adaptor requires them. This does **not** affect service or adaptor
+implementations: those are inlined into the top-level graph rather than compiled
+as nested children, so an implementation may own a push source today — see
+:doc:`services` ("Implementations are inlined, not nested") and
+``tests/cpp/test_service_push_sources.cpp``. Service clients inside compiled
+``map_``/``mesh_`` children use the explicit parent-service endpoint import; the
+current audit found Python context-specialization residue around this landed
+path rather than a missing nested-service runtime.
 
 **Completed: Tornado web adaptors (2026-07-17).**  The upstream Python HTTP,
 WebSocket, and REST adaptor family has been ported onto the C++ service/adaptor

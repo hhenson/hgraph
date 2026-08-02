@@ -305,6 +305,46 @@ output). The implementation graph is wired once per registration; clients then
 consume each interface with the ordinary ``wire<Service>`` calls.
 
 
+Implementations are inlined, not nested (and may own push sources)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Registration does **not** wire anything. It records a *materializer candidate*
+(``Wiring::register_service_implementation_candidate``), and
+``Wiring::build_services()`` — reached only from ``Wiring::finish_top_level``,
+never from ``finish_subgraph`` — runs the candidates that some client actually
+requested. Each materializer calls ``WiredFn::wire(target, …)``, the **inline**
+verb, not ``WiredFn::compile``, which is what produces a ``CompiledSubGraph``
+for ``map_``/``switch_``. An implementation's nodes are therefore ordinary nodes
+of the registering (top-level) graph.
+
+Two consequences worth stating explicitly, because they are the opposite of the
+upstream Python reference:
+
+* **An implementation may own a push source.** ``@push_queue`` / a
+  ``make_push_source_node`` builder inside an implementation body is legal and
+  supported: the node lands in the root graph's push prefix
+  (``build_ranked_graph`` ranks push sources first) and is drained by the
+  real-time executor's push phase like any other root push source. This is the
+  intended way to feed a service from an external, thread-driven source — no
+  adaptor is required to get a push queue into a service. Upstream instead
+  compiles a ``@service_impl`` into a nested graph node
+  (``create_graph_builder(sink_nodes, False)``) and rejects push sources there.
+  Coverage: ``tests/cpp/test_service_push_sources.cpp`` and
+  ``python/tests/test_service_push_sources.py`` (reference, subscription,
+  request/reply and adaptor implementations, plus the two-implementations case).
+  The usual real-time rule still applies — a graph carrying a push source needs
+  a real-time executor.
+* **An implementation cannot be registered inside a sub-graph.** Registration
+  from a ``WiringKind::SubGraph`` wiring throws (*"service/adaptor
+  implementations cannot be registered inside an isolated sub-graph"*), which is
+  what keeps the inlining target unambiguous.
+
+Genuine nested children are unaffected: a push source inside a
+``map_``/``mesh_``/``switch_``/``reduce``/``nested_``/``try_except_``/component
+child is still rejected, because a graph with a push prefix never gets a nested
+graph type interned (``GraphBuilder::nested_type()``). See :doc:`nested_graphs`.
+
+
 Adaptors
 --------
 
