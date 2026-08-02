@@ -3,7 +3,6 @@
 import inspect
 import itertools
 import typing
-import weakref
 
 import _hgraph
 
@@ -26,7 +25,7 @@ from ._node import _PyNode, _warn_deprecated
 _TS_ANNOTATIONS = (_TsExpr, _GenericTsExpr)
 _SERVICE_ADAPTOR_CLIENT_TOKENS = itertools.count()
 _ADAPTOR_CLIENT_CONFIGS = {}
-_ADAPTOR_CLIENT_CONFIG_FINALIZERS = weakref.WeakKeyDictionary()
+_ADAPTOR_CLIENT_CONFIG_CLEANUPS = set()
 
 
 def _is_ts_annotation(annotation):
@@ -62,14 +61,18 @@ def _record_adaptor_client_config(stub, path, bound):
     }
     wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
     identity = wiring._identity()
-    if wiring not in _ADAPTOR_CLIENT_CONFIG_FINALIZERS:
+    if identity not in _ADAPTOR_CLIENT_CONFIG_CLEANUPS:
         def clear_configs():
             for existing in tuple(_ADAPTOR_CLIENT_CONFIGS):
                 if existing[0] == identity:
                     del _ADAPTOR_CLIENT_CONFIGS[existing]
+            _ADAPTOR_CLIENT_CONFIG_CLEANUPS.discard(identity)
 
-        _ADAPTOR_CLIENT_CONFIG_FINALIZERS[wiring] = weakref.finalize(
-            wiring, clear_configs)
+        # The C++ Wiring owns this callback. A temporary borrowed PyWiring can
+        # disappear before build_services(), but its underlying Wiring retains
+        # both the config and cleanup for its actual lifetime.
+        wiring._retain_cleanup(clear_configs)
+        _ADAPTOR_CLIENT_CONFIG_CLEANUPS.add(identity)
     key = (
         identity, stub.flavour, stub.__name__,
         stub._specialization, path,
@@ -87,10 +90,23 @@ def _record_adaptor_client_config(stub, path, bound):
 
 def _adaptor_client_config(stub, path):
     wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
-    return _ADAPTOR_CLIENT_CONFIGS.get((
+    key = (
         wiring._identity(), stub.flavour, stub.__name__,
         stub._specialization, path,
-    ), {})
+    )
+    return _ADAPTOR_CLIENT_CONFIGS.get(key, {})
+
+
+def _resolved_adaptor_client_path(stub, path):
+    """Return the config key and concrete native client path."""
+    resolved = stub._resolved_path(path) if path else stub._default_path
+    resolved = resolved or f"{stub.__name__}_default"
+    config_path = resolved
+    specialization = getattr(stub, "_specialization", "")
+    suffix = f"[{specialization}]" if specialization else ""
+    if suffix and config_path.endswith(suffix):
+        config_path = config_path[:-len(suffix)]
+    return config_path, resolved
 
 
 def _resolved_service_path(stub, path):
@@ -629,14 +645,15 @@ class _AdaptorClientStub:
             specialization = _specialization_label(resolution)
             stub = self._specialized_stub(resolution, specialization)
         self._materialize_client_registration(stub)
-        _record_adaptor_client_config(stub, path, bound)
+        config_path, path = _resolved_adaptor_client_path(stub, path)
+        _record_adaptor_client_config(stub, config_path, bound)
         request = (
             None if not requests else requests[0]
             if len(requests) == 1 else WiringPort(_hgraph.tsb_port(
                 stub._request_type,
                 {parameter.name: _unwrap(value)
                  for parameter, value in zip(stub._request_params, requests)})))
-        return stub, stub._resolved_path(path), request
+        return stub, path, request
 
 
 class _AdaptorStub(_AdaptorClientStub):

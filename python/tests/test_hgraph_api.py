@@ -1450,6 +1450,19 @@ def test_adaptor_client_scalar_options_reach_the_registered_implementation():
     check(observed == [("scaled", 20), ("scaled", 30)],
           f"configured adaptor options: {observed}")
 
+    observed.clear()
+
+    @graph
+    def default_path(value: TS[int]) -> TS[int]:
+        hg.register_adaptor(None, configured_publish_impl)
+        configured_publish(value, multiplier=5, label="default")
+        return value
+
+    check(eval_node(default_path, [2, 3]) == [2, 3],
+          "default-path configured adaptor passthrough")
+    check(observed == [("default", 10), ("default", 15)],
+          f"default-path configured adaptor options: {observed}")
+
     @graph
     def conflicting(value: TS[int]) -> TS[int]:
         hg.register_adaptor("conflicting-publish", configured_publish_impl)
@@ -1462,6 +1475,58 @@ def test_adaptor_client_scalar_options_reach_the_registered_implementation():
         check(False, "expected conflicting client options")
     except hg.WiringError as error:
         check("disagree" in str(error), f"unexpected scalar option error: {error}")
+
+
+def test_adaptor_client_config_follows_cxx_first_wiring_lifetime():
+    # C++-first wiring enters Python through a borrowed wrapper without an
+    # owning Python Wiring at the bottom of the stack. The scalar config must
+    # survive that wrapper and be released with the underlying C++ Wiring.
+    import _hgraph
+    import gc
+    from hgraph._wiring import _wiring_stack
+    from hgraph._wiring._services import _ADAPTOR_CLIENT_CONFIGS
+
+    built_config = []
+
+    @hg.service_adaptor
+    def configured_service(
+        value: TS[int], multiplier: int, label: str = "value",
+    ) -> TS[int]: ...
+
+    @hg.service_adaptor_impl(interfaces=configured_service)
+    def configured_service_impl(
+        value: TSD[int, TS[int]], multiplier: int, label: str = "value",
+    ) -> TSD[int, TS[int]]:
+        built_config.append((multiplier, label))
+        return value
+
+    @hg.operator
+    def cxx_first_client(value: TS[int]) -> TS[int]: ...
+
+    @hg.graph(overloads=cxx_first_client)
+    def cxx_first_client_impl(value: TS[int]) -> TS[int]:
+        return configured_service(
+            value, multiplier=6, label="cxx", path="cxx-first-configured")
+
+    wiring = _hgraph.Wiring()
+    _wiring_stack.append(wiring)
+    try:
+        hg.register_adaptor("cxx-first-configured", configured_service_impl)
+    finally:
+        _wiring_stack.pop()
+    source = wiring.wire("nothing", output_type=TS[int].handle)
+    client = wiring.wire(cxx_first_client._registry_name, (source,), {})
+    wiring_identity = wiring._identity()
+    check(any(key[0] == wiring_identity for key in _ADAPTOR_CLIENT_CONFIGS),
+          "C++-first adaptor config was not retained")
+    wiring.build_services()
+    check(built_config == [(6, "cxx")],
+          f"C++-first adaptor config: {built_config}")
+
+    del client, source, wiring
+    gc.collect()
+    check(not any(key[0] == wiring_identity for key in _ADAPTOR_CLIENT_CONFIGS),
+          "C++-first adaptor config outlived its Wiring")
 
 
 def test_generic_adaptor_specializations_from_python():

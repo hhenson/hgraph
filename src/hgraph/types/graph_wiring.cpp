@@ -1166,6 +1166,7 @@ struct Wiring::Impl {
   std::string service_materialization_path{};
   GlobalState global_state{};  // stateless-wiring fallback (no live context)
   bool live_seeded{false};
+  std::vector<std::shared_ptr<void>> extension_state{};
   std::shared_ptr<WiringObserverRegistry> observers{};
   std::vector<std::string> wiring_path{};
   WiringKind kind{WiringKind::TopLevel};
@@ -1334,6 +1335,13 @@ Wiring::Wiring(Wiring &&) noexcept = default;
 Wiring &Wiring::operator=(Wiring &&) noexcept = default;
 
 std::uint64_t Wiring::identity() const noexcept { return impl_->identity; }
+
+void Wiring::retain_extension_state(std::shared_ptr<void> state) {
+  if (state == nullptr) {
+    throw std::invalid_argument("Wiring extension state must not be null");
+  }
+  impl_->extension_state.push_back(std::move(state));
+}
 
 ErasedDelayedBindingWiringPort::ErasedDelayedBindingWiringPort(
     Wiring &wiring, const TSValueTypeMetaData *schema) {

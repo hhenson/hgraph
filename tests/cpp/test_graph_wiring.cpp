@@ -2179,3 +2179,19 @@ TEST_CASE("graph wiring: default multi-interface candidates reject exact overlap
             Catch::Matchers::ContainsSubstring("production prices") &&
             Catch::Matchers::ContainsSubstring("ref_svc://prod/prices"));
 }
+
+TEST_CASE("graph wiring: extension state follows the Wiring lifetime")
+{
+    using namespace hgraph;
+
+    auto state = std::make_shared<int>(7);
+    std::weak_ptr<int> retained = state;
+    {
+        Wiring wiring;
+        wiring.retain_extension_state(state);
+        state.reset();
+        CHECK_FALSE(retained.expired());
+        CHECK_THROWS_AS(wiring.retain_extension_state(nullptr), std::invalid_argument);
+    }
+    CHECK(retained.expired());
+}

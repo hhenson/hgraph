@@ -339,11 +339,16 @@ namespace hgraph
                      DateTime observed_at) const
             {
                 auto &pending = source_storage_of(view_, *context_).pending;
-                if (std::ranges::any_of(pending, [&](const RequestInputChange &change) {
+                auto existing = std::ranges::find_if(
+                    pending, [&](const RequestInputChange &change) {
                         return change.request_id == request_id
                             && change.observed_at == observed_at;
-                    }))
+                    });
+                if (existing != pending.end())
                 {
+                    existing->delta  = std::move(delta);
+                    existing->remove = false;
+                    schedule(schedule_time);
                     return;
                 }
                 pending.push_back(RequestInputChange{
@@ -359,11 +364,16 @@ namespace hgraph
                         DateTime observed_at) const
             {
                 auto &pending = source_storage_of(view_, *context_).pending;
-                if (std::ranges::any_of(pending, [&](const RequestInputChange &change) {
+                auto existing = std::ranges::find_if(
+                    pending, [&](const RequestInputChange &change) {
                         return change.request_id == request_id
                             && change.observed_at == observed_at;
-                    }))
+                    });
+                if (existing != pending.end())
                 {
+                    existing->delta  = Value{};
+                    existing->remove = true;
+                    schedule(schedule_time);
                     return;
                 }
                 pending.push_back(RequestInputChange{

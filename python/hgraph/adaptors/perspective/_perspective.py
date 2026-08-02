@@ -18,6 +18,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from glob import glob
 from pathlib import Path
+from urllib.parse import unquote
 
 import pyarrow as pa
 import tornado.log
@@ -631,38 +632,81 @@ class IndexPageHandler(BaseHandler):
             })
 
 
+def _workspace_layout_name(url):
+    """Return a single safe layout filename component from a route value."""
+    decoded = str(url)
+    while True:
+        unquoted = unquote(decoded)
+        if unquoted == decoded:
+            break
+        decoded = unquoted
+    if (
+        not decoded
+        or decoded in {".", ".."}
+        or "\x00" in decoded
+        or "/" in decoded
+        or "\\" in decoded
+        or Path(decoded).name != decoded
+    ):
+        raise tornado.web.HTTPError(
+            400, reason="invalid workspace layout name")
+    return decoded
+
+
+def _workspace_layout_target(root, url, suffix=".json"):
+    root = Path(root).resolve()
+    name = _workspace_layout_name(url)
+    target = (root / f"{name}{suffix}").resolve()
+    if target.parent != root:
+        raise tornado.web.HTTPError(
+            400, reason="workspace layout must remain inside the layouts directory")
+    return name, target
+
+
 class WorkspacePageHandler(BaseHandler):
     def initialize(self, path):
-        self.path = Path(path)
+        self.path = Path(path).resolve()
         self.path.mkdir(parents=True, exist_ok=True)
 
     def get(self, url):
-        target = self.path / f"{url}.json"
+        name, target = _workspace_layout_target(self.path, url)
         if target.is_file():
             self.finish(target.read_bytes())
             return
-        versions = sorted(self.path.glob(f"{url}.*.version"))
+        prefix = f"{name}."
+        versions = sorted(
+            resolved
+            for candidate in self.path.iterdir()
+            if candidate.name.startswith(prefix)
+            and candidate.name.endswith(".version")
+            and (resolved := candidate.resolve()).parent == self.path
+            and resolved.is_file()
+        )
         self.finish(versions[-1].read_bytes() if versions else b"{}")
 
     def post(self, url):
-        target = self.path / f"{url}.json"
+        name, target = _workspace_layout_target(self.path, url)
         if target.is_file() and target.read_bytes() == self.request.body:
             self.finish("ok")
             return
         if target.is_file():
             stamp = datetime.now().isoformat(timespec="seconds").replace(":", "-")
-            target.replace(self.path / f"{url}.{stamp}.version")
+            _, version = _workspace_layout_target(
+                self.path, name, f".{stamp}.version")
+            target.replace(version)
         target.write_bytes(self.request.body)
         self.finish("ok")
 
     def delete(self, url):
-        target = self.path / f"{url}.json"
+        name, target = _workspace_layout_target(self.path, url)
         if not target.is_file():
             self.set_status(404)
             self.finish("not found")
             return
         stamp = datetime.now().isoformat(timespec="seconds").replace(":", "-")
-        target.replace(self.path / f"{url}.{stamp}.version")
+        _, version = _workspace_layout_target(
+            self.path, name, f".{stamp}.version")
+        target.replace(version)
         self.finish("ok")
 
 

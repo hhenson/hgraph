@@ -112,3 +112,39 @@ TEST_CASE("service subscription keys are reference counted across captures")
     CHECK(second.contains(Value{std::int32_t{7}}.view()));
     CHECK(second.contains(Value{std::int32_t{8}}.view()));
 }
+
+TEST_CASE("request input teardown supersedes a pending same-time value")
+{
+    using namespace hgraph;
+
+    auto       &registry       = TypeRegistry::instance();
+    const auto *request_schema = registry.ts(
+        registry.register_scalar<std::int32_t>("int32"));
+    const auto  path = std::string{"svc://requests/same-time-teardown"};
+
+    GraphBuilder builder;
+    builder.add_node(NodeBuilder{}.implementation<ConstantKey>());
+    builder.add_node(make_request_input_source_node(path, *request_schema));
+    builder.add_node(make_request_id_source_node());
+    builder.add_node(make_request_input_capture_node(path, *request_schema));
+    builder.add_edge(GraphEdge{.source_node = 0, .target_node = 3, .target_path = {0}});
+    builder.add_edge(GraphEdge{.source_node = 1, .target_node = 3, .target_path = {1}});
+    builder.add_edge(GraphEdge{.source_node = 2, .target_node = 3, .target_path = {2}});
+
+    testing::MockRootGraph graph{builder};
+    auto                   view = graph.graph();
+    const auto             t1   = MIN_ST;
+    const auto             t2   = t1 + MIN_TD;
+
+    view.start(t1);
+    view.evaluate(t1);
+    const Int request_id = view.node_at(2).output(t1).value().checked_as<Int>();
+
+    // Dynamic nested clients can start and stop during one parent evaluation.
+    // Their stop must replace the value captured for the same observed time.
+    view.node_at(3).stop(t1);
+    view.evaluate(t2);
+
+    auto requests = view.node_at(1).output(t2);
+    CHECK_FALSE(requests.as_dict().contains(Value{request_id}.view()));
+}

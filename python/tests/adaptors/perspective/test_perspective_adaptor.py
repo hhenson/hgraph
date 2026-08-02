@@ -7,6 +7,7 @@ import json
 import pytest
 import threading
 import time
+import tornado.web
 
 import hgraph as hg
 from hgraph.adaptors.perspective import (
@@ -17,6 +18,7 @@ from hgraph.adaptors.perspective import (
     publish_table_editable,
     register_perspective_adaptors,
 )
+from hgraph.adaptors.perspective._perspective import _workspace_layout_target
 
 
 @dataclass(frozen=True)
@@ -172,6 +174,41 @@ def test_perspective_public_surface_matches_the_python_adaptor():
     for name, expected in manager_methods.items():
         assert tuple(inspect.signature(
             getattr(PerspectiveTablesManager, name)).parameters) == expected
+
+
+@pytest.mark.parametrize("url", [
+    "../outside",
+    "/tmp/outside",
+    "nested/layout",
+    r"nested\layout",
+    "%2e%2e%2foutside",
+    "%252e%252e%252foutside",
+])
+def test_workspace_layout_paths_cannot_escape_the_layouts_directory(tmp_path, url):
+    with pytest.raises(tornado.web.HTTPError) as error:
+        _workspace_layout_target(tmp_path, url)
+    assert error.value.status_code == 400
+
+
+def test_workspace_layout_path_resolves_inside_the_layouts_directory(tmp_path):
+    name, target = _workspace_layout_target(tmp_path, "dashboard")
+    assert name == "dashboard"
+    assert target == tmp_path.resolve() / "dashboard.json"
+
+
+def test_workspace_layout_path_rejects_a_symlink_outside_the_layouts_directory(tmp_path):
+    layouts = tmp_path / "layouts"
+    layouts.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_text("private")
+    try:
+        (layouts / "dashboard.json").symlink_to(outside)
+    except OSError:
+        pytest.skip("deviation: symlinks are unavailable on this platform")
+
+    with pytest.raises(tornado.web.HTTPError) as error:
+        _workspace_layout_target(layouts, "dashboard")
+    assert error.value.status_code == 400
 
 
 def test_manager_configuration_stats_callbacks_and_temporary_cleanup(tmp_path):
