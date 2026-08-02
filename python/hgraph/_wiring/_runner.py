@@ -1,5 +1,6 @@
 """Graph execution entry points: run_graph/evaluate_graph and the
 eval_node test harness."""
+import functools
 import inspect
 import logging
 import time
@@ -7,8 +8,9 @@ from datetime import timedelta
 
 import _hgraph
 
-from .._types import (_ContextExpr, _GenericTsExpr, _TsExpr,
-                      _TypeVarSentinel, _type_var_is_scalar)
+from .._signature import _is_time_series
+from .._types import (_GenericTsExpr, _TsExpr, _TypeVarSentinel,
+                      _type_var_is_scalar)
 from ._core import (WiringError, WiringPort, _OperatorFunction, _unwrap,
                     _wiring_stack, wire)
 from ._graph import _GraphFn
@@ -412,10 +414,10 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         fn_sig = inspect.signature(
             fn.fn if isinstance(fn, _GraphFn) or hasattr(fn, "_delegate") else fn,
             eval_str=True)
-        params = list(fn_sig.parameters.values())
+        declared_params = list(fn_sig.parameters.values())
     except (TypeError, ValueError):
-        params = []
-    params = [p for p in params
+        declared_params = None
+    params = [p for p in (declared_params or ())
               if p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)]
     param_names = {p.name for p in params}
     annotations_by_name = {p.name: p.annotation for p in params}
@@ -425,18 +427,27 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
     # through to inference. Native operators deliberately retain their
     # positional/variadic resolution fallback because overload families do
     # not yet expose one complete set of accepted parameter names.
-    if resolution_dict and isinstance(fn, (_GraphFn, _PyNode)):
-        if isinstance(fn, _PyNode):
-            # Vararg nodes rewrite their runtime callable to receive one
-            # packed TSL/TSB input, so inspect.signature(fn.fn) no longer
-            # carries the original annotation. _ts_names is calculated from
-            # the user signature before that rewrite.
-            resolution_parameters = fn._ts_names - {
-                param.name for param in fn._params
-                if isinstance(param.annotation, _ContextExpr)
-            }
-        else:
-            resolution_parameters = fn.signature.time_series_args
+    decorated_target = fn
+    while isinstance(decorated_target, functools.partial):
+        decorated_target = decorated_target.func
+    if (resolution_dict and declared_params is not None
+            and isinstance(decorated_target, (_GraphFn, _PyNode))):
+        resolution_parameters = {
+            param.name for param in declared_params
+            if (param.kind is not inspect.Parameter.VAR_KEYWORD
+                and _is_time_series(param.annotation))
+        }
+        if (not params and any(
+                param.kind is inspect.Parameter.VAR_KEYWORD
+                and _is_time_series(param.annotation)
+                for param in declared_params)):
+            # A time-series **collector expands its user-supplied keyword
+            # names into individual series when there are no fixed inputs.
+            # Only those actual series names are useful resolution keys; the
+            # formal collector name is not.
+            resolution_parameters.update(
+                name for name, value in kwargs.items()
+                if isinstance(value, (list, tuple)))
         unknown_parameters = set(resolution_dict) - resolution_parameters
         if unknown_parameters:
             unknown = ", ".join(repr(name) for name in sorted(

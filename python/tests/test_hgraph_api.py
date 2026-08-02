@@ -231,8 +231,41 @@ def test_eval_node_resolution_dict_validates_decorated_targets():
     ):
         eval_node(passthrough, [1], resolution_dict={"scale": TS[int]})
 
+    @graph
+    def generic_passthrough(tsd: hg.TIME_SERIES_TYPE) -> hg.TIME_SERIES_TYPE:
+        return tsd
+
+    specialized = generic_passthrough[hg.TIME_SERIES_TYPE: TS[int]]
+    check(
+        eval_node(specialized, [1], resolution_dict={"tsd": TS[int]}) == [1],
+        "valid subscripted graph resolution",
+    )
+    with pytest.raises(
+        hg.WiringError,
+        match=r"unknown parameter\(s\): 'typo'.*valid time-series parameters: 'tsd'",
+    ):
+        eval_node(specialized, [1], resolution_dict={"typo": TS[int]})
 
 
+def test_eval_node_resolution_dict_accepts_expanded_variadic_keyword_keys():
+    @graph
+    def expanded_graph(**bundle: TSB[hg.TS_SCHEMA]) -> TS[int]:
+        return bundle["a"]
+
+    @hg.compute_node
+    def expanded_node(**bundle: TSB[hg.TS_SCHEMA]) -> TS[int]:
+        return bundle["a"].value
+
+    for target in (expanded_graph, expanded_node):
+        check(
+            eval_node(target, a=[None], resolution_dict={"a": TS[int]}) is None,
+            "expanded all-None series resolution",
+        )
+        with pytest.raises(
+            hg.WiringError,
+            match=r"unknown parameter\(s\): 'typo'.*valid time-series parameters: 'a'",
+        ):
+            eval_node(target, a=[None], resolution_dict={"typo": TS[int]})
 
 
 def test_map_and_reduce_over_tsd():
