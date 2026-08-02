@@ -274,9 +274,13 @@ namespace hgraph
         }
 
         [[nodiscard]] const TSInputBuilder &input_builder_for(const TSValueTypeMetaData &schema,
-                                                              TSEndpointSchema endpoint)
+                                                              const TSEndpointSchema &endpoint)
         {
-            if (endpoint.empty()) { endpoint = default_input_endpoint(schema); }
+            if (endpoint.empty())
+            {
+                const auto default_endpoint = default_input_endpoint(schema);
+                return TSInputBuilderFactory::checked_builder_for(schema, default_endpoint);
+            }
             return TSInputBuilderFactory::checked_builder_for(schema, endpoint);
         }
 
@@ -347,7 +351,7 @@ namespace hgraph
 
         void construct_node_storage_impl(const NodeRuntimeContext &context,
                                          const NodeTypeMetaData   &schema,
-                                         TSEndpointSchema          input_endpoint,
+                                         const TSInputBuilder     *input_builder,
                                          TSEndpointSchema          output_endpoint_override,
                                          ValueStorageVariant       output_value_storage,
                                          std::string               runtime_label,
@@ -374,11 +378,15 @@ namespace hgraph
 
             if (context.layout.has_input())
             {
+                if (input_builder == nullptr)
+                {
+                    throw std::logic_error("Node storage input builder is not resolved");
+                }
                 const auto *component = plan.find_component("input");
                 if (component == nullptr) { throw std::logic_error("Node storage plan is missing input"); }
                 std::construct_at(MemoryUtils::cast<TSInput>(
                                       MemoryUtils::advance(memory, component->offset)),
-                                  input_builder_for(*schema.input_schema, std::move(input_endpoint)));
+                                  *input_builder);
                 constructed.push_back(component);
             }
 
@@ -1718,6 +1726,18 @@ namespace hgraph
     {
     }
 
+    void NodeBuilder::refresh_input_builder()
+    {
+        input_builder_ = nullptr;
+        if (!type_) { return; }
+
+        const auto *node_schema = type_.schema();
+        if (node_schema != nullptr && node_schema->input_schema != nullptr)
+        {
+            input_builder_ = &input_builder_for(*node_schema->input_schema, input_endpoint_);
+        }
+    }
+
     NodeBuilder &NodeBuilder::label(std::string label)
     {
         label_ = std::move(label);
@@ -1749,6 +1769,7 @@ namespace hgraph
             }
         }
         input_endpoint_ = std::move(endpoint);
+        input_builder_ = nullptr;
         return *this;
     }
 
@@ -1936,9 +1957,14 @@ namespace hgraph
 
         const auto type = this->type();
         const auto &runtime = runtime_context(type.ops_ref().context);
+        const TSInputBuilder *input_builder = input_builder_;
+        if (runtime.layout.has_input() && input_builder == nullptr)
+        {
+            input_builder = &input_builder_for(*type.schema()->input_schema, input_endpoint());
+        }
         construct_node_storage_impl(runtime,
                                     *type.schema(),
-                                    input_endpoint(),
+                                    input_builder,
                                     output_endpoint(),
                                     output_value_storage(),
                                     std::string{label()},

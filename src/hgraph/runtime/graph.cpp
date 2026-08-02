@@ -1841,6 +1841,7 @@ GraphBuilder &GraphBuilder::label(std::string label) {
 }
 
 GraphBuilder &GraphBuilder::add_node(NodeBuilder node) {
+  node.refresh_input_builder();
   nodes_.push_back(std::move(node));
   invalidate_types();
   return *this;

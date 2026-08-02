@@ -2637,8 +2637,10 @@ namespace hgraph
     }
 
     TSInputBuilder::TSInputBuilder(TSInputConstructionPlan plan)
-        : plan_(std::move(plan))
+        : plan_(std::move(plan)),
+          storage_type_(TSInputTypeRef::checked(input_storage_type_for(plan_.endpoint_schema())))
     {
+        if (!storage_type_) { throw std::logic_error("TSInputBuilder could not resolve input storage type"); }
     }
 
     const TSValueTypeMetaData &TSInputBuilder::schema() const noexcept
@@ -2715,9 +2717,11 @@ namespace hgraph
     TSInput::TSInput() noexcept = default;
 
     TSInput::TSInput(const TSInputBuilder &builder)
-        : builder_(&builder)
+        : builder_(&builder),
+          schema_(&builder.plan_.schema()),
+          data_(builder.storage_type_)
     {
-        rebuild_from_plan(builder.plan_);
+        attach_root_parent();
     }
 
     TSInput::TSInput(const TSInputConstructionPlan &plan)

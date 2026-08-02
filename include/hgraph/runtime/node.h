@@ -36,6 +36,7 @@ namespace hgraph
 {
     class GraphValue;
     class GraphView;
+    class GraphBuilder;
     class NodeBuilder;
     class NodeValue;
     struct NodeSchedulerState;
@@ -476,6 +477,7 @@ namespace hgraph
         [[nodiscard]] NodeValue make_node(std::size_t node_index = 0) const;
 
       private:
+        friend class GraphBuilder;
         friend class NodeValue;
 
         [[nodiscard]] static NodeBuilder
@@ -483,9 +485,11 @@ namespace hgraph
                              const void *runtime_type_id,
                              TSEndpointSchema input_endpoint);
         NodeBuilder(NodeTypeRef type, TSEndpointSchema input_endpoint);
+        void refresh_input_builder();
 
         NodeTypeRef            type_{};
         TSEndpointSchema       input_endpoint_{};
+        const TSInputBuilder   *input_builder_{nullptr};
         TSEndpointSchema       output_endpoint_{};
         ValueStorageVariant    output_value_storage_{
             ValueStorageVariant::Native};
