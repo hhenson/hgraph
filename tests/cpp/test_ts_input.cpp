@@ -1,5 +1,6 @@
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input/detail.h>
@@ -139,6 +140,133 @@ TEST_CASE("TSInput target-link plans allocate structural state only for keyed sl
     REQUIRE(static_cast<const void *>(structural_link) == structural_storage.data());
     REQUIRE(static_cast<const void *>(&common_link->tracking) == common_storage.data());
     REQUIRE(static_cast<const void *>(&structural_link->tracking) == structural_storage.data());
+}
+
+TEST_CASE("TSInput storage caching excludes endpoint trees with owned payloads")
+{
+    using namespace hgraph;
+    using detail::input_storage_type_is_realization_invariant;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts = registry.ts(integer);
+    const auto *base = registry.bundle(
+        "tests.ts_input_cache", "Base", {{"id", integer}}, {}, true);
+    registry.bundle(
+        "tests.ts_input_cache", "Leaf", {{"id", integer}, {"value", integer}}, {base});
+    const auto *polymorphic = registry.ts(base);
+    const auto *inner = registry.tsb("TSInputCacheableInner", {{"value", polymorphic}});
+    const auto *root = registry.tsb("TSInputCacheableRoot", {{"scalar", ts}, {"inner", inner}});
+
+    const auto all_peered = TSEndpointSchema::non_peered(
+        root,
+        {TSEndpointSchema::peered(ts),
+         TSEndpointSchema::non_peered(inner, {TSEndpointSchema::peered(polymorphic)})});
+    const auto owned_leaf = TSEndpointSchema::non_peered(
+        root,
+        {TSEndpointSchema::owned(ts),
+         TSEndpointSchema::non_peered(inner, {TSEndpointSchema::peered(polymorphic)})});
+    const auto owned_subtree = TSEndpointSchema::non_peered(
+        root,
+        {TSEndpointSchema::peered(ts), TSEndpointSchema::owned(inner)});
+
+    REQUIRE(input_storage_type_is_realization_invariant(TSEndpointSchema::peered(root)));
+    REQUIRE(input_storage_type_is_realization_invariant(all_peered));
+    REQUIRE_FALSE(input_storage_type_is_realization_invariant(TSEndpointSchema::owned(root)));
+    REQUIRE_FALSE(input_storage_type_is_realization_invariant(owned_leaf));
+    REQUIRE_FALSE(input_storage_type_is_realization_invariant(owned_subtree));
+}
+
+TEST_CASE("cached TSInput builders resolve owned polymorphic storage in each graph realization")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *base = registry.bundle(
+        "tests.ts_input_cache.realization", "Base", {{"id", integer}}, {}, true);
+    registry.bundle(
+        "tests.ts_input_cache.realization", "First", {{"id", integer}, {"value", integer}}, {base});
+    const auto *polymorphic = registry.ts(base);
+    const auto endpoint = TSEndpointSchema::owned(polymorphic);
+
+    const auto first_snapshot = TypeRealizationSnapshot::capture(registry);
+    const TSInputBuilder *builder = nullptr;
+    TSInput first_input;
+    {
+        TypeRealizationScope scope{first_snapshot.get()};
+        builder = &TSInputBuilderFactory::checked_builder_for(*polymorphic, endpoint);
+        first_input = builder->make_input();
+    }
+    const auto first_binding = first_input.view().data_view().layout().value_binding;
+    REQUIRE(first_binding == first_snapshot->type_for(base));
+
+    registry.bundle(
+        "tests.ts_input_cache.realization", "Second",
+        {{"id", integer}, {"value", integer}, {"other", integer}}, {base});
+    const auto second_snapshot = TypeRealizationSnapshot::capture(registry);
+    REQUIRE(second_snapshot != first_snapshot);
+
+    TSInput second_input;
+    {
+        TypeRealizationScope scope{second_snapshot.get()};
+        const auto &reused = TSInputBuilderFactory::checked_builder_for(*polymorphic, endpoint);
+        REQUIRE(&reused == builder);
+        second_input = reused.make_input();
+    }
+    const auto second_binding = second_input.view().data_view().layout().value_binding;
+    REQUIRE(second_binding == second_snapshot->type_for(base));
+    REQUIRE(second_binding != first_binding);
+}
+
+TEST_CASE("cached composite TSInput builders re-realize owned polymorphic leaves")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *base = registry.bundle(
+        "tests.ts_input_cache.composite", "Base", {{"id", integer}}, {}, true);
+    registry.bundle(
+        "tests.ts_input_cache.composite", "First", {{"id", integer}, {"value", integer}}, {base});
+    const auto *polymorphic = registry.ts(base);
+    const auto *scalar = registry.ts(integer);
+    const auto *root = registry.tsb(
+        "TSInputCacheCompositeRoot", {{"owned", polymorphic}, {"peered", scalar}});
+    const auto endpoint = TSEndpointSchema::non_peered(
+        root, {TSEndpointSchema::owned(polymorphic), TSEndpointSchema::peered(scalar)});
+    const auto owned_binding = [](TSInput &input) {
+        auto root_view = input.view();
+        auto bundle = root_view.as_bundle();
+        return bundle.field("owned").data_view().layout().value_binding;
+    };
+
+    const auto first_snapshot = TypeRealizationSnapshot::capture(registry);
+    const TSInputBuilder *builder = nullptr;
+    TSInput first_input;
+    {
+        TypeRealizationScope scope{first_snapshot.get()};
+        builder = &TSInputBuilderFactory::checked_builder_for(*root, endpoint);
+        first_input = builder->make_input();
+    }
+    const auto first_binding = owned_binding(first_input);
+    REQUIRE(first_binding == first_snapshot->type_for(base));
+
+    registry.bundle(
+        "tests.ts_input_cache.composite", "Second",
+        {{"id", integer}, {"value", integer}, {"other", integer}}, {base});
+    const auto second_snapshot = TypeRealizationSnapshot::capture(registry);
+
+    TSInput second_input;
+    {
+        TypeRealizationScope scope{second_snapshot.get()};
+        const auto &reused = TSInputBuilderFactory::checked_builder_for(*root, endpoint);
+        REQUIRE(&reused == builder);
+        second_input = reused.make_input();
+    }
+    const auto second_binding = owned_binding(second_input);
+    REQUIRE(second_binding == second_snapshot->type_for(base));
+    REQUIRE(second_binding != first_binding);
 }
 
 TEST_CASE("TSInput builds a non-peered TSB root with nested peered terminals")
@@ -1186,6 +1314,9 @@ TEST_CASE("TSInput peered collection descendants can be activated independently"
     REQUIRE_NOTHROW(second.bind_output(output.view()));
     second.make_active();
     REQUIRE(second.active());
+    REQUIRE(output.data_view().observer_count() == 1);
+    REQUIRE(output_list[0].data_view().observer_count() == 0);
+    REQUIRE(output_list[1].data_view().observer_count() == 1);
 
     const auto t1 = MIN_ST + TimeDelta{10};
     const auto t2 = t1 + TimeDelta{1};
@@ -1208,6 +1339,8 @@ TEST_CASE("TSInput peered collection descendants can be activated independently"
     REQUIRE(recorder.notified == std::vector<DateTime>{t2});
 
     second.make_passive();
+    REQUIRE(output.data_view().observer_count() == 1);
+    REQUIRE(output_list[1].data_view().observer_count() == 0);
 }
 
 TEST_CASE("TSInput shape casts return endpoint views for slot collections")
@@ -1378,6 +1511,11 @@ TEST_CASE("TSInput structural activation survives an unbound target link")
     auto dict_binding = dict_input.view(nullptr, t1);
     set_binding.bind_output(set_output.view(t1));
     dict_binding.bind_output(dict_output.view(t1));
+    // TSS structural observation uses the root storage itself. It must retain
+    // a dedicated scheduling subscription rather than taking the value-root
+    // coalescing path.
+    REQUIRE(set_output.data_view().observer_count() == 2);
+    REQUIRE(dict_output.data_view().observer_count() == 1);
 
     Value key{std::int32_t{7}};
     Value value{std::int32_t{42}};

@@ -78,8 +78,16 @@ namespace hgraph::detail
         void unsubscribe_node(TSInputTargetActiveNode &node,
                               TSInputTargetLinkState::SchedulingNotifier &notifier) noexcept
         {
-            if (!node.observed.bound()) { return; }
-            [[maybe_unused]] auto reset_observed = make_scope_exit([&]() noexcept { node.observed.reset(); });
+            if (!node.observed.bound())
+            {
+                node.scheduling_subscribed = false;
+                return;
+            }
+            [[maybe_unused]] auto reset_observed = make_scope_exit([&]() noexcept {
+                node.scheduling_subscribed = false;
+                node.observed.reset();
+            });
+            if (!node.scheduling_subscribed) { return; }
             auto view = node.observed.data_view();
             if (view.valid() && view.tracking().observers.contains(&notifier))
             {
@@ -116,7 +124,9 @@ namespace hgraph::detail
         void unsubscribe_tree_noexcept(TSInputTargetActiveNode &node,
                                        TSInputTargetLinkState::SchedulingNotifier &notifier) noexcept
         {
-            unsubscribe_handle_noexcept(node.observed, &notifier);
+            if (node.scheduling_subscribed) { unsubscribe_handle_noexcept(node.observed, &notifier); }
+            else { node.observed.reset(); }
+            node.scheduling_subscribed = false;
             node.children.for_each([&](std::size_t, TSInputTargetActiveNode &child) {
                 unsubscribe_tree_noexcept(child, notifier);
             });
@@ -137,7 +147,10 @@ namespace hgraph::detail
                                     TSInputTargetLinkState::SchedulingNotifier &previous,
                                     TSInputTargetLinkState::SchedulingNotifier &replacement) noexcept
         {
-            replace_observer(node.observed, &previous, &replacement);
+            if (node.scheduling_subscribed)
+            {
+                replace_observer(node.observed, &previous, &replacement);
+            }
             node.children.for_each([&](std::size_t, TSInputTargetActiveNode &child) {
                 replace_tree_observers(child, previous, replacement);
             });
@@ -514,6 +527,29 @@ namespace hgraph::detail
             return TSOutputHandle{link.target_output().output(), std::move(structural)};
         }
 
+        void subscribe_scheduling_notifier(TSInputTargetLinkState &state,
+                                            TSInputTargetActiveNode &node)
+        {
+            node.scheduling_subscribed = false;
+            if (!node.observed.bound() || state.scheduling_notifier.target() == nullptr) { return; }
+
+            // The target-link state already observes the exact root target so
+            // it can maintain input modification state. Reuse that callback
+            // to schedule a root-active consumer instead of registering a
+            // second observer and promoting the source's compact observer set
+            // to heap storage. Descendant and structural observations retain
+            // their dedicated subscription so their filtering is unchanged.
+            if (state.active_root() == &node &&
+                node.observation_kind == TSInputObservationKind::Value &&
+                node.observed.same_as(state.target))
+            {
+                return;
+            }
+
+            node.observed.data_view().subscribe(&state.scheduling_notifier);
+            node.scheduling_subscribed = true;
+        }
+
         void resubscribe_tree(TSInputTargetLinkStorage &link,
                               const TSValueTypeMetaData &schema,
                               TSInputTargetActiveNode &node)
@@ -527,10 +563,7 @@ namespace hgraph::detail
                 {
                     unsubscribe_node(node, state.scheduling_notifier);
                     node.observed = observed;
-                    if (node.observed.bound() && state.scheduling_notifier.target() != nullptr)
-                    {
-                        node.observed.data_view().subscribe(&state.scheduling_notifier);
-                    }
+                    subscribe_scheduling_notifier(state, node);
                 }
             }
 
@@ -641,6 +674,7 @@ namespace hgraph::detail
 
     void TSInputTargetActiveNode::clear_observed() noexcept
     {
+        scheduling_subscribed = false;
         observed.reset();
         children.for_each([](std::size_t, TSInputTargetActiveNode &child) {
             child.clear_observed();
@@ -701,6 +735,14 @@ namespace hgraph::detail
     void TSInputTargetLinkState::notify(DateTime modified_time)
     {
         if (owner != nullptr) { owner->record_target_modified(modified_time); }
+        const auto *root = active_root();
+        if (root != nullptr && root->locally_active &&
+            root->observation_kind == TSInputObservationKind::Value &&
+            !root->scheduling_subscribed &&
+            root->observed.same_as(target))
+        {
+            scheduling_notifier.notify(modified_time);
+        }
     }
 
     void TSInputTargetLinkState::source_invalidated(const TSDataTracking *source) noexcept
@@ -1069,10 +1111,7 @@ namespace hgraph::detail
         active_node.locally_active = true;
         active_node.observation_kind = observation_kind;
         active_node.observed = observed_handle;
-        if (active_node.observed.bound() && target_notifier != nullptr)
-        {
-            active_node.observed.data_view().subscribe(&state.scheduling_notifier);
-        }
+        subscribe_scheduling_notifier(state, active_node);
     }
 
     void TSInputTargetLinkStorage::make_passive(TSInputTargetActiveNode *node)

@@ -83,6 +83,7 @@ namespace hgraph
         explicit TSInputBuilder(TSInputConstructionPlan plan);
 
         TSInputConstructionPlan plan_;
+        TSInputTypeRef          storage_type_{};
     };
 
     class TSInputBuilderFactory

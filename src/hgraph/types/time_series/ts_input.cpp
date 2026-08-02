@@ -469,6 +469,44 @@ namespace hgraph
             return schema != nullptr ? ValuePlanFactory::instance().type_for(schema->value_schema) : nullptr;
         }
 
+        [[nodiscard]] ValueTypeRef realized_input_value_binding_for(const ValueTypeMetaData *schema)
+        {
+            if (schema == nullptr) { return {}; }
+            if (const auto *snapshot = active_type_realization(); snapshot != nullptr)
+            {
+                if (const auto realized = snapshot->type_for(schema)) { return realized; }
+            }
+            return ValuePlanFactory::instance().type_for(schema);
+        }
+
+        [[nodiscard]] const MemoryUtils::StoragePlan &
+        owned_input_storage_plan(const TSValueTypeMetaData &schema)
+        {
+            const bool scalar = schema.kind == TSTypeKind::TS || schema.kind == TSTypeKind::SIGNAL ||
+                                schema.kind == TSTypeKind::REF;
+            if (scalar)
+            {
+                const auto value = realized_input_value_binding_for(schema.value_schema);
+                if (!value) { throw std::logic_error("TSInput owned scalar value binding is not resolved"); }
+                auto builder = MemoryUtils::named_tuple();
+                builder.reserve(2);
+                builder.add_field("value", value.checked_plan());
+                builder.add_field("tracking", MemoryUtils::plan_for<TSDataTracking>());
+                return builder.build();
+            }
+            if (schema.kind == TSTypeKind::TSB ||
+                (schema.kind == TSTypeKind::TSL && schema.fixed_size() != 0))
+            {
+                const auto *plan = ts_data_plan_factory_detail::synthesise_fixed_plan(schema);
+                if (plan == nullptr) { throw std::logic_error("TSInput owned fixed storage plan is not resolved"); }
+                return *plan;
+            }
+
+            const auto type = regular_ts_data_type_for(&schema);
+            if (!type) { throw std::logic_error("TSInput owned endpoint storage requires a TSData type"); }
+            return type.checked_plan();
+        }
+
         [[nodiscard]] const MemoryUtils::StoragePlan &input_storage_plan(const TSEndpointSchema &endpoint_schema);
         [[nodiscard]] TSRoleTypeRef input_data_type_for(const TSEndpointSchema         &endpoint_schema,
                                                         const MemoryUtils::StoragePlan &root_plan,
@@ -523,9 +561,12 @@ namespace hgraph
             }
             if (endpoint_schema.is_owned())
             {
-                const auto type = regular_ts_data_type_for(endpoint_schema.schema());
-                if (!type) throw std::logic_error("TSInput owned endpoint storage requires a TSData type");
-                return type.checked_plan();
+                const auto *schema = endpoint_schema.schema();
+                if (schema == nullptr)
+                {
+                    throw std::logic_error("TSInput owned endpoint storage requires a TSData schema");
+                }
+                return owned_input_storage_plan(*schema);
             }
 
             const auto *schema = endpoint_schema.schema();
@@ -2151,17 +2192,14 @@ namespace hgraph
                 throw std::invalid_argument("scalar input type requires a peered or owned TS/SIGNAL endpoint");
             }
 
-            const auto data_type = TSDataPlanFactory::instance().data_type_for(schema);
             if (endpoint_schema.is_owned())
             {
-                return checked_ts_role_type(
-                    intern_ts_type(*schema, TypeRole::Input, data_type.checked_plan(), data_type.ops_ref(),
-                                   schema->kind == TSTypeKind::REF
-                                       ? std::string_view{"ts.ref.input.owned"}
-                                       : std::string_view{}),
-                    std::integral_constant<TypeRole, TypeRole::Input>{});
+                const auto &root_plan = input_storage_plan(endpoint_schema);
+                return TSInputTypeRef::checked(input_storage_type_for(
+                    endpoint_schema, root_plan, 0, true, TypeRole::Input));
             }
 
+            const auto data_type = TSDataPlanFactory::instance().data_type_for(schema);
             const auto &root_plan = input_storage_plan(endpoint_schema);
             const auto key = binding_cache_key(endpoint_schema, root_plan, 0);
             std::lock_guard lock{target_link_context_cache_mutex()};
@@ -2257,8 +2295,8 @@ namespace hgraph
 
                 const auto *value = local_plan.find_component("value");
                 const auto *tracking = local_plan.find_component("tracking");
-                const auto value_type = ValuePlanFactory::instance().type_for(schema->value_schema);
-                const auto delta_type = ValuePlanFactory::instance().type_for(schema->delta_value_schema);
+                const auto value_type = realized_input_value_binding_for(schema->value_schema);
+                const auto delta_type = realized_input_value_binding_for(schema->delta_value_schema);
                 if (value == nullptr || tracking == nullptr || !value_type || !delta_type)
                     throw std::logic_error("owned scalar input storage components are not resolved");
                 const auto &ops = ts_data_plan_factory_detail::atomic_ts_data_ops(
@@ -2636,9 +2674,24 @@ namespace hgraph
         return TSInputConstructionPlan{root_schema, endpoint_schema};
     }
 
+    namespace
+    {
+        [[nodiscard]] TSInputTypeRef resolved_input_storage_type(const TSInputConstructionPlan &plan,
+                                                                 std::string_view owner)
+        {
+            const auto type = TSInputTypeRef::checked(input_storage_type_for(plan.endpoint_schema()));
+            if (!type) { throw std::logic_error(std::string{owner} + " could not resolve input storage type"); }
+            return type;
+        }
+    }
+
     TSInputBuilder::TSInputBuilder(TSInputConstructionPlan plan)
         : plan_(std::move(plan))
     {
+        if (detail::input_storage_type_is_realization_invariant(plan_.endpoint_schema()))
+        {
+            storage_type_ = resolved_input_storage_type(plan_, "TSInputBuilder");
+        }
     }
 
     const TSValueTypeMetaData &TSInputBuilder::schema() const noexcept
@@ -2715,9 +2768,12 @@ namespace hgraph
     TSInput::TSInput() noexcept = default;
 
     TSInput::TSInput(const TSInputBuilder &builder)
-        : builder_(&builder)
+        : builder_(&builder),
+          schema_(&builder.plan_.schema()),
+          data_(builder.storage_type_ ? builder.storage_type_
+                                     : resolved_input_storage_type(builder.plan_, "TSInput"))
     {
-        rebuild_from_plan(builder.plan_);
+        attach_root_parent();
     }
 
     TSInput::TSInput(const TSInputConstructionPlan &plan)

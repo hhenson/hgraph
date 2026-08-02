@@ -529,7 +529,7 @@ TEST_CASE("mapped key source teardown invalidates passive and active direct inpu
 
         REQUIRE(in.bound());
         REQUIRE(in.active() == active);
-        REQUIRE(source->view(time).data_view().observer_count() == (active ? 2 : 1));
+        REQUIRE(source->view(time).data_view().observer_count() == 1);
         scheduling.notifications.clear();
 
         source.reset();
@@ -559,7 +559,7 @@ TEST_CASE("mapped key source has no observers after input-first teardown")
             auto in = input.view(&scheduling, time);
             in.bind_output(source.view(time));
             if (active) { in.make_active(); }
-            REQUIRE(source.view(time).data_view().observer_count() == (active ? 2 : 1));
+            REQUIRE(source.view(time).data_view().observer_count() == 1);
         }
         REQUIRE(source.view(time).data_view().observer_count() == 0);
     }

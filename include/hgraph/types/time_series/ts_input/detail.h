@@ -18,6 +18,29 @@ namespace hgraph::detail
     struct TSInputActiveTarget;
     struct TSInputViewOps;
 
+    /**
+     * True when the endpoint's input storage representation is independent of
+     * the graph's TypeRealizationSnapshot.
+     *
+     * Peered leaves own only target-link state, so their storage can be shared
+     * across graph realizations. Non-peered projections are likewise stable
+     * when every descendant is peered. An owned endpoint embeds local payload
+     * storage and must therefore be resolved while the constructing graph's
+     * realization scope is active.
+     */
+    [[nodiscard]] inline bool
+    input_storage_type_is_realization_invariant(const TSEndpointSchema &endpoint) noexcept
+    {
+        if (endpoint.empty()) { return false; }
+        if (endpoint.is_peered()) { return true; }
+        if (endpoint.is_owned()) { return false; }
+        for (const auto &child : endpoint.children())
+        {
+            if (!input_storage_type_is_realization_invariant(child)) { return false; }
+        }
+        return true;
+    }
+
     struct TSInputChildProjection
     {
         TSDataView visible{};
