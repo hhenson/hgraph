@@ -176,13 +176,13 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
         "service_reference",
         "service_request_reply",
         "service_subscription",
+        "service_adaptor_roundtrip",
         "adaptor_loopback",
         "context_switch",
         "operator_pipeline",
         "tsd_key_set_pipeline",
         "mesh_key_set",
     } <= templates
-    assert "service_adaptor_roundtrip" not in templates
     assert {
         recipe.template
         for recipe in generate_recipes(
@@ -511,17 +511,11 @@ def test_family_suppression_covers_only_the_documented_difference(
     assert report["summary"]["known_failures"] == 0
 
 
-def test_generated_recipes_avoid_accepted_deviation_spaces():
+def test_generated_recipes_avoid_remaining_accepted_deviation_spaces():
     # Generated discovery must test the agreed contract rather than consume
     # examples rediscovering accepted deviations. Fixed corpus recipes retain
     # each ruled behavior as a permanent regression.
     from tools.parity.generate import generate_recipes
-
-    unrestricted = generate_recipes(400, seed=7)
-    assert all(
-        recipe.template != "service_adaptor_roundtrip"
-        for recipe in unrestricted
-    )
 
     def generated(template):
         recipes = generate_recipes(
@@ -545,10 +539,13 @@ def test_generated_recipes_avoid_accepted_deviation_spaces():
     )
 
     subscriptions = generated("service_subscription")
-    for recipe in subscriptions:
-        symbols = [tick for tick in recipe.inputs["symbol"] if tick is not None]
-        assert len(symbols) == len(set(symbols))
-        assert recipe.parameters["multiplier"] != 0
+    assert all(recipe.parameters["multiplier"] != 0 for recipe in subscriptions)
+    assert any(
+        len(symbols := [
+            tick for tick in recipe.inputs["symbol"] if tick is not None
+        ]) != len(set(symbols))
+        for recipe in subscriptions
+    )
 
     nested = generated("nested_higher_order")
     for recipe in nested:
@@ -830,28 +827,7 @@ def test_family_gate_requires_the_documented_trace_relation():
     _fingerprints, families = load_known_divergences()
     ok = lambda trace: {"status": "ok", "trace": trace}
 
-    # 1. service_adaptor_roundtrip: ref [2] vs cand [None, 2].
-    adaptor_recipe = {
-        "template": "service_adaptor_roundtrip",
-        "inputs": {"value": [0]},
-        "parameters": {"increment": 2},
-    }
-    difference = compare_outcomes(ok([2]), ok([None, 2]))
-    assert difference.to_dict()["classification"] == "length"
-    assert is_known_family_failure(
-        adaptor_recipe, difference.to_dict(), ok([2]), ok([None, 2]), families
-    )
-    corrupted = ok([None, 3])
-    difference = compare_outcomes(ok([2]), corrupted)
-    assert not is_known_family_failure(
-        adaptor_recipe,
-        difference.to_dict(),
-        ok([2]),
-        corrupted,
-        families,
-    )
-
-    # 2. tsd_key_set_pipeline dedup_size=false: the unchanged size field is
+    # tsd_key_set_pipeline dedup_size=false: the unchanged size field is
     # republished by the reference and omitted by the candidate. The float
     # difference is inside the template tolerance and is not a second defect.
     pipeline_recipe = {
@@ -892,46 +868,7 @@ def test_family_gate_requires_the_documented_trace_relation():
         families,
     )
 
-    # 3. A different subscription key samples normally; a repeated key is
-    # same-cycle in hg_cpp and delayed one cycle in released hgraph. Payload
-    # values and every other tick must remain equal.
-    subscription_recipe = {
-        "template": "service_subscription",
-        "inputs": {"symbol": ["rates", None, "long_symbol", "rates"]},
-        "parameters": {"multiplier": 10, "path": "live"},
-    }
-    reference = ok([None, 50, None, None, 50])
-    candidate = ok([None, 50, None, 50])
-    difference = compare_outcomes(reference, candidate)
-    assert is_known_family_failure(
-        subscription_recipe,
-        difference.to_dict(),
-        reference,
-        candidate,
-        families,
-    )
-    corrupted = ok([None, 50, None, 51])
-    difference = compare_outcomes(reference, corrupted)
-    assert not is_known_family_failure(
-        subscription_recipe,
-        difference.to_dict(),
-        reference,
-        corrupted,
-        families,
-    )
-    first_subscriptions_only = {
-        **subscription_recipe,
-        "inputs": {"symbol": ["rates", None, "long_symbol"]},
-    }
-    assert not is_known_family_failure(
-        first_subscriptions_only,
-        difference.to_dict(),
-        reference,
-        corrupted,
-        families,
-    )
-
-    # 4. The non-identity reduce ruling covers a value difference only. A
+    # The non-identity reduce ruling covers a value difference only. A
     # length difference in the same parameter space remains reportable.
     reduce_recipe = {
         "template": "tsd_map_reduce",
@@ -959,169 +896,7 @@ def test_family_gate_requires_the_documented_trace_relation():
     crash = {"status": "error", "phase": "runtime"}
     difference = compare_outcomes(ok([2]), crash)
     assert not is_known_family_failure(
-        adaptor_recipe, difference.to_dict(), ok([2]), crash, families
-    )
-
-
-def test_publisher_suppresses_stale_resubscription_variants(monkeypatch):
-    # Symbols and path deliberately differ from the exact issue-66 corpus
-    # fingerprint. The input-aware relation must still prevent a stale report
-    # from creating or reopening the documented deviation.
-    recipe = {
-        "schema_version": 1,
-        "id": "stale-resubscription-variant",
-        "description": "Stale report with a different repeated symbol.",
-        "template": "service_subscription",
-        "inputs": {"symbol": ["fx", None, "long_symbol", "fx"]},
-        "parameters": {"multiplier": 0, "path": "quotes"},
-        "features": [],
-    }
-    reference = {"status": "ok", "trace": [None, 0, None, None, 0]}
-    candidate = {"status": "ok", "trace": [None, 0, None, 0]}
-    failure = {
-        "minimized_recipe": recipe,
-        "difference": compare_outcomes(reference, candidate).to_dict(),
-        "reference": reference,
-        "candidate": candidate,
-        "reduction": {"attempts": 0, "accepted": 0},
-    }
-    failure["failure_fingerprint"] = failure_fingerprint(failure)
-    assert failure["failure_fingerprint"] != (
-        "6d05f5590cc2ff1d6ff45fa63f5189771924d30b9df7d754569979a3d2718b0b"
-    )
-
-    calls = []
-    monkeypatch.setattr(
-        "tools.parity.issues._existing_issues", lambda _repo: []
-    )
-
-    def fake_gh(arguments, *, repo, capture=False):
-        calls.append(arguments)
-        return SimpleNamespace(stdout="")
-
-    monkeypatch.setattr("tools.parity.issues._gh", fake_gh)
-    actions = publish_failures([failure], repo="hhenson/hg_cpp", publish=True)
-    assert actions == [
-        {
-            "action": "known-divergence",
-            "fingerprint": failure["failure_fingerprint"],
-        }
-    ]
-    assert not any(
-        arguments[:2] in (["issue", "create"], ["issue", "reopen"])
-        for arguments in calls
-    )
-
-
-def test_resample_relation_permits_subset_delays(monkeypatch):
-    # Issue #71: only the repeats that actually sample an existing value
-    # delay; inserting a cycle for EVERY repeat is too rigid. Uses the
-    # committed known_divergences.json family records.
-    from tools.parity.known import (
-        is_known_family_failure,
-        load_known_divergences,
-    )
-
-    _fingerprints, families = load_known_divergences()
-    ok = lambda trace: {"status": "ok", "trace": trace}
-
-    def classify(symbols, reference_trace, candidate_trace):
-        recipe = {
-            "template": "service_subscription",
-            "inputs": {"symbol": symbols},
-            "parameters": {"multiplier": 7, "path": "live"},
-        }
-        reference, candidate = ok(reference_trace), ok(candidate_trace)
-        difference = compare_outcomes(reference, candidate)
-        assert difference is not None
-        return is_known_family_failure(
-            recipe, difference.to_dict(), reference, candidate, families
-        )
-
-    # The representative stale case: fx and long_symbol both repeat, but
-    # only the final long_symbol repeat emits the existing value.
-    representative_symbols = [
-        "rates", None, "fx", None, None, "long_symbol", None, "fx", "long_symbol",
-    ]
-    representative_reference = [None, 35, None, 14, None, None, 77, None, None, 77]
-    representative_candidate = [None, 35, None, 14, None, None, 77, None, 77]
-    assert classify(
-        representative_symbols,
-        representative_reference,
-        representative_candidate,
-    )
-
-    # More than one emitting repeat aligns.
-    assert classify(
-        ["fx", None, "fx", None, "fx"],
-        [None, 14, None, 14, None, 14],
-        [None, 14, 14, None, 14],
-    )
-
-    # A first-subscription difference remains reportable (no repeats).
-    assert not classify(
-        ["rates", None, "fx"],
-        [None, 35, None, 14],
-        [None, 35, None, 15],
-    )
-
-    # Payload corruption at the aligned repeat remains reportable.
-    assert not classify(
-        representative_symbols,
-        representative_reference,
-        [None, 35, None, 14, None, None, 77, None, 78],
-    )
-
-    # An unrelated missing tick (not at an emitting repeat) remains
-    # reportable.
-    assert not classify(
-        representative_symbols,
-        representative_reference,
-        [None, 35, None, None, None, 77, None, 77],
-    )
-
-    # The representative case flows through the publisher as a known
-    # mismatch: no create, no reopen.
-    recipe = {
-        "schema_version": 1,
-        "id": "stale-partial-delay-variant",
-        "description": "Stale report where only one of two repeats emits.",
-        "template": "service_subscription",
-        "inputs": {"symbol": representative_symbols},
-        "parameters": {"multiplier": 7, "path": "live"},
-        "features": [],
-    }
-    reference = ok(representative_reference)
-    candidate = ok(representative_candidate)
-    failure = {
-        "minimized_recipe": recipe,
-        "difference": compare_outcomes(reference, candidate).to_dict(),
-        "reference": reference,
-        "candidate": candidate,
-        "reduction": {"attempts": 0, "accepted": 0},
-    }
-    failure["failure_fingerprint"] = failure_fingerprint(failure)
-
-    calls = []
-    monkeypatch.setattr(
-        "tools.parity.issues._existing_issues", lambda _repo: []
-    )
-
-    def fake_gh(arguments, *, repo, capture=False):
-        calls.append(arguments)
-        return SimpleNamespace(stdout="")
-
-    monkeypatch.setattr("tools.parity.issues._gh", fake_gh)
-    actions = publish_failures([failure], repo="hhenson/hg_cpp", publish=True)
-    assert actions == [
-        {
-            "action": "known-divergence",
-            "fingerprint": failure["failure_fingerprint"],
-        }
-    ]
-    assert not any(
-        arguments[:2] in (["issue", "create"], ["issue", "reopen"])
-        for arguments in calls
+        reduce_recipe, difference.to_dict(), ok([2]), crash, families
     )
 
 
@@ -1511,18 +1286,20 @@ def test_nested_no_change_retick_family_is_elision_only():
     assert not classify([0, 0], [0, 1])
 
 
-def test_generated_subscription_recipes_never_resubscribe():
-    # Re-subscribing a previously computed symbol is the designed same-cycle
-    # sampling deviation (issue #66): the generator must not explore it.
+def test_generated_subscription_recipes_include_resubscriptions():
+    # Re-subscribing a previously computed symbol is part of the parity
+    # contract and must remain in randomized discovery.
     pytest.importorskip("hypothesis")
     from tools.parity.generate import generate_recipes
 
     recipes = generate_recipes(240, seed=29)
     subs = [r for r in recipes if r.template == "service_subscription"]
     assert subs, "expected generated service_subscription recipes"
-    for recipe in subs:
-        symbols = [s for s in recipe.inputs["symbol"] if s is not None]
-        assert len(symbols) == len(set(symbols))
+    assert any(
+        len(symbols := [s for s in recipe.inputs["symbol"] if s is not None])
+        != len(set(symbols))
+        for recipe in subs
+    )
 
 
 def test_coverage_reports_operator_frontier_and_semantic_pairs():
@@ -1555,17 +1332,41 @@ def test_generator_covers_the_2026_07_compat_issue_classes():
     # the 2026-07 compatibility issues lived: temporal accessors (#82),
     # collection sizes (#81), lifecycle signature spellings (#79), the
     # recorded-frame surface (PR #92), and postponed annotations (#83).
-    from tools.parity.generate import generate_recipes
+    from hypothesis import find, settings
 
-    templates = set()
-    postponed = False
-    for recipe in generate_recipes(480, seed=29):
-        templates.add(recipe.template)
-        postponed = postponed or recipe.parameters.get(
-            "postponed_annotations", False)
-    assert {"temporal_expression", "collection_size", "lifecycle_state",
-            "data_frame_recording", "nested_higher_order"} <= templates
-    assert postponed
+    from tools.parity.generate import (
+        generate_recipes,
+        recipe_payload_strategy,
+    )
+
+    required_templates = {
+        "temporal_expression",
+        "collection_size",
+        "lifecycle_state",
+        "data_frame_recording",
+        "nested_higher_order",
+    }
+    generated_templates = {
+        recipe.template
+        for template in required_templates
+        for recipe in generate_recipes(
+            1, seed=29, templates=(template,)
+        )
+    }
+    assert generated_templates == required_templates
+
+    postponed = find(
+        recipe_payload_strategy(
+            min_ticks=8,
+            max_ticks=32,
+            templates=("scalar_expression",),
+        ),
+        lambda payload: payload["parameters"].get(
+            "postponed_annotations", False
+        ),
+        settings=settings(database=None, deadline=None),
+    )
+    assert postponed["parameters"]["postponed_annotations"]
 
 
 def test_coverage_corpus_recipes_execute_on_the_candidate():

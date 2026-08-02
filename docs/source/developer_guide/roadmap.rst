@@ -635,15 +635,6 @@ The following are intentional unless separately re-opened:
   TSS/TSD delta that nets to no change does not tick. Explicit writes are
   unaffected and match upstream exactly: a python node returning the same
   scalar each evaluation ticks each time, as do repeated TSD entry writes.
-- **Service-boundary timing** (design record: the scheduling matrix in
-  :doc:`services`): request stubs forward next cycle by design, so a
-  ``service_adaptor`` round trip observably lands one cycle after released
-  hgraph's same-cycle adaptor wiring; conversely a late or duplicate
-  subscription samples the existing shared output in the same cycle, one
-  cycle earlier than released hgraph's re-delivery. Both are pinned by
-  ``tests/cpp/test_service_wiring.cpp`` (the service-adaptor collection cases
-  and "late duplicate subscription samples the existing value"). First
-  subscriptions and request/reply match the Python timing model exactly.
 - **Reduce over partially-valid mapped keys** (issue #95; design record:
   :doc:`nested_graphs`): reduction is over currently-valid values. A keyed
   value can be invalid while its slot is live — a map child existing before

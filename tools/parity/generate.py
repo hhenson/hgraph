@@ -243,22 +243,10 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
     @st.composite
     def service_subscription(draw):
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
-        # Each symbol subscribes at most once: re-subscribing a previously
-        # computed symbol is the designed same-cycle sampling deviation
-        # (services.rst scheduling matrix; issue #66), so differential
-        # exploration there measures the deviation, not candidate defects.
-        # The corpus tracks the re-subscription case explicitly.
-        pool = list(
-            draw(
-                st.permutations(("a", "fx", "rates", "EURUSD", "long_symbol"))
-            )
-        )
-        ticks = [pool.pop(0)]
+        symbols = st.sampled_from(("a", "fx", "rates", "EURUSD", "long_symbol"))
+        ticks = [draw(symbols)]
         for _ in range(count - 1):
-            if pool and draw(st.booleans()):
-                ticks.append(pool.pop(0))
-            else:
-                ticks.append(None)
+            ticks.append(draw(st.one_of(st.none(), symbols)))
         return {
             "template": "service_subscription",
             "inputs": {"symbol": ticks},
@@ -686,9 +674,9 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             "features": [*CATALOG["data_frame_recording"].features],
         }
 
-    # (name, factory) pairs for discovery. Families whose every differential
-    # is already an accepted deviation stay in the fixed corpus rather than
-    # consuming random examples here.
+    # (name, factory) pairs for discovery. The service strategies exercise
+    # the Python parity contract directly; only still-accepted divergences are
+    # constrained within their individual generators.
     discovery_weighted = (
         ("scalar_expression", scalar_expression),
         ("feedback_accumulate", feedback_accumulate),
@@ -698,6 +686,7 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         ("service_request_reply", service_request_reply),
         ("service_subscription", service_subscription),
         ("adaptor_loopback", adaptor_loopback),
+        ("service_adaptor_roundtrip", service_adaptor_roundtrip),
         ("context_switch", context_switch),
         ("operator_pipeline", operator_pipeline),
         ("tsd_key_set_pipeline", tsd_key_set_pipeline),
@@ -709,13 +698,7 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         ("nested_higher_order", nested_higher_order),
         ("nested_higher_order", nested_higher_order),
     )
-    selectable = (
-        *discovery_weighted,
-        # Explicit selection remains available for controller tests and
-        # reproductions; unrestricted discovery excludes its designed
-        # one-cycle transport difference.
-        ("service_adaptor_roundtrip", service_adaptor_roundtrip),
-    )
+    selectable = discovery_weighted
     if templates is None:
         return st.one_of(*(factory() for _, factory in discovery_weighted))
     # A restricted profile draws ONLY the allowed strategies — selecting at

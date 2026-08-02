@@ -342,7 +342,8 @@ namespace hgraph
         // the service interface's closed base union before capture.
         WiringPortRef adapted_key = graph_wiring_detail::adapt_source_for_input(
             w, TypeRegistry::instance().ts(descriptor.key_type), key);
-        // The subscription capture schedules the source for the next cycle.
+        // Root captures rank before the shared key source and publish in the
+        // same cycle. Nested hand-offs retain their one-cycle temporal boundary.
         std::array<WiringPortRef, 2>  sources{adapted_key, subscriptions};
         std::array<WiringInputRef, 2> inputs{{
             WiringInputRef{.source = sources[0]},
@@ -373,7 +374,24 @@ namespace hgraph
         WiringPortRef output =
             resolved.impl->wire(w, resolved.map, resolved.args, resolved.kwargs).output;
         output.schema = descriptor.value_schema;
-        return output;
+        std::array<WiringPortRef, 3> gate_sources{
+            output, adapted_key, subscriptions};
+        std::array<WiringInputRef, 3> gate_inputs{{
+            WiringInputRef{.source = gate_sources[0]},
+            WiringInputRef{.source = gate_sources[1]},
+            WiringInputRef{.source = gate_sources[2]},
+        }};
+        NodeBuilder gate_builder = make_subscription_response_gate_node(
+            *descriptor.key_type, *descriptor.value_schema);
+        gate_builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
+            gate_builder.type().schema()->input_schema,
+            std::span<const WiringPortRef>{gate_sources.data(), gate_sources.size()}));
+        WiringPortRef gated = w.add_node(
+            std::type_index(typeid(service::detail::subscription_response_gate_marker)),
+            std::move(gate_builder),
+            std::span<const WiringInputRef>{gate_inputs.data(), gate_inputs.size()}, Value{});
+        gated.schema = descriptor.value_schema;
+        return gated;
     }
 
     void register_subscription_service_impl(Wiring &w, const RuntimeServiceDescriptor &descriptor,
@@ -1160,7 +1178,7 @@ namespace hgraph
             WiringInputRef{.source = sources[2]},
         }};
         NodeBuilder builder = make_request_input_capture_node(
-            request_path, *descriptor.input_schema);
+            request_path, *descriptor.input_schema, true);
         builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
             builder.type().schema()->input_schema,
             std::span<const WiringPortRef>{sources.data(), sources.size()}));

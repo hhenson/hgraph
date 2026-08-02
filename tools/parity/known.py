@@ -26,9 +26,7 @@ from .compare import compare_outcomes
 
 DEFAULT_PATH = Path(__file__).with_name("known_divergences.json")
 TRACE_VALUE = "trace-value"
-SERVICE_ADAPTOR_ONE_CYCLE = "service-adaptor-one-cycle"
 KEY_SET_SIZE_NO_RETICK = "key-set-size-no-retick"
-SUBSCRIPTION_RESAMPLE_ONE_CYCLE = "subscription-resample-one-cycle"
 NO_CHANGE_ELISION = "no-change-elision"
 VALID_SUBSET_REDUCE = "valid-subset-reduce"
 SWITCH_FLIP_MAP_REMOVAL = "switch-flip-map-removal"
@@ -92,22 +90,6 @@ def _trace_value_relation(
     return difference.get("classification") == "value"
 
 
-def _service_adaptor_one_cycle_relation(
-    _recipe: dict[str, Any],
-    _difference: dict[str, Any],
-    reference: dict[str, Any],
-    candidate: dict[str, Any],
-    _family: dict[str, Any],
-) -> bool:
-    reference_trace = reference.get("trace")
-    candidate_trace = candidate.get("trace")
-    return (
-        isinstance(reference_trace, list)
-        and isinstance(candidate_trace, list)
-        and candidate_trace == [None, *reference_trace]
-    )
-
-
 def _without_map_field(trace: Any, field: str) -> Any:
     if not isinstance(trace, list):
         return trace
@@ -163,73 +145,6 @@ def _key_set_size_no_retick_relation(
         )
         is None
     )
-
-
-def _repeated_non_null_positions(values: Any) -> list[int]:
-    if not isinstance(values, list):
-        return []
-    seen = set()
-    repeated = []
-    for index, value in enumerate(values):
-        if value is None:
-            continue
-        if value in seen:
-            repeated.append(index)
-        else:
-            seen.add(value)
-    return repeated
-
-
-def _subscription_resample_one_cycle_relation(
-    recipe: dict[str, Any],
-    _difference: dict[str, Any],
-    reference: dict[str, Any],
-    candidate: dict[str, Any],
-    _family: dict[str, Any],
-) -> bool:
-    """Issue #66/#71: only the repeats that actually sample delay.
-
-    The documented deviation inserts one no-tick cycle immediately before
-    the payload of an EMITTING repeated subscription — a repeat that emits
-    nothing (e.g. its value never arrived) shifts nothing. Align the traces
-    with a two-pointer walk that may consume one reference ``None`` before
-    the candidate payload at any emitting repeat position; the walk is
-    deterministic because the delay branch only opens where the direct
-    comparison fails. At least one repeat must account for the mismatch and
-    the complete payload traces must be equal after alignment, so corrupt
-    values, unrelated missing ticks, and first-subscription differences
-    remain reportable.
-    """
-    repeated = set(
-        _repeated_non_null_positions((recipe.get("inputs") or {}).get("symbol"))
-    )
-    reference_trace = reference.get("trace")
-    candidate_trace = candidate.get("trace")
-    if (
-        not repeated
-        or not isinstance(reference_trace, list)
-        or not isinstance(candidate_trace, list)
-    ):
-        return False
-
-    inserted = 0
-    j = 0
-    for i, item in enumerate(candidate_trace):
-        if j < len(reference_trace) and reference_trace[j] == item:
-            j += 1
-            continue
-        if (
-            i in repeated
-            and item is not None
-            and j + 1 < len(reference_trace)
-            and reference_trace[j] is None
-            and reference_trace[j + 1] == item
-        ):
-            j += 2
-            inserted += 1
-            continue
-        return False
-    return j == len(reference_trace) and inserted >= 1
 
 
 def _no_change_elision_relation(
@@ -495,11 +410,7 @@ RELATIONS = {
     VALID_SUBSET_REDUCE: _valid_subset_reduce_relation,
     SWITCH_FLIP_VALID_SUBSET: _switch_flip_valid_subset_relation,
     SWITCH_FLIP_MAP_REMOVAL: _switch_flip_map_removal_relation,
-    SERVICE_ADAPTOR_ONE_CYCLE: _service_adaptor_one_cycle_relation,
     KEY_SET_SIZE_NO_RETICK: _key_set_size_no_retick_relation,
-    SUBSCRIPTION_RESAMPLE_ONE_CYCLE: (
-        _subscription_resample_one_cycle_relation
-    ),
 }
 
 

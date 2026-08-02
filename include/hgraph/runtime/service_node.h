@@ -48,6 +48,19 @@ namespace hgraph
         const ValueTypeMetaData &key_schema);
 
     /**
+     * Build the response boundary for one subscription client.
+     *
+     * A newly-live service key immediately invalidates any response sampled
+     * through the shared dictionary. The first fresh implementation value is
+     * published one cycle after it arrives, matching Python's keyed-child
+     * lifecycle and preventing cached values from leaking on re-add. A client
+     * joining a key already kept live by another client samples it immediately.
+     */
+    [[nodiscard]] HGRAPH_EXPORT NodeBuilder make_subscription_response_gate_node(
+        const ValueTypeMetaData &key_schema,
+        const TSValueTypeMetaData &response_schema);
+
+    /**
      * Build a source node that owns a request/reply service request dictionary.
      *
      * The output schema is ``TSD<int, request_schema>``. Paired capture nodes
@@ -59,17 +72,23 @@ namespace hgraph
         const TSValueTypeMetaData &request_schema);
 
     /**
-     * Build a sink node that captures one request/reply client's request.
+     * Build a sink node that captures one request/reply or service-adaptor
+     * client's request.
      *
      * Input field ``request`` is ``request_schema`` and field ``requests`` is
      * the paired source node's ``TSD<int, request_schema>`` output. Only
      * ``request`` is active; ``requests`` is a passive binding used to locate
-     * the source node. Captures schedule the source for the current engine time
-     * during start, and the next engine tick during normal evaluation.
+     * the source node. Deferred request/reply captures schedule the next engine
+     * tick during normal evaluation. Rank-correct service-adaptor captures set
+     * ``same_cycle`` and schedule the paired source for the current engine time
+     * when both live in the owning graph. Dynamically started child graphs hand
+     * work to the enclosing source on the following engine cycle because its
+     * outer rank may already have passed.
      */
     [[nodiscard]] HGRAPH_EXPORT NodeBuilder make_request_input_capture_node(
         std::string path,
-        const TSValueTypeMetaData &request_schema);
+        const TSValueTypeMetaData &request_schema,
+        bool same_cycle = false);
 }  // namespace hgraph
 
 #endif  // HGRAPH_RUNTIME_SERVICE_NODE_H

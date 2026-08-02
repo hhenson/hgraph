@@ -615,6 +615,10 @@ namespace hgraph::service
         {
         };
 
+        struct subscription_response_gate_marker
+        {
+        };
+
         struct shared_output_source_marker
         {
         };
@@ -831,11 +835,10 @@ namespace hgraph::service
                                                std::move(builder),
                                                std::span<const WiringInputRef>{inputs.data(), inputs.size()},
                                                Value{});
-            // The capture schedules the source for the next cycle. Service
-            // rank application places the first client before that source and
-            // later clients after it. Repeated first-client ticks therefore
-            // conflate, while a later client first ticking on the source cycle
-            // is published on the following cycle, matching Python ordering.
+            // Root captures rank before the shared key source and publish in
+            // the same cycle. A dynamically-started nested capture defers its
+            // outer hand-off one cycle; observed-time batches keep successive
+            // transitions distinct.
             return capture.peered_node();
         }
 
@@ -867,8 +870,8 @@ namespace hgraph::service
                                                std::move(builder),
                                                std::span<const WiringInputRef>{inputs.data(), inputs.size()},
                                                Value{});
-            // Request stubs forward on the next cycle; see
-            // capture_subscription_key above for the ordering contract.
+            // Request/reply alone forwards on the next cycle; the temporal
+            // break is what permits recursive request/reply implementations.
             return capture.peered_node();
         }
 
@@ -905,8 +908,8 @@ namespace hgraph::service
             // dependency places the paired source after this capture (and
             // Wiring::finish's topological sort re-ranks once ALL captures are
             // known), so the capture schedules the source for the CURRENT
-            // evaluation time — no next-cycle workaround. Request stubs above
-            // still schedule their transport sources for the next cycle.
+            // evaluation time — no next-cycle workaround. Request/reply stubs
+            // above still schedule their transport sources for the next cycle.
             // The same rule applies at every add_rank_dependency site below
             // and in adaptor_wiring.h.
             w.add_same_cycle_pair(capture.peered_node(), shared_output.node());
@@ -1237,8 +1240,30 @@ namespace hgraph::service
                 detail::capture_subscription_key<Service>(*wiring_, key, subscriptions_, path_);
             wiring_->register_service_client_rank(
                 detail::subscriptions_path<Service>(path_), "subscription service", capture, false);
-            return wire<stdlib::getitem_>(*wiring_, output_.template as<output_schema>(), key)
+            auto sampled = wire<stdlib::getitem_>(
+                *wiring_, output_.template as<output_schema>(), key)
                 .template as<value_schema>();
+            std::array<WiringPortRef, 3> sources{
+                sampled.erased(), key.erased(), subscriptions_.erased()};
+            std::array<WiringInputRef, 3> inputs{{
+                WiringInputRef{.source = sources[0]},
+                WiringInputRef{.source = sources[1]},
+                WiringInputRef{.source = sources[2]},
+            }};
+            const auto *key_meta = detail::resolved_scalar_meta<key_type>(
+                path_.resolution, "subscription service key");
+            const auto *response_meta = detail::resolved_schema_meta<value_schema>(
+                path_.resolution, "subscription service response");
+            NodeBuilder builder = make_subscription_response_gate_node(
+                *key_meta, *response_meta);
+            builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
+                builder.type().schema()->input_schema,
+                std::span<const WiringPortRef>{sources.data(), sources.size()}));
+            WiringPortRef gated = wiring_->add_node(
+                std::type_index(typeid(detail::subscription_response_gate_marker)),
+                std::move(builder),
+                std::span<const WiringInputRef>{inputs.data(), inputs.size()}, Value{});
+            return Port<value_schema>{*wiring_, std::move(gated)};
         }
 
       private:
@@ -1714,7 +1739,8 @@ namespace hgraph::service_adaptor
             }
             NodeBuilder builder = make_request_input_capture_node(
                 adaptor_from_graph_path<Interface>(user_path),
-                *input_meta);
+                *input_meta,
+                true);
             builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
                 builder.type().schema()->input_schema,
                 std::span<const WiringPortRef>{sources.data(), sources.size()}));
@@ -1723,8 +1749,11 @@ namespace hgraph::service_adaptor
                                                std::move(builder),
                                                std::span<const WiringInputRef>{inputs.data(), inputs.size()},
                                                Value{});
-            // Service adaptor requests use the same next-cycle transport and
-            // same-time capture ordering as request/reply services.
+            // Service-adaptor sends are rank-correct and same-cycle in their
+            // owning graph. A dynamically-started child hands off to its outer
+            // source on the following cycle because that outer rank may already
+            // have passed. Only request/reply is unconditionally deferred to
+            // permit recursion.
             return capture.peered_node();
         }
 

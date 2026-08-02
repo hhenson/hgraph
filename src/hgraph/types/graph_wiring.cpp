@@ -2382,7 +2382,6 @@ GlobalStateView Wiring::operator_state() noexcept {
 }
 
 void Wiring::apply_service_rank_dependencies() {
-  std::unordered_set<std::string> ranked_senders;
   for (const auto &client : impl_->service_client_ranks) {
     auto anchor_it = impl_->service_rank_anchors.find(client.path);
     if (anchor_it == impl_->service_rank_anchors.end() ||
@@ -2397,10 +2396,8 @@ void Wiring::apply_service_rank_dependencies() {
 
     if (client.receive) {
       add_rank_dependency(client.node, anchor);
-    } else if (ranked_senders.insert(client.path).second) {
-      add_rank_dependency(anchor, client.node);
     } else {
-      add_rank_dependency(client.node, anchor);
+      add_rank_dependency(anchor, client.node);
     }
   }
 }

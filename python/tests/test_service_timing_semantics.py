@@ -1,11 +1,8 @@
 """Service-boundary and mapped-service reduction timing semantics.
 
 The scheduling matrix in ``docs/source/developer_guide/services.rst`` is the
-design record: request stubs forward next cycle by design, and a late or
-duplicate subscription samples the existing shared output in the same cycle.
-Released hgraph observably differs on both edges (same-cycle adaptor round
-trips; one-cycle re-subscription re-delivery). See the Accepted Deviations
-list in ``roadmap.rst`` and parity issues #64 / #66.
+design record: adaptors are rank-correct and same-cycle, subscription changes
+are delivered in order, and request/reply alone retains its temporal break.
 
 Issue #95 is a separate reduce boundary: released hgraph waits when a keyed
 mapped slot is live but not yet valid, whereas hg_cpp reduces the currently
@@ -21,10 +18,9 @@ from hgraph import TS, TSD, TSS, graph
 from hgraph.test import eval_node
 
 
-def test_service_adaptor_roundtrip_takes_one_transport_cycle():
-    # Issue #64: released hgraph completes the adaptor round trip in the
-    # same engine cycle ([1]); hg_cpp's request stub forwards next cycle by
-    # design, so the reply lands one cycle later.
+def test_service_adaptor_roundtrip_is_same_cycle():
+    # Issue #64: service adaptors rank the client before the implementation
+    # and the reply after it, completing the round trip in one engine cycle.
     @hg.service_adaptor
     def echo(request: TS[int]) -> TS[int]: ...
 
@@ -38,23 +34,36 @@ def test_service_adaptor_roundtrip_takes_one_transport_cycle():
         return echo(value)
 
     out = eval_node(roundtrip, [1, 2, 3], __end_time__=hg.MIN_ST + 5 * hg.MIN_TD)
-    assert out == [None, 1, 2, 3]
+    assert out == [1, 2, 3]
 
 
-def test_resubscription_samples_existing_value_in_the_same_cycle():
-    # Issue #66: re-subscribing a previously computed symbol samples the
-    # existing shared-output entry in the same cycle; released hgraph takes
-    # the usual one-cycle transport hop again. First subscriptions match
-    # upstream exactly (value one cycle after subscribe).
+def test_subscription_replacement_waits_for_fresh_value_and_preserves_transitions():
+    # Issue #66: a fast rates -> fx -> rates sequence must reach the
+    # implementation as three distinct transitions. The second rates child is
+    # fresh; a cached first-generation value must not leak during replacement.
+    calls = {}
+    transitions = []
+
     @hg.subscription_service
     def quote(path: str, symbol: TS[str]) -> TS[int]: ...
 
+    @hg.compute_node
+    def generation(symbol: TS[str]) -> TS[int]:
+        key = symbol.value
+        calls[key] = calls.get(key, 0) + 1
+        return calls[key]
+
     @graph
     def quote_value(symbol: TS[str]) -> TS[int]:
-        return hg.len_(symbol) * 7
+        return generation(symbol)
+
+    @hg.sink_node
+    def observe(symbols: TSS[str]):
+        transitions.append((sorted(symbols.added()), sorted(symbols.removed())))
 
     @hg.service_impl(interfaces=quote)
     def quote_values(symbol: TSS[str]) -> TSD[str, TS[int]]:
+        observe(symbol)
         return hg.map_(quote_value, __keys__=symbol, __key_arg__="symbol")
 
     @graph
@@ -67,7 +76,9 @@ def test_resubscription_samples_existing_value_in_the_same_cycle():
         ["rates", None, "fx", "rates"],
         __end_time__=hg.MIN_ST + 7 * hg.MIN_TD,
     )
-    assert out == [None, 35, None, 35]
+    assert out == [None, 1, None, None, 2]
+    assert transitions == [(["rates"], []), (["fx"], ["rates"]), (["rates"], ["fx"])]
+    assert calls == {"rates": 2, "fx": 1}
 
 
 def test_request_reply_inside_a_mapped_switch_keeps_late_keys():

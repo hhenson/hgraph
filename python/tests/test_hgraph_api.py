@@ -1347,7 +1347,7 @@ def test_service_adaptor_from_python():
         return echo(lhs, path="echo") + echo(rhs, path="echo")
 
     out = eval_node(two_clients, [1, None, 2], [10, None, 20])
-    check(out == [None, 11, None, 22], f"service adaptor clients: {out}")
+    check(out == [11, None, 22], f"service adaptor clients: {out}")
 
     @hg.service_adaptor
     def routed(path: str, request: TS[int]) -> TS[int]: ...
@@ -1367,7 +1367,7 @@ def test_service_adaptor_from_python():
         return routed("small", request=value) + routed(value, path="large")
 
     out = eval_node(separated_paths, [1, None, 2])
-    check(out == [None, 13, None, 15], f"service adaptor paths: {out}")
+    check(out == [13, None, 15], f"service adaptor paths: {out}")
 
     @hg.service_adaptor
     def left(request: TS[int]) -> TS[int]: ...
@@ -1388,7 +1388,7 @@ def test_service_adaptor_from_python():
         return left(value, path="both") + right(value, path="both")
 
     out = eval_node(two_interfaces, [3, None, 4])
-    check(out == [None, 6, None, 8], f"service adaptor interfaces: {out}")
+    check(out == [6, None, 8], f"service adaptor interfaces: {out}")
 
     class ArithmeticResult(hg.TimeSeriesSchema):
         total: TS[int]
@@ -1417,7 +1417,7 @@ def test_service_adaptor_from_python():
         return arithmetic(lhs, rhs, path="arithmetic")
 
     out = eval_node(arithmetic_client, [7], [2])
-    check(out == [None, {"total": 9, "difference": 5}], f"multi-field service adaptor: {out}")
+    check(out == [{"total": 9, "difference": 5}], f"multi-field service adaptor: {out}")
 
     try:
         @hg.service_adaptor_impl(interfaces=echo)
@@ -1454,7 +1454,7 @@ def test_service_adaptor_explicit_request_id_client_split():
             path="echo-split", __request_id__=rid, __no_ts_inputs__=True)
 
     out = eval_node(split_client, [1, None, 2])
-    check(out == [None, 1, None, 2], f"split service adaptor client: {out}")
+    check(out == [1, None, 2], f"split service adaptor client: {out}")
 
 
 def test_sink_only_service_adaptor_from_python():
@@ -1666,7 +1666,7 @@ def test_generic_adaptor_specializations_from_python():
         return generic_service_adaptor(adapted, path="generic_service")
 
     out = eval_node(app, [2, None, 4])
-    check(out == [None, 3, None, 5], f"generic adaptors: {out}")
+    check(out == [3, None, 5], f"generic adaptors: {out}")
 
     try:
         generic_adaptor[payload:float]

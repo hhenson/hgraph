@@ -1474,7 +1474,7 @@ CATALOG = {
             "adaptor:service",
             "adaptor:multi-client",
             "implementation:path-injection",
-            "lifecycle:transport-delay",
+            "lifecycle:same-cycle",
             "shape:TSL",
             "reference:REF",
             "binding:non-peered",
