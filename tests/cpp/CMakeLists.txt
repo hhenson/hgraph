@@ -170,6 +170,7 @@ hgraph_add_test_objects(hgraph_wiring_test_objects
     test_nested_wiring.cpp
     test_operators.cpp
     test_race_semantics.cpp
+    test_service_push_sources.cpp
     test_service_runtime.cpp
     test_service_wiring.cpp
     test_static_node.cpp
