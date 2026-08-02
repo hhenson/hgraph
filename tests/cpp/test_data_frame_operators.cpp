@@ -165,6 +165,92 @@ namespace
         return Series{std::move(array)};
     }
 
+    [[nodiscard]] Frame array_frame(DateTime when)
+    {
+        arrow::TimestampBuilder date_builder{
+            arrow::timestamp(arrow::TimeUnit::MICRO), arrow::default_memory_pool()};
+        auto value_builder = std::make_unique<arrow::Int64Builder>();
+        auto *values       = value_builder.get();
+        arrow::ListBuilder list_builder{arrow::default_memory_pool(),
+                                        std::move(value_builder)};
+        require_arrow(date_builder.Append(when.time_since_epoch().count()));
+        require_arrow(list_builder.Append());
+        require_arrow(values->AppendValues({Int{10}, Int{20}}));
+
+        std::shared_ptr<arrow::Array> date_array;
+        std::shared_ptr<arrow::Array> list_array;
+        require_arrow(date_builder.Finish(&date_array));
+        require_arrow(list_builder.Finish(&list_array));
+        return Frame{arrow::Table::Make(
+            arrow::schema({
+                arrow::field("date", arrow::timestamp(arrow::TimeUnit::MICRO)),
+                arrow::field("value", arrow::list(arrow::int64()))}),
+            {std::move(date_array), std::move(list_array)})};
+    }
+
+    [[nodiscard]] Frame matrix_frame(DateTime when)
+    {
+        arrow::TimestampBuilder date_builder{
+            arrow::timestamp(arrow::TimeUnit::MICRO), arrow::default_memory_pool()};
+        auto item_builder = std::make_unique<arrow::Int64Builder>();
+        auto *items       = item_builder.get();
+        auto row_builder  = std::make_unique<arrow::ListBuilder>(
+            arrow::default_memory_pool(), std::move(item_builder));
+        auto *rows = row_builder.get();
+        arrow::ListBuilder matrix_builder{arrow::default_memory_pool(),
+                                          std::move(row_builder)};
+
+        require_arrow(date_builder.Append(when.time_since_epoch().count()));
+        require_arrow(matrix_builder.Append());
+        require_arrow(rows->Append());
+        require_arrow(items->AppendValues({Int{1}, Int{2}}));
+        require_arrow(rows->Append());
+        require_arrow(items->AppendValues({Int{3}, Int{4}}));
+
+        std::shared_ptr<arrow::Array> date_array;
+        std::shared_ptr<arrow::Array> matrix_array;
+        require_arrow(date_builder.Finish(&date_array));
+        require_arrow(matrix_builder.Finish(&matrix_array));
+        return Frame{arrow::Table::Make(
+            arrow::schema({
+                arrow::field("date", arrow::timestamp(arrow::TimeUnit::MICRO)),
+                arrow::field("value", arrow::list(arrow::list(arrow::int64())))}),
+            {std::move(date_array), std::move(matrix_array)})};
+    }
+
+    [[nodiscard]] Frame scalar_batch(std::vector<DateTime> times,
+                                     std::vector<Int> values)
+    {
+        arrow::TimestampBuilder date_builder{
+            arrow::timestamp(arrow::TimeUnit::MICRO), arrow::default_memory_pool()};
+        arrow::Int64Builder value_builder;
+        for (const DateTime when : times)
+        {
+            require_arrow(date_builder.Append(when.time_since_epoch().count()));
+        }
+        require_arrow(value_builder.AppendValues(values));
+        std::shared_ptr<arrow::Array> date_array;
+        std::shared_ptr<arrow::Array> value_array;
+        require_arrow(date_builder.Finish(&date_array));
+        require_arrow(value_builder.Finish(&value_array));
+        return Frame{arrow::Table::Make(
+            arrow::schema({
+                arrow::field("date", arrow::timestamp(arrow::TimeUnit::MICRO)),
+                arrow::field("value", arrow::int64())}),
+            {std::move(date_array), std::move(value_array)})};
+    }
+
+    struct FromDataFrameBatchesGraph
+    {
+        static constexpr auto name = "from_data_frame_batches_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Frame>> frames)
+        {
+            return wire<stdlib::from_data_frame_batches, TS<Int>>(
+                w, frames, Str{"date"}, Str{"key"}, Str{"value"}, TimeDelta{});
+        }
+    };
+
     struct SortFrameGraph
     {
         static constexpr auto name = "sort_frame_graph";
@@ -585,6 +671,55 @@ TEST_CASE("data frame operators: structural and compound predicates filter nativ
     REQUIRE(compound.size() == 1);
     REQUIRE(compound[0].has_value());
     CHECK(equals(*compound[0], frame({2}, {20})));
+}
+
+TEST_CASE("data frame operators: from_data_frame preserves shaped array bindings")
+{
+    stdlib::register_standard_operators();
+
+    const auto array = eval_node<stdlib::from_data_frame, TS<ArrayOf<Int, 2>>>(
+        array_frame(MIN_ST), Str{"date"}, Str{"key"}, Str{"value"}, TimeDelta{});
+    REQUIRE(array.size() == 1);
+    REQUIRE(array[0].has_value());
+    CHECK(array[0]->binding() ==
+          ValuePlanFactory::instance().type_for(
+              scalar_descriptor<ArrayOf<Int, 2>>::value_meta()));
+    CHECK(array[0]->as_list().size() == 2);
+    CHECK(array[0]->as_list().at(0).checked_as<Int>() == Int{10});
+    CHECK(array[0]->as_list().at(1).checked_as<Int>() == Int{20});
+
+    const auto matrix = eval_node<stdlib::from_data_frame, TS<ArrayOf<Int, 2, 2>>>(
+        matrix_frame(MIN_ST), Str{"date"}, Str{"key"}, Str{"value"}, TimeDelta{});
+    REQUIRE(matrix.size() == 1);
+    REQUIRE(matrix[0].has_value());
+    CHECK(matrix[0]->binding() ==
+          ValuePlanFactory::instance().type_for(
+              scalar_descriptor<ArrayOf<Int, 2, 2>>::value_meta()));
+    REQUIRE(matrix[0]->as_list().size() == 2);
+    CHECK(matrix[0]->as_list().at(0).as_list().at(0).checked_as<Int>() == Int{1});
+    CHECK(matrix[0]->as_list().at(1).as_list().at(1).checked_as<Int>() == Int{4});
+}
+
+TEST_CASE("data frame operators: frame batches stream through one native source")
+{
+    stdlib::register_standard_operators();
+    const auto first = scalar_batch({MIN_ST, MIN_ST + TimeDelta{1}}, {1, 2});
+    const auto second = scalar_batch({MIN_ST + TimeDelta{2}}, {3});
+    CHECK_OUTPUT(eval_node<FromDataFrameBatchesGraph>(
+                     values<Frame>(first, none, second)),
+                 values<Int>(1, 2, 3));
+}
+
+TEST_CASE("data frame operators: from_data_frame skips rows before evaluation start")
+{
+    stdlib::register_standard_operators();
+    const auto input = scalar_batch(
+        {MIN_ST - TimeDelta{1}, MIN_ST}, {0, 1});
+    const auto result = eval_node<stdlib::from_data_frame, TS<Int>>(
+        input, Str{"date"}, Str{"key"}, Str{"value"}, TimeDelta{});
+    REQUIRE(result.size() == 1);
+    REQUIRE(result[0].has_value());
+    CHECK(result[0]->view().checked_as<Int>() == Int{1});
 }
 
 TEST_CASE("data frame operators: with_columns replaces and projects through C++ wiring")

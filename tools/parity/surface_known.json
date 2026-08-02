@@ -7,6 +7,71 @@
       "reason": "hgraph's curated __all__ is the recorded API contract (parity_matrix.rst); upstream's un-curated dir() surface is not a target"
     },
     {
+      "module": "hgraph.adaptors.data_frame*",
+      "name": "ArrowDataFrameSource",
+      "kind": "name-missing",
+      "side": "reference",
+      "reason": "ArrowDataFrameSource is hg_cpp's documented Arrow-native source extension; PolarsDataFrameSource remains the upstream-compatible boundary"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame*",
+      "name": "DataStore.register_instance",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "data-source ownership is scoped by GlobalState and DataStore's context manager; manual process-global registration is intentionally absent"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame*",
+      "name": "DataStore.release_instance",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "data-source ownership is scoped by GlobalState and DataStore's context manager; manual process-global release is intentionally absent"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame*",
+      "name": "DataConnectionStore.register_instance",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "connection ownership is scoped by GlobalState and DataConnectionStore's context manager; manual process-global registration is intentionally absent"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame*",
+      "name": "DataConnectionStore.release_instance",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "connection ownership is scoped by GlobalState and DataConnectionStore's context manager; manual process-global release is intentionally absent"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame*",
+      "name": "*DataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame*",
+      "name": "join",
+      "kind": "signature-mismatch",
+      "reason": "hg_cpp exposes join's documented user signature; upstream decorator introspection reports *args/**kwargs although the accepted call shape is the same"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame*",
+      "name": "group_by",
+      "kind": "signature-mismatch",
+      "reason": "hg_cpp exposes group_by's user signature and keeps upstream's internal _output wiring parameter out of the public call surface"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame*",
+      "name": "replay_data_frame",
+      "kind": "signature-mismatch",
+      "reason": "AUTO_RESOLVE is hg_cpp's stable representation of upstream's anonymous generic-output sentinel; parameter order and behavior match"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame*",
+      "name": "*_from_data_source",
+      "kind": "signature-mismatch",
+      "reason": "hg_cpp preserves explicit user parameter names instead of upstream decorator introspection; EvaluationEngineApi remains a hidden runtime injectable"
+    },
+    {
       "module": "*",
       "kind": "name-missing",
       "side": "reference",

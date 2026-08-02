@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <unordered_map>
 
 namespace hgraph::stdlib
 {
@@ -97,9 +98,10 @@ namespace hgraph::stdlib
         // from_data_frame
         // -----------------------------------------------------------------
 
-        void start_from_frame(const Frame &frame, std::string_view dt_col, std::string_view key_col,
-                              std::string_view value_col, TimeDelta offset, const TSOutputView &out,
-                              SingleShotScheduler &sched, FromFramePlan *&plan_out)
+        void load_from_frame(const Frame &frame, std::string_view dt_col,
+                             std::string_view key_col, std::string_view value_col,
+                             TimeDelta offset, DateTime start_time,
+                             const TSOutputView &out, FromFramePlan *&plan_out)
         {
             auto plan      = std::make_unique<FromFramePlan>();
             plan->frame    = frame;
@@ -166,11 +168,34 @@ namespace hgraph::stdlib
                 default: throw std::invalid_argument("from_data_frame: unsupported output kind");
             }
 
-            if (plan->frame.has_value() && frame_rows(plan->frame) > 0)
+            const auto rows = plan->frame.has_value() ? frame_rows(plan->frame) : 0;
+            while (plan->row < rows &&
+                   read_dt(plan->frame, plan->dt_col, plan->row) + plan->offset <
+                       start_time)
             {
-                sched.schedule(read_dt(plan->frame, plan->dt_col, 0) + plan->offset);
+                ++plan->row;
             }
             plan_out = plan.release();
+        }
+
+        void start_from_frame(const Frame &frame, std::string_view dt_col,
+                              std::string_view key_col,
+                              std::string_view value_col, TimeDelta offset,
+                              DateTime start_time, const TSOutputView &out,
+                              SingleShotScheduler &sched,
+                              FromFramePlan *&plan_out)
+        {
+            load_from_frame(frame, dt_col, key_col, value_col, offset,
+                            start_time, out, plan_out);
+            const auto rows = plan_out->frame.has_value()
+                                  ? frame_rows(plan_out->frame)
+                                  : std::int64_t{0};
+            if (plan_out->row < rows)
+            {
+                sched.schedule(read_dt(plan_out->frame, plan_out->dt_col,
+                                       plan_out->row) +
+                               plan_out->offset);
+            }
         }
 
         namespace
@@ -219,6 +244,232 @@ namespace hgraph::stdlib
             if (plan.row < rows)
             {
                 sched.schedule(read_dt(plan.frame, plan.dt_col, plan.row) + plan.offset);
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // replay_data_frame
+        // -----------------------------------------------------------------
+
+        namespace
+        {
+            struct ReplayCandidate
+            {
+                DateTime           when{};
+                DateTime           as_of{};
+                std::int64_t        row{0};
+                std::vector<Value> keys{};
+            };
+
+            [[nodiscard]] std::size_t combine_hash(std::size_t seed,
+                                                   std::size_t value) noexcept
+            {
+                return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6) +
+                               (seed >> 2));
+            }
+
+            [[nodiscard]] std::size_t candidate_hash(
+                DateTime when, const std::vector<Value> &keys)
+            {
+                std::size_t seed = std::hash<std::int64_t>{}(
+                    when.time_since_epoch().count());
+                for (const Value &key : keys)
+                {
+                    seed = combine_hash(seed, key.hash());
+                }
+                return seed;
+            }
+
+            [[nodiscard]] bool same_partition(const ReplayCandidate &candidate,
+                                              DateTime when,
+                                              const std::vector<Value> &keys)
+            {
+                if (candidate.when != when || candidate.keys.size() != keys.size())
+                {
+                    return false;
+                }
+                for (std::size_t index = 0; index < keys.size(); ++index)
+                {
+                    if (!candidate.keys[index].equals(keys[index])) { return false; }
+                }
+                return true;
+            }
+
+            [[nodiscard]] Value read_table_row(
+                const table_ts_detail::TsTableLayout &layout,
+                const Frame &frame, std::int64_t row)
+            {
+                Value value{checked_binding(layout.row_meta, "replay_data_frame")};
+                auto  tuple = value.as_tuple().begin_mutation();
+                for (std::size_t column = 0; column < layout.keys.size(); ++column)
+                {
+                    Value cell = frame_cell(frame, layout.keys[column],
+                                            layout.col_metas[column], row);
+                    if (cell.has_value()) { tuple.at(column).copy_from(cell.view()); }
+                }
+                return value;
+            }
+
+            [[nodiscard]] Value build_table_rows(
+                const table_ts_detail::TsTableLayout &layout,
+                const Frame &frame,
+                std::span<const ReplayCandidate> candidates)
+            {
+                if (!layout.multi())
+                {
+                    return read_table_row(layout, frame, candidates.front().row);
+                }
+
+                const auto row_binding =
+                    checked_binding(layout.row_meta, "replay_data_frame");
+                ListBuilder builder{row_binding};
+                for (const ReplayCandidate &candidate : candidates)
+                {
+                    Value row = read_table_row(layout, frame, candidate.row);
+                    builder.push_back_copy(row.view().data());
+                }
+                Value rows{checked_binding(layout.rows_meta, "replay_data_frame")};
+                *static_cast<ListStorage *>(
+                    const_cast<void *>(rows.view().data())) = builder.build_storage();
+                return rows;
+            }
+        }  // namespace
+
+        void start_replay_data_frame(const Frame &frame, DateTime as_of_time,
+                                     DateTime start_time, GlobalStateView gs,
+                                     const TSOutputView &out,
+                                     SingleShotScheduler &sched,
+                                     ReplayDataFramePlan *&plan_out)
+        {
+            auto plan = std::make_unique<ReplayDataFramePlan>();
+            const auto config = record_replay::config(gs);
+            plan->layout = &table_ts_detail::ts_table_layout(
+                out.schema(), config.date_key, config.as_of_key);
+
+            if (!frame.has_value() || frame_rows(frame) == 0)
+            {
+                plan_out = plan.release();
+                return;
+            }
+
+            Frame normalized = frame;
+            const auto combined = frame.table->CombineChunks();
+            if (!combined.ok())
+            {
+                throw std::invalid_argument(
+                    "replay_data_frame: failed to combine input chunks: " +
+                    combined.status().ToString());
+            }
+            normalized.table = *combined;
+
+            const DateTime cutoff = as_of_time == MAX_DT
+                                        ? config.as_of.value_or(start_time)
+                                        : as_of_time;
+            std::vector<ReplayCandidate> candidates;
+            std::unordered_map<std::size_t, std::vector<std::size_t>> groups;
+            for (std::int64_t row = 0; row < frame_rows(normalized); ++row)
+            {
+                const Value when_cell = frame_cell(
+                    normalized, plan->layout->date_key,
+                    scalar_descriptor<DateTime>::value_meta(), row);
+                const Value as_of_cell = frame_cell(
+                    normalized, plan->layout->as_of_key,
+                    scalar_descriptor<DateTime>::value_meta(), row);
+                if (!when_cell.has_value() || !as_of_cell.has_value())
+                {
+                    throw std::invalid_argument(
+                        "replay_data_frame: date and as-of columns must not contain nulls");
+                }
+                const DateTime when = when_cell.view().checked_as<DateTime>();
+                const DateTime revision = as_of_cell.view().checked_as<DateTime>();
+                if (when < start_time || revision > cutoff) { continue; }
+
+                std::vector<Value> keys;
+                keys.reserve(plan->layout->partition_keys.size());
+                for (const std::string &key : plan->layout->partition_keys)
+                {
+                    const auto key_index = std::find(
+                        plan->layout->keys.begin(), plan->layout->keys.end(), key);
+                    if (key_index == plan->layout->keys.end())
+                    {
+                        throw std::logic_error(
+                            "replay_data_frame: partition key missing from table layout");
+                    }
+                    const std::size_t column = static_cast<std::size_t>(
+                        std::distance(plan->layout->keys.begin(), key_index));
+                    Value value = frame_cell(normalized, key,
+                                             plan->layout->col_metas[column], row);
+                    if (!value.has_value())
+                    {
+                        throw std::invalid_argument(
+                            "replay_data_frame: partition keys must not contain nulls");
+                    }
+                    keys.push_back(std::move(value));
+                }
+
+                const std::size_t hash = candidate_hash(when, keys);
+                auto &bucket = groups[hash];
+                auto existing = std::find_if(
+                    bucket.begin(), bucket.end(), [&](std::size_t index) {
+                        return same_partition(candidates[index], when, keys);
+                    });
+                if (existing == bucket.end())
+                {
+                    bucket.push_back(candidates.size());
+                    candidates.push_back(
+                        ReplayCandidate{when, revision, row, std::move(keys)});
+                }
+                else if (revision > candidates[*existing].as_of)
+                {
+                    candidates[*existing].as_of = revision;
+                    candidates[*existing].row = row;
+                }
+            }
+
+            std::stable_sort(candidates.begin(), candidates.end(),
+                             [](const ReplayCandidate &lhs,
+                                const ReplayCandidate &rhs) {
+                                 if (lhs.when != rhs.when)
+                                 {
+                                     return lhs.when < rhs.when;
+                                 }
+                                 return lhs.row < rhs.row;
+                             });
+
+            for (std::size_t begin = 0; begin < candidates.size();)
+            {
+                std::size_t end = begin + 1;
+                while (end < candidates.size() &&
+                       candidates[end].when == candidates[begin].when)
+                {
+                    ++end;
+                }
+                plan->ticks.push_back(ReplayFrameTick{
+                    candidates[begin].when,
+                    build_table_rows(*plan->layout, normalized,
+                                     std::span<const ReplayCandidate>{candidates}.subspan(
+                                         begin, end - begin))});
+                begin = end;
+            }
+
+            if (!plan->ticks.empty()) { sched.schedule(plan->ticks.front().when); }
+            plan_out = plan.release();
+        }
+
+        void eval_replay_data_frame(ReplayDataFramePlan &plan, DateTime now,
+                                    NodeScheduler &sched,
+                                    const TSOutputView &out)
+        {
+            while (plan.tick < plan.ticks.size() &&
+                   plan.ticks[plan.tick].when == now)
+            {
+                table_ts_detail::apply_rows(*plan.layout,
+                                            plan.ticks[plan.tick].rows.view(), out);
+                ++plan.tick;
+            }
+            if (plan.tick < plan.ticks.size())
+            {
+                sched.schedule(plan.ticks[plan.tick].when);
             }
         }
 
@@ -1364,6 +1615,8 @@ namespace hgraph::stdlib
     void register_data_frame_operators()
     {
         register_overload<from_data_frame, from_data_frame_impl>();
+        register_overload<from_data_frame_batches, from_data_frame_batches_impl>();
+        register_overload<replay_data_frame, replay_data_frame_impl>();
         register_overload<to_data_frame, to_data_frame_tsd_impl>();
         register_overload<to_data_frame, to_data_frame_impl>();
         register_overload<group_by, group_by_impl>();

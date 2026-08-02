@@ -783,6 +783,30 @@ namespace hgraph
             const auto  &values = *list.values();
             const auto   begin  = list.value_offset(row);
             const auto   end    = begin + list.value_length(row);
+
+            if (sequence_meta->is_shaped_array() && sequence_meta->fixed_size != 0)
+            {
+                const auto sequence_binding =
+                    ValuePlanFactory::instance().type_for(sequence_meta);
+                if (sequence_binding == nullptr)
+                {
+                    throw std::logic_error(
+                        "table codec: shaped array has no value binding");
+                }
+
+                Value result{sequence_binding};
+                auto  output = result.as_list().begin_mutation();
+                output.resize(static_cast<std::size_t>(end - begin));
+                for (std::int64_t index = begin; index < end; ++index)
+                {
+                    if (values.IsNull(index)) { continue; }
+                    Value value = element_ops.read(element_column, values, index);
+                    output.at(static_cast<std::size_t>(index - begin))
+                        .copy_from(value.view());
+                }
+                return result;
+            }
+
             ListBuilder builder{element_binding};
             for (std::int64_t index = begin; index < end; ++index)
             {

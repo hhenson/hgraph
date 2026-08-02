@@ -37,28 +37,16 @@ from hgraph import (
 
 
 __all__ = (
-    "ON_TYPE",
     "join",
     "filter_frame",
     "filter_cs",
     "filter_exp",
-    "filter_exp_ts",
     "filter_exp_seq",
     "group_by",
-    "group_by_single",
-    "group_by_tuple",
-    "tuple_resolver",
     "ungroup",
-    "ungroup_default",
-    "ungroup_with_key",
-    "ungroup_with_keys",
-    "ungroup_from_items",
     "sorted_",
     "concat",
-    "concat_frames",
     "with_columns",
-    "with_columns_default",
-    "with_columns_typed",
 )
 
 
@@ -72,7 +60,11 @@ ROW_2 = TypeVar("ROW_2")
 ON_TYPE = TypeVar("ON_TYPE", str, tuple, pc.Expression)
 
 
-join = operator_function("join")
+def _join_signature(lhs, rhs, on, how="inner", suffix="_right"):
+    pass
+
+
+join = operator_function("join", signature=_join_signature)
 
 
 _filter_frame_native = operator_function("filter_frame")
@@ -149,7 +141,11 @@ def filter_exp_seq(ts: TS[Frame[ROW]], predicate: tuple[pc.Expression, ...]) -> 
     return frame if expression is None else frame.filter(expression)
 
 
-group_by = operator_function("group_by")
+def _group_by_signature(ts, by):
+    pass
+
+
+group_by = operator_function("group_by", signature=_group_by_signature)
 
 
 def tuple_resolver(m, by):
@@ -177,7 +173,11 @@ def group_by_tuple(ts, by):
     return group_by(ts, by)
 
 
-ungroup = operator_function("ungroup")
+def _ungroup_signature(ts):
+    pass
+
+
+ungroup = operator_function("ungroup", signature=_ungroup_signature)
 
 
 def ungroup_default(ts):
@@ -222,10 +222,18 @@ def _ungroup_typed_tuple(
     return ungroup[TS[Frame[_tp_out]]](ts, key_col)
 
 
-sorted_ = operator_function("sorted_")
+def _sorted_signature(ts, by, descending=False):
+    pass
 
 
-concat = operator_function("concat")
+sorted_ = operator_function("sorted_", signature=_sorted_signature)
+
+
+def _concat_signature(ts1, ts2):
+    pass
+
+
+concat = operator_function("concat", signature=_concat_signature)
 
 
 def concat_frames(ts1, ts2):
@@ -233,7 +241,11 @@ def concat_frames(ts1, ts2):
     return concat(ts1, ts2)
 
 
-with_columns = operator_function("with_columns")
+def _with_columns_signature(ts, **columns):
+    pass
+
+
+with_columns = operator_function("with_columns", signature=_with_columns_signature)
 
 
 def with_columns_default(ts, **columns):

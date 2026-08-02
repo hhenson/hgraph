@@ -68,17 +68,17 @@ class DataStore:
         return store
 
     def set_data_source(
-        self, source_type: type[DATA_FRAME_SOURCE], source: DATA_FRAME_SOURCE
+        self, dfs: type[DATA_FRAME_SOURCE], dfs_instance: DATA_FRAME_SOURCE
     ):
-        self._data_frame_sources[source_type] = source
+        self._data_frame_sources[dfs] = dfs_instance
 
     def get_data_source(
-        self, source_type: type[DATA_FRAME_SOURCE]
+        self, dfs: type[DATA_FRAME_SOURCE]
     ) -> DATA_FRAME_SOURCE:
-        source = self._data_frame_sources.get(source_type)
+        source = self._data_frame_sources.get(dfs)
         if source is None:
-            source = source_type()
-            self._data_frame_sources[source_type] = source
+            source = dfs()
+            self._data_frame_sources[dfs] = source
         return source
 
     def __enter__(self):
@@ -109,6 +109,9 @@ class ArrowDataFrameSource(DataFrameSource):
 
 class PolarsDataFrameSource(ArrowDataFrameSource):
     """Compatibility name; converts a Polars value to Arrow immediately."""
+
+    def __init__(self, df):
+        super().__init__(df)
 
 
 class DataConnectionStore:

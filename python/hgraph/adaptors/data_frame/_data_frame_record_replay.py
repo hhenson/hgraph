@@ -7,19 +7,22 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from hgraph import GlobalState, operator_function
+from hgraph import (
+    AUTO_RESOLVE,
+    MAX_DT,
+    OUT,
+    Frame,
+    GlobalState,
+    graph,
+    operator_function,
+    table_schema,
+)
 
 __all__ = (
     "DATA_FRAME_RECORD_REPLAY",
-    "DATA_FRAME_RECORD_REPLAY_PATH",
-    "DATA_FRAME_RECORD_OVERRIDES",
     "set_data_frame_record_path",
     "set_data_frame_overrides",
-    "get_data_frame_record_overrides",
-    "record_to_data_frame",
-    "replay_from_data_frame",
     "replay_data_frame",
-    "replay_const_from_data_frame",
     "WriteMode",
     "DataFrameStorage",
     "BaseDataFrameStorage",
@@ -104,14 +107,14 @@ def get_data_frame_record_overrides(key, recordable_id, global_state=None):
 # These names are compatibility views over the C++-owned record/replay nodes.
 record_to_data_frame = operator_function("record")
 replay_from_data_frame = operator_function("replay")
-replay_data_frame = replay_from_data_frame
 replay_const_from_data_frame = operator_function("replay_const")
+_replay_data_frame_native = operator_function("replay_data_frame")
 
 
 class WriteMode(Enum):
-    EXTEND = 0
-    OVERWRITE = 1
-    MERGE = 2
+    EXTEND = 1
+    OVERWRITE = 2
+    MERGE = 3
 
 
 class DataFrameStorage(ABC):
@@ -151,7 +154,7 @@ class DataFrameStorage(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def write_frame(self, path, frame, mode=WriteMode.OVERWRITE, as_of=None):
+    def write_frame(self, path, df, mode=WriteMode.OVERWRITE, as_of=None):
         raise NotImplementedError
 
     @abstractmethod
@@ -168,7 +171,7 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
         from hgraph._frame import as_user_frame
 
         frame = self._read(path)
-        date_col, as_of_col = self._schema_info(path)
+        date_col, as_of_col = self._get_schema_info(path)
         mask = None
         if start_time is not None or end_time is not None:
             date_col = date_col or "date"
@@ -186,30 +189,23 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
         # replay normalizes back through _as_arrow.
         return as_user_frame(frame.filter(mask) if mask is not None else frame)
 
-    def write_frame(self, path, frame, mode=WriteMode.OVERWRITE, as_of=None):
-        frame = _as_arrow(frame)
-        if mode is not WriteMode.OVERWRITE and self._exists(path):
+    def write_frame(self, path, df, mode=WriteMode.OVERWRITE, as_of=None):
+        if mode is WriteMode.MERGE:
+            raise RuntimeError("WriteMode.MERGE is not supported")
+        frame = _as_arrow(df)
+        if self._get_schema_info(path) == (None, None):
+            self.set_schema_info(path, "__date_time__", "__as_of__")
+        if mode is WriteMode.EXTEND and self._exists(path):
             previous = self._read(path)
             frame = pa.concat_tables([previous, frame], promote_options="default")
         self._write(path, frame)
         return frame
 
-    def set_schema_info(self, path, date_time_col=None, as_of_col=None):
-        self._schema[str(path)] = (date_time_col, as_of_col)
-        self._write_schema(path, date_time_col, as_of_col)
-
-    def _schema_info(self, path):
-        return self._schema.get(str(path), self._read_schema(path))
-
-    def _write_schema(self, path, date_time_col, as_of_col):
-        pass
-
-    def _read_schema(self, path):
-        return None, None
-
-    @abstractmethod
     def _exists(self, path):
-        raise NotImplementedError
+        try:
+            return self._read(path) is not None
+        except (FileNotFoundError, KeyError):
+            return False
 
     @abstractmethod
     def _read(self, path):
@@ -217,6 +213,10 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
 
     @abstractmethod
     def _write(self, path, frame):
+        raise NotImplementedError
+
+    @abstractmethod
+    def _get_schema_info(self, path):
         raise NotImplementedError
 
 
@@ -241,14 +241,24 @@ class FileBasedDataFrameStorage(BaseDataFrameStorage):
     def _write(self, path, frame):
         pq.write_table(frame, self._data_path(path))
 
-    def _write_schema(self, path, date_time_col, as_of_col):
-        self._schema_path(path).write_text(f"{date_time_col or ''}\n{as_of_col or ''}")
+    def set_schema_info(self, path, date_time_col=None, as_of_col=None):
+        self._schema_path(path).write_text(
+            f"date_time_col: {date_time_col}\nas_of_col: {as_of_col}"
+        )
 
-    def _read_schema(self, path):
+    def _get_schema_info(self, path):
         schema = self._schema_path(path)
         if not schema.exists():
             return None, None
         date_col, as_of_col = schema.read_text().splitlines()
+        if date_col.startswith("date_time_col: "):
+            date_col = date_col.removeprefix("date_time_col: ")
+            as_of_col = as_of_col.removeprefix("as_of_col: ")
+            return (
+                None if date_col == "None" else date_col,
+                None if as_of_col == "None" else as_of_col,
+            )
+        # Read the short-lived hg_cpp pre-parity format as a migration aid.
         return date_col or None, as_of_col or None
 
 
@@ -265,6 +275,12 @@ class MemoryDataFrameStorage(BaseDataFrameStorage):
 
     def _write(self, path, frame):
         self._frames[str(path)] = frame
+
+    def _get_schema_info(self, path):
+        return self._schema.get(str(path), (None, None))
+
+    def set_schema_info(self, path, date_time_col=None, as_of_col=None):
+        self._schema[str(path)] = (date_time_col, as_of_col)
 
 
 def _as_arrow(value):
@@ -341,19 +357,10 @@ def _read_row_groups(frame, schema, overrides):
     return groups
 
 
-_LITERAL_FRAMES = {}
-
-
-_LITERAL_FRAMES = {}
-
-
 def _storage_frame(key, recordable_id, global_state):
     # Internal replay consumption: a user-implemented storage (or a
     # user-supplied literal frame) may return the user-facing form —
     # normalize back to the canonical Arrow representation (issue #80).
-    literal = _LITERAL_FRAMES.get((key, recordable_id))
-    if literal is not None:
-        return _as_arrow(literal)
     storage = DataFrameStorage.instance(global_state)
     if storage is None:
         raise RuntimeError("data-frame record/replay requires an active DataFrameStorage")
@@ -365,8 +372,6 @@ _REPLAY_SCHEMAS = {}
 
 
 def _register_data_frame_record_replay():
-    global replay_data_frame
-
     from hgraph import (
         AUTO_RESOLVE, TIME_SERIES_TYPE, TS, OUT, STATE, graph,
         sink_node, generator, table_schema, to_table, from_table,
@@ -393,12 +398,21 @@ def _register_data_frame_record_replay():
     @graph(overloads="record", requires=_df_model_active)
     def _record_to_data_frame(ts: TIME_SERIES_TYPE, key: str = "out",
                               recordable_id: str = None,
-                              _tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE):
+                              _tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+                              global_state: GlobalState = None):
         # registry dispatch re-wraps the port as whole-value TS; the resolved
         # typevar carries the true endpoint type (TSD vs TS)
         tp = _tp if _tp is not AUTO_RESOLVE else _TsExprFor(_unwrap(ts).ts_type)
         schema = table_schema(tp).value
-        overrides = get_data_frame_record_overrides(key, recordable_id)
+        overrides = get_data_frame_record_overrides(
+            key, recordable_id, global_state
+        )
+        storage = DataFrameStorage.instance(global_state)
+        if storage is not None:
+            storage.set_schema_info(
+                f"{recordable_id}.{key}", schema.date_time_key,
+                schema.as_of_key if overrides.get("track_as_of", True) else None,
+            )
         columns = _frame_columns_for(schema, overrides)
         _df_record_rows(to_table(ts), key=key, recordable_id=recordable_id,
                         col_indices=tuple(index for index, _ in columns),
@@ -455,17 +469,36 @@ def _register_data_frame_record_replay():
                                       to: type[OUT] = AUTO_RESOLVE) -> OUT:
         return from_table[to](_wire_replay(_df_replay_const_rows, to, key, recordable_id))
 
-    @graph
-    def _replay_literal_data_frame(frame: object,
-                                   to: type[OUT] = AUTO_RESOLVE) -> OUT:
-        """Replay a LITERAL data frame (arrow table or anything arrow can
-        ingest) as the time series ``to`` (upstream ``replay_data_frame``)."""
-        table = _as_arrow(frame)
-        key, recordable_id = "__literal__", f"frame_{id(table):x}"
-        _LITERAL_FRAMES[(key, recordable_id)] = table
-        return from_table[to](_wire_replay(_df_replay_rows, to, key, recordable_id))
-
-    replay_data_frame = _replay_literal_data_frame
-
-
 _register_data_frame_record_replay()
+
+
+@graph
+def replay_data_frame(
+    data_frame: Frame,
+    schema: object = None,
+    as_of_time: datetime = None,
+    tp: type[OUT] = AUTO_RESOLVE,
+) -> OUT:
+    """Replay a raw bitemporal frame through the native table protocol.
+
+    A custom :class:`~hgraph.TableSchema` is a wiring-time column contract;
+    it is projected and renamed to the canonical C++ layout before the
+    native source performs start/as-of filtering and revision selection.
+    """
+    frame = _as_arrow(data_frame)
+    canonical = table_schema(tp).value
+    if schema is not None:
+        if len(schema.keys) != len(canonical.keys):
+            raise ValueError(
+                "replay_data_frame schema has "
+                f"{len(schema.keys)} columns; output requires {len(canonical.keys)}"
+            )
+        try:
+            frame = frame.select(schema.keys)
+        except KeyError as error:
+            raise ValueError(
+                "replay_data_frame input does not satisfy the supplied schema"
+            ) from error
+        frame = frame.rename_columns(canonical.keys)
+    cutoff = MAX_DT if as_of_time is None else as_of_time
+    return _replay_data_frame_native[tp](frame, cutoff)

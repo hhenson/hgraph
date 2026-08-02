@@ -10,13 +10,13 @@ from hgraph.adaptors.data_frame import (
     filter_cs,
     filter_exp,
     filter_exp_seq,
-    filter_exp_ts,
     filter_frame,
     join,
     sorted_,
     ungroup,
     with_columns,
 )
+from hgraph.adaptors.data_frame._data_frame_operators import filter_exp_ts
 from hgraph.test import eval_node
 
 

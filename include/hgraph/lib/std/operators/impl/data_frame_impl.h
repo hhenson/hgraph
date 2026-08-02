@@ -2,6 +2,7 @@
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_DATA_FRAME_IMPL_H
 
 #include <hgraph/lib/std/operators/data_frame.h>
+#include <hgraph/lib/std/operators/impl/table_impl.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/operator_type_resolution.h>
@@ -49,6 +50,20 @@ namespace hgraph::stdlib
             std::vector<FieldRead>    fields{};               // value cell reads
         };
 
+        struct ReplayFrameTick
+        {
+            DateTime when{};
+            Value    rows{};
+        };
+
+        /** Raw bitemporal replay plan, selected once during source start. */
+        struct ReplayDataFramePlan
+        {
+            const table_ts_detail::TsTableLayout *layout{nullptr};
+            std::vector<ReplayFrameTick>           ticks{};
+            std::size_t                            tick{0};
+        };
+
         /** to_data_frame writing plan. */
         struct ToFramePlan
         {
@@ -87,10 +102,23 @@ namespace hgraph::stdlib
                                                                          std::string_view value_col);
 
         void start_from_frame(const Frame &frame, std::string_view dt_col, std::string_view key_col,
-                              std::string_view value_col, TimeDelta offset, const TSOutputView &out,
+                              std::string_view value_col, TimeDelta offset,
+                              DateTime start_time, const TSOutputView &out,
                               SingleShotScheduler &sched, FromFramePlan *&plan_out);
+        void load_from_frame(const Frame &frame, std::string_view dt_col,
+                             std::string_view key_col, std::string_view value_col,
+                             TimeDelta offset, DateTime start_time,
+                             const TSOutputView &out, FromFramePlan *&plan_out);
         void eval_from_frame(FromFramePlan &plan, DateTime now, NodeScheduler &sched,
                              const TSOutputView &out);
+
+        void start_replay_data_frame(const Frame &frame, DateTime as_of_time,
+                                     DateTime start_time, GlobalStateView gs,
+                                     const TSOutputView &out,
+                                     SingleShotScheduler &sched,
+                                     ReplayDataFramePlan *&plan_out);
+        void eval_replay_data_frame(ReplayDataFramePlan &plan, DateTime now,
+                                    NodeScheduler &sched, const TSOutputView &out);
 
         void start_to_frame(const TSInputView &ts, std::string_view dt_col, std::string_view key_col,
                             std::string_view value_col, const TSOutputView &out, ToFramePlan *&plan_out);
@@ -149,6 +177,16 @@ namespace hgraph::stdlib
         data_frame_detail::ToFramePlan *handle{nullptr};
     };
 
+    struct FromDataFrameBatchesState
+    {
+        data_frame_detail::FromFramePlan *handle{nullptr};
+    };
+
+    struct ReplayDataFrameState
+    {
+        data_frame_detail::ReplayDataFramePlan *handle{nullptr};
+    };
+
     struct GroupByState
     {
         data_frame_detail::GroupByPlan *handle{nullptr};
@@ -167,6 +205,19 @@ namespace hgraph::static_schema_detail
     struct scalar_name<stdlib::ToDataFrameState>
     {
         static constexpr std::string_view value{"ToDataFrameState"};
+    };
+
+
+    template <>
+    struct scalar_name<stdlib::ReplayDataFrameState>
+    {
+        static constexpr std::string_view value{"ReplayDataFrameState"};
+    };
+
+    template <>
+    struct scalar_name<stdlib::FromDataFrameBatchesState>
+    {
+        static constexpr std::string_view value{"FromDataFrameBatchesState"};
     };
 
     template <>
@@ -194,12 +245,14 @@ namespace hgraph::stdlib
 
         static void start(Scalar<"df", Frame> df, Scalar<"dt_col", Str> dt_col,
                           Scalar<"key_col", Str> key_col, Scalar<"value_col", Str> value_col,
-                          Scalar<"offset", TimeDelta> offset, SingleShotScheduler sched,
+                          Scalar<"offset", TimeDelta> offset, DateTime now,
+                          SingleShotScheduler sched,
                           State<FromDataFrameState> state, Out<TsVar<"O">> out)
         {
             data_frame_detail::FromFramePlan *plan = nullptr;
             data_frame_detail::start_from_frame(df.value(), dt_col.value(), key_col.value(),
                                                 value_col.value(), offset.value(),
+                                                now,
                                                 static_cast<const TSOutputView &>(out), sched, plan);
             state.set(FromDataFrameState{plan});   // owned by node State until stop
         }
@@ -222,6 +275,111 @@ namespace hgraph::stdlib
         {
             std::unique_ptr<data_frame_detail::FromFramePlan> handle{state.get().handle};
             state.set(FromDataFrameState{});
+        }
+    };
+
+    struct from_data_frame_batches_impl
+    {
+        static constexpr auto name = "from_data_frame_batches";
+
+        static std::vector<std::pair<std::string_view, Value>> defaults()
+        {
+            return {{"dt_col", Value{Str{"date"}}},
+                    {"key_col", Value{Str{"key"}}},
+                    {"value_col", Value{Str{"value"}}},
+                    {"offset", Value{TimeDelta{0}}}};
+        }
+
+        static void eval(In<"frames", TS<Frame>, InputValidity::Unchecked> frames,
+                         Scalar<"dt_col", Str> dt_col,
+                         Scalar<"key_col", Str> key_col,
+                         Scalar<"value_col", Str> value_col,
+                         Scalar<"offset", TimeDelta> offset,
+                         State<FromDataFrameBatchesState> state,
+                         NodeScheduler sched, DateTime now,
+                         Out<TsVar<"O">> out)
+        {
+            auto *active = state.get().handle;
+            if (active != nullptr)
+            {
+                data_frame_detail::eval_from_frame(
+                    *active, now, sched, static_cast<const TSOutputView &>(out));
+            }
+
+            if (!frames.modified()) { return; }
+            if (active != nullptr)
+            {
+                const auto rows = active->frame.has_value()
+                                      ? frame_rows(active->frame)
+                                      : std::int64_t{0};
+                if (active->row < rows)
+                {
+                    throw std::invalid_argument(
+                        "from_data_frame_batches: a new batch arrived before "
+                        "the previous batch was consumed");
+                }
+                delete active;
+                active = nullptr;
+            }
+
+            const Frame &frame = frames.value();
+            data_frame_detail::load_from_frame(
+                frame, dt_col.value(), key_col.value(), value_col.value(),
+                offset.value(), now, static_cast<const TSOutputView &>(out), active);
+            state.set(FromDataFrameBatchesState{active});
+            data_frame_detail::eval_from_frame(
+                *active, now, sched, static_cast<const TSOutputView &>(out));
+        }
+
+        static void stop(State<FromDataFrameBatchesState> state)
+        {
+            std::unique_ptr<data_frame_detail::FromFramePlan> handle{
+                state.get().handle};
+            state.set(FromDataFrameBatchesState{});
+        }
+    };
+
+    struct replay_data_frame_impl
+    {
+        static constexpr auto name = "replay_data_frame";
+
+        static std::vector<std::pair<std::string_view, Value>> defaults()
+        {
+            return {{"as_of_time", Value{MAX_DT}}};
+        }
+
+        static void start(Scalar<"data_frame", Frame> data_frame,
+                          Scalar<"as_of_time", DateTime> as_of_time,
+                          GlobalStateView gs, DateTime now,
+                          SingleShotScheduler sched,
+                          State<ReplayDataFrameState> state,
+                          Out<TsVar<"O">> out)
+        {
+            data_frame_detail::ReplayDataFramePlan *plan = nullptr;
+            data_frame_detail::start_replay_data_frame(
+                data_frame.value(), as_of_time.value(), now, gs,
+                static_cast<const TSOutputView &>(out), sched, plan);
+            state.set(ReplayDataFrameState{plan});
+        }
+
+        static void eval(Scalar<"data_frame", Frame> data_frame,
+                         Scalar<"as_of_time", DateTime> as_of_time,
+                         State<ReplayDataFrameState> state,
+                         NodeScheduler sched, DateTime now,
+                         Out<TsVar<"O">> out)
+        {
+            static_cast<void>(data_frame);
+            static_cast<void>(as_of_time);
+            data_frame_detail::eval_replay_data_frame(
+                *state.get().handle, now, sched,
+                static_cast<const TSOutputView &>(out));
+        }
+
+        static void stop(State<ReplayDataFrameState> state)
+        {
+            std::unique_ptr<data_frame_detail::ReplayDataFramePlan> handle{
+                state.get().handle};
+            state.set(ReplayDataFrameState{});
         }
     };
 
