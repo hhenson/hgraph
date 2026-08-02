@@ -21,6 +21,10 @@ namespace hgraph::adaptor
 {
     struct interface
     {
+        /** Structural tag letting ``service_wiring.h`` recognise an adaptor
+         *  interface without including this header, so the service and adaptor
+         *  concepts are provably disjoint (RFC 0011 step 9). */
+        using __adaptor_interface_tag__ = void;
     };
 
     /** Alias of the shared ``hgraph::BoundaryPath`` (RFC 0011 step 8): the
@@ -344,24 +348,14 @@ namespace hgraph::adaptor
         [[nodiscard]] Port<REF<output_schema_t<Interface>>> output_source(Wiring &w, const AdaptorPath &user_path)
         {
             using output_schema = output_schema_t<Interface>;
-
-            std::string full_path = adaptor_to_graph_path<Interface>(user_path);
-            const auto *target_meta = resolved_schema_meta<output_schema>(
-                user_path.resolution, "adaptor output");
-            const auto *ref_meta = TypeRegistry::instance().ref(target_meta);
-
-            WiringNodeSchema schema;
-            schema.output = ref_meta;
-            schema.state = ref_meta->value_schema;
-            Value path_key = path_key_value(full_path);
-
-            WiringPortRef port = w.add_node(
-                std::type_index(typeid(output_source_marker)), schema,
-                std::span<const WiringPortRef>{}, std::move(path_key),
-                [path = std::move(full_path), target_meta]() {
-                    return make_shared_output_source_node(path, *target_meta);
-                });
-            return Port<REF<output_schema>>{w, std::move(port)};
+            // Shared with service::detail::reference_shared_output_source
+            // (RFC 0011 step 9) - one relay implementation, two spellings.
+            return Port<REF<output_schema>>{
+                w,
+                boundary_detail::shared_output_relay_source(
+                    w, std::type_index(typeid(output_source_marker)),
+                    resolved_schema_meta<output_schema>(user_path.resolution, "adaptor output"),
+                    adaptor_to_graph_path<Interface>(user_path))};
         }
 
         template <typename Interface, typename OutputSchema>
@@ -371,29 +365,15 @@ namespace hgraph::adaptor
                                              const AdaptorPath &user_path)
         {
             using output_schema = output_schema_t<Interface>;
-
-            std::array<WiringPortRef, 2> sources{output.erased(), shared_output.erased()};
-            std::array<WiringInputRef, 2> inputs{{
-                WiringInputRef{.source = sources[0]},
-                WiringInputRef{.source = sources[1], .rank_dependency = false},
-            }};
             const auto *output_meta = output.erased().schema;
             if (output_meta == nullptr)
             {
                 output_meta = resolved_schema_meta<output_schema>(user_path.resolution, "adaptor output");
             }
-            NodeBuilder builder = make_shared_output_capture_node(
-                adaptor_to_graph_path<Interface>(user_path), *output_meta);
-            builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
-                builder.type().schema()->input_schema,
-                std::span<const WiringPortRef>{sources.data(), sources.size()}));
-
-            WiringPortRef capture = w.add_node(std::type_index(typeid(output_capture_marker)),
-                                               std::move(builder),
-                                               std::span<const WiringInputRef>{inputs.data(), inputs.size()},
-                                               Value{});
-            w.add_same_cycle_pair(capture.peered_node(), shared_output.node());
-            return capture.peered_node();
+            // Shared with service::detail::capture_reference_service_output.
+            return boundary_detail::shared_output_relay_capture(
+                w, std::type_index(typeid(output_capture_marker)), output_meta,
+                adaptor_to_graph_path<Interface>(user_path), output.erased(), shared_output.erased());
         }
 
         template <typename Impl, typename... Args>

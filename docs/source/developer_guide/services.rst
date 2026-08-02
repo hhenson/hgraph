@@ -363,6 +363,45 @@ child is still rejected, because a graph with a push prefix never gets a nested
 graph type interned (``GraphBuilder::nested_type()``). See :doc:`nested_graphs`.
 
 
+The service and adaptor surfaces are one boundary model
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Services and adaptors are not parallel implementations of the same idea; they
+are two spellings over one. Per :doc:`../rfc/rfc_0011_source_only_adaptor_collapse`:
+
+* **One relay.** ``boundary_detail::shared_output_relay_source`` and
+  ``shared_output_relay_capture`` (``types/graph_wiring.h``) are the single
+  implementation of the source/capture pair. ``service::detail::
+  reference_shared_output_source`` and ``adaptor::detail::output_source`` were
+  the same function under two names; both now forward.
+* **One path type.** ``service::ServicePath`` and ``adaptor::AdaptorPath`` are
+  aliases of ``hgraph::BoundaryPath``.
+* **``from_graph`` / ``to_graph`` work for services**, as the adaptor spelling
+  of ``impl_input`` / ``impl_output``. A reference service has no client input
+  and therefore no ``from_graph``.
+* **Clients of either family may pass wiring-time scalar options**, with the
+  same cross-client agreement check, and **either may take time-series inputs
+  supplied at registration**.
+* **``register_services`` is lazy** and, with one interface, is the by-stub
+  single-interface registration. Its interface pack **may mix services and
+  adaptors**, so "a sink-only interface in, a source-only interface out" is one
+  atomic registration.
+* **A catch-all implementation** (``interfaces=()``) is available from
+  ``@service_impl`` as well as ``@adaptor_impl``.
+
+The two concepts are **disjoint**: a source-only adaptor once satisfied both
+``adaptor_interface`` and ``reference_service_interface``, making
+``wire<Interface>`` ambiguous in any translation unit including both headers.
+``reference_service_interface`` now excludes ``adaptor::interface``-derived
+types, detected through a structural tag so ``service_wiring.h`` stays
+independent of ``adaptor_wiring.h``.
+
+Which spelling to choose is a question of intent, not capability: an **adaptor**
+says "this boundary talks to the outside world", a **service** says "this value
+is provided to whoever asks". A source-only adaptor and a reference service
+describe the same wiring; prefer the reference service unless the external-world
+framing is the point.
+
 Adaptors
 --------
 

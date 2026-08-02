@@ -7,6 +7,7 @@
 #include <hgraph/types/metadata/type_realization.h>     // graph-scoped closed-union value bindings
 #include <hgraph/types/metadata/value_plan_factory.h>   // ValuePlanFactory (scalar bundle binding)
 #include <hgraph/types/static_node.h>                   // StaticNodeSignature, In/Out/State/Scalar markers
+#include <hgraph/runtime/shared_output_node.h>
 #include <hgraph/types/static_schema.h>                 // schema_descriptor
 #include <hgraph/types/time_series/endpoint_schema.h>   // time_series_schema_equivalent
 #include <hgraph/types/type_resolution.h>               // ResolutionMap, ts_resolver, unifiers, ts_type
@@ -504,6 +505,7 @@ namespace hgraph
     {
         template <typename Interface, typename = void>
         struct group_member;   // primary intentionally undefined
+
     }
 
 
@@ -3421,6 +3423,65 @@ namespace hgraph
     {
         return build_graph_with_observers<G>(
             std::span<WiringObserver *const>{}, std::forward<Args>(args)...);
+    }
+
+    namespace boundary_detail
+    {
+        /**
+         * The shared-output relay both boundary families are built from
+         * (RFC 0011 step 9).
+         *
+         * ``service::detail::reference_shared_output_source`` and
+         * ``adaptor::detail::output_source`` were the same function under two
+         * names, as were their capture halves - identical wiring schema,
+         * identical ``rank_dependency = false`` on the capture's second input,
+         * identical ``add_same_cycle_pair`` contract - differing only in a path
+         * string, a marker typeid and an error message. Both now call these,
+         * so there is ONE implementation behind the two spellings.
+         *
+         * The erased runtime already shared its equivalents; this closes the
+         * same gap on the template surface.
+         */
+        [[nodiscard]] inline WiringPortRef shared_output_relay_source(
+            Wiring &w, std::type_index marker, const TSValueTypeMetaData *target_meta,
+            std::string full_path)
+        {
+            const auto *ref_meta = TypeRegistry::instance().ref(target_meta);
+            WiringNodeSchema schema;
+            schema.output = ref_meta;
+            schema.state  = ref_meta->value_schema;
+            Value path_key{Str{full_path}};
+            return w.add_node(
+                marker, schema, std::span<const WiringPortRef>{}, std::move(path_key),
+                [path = std::move(full_path), target_meta]() {
+                    return make_shared_output_source_node(path, *target_meta);
+                });
+        }
+
+        [[nodiscard]] inline const WiringInstance *shared_output_relay_capture(
+            Wiring &w, std::type_index marker, const TSValueTypeMetaData *output_meta,
+            const std::string &full_path, WiringPortRef output, WiringPortRef shared_output)
+        {
+            std::array<WiringPortRef, 2> sources{output, shared_output};
+            std::array<WiringInputRef, 2> inputs{{
+                WiringInputRef{.source = sources[0]},
+                // Sanctioned backward link: the capture reads the source it
+                // feeds, purely to locate it. Not a rank dependency.
+                WiringInputRef{.source = sources[1], .rank_dependency = false},
+            }};
+            NodeBuilder builder = make_shared_output_capture_node(full_path, *output_meta);
+            builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
+                builder.type().schema()->input_schema,
+                std::span<const WiringPortRef>{sources.data(), sources.size()}));
+            WiringPortRef capture = w.add_node(
+                marker, std::move(builder),
+                std::span<const WiringInputRef>{inputs.data(), inputs.size()}, Value{});
+            // Shared-output relays are RANK-CORRECT and same-cycle: the rank
+            // dependency places the paired source after this capture, so the
+            // capture schedules the source for the CURRENT evaluation time.
+            w.add_same_cycle_pair(capture.peered_node(), shared_output.peered_node());
+            return capture.peered_node();
+        }
     }
 
 }  // namespace hgraph

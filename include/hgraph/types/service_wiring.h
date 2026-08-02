@@ -166,9 +166,22 @@ namespace hgraph::service
         {
         };
 
+        /** An interface deriving from ``adaptor::interface``, WITHOUT needing
+         *  ``adaptor_wiring.h`` to be included.
+         *
+         *  A source-only adaptor (output, no input) satisfies every other
+         *  clause of ``reference_service_interface``, so without this the two
+         *  concepts overlap and ``wire<Interface>`` is an ambiguous partial
+         *  specialization in any translation unit including both headers
+         *  (RFC 0011 step 9). Detected structurally via the tag member the
+         *  adaptor base declares, so this header stays independent. */
+        template <typename Interface>
+        concept declares_adaptor_interface = requires { typename Interface::__adaptor_interface_tag__; };
+
         template <typename Service>
         concept reference_service_interface =
             has_reference_output_schema<Service>::value &&
+            !declares_adaptor_interface<Service> &&
             !has_adaptor_input_schema<Service>::value &&
             !has_key_value_schema<Service>::value &&
             !has_request_reply_schema<Service>::value;
@@ -706,24 +719,14 @@ namespace hgraph::service
             const ServicePath &user_path)
         {
             using output_schema = reference_output_schema_t<Service>;
-
-            std::string full_path = reference_output_path<Service>(user_path);
-            const auto *target_meta = resolved_schema_meta<output_schema>(
-                user_path.resolution, "reference service output");
-            const auto *ref_meta = TypeRegistry::instance().ref(target_meta);
-
-            WiringNodeSchema schema;
-            schema.output = ref_meta;
-            schema.state  = ref_meta->value_schema;
-            Value path_key = path_key_value(full_path);
-
-            WiringPortRef port = w.add_node(
-                std::type_index(typeid(reference_output_source_marker)), schema,
-                std::span<const WiringPortRef>{}, std::move(path_key),
-                [path = std::move(full_path), target_meta]() {
-                    return make_shared_output_source_node(path, *target_meta);
-                });
-            return Port<REF<output_schema>>{w, std::move(port)};
+            // Shared with adaptor::detail::output_source (RFC 0011 step 9).
+            return Port<REF<output_schema>>{
+                w,
+                boundary_detail::shared_output_relay_source(
+                    w, std::type_index(typeid(reference_output_source_marker)),
+                    resolved_schema_meta<output_schema>(
+                        user_path.resolution, "reference service output"),
+                    reference_output_path<Service>(user_path))};
         }
 
         template <typename Service>
@@ -907,38 +910,16 @@ namespace hgraph::service
                                                                const ServicePath &user_path)
         {
             using output_schema = reference_output_schema_t<Service>;
-
-            std::array<WiringPortRef, 2> sources{output.erased(), shared_output.erased()};
-            std::array<WiringInputRef, 2> inputs{{
-                WiringInputRef{.source = sources[0]},
-                WiringInputRef{.source = sources[1], .rank_dependency = false},
-            }};
             const auto *output_meta = output.erased().schema;
             if (output_meta == nullptr)
             {
                 output_meta = resolved_schema_meta<output_schema>(
                     user_path.resolution, "reference service output");
             }
-            NodeBuilder builder = make_shared_output_capture_node(
-                reference_output_path<Service>(user_path), *output_meta);
-            builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
-                builder.type().schema()->input_schema,
-                std::span<const WiringPortRef>{sources.data(), sources.size()}));
-
-            WiringPortRef capture = w.add_node(std::type_index(typeid(reference_output_capture_marker)),
-                                               std::move(builder),
-                                               std::span<const WiringInputRef>{inputs.data(), inputs.size()},
-                                               Value{});
-            // Shared-output relays are RANK-CORRECT and same-cycle: the rank
-            // dependency places the paired source after this capture (and
-            // Wiring::finish's topological sort re-ranks once ALL captures are
-            // known), so the capture schedules the source for the CURRENT
-            // evaluation time — no next-cycle workaround. Request/reply stubs
-            // above still schedule their transport sources for the next cycle.
-            // The same rule applies at every add_rank_dependency site below
-            // and in adaptor_wiring.h.
-            w.add_same_cycle_pair(capture.peered_node(), shared_output.node());
-            return capture.peered_node();
+            // Shared with adaptor::detail::capture_output (RFC 0011 step 9).
+            return boundary_detail::shared_output_relay_capture(
+                w, std::type_index(typeid(reference_output_capture_marker)), output_meta,
+                reference_output_path<Service>(user_path), output.erased(), shared_output.erased());
         }
 
         template <typename Service, typename Impl>

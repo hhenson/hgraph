@@ -1625,6 +1625,40 @@ namespace
         }
     };
 
+    // RFC 0011 step 9: a SOURCE-ONLY adaptor (output, no input) in a
+    // translation unit that includes BOTH service_wiring.h and
+    // adaptor_wiring.h. Before the concepts were made disjoint this did not
+    // compile - wire<Interface> matched both wire_customization
+    // specializations. It now lowers onto the reference-service machinery.
+    struct SourceOnlyFeedAdaptor : adaptor::interface
+    {
+        static constexpr std::string_view name{"source_only_feed"};
+        using output_schema = TS<Int>;
+    };
+
+    struct SourceOnlyFeedImpl
+    {
+        [[maybe_unused]] static constexpr auto name = "source_only_feed_impl";
+
+        static void compose(Wiring &w, Scalar<"path", Str> path)
+        {
+            adaptor::to_graph<SourceOnlyFeedAdaptor>(
+                w, service::path(path.value()), wire<stdlib::const_>(w, Int{9}).as<TS<Int>>());
+        }
+    };
+
+    struct SourceOnlyFeedGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "source_only_feed_graph";
+
+        static Port<TS<Int>> compose(Wiring &w)
+        {
+            const auto custom = service::path("feed");
+            adaptor::register_adaptor<SourceOnlyFeedAdaptor, SourceOnlyFeedImpl>(w, custom);
+            return wire<SourceOnlyFeedAdaptor>(w, custom);
+        }
+    };
+
     // RFC 0011 step 7: ONE implementation spanning an adaptor and a service.
     // This is the shape services.rst documents as "a sink-only interface in, a
     // source-only interface out" - now expressible as a single atomic
@@ -2374,6 +2408,16 @@ TEST_CASE("service wiring: multi-interface implementation graph wires explicit s
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<MultiServiceClientGraph>(values<Int>(1)), values<Int>(none, none, 13));
+}
+
+TEST_CASE("service wiring: a source-only adaptor is unambiguous alongside services")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // RFC 0011 step 9. The value of this case is largely that it COMPILES:
+    // this file includes both boundary headers, which previously made
+    // wire<SourceOnlyFeedAdaptor> an ambiguous partial specialization.
+    CHECK_OUTPUT(eval_node<SourceOnlyFeedGraph>(), values<Int>(9));
 }
 
 TEST_CASE("service wiring: one implementation may span an adaptor and a service")

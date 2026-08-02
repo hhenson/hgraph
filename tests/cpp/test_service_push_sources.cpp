@@ -315,16 +315,14 @@ namespace
     // Adaptor (confirmatory — adaptors were designed for exactly this)
     // ---------------------------------------------------------------------
 
-    // Deliberately DUPLEX. A source-only adaptor (``adaptor::interface`` with only
-    // ``output_schema``) also satisfies ``service::detail::reference_service_interface``,
-    // so ``wire<Interface>`` is an ambiguous partial specialization in any
-    // translation unit that includes both service_wiring.h and adaptor_wiring.h.
-    // Declaring ``input_schema`` excludes the service concept and keeps this test
-    // about push sources rather than about that overlap.
+    // SOURCE-ONLY. This was duplex when the test was written, because a
+    // source-only adaptor also satisfied reference_service_interface and
+    // wire<Interface> was ambiguous in any translation unit including both
+    // boundary headers. RFC 0011 step 9 made the concepts disjoint, so the
+    // workaround is gone and this is the shape the test always wanted.
     struct TickAdaptor : adaptor::interface
     {
         static constexpr std::string_view name{"tick_adaptor"};
-        using input_schema  = TS<Int>;
         using output_schema = TS<Int>;
     };
 
@@ -334,9 +332,6 @@ namespace
 
         static void compose(Wiring &w)
         {
-            // The client input exists only to keep the adaptor duplex; the output
-            // is driven entirely by the implementation-owned push source.
-            static_cast<void>(wire<stdlib::null_sink>(w, adaptor::from_graph<TickAdaptor>(w)));
             adaptor::to_graph<TickAdaptor>(
                 w, push_source_port<TS<Int>>(w, std::type_index(typeid(AdaptorTicksTag)), adaptor_sender));
         }
@@ -349,7 +344,7 @@ namespace
         static void compose(Wiring &w)
         {
             adaptor::register_adaptor<TickAdaptor, TickAdaptorImpl>(w);
-            collect(w, wire<TickAdaptor>(w, wire<stdlib::const_>(w, Int{0}).as<TS<Int>>()), 1);
+            collect(w, wire<TickAdaptor>(w), 1);
         }
     };
 
