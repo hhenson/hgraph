@@ -407,6 +407,7 @@ struct PyFastComputeStateRef {
 };
 
 [[nodiscard]] bool py_make_ts_arg(char kind, TSInputView child,
+                                  NodeScheduler scheduler,
                                   const PyTsLease &lease, nb::object &result) {
   const auto &evaluation_data = child.data_view();
   const bool has_current_value =
@@ -425,14 +426,15 @@ struct PyFastComputeStateRef {
   const auto evaluation_storage = evaluation_data.valid()
                                       ? evaluation_data.storage_ref()
                                       : TSDataStorageRef<>{};
-  PyTimeSeries wrapped{std::move(child), lease, evaluation_storage};
+  PyTimeSeries wrapped{std::move(child), scheduler, lease, evaluation_storage};
   wrapped.refresh_evaluation_data(evaluation_storage, has_current_value);
   result = nb::cast(std::move(wrapped));
   return true;
 }
 
 [[nodiscard]] bool py_make_direct_ts_arg(PyFastComputeCache &cache,
-                                         DateTime now, const PyTsLease &lease,
+                                         DateTime now, NodeScheduler scheduler,
+                                         const PyTsLease &lease,
                                          nb::object &result) {
   TSInputView child = cache.input.borrowed_ref(now);
   const auto &evaluation_data = child.data_view();
@@ -455,6 +457,7 @@ struct PyFastComputeStateRef {
   // the cache entry with a fresh wrapper.
   if (cache.input_object != nullptr && Py_REFCNT(cache.input_object) == 1) {
     cache.input_wrapper->view = std::move(child);
+    cache.input_wrapper->scheduler = scheduler;
     cache.input_wrapper->lease.generation = lease.generation;
     cache.input_wrapper->refresh_evaluation_data(evaluation_storage,
                                                  has_current_value);
@@ -467,7 +470,7 @@ struct PyFastComputeStateRef {
     cache.input_object = nullptr;
     cache.input_wrapper = nullptr;
   }
-  PyTimeSeries wrapped{std::move(child), lease, evaluation_storage};
+  PyTimeSeries wrapped{std::move(child), scheduler, lease, evaluation_storage};
   wrapped.refresh_evaluation_data(evaluation_storage, has_current_value);
   result = nb::cast(std::move(wrapped));
   cache.input_object = result.ptr();
@@ -479,6 +482,7 @@ struct PyFastComputeStateRef {
 [[nodiscard]] bool py_make_cached_pair_ts_arg(PyFastComputeCache &cache,
                                               std::size_t slot, char kind,
                                               TSInputView child,
+                                              NodeScheduler scheduler,
                                               const PyTsLease &lease,
                                               nb::object &result) {
   const auto &evaluation_data = child.data_view();
@@ -499,6 +503,7 @@ struct PyFastComputeStateRef {
   PyTimeSeries *&cached_wrapper = cache.pair_wrappers.at(slot);
   if (cached_object != nullptr && Py_REFCNT(cached_object) == 1) {
     cached_wrapper->view = std::move(child);
+    cached_wrapper->scheduler = scheduler;
     cached_wrapper->lease.generation = lease.generation;
     cached_wrapper->refresh_evaluation_data(evaluation_storage,
                                             has_current_value);
@@ -511,7 +516,7 @@ struct PyFastComputeStateRef {
     cached_object = nullptr;
     cached_wrapper = nullptr;
   }
-  PyTimeSeries wrapped{std::move(child), lease, evaluation_storage};
+  PyTimeSeries wrapped{std::move(child), scheduler, lease, evaluation_storage};
   wrapped.refresh_evaluation_data(evaluation_storage, has_current_value);
   result = nb::cast(std::move(wrapped));
   cached_object = result.ptr();
@@ -547,7 +552,7 @@ struct PyFastComputeStateRef {
     case 'P': {
       auto child = bundle[ts_index++];
       nb::object ts_obj;
-      if (!py_make_ts_arg(kind, std::move(child), lease, ts_obj)) {
+      if (!py_make_ts_arg(kind, std::move(child), scheduler, lease, ts_obj)) {
         return false;
       }
       call_args.append(ts_obj);
@@ -598,7 +603,8 @@ struct PyFastComputeStateRef {
       if (output == nullptr) {
         throw std::logic_error("_output injection requires a compute node");
       }
-      call_args.append(nb::cast(PyOutput{output->handle(), now, lease}));
+      call_args.append(
+          nb::cast(PyOutput{output->handle(), now, scheduler, lease}));
       break;
     }
     case 'c':
@@ -652,6 +658,7 @@ struct PyFastComputeStateRef {
                                          std::string_view layout,
                                          const TSInputView &args,
                                          const ValueView &scalars,
+                                         NodeScheduler scheduler,
                                          const PyTsLease &lease,
                                          nb::list &call_args) {
   auto bundle = args.as_bundle();
@@ -668,8 +675,8 @@ struct PyFastComputeStateRef {
     case 'a':
     case 'A': {
       nb::object ts_obj;
-      if (!py_make_ts_arg(kind, cache.arg_at(args, bundle, ts_index++), lease,
-                          ts_obj)) {
+      if (!py_make_ts_arg(kind, cache.arg_at(args, bundle, ts_index++),
+                          scheduler, lease, ts_obj)) {
         return false;
       }
       call_args.append(ts_obj);
@@ -720,7 +727,7 @@ void py_assemble_lifecycle_args(std::string_view layout,
       }
       nb::object ts_object;
       static_cast<void>(py_make_ts_arg(
-          'U', bundle[index], lease, ts_object));
+          'U', bundle[index], scheduler, lease, ts_object));
       call_args.append(ts_object);
       break;
     }
@@ -993,7 +1000,7 @@ struct py_fast_compute_node {
       Scalar<"start_scalars", ScalarVar<"SSV">>, Scalar<"stop_fn", PyNodeRef>,
       Scalar<"stop_enabled", Bool>, Scalar<"stop_config", Str>,
       Scalar<"stop_scalars", ScalarVar<"XSV">>, State<PyFastComputeStateRef>,
-      Out<TsVar<"O">>>;
+      NodeScheduler, Out<TsVar<"O">>>;
 
   static bool requires_(const ResolutionMap &, OperatorCallContext context) {
     return py_fast_compute_eligible(context);
@@ -1046,7 +1053,8 @@ struct py_fast_compute_node {
     static_cast<void>(cache.release());
   }
 
-  static void eval(State<PyFastComputeStateRef> state, DateTime now) {
+  static void eval(State<PyFastComputeStateRef> state, NodeScheduler scheduler,
+                   DateTime now) {
     PyFastComputeCache *cache = state.get().cache;
     if (cache == nullptr) {
       throw std::logic_error("fast python node has no runtime cache");
@@ -1059,7 +1067,7 @@ struct py_fast_compute_node {
       nb::object result;
       if (cache->direct()) {
         nb::object ts_obj;
-        if (!py_make_direct_ts_arg(*cache, now, lease, ts_obj)) {
+        if (!py_make_direct_ts_arg(*cache, now, scheduler, lease, ts_obj)) {
           return;
         }
         result = cache->record->fn(ts_obj);
@@ -1069,11 +1077,11 @@ struct py_fast_compute_node {
         nb::object lhs;
         nb::object rhs;
         if (!py_make_cached_pair_ts_arg(*cache, 0, cache->shape.layout[0],
-                                        cache->arg_at(input, bundle, 0), lease,
-                                        lhs) ||
+                                        cache->arg_at(input, bundle, 0),
+                                        scheduler, lease, lhs) ||
             !py_make_cached_pair_ts_arg(*cache, 1, cache->shape.layout[1],
-                                        cache->arg_at(input, bundle, 1), lease,
-                                        rhs)) {
+                                        cache->arg_at(input, bundle, 1),
+                                        scheduler, lease, rhs)) {
           return;
         }
         result = cache->record->fn(lhs, rhs);
@@ -1081,7 +1089,8 @@ struct py_fast_compute_node {
         TSInputView input = cache->input.borrowed_ref(now);
         nb::list call_args;
         if (!py_assemble_fast_args(*cache, cache->shape.layout, input,
-                                   cache->scalars, lease, call_args)) {
+                                   cache->scalars, scheduler, lease,
+                                   call_args)) {
           return;
         }
         auto call_kwargs = py_peel_kwargs(call_args, cache->shape.kw_names);

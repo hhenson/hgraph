@@ -85,6 +85,12 @@ namespace hgraph
         /** Canonical type record and schema for the input-side projection. */
         [[nodiscard]] TSInputTypeRef type_ref() const;
         [[nodiscard]] const TSValueTypeMetaData *schema() const noexcept;
+        /** True when this input carries REF values rather than ordinary time-series values. */
+        [[nodiscard]] bool is_reference() const noexcept
+        {
+            const auto *value_schema = schema();
+            return value_schema != nullptr && value_schema->kind == TSTypeKind::REF;
+        }
         /** Underlying TSData projection; empty for unbound peered terminals. */
         [[nodiscard]] const TSDataView &data_view() const noexcept;
 

@@ -528,11 +528,17 @@ Recorded divergences / gaps (the morning-summary list):
   kinds, strictly lazy): user nodes receive a C++-bound ``TimeSeries``
   view over the LIVE input — nothing converts unless accessed.
   Universal: ``.value`` / ``.delta_value`` / ``.modified`` / ``.valid`` /
-  ``.all_valid`` / ``.last_modified_time``. Kind-dispatched: TSS
+  ``.all_valid`` / ``.last_modified_time`` / ``.owning_node`` /
+  ``.owning_graph`` / ``.is_reference()``. Mutable ``_output`` views expose
+  the same generic interrogation properties while retaining their native
+  mutation API. Kind-dispatched: TSS
   ``added()``/``removed()``; TSD ``[]``/``keys()``/``modified_keys()``/
   ``modified_items()``/``removed_keys()``/``in``; TSL ``[i]``/``len``;
   TSB ``.field`` / ``[]``. Child access returns child views sharing the
   parent's lifetime guard: a view stored past its node's evaluation
   raises rather than dangling. ``delta_value`` builds hgraph's friendly
   shapes natively from the dict/set views (no canonical-delta
-  intermediate).
+  intermediate). Python does not reproduce the old engine's endpoint topology
+  mutation hooks: ``bind_output`` / ``un_bind_output``, their ``do_*``
+  implementation hooks, ``re_parent``, direct parent/bound-output traversal,
+  and subscription management remain native runtime responsibilities.
