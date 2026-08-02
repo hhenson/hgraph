@@ -24,3 +24,4 @@ workflow are defined by :doc:`rfc_0000`.
    rfc_0008_prepared_node_inputs
    rfc_0009_time_series_endpoint_visitors
    rfc_0010_value_view_visitors
+   rfc_0011_source_only_adaptor_collapse
