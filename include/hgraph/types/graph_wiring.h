@@ -840,6 +840,19 @@ namespace hgraph
         Wiring(Wiring &&) noexcept;
         Wiring &operator=(Wiring &&) noexcept;
 
+        /**
+         * True when this wiring is compiling an isolated SUB-GRAPH rather than
+         * the top-level graph.
+         *
+         * A boundary client wired here has its transport source hoisted into
+         * the parent as an external service input, so a same-cycle pair
+         * declared against that source cannot be validated in this wiring -
+         * the node it names is no longer here at ``finish``. Callers use this
+         * to fall back to the next-cycle path, which the runtime already takes
+         * for a nested graph.
+         */
+        [[nodiscard]] bool is_sub_graph() const noexcept;
+
         /** Process-unique identity for associating wiring-lifetime adapter
             state across owned and borrowed language wrappers. */
         [[nodiscard]] std::uint64_t identity() const noexcept;
