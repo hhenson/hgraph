@@ -1589,6 +1589,19 @@ namespace
         }
     };
 
+    struct ServiceAdaptorSingleClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "service_adaptor_single_client_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> request)
+        {
+            const auto custom = service_adaptor::path("single_client");
+            service_adaptor::register_service_adaptor<AddTwentyServiceAdaptor, AddTwentyServiceAdaptorImpl>(
+                w, custom);
+            return wire<AddTwentyServiceAdaptor>(w, custom, request);
+        }
+    };
+
     struct ServiceAdaptorImplTwoClientGraph
     {
         [[maybe_unused]] static constexpr auto name = "service_adaptor_impl_two_client_graph";
@@ -2139,6 +2152,14 @@ TEST_CASE("service wiring: service adaptors collect multiple client requests")
 
     CHECK_OUTPUT(eval_node<ServiceAdaptorTwoClientGraph>(values<Int>(1), values<Int>(10)),
                  values<Int>(none, 51));
+}
+
+TEST_CASE("service wiring: service adaptors preserve successive requests from one client")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<ServiceAdaptorSingleClientGraph>(values<Int>(1, 2, 3)),
+                 values<Int>(none, 21, 22, 23));
 }
 
 TEST_CASE("service wiring: service_adaptor_impl auto-wires single-interface implementations")

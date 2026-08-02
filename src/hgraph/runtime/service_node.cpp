@@ -98,15 +98,16 @@ namespace hgraph
 
         struct RequestInputChange
         {
-            Int   request_id{0};
-            Value delta{};
+            Int      request_id{0};
+            Value    delta{};
             DateTime observed_at{};
-            bool  remove{false};
+            bool     remove{false};
         };
 
         struct RequestInputSourceStorage
         {
             std::vector<RequestInputChange> pending{};
+            DateTime                        publish_time{MAX_DT};
         };
 
         struct RequestInputCaptureStorage
@@ -348,16 +349,16 @@ namespace hgraph
                 {
                     existing->delta  = std::move(delta);
                     existing->remove = false;
-                    schedule(schedule_time);
+                    schedule_publication(schedule_time);
                     return;
                 }
                 pending.push_back(RequestInputChange{
-                    .request_id = request_id,
-                    .delta      = std::move(delta),
+                    .request_id  = request_id,
+                    .delta       = std::move(delta),
                     .observed_at = observed_at,
-                    .remove     = false,
+                    .remove      = false,
                 });
-                schedule(schedule_time);
+                schedule_publication(schedule_time);
             }
 
             void remove(Int request_id, DateTime schedule_time,
@@ -373,16 +374,30 @@ namespace hgraph
                 {
                     existing->delta  = Value{};
                     existing->remove = true;
-                    schedule(schedule_time);
+                    schedule_publication(schedule_time);
                     return;
                 }
                 pending.push_back(RequestInputChange{
-                    .request_id = request_id,
-                    .delta      = Value{},
+                    .request_id  = request_id,
+                    .delta       = Value{},
                     .observed_at = observed_at,
-                    .remove     = true,
+                    .remove      = true,
                 });
-                schedule(schedule_time);
+                schedule_publication(schedule_time);
+            }
+
+            void schedule_publication(DateTime schedule_time) const
+            {
+                auto &storage = source_storage_of(view_, *context_);
+                if (schedule_time >= storage.publish_time) { return; }
+
+                GraphValue *graph = view_.graph_value();
+                if (graph == nullptr)
+                {
+                    throw std::logic_error("request input source node is not attached to a graph");
+                }
+                graph->schedule_node(view_.node_index(), schedule_time);
+                storage.publish_time = schedule_time;
             }
 
             [[nodiscard]] std::size_t node_index() const noexcept { return view_.node_index(); }
@@ -392,16 +407,6 @@ namespace hgraph
                 : view_(std::move(view)),
                   context_(context)
             {
-            }
-
-            void schedule(DateTime schedule_time) const
-            {
-                GraphValue *graph = view_.graph_value();
-                if (graph == nullptr)
-                {
-                    throw std::logic_error("request input source node is not attached to a graph");
-                }
-                graph->schedule_node(view_.node_index(), schedule_time);
             }
 
             NodeView                         view_{};
@@ -580,12 +585,14 @@ namespace hgraph
             const auto &context = *static_cast<const RequestInputSourceContext *>(
                 view.type().ops_ref().extended_view_context);
             auto &storage = source_storage_of(view, context);
+            storage.publish_time = MAX_DT;
             if (storage.pending.empty()) { return true; }
 
             apply_pending_request_input_changes(storage, view.output(evaluation_time), evaluation_time);
             if (!storage.pending.empty())
             {
-                view.graph().schedule_node(view.node_index(), evaluation_time + MIN_TD);
+                RequestInputSourceView::from_node(NodeView{view.pointer()}, &context).schedule_publication(
+                    evaluation_time + MIN_TD);
             }
             return true;
         }
@@ -609,7 +616,9 @@ namespace hgraph
         {
             const auto *context = static_cast<const RequestInputSourceContext *>(
                 view.type().ops_ref().extended_view_context);
-            source_storage_of(view, *context).pending.clear();
+            auto &storage = source_storage_of(view, *context);
+            storage.pending.clear();
+            storage.publish_time = MAX_DT;
 
             auto output   = view.output(evaluation_time);
             auto dict     = output.as_dict();

@@ -157,7 +157,8 @@ def test_graph_configuration_controls_uncaught_error_detail():
     message = str(exc_info.value)
     assert "division by zero" in message
     assert "Activation Back Trace" in message
-    assert "__py_compute" in message
+    # issue #247: the failing node is named by the user function
+    assert "divide" in message
     assert "value={_0: 9, _1: 0}" in message
 
 

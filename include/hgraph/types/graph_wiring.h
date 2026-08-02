@@ -810,6 +810,17 @@ namespace hgraph
          * is the build artifact stored for ``finish`` (the ``scalars`` are recorded
          * on it). Pass an empty ``Value`` for a node with no scalar inputs.
          */
+        /**
+         * Diagnostic label hint (issue #247): the next ``add_node`` whose
+         * builder schema is named ``expected_operator`` labels its node
+         * (unless already labeled), then the hint clears. Lets erased wire
+         * paths attach user-facing identity (a python function name) without
+         * threading a label through every candidate wire signature; the
+         * operator-name guard keeps auxiliary nodes (const lifts) unlabeled.
+         */
+        void set_pending_node_label(std::string expected_operator, std::string label);
+        void clear_pending_node_label() noexcept;
+
         WiringPortRef add_node(std::type_index def, NodeBuilder builder, std::span<const WiringInputRef> inputs,
                                Value scalars);
 

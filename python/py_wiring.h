@@ -178,9 +178,19 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::object wire(const std::string &name, nb::tuple args, nb::dict kwargs,
                                       std::optional<PyTsType> output_type,
                                       std::optional<std::vector<std::size_t>> sizes = std::nullopt,
-                                      PyResolutionScope *initial_resolution = nullptr)
+                                      PyResolutionScope *initial_resolution = nullptr,
+                                      std::optional<std::string> node_label = std::nullopt)
         {
             ensure_open();
+            // Diagnostic label (issue #247): hint the wiring so the operator's
+            // own node carries the user-facing identity.
+            if (node_label.has_value())
+            {
+                wiring_ref().set_pending_node_label(name, *node_label);
+            }
+            auto clear_label_hint = UnwindCleanupGuard([&] {
+                wiring_ref().clear_pending_node_label();
+            });
             // Target-directed scalar conversion: with an explicit output
             // type, a leading plain-python scalar converts AT the target's
             // value schema (const((1,2,3), tp=TS[tuple[int,...]]) builds
