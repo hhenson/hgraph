@@ -242,6 +242,88 @@ template path.
 it). A generic source-only adaptor's client port therefore changes observable
 schema — this needs an explicit migration test, not just a compile check.
 
+Capabilities that do not survive
+--------------------------------
+
+A full audit of the adaptor surface found three capabilities with **no
+reference-service equivalent**. These are the real cost of the collapse and the
+substance of the review.
+
+**A. Client scalar options.** Adaptor clients may pass wiring-time scalar
+options that reach the registered implementation, with cross-client agreement
+enforced (``python/hgraph/_wiring/_services.py:52-88``,
+``_record_adaptor_client_config``, reached only from
+``_AdaptorClientStub._prepare_client_request`` at ``:649``):
+
+.. code-block:: python
+
+   raise WiringError(
+       f"{stub.flavour.replace('_', ' ')} '{stub.__name__}' clients at "
+       f"path {path!r} disagree on wiring-time option(s) {differences!r}")
+
+``_ServiceStub.__call__`` (``:493-551``) never records config. For a
+**source-only** interface this matters most: the client's entire call is a path
+plus scalars, so this is its *only* parameterisation channel. Migrating removes
+it unless reference-service clients gain the same mechanism.
+
+**B. Time-series registration configuration.** ``manual_adaptor``
+(``_services.py:1177``) lets ``register_adaptor(...)`` take TS-valued kwargs and
+wire them as implementation inputs (``_adaptor_registration_inputs``
+``:1075-1090``, forwarded as ``inputs=`` at ``:1071``). The bridge's
+``register_service_impl`` (``python/py_state_services.cpp:349-371``) has **no**
+``inputs`` parameter at all — only the adaptor family and
+``register_multi_service_impl`` do. In-tree users:
+``python/tests/test_hgraph_api.py:1269-1280`` and ``:1288-1297``.
+
+**C. Catch-all implementations.** ``register_unbound_adaptor_impl``
+(``src/hgraph/types/service_runtime.cpp:1032-1090``) is the sole caller of
+``Wiring::register_catch_all_service_implementation_candidate``
+(``graph_wiring.cpp:1892-1910``) and has no flavour at all — it sweeps
+``service_client_records()`` and claims every unclaimed endpoint. Python reaches
+it through ``@adaptor_impl(interfaces=())``; ``@service_impl(interfaces=())`` is
+not supported. **Two production users**:
+``python/hgraph/adaptors/tornado/http_server_adaptor.py:453-454`` and
+``websocket_server_adaptor.py:437-438``.
+
+Catch-all is not removed by this RFC — it belongs to the adaptor family, which
+survives. But it *discovers* clients by splitting the
+``adaptor://…/from_graph|/to_graph`` grammar
+(``http_server_adaptor.py:470``, ``websocket_server_adaptor.py:453``,
+``_perspective_adaptor.py:182``), so moving any client to ``ref_svc://`` changes
+what it can see. The migration must confirm no catch-all is expected to serve a
+migrated source-only client.
+
+Options for A and B: extend the reference-service surface with both (largest
+scope, best end state), or accept that a source-only interface needing them
+stays an adaptor by declaring a nominal input (defeats the purpose). This is the
+second open decision.
+
+A point in the other direction
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The audit also found that a **generic source-only ``@adaptor`` is effectively
+unusable in Python today**. ``_AdaptorClientStub._prepare_client_request``
+(``_services.py:605-657``) infers resolution only from request ports
+(``:634-641``) and never calls ``_registered_service_resolution``, so with zero
+requests the resolution stays empty and ``_require_descriptor()`` raises
+``"generic adaptor '…' must be specialized"`` (``:736-739``).
+``_ServiceStub.__call__`` handles the zero-request case explicitly
+(``:518-522``). Migration therefore *fixes* generic source-only interfaces
+rather than regressing them.
+
+Supporting evidence that the collapse is already half-done in the code:
+``_bind_registered_impl`` (``_services.py:1293-1296``) computes
+
+.. code-block:: python
+
+   native_ports = (
+       0 if stub is None or stub.flavour == "reference"
+       or (stub.flavour == "adaptor" and expected_ports == 0) else 1
+   )
+
+— the source-only adaptor case is *already* folded onto the ``"reference"``
+branch. Removing source-only adaptors makes that clause dead.
+
 Incidental duplication to remove with it
 ----------------------------------------
 
@@ -457,15 +539,19 @@ Disambiguate the concepts and keep both constructs
    entrenches the duplication the error is a symptom of — precisely the
    "two ways to do one thing" guardrail. It is, however, the correct **interim**
    fix if this RFC is not accepted, and it is what
-   ``tests/cpp/test_service_push_sources.cpp`` currently works around with a
-   duplex adaptor.
+   ``tests/cpp/test_service_push_sources.cpp`` (PR #257) currently works around
+   with a duplex adaptor.
 
 Fold reference services onto the adaptor machinery instead
-   Rejected. Adaptors generalise to duplex and sink-only, but reference services
-   carry ``default_fallback`` and catch-all registration and are the older,
-   more primitive notion — "a value published by one producer". A source-only
-   adaptor is a reference service whose implementation happens to talk to the
-   outside world; the reverse framing does not hold.
+   Rejected, but less one-sidedly than first drafted. Adaptors generalise to
+   duplex and sink-only, and they own two capabilities reference services lack
+   entirely (catch-all registration and client scalar options — see
+   "Capabilities that do not survive"). ``default_fallback`` is symmetric, not a
+   reference-service advantage. The case for the reference service as primitive
+   rests on it being the narrower, older notion — "a value published by one
+   producer" — and on its stricter checking; a source-only adaptor is a
+   reference service whose implementation happens to talk to the outside world,
+   and the reverse framing does not hold for the *source-only* shape.
 
 Introduce a third shared "boundary relay" primitive both build on
    Rejected. It removes the duplicated code but adds a concept to the
@@ -479,8 +565,16 @@ Internal de-duplication only, both public surfaces retained
 Unresolved questions
 --------------------
 
-* **The multi-interface case above is the main open decision.** Recommendation:
+* **The multi-interface case is the first open decision.** Recommendation:
   accept the loss and document the replacement pairing.
+* **Client scalar options and TS registration configuration (A and B above) are
+  the second.** Extending the reference-service surface with both is the better
+  end state but materially enlarges this RFC; the alternative is to accept that
+  an interface needing them is not a candidate for migration.
+* Should ``@service_impl(interfaces=())`` gain catch-all support, so the
+  capability is not adaptor-exclusive? Not required by this RFC — catch-all
+  survives with the adaptor family — but it is the remaining asymmetry once
+  source-only is gone.
 * Should the deprecation stage warn at wiring time (every graph build) or once
   per interface at decoration/registration? Once per interface is quieter but
   easier to miss.
@@ -505,7 +599,8 @@ Acceptance criteria and test plan
   ``adaptor_wiring.h`` wires a duplex adaptor, a sink-only adaptor and a
   reference service with no ambiguity. This is the regression test for the
   compile error above, and it lets
-  ``tests/cpp/test_service_push_sources.cpp`` drop its duplex workaround.
+  ``tests/cpp/test_service_push_sources.cpp`` (PR #257) drop its duplex
+  workaround.
 * Every in-tree source-only adaptor is migrated to a reference service with
   behaviour unchanged: same values, same cycle counts, same rank order.
 * ``register_reference_service`` opens an implementation scope and fails an
@@ -517,6 +612,16 @@ Acceptance criteria and test plan
   ``REF<T>`` on the template client path, matching the erased runtime
   (difference 4), with a test asserting the port schema.
 * The shared path/resolution helpers exist once, and both surfaces use them.
+* A **generic** source-only interface, which cannot currently be used as an
+  adaptor from Python at all (``"generic adaptor '…' must be specialized"``),
+  works as a reference service.
+* No catch-all implementation is left expecting to serve a migrated client:
+  the tornado HTTP and WebSocket catch-alls
+  (``http_server_adaptor.py:453``, ``websocket_server_adaptor.py:437``) still
+  discover their endpoints after the migration.
+* Docs updated: ``services.rst:313-318, 331-334, 365-382`` and
+  ``user_guide/authoring_graphs_cpp.rst:886-893, 1090-1093`` all currently
+  describe source-only adaptors as supported.
 * ``tests/cpp/test_adaptor_wiring.cpp`` keeps its duplex, sink-only,
   multi-interface, automatic-registration, scalar-qualified-path and generic
   cases; its source-only cases move to the service suite.
