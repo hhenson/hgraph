@@ -1,10 +1,12 @@
 """Push queues inside service implementations.
 
 A service/adaptor implementation is not a nested graph in hg_cpp: registration
-records a materializer candidate, and ``Wiring::build_services()`` — reached only
-from ``finish_top_level`` — runs it with ``WiredFn::wire(target, ...)``, which
-inlines the implementation into the top-level wiring. An implementation's
-``@push_queue`` is therefore an ordinary root-graph push-prefix node.
+records a materializer candidate. ``finish_top_level`` calls
+``Wiring::build_services()`` automatically, while an explicit ``build_services``
+call provides the same supported materialization boundary. Materialization uses
+``WiredFn::wire(target, ...)``, which inlines the implementation into the
+top-level wiring. An implementation's ``@push_queue`` is therefore an ordinary
+root-graph push-prefix node.
 
 Upstream Python compiles a ``@service_impl`` into a nested graph node built with
 ``create_graph_builder(sink_nodes, False)`` and rejects push sources inside it;

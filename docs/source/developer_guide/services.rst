@@ -309,10 +309,12 @@ Implementations are inlined, not nested (and may own push sources)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Registration does **not** wire anything. It records a *materializer candidate*
-(``Wiring::register_service_implementation_candidate``), and
-``Wiring::build_services()`` — reached only from ``Wiring::finish_top_level``,
-never from ``finish_subgraph`` — runs the candidates that some client actually
-requested. Each materializer calls ``WiredFn::wire(target, …)``, the **inline**
+(``Wiring::register_service_implementation_candidate``).
+``Wiring::finish_top_level`` calls ``Wiring::build_services()`` automatically;
+authors may also call ``build_services()`` explicitly to materialize current
+demand, and finishing calls it again for any later demand. ``finish_subgraph``
+does not perform this automatic materialization. Each requested materializer
+calls ``WiredFn::wire(target, …)``, the **inline**
 verb, not ``WiredFn::compile``, which is what produces a ``CompiledSubGraph``
 for ``map_``/``switch_``. An implementation's nodes are therefore ordinary nodes
 of the registering (top-level) graph.

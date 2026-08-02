@@ -8,10 +8,12 @@
 
 #include <array>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
+#include <mutex>
+#include <optional>
 #include <span>
 #include <stdexcept>
-#include <thread>
 #include <typeindex>
 #include <vector>
 
@@ -19,8 +21,9 @@
  * Push sources inside service implementations.
  *
  * A service/adaptor implementation is NOT a nested graph in hg_cpp: registration
- * only records a materializer candidate, and ``Wiring::build_services()`` — called
- * solely from ``finish_top_level`` — runs each materializer with
+ * only records a materializer candidate. ``finish_top_level`` calls
+ * ``Wiring::build_services()`` automatically, while the supported explicit
+ * ``build_services()`` boundary runs the same materializers with
  * ``WiredFn::wire(target, …)``, which INLINES the implementation into the
  * registering (top-level) wiring. An implementation's push source is therefore an
  * ordinary root-graph node and lands in the push prefix.
@@ -38,14 +41,52 @@ namespace
     using namespace hgraph;
     using namespace hgraph::testing;
 
-    // A static ``compose`` has nowhere to capture test state, so the senders the
-    // implementations' push sources hand out at start live at namespace scope —
-    // the same pattern as ``lazy_reference_compositions`` in test_service_wiring.cpp.
-    inline PushSourceSender ticks_sender{};
-    inline PushSourceSender alt_ticks_sender{};
-    inline PushSourceSender quotes_sender{};
-    inline PushSourceSender replies_sender{};
-    inline PushSourceSender adaptor_sender{};
+    /** Synchronize publication of the sender from the executor's start thread.
+     *
+     *  ``PushSourceSender`` is safe to use from another thread after publication,
+     *  but assigning and inspecting the multi-field handle concurrently would be
+     *  a data race. The latch supplies the required happens-before edge. */
+    class SenderLatch
+    {
+      public:
+        void reset()
+        {
+            std::lock_guard lock{mutex_};
+            sender_.reset();
+        }
+
+        void publish(PushSourceSender sender)
+        {
+            {
+                std::lock_guard lock{mutex_};
+                sender_ = std::move(sender);
+            }
+            ready_.notify_all();
+        }
+
+        [[nodiscard]] std::optional<PushSourceSender> await()
+        {
+            std::unique_lock lock{mutex_};
+            if (!ready_.wait_for(lock, std::chrono::seconds{2}, [this] { return sender_.has_value(); }))
+            {
+                return std::nullopt;
+            }
+            return sender_;
+        }
+
+      private:
+        std::mutex                      mutex_{};
+        std::condition_variable         ready_{};
+        std::optional<PushSourceSender> sender_{};
+    };
+
+    // A static ``compose`` has nowhere to capture test state, so the latches that
+    // receive implementation senders at start live at namespace scope.
+    inline SenderLatch ticks_sender{};
+    inline SenderLatch alt_ticks_sender{};
+    inline SenderLatch quotes_sender{};
+    inline SenderLatch replies_sender{};
+    inline SenderLatch adaptor_sender{};
 
     inline std::vector<Int> observed{};
 
@@ -75,11 +116,15 @@ namespace
      *  two push sources that differ only in their ``on_start`` callback, because
      *  the callback lives in the builder context and not in the scalars. */
     template <typename S>
-    [[nodiscard]] Port<S> push_source_port(Wiring &w, std::type_index def, PushSourceSender &sender)
+    [[nodiscard]] Port<S> push_source_port(Wiring &w, std::type_index def, SenderLatch &sender)
     {
         return Port<S>{w,
                        w.add_unique_node(def,
-                                         capturing_push_source(*ts_type<S>(), sender),
+                                         make_push_source_node(
+                                             *ts_type<S>(),
+                                             [&sender](PushSourceSender started_sender) {
+                                                 sender.publish(std::move(started_sender));
+                                             }),
                                          std::span<const WiringPortRef>{},
                                          Value{})};
     }
@@ -316,11 +361,11 @@ namespace
     {
         hgraph::stdlib::register_standard_operators();
         observed.clear();
-        ticks_sender     = PushSourceSender{};
-        alt_ticks_sender = PushSourceSender{};
-        quotes_sender    = PushSourceSender{};
-        replies_sender   = PushSourceSender{};
-        adaptor_sender   = PushSourceSender{};
+        ticks_sender.reset();
+        alt_ticks_sender.reset();
+        quotes_sender.reset();
+        replies_sender.reset();
+        adaptor_sender.reset();
     }
 
     /** Count the push-source prefix the runtime will drain. */
@@ -340,15 +385,6 @@ namespace
         return executor_builder.make_executor();
     }
 
-    /** The sender only becomes valid once the push node starts on the runner thread. */
-    [[nodiscard]] bool await_sender(const PushSourceSender &sender)
-    {
-        for (int attempt = 0; attempt < 400 && !sender.valid(); ++attempt)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds{5});
-        }
-        return sender.valid();
-    }
 }   // namespace
 
 TEST_CASE("service push sources: a reference service implementation owns a root push source")
@@ -368,8 +404,9 @@ TEST_CASE("service push sources: a reference service implementation owns a root 
     auto               view     = executor.view();
 
     AsyncGraphExecutorRun runner{view};
-    REQUIRE(await_sender(ticks_sender));
-    ticks_sender.send(Int{42});
+    auto sender = ticks_sender.await();
+    REQUIRE(sender.has_value());
+    sender->send(Int{42});
     runner.join();
 
     CHECK(observed == std::vector<Int>{Int{42}});
@@ -391,10 +428,12 @@ TEST_CASE("service push sources: two implementations contribute two push sources
     auto               view     = executor.view();
 
     AsyncGraphExecutorRun runner{view};
-    REQUIRE(await_sender(ticks_sender));
-    REQUIRE(await_sender(alt_ticks_sender));
-    ticks_sender.send(Int{40});
-    alt_ticks_sender.send(Int{2});
+    auto ticks     = ticks_sender.await();
+    auto alt_ticks = alt_ticks_sender.await();
+    REQUIRE(ticks.has_value());
+    REQUIRE(alt_ticks.has_value());
+    ticks->send(Int{40});
+    alt_ticks->send(Int{2});
     runner.join();
 
     REQUIRE(observed.size() == 1);
@@ -412,8 +451,9 @@ TEST_CASE("service push sources: a subscription service implementation owns a ro
     auto               view     = executor.view();
 
     AsyncGraphExecutorRun runner{view};
-    REQUIRE(await_sender(quotes_sender));
-    quotes_sender.send(Int{99});
+    auto sender = quotes_sender.await();
+    REQUIRE(sender.has_value());
+    sender->send(Int{99});
     runner.join();
 
     CHECK(observed == std::vector<Int>{Int{99}});
@@ -430,8 +470,9 @@ TEST_CASE("service push sources: a request/reply service implementation owns a r
     auto               view     = executor.view();
 
     AsyncGraphExecutorRun runner{view};
-    REQUIRE(await_sender(replies_sender));
-    replies_sender.send(Int{55});
+    auto sender = replies_sender.await();
+    REQUIRE(sender.has_value());
+    sender->send(Int{55});
     runner.join();
 
     CHECK(observed == std::vector<Int>{Int{55}});
@@ -448,8 +489,9 @@ TEST_CASE("service push sources: an adaptor implementation owns a root push sour
     auto               view     = executor.view();
 
     AsyncGraphExecutorRun runner{view};
-    REQUIRE(await_sender(adaptor_sender));
-    adaptor_sender.send(Int{13});
+    auto sender = adaptor_sender.await();
+    REQUIRE(sender.has_value());
+    sender->send(Int{13});
     runner.join();
 
     CHECK(observed == std::vector<Int>{Int{13}});
