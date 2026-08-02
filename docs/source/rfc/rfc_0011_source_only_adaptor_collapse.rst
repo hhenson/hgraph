@@ -30,10 +30,22 @@ schemas, so the collapse tightens checking rather than merely renaming — but t
 closing that hole is part of the work rather than a property inherited for free.
 All four are enumerated and resolved below.
 
-This RFC proposes collapsing them. The reference service is the primitive; the
-source-only adaptor form is deprecated and then removed. The adaptor surface
-remains for the cases that genuinely differ from any service flavour — duplex
-(input and output) and sink-only (input, no output).
+This RFC proposes collapsing them, in two stages and in this order:
+
+1. **Lift, additively.** Bring the adaptor's usage model onto the service
+   surface — client scalar options, time-series registration configuration, and
+   the ``from_graph`` / ``to_graph`` publish model. Nothing breaks; services
+   gain capability. The aim is the **union** of the two usage models, not the
+   intersection.
+2. **Collapse, subtractively.** With nothing left that only an adaptor could do,
+   deprecate and then remove the source-only adaptor spelling. The reference
+   service is the primitive.
+
+The adaptor surface remains for the cases that genuinely differ from any service
+flavour — duplex (input and output) and sink-only (input, no output).
+
+Ordering matters: doing stage 1 first means the migration in stage 2 never asks
+anyone to give something up, and every step is independently reviewable.
 
 Motivation
 ----------
@@ -108,8 +120,14 @@ one construct there is one specialization and no ambiguity.
 Scope
 -----
 
-In scope: the **source-only** case — an interface declaring an output and no
-input.
+In scope:
+
+* **Stage 1 — lifting** the adaptor usage model onto the service surface: client
+  scalar options, time-series registration configuration, and the
+  ``from_graph`` / ``to_graph`` publish model. This applies to services
+  generally, not only to the case being collapsed.
+* **Stage 2 — collapsing** the **source-only** case: an interface declaring an
+  output and no input.
 
 Explicitly out of scope, because the transports genuinely differ:
 
@@ -131,9 +149,12 @@ Ownership boundary
 The construct is owned by the C++ wiring core. Python's ``@adaptor`` /
 ``@reference_service`` decorators are frontends over the same erased
 ``RuntimeServiceDescriptor`` and the same registration entry points, so the
-Python change follows the C++ one rather than defining a second contract. No
-new runtime node type, ops-table slot, or storage shape is introduced: this RFC
-removes code paths, it does not add any.
+Python change follows the C++ one rather than defining a second contract.
+
+No new runtime node type, ops-table slot, or storage shape is introduced by
+either stage. Stage 1 adds **wiring-time API only** — it reuses the relay nodes,
+scope machinery and client-config store that already exist, and changes nothing
+on the per-tick path. Stage 2 removes code paths.
 
 Proposed C++ contract
 ---------------------
@@ -205,10 +226,11 @@ implementation to call ``adaptor::to_graph`` itself;
 ``register_automatic_adaptor`` (``:493-535``) is the closer analogue and calls
 ``to_graph`` on the implementation's behalf.
 
-*Proposed:* migrate to by-return. An automatic source-only adaptor migrates with
-no body change; a manual one drops its ``to_graph`` call and returns the port
-instead. The RFC should say so explicitly because it is the only implementation
-edit the migration requires.
+*Proposed:* **support both styles on the service surface** rather than forcing
+by-return (see "D. The ``from_graph`` / ``to_graph`` usage model for services").
+An automatic source-only adaptor migrates with no body change; a manual one
+changes ``adaptor::to_graph<Iface>`` to ``service::to_graph<Service>``. Neither
+requires an implementation rewrite.
 
 **2. "Did the implementation publish?" is enforced differently.** The adaptor
 path opens a ``service_implementation_scope`` with required endpoints
@@ -230,10 +252,13 @@ For a by-return implementation the equivalent of "did you publish?" is simply
 "did you return a usable port", which ``register_reference_service`` already
 answers through ``Port::as<OutputSchema>()`` and, on the erased path,
 ``describe_service_output``. So this is a **smaller gap than first drafted**:
-the enforcement exists in a different form rather than being absent. What is
-genuinely missing is the generic case — see difference 3. Any stronger
-guarantee needs a return-preserving scope mechanism, not the manual-stub helper;
-that is deliberately left out of scope here.
+the enforcement exists in a different form rather than being absent.
+
+Once services support by-stub publishing (D), the two enforcement modes pair
+naturally with the two publish styles — the required-endpoint scope for by-stub
+implementations, returned-port validation for by-return ones — and no
+return-preserving scope mechanism is needed. What remains genuinely missing is
+the generic case, which is difference 3.
 
 **3. Output-schema conformance is checked on only one side — but only for
 concrete schemas.** The erased reference path always checks, via
@@ -278,12 +303,18 @@ template path.
 it). A generic source-only adaptor's client port therefore changes observable
 schema — this needs an explicit migration test, not just a compile check.
 
-Capabilities that do not survive
---------------------------------
+Capabilities to lift onto services
+----------------------------------
 
-A full audit of the adaptor surface found three capabilities with **no
-reference-service equivalent**. These are the real cost of the collapse and the
-substance of the review.
+A full audit of the adaptor surface found three capabilities with no
+reference-service equivalent. **The ruling is to lift the first two onto the
+service surface rather than restrict either construct** — the goal is the union
+of both usage models, not the intersection. The collapse then removes a
+duplicate spelling without removing a capability.
+
+This makes the RFC additive first and subtractive second, which is also a better
+migration story: by the time source-only adaptors are removed, everything they
+could do a reference service can do.
 
 **A. Client scalar options.** Adaptor clients may pass wiring-time scalar
 options that reach the registered implementation, with cross-client agreement
@@ -299,8 +330,17 @@ enforced (``python/hgraph/_wiring/_services.py:52-88``,
 
 ``_ServiceStub.__call__`` (``:493-551``) never records config. For a
 **source-only** interface this matters most: the client's entire call is a path
-plus scalars, so this is its *only* parameterisation channel. Migrating removes
-it unless reference-service clients gain the same mechanism.
+plus scalars, so this is its *only* parameterisation channel.
+
+*Lift.* The mechanism is **already flavour-generic**: the config key is
+``(identity, stub.flavour, stub.__name__, stub._specialization, path)``
+(``:78-81``) and the consumer ``_bind_registered_impl`` (``:1380-1401``) reads it
+through ``_adaptor_client_config(matched_stub, path)`` with no adaptor-specific
+logic. What is adaptor-specific is only the *call site* — it is reached solely
+from ``_AdaptorClientStub._prepare_client_request`` (``:649``). Recording config
+from ``_ServiceStub.__call__`` extends it to every service flavour. The
+"clients disagree on wiring-time option(s)" diagnostic already interpolates
+``stub.flavour``, so it reads correctly for services unchanged.
 
 **B. Time-series registration configuration.** ``manual_adaptor``
 (``_services.py:1177``) lets ``register_adaptor(...)`` take TS-valued kwargs and
@@ -310,6 +350,19 @@ wire them as implementation inputs (``_adaptor_registration_inputs``
 ``inputs`` parameter at all — only the adaptor family and
 ``register_multi_service_impl`` do. In-tree users:
 ``python/tests/test_hgraph_api.py:1269-1280`` and ``:1288-1297``.
+
+*Lift.* Three edits, each mirroring an existing adaptor equivalent:
+``register_service_impl`` gains an ``inputs`` parameter matching
+``register_adaptor_impl`` (``py_state_services.cpp:464-476``);
+``_register_resolved_service`` (``_services.py:1785-1806``) forwards it as
+``_register_resolved_adaptor`` does (``:1068-1072``); and
+``_adaptor_registration_inputs`` (``:1075-1090``) is generalised so a service
+implementation may declare time-series parameters supplied at registration. The
+helper is already generic apart from its ``implementation.manual_adaptor`` gate
+— for services the gate becomes "the implementation declares time-series
+parameters that the interface does not supply". On the C++ template surface,
+``register_reference_service`` already threads ``Args...`` through to the
+implementation; today those are scalars only, and the same pack carries ports.
 
 **C. Catch-all implementations.** ``register_unbound_adaptor_impl``
 (``src/hgraph/types/service_runtime.cpp:1032-1090``) is the sole caller of
@@ -329,10 +382,63 @@ survives. But it *discovers* clients by splitting the
 what it can see. The migration must confirm no catch-all is expected to serve a
 migrated source-only client.
 
-Options for A and B: extend the reference-service surface with both (largest
-scope, best end state), or accept that a source-only interface needing them
-stays an adaptor by declaring a nominal input (defeats the purpose). This is the
-second open decision.
+D. The ``from_graph`` / ``to_graph`` usage model for services
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The adaptor's explicit publish/consume model is the other half of the ruling:
+services should offer it too. This turns out to be **almost entirely a naming
+and registration problem, not a mechanism problem**, because the service
+equivalent already exists.
+
+``service::impl_output<Service>`` (``service_wiring.h:1108-1122``) and
+``adaptor::to_graph<Interface>`` (``adaptor_wiring.h:596-612``) are the same
+function:
+
+.. code-block:: text
+
+   // service::impl_output                        // adaptor::to_graph
+   endpoint = reference_output_path<Service>(p);  // adaptor_to_graph_path<Interface>(p)
+   merge_resolution(p.resolution,
+       w.service_implementation_stub_resolution(endpoint));        // identical
+   w.register_service_implementation_stub(
+       endpoint, "reference service");            // …, "adaptor"
+   auto shared = reference_shared_output_source   // output_source
+       <Service>(w, p);                           //   <Interface>(w, p)
+   auto capture = capture_reference_service_      // capture_output
+       output<Service, …>(w, out, shared, p);     //   <Interface>(w, out, shared, p)
+   w.register_service_rank_anchor(
+       reference_base_path<Service>(p), capture); // adaptor_to_graph_path<…>(p), capture
+
+Likewise ``service::impl_input`` (``:1064-1102``) is the ``from_graph``
+equivalent for the subscription and request/reply flavours. A reference service
+has no input by construction, so it correctly has no ``from_graph``.
+
+So the gap is narrower than "services lack from_graph/to_graph". It is:
+
+1. **Naming and discoverability.** ``impl_input`` / ``impl_output`` are the same
+   verbs under names that do not suggest the adaptor model. Propose
+   ``service::from_graph`` / ``service::to_graph`` as the primary spelling, with
+   the existing names retained as aliases so nothing breaks.
+2. **A lazy single-interface registration that permits by-stub publishing.**
+   ``impl_output`` is only reachable through ``register_services``, which wires
+   **eagerly** (``service_wiring.h:1178-1208``, calling
+   ``wire_service_graph_with_scope`` directly). ``register_reference_service`` is
+   lazy but by-return only. The adaptor surface has both
+   (``register_adaptor`` = lazy + by-stub; ``register_automatic_adaptor`` =
+   lazy + by-return). Services need the missing quadrant: a lazy,
+   single-interface, by-stub registration.
+
+This also resolves difference 1 far better than the original draft. Instead of
+forcing every migrated implementation to by-return, **services support both
+publish styles**, and a manual source-only adaptor migrates by changing
+``adaptor::to_graph<Iface>`` to ``service::to_graph<Service>`` — a rename, not a
+body rewrite.
+
+It resolves the review's P1 objection too. With both styles supported, each gets
+the enforcement that fits it: a by-stub implementation is checked by the
+required-endpoint scope (which it does satisfy, because it registers stubs), and
+a by-return implementation is checked by returned-port validation. The
+mismatch that made the original proposal unimplementable disappears.
 
 A point in the other direction
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -582,7 +688,7 @@ Fold reference services onto the adaptor machinery instead
    Rejected, but less one-sidedly than first drafted. Adaptors generalise to
    duplex and sink-only, and they own two capabilities reference services lack
    entirely (catch-all registration and client scalar options — see
-   "Capabilities that do not survive"). ``default_fallback`` is symmetric, not a
+   "Capabilities to lift onto services"). ``default_fallback`` is symmetric, not a
    reference-service advantage. The case for the reference service as primitive
    rests on it being the narrower, older notion — "a value published by one
    producer" — and on its stricter checking; a source-only adaptor is a
@@ -601,16 +707,29 @@ Internal de-duplication only, both public surfaces retained
 Unresolved questions
 --------------------
 
-* **The multi-interface case is the first open decision.** Recommendation:
-  accept the loss and document the replacement pairing.
-* **Client scalar options and TS registration configuration (A and B above) are
-  the second.** Extending the reference-service surface with both is the better
-  end state but materially enlarges this RFC; the alternative is to accept that
-  an interface needing them is not a candidate for migration.
+**Decided (Howard, 2026-08-02):** client scalar options and time-series
+registration configuration are **lifted onto the service surface**, not traded
+away — "the best of both worlds, not a restriction of one to enforce the other".
+The ``from_graph`` / ``to_graph`` usage model is lifted with them. Recorded as
+capabilities A, B and D above.
+
+Still open:
+
+* **The multi-interface case.** With services gaining ``to_graph`` and a lazy
+  by-stub registration, the documented sink-in/source-out example becomes
+  expressible again *if* one implementation may span an adaptor and a service.
+  The erased ``register_multi_service_impl`` already spans flavours
+  (``service_runtime.cpp:762-788``); only the template surface is statically
+  disjoint (``register_adaptors`` requires ``adaptor_interface``,
+  ``register_services`` requires ``service_interface``). Relaxing that to a
+  mixed-flavour group would preserve the example and the registration
+  atomicity. Recommendation revised: **relax the template constraint** rather
+  than accept the loss, since it follows the same lift-don't-restrict principle.
+  It does enlarge the RFC.
 * Should ``@service_impl(interfaces=())`` gain catch-all support, so the
   capability is not adaptor-exclusive? Not required by this RFC — catch-all
   survives with the adaptor family — but it is the remaining asymmetry once
-  source-only is gone.
+  source-only is gone, and the same principle would say yes.
 * Should the deprecation stage warn at wiring time (every graph build) or once
   per interface at decoration/registration? Once per interface is quieter but
   easier to miss.
@@ -627,6 +746,32 @@ Unresolved questions
 
 Acceptance criteria and test plan
 ---------------------------------
+
+Stage 1 — lift (additive; no existing behaviour changes)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* Service clients accept wiring-time scalar options that reach the registered
+  implementation, for **all three** service flavours, with the same
+  cross-client agreement diagnostic adaptor clients get today. A test asserts
+  two clients disagreeing on one option fails with the flavour named correctly.
+* ``register_service`` accepts time-series registration configuration and wires
+  it as implementation inputs, matching ``register_adaptor``. The bridge's
+  ``register_service_impl`` gains the ``inputs`` parameter.
+* ``service::from_graph`` / ``service::to_graph`` exist as the primary spelling,
+  with ``impl_input`` / ``impl_output`` retained as aliases; existing callers
+  keep compiling unchanged.
+* A **lazy, single-interface, by-stub** service registration exists — the
+  missing quadrant against ``register_adaptor`` / ``register_automatic_adaptor``
+  — and an implementation registered that way is checked by the
+  required-endpoint scope, failing with the existing "did not wire required
+  stub" diagnostic when it publishes nothing.
+* A by-return implementation continues to be checked by returned-port
+  validation. Both publish styles are covered for the same service.
+* Every existing service and adaptor test still passes with no edits: stage 1
+  removes nothing.
+
+Stage 2 — collapse (breaking)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 * ``adaptor::detail::adaptor_interface`` requires an input schema; a source-only
   interface fails to satisfy it with a diagnostic naming ``reference_service``.
