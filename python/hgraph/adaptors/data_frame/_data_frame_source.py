@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
+from functools import cached_property
 from typing import Iterator, TypeVar
 
 import pyarrow as pa
@@ -173,12 +174,13 @@ class SqlDataFrameSource(DataFrameSource):
     def connection(self):
         return DataConnectionStore.instance().get_connection(self._connection)
 
-    def _execute(self):
+    def _execute(self, query: str = None):
+        query = self._query if query is None else query
         execute = self.connection.execute
         try:
-            return execute(self._query, **self._kwargs)
+            return execute(query, **self._kwargs)
         except TypeError:
-            return execute(self._query)
+            return execute(query)
 
     @staticmethod
     def _result_table(result) -> pa.Table:
@@ -198,6 +200,10 @@ class SqlDataFrameSource(DataFrameSource):
         if self._frame is None:
             self._frame = self._result_table(self._execute())
         return self._frame
+
+    @cached_property
+    def schema(self) -> pa.Schema:
+        return self._result_table(self._execute(self._query + " LIMIT 1")).schema
 
     def iter_frames(
         self, start_time: datetime = None, end_time: datetime = None

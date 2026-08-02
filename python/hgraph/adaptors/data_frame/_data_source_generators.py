@@ -96,8 +96,6 @@ def _stream_batches(
         pending = None
         for value in source.iter_frames(_api.start_time, _api.end_time):
             frame = _normalise_dt(_as_arrow_table(value), dt_col)
-            if transform is not None:
-                frame = transform(frame)
             if frame.num_rows == 0:
                 continue
 
@@ -113,17 +111,19 @@ def _stream_batches(
                         (pending, frame), promote_options="default"
                     )
                     continue
-                when = pending.column(dt_col)[0].as_py() + offset
+                ready = transform(pending) if transform is not None else pending
+                when = ready.column(dt_col)[0].as_py() + offset
                 if when < _api.start_time:
                     when = _api.start_time
-                yield when, pending
+                yield when, ready
             pending = frame
 
         if pending is not None:
-            when = pending.column(dt_col)[0].as_py() + offset
+            ready = transform(pending) if transform is not None else pending
+            when = ready.column(dt_col)[0].as_py() + offset
             if when < _api.start_time:
                 when = _api.start_time
-            yield when, pending
+            yield when, ready
 
     return batches()
 

@@ -219,6 +219,50 @@ def test_batched_source_is_consumed_once_and_preserves_boundary_groups():
     ]
 
 
+def test_batched_matrix_coalesces_boundary_rows_before_packing():
+    schema = pa.schema(
+        (("dt", pa.timestamp("us")), ("x", pa.int64()), ("y", pa.int64()))
+    )
+
+    class _BatchedMatrix(ArrowDataFrameSource):
+        def __init__(self):
+            pass
+
+        @property
+        def schema(self):
+            return schema
+
+        def data_frame(self, start_time=None, end_time=None):
+            raise AssertionError("the batched path must not materialize data_frame()")
+
+        def iter_frames(self, start_time=None, end_time=None):
+            yield pa.table(
+                {
+                    "dt": [MIN_ST, MIN_ST + MIN_TD],
+                    "x": [1, 2],
+                    "y": [10, 20],
+                },
+                schema=schema,
+            )
+            yield pa.table(
+                {
+                    "dt": [MIN_ST + MIN_TD, MIN_ST + 2 * MIN_TD],
+                    "x": [3, 4],
+                    "y": [30, 40],
+                },
+                schema=schema,
+            )
+
+    with DataStore():
+        values = eval_node(ts_of_matrix_from_data_source, _BatchedMatrix, "dt")
+
+    assert [value.tolist() for value in values] == [
+        [[1, 10]],
+        [[2, 20], [3, 30]],
+        [[4, 40]],
+    ]
+
+
 class _Pivot(ArrowDataFrameSource):
     def __init__(self):
         super().__init__(
@@ -288,3 +332,60 @@ def test_sql_source_accepts_a_dbapi_result_without_importing_a_database_driver()
         assert source.data_frame().to_pylist() == [
             {"date": date(2026, 1, 1), "value": 1}
         ]
+
+
+def test_sql_source_schema_probe_preserves_batched_streaming():
+    rows = [
+        (date(2026, 1, 1), 1),
+        (date(2026, 1, 2), 2),
+        (date(2026, 1, 3), 3),
+    ]
+
+    class _Result:
+        description = (("date",), ("value",))
+
+        def __init__(self, values):
+            self._values = values
+            self._index = 0
+            self.fetchall_calls = 0
+            self.fetchmany_calls = 0
+
+        def fetchall(self):
+            self.fetchall_calls += 1
+            return self._values
+
+        def fetchmany(self, size):
+            self.fetchmany_calls += 1
+            batch = self._values[self._index : self._index + size]
+            self._index += len(batch)
+            return batch
+
+    class _Connection:
+        def __init__(self):
+            self.queries = []
+            self.results = []
+
+        def execute(self, query):
+            self.queries.append(query)
+            result = _Result(rows[:1] if query.endswith(" LIMIT 1") else rows)
+            self.results.append(result)
+            return result
+
+    connection = _Connection()
+    query = "select date, value from data"
+    with DataConnectionStore() as connections:
+        connections.set_connection("test", connection)
+        source = SqlDataFrameSource(query, "test", batch_size=2)
+
+        assert source.schema.names == ["date", "value"]
+        assert source.schema.names == ["date", "value"]
+        frames = list(source.iter_frames())
+
+    assert connection.queries == [query + " LIMIT 1", query]
+    assert connection.results[0].fetchall_calls == 1
+    assert connection.results[1].fetchall_calls == 0
+    assert connection.results[1].fetchmany_calls == 3
+    assert source._frame is None
+    assert [row for frame in frames for row in frame.to_pylist()] == [
+        {"date": when, "value": value} for when, value in rows
+    ]
