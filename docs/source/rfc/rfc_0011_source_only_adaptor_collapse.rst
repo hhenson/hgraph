@@ -332,15 +332,24 @@ enforced (``python/hgraph/_wiring/_services.py:52-88``,
 **source-only** interface this matters most: the client's entire call is a path
 plus scalars, so this is its *only* parameterisation channel.
 
-*Lift.* The mechanism is **already flavour-generic**: the config key is
+*Lift.* The mechanism is **already flavour-generic, has no C++ component, and
+is half-done**. The config key is
 ``(identity, stub.flavour, stub.__name__, stub._specialization, path)``
-(``:78-81``) and the consumer ``_bind_registered_impl`` (``:1380-1401``) reads it
+(``:78-81``); the consumer ``_bind_registered_impl`` (``:1380-1401``) reads it
 through ``_adaptor_client_config(matched_stub, path)`` with no adaptor-specific
-logic. What is adaptor-specific is only the *call site* — it is reached solely
-from ``_AdaptorClientStub._prepare_client_request`` (``:649``). Recording config
-from ``_ServiceStub.__call__`` extends it to every service flavour. The
-"clients disagree on wiring-time option(s)" diagnostic already interpolates
-``stub.flavour``, so it reads correctly for services unchanged.
+logic; and the store is a plain Python dict — ``_ADAPTOR_CLIENT_CONFIGS`` has no
+occurrence anywhere in ``src/``, ``include/`` or ``python/*.cpp``. The
+implementation-consumption half already works for services:
+``register_service(path, impl, **kwargs)`` (``:1809``) forwards scalar config
+today.
+
+What is adaptor-specific is only the client *call site* — the recorder is
+reached solely from ``_AdaptorClientStub._prepare_client_request`` (``:649``).
+``_ServiceStub._bind_call`` (``:477-491``) already builds the ``bound``
+signature object and discards all but path and requests, so recording from
+``_ServiceStub.__call__`` is a small change. The "clients disagree on
+wiring-time option(s)" diagnostic already interpolates ``stub.flavour`` and
+reads correctly for services unchanged.
 
 **B. Time-series registration configuration.** ``manual_adaptor``
 (``_services.py:1177``) lets ``register_adaptor(...)`` take TS-valued kwargs and
@@ -817,11 +826,171 @@ Stage 2 — collapse (breaking)
   adaptor section states that adaptors are duplex or sink-only and points the
   source-only case at reference services.
 
+Implementation plan
+-------------------
+
+Nine PR-sized steps. Steps 1-6 are stage 1 (additive, each independently
+mergeable and independently useful); steps 7-9 are stage 2 (breaking). Planning
+the work sharpened three estimates in this RFC — recorded inline below and
+summarised under "What planning changed".
+
+**The unifying insight for the C++/erased work:** ``materialize_adaptor_impl``
+(``service_runtime.cpp:956-1002``) is already the shape services need. It
+carries an ``AdaptorImplMode`` (``service_runtime.h:131-135``) whose
+``Automatic`` arm publishes by return and whose ``Manual`` arm publishes by
+stub, an ``implementation_inputs`` span, a required-endpoint scope, and arity
+validation for both modes. ``register_reference_service_impl`` is that same
+function with mode fixed to ``Automatic``, no inputs, and no scope. Most of
+stage 1 is generalising one materializer rather than writing new machinery.
+
+Step 1 — service client scalar options (Python only)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Smaller than the RFC first implied: the mechanism has **no C++ component at
+all** (``_ADAPTOR_CLIENT_CONFIGS`` is a Python dict; grepping ``src/``,
+``include/`` and ``python/*.cpp`` for it returns nothing), and the
+implementation-consumption half already works for services —
+``register_service(path, impl, **kwargs)`` (``_services.py:1809``) already
+forwards scalar config, and ``_bind_registered_impl`` (``:1380-1401``) already
+merges it with client config generically.
+
+So the whole step is the **client-recording half**:
+
+* ``_ServiceStub._bind_call`` (``:477-491``) already builds the ``bound``
+  signature object and then discards everything except path and requests —
+  return it, or record inside it.
+* Call the existing ``_record_adaptor_client_config(stub, path, bound)`` from
+  ``_ServiceStub.__call__``. No changes to the helper: its key already includes
+  ``stub.flavour`` and its diagnostic already interpolates it.
+* Rename ``_record_adaptor_client_config`` / ``_adaptor_client_config`` /
+  ``_ADAPTOR_CLIENT_CONFIGS`` to flavour-neutral names.
+
+Tests: a reference, a subscription and a request/reply service each taking a
+scalar option; two clients agreeing; two clients disagreeing (expect the
+existing diagnostic with the right flavour name); client option conflicting
+with a registration option (expect the existing ``_bind_registered_impl``
+error).
+
+Step 2 — time-series registration configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Cross-language, mirroring the adaptor path at every layer:
+
+* C++ erased: add ``std::span<const WiringPortRef> implementation_inputs`` to
+  ``register_reference_service_impl`` / ``register_subscription_service_impl`` /
+  ``register_request_reply_service_impl``, defaulted empty, threaded into
+  ``wire_impl`` exactly as ``materialize_adaptor_impl`` does, with the same
+  arity check against ``WiredFn::arity``.
+* Bridge: ``register_service_impl`` (``py_state_services.cpp:349-371``) gains
+  ``inputs``, matching ``register_adaptor_impl`` (``:464-476``).
+* Python: generalise ``_adaptor_registration_inputs`` (``:1075-1090``) past its
+  ``manual_adaptor`` gate — for services the gate is "the implementation
+  declares time-series parameters the interface does not supply" — and forward
+  from ``_register_resolved_service`` (``:1785-1806``).
+
+Tests: a service implementation taking a wired TS input at registration;
+arity mismatch rejected; the existing adaptor cases unchanged.
+
+Step 3 — ``service::from_graph`` / ``service::to_graph``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Pure naming. ``service::to_graph<Service>`` is ``impl_output`` and
+``service::from_graph<Service>`` is ``impl_input``; add the new names as the
+primary spelling and keep the old ones as aliases. Python gains the same
+spelling over ``impl_output`` / ``set_service_output``. No behaviour changes,
+so the existing service tests are the regression suite.
+
+Step 4 — the missing registration quadrant
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Add a **lazy, single-interface, by-stub** service registration — the
+``register_adaptor`` analogue. Concretely, give the service materializers the
+``Manual``/``Automatic`` mode that adaptors already have, and open a
+required-endpoint scope in the ``Manual`` arm so a non-publishing
+implementation fails with the existing "did not wire required stub"
+diagnostic.
+
+Generalise ``AdaptorImplMode`` to a flavour-neutral ``ServiceImplMode`` (or
+equivalent) rather than adding a second enum.
+
+*Open naming decision:* the C++ template spelling. Adaptors use
+``register_adaptor`` (by-stub) versus ``register_automatic_adaptor``
+(by-return), but ``service::register_reference_service`` is already the
+by-return one, so the names cannot be mirrored directly. Options: a mode
+argument on the existing verb, or a new verb. Flagged rather than assumed.
+
+Step 5 — close the generic output-schema hole
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Difference 3. In the non-concrete branch of ``wire_service_impl``
+(``service_wiring.h:403-429``), compare the implementation's resolved meta
+against ``resolved_schema_meta<OutputSchema>`` before returning. Independent of
+the collapse and worth landing on its own: it is a real hole in the current
+reference-service surface, not only a migration prerequisite.
+
+Test: a generic reference service whose implementation returns the wrong
+resolved type is rejected. This test must fail before the change.
+
+Step 6 — deduplicate the shared helpers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Mechanical, no behaviour change: one ``ServicePath``/``AdaptorPath``, one
+``bind_schema_resolution`` / ``resolved_schema_meta`` / ``is_path_scalar`` /
+``implementation_accepts_path`` / ``path_key_value``. Drop the unused ``Impl``
+parameter on ``capture_reference_service_output``. Best done after steps 1-5 so
+it rebases over settled code.
+
+Step 7 — deprecate source-only adaptors
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Warn from the source-only ``@adaptor`` and ``adaptor::interface`` paths, naming
+``@reference_service`` / ``register_reference_service``. Both spellings still
+work. Migrate the five in-tree declarations to services in the same change, so
+the tree is warning-free and the migration is demonstrated.
+
+Step 8 — mixed-flavour multi-interface groups
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Relax ``register_services`` / ``register_adaptors`` so one implementation may
+span an adaptor and a service, preserving the documented sink-in/source-out
+example. The erased ``register_multi_service_impl`` already spans flavours
+(``service_runtime.cpp:762-788``); only the template ``static_assert`` s are
+disjoint. **Gated on the open decision** — if that is declined, this step is
+replaced by documenting the two-registration replacement.
+
+Step 9 — remove source-only adaptors
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Narrow ``adaptor_interface`` to require an input; reject ``Adaptor`` with a null
+``input_schema`` at ``intern_service_descriptor`` and at the bridge
+(``py_state_services.cpp:304-308``); delete the source-only overloads; update
+``services.rst`` and ``authoring_graphs_cpp.rst``. Add the disjointness
+regression test — one translation unit including both headers — and drop the
+duplex workaround in ``tests/cpp/test_service_push_sources.cpp``.
+
+What planning changed
+~~~~~~~~~~~~~~~~~~~~~
+
+Three estimates in this RFC were revised while planning, all downward:
+
+* **Capability A is Python-only and half-done.** It has no C++ component, and
+  implementation-side scalar config already works for services. Only client
+  recording is missing.
+* **The "missing quadrant" already exists in another guise.**
+  ``AdaptorImplMode::Manual`` versus ``Automatic`` is exactly the by-stub versus
+  by-return distinction services need; step 4 generalises an enum and a
+  materializer rather than designing a mechanism.
+* **Step 5 is independent.** Closing the generic output-schema hole stands on
+  its own merits and need not wait for, or be justified by, the collapse.
+
+The overall shape holds: the lift is smaller than "materially larger RFC"
+suggested, and most of it is generalising code that already exists.
+
 Implementation status
 ---------------------
 
 Not started. This RFC is the first commit on its branch, per
-:doc:`rfc_0000` workflow step 1.
+:doc:`rfc_0000` workflow step 1; the plan above is the proposed sequencing.
 
 References
 ----------
