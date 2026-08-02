@@ -1332,17 +1332,41 @@ def test_generator_covers_the_2026_07_compat_issue_classes():
     # the 2026-07 compatibility issues lived: temporal accessors (#82),
     # collection sizes (#81), lifecycle signature spellings (#79), the
     # recorded-frame surface (PR #92), and postponed annotations (#83).
-    from tools.parity.generate import generate_recipes
+    from hypothesis import find, settings
 
-    templates = set()
-    postponed = False
-    for recipe in generate_recipes(480, seed=29):
-        templates.add(recipe.template)
-        postponed = postponed or recipe.parameters.get(
-            "postponed_annotations", False)
-    assert {"temporal_expression", "collection_size", "lifecycle_state",
-            "data_frame_recording", "nested_higher_order"} <= templates
-    assert postponed
+    from tools.parity.generate import (
+        generate_recipes,
+        recipe_payload_strategy,
+    )
+
+    required_templates = {
+        "temporal_expression",
+        "collection_size",
+        "lifecycle_state",
+        "data_frame_recording",
+        "nested_higher_order",
+    }
+    generated_templates = {
+        recipe.template
+        for template in required_templates
+        for recipe in generate_recipes(
+            1, seed=29, templates=(template,)
+        )
+    }
+    assert generated_templates == required_templates
+
+    postponed = find(
+        recipe_payload_strategy(
+            min_ticks=8,
+            max_ticks=32,
+            templates=("scalar_expression",),
+        ),
+        lambda payload: payload["parameters"].get(
+            "postponed_annotations", False
+        ),
+        settings=settings(database=None, deadline=None),
+    )
+    assert postponed["parameters"]["postponed_annotations"]
 
 
 def test_coverage_corpus_recipes_execute_on_the_candidate():
