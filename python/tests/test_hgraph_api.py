@@ -1457,6 +1457,167 @@ def test_service_adaptor_explicit_request_id_client_split():
     check(out == [None, 1, None, 2], f"split service adaptor client: {out}")
 
 
+def test_sink_only_service_adaptor_from_python():
+    published = []
+    key_snapshot = {}
+    value_snapshot = {}
+
+    @hg.service_adaptor
+    def publish(key: TS[str], value: TS[int]) -> None: ...
+
+    @hg.sink_node
+    def capture(
+        keys: TSD[int, TS[str]], values: TSD[int, TS[int]]
+    ):
+        if keys.modified or values.modified:
+            key_snapshot.update(
+                (request_id, value.value)
+                for request_id, value in keys.modified_items())
+            value_snapshot.update(
+                (request_id, value.value)
+                for request_id, value in values.modified_items())
+            for request_id in value_snapshot:
+                key_snapshot[request_id] = keys[request_id].value
+            published.append((dict(key_snapshot), dict(value_snapshot)))
+
+    @hg.service_adaptor_impl(interfaces=publish)
+    def publish_impl(
+        key: TSD[int, TS[str]], value: TSD[int, TS[int]]
+    ) -> None:
+        capture(key, value)
+
+    @graph
+    def two_publishers(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        hg.register_adaptor("publish", publish_impl)
+        publish(hg.const("lhs", tp=TS[str]), lhs, path="publish")
+        publish(hg.const("rhs", tp=TS[str]), rhs, path="publish")
+        return lhs + rhs
+
+    out = eval_node(two_publishers, [1, 2], [10, 20])
+    check(out == [11, 22], f"sink service adaptor passthrough: {out}")
+    check(len(published) == 2, f"sink service adaptor cycles: {published}")
+    check(all(set(keys.values()) == {"lhs", "rhs"}
+              for keys, _ in published),
+          f"sink service adaptor static keys: {published}")
+    check([sorted(values.values()) for _, values in published]
+          == [[1, 10], [2, 20]],
+          f"sink service adaptor values: {published}")
+
+
+def test_adaptor_client_scalar_options_reach_the_registered_implementation():
+    observed = []
+
+    @hg.adaptor
+    def configured_publish(
+        value: TS[int], multiplier: int, label: str = "value",
+    ) -> None: ...
+
+    @hg.sink_node
+    def capture_configured(value: TS[int], multiplier: int, label: str):
+        observed.append((label, value.value * multiplier))
+
+    @hg.adaptor_impl(interfaces=configured_publish)
+    def configured_publish_impl(
+        value: TS[int], multiplier: int, label: str = "value",
+    ) -> None:
+        capture_configured(value, multiplier, label)
+
+    @graph
+    def app(value: TS[int]) -> TS[int]:
+        hg.register_adaptor("configured-publish", configured_publish_impl)
+        configured_publish(
+            value, multiplier=10, label="scaled",
+            path="configured-publish",
+        )
+        return value
+
+    check(eval_node(app, [2, 3]) == [2, 3], "configured adaptor passthrough")
+    check(observed == [("scaled", 20), ("scaled", 30)],
+          f"configured adaptor options: {observed}")
+
+    observed.clear()
+
+    @graph
+    def default_path(value: TS[int]) -> TS[int]:
+        hg.register_adaptor(None, configured_publish_impl)
+        configured_publish(value, multiplier=5, label="default")
+        return value
+
+    check(eval_node(default_path, [2, 3]) == [2, 3],
+          "default-path configured adaptor passthrough")
+    check(observed == [("default", 10), ("default", 15)],
+          f"default-path configured adaptor options: {observed}")
+
+    @graph
+    def conflicting(value: TS[int]) -> TS[int]:
+        hg.register_adaptor("conflicting-publish", configured_publish_impl)
+        configured_publish(value, multiplier=2, path="conflicting-publish")
+        configured_publish(value, multiplier=3, path="conflicting-publish")
+        return value
+
+    try:
+        eval_node(conflicting, [1])
+        check(False, "expected conflicting client options")
+    except hg.WiringError as error:
+        check("disagree" in str(error), f"unexpected scalar option error: {error}")
+
+
+def test_adaptor_client_config_follows_cxx_first_wiring_lifetime():
+    # C++-first wiring enters Python through a borrowed wrapper without an
+    # owning Python Wiring at the bottom of the stack. The scalar config must
+    # survive that wrapper and be released with the underlying C++ Wiring.
+    import _hgraph
+    import gc
+    from hgraph._wiring import _wiring_stack
+    from hgraph._wiring._services import _ADAPTOR_CLIENT_CONFIGS
+
+    built_config = []
+
+    @hg.service_adaptor
+    def configured_service(
+        value: TS[int], multiplier: int, label: str = "value",
+    ) -> TS[int]: ...
+
+    @hg.service_adaptor_impl(interfaces=configured_service)
+    def configured_service_impl(
+        value: TSD[int, TS[int]], multiplier: int, label: str = "value",
+    ) -> TSD[int, TS[int]]:
+        built_config.append((multiplier, label))
+        return value
+
+    @hg.operator
+    def cxx_first_client(value: TS[int]) -> TS[int]: ...
+
+    @hg.graph(overloads=cxx_first_client)
+    def cxx_first_client_impl(value: TS[int]) -> TS[int]:
+        return configured_service(
+            value, multiplier=6, label="cxx", path="cxx-first-configured")
+
+    wiring = _hgraph.Wiring()
+    _wiring_stack.append(wiring)
+    try:
+        hg.register_adaptor("cxx-first-configured", configured_service_impl)
+    finally:
+        _wiring_stack.pop()
+    source = wiring.wire("nothing", output_type=TS[int].handle)
+    client = wiring.wire(cxx_first_client._registry_name, (source,), {})
+    wiring_identity = wiring.identity()
+    check(isinstance(wiring_identity, int) and wiring_identity > 0,
+          f"invalid public Wiring identity: {wiring_identity!r}")
+    check(wiring.identity() == wiring_identity,
+          "public Wiring identity changed during its lifetime")
+    check(any(key[0] == wiring_identity for key in _ADAPTOR_CLIENT_CONFIGS),
+          "C++-first adaptor config was not retained")
+    wiring.build_services()
+    check(built_config == [(6, "cxx")],
+          f"C++-first adaptor config: {built_config}")
+
+    del client, source, wiring
+    gc.collect()
+    check(not any(key[0] == wiring_identity for key in _ADAPTOR_CLIENT_CONFIGS),
+          "C++-first adaptor config outlived its Wiring")
+
+
 def test_generic_adaptor_specializations_from_python():
     from typing import TypeVar
 

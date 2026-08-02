@@ -309,13 +309,13 @@ namespace hgraph::python_bridge
               }
               else if (flavour == "service_adaptor")
               {
-                  if (!request.has_value() || !output.has_value())
+                  if (!request.has_value())
                   {
-                      throw nb::value_error("service adaptor requires request and output schemas");
+                      throw nb::value_error("service adaptor requires a request schema");
                   }
                   descriptor.flavour      = ServiceFlavour::ServiceAdaptor;
                   descriptor.input_schema = request->meta;
-                  descriptor.output_schema = output->meta;
+                  descriptor.output_schema = output.has_value() ? output->meta : nullptr;
               }
               else { throw nb::value_error("unknown service flavour"); }
               return PyServiceDesc{&intern_service_descriptor(std::move(descriptor))};
@@ -482,8 +482,10 @@ namespace hgraph::python_bridge
           },
           nb::arg("w"), nb::arg("impl"), nb::arg("inputs") = nb::list());
     m.def("service_adaptor_client", [](PyWiring &w, const PyServiceDesc &desc,
-                                        const std::string &path, const PyPort &in) {
-        return PyPort{service_adaptor_client(w.wiring_ref(), *desc.descriptor, path, in.ref)};
+                                        const std::string &path, const PyPort &in) -> nb::object {
+        WiringPortRef out = service_adaptor_client(
+            w.wiring_ref(), *desc.descriptor, path, in.ref);
+        return out.schema != nullptr ? nb::cast(PyPort{std::move(out)}) : nb::none();
     }, nb::arg("w"), nb::arg("desc"), nb::arg("path") = std::string{}, nb::arg("in"));
     m.def("service_adaptor_client_from_graph", [](PyWiring &w, const PyServiceDesc &desc,
                                                     const std::string &path, const PyPort &in,

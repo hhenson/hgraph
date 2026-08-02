@@ -788,6 +788,20 @@ namespace hgraph
         Wiring(Wiring &&) noexcept;
         Wiring &operator=(Wiring &&) noexcept;
 
+        /** Process-unique identity for associating wiring-lifetime adapter
+            state across owned and borrowed language wrappers. */
+        [[nodiscard]] std::uint64_t identity() const noexcept;
+
+        /**
+         * Retain extension-owned state until this Wiring is destroyed.
+         *
+         * Language bridges use this for wiring-time state recorded through a
+         * borrowed wrapper: the wrapper may be ephemeral, while the state is
+         * still needed by a later build_services()/finish() call on the
+         * underlying Wiring. The runtime does not inspect the retained value.
+         */
+        void retain_extension_state(std::shared_ptr<void> state);
+
         /**
          * Intern a node with its input edges + scalar configuration and return its
          * output port. ``def`` is the node *definition's* stable identity

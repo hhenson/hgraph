@@ -690,6 +690,126 @@ namespace hgraph
         throw std::logic_error("capture_delta requires a canonical input type record");
     }
 
+    Value capture_current_delta(const TSInputView &in)
+    {
+        const auto &schema = require_schema(in.schema(), "capture_current_delta");
+        if (!in.valid())
+        {
+            throw std::invalid_argument("capture_current_delta requires a valid input");
+        }
+
+        switch (schema.kind)
+        {
+            case TSTypeKind::TS: return Value{in.value()};
+            case TSTypeKind::SIGNAL: return Value{true};
+            case TSTypeKind::TSS:
+            {
+                const ValueTypeRef element = binding_for(
+                    schema.value_schema->element_type, "capture_current_delta");
+                SetBuilder added{element};
+                const auto set = in.as_set();
+                for (const auto &value : set.values())
+                {
+                    static_cast<void>(added.insert_copy(value.data()));
+                }
+                SetBuilder removed{element};
+                BundleBuilder bundle{
+                    binding_for(schema.delta_value_schema, "capture_current_delta")};
+                bundle.set("added", added.build());
+                bundle.set("removed", removed.build());
+                return bundle.build();
+            }
+            case TSTypeKind::TSD:
+            {
+                const auto &data = in.data_view();
+                const auto data_dict = data.as_dict();
+                const auto &layout = data_dict.layout();
+                const ValueTypeRef key_binding = layout.key_binding;
+                const auto *element_schema = schema.element_ts();
+                const ValueTypeRef canonical_delta_binding = binding_for(
+                    element_schema->delta_value_schema, "capture_current_delta");
+                const ValueTypeRef delta_binding =
+                    element_schema->kind == TSTypeKind::TS
+                        ? layout.element_delta_binding
+                        : canonical_delta_binding;
+
+                SetBuilder removed{key_binding};
+                SetBuilder removed_strict{key_binding};
+                MapBuilder modified{key_binding, delta_binding};
+                const auto dict = in.as_dict();
+                for (const auto &[key, child] : dict.valid_items())
+                {
+                    Value child_delta = capture_current_delta(child);
+                    if (child_delta.binding() == delta_binding)
+                    {
+                        modified.set_item_copy(key.data(), child_delta.view().data());
+                        continue;
+                    }
+                    Value stored_delta{delta_binding};
+                    delta_binding.ops_ref().copy_assign_from(
+                        delta_binding,
+                        const_cast<void *>(stored_delta.view().data()),
+                        child_delta.binding(),
+                        child_delta.view().data());
+                    modified.set_item_copy(key.data(), stored_delta.view().data());
+                }
+
+                Value removed_delta = removed.build();
+                Value modified_delta = modified.build();
+                Value removed_strict_delta = removed_strict.build();
+                const std::array field_bindings{
+                    removed_delta.binding(), modified_delta.binding(),
+                    removed_strict_delta.binding()};
+                const auto bundle_binding = ValuePlanFactory::instance().realized_composite_type_for(
+                    schema.delta_value_schema, field_bindings);
+                BundleBuilder bundle{bundle_binding};
+                bundle.set("removed", std::move(removed_delta));
+                bundle.set("modified", std::move(modified_delta));
+                bundle.set("removed_strict", std::move(removed_strict_delta));
+                return bundle.build();
+            }
+            case TSTypeKind::TSL:
+            {
+                const ValueTypeRef key_binding = binding_for(
+                    schema.delta_value_schema->key_type, "capture_current_delta");
+                const ValueTypeRef delta_binding = binding_for(
+                    schema.delta_value_schema->element_type, "capture_current_delta");
+                MapBuilder builder{key_binding, delta_binding};
+                const auto list = in.as_list();
+                for (const auto &[index, child] : list.valid_items())
+                {
+                    const std::int64_t key = static_cast<std::int64_t>(index);
+                    Value child_delta = capture_current_delta(child);
+                    builder.set_item_copy(std::addressof(key), child_delta.view().data());
+                }
+                return builder.build();
+            }
+            case TSTypeKind::TSB:
+            {
+                const auto type = ts_type_for(&schema, "capture_current_delta");
+                BundleBuilder builder{
+                    binding_for(schema.delta_value_schema, "capture_current_delta")};
+                initialize_tsb_delta_defaults(type, builder);
+                auto bundle = in.as_bundle();
+                for (std::size_t index = 0; index < bundle.size(); ++index)
+                {
+                    auto child = bundle.at(index);
+                    if (child.valid())
+                    {
+                        builder.set(index, capture_current_delta(child));
+                    }
+                }
+                return builder.build();
+            }
+            case TSTypeKind::TSW:
+            case TSTypeKind::REF:
+                if (in.modified()) { return capture_delta(in); }
+                throw std::logic_error(
+                    "capture_current_delta cannot reconstruct an unmodified TSW or REF");
+        }
+        throw std::logic_error("capture_current_delta received an unknown time-series kind");
+    }
+
     void apply_delta(const TSOutputView &out, const ValueView &delta)
     {
         const auto type = out.type_ref();

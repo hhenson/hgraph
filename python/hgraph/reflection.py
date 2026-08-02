@@ -39,6 +39,9 @@ import _hgraph as _m
 
 from ._types import (
     _TSB_SCHEMA_CLASSES,
+    _TS_SCALAR_TYPES,
+    _VALUE_SCALAR_TYPES,
+    _FrameType,
     _TsExpr,
     _is_python_object_class,
     _structured_specialized_field_types,
@@ -64,6 +67,8 @@ __all__ = (
     "is_tss",
     "is_bundle",
     "is_compound_scalar",
+    "is_frame",
+    "frame_schema",
     "operator_overloads",
 )
 
@@ -123,7 +128,7 @@ def _wrap(handle):
 
 
 def _vt_to_py(vt):
-    py = _VT_TO_PY.get(vt)
+    py = _VALUE_SCALAR_TYPES.get(vt, _VT_TO_PY.get(vt))
     if py is None:
         reflected = _m.python_type_for_value(vt)
         if isinstance(reflected, type):
@@ -146,6 +151,9 @@ def scalar_type(t):
     if h.is_tss:
         return _vt_to_py(_m.vt_element(_m.ts_value_vt(h)))
     if h.is_ts:
+        declared = _TS_SCALAR_TYPES.get(h)
+        if declared is not None:
+            return declared
         structured_schema = getattr(t, "_structured_schema", None)
         if structured_schema is not None:
             return structured_schema
@@ -230,8 +238,20 @@ def fields(t):
     if h.is_tsb:
         return {name: _wrap(field) for name, field in _m.ts_field_types(h)}
     cs = getattr(t, "_cs_class", None)
+    if cs is None and h.is_ts:
+        declared = _TS_SCALAR_TYPES.get(h)
+        declared_origin = typing.get_origin(declared) or declared
+        if isinstance(declared_origin, type) and (
+            (dataclasses.is_dataclass(declared_origin)
+             and issubclass(declared_origin, CompoundScalar))
+            or _is_python_object_class(declared_origin)
+        ):
+            cs = declared_origin
+            t = declared
     if cs is not None:
         schema = getattr(t, "_structured_schema", cs)
+        if not hasattr(t, "_structured_schema"):
+            schema = t
         return dict(_structured_specialized_field_types(schema))
     raise TypeError(f"fields expects a TSB or compound-scalar type, got {t!r}")
 
@@ -295,9 +315,39 @@ def is_bundle(t):
 
 def is_compound_scalar(t):
     """``True`` for a compound-scalar class or a ``TS`` over either structured scalar policy."""
-    if isinstance(t, type):
-        return dataclasses.is_dataclass(t) and issubclass(t, CompoundScalar)
-    return _handle(t).is_ts and getattr(t, "_cs_class", None) is not None
+    import typing
+
+    def structured(value):
+        origin = typing.get_origin(value) or value
+        return isinstance(origin, type) and (
+            (dataclasses.is_dataclass(origin) and issubclass(origin, CompoundScalar))
+            or _is_python_object_class(origin)
+        )
+
+    if structured(t):
+        return True
+    try:
+        return is_ts(t) and structured(scalar_type(t))
+    except TypeError:
+        return False
+
+
+def is_frame(t):
+    """``True`` for ``Frame[Row]`` or ``TS[Frame[Row]]``."""
+    if isinstance(t, _FrameType):
+        return True
+    try:
+        return is_ts(t) and isinstance(scalar_type(t), _FrameType)
+    except TypeError:
+        return False
+
+
+def frame_schema(t):
+    """Return the row schema declared by ``Frame[Row]`` or ``TS[Frame[Row]]``."""
+    scalar = scalar_type(t) if not isinstance(t, _FrameType) else t
+    if not isinstance(scalar, _FrameType):
+        raise TypeError(f"frame_schema expects Frame[Row] or TS[Frame[Row]], got {t!r}")
+    return scalar.schema
 
 
 def operator_overloads(operator):

@@ -24,6 +24,10 @@ from ._node import _PyNode, _warn_deprecated
 
 _TS_ANNOTATIONS = (_TsExpr, _GenericTsExpr)
 _SERVICE_ADAPTOR_CLIENT_TOKENS = itertools.count()
+_ADAPTOR_CLIENT_CONFIGS = {}
+_ADAPTOR_CLIENT_CONFIG_CLEANUPS = set()
+
+
 def _is_ts_annotation(annotation):
     return (
         isinstance(annotation, _TS_ANNOTATIONS)
@@ -32,6 +36,77 @@ def _is_ts_annotation(annotation):
             and not _type_var_is_scalar(annotation)
         )
     )
+
+
+def _is_resolution_annotation(annotation):
+    """A ``type[T]`` generic parameter is resolved by wiring, not supplied
+    independently by adaptor clients as scalar configuration."""
+    args = typing.get_args(annotation)
+    return (
+        typing.get_origin(annotation) is type
+        and bool(args)
+        and isinstance(args[0], (_TypeVarSentinel, typing.TypeVar))
+    )
+
+
+def _record_adaptor_client_config(stub, path, bound):
+    """Record the wiring-time scalar options shared by one adaptor path."""
+    config = {
+        parameter.name: bound.arguments[parameter.name]
+        for parameter in stub._signature.parameters.values()
+        if parameter.name != "path"
+        and not _is_ts_annotation(parameter.annotation)
+        and not _is_resolution_annotation(parameter.annotation)
+        and parameter.annotation not in _INJECTABLE_MARKERS
+    }
+    wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
+    identity = wiring.identity()
+    if identity not in _ADAPTOR_CLIENT_CONFIG_CLEANUPS:
+        def clear_configs():
+            for existing in tuple(_ADAPTOR_CLIENT_CONFIGS):
+                if existing[0] == identity:
+                    del _ADAPTOR_CLIENT_CONFIGS[existing]
+            _ADAPTOR_CLIENT_CONFIG_CLEANUPS.discard(identity)
+
+        # The C++ Wiring owns this callback. A temporary borrowed PyWiring can
+        # disappear before build_services(), but its underlying Wiring retains
+        # both the config and cleanup for its actual lifetime.
+        wiring._retain_cleanup(clear_configs)
+        _ADAPTOR_CLIENT_CONFIG_CLEANUPS.add(identity)
+    key = (
+        identity, stub.flavour, stub.__name__,
+        stub._specialization, path,
+    )
+    previous = _ADAPTOR_CLIENT_CONFIGS.setdefault(key, config)
+    if previous != config:
+        differences = sorted(
+            name for name in previous.keys() | config.keys()
+            if previous.get(name) != config.get(name)
+        )
+        raise WiringError(
+            f"{stub.flavour.replace('_', ' ')} '{stub.__name__}' clients at "
+            f"path {path!r} disagree on wiring-time option(s) {differences!r}")
+
+
+def _adaptor_client_config(stub, path):
+    wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
+    key = (
+        wiring.identity(), stub.flavour, stub.__name__,
+        stub._specialization, path,
+    )
+    return _ADAPTOR_CLIENT_CONFIGS.get(key, {})
+
+
+def _resolved_adaptor_client_path(stub, path):
+    """Return the config key and concrete native client path."""
+    resolved = stub._resolved_path(path) if path else stub._default_path
+    resolved = resolved or f"{stub.__name__}_default"
+    config_path = resolved
+    specialization = getattr(stub, "_specialization", "")
+    suffix = f"[{specialization}]" if specialization else ""
+    if suffix and config_path.endswith(suffix):
+        config_path = config_path[:-len(suffix)]
+    return config_path, resolved
 
 
 def _resolved_service_path(stub, path):
@@ -570,13 +645,15 @@ class _AdaptorClientStub:
             specialization = _specialization_label(resolution)
             stub = self._specialized_stub(resolution, specialization)
         self._materialize_client_registration(stub)
+        config_path, path = _resolved_adaptor_client_path(stub, path)
+        _record_adaptor_client_config(stub, config_path, bound)
         request = (
             None if not requests else requests[0]
             if len(requests) == 1 else WiringPort(_hgraph.tsb_port(
                 stub._request_type,
                 {parameter.name: _unwrap(value)
                  for parameter, value in zip(stub._request_params, requests)})))
-        return stub, stub._resolved_path(path), request
+        return stub, path, request
 
 
 class _AdaptorStub(_AdaptorClientStub):
@@ -739,8 +816,11 @@ class _ServiceAdaptorStub(_AdaptorClientStub):
             raise TypeError(
                 f"@service_adaptor '{self.__name__}' requires at least one time-series request parameter"
             )
-        if not _is_ts_annotation(sig.return_annotation):
-            raise TypeError(f"@service_adaptor '{self.__name__}' requires a time-series return annotation")
+        self._has_output = _is_ts_annotation(sig.return_annotation)
+        if sig.return_annotation not in (inspect.Signature.empty, None) and not self._has_output:
+            raise TypeError(
+                f"@service_adaptor '{self.__name__}' return annotation must be a "
+                "time-series type or None")
         self._signature = sig
         self._request_params = tuple(params)
         path_param = sig.parameters.get("path")
@@ -763,9 +843,11 @@ class _ServiceAdaptorStub(_AdaptorClientStub):
             if all(field_type is not None for _, field_type in request_fields)
             else None
         )
-        output = _resolve_annotation(sig.return_annotation, resolution)
+        output = (
+            _resolve_annotation(sig.return_annotation, resolution)
+            if self._has_output else None)
         self._request_type = request
-        self.descriptor = None if request is None or output is None else _hgraph.service_descriptor(
+        self.descriptor = None if request is None or (self._has_output and output is None) else _hgraph.service_descriptor(
             name=fn.__name__, flavour="service_adaptor",
             request=request, output=output,
             default_path=default_path, specialization=specialization)
@@ -844,6 +926,9 @@ class _ServiceAdaptorStub(_AdaptorClientStub):
     def to_graph(self, *, path="", __request_id__, __no_ts_inputs__=False):
         del __no_ts_inputs__  # compatibility with the old explicit client API
         stub = self
+        if not stub._has_output:
+            raise TypeError(
+                f"sink-only service adaptor '{self.__name__}' has no to_graph output")
         if stub.descriptor is None:
             raise TypeError(
                 f"generic service adaptor '{self.__name__}' must be specialized")
@@ -858,6 +943,8 @@ class _ServiceAdaptorStub(_AdaptorClientStub):
         _hgraph.service_adaptor_client_from_graph(
             _current_wiring(), stub._require_descriptor(), path,
             _unwrap(request), _unwrap(request_id))
+        if not stub._has_output:
+            return None
         return WiringPort(_hgraph.service_adaptor_client_to_graph(
             _current_wiring(), stub._require_descriptor(), path,
             _unwrap(request_id)))
@@ -1219,12 +1306,6 @@ def _bind_registered_impl(implementation, path, config):
         raise WiringError(
             f"implementation '{implementation.__name__}' has no scalar configuration {sorted(unknown)!r}"
         )
-    for param in scalar_parameters:
-        if param.name not in config and param.default is inspect.Parameter.empty:
-            raise WiringError(
-                f"implementation '{implementation.__name__}' requires scalar configuration '{param.name}'"
-            )
-
     from .._types import AUTO_RESOLVE
 
     resolved_config = dict(config)
@@ -1277,26 +1358,47 @@ def _bind_registered_impl(implementation, path, config):
             else list(ports)
         )
         arguments = dict(zip((param.name for param in port_parameters), user_ports))
+        effective_path = path
+        matched_stub = stub
+        materialized_path = _current_wiring().service_materialization_path()
+        if materialized_path:
+            _, _, qualified = materialized_path.partition("://")
+            matched_stub = next(
+                (candidate for candidate in implementation.interfaces
+                 if qualified.endswith(f"/{candidate.__name__}")),
+                stub,
+            )
+            if matched_stub is not None:
+                suffix = f"/{matched_stub.__name__}"
+                effective_path = qualified[:-len(suffix)]
+                specialization = getattr(matched_stub, "_specialization", "")
+                typed_suffix = f"[{specialization}]" if specialization else ""
+                if typed_suffix and effective_path.endswith(typed_suffix):
+                    effective_path = effective_path[:-len(typed_suffix)]
         if any(param.name == "path" for param in parameters):
-            effective_path = path
-            materialized_path = _current_wiring().service_materialization_path()
-            if materialized_path:
-                _, _, qualified = materialized_path.partition("://")
-                matched_stub = next(
-                    (candidate for candidate in implementation.interfaces
-                     if qualified.endswith(f"/{candidate.__name__}")),
-                    None,
-                )
-                if matched_stub is not None:
-                    suffix = f"/{matched_stub.__name__}"
-                    effective_path = qualified[:-len(suffix)]
-                    specialization = getattr(matched_stub, "_specialization", "")
-                    typed_suffix = f"[{specialization}]" if specialization else ""
-                    if typed_suffix and effective_path.endswith(typed_suffix):
-                        effective_path = effective_path[:-len(typed_suffix)]
             arguments["path"] = effective_path
+        client_config = (
+            _adaptor_client_config(matched_stub, effective_path)
+            if matched_stub is not None else {})
         for param in scalar_parameters:
-            arguments[param.name] = resolved_config.get(param.name, param.default)
+            configured = resolved_config.get(param.name, inspect.Parameter.empty)
+            client_value = client_config.get(param.name, inspect.Parameter.empty)
+            if configured is not inspect.Parameter.empty:
+                if (client_value is not inspect.Parameter.empty
+                        and client_value != configured):
+                    raise WiringError(
+                        f"implementation '{implementation.__name__}' option "
+                        f"'{param.name}' conflicts with adaptor clients at path "
+                        f"{effective_path!r}")
+                arguments[param.name] = configured
+            elif client_value is not inspect.Parameter.empty:
+                arguments[param.name] = client_value
+            elif param.default is inspect.Parameter.empty:
+                raise WiringError(
+                    f"implementation '{implementation.__name__}' requires scalar "
+                    f"configuration '{param.name}'")
+            else:
+                arguments[param.name] = param.default
         from contextlib import ExitStack
         wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
         contexts = _SERVICE_BUILD_CONTEXTS.get(wiring, ())

@@ -440,6 +440,36 @@ namespace
         return *registry;
     }
 
+    class PyWiringCleanup final
+    {
+      public:
+        explicit PyWiringCleanup(nb::object callback)
+            : callback_(callback.release().ptr())
+        {
+        }
+
+        PyWiringCleanup(const PyWiringCleanup &) = delete;
+        PyWiringCleanup &operator=(const PyWiringCleanup &) = delete;
+
+        ~PyWiringCleanup() noexcept
+        {
+            if (callback_ == nullptr) { return; }
+            nb::gil_scoped_acquire gil;
+            try
+            {
+                nb::borrow<nb::object>(nb::handle(callback_))();
+            }
+            catch (nb::python_error &error)
+            {
+                error.discard_as_unraisable("Wiring extension cleanup");
+            }
+            Py_DECREF(callback_);
+        }
+
+      private:
+        PyObject *callback_{nullptr};
+    };
+
     [[nodiscard]] WiringPortRef py_graph_fn_wire(const void *context, Wiring &w,
                                                  std::span<const WiringPortRef> args)
     {
@@ -1039,6 +1069,13 @@ namespace hgraph::python_bridge
     nb::class_<PyWiring>(m, "Wiring", nb::is_weak_referenceable())
         .def(nb::init<>())
         .def(nb::init<GlobalState &>(), nb::arg("state"))
+        .def("identity", [](const PyWiring &wiring) {
+            return wiring.raw->identity();
+        }, "Return the stable identity of the underlying C++ Wiring.")
+        .def("_retain_cleanup", [](PyWiring &wiring, nb::object callback) {
+            wiring.raw->retain_extension_state(
+                std::make_shared<PyWiringCleanup>(std::move(callback)));
+        })
         .def("exception_time_series", &PyWiring::exception_time_series,
              nb::arg("port"), nb::arg("trace_back_depth") = 1,
              nb::arg("capture_values") = false)

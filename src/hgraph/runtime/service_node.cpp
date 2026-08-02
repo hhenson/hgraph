@@ -100,6 +100,7 @@ namespace hgraph
         {
             Int   request_id{0};
             Value delta{};
+            DateTime observed_at{};
             bool  remove{false};
         };
 
@@ -334,45 +335,53 @@ namespace hgraph
                 };
             }
 
-            void set(Int request_id, Value delta, DateTime schedule_time) const
+            void set(Int request_id, Value delta, DateTime schedule_time,
+                     DateTime observed_at) const
             {
                 auto &pending = source_storage_of(view_, *context_).pending;
-                const auto existing = std::ranges::find(
-                    pending, request_id, &RequestInputChange::request_id);
+                auto existing = std::ranges::find_if(
+                    pending, [&](const RequestInputChange &change) {
+                        return change.request_id == request_id
+                            && change.observed_at == observed_at;
+                    });
                 if (existing != pending.end())
                 {
                     existing->delta  = std::move(delta);
                     existing->remove = false;
+                    schedule(schedule_time);
+                    return;
                 }
-                else
-                {
-                    pending.push_back(RequestInputChange{
-                        .request_id = request_id,
-                        .delta      = std::move(delta),
-                        .remove     = false,
-                    });
-                }
+                pending.push_back(RequestInputChange{
+                    .request_id = request_id,
+                    .delta      = std::move(delta),
+                    .observed_at = observed_at,
+                    .remove     = false,
+                });
                 schedule(schedule_time);
             }
 
-            void remove(Int request_id, DateTime schedule_time) const
+            void remove(Int request_id, DateTime schedule_time,
+                        DateTime observed_at) const
             {
                 auto &pending = source_storage_of(view_, *context_).pending;
-                const auto existing = std::ranges::find(
-                    pending, request_id, &RequestInputChange::request_id);
+                auto existing = std::ranges::find_if(
+                    pending, [&](const RequestInputChange &change) {
+                        return change.request_id == request_id
+                            && change.observed_at == observed_at;
+                    });
                 if (existing != pending.end())
                 {
                     existing->delta  = Value{};
                     existing->remove = true;
+                    schedule(schedule_time);
+                    return;
                 }
-                else
-                {
-                    pending.push_back(RequestInputChange{
-                        .request_id = request_id,
-                        .delta      = Value{},
-                        .remove     = true,
-                    });
-                }
+                pending.push_back(RequestInputChange{
+                    .request_id = request_id,
+                    .delta      = Value{},
+                    .observed_at = observed_at,
+                    .remove     = true,
+                });
                 schedule(schedule_time);
             }
 
@@ -520,8 +529,18 @@ namespace hgraph
         {
             auto dict     = output.as_dict();
             auto mutation = dict.begin_mutation(evaluation_time);
+            std::vector<Int> applied_request_ids{};
+            std::vector<RequestInputChange> deferred{};
             for (RequestInputChange &change : storage.pending)
             {
+                if (std::ranges::find(applied_request_ids, change.request_id)
+                    != applied_request_ids.end())
+                {
+                    deferred.push_back(std::move(change));
+                    continue;
+                }
+                applied_request_ids.push_back(change.request_id);
+
                 Value request_id{change.request_id};
                 if (change.remove)
                 {
@@ -530,10 +549,12 @@ namespace hgraph
                 }
 
                 auto child = mutation.at(request_id.view());
-                apply_delta(TSOutputView{output.output(), child, evaluation_time}, change.delta.view());
+                apply_delta(
+                    TSOutputView{output.output(), child, evaluation_time},
+                    change.delta.view());
             }
             mutation.touch();
-            storage.pending.clear();
+            storage.pending = std::move(deferred);
         }
 
         bool subscription_key_source_evaluate_impl(const void *, const NodeView &view, DateTime evaluation_time)
@@ -562,6 +583,10 @@ namespace hgraph
             if (storage.pending.empty()) { return true; }
 
             apply_pending_request_input_changes(storage, view.output(evaluation_time), evaluation_time);
+            if (!storage.pending.empty())
+            {
+                view.graph().schedule_node(view.node_index(), evaluation_time + MIN_TD);
+            }
             return true;
         }
 
@@ -645,14 +670,19 @@ namespace hgraph
 
             if (request.valid())
             {
-                source.set(storage.request_id, capture_delta(request), schedule_time);
+                const bool first_value = !storage.live;
+                source.set(
+                    storage.request_id,
+                    first_value ? capture_current_delta(request) : capture_delta(request),
+                    schedule_time,
+                    evaluation_time);
                 storage.live = true;
                 return;
             }
 
             if (storage.live)
             {
-                source.remove(storage.request_id, schedule_time);
+                source.remove(storage.request_id, schedule_time, evaluation_time);
                 storage.live = false;
             }
         }
@@ -710,7 +740,8 @@ namespace hgraph
 
             initialize_request_capture(view, evaluation_time, storage);
             auto source = NodeView{storage.source}.as<RequestInputSourceView>();
-            source.remove(storage.request_id, evaluation_time + MIN_TD);
+            source.remove(
+                storage.request_id, evaluation_time + MIN_TD, evaluation_time);
             storage.live   = false;
             storage.source = NodePtr{};
             storage.input  = TSInputView{};

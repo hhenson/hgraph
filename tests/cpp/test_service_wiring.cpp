@@ -10,6 +10,8 @@
 
 #include <stdexcept>
 #include <string>
+#include <tuple>
+#include <vector>
 
 namespace
 {
@@ -552,6 +554,35 @@ namespace
         static constexpr std::string_view name{"add_thirty_adaptor"};
         using input_schema  = TS<Int>;
         using output_schema = TS<Int>;
+    };
+
+    struct PublishPairServiceAdaptor : service_adaptor::interface
+    {
+        static constexpr std::string_view name{"publish_pair_adaptor"};
+        using input_schema = PairRequest;
+    };
+
+    inline std::vector<std::tuple<Int, Int, Int>> published_pair_requests;
+
+    struct PublishPairServiceAdaptorImplNode
+    {
+        static constexpr auto name = "publish_pair_service_adaptor_impl_node";
+
+        static void eval(
+            In<"requests", TSD<Int, PairRequest>, InputValidity::Unchecked> requests)
+        {
+            if (!requests.modified()) { return; }
+            for (const auto &[request_id, request] : requests.modified_items())
+            {
+                auto left = request.field<"left">();
+                auto right = request.field<"right">();
+                if (left.valid() && right.valid())
+                {
+                    published_pair_requests.emplace_back(
+                        request_id.checked_as<Int>(), left.value(), right.value());
+                }
+            }
+        }
     };
 
     struct GenericAddOneService
@@ -1573,6 +1604,40 @@ namespace
         }
     };
 
+    struct SinkServiceAdaptorTwoClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "sink_service_adaptor_two_client_graph";
+
+        static Port<TS<Int>> compose(
+            Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs,
+            Port<TS<Int>> other_lhs, Port<TS<Int>> other_rhs)
+        {
+            const auto custom = service_adaptor::path("sink_multi_client");
+            service_adaptor::register_service_adaptor_impl<
+                PublishPairServiceAdaptor, PublishPairServiceAdaptorImplNode>(w, custom);
+            wire<PublishPairServiceAdaptor>(w, custom, lhs, rhs);
+            wire<PublishPairServiceAdaptor>(w, custom, other_lhs, other_rhs);
+            return lhs;
+        }
+    };
+
+    struct SinkServiceAdaptorConstantFieldGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "sink_service_adaptor_constant_field_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value)
+        {
+            const auto custom = service_adaptor::path("sink_constant_field");
+            service_adaptor::register_service_adaptor_impl<
+                PublishPairServiceAdaptor, PublishPairServiceAdaptorImplNode>(w, custom);
+            auto constant = wire<stdlib::const_>(w, Int{7}).as<TS<Int>>();
+            wire<PublishPairServiceAdaptor>(w, custom, constant, value);
+            return value;
+        }
+    };
+
     struct MultiServiceAdaptorClientGraph
     {
         [[maybe_unused]] static constexpr auto name = "multi_service_adaptor_client_graph";
@@ -2082,6 +2147,45 @@ TEST_CASE("service wiring: service_adaptor_impl auto-wires single-interface impl
 
     CHECK_OUTPUT(eval_node<ServiceAdaptorImplTwoClientGraph>(values<Int>(1), values<Int>(10)),
                  values<Int>(none, 51));
+}
+
+TEST_CASE("service wiring: sink-only service adaptors collect multiple bundled clients")
+{
+    hgraph::stdlib::register_standard_operators();
+    published_pair_requests.clear();
+
+    CHECK_OUTPUT(
+        eval_node<SinkServiceAdaptorTwoClientGraph>(
+            values<Int>(1, none, 2, none, 3),
+            values<Int>(10, none, 20, none, 30),
+            values<Int>(3, none, 4, none, 5),
+            values<Int>(30, none, 40, none, 50)),
+        values<Int>(1, none, 2, none, 3));
+
+    REQUIRE(published_pair_requests.size() == 6);
+    const auto first_client = std::get<0>(published_pair_requests[0]);
+    const auto second_client = std::get<0>(published_pair_requests[1]);
+    CHECK(first_client != second_client);
+    CHECK(published_pair_requests == std::vector<std::tuple<Int, Int, Int>>{
+        {first_client, 1, 10}, {second_client, 3, 30},
+        {first_client, 2, 20}, {second_client, 4, 40},
+        {first_client, 3, 30}, {second_client, 5, 50}});
+}
+
+TEST_CASE("service wiring: service adaptor first requests snapshot static bundle fields")
+{
+    hgraph::stdlib::register_standard_operators();
+    published_pair_requests.clear();
+
+    CHECK_OUTPUT(
+        eval_node<SinkServiceAdaptorConstantFieldGraph>(
+            values<Int>(10, none, 20)),
+        values<Int>(10, none, 20));
+
+    REQUIRE(published_pair_requests.size() == 2);
+    const auto request_id = std::get<0>(published_pair_requests[0]);
+    CHECK(published_pair_requests == std::vector<std::tuple<Int, Int, Int>>{
+        {request_id, 7, 10}, {request_id, 7, 20}});
 }
 
 TEST_CASE("service wiring: multi-interface service adaptors wire explicit stubs")
