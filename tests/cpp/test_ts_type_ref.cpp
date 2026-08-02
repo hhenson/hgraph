@@ -1046,7 +1046,7 @@ TEST_CASE("scalar output and peered input preserve binding, timing, and subscrip
     in.bind_output(first.view(MIN_ST));
     in.make_active();
     REQUIRE(in.bound());
-    REQUIRE(first.data_view().observer_count() == 2);
+    REQUIRE(first.data_view().observer_count() == 1);
 
     Value one{std::int32_t{1}};
     {
@@ -1060,7 +1060,7 @@ TEST_CASE("scalar output and peered input preserve binding, timing, and subscrip
 
     in.bind_output(second.view(MIN_ST + TimeDelta{1}));
     REQUIRE(first.data_view().observer_count() == 0);
-    REQUIRE(second.data_view().observer_count() == 2);
+    REQUIRE(second.data_view().observer_count() == 1);
     in.unbind_output();
     REQUIRE(second.data_view().observer_count() == 0);
     REQUIRE_FALSE(in.bound());
@@ -1109,7 +1109,7 @@ TEST_CASE("scalar output invalidation preserves active topology without scheduli
     in.bind_output(first->view(MIN_ST));
     in.make_active();
     REQUIRE(in.active());
-    REQUIRE(first->data_view().observer_count() == 2);
+    REQUIRE(first->data_view().observer_count() == 1);
 
     first.reset();
     REQUIRE_FALSE(in.bound());
@@ -1125,7 +1125,7 @@ TEST_CASE("scalar output invalidation preserves active topology without scheduli
     }
     in.bind_output(replacement.view(MIN_ST + TimeDelta{1}));
     REQUIRE(in.active());
-    REQUIRE(replacement.data_view().observer_count() == 2);
+    REQUIRE(replacement.data_view().observer_count() == 1);
 
     scheduling.notifications.clear();
     {
@@ -1173,7 +1173,7 @@ TEST_CASE("root output invalidation detaches direct inputs for migrated and lega
 
             REQUIRE(in.bound());
             REQUIRE(in.active() == active);
-            REQUIRE(output->data_view().observer_count() == (active ? 2 : 1));
+            REQUIRE(output->data_view().observer_count() == 1);
             scheduling.notifications.clear();
 
             output.reset();
@@ -1213,7 +1213,7 @@ TEST_CASE("SIGNAL inputs release legacy root outputs before input teardown")
             REQUIRE(in.bound());
             REQUIRE(in.bound_output().handle().bound());
             REQUIRE(in.active() == active);
-            REQUIRE(output->data_view().observer_count() == (active ? 2 : 1));
+            REQUIRE(output->data_view().observer_count() == 1);
             scheduling.notifications.clear();
 
             output.reset();
@@ -1256,25 +1256,32 @@ TEST_CASE("scalar input teardown and move keep producer subscriptions coherent")
         TypeRegistry::instance().register_scalar<std::int32_t>("int32"));
     TSOutput output{schema};
     RecordingNotifier scheduling;
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
 
     {
         TSInput input = scalar_input(schema);
-        auto in = input.view(&scheduling, MIN_ST);
-        in.bind_output(output.view(MIN_ST));
+        auto in = input.view(&scheduling, t1);
+        in.bind_output(output.view(t1));
         in.make_active();
-        REQUIRE(output.data_view().observer_count() == 2);
+        REQUIRE(output.data_view().observer_count() == 1);
 
         TSInput moved{std::move(input)};
-        auto moved_view = moved.view(&scheduling, MIN_ST);
+        auto moved_view = moved.view(&scheduling, t1);
         REQUIRE(moved_view.bound());
         REQUIRE(moved_view.active());
-        REQUIRE(output.data_view().observer_count() == 2);
+        REQUIRE(output.data_view().observer_count() == 1);
+
+        Value value{std::int32_t{7}};
+        auto mutation = output.begin_mutation(t1);
+        REQUIRE(mutation.copy_value_from(value.view()));
+        REQUIRE(scheduling.notifications == std::vector<DateTime>{t1});
     }
 
     REQUIRE(output.data_view().observer_count() == 0);
-    Value value{std::int32_t{7}};
+    Value value{std::int32_t{8}};
     {
-        auto mutation = output.begin_mutation(MIN_ST);
+        auto mutation = output.begin_mutation(t2);
         REQUIRE(mutation.copy_value_from(value.view()));
     }
 }

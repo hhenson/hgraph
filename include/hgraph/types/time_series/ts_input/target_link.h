@@ -38,6 +38,10 @@ namespace hgraph::detail
         std::size_t              slot{0};
         bool locally_active{false};
         TSInputObservationKind observation_kind{TSInputObservationKind::Value};
+        /** True only when ``scheduling_notifier`` has its own observer entry.
+            Value observation at the exact target root is coalesced through
+            the target-link state observer instead. */
+        bool scheduling_subscribed{false};
         TSOutputHandle observed{};
         SmallDensePtrMap<std::size_t, TSInputTargetActiveNode> children{};
 
