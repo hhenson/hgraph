@@ -291,13 +291,56 @@ namespace hgraph
             return binding;
         }
 
-        void destroy_constructed_components(
-            const std::vector<const MemoryUtils::CompositeComponent *> &constructed,
-            void *memory) noexcept
+        constexpr std::size_t inline_constructed_component_capacity = 16;
+
+        struct ConstructedComponents
         {
-            for (std::size_t index = constructed.size(); index > 0; --index)
+            explicit ConstructedComponents(std::size_t component_count)
             {
-                const auto &component = *constructed[index - 1];
+                if (component_count > inline_constructed_component_capacity)
+                {
+                    overflow.reserve(component_count - inline_constructed_component_capacity);
+                }
+            }
+
+            void push_back(const MemoryUtils::CompositeComponent *component)
+            {
+                if (inline_count < inline_components.size())
+                {
+                    inline_components[inline_count++] = component;
+                }
+                else
+                {
+                    overflow.push_back(component);
+                }
+            }
+
+            [[nodiscard]] bool contains(const MemoryUtils::CompositeComponent *component) const noexcept
+            {
+                if (std::find(inline_components.begin(), inline_components.begin() + inline_count, component) !=
+                    inline_components.begin() + inline_count)
+                {
+                    return true;
+                }
+                return std::find(overflow.begin(), overflow.end(), component) != overflow.end();
+            }
+
+            std::array<const MemoryUtils::CompositeComponent *, inline_constructed_component_capacity>
+                inline_components{};
+            std::size_t inline_count{0};
+            std::vector<const MemoryUtils::CompositeComponent *> overflow{};
+        };
+
+        void destroy_constructed_components(const ConstructedComponents &constructed, void *memory) noexcept
+        {
+            for (std::size_t index = constructed.overflow.size(); index > 0; --index)
+            {
+                const auto &component = *constructed.overflow[index - 1];
+                component.plan->destroy(MemoryUtils::advance(memory, component.offset));
+            }
+            for (std::size_t index = constructed.inline_count; index > 0; --index)
+            {
+                const auto &component = *constructed.inline_components[index - 1];
                 component.plan->destroy(MemoryUtils::advance(memory, component.offset));
             }
         }
@@ -314,8 +357,7 @@ namespace hgraph
             if (context.plan == nullptr) { throw std::logic_error("Node runtime context has no storage plan"); }
             const MemoryUtils::StoragePlan &plan = *context.plan;
 
-            std::vector<const MemoryUtils::CompositeComponent *> constructed;
-            constructed.reserve(9);
+            ConstructedComponents constructed{plan.components().size()};
             auto rollback = make_scope_exit([&]() noexcept {
                 destroy_constructed_components(constructed, memory);
             });
@@ -435,8 +477,7 @@ namespace hgraph
 
             for (const MemoryUtils::CompositeComponent &component : plan.components())
             {
-                const auto constructed_it = std::find(constructed.begin(), constructed.end(), &component);
-                if (constructed_it != constructed.end()) { continue; }
+                if (constructed.contains(&component)) { continue; }
                 if (component.plan == nullptr)
                 {
                     throw std::logic_error("Node storage plan component is missing a child plan");
