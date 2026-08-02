@@ -78,12 +78,22 @@ source/capture pair** — applied with different payloads:
     Python's keyed-child lifecycle and preventing cached values from leaking on
     re-add. A client joining a key that another client has kept live samples the
     existing value immediately.
-  - **Request/reply requests** forward **next cycle** by design: the pairing is
-    rank-free (no rank dependency), and the capture schedules the service source
-    for ``evaluation_time + MIN_TD`` (current time during ``start``). The temporal
-    request mutation does not run the implementation in the capture cycle.
-    A request/reply input source retains its earliest outstanding publication
-    time, so a later request cannot postpone work that is already due.
+  - **Request/reply requests** forward **next cycle** *when the service declares
+    a response*: the pairing is rank-free (no rank dependency), and the capture
+    schedules the service source for ``evaluation_time + MIN_TD`` (current time
+    during ``start``). The temporal request mutation does not run the
+    implementation in the capture cycle. A request/reply input source retains
+    its earliest outstanding publication time, so a later request cannot
+    postpone work that is already due.
+  - **A reply-less request/reply service forwards SAME cycle.** With no
+    response there is no response feedback edge, hence no request/reply cycle
+    for the rank-free path to permit, so the capture is declared through
+    ``add_same_cycle_pair`` and built with ``same_cycle`` — the implementation
+    observes a request in the cycle the client sent it. This makes it agree with
+    a sink-only adaptor, which is the same construct at a different keying
+    (:doc:`../rfc/rfc_0012_replyless_request_reply_relay`). The consequence is
+    that a dependency cycle through a reply-less service is reported at wiring
+    time rather than being silently broken by the cycle boundary.
   - **Request/reply responses** cross an explicit feedback source/sink pair in
     the graph that owns the implementation, then publish through the ordinary
     same-cycle shared-output relay. Request/reply clients are omitted from

@@ -1,7 +1,7 @@
 RFC 0012: A Reply-Less Request/Reply Service Is a Keyed Sink
 ============================================================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-08-02
 :Target: Request/reply service transport and scheduling
@@ -97,11 +97,15 @@ Proposal
 When ``response_schema == nullptr``, wire the request transport the way the
 adaptor input relay is wired:
 
-* the request capture takes the request source as a **ranked** dependency
-  rather than ``rank_dependency = false``; and
 * the pair is declared with ``Wiring::add_same_cycle_pair``, so ``finish``
-  validates the order and the capture schedules the source for the **current**
-  evaluation time.
+  validates the order and the **source** is ranked after the capture; and
+* the capture node is built with ``same_cycle``, so it schedules the paired
+  source for the **current** evaluation time.
+
+The capture's own input on the source stays ``rank_dependency = false``. That is
+not an oversight: a capture must not wait on the source it feeds, and making it
+a ranked dependency produces a wiring cycle. Ordering flows the other way, from
+``add_same_cycle_pair`` — the same shape ``shared_output_relay_capture`` uses.
 
 Nothing else changes: the transport is still keyed by client id, still a
 ``TSD<Int, request_schema>``, still built by ``keyed_request_input_source_node``.
@@ -187,13 +191,28 @@ Acceptance criteria and test plan
 Implementation status
 ---------------------
 
-Not started. This RFC is the first commit on its branch, per
-:doc:`rfc_0000` workflow step 1.
+**Implemented.** The change is three lines of wiring plus the tests.
 
-The branch is stacked on the RFC 0011 implementation
-(``agent/rfc-0011-unify-service-adaptor-surface``, PR #263), which touches the
-same ``register_request_reply_service_impl`` body; the dependency is one of
-merge order, not of design.
+Two findings from implementing it:
+
+* **The rank direction is the opposite of the obvious one.** Making the
+  capture's source input a rank dependency produces a wiring cycle: the capture
+  must NOT wait on the source it feeds. The relay pattern keeps that input
+  rank-free and lets ``add_same_cycle_pair`` order the *source* after the
+  capture — the same shape ``shared_output_relay_capture`` uses. The cycle
+  detector caught this immediately.
+* **The runtime already supported it.** ``make_request_input_capture_node``
+  takes a ``same_cycle`` flag, added for rank-correct service-adaptor captures;
+  the reply-less case just had to pass it. Wiring-level ordering alone changed
+  nothing, because the next-cycle behaviour lives in the capture node's
+  schedule-time computation.
+
+No existing test needed changing, including
+``test_replyless_request_reply_service_captures_requests``, which asserts values
+rather than cycles — which is precisely why the latency went unnoticed, and why
+the new tests assert observed cycle numbers.
+
+Final state: 1414 ctest, 1880 Python tests.
 
 References
 ----------

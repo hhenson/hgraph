@@ -545,26 +545,44 @@ namespace hgraph
         WiringPortRef requests = request_input_source_node(w, descriptor, request_path);
         w.register_service_rank_anchor(request_path, requests.peered_node());
 
+        // A REPLY-LESS service is a keyed sink: there is no response, hence no
+        // response feedback edge, hence no request/reply cycle to permit. It
+        // therefore takes the ranked same-cycle relay, like a sink-only
+        // adaptor, and the implementation observes a request in the cycle the
+        // client sent it rather than the next one (RFC 0012). A service WITH a
+        // response keeps the rank-free path below: that is what makes
+        // recursive request/reply legal, and its ordering comes from the
+        // feedback edge instead.
+        const bool reply_less = descriptor.response_schema == nullptr;
+
         WiringPortRef adapted_request = graph_wiring_detail::adapt_source_for_input(
             w, descriptor.request_schema, request);
         std::array<WiringPortRef, 3>  sources{std::move(adapted_request), requests, request_id};
         std::array<WiringInputRef, 3> inputs{{
             WiringInputRef{.source = sources[0]},
+            // Never a rank dependency: the capture must not wait on the source
+            // it feeds. Ordering comes from add_same_cycle_pair below (reply-less)
+            // or from the response feedback edge (reply-full).
             WiringInputRef{.source = sources[1], .rank_dependency = false},
             WiringInputRef{.source = sources[2]},
         }};
-        NodeBuilder builder =
-            make_request_input_capture_node(request_path, *descriptor.request_schema);
+        NodeBuilder builder = make_request_input_capture_node(
+            request_path, *descriptor.request_schema, /*same_cycle=*/reply_less);
         builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
             builder.type().schema()->input_schema,
             std::span<const WiringPortRef>{sources.data(), sources.size()}));
-        static_cast<void>(w.add_node(
+        WiringPortRef capture = w.add_node(
             std::type_index(typeid(service::detail::request_input_capture_marker)), std::move(builder),
-            std::span<const WiringInputRef>{inputs.data(), inputs.size()}, Value{}));
-        // Request/reply transport is ordered by its response feedback edge, not
-        // by indirect service dependencies. This permits request/reply cycles.
+            std::span<const WiringInputRef>{inputs.data(), inputs.size()}, Value{});
 
-        if (descriptor.response_schema == nullptr) { return {}; }
+        if (reply_less)
+        {
+            // Rank-correct and same-cycle: Wiring::finish validates the order,
+            // so the capture schedules the source for the CURRENT evaluation
+            // time with no hot-path check.
+            w.add_same_cycle_pair(capture.peered_node(), requests.peered_node());
+            return {};
+        }
 
         WiringPortRef replies = reply_output_source_node(w, descriptor, replies_path);
 
