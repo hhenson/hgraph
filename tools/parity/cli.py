@@ -10,6 +10,11 @@ import sys
 from pathlib import Path
 
 from .campaign import render_campaign_markdown, run_campaign
+from .diagnostics import (
+    compare_diagnostics,
+    render_diagnostics_markdown,
+    run_probe as run_diagnostics_probe,
+)
 from .surface import (
     SURFACE_EXTRA_DEPENDENCIES,
     classify_findings,
@@ -199,6 +204,21 @@ def command_coverage(args) -> int:
         end="",
     )
     return 0
+
+
+def command_diagnostics(args) -> int:
+    environments = _prepare(args)
+    reference = run_diagnostics_probe(environments.reference_python)
+    candidate = run_diagnostics_probe(environments.candidate_python)
+    report = compare_diagnostics(reference, candidate)
+    output_dir = Path(args.output_dir) if args.output_dir else PARITY_ROOT / "results" / "diagnostics"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "diagnostics.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    (output_dir / "reference-raw.txt").write_text(json.dumps(reference, indent=2))
+    (output_dir / "candidate-raw.txt").write_text(json.dumps(candidate, indent=2))
+    (output_dir / "diagnostics.md").write_text(render_diagnostics_markdown(report))
+    print(render_diagnostics_markdown(report))
+    return 0 if not report["gaps"] or args.exit_zero else 1
 
 
 def command_surface(args) -> int:
@@ -395,6 +415,12 @@ def build_parser() -> argparse.ArgumentParser:
     campaign.add_argument("--exit-zero", action="store_true")
     _environment_arguments(campaign)
     campaign.set_defaults(func=command_campaign)
+
+    diagnostics = subparsers.add_parser("diagnostics")
+    diagnostics.add_argument("--output-dir")
+    diagnostics.add_argument("--exit-zero", action="store_true")
+    _environment_arguments(diagnostics)
+    diagnostics.set_defaults(func=command_diagnostics)
 
     surface = subparsers.add_parser("surface")
     surface.add_argument("--output-dir")
