@@ -604,6 +604,14 @@ Accepted Deviations
 
 The following are intentional unless separately re-opened:
 
+- Runtime time-series views expose native value/state interrogation, ownership
+  (``owning_node`` / ``owning_graph``), reference-kind inspection, input
+  activity control, and mutable ``_output`` operations. They do not reproduce
+  the old Python engine's endpoint-topology object model: ``bind_output`` /
+  ``un_bind_output``, their ``do_*`` hooks, ``re_parent``, direct parent and
+  bound-output traversal, peer/bound topology inspection, and output
+  subscription hooks remain C++ runtime responsibilities. Python graph authors
+  express those relationships through wiring and ``REF`` values.
 - A set delta's ``added`` and ``removed`` **must be disjoint** (ruling
   2026-07-28): an element listed in both is incorrect data, rejected at
   construction (``set_delta`` raises; the parity recipe decoder rejects

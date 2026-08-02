@@ -20,6 +20,21 @@ Python-authored compute, sink, generator, graph, service, adaptor, component,
 and push-source code executes in the C++ runtime. Python adapts values and
 callables; it does not implement a second graph engine.
 
+Runtime time-series views expose the authoring and interrogation surface backed
+by the native endpoints. Input and mutable ``_output`` views provide
+``owning_node``, ``owning_graph``, and ``is_reference()`` in addition to their
+value, validity, delta, and modification properties. Input views also provide
+``active``, ``make_active()``, and ``make_passive()``; mutable outputs provide
+``all_valid`` and ``last_modified_time``.
+
+The old Python engine's endpoint-topology object model is intentionally not
+part of this API. Python views do not expose ``bind_output()``,
+``un_bind_output()``, ``do_bind_output()``, ``do_un_bind_output()``, or
+``re_parent()``. Direct bound-output and parent-input/output traversal,
+peer/bound topology inspection, and output subscription hooks are likewise
+native runtime responsibilities. Graph authors express topology through wiring
+and ``REF`` values instead of mutating live endpoint ownership from Python.
+
 Upstream's ``hgraph.nodes`` wildcard also exposes several private transport
 helpers: ``capture_output_node_to_global_state``,
 ``capture_output_to_global_state``, ``get_shared_reference_output``,

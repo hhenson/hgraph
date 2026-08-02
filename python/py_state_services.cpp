@@ -537,9 +537,14 @@ namespace hgraph::python_bridge
     m.attr("MAX_ET")     = nb::cast(MAX_ET);
 
     nb::class_<PyOutput>(m, "OutputView")
+        .def_prop_ro("owning_node", &PyOutput::owning_node)
+        .def_prop_ro("owning_graph", &PyOutput::owning_graph)
         .def_prop_ro("valid", &PyOutput::valid)
+        .def_prop_ro("all_valid", &PyOutput::all_valid)
         .def_prop_ro("modified", &PyOutput::modified)
+        .def_prop_ro("last_modified_time", &PyOutput::last_modified_time)
         .def_prop_ro("delta_value", &PyOutput::delta_value)
+        .def("is_reference", &PyOutput::is_reference)
         .def_prop_rw("value", &PyOutput::value, &PyOutput::set_value,
                      nb::for_setter(nb::arg("value").none()))
         .def("can_apply_result", &PyOutput::can_apply_result)
@@ -554,8 +559,19 @@ namespace hgraph::python_bridge
         .def("__contains__", &PyOutput::contains)
         .def("__len__", &PyOutput::size)
         .def("__getattr__",
-             [](const PyOutput &self, const std::string &name) {
-                 return self.child(nb::str(name.c_str()));
+             [](const PyOutput &self, const std::string &name) -> PyOutput {
+                 if (self.checked().schema()->kind != TSTypeKind::TSB)
+                 {
+                     throw nb::attribute_error(name.c_str());
+                 }
+                 try
+                 {
+                     return self.child(nb::str(name.c_str()));
+                 }
+                 catch (const std::out_of_range &)
+                 {
+                     throw nb::attribute_error(name.c_str());
+                 }
              });
     nb::class_<PyRecordableState>(m, "RecordableStateView")
         .def_prop_ro("valid", &PyRecordableState::valid)
@@ -673,6 +689,9 @@ namespace hgraph::python_bridge
     };
     nb::class_<PyTimeSeries>(m, "TimeSeries", nb::type_slots(py_ts_slots))
         .def_prop_ro("_kind", [](const PyTimeSeries &self) { return static_cast<int>(self.kind()); })
+        .def_prop_ro("owning_node", &PyTimeSeries::owning_node)
+        .def_prop_ro("owning_graph", &PyTimeSeries::owning_graph)
+        .def("is_reference", &PyTimeSeries::is_reference)
         // hgraph's runtime activity control: a node may passivate/reactivate
         // its own input subscription (the C++ In views expose the same).
         .def("make_passive",

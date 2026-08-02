@@ -66,6 +66,7 @@ TEST_CASE("node output TSData can recover its owning node")
     REQUIRE(output_owner.valid());
     CHECK(output_owner.node_index() == 0);
     CHECK(output_owner.graph_value() == source.graph_value());
+    CHECK(output.owner_graph().data() == graph_view.data());
 
     auto root_owner = output.data_view().owner_node();
     REQUIRE(root_owner.valid());
@@ -103,11 +104,34 @@ TEST_CASE("node input TSData can recover its consuming node")
     REQUIRE(consumer_owner.valid());
     CHECK(consumer_owner.node_index() == 0);
     CHECK(consumer_owner.graph_value() == consumer.graph_value());
+    CHECK(input.consumer_graph().data() == graph_view.data());
 
     auto root_owner = input.data_view().owner_node();
     REQUIRE(root_owner.valid());
     CHECK(root_owner.node_index() == 0);
     CHECK(input.data_view().root_endpoint_owner().port() == TSEndpointOwnerPort::Input);
+}
+
+TEST_CASE("time-series endpoint views report whether their schema is a reference")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int   = registry.ts(int_meta);
+    const auto *ref_int  = registry.ref(ts_int);
+
+    TSOutput value_output{*ts_int};
+    TSOutput reference_output{*ref_int};
+    CHECK_FALSE(value_output.view().is_reference());
+    CHECK(reference_output.view().is_reference());
+
+    TSInput value_input{
+        TSInputBuilderFactory::checked_builder_for(*ts_int, TSEndpointSchema::peered(ts_int))};
+    TSInput reference_input{
+        TSInputBuilderFactory::checked_builder_for(*ref_int, TSEndpointSchema::peered(ref_int))};
+    CHECK_FALSE(value_input.view().is_reference());
+    CHECK(reference_input.view().is_reference());
 }
 
 TEST_CASE("bound input output owner remains the producer node")

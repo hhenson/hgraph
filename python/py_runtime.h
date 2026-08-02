@@ -433,6 +433,29 @@ namespace hgraph::python_bridge
             return view.valid() && view.data_view().has_current_value();
         }
 
+        [[nodiscard]] bool all_valid() const { return checked().all_valid(); }
+
+        [[nodiscard]] DateTime last_modified_time() const
+        {
+            return checked().last_modified_time();
+        }
+
+        [[nodiscard]] bool is_reference() const { return checked().is_reference(); }
+
+        [[nodiscard]] nb::object owning_node() const
+        {
+            const NodeView owner = checked().owner_node();
+            return owner.valid()
+                       ? nb::cast(PyNode{owner.pointer(), NodeScheduler{}, lease})
+                       : nb::none();
+        }
+
+        [[nodiscard]] nb::object owning_graph() const
+        {
+            const GraphView owner = checked().owner_graph();
+            return owner.valid() ? nb::cast(PyGraph{owner.pointer(), lease}) : nb::none();
+        }
+
         [[nodiscard]] nb::object value() const
         {
             auto view = checked();
@@ -719,6 +742,22 @@ namespace hgraph::python_bridge
         }
 
         [[nodiscard]] TSTypeKind kind() const { return checked().schema()->kind; }
+
+        [[nodiscard]] bool is_reference() const { return checked().is_reference(); }
+
+        [[nodiscard]] nb::object owning_node() const
+        {
+            const NodeView owner = checked().consumer_node();
+            return owner.valid()
+                       ? nb::cast(PyNode{owner.pointer(), NodeScheduler{}, lease})
+                       : nb::none();
+        }
+
+        [[nodiscard]] nb::object owning_graph() const
+        {
+            const GraphView owner = checked().consumer_graph();
+            return owner.valid() ? nb::cast(PyGraph{owner.pointer(), lease}) : nb::none();
+        }
 
         [[nodiscard]] nb::object value() const
         {

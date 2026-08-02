@@ -118,6 +118,12 @@ namespace hgraph
         [[nodiscard]] TSRoleTypeRef storage_type() const noexcept { return data_.storage_type(); }
         [[nodiscard]] TSOutputTypeRef type_ref() const;
         [[nodiscard]] const TSValueTypeMetaData *schema() const noexcept { return data_.schema(); }
+        /** True when this output carries REF values rather than ordinary time-series values. */
+        [[nodiscard]] bool is_reference() const noexcept
+        {
+            const auto *value_schema = schema();
+            return value_schema != nullptr && value_schema->kind == TSTypeKind::REF;
+        }
 
         /** Current and delta value projections. */
         [[nodiscard]] ValueView value() const;
