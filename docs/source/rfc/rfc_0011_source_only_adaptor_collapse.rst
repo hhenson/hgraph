@@ -23,10 +23,12 @@ already (``src/hgraph/types/service_runtime.cpp:136-178``). What differs is a
 path string, a marker ``typeid``, and an error message.
 
 Around that identical core, the two surfaces have drifted in four ways
-(publishing contract, scope enforcement, output-schema checking, and generic
-client schema). Three of the four are places where the reference-service
-behaviour is the stricter and better one, so the collapse is a net improvement
-rather than a rename. They are enumerated and resolved below.
+(publishing contract, publish enforcement, output-schema checking, and generic
+client schema). The reference-service behaviour is the stricter one for concrete
+schemas, so the collapse tightens checking rather than merely renaming — but the
+**generic** template path is currently as unchecked as the adaptor path, so
+closing that hole is part of the work rather than a property inherited for free.
+All four are enumerated and resolved below.
 
 This RFC proposes collapsing them. The reference service is the primitive; the
 source-only adaptor form is deprecated and then removed. The adaptor surface
@@ -208,28 +210,62 @@ no body change; a manual one drops its ``to_graph`` call and returns the port
 instead. The RFC should say so explicitly because it is the only implementation
 edit the migration requires.
 
-**2. Implementation-scope enforcement is lost.** The adaptor path opens a
-``service_implementation_scope`` with required endpoints
+**2. "Did the implementation publish?" is enforced differently.** The adaptor
+path opens a ``service_implementation_scope`` with required endpoints
 (``adaptor_wiring.h:451``, ``:507-508``), so ``end_service_implementation``
-(``graph_wiring.cpp:2221-2240``) fails an implementation that never published.
-``register_reference_service`` opens no scope, so a reference-service
-implementation that silently fails to produce is not caught the same way.
+(``graph_wiring.cpp:2213-2243``) fails an implementation that never called
+``register_service_implementation_stub`` for each endpoint.
+``register_reference_service`` opens no scope.
 
-*Proposed:* give ``register_reference_service`` the same scope treatment —
-``service_wiring.h:996-1006`` already has ``wire_service_graph_with_scope``, it
-is simply not used here. This is a strict improvement to the reference-service
-surface and should land as part of the collapse rather than being lost with it.
+*Proposed:* **not** to reuse the stub scope. The existing helper cannot express
+this contract: ``wire_service_graph_with_scope`` (``service_wiring.h:996-1008``)
+returns ``void`` and delegates to ``wire_service_graph``, which discards the
+implementation's port (``:983-994``, ``static_cast<void>(wire<Impl>(...))``),
+and the scope checks only stub registration — which a by-return implementation
+never performs. A non-empty required-endpoint set would therefore reject every
+valid by-return implementation, and an empty set would check nothing while
+discarding the port needed for capture.
 
-**3. Output-schema conformance is checked on only one side.** The reference path
-runs ``describe_service_output`` (``service_runtime.cpp:190-209``) and
-``Port::as<OutputSchema>()``, which reject an implementation whose output does
-not match the interface. The adaptor path only null-checks (``:897-900``,
-``:995-999``) and builds the capture from the *implementation's* meta while the
-source uses the *interface's* meta.
+For a by-return implementation the equivalent of "did you publish?" is simply
+"did you return a usable port", which ``register_reference_service`` already
+answers through ``Port::as<OutputSchema>()`` and, on the erased path,
+``describe_service_output``. So this is a **smaller gap than first drafted**:
+the enforcement exists in a different form rather than being absent. What is
+genuinely missing is the generic case — see difference 3. Any stronger
+guarantee needs a return-preserving scope mechanism, not the manual-stub helper;
+that is deliberately left out of scope here.
 
-*Proposed:* the collapse adopts the checked behaviour. Any in-tree source-only
-adaptor relying on the unchecked path is by definition mis-declared and is
-fixed as part of migration.
+**3. Output-schema conformance is checked on only one side — but only for
+concrete schemas.** The erased reference path always checks, via
+``describe_service_output`` (``service_runtime.cpp:189-211``). On the C++
+template path the check is conditional:
+
+.. code-block:: cpp
+
+   // service_wiring.h:403-429 — wire_service_impl
+   if constexpr (schema_descriptor<OutputSchema>::is_concrete())
+   {
+       return output.template as<OutputSchema>();      // validates
+   }
+   else
+   {
+       return Port<OutputSchema>{w, output.erased()};  // NO validation
+   }
+
+For a **generic** C++ reference interface the non-concrete branch wraps
+``output.erased()`` without calling ``Port::as`` or comparing against
+``resolved_schema_meta``, and ``capture_reference_service_output`` then builds
+the capture from the implementation's schema (``:888-893``). That is exactly the
+unchecked mismatch this RFC attributes to adaptors
+(``service_runtime.cpp:897-900``, ``:995-999``).
+
+*Proposed:* the collapse adopts the checked behaviour **and closes the generic
+hole** — the non-concrete branch must compare the implementation's resolved meta
+against ``resolved_schema_meta<OutputSchema>`` before returning. Without that,
+migrating a generic source-only adaptor would preserve the defect rather than
+fix it, and a concrete-only mismatch test would pass while the generic path
+stayed unchecked. The test plan therefore requires a **generic** mismatch case,
+not just a concrete one.
 
 **4. Generic interfaces return a different schema.** For a non-concrete output
 schema, the reference client patches the port schema down to the resolved
@@ -603,11 +639,11 @@ Acceptance criteria and test plan
   workaround.
 * Every in-tree source-only adaptor is migrated to a reference service with
   behaviour unchanged: same values, same cycle counts, same rank order.
-* ``register_reference_service`` opens an implementation scope and fails an
-  implementation that publishes nothing (difference 2), with a test that pins
-  the diagnostic.
 * A reference-service implementation whose output does not match the interface
-  is rejected at wiring time (difference 3).
+  is rejected at wiring time for a **concrete** schema (already true) **and for
+  a generic one** (difference 3, the new work). The generic mismatch test is
+  mandatory: a concrete-only test would pass while the generic template path
+  stayed unchecked.
 * A **generic** migrated interface returns the resolved value schema rather than
   ``REF<T>`` on the template client path, matching the erased runtime
   (difference 4), with a test asserting the port schema.
