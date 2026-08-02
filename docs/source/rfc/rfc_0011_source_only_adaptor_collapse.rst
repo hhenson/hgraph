@@ -38,8 +38,11 @@ This RFC proposes collapsing them, in two stages and in this order:
    gain capability. The aim is the **union** of the two usage models, not the
    intersection.
 2. **Collapse, subtractively.** With nothing left that only an adaptor could do,
-   deprecate and then remove the source-only adaptor spelling. The reference
-   service is the primitive.
+   the source-only adaptor stops being a second implementation: it *lowers* onto
+   the reference-service machinery, warning per graph build. One change under
+   the 1.0 clean break, no deprecation cycle. The reference service is the
+   primitive; the source-only spelling survives as a deprecated forwarder until
+   downstream exposure is known.
 
 The adaptor surface remains for the cases that genuinely differ from any service
 flavour — duplex (input and output) and sink-only (input, no output).
@@ -686,10 +689,16 @@ Alternatives considered
 Disambiguate the concepts and keep both constructs
    Add ``!std::derived_from<Service, adaptor::interface>`` to
    ``reference_service_interface``. This fixes the compile error in a few lines
-   and changes no behaviour. Rejected as the primary answer because it
-   entrenches the duplication the error is a symptom of — precisely the
-   "two ways to do one thing" guardrail. It is, however, the correct **interim**
-   fix if this RFC is not accepted, and it is what
+   and changes no behaviour. Rejected **as a standalone answer**, because on its
+   own it entrenches the duplication the error is a symptom of — precisely the
+   "two ways to do one thing" guardrail.
+
+   The disambiguation *technique* is nonetheless adopted by step 9, where it
+   pairs with lowering the source-only spelling onto the reference-service
+   machinery. Combined, the duplication dies while the spelling survives, so the
+   objection to it no longer applies: there is one implementation behind two
+   names, not two implementations. It is also the correct interim fix if this
+   RFC is not accepted, and it is what
    ``tests/cpp/test_service_push_sources.cpp`` (PR #257) currently works around
    with a duplex adaptor.
 
@@ -713,51 +722,90 @@ Internal de-duplication only, both public surfaces retained
    Rejected for the same reason: it hides the duplication rather than resolving
    it, and users still face two names for one construct.
 
-Unresolved questions
---------------------
+Decisions
+---------
 
-**Decided (Howard, 2026-08-02):**
+All open questions were settled by Howard on 2026-08-02. Nothing in this RFC is
+now blocked on a ruling.
 
-* Client scalar options and time-series registration configuration are **lifted
-  onto the service surface**, not traded away — "the best of both worlds, not a
-  restriction of one to enforce the other". The ``from_graph`` / ``to_graph``
-  usage model is lifted with them. Recorded as capabilities A, B and D above.
-* Step 4 **adds no new registration verb**: ``register_services`` becomes lazy
-  and serves the single-interface by-stub case, and no singular
-  ``service::register_service`` alias is introduced.
-* The C++-template-only fail-fast check for a never-published *unused*
-  registration is **dropped**; ``test_service_wiring.cpp:2128`` gains a client.
+**Direction.** Client scalar options and time-series registration configuration
+are **lifted onto the service surface**, not traded away — "the best of both
+worlds, not a restriction of one to enforce the other". The ``from_graph`` /
+``to_graph`` usage model is lifted with them (capabilities A, B and D above).
 
-Still open:
+**Registration verb (step 4).** No new verb: ``register_services`` becomes lazy
+and serves the single-interface by-stub case; no singular
+``service::register_service`` alias. The C++-template-only fail-fast check for a
+never-published *unused* registration is dropped and
+``test_service_wiring.cpp:2128`` gains a client.
 
-* **The multi-interface case.** With services gaining ``to_graph`` and a lazy
-  by-stub registration, the documented sink-in/source-out example becomes
-  expressible again *if* one implementation may span an adaptor and a service.
-  The erased ``register_multi_service_impl`` already spans flavours
-  (``service_runtime.cpp:762-788``); only the template surface is statically
-  disjoint (``register_adaptors`` requires ``adaptor_interface``,
-  ``register_services`` requires ``service_interface``). Relaxing that to a
-  mixed-flavour group would preserve the example and the registration
-  atomicity. Recommendation revised: **relax the template constraint** rather
-  than accept the loss, since it follows the same lift-don't-restrict principle.
-  It does enlarge the RFC.
-* Should ``@service_impl(interfaces=())`` gain catch-all support, so the
-  capability is not adaptor-exclusive? Not required by this RFC — catch-all
-  survives with the adaptor family — but it is the remaining asymmetry once
-  source-only is gone, and the same principle would say yes.
-* Should the deprecation stage warn at wiring time (every graph build) or once
-  per interface at decoration/registration? Once per interface is quieter but
-  easier to miss.
-* Does any downstream repository declare a source-only adaptor? Nothing in this
-  tree does outside tests, but the removal stage should not land until that is
-  confirmed.
-* Should ``intern_service_descriptor`` reject ``Adaptor`` + null
-  ``input_schema`` outright, or silently re-intern it as ``Reference``? Rejecting
-  is clearer; re-interning is kinder to code that builds descriptors
-  programmatically through the bridge.
-* Given that nothing in production uses the form, is a deprecation window
-  warranted at all, or should the removal be a single change under the 1.0
-  clean break?
+**Mixed-flavour groups.** Accepted: relax ``register_services`` /
+``register_adaptors`` so one implementation may span an adaptor and a service,
+preserving the documented sink-in/source-out example and its registration
+atomicity. The erased ``register_multi_service_impl`` already spans flavours
+(``service_runtime.cpp:762-788``); only the template ``static_assert`` s are
+disjoint.
+
+**Catch-all for services.** Accepted: ``@service_impl(interfaces=())`` gains the
+catch-all capability, so it is no longer adaptor-exclusive. The underlying
+``register_catch_all_service_implementation_candidate`` has no flavour, so this
+generalises the Python and bridge entry points rather than the mechanism.
+
+**Removal is one change under the 1.0 clean break** — no deprecate-then-remove
+release cycle — and the source-only form is **re-interned rather than
+rejected**, with a warning logged **per graph build**.
+
+Those three answers together define a *soft* landing, which changes the shape of
+the final step. See "The soft-landing consequence" below.
+
+**Downstream exposure is unknown.** Nothing in this tree declares a source-only
+adaptor outside tests, and no survey of downstream repositories is available;
+the accepted position is to proceed and "find out the hard way". The re-intern
+behaviour is what makes that acceptable — see below.
+
+The soft-landing consequence
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Re-intern-and-warn (rather than reject) is a *runtime* behaviour on the erased
+descriptor path. It gives Python and any programmatically built descriptor a
+soft landing: a source-only ``@adaptor`` keeps working, silently promoted to a
+reference service, with a per-build warning.
+
+The C++ **template** surface cannot be softened the same way by narrowing
+``adaptor_interface``: a concept that no longer accepts a source-only interface
+is a *compile* error, not a warning. Narrowing is also what makes
+``reference_service_interface`` and ``adaptor_interface`` disjoint, which is the
+fix for the ``wire<>`` ambiguity.
+
+Applying the accepted principle consistently, the final step therefore
+**keeps the C++ source-only spelling as a deprecated forwarder** rather than
+deleting it:
+
+* ``adaptor_interface`` continues to accept a source-only interface, so existing
+  C++ code still compiles.
+* The ``wire<>`` ambiguity is resolved by excluding adaptor-derived types from
+  ``reference_service_interface`` — the "disambiguate the concepts" alternative,
+  which on its own was rejected for entrenching the duplication.
+* It no longer entrenches anything, because the source-only adaptor *lowers to
+  the reference-service machinery*: ``output_source`` / ``capture_output`` /
+  ``client_to_graph`` become forwarders onto the reference-service path rather
+  than a second implementation. The duplication dies even though the spelling
+  survives.
+* The forwarders warn per graph build, matching the erased path.
+
+This is a better fit for the accepted answers than deletion: it removes the
+duplication (the RFC's purpose), fixes the ambiguity (the RFC's proximate
+defect), and breaks nobody — which matters precisely because downstream exposure
+is unknown. Deletion of the forwarders can follow later once exposure is known,
+and needs no further RFC.
+
+**Trade-off to be aware of:** the path grammar then diverges from the spelling.
+A source-only adaptor that lowers to a reference service publishes under
+``ref_svc://…`` rather than ``adaptor://…/to_graph``, so registry keys, node
+labels and inspector output change even though the source code does not. Any
+catch-all that discovers clients by splitting the ``adaptor://`` grammar
+(``http_server_adaptor.py:470``, ``websocket_server_adaptor.py:453``,
+``_perspective_adaptor.py:182``) must be checked against that.
 
 Acceptance criteria and test plan
 ---------------------------------
@@ -785,11 +833,13 @@ Stage 1 — lift (additive; no existing behaviour changes)
 * Every existing service and adaptor test still passes with no edits: stage 1
   removes nothing.
 
-Stage 2 — collapse (breaking)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Stage 2 — collapse (one change, soft landing)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* ``adaptor::detail::adaptor_interface`` requires an input schema; a source-only
-  interface fails to satisfy it with a diagnostic naming ``reference_service``.
+* ``reference_service_interface`` and ``adaptor_interface`` are disjoint —
+  ``reference_service_interface`` excludes ``adaptor::interface``-derived types
+  — while ``adaptor_interface`` still accepts a source-only interface, so
+  existing C++ code compiles unchanged.
 * ``reference_service_interface`` and ``adaptor_interface`` are provably
   disjoint: a test translation unit including **both** ``service_wiring.h`` and
   ``adaptor_wiring.h`` wires a duplex adaptor, a sink-only adaptor and a
@@ -818,13 +868,19 @@ Stage 2 — collapse (breaking)
 * Docs updated: ``services.rst:313-318, 331-334, 365-382`` and
   ``user_guide/authoring_graphs_cpp.rst:886-893, 1090-1093`` all currently
   describe source-only adaptors as supported.
-* ``tests/cpp/test_adaptor_wiring.cpp`` keeps its duplex, sink-only,
-  multi-interface, automatic-registration, scalar-qualified-path and generic
-  cases; its source-only cases move to the service suite.
-* A source-only ``@adaptor`` in Python raises with a message naming
-  ``@reference_service``.
-* A descriptor with ``flavour == Adaptor`` and no ``input_schema`` is rejected
-  at ``intern_service_descriptor``.
+* ``tests/cpp/test_adaptor_wiring.cpp`` keeps every case, including its
+  source-only ones, which now exercise the lowering. Equivalent cases are added
+  to the service suite.
+* A source-only ``@adaptor`` in Python keeps working and is re-interned as a
+  reference service, logging a warning **per graph build**.
+* A descriptor with ``flavour == Adaptor`` and no ``input_schema`` is
+  re-interned as ``Reference`` with a warning, not rejected.
+* A C++ source-only adaptor still compiles and wires, lowering onto the
+  reference-service path and warning per graph build.
+* **Registry keys move**: a lowered source-only adaptor publishes under
+  ``ref_svc://…`` rather than ``adaptor://…/to_graph``. A test pins the new node
+  labels, and the tornado and perspective catch-alls that split the
+  ``adaptor://`` grammar are verified to still discover their endpoints.
 * The full native suite and the non-WIP Python compatibility suites pass on
   macOS and Linux, including ``python/tests/ported`` (which is not part of the
   default ``ctest`` run).
@@ -835,10 +891,10 @@ Stage 2 — collapse (breaking)
 Implementation plan
 -------------------
 
-Nine PR-sized steps. Steps 1-6 are stage 1 (additive, each independently
-mergeable and independently useful); steps 7-9 are stage 2 (breaking). Planning
-the work sharpened three estimates in this RFC — recorded inline below and
-summarised under "What planning changed".
+Nine PR-sized steps. Steps 1-8 are stage 1 (additive, each independently
+mergeable and independently useful); step 9 is stage 2, a single change under
+the 1.0 clean break. Planning sharpened three estimates in this RFC — recorded
+inline below and summarised at the end of this section.
 
 **The unifying insight for the C++/erased work:** ``materialize_adaptor_impl``
 (``service_runtime.cpp:956-1002``) is already the shape services need. It
@@ -975,42 +1031,82 @@ reference-service surface, not only a migration prerequisite.
 Test: a generic reference service whose implementation returns the wrong
 resolved type is rejected. This test must fail before the change.
 
-Step 6 — deduplicate the shared helpers
+Step 6 — catch-all support for service implementations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Accepted decision. ``register_catch_all_service_implementation_candidate``
+(``graph_wiring.cpp:1892-1910``) already has no flavour — it sweeps
+``service_client_records()`` and claims unclaimed endpoints — so the work is at
+the entry points, not the mechanism: allow ``@service_impl(interfaces=())``
+(today it falls through to ``interfaces[0]`` and raises ``IndexError``), and
+give it a bridge entry mirroring ``register_unbound_adaptor_impl``
+(``service_runtime.h:141-143``).
+
+Test: a service catch-all serving a client whose path no exact candidate
+claims; an exact registration still taking precedence over it.
+
+Step 7 — mixed-flavour multi-interface groups
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Accepted decision. Relax the ``static_assert`` s in ``register_services``
+(``service_wiring.h:1183-1184``) and ``register_adaptors``
+(``adaptor_wiring.h:549-550``) so one implementation may span an adaptor and a
+service, preserving the documented sink-in/source-out example and its
+registration atomicity. The erased ``register_multi_service_impl`` already spans
+flavours (``service_runtime.cpp:762-788``), so this aligns the template surface
+with the erased one — the same divergence step 4 removes.
+
+Test: the ``services.rst`` example — a sink-only adaptor in, a reference service
+out — registered by one implementation, wired atomically.
+
+Step 8 — deduplicate the shared helpers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Mechanical, no behaviour change: one ``ServicePath``/``AdaptorPath``, one
 ``bind_schema_resolution`` / ``resolved_schema_meta`` / ``is_path_scalar`` /
 ``implementation_accepts_path`` / ``path_key_value``. Drop the unused ``Impl``
-parameter on ``capture_reference_service_output``. Best done after steps 1-5 so
-it rebases over settled code.
+parameter on ``capture_reference_service_output``. Best done late so it rebases
+over settled code.
 
-Step 7 — deprecate source-only adaptors
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Step 9 — collapse, as one change under the 1.0 clean break
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Warn from the source-only ``@adaptor`` and ``adaptor::interface`` paths, naming
-``@reference_service`` / ``register_reference_service``. Both spellings still
-work. Migrate the five in-tree declarations to services in the same change, so
-the tree is warning-free and the migration is demonstrated.
+Accepted decision: no deprecate-then-remove cycle, and the source-only form is
+re-interned rather than rejected. Per "The soft-landing consequence" above, this
+step therefore *lowers* the source-only spelling onto the reference-service
+machinery instead of deleting it:
 
-Step 8 — mixed-flavour multi-interface groups
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+* **Erased path.** ``intern_service_descriptor`` re-interns ``Adaptor`` with a
+  null ``input_schema`` as ``Reference`` and logs a warning; the bridge
+  (``py_state_services.cpp:304-308``) stops requiring a request schema for the
+  ``"adaptor"`` flavour and routes the source-only case the same way. A Python
+  source-only ``@adaptor`` keeps working.
+* **C++ template path.** ``adaptor::detail::output_source`` /
+  ``capture_output`` / ``client_to_graph`` become forwarders onto the
+  reference-service path — one implementation, two spellings — and warn per
+  graph build. ``adaptor_interface`` keeps accepting source-only interfaces, so
+  existing C++ code still compiles.
+* **The ambiguity fix.** ``reference_service_interface`` excludes
+  ``std::derived_from<S, adaptor::interface>``, making the two concepts disjoint
+  without narrowing ``adaptor_interface``. The regression test is one
+  translation unit including both headers and wiring a duplex adaptor, a
+  sink-only adaptor, a source-only adaptor and a reference service with no
+  ambiguity; ``tests/cpp/test_service_push_sources.cpp`` drops its duplex
+  workaround.
+* **Warning granularity** is per graph build, on both paths, per the accepted
+  answer.
+* Migrate the five in-tree declarations so the tree builds warning-free, and
+  update ``services.rst`` and ``authoring_graphs_cpp.rst`` to present the
+  source-only form as deprecated and reference services as the replacement.
 
-Relax ``register_services`` / ``register_adaptors`` so one implementation may
-span an adaptor and a service, preserving the documented sink-in/source-out
-example. The erased ``register_multi_service_impl`` already spans flavours
-(``service_runtime.cpp:762-788``); only the template ``static_assert`` s are
-disjoint. **Gated on the open decision** — if that is declined, this step is
-replaced by documenting the two-registration replacement.
+Because the spelling survives, **registry keys move even though source code does
+not** — a lowered source-only adaptor publishes under ``ref_svc://…`` rather
+than ``adaptor://…/to_graph``. Node labels, inspector output and any catch-all
+that splits the ``adaptor://`` grammar must be checked. This is the one place
+the soft landing is not fully transparent, and it needs its own test.
 
-Step 9 — remove source-only adaptors
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Narrow ``adaptor_interface`` to require an input; reject ``Adaptor`` with a null
-``input_schema`` at ``intern_service_descriptor`` and at the bridge
-(``py_state_services.cpp:304-308``); delete the source-only overloads; update
-``services.rst`` and ``authoring_graphs_cpp.rst``. Add the disjointness
-regression test — one translation unit including both headers — and drop the
-duplex workaround in ``tests/cpp/test_service_push_sources.cpp``.
+Deleting the forwarders is a later, smaller change once downstream exposure is
+known; it needs no further RFC.
 
 What planning changed
 ~~~~~~~~~~~~~~~~~~~~~
