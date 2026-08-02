@@ -146,6 +146,13 @@ Explicitly out of scope, because the transports genuinely differ:
   the explicit stub protocol, not the relay. Recorded here as an adjacent
   observation for a possible later RFC; this RFC does not touch it.
 
+  **Superseded in part.** Steps 3 and 4 removed the stub-protocol difference
+  (services gained ``from_graph``/``to_graph`` and a by-stub registration), so
+  this reason no longer holds. The remaining differences are the response
+  feedback edge and the scheduling that follows from it;
+  :doc:`rfc_0012_replyless_request_reply_relay` takes up the reply-less case,
+  where there is no response feedback at all.
+
 Ownership boundary
 ------------------
 
