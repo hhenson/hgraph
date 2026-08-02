@@ -490,6 +490,23 @@ namespace hgraph
      */
     using BoundaryPath = wiring_path_detail::TypedPathValue;
 
+    /**
+     * How one interface participates in a MULTI-interface registration group.
+     *
+     * Specialized for service interfaces in ``service_wiring.h`` and for
+     * adaptor interfaces in ``adaptor_wiring.h``. Those two headers do not
+     * include each other, so the customization point lives here: with both
+     * visible, one implementation may span an adaptor and a service in a
+     * single atomic registration (RFC 0011 step 7). This is the same extension
+     * idiom as ``wire_customization``.
+     */
+    namespace boundary_detail
+    {
+        template <typename Interface, typename = void>
+        struct group_member;   // primary intentionally undefined
+    }
+
+
     namespace wiring_path_detail
     {
 

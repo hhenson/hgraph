@@ -688,6 +688,27 @@ namespace hgraph::adaptor
     }
 }  // namespace hgraph::adaptor
 
+namespace hgraph::boundary_detail
+{
+    /** Adaptor interfaces in a multi-interface group (RFC 0011 step 7). */
+    template <typename Interface>
+    struct group_member<Interface, std::enable_if_t<adaptor::detail::adaptor_interface<Interface>>>
+    {
+        [[nodiscard]] static std::string base_path(const BoundaryPath &user_path)
+        {
+            return adaptor::detail::adaptor_base_path<Interface>(user_path);
+        }
+
+        [[nodiscard]] static std::string_view kind() { return "adaptor"; }
+
+        static void append_required_endpoints(
+            std::vector<WiringServiceImplementationEndpoint> &endpoints, const BoundaryPath &user_path)
+        {
+            adaptor::detail::append_required_stub_endpoints<Interface>(endpoints, user_path);
+        }
+    };
+}   // namespace hgraph::boundary_detail
+
 namespace hgraph::graph_wiring_detail
 {
     template <typename Interface, typename OutSchema, typename... Args>

@@ -4,6 +4,7 @@
 #include <hgraph/lib/std/std_nodes.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/types/adaptor_wiring.h>
 #include <hgraph/types/service_wiring.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value_builder.h>
@@ -1624,6 +1625,48 @@ namespace
         }
     };
 
+    // RFC 0011 step 7: ONE implementation spanning an adaptor and a service.
+    // This is the shape services.rst documents as "a sink-only interface in, a
+    // source-only interface out" - now expressible as a single atomic
+    // registration rather than two.
+    struct CollectAdaptor : adaptor::interface
+    {
+        static constexpr std::string_view name{"collect_in"};
+        using input_schema = TS<Int>;
+    };
+
+    struct PublishService
+    {
+        static constexpr std::string_view name{"publish_out"};
+        using output_schema = TS<Int>;
+    };
+
+    struct MixedFlavourImpl
+    {
+        [[maybe_unused]] static constexpr auto name = "mixed_flavour_impl";
+
+        static void compose(Wiring &w, Scalar<"path", Str> path)
+        {
+            const auto custom = service::path(path.value());
+            auto collected = adaptor::from_graph<CollectAdaptor>(w, custom);
+            service::to_graph<PublishService>(
+                w, custom, wire<AddOneValueNode>(w, collected).as<TS<Int>>());
+        }
+    };
+
+    struct MixedFlavourGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "mixed_flavour_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value)
+        {
+            const auto custom = service::path("mixed");
+            service::register_services<MixedFlavourImpl, CollectAdaptor, PublishService>(w, custom);
+            adaptor::adaptor<CollectAdaptor>(w, custom, value);
+            return wire<PublishService>(w, custom);
+        }
+    };
+
     inline int single_interface_stub_compositions = 0;
 
     // RFC 0011 step 4: register_services with ONE interface is the
@@ -2331,6 +2374,17 @@ TEST_CASE("service wiring: multi-interface implementation graph wires explicit s
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<MultiServiceClientGraph>(values<Int>(1)), values<Int>(none, none, 13));
+}
+
+TEST_CASE("service wiring: one implementation may span an adaptor and a service")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // RFC 0011 step 7. register_services describes each member through
+    // boundary_detail::group_member, so the pack may mix families when both
+    // headers are visible. Value in through the sink-only adaptor, out through
+    // the reference service, +1 in between.
+    CHECK_OUTPUT(eval_node<MixedFlavourGraph>(values<Int>(1, 2)), values<Int>(2, 3));
 }
 
 TEST_CASE("service wiring: a generic implementation output must match the resolved interface schema")

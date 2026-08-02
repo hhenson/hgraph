@@ -1230,68 +1230,88 @@ namespace hgraph::service
         impl_output<Service>(w, std::forward<Args>(args)...);
     }
 
-    template <typename Impl, typename... Services, typename... Args>
-    void register_services(Wiring &w, ServicePath user_path, const Args &...args)
+}   // namespace hgraph::service
+
+namespace hgraph::boundary_detail
+{
+    /** Service interfaces in a multi-interface group (RFC 0011 step 7). */
+    template <typename Service>
+    struct group_member<Service, std::enable_if_t<service::detail::service_interface<Service>>>
     {
-        static_assert(sizeof...(Services) > 0,
-                      "register_services requires at least one service interface");
-        static_assert((detail::service_interface<Services> && ...),
-                      "register_services requires service descriptor types");
+        [[nodiscard]] static std::string base_path(const BoundaryPath &user_path)
+        {
+            if constexpr (service::detail::reference_service_interface<Service>)
+            {
+                return service::detail::reference_base_path<Service>(user_path);
+            }
+            else if constexpr (service::detail::subscription_service_interface<Service>)
+            {
+                return service::detail::subscription_base_path<Service>(user_path);
+            }
+            else
+            {
+                return service::detail::request_reply_base_path<Service>(user_path);
+            }
+        }
 
-        // The base path of each interface this implementation provides. These
-        // are the paths a client request must name for the implementation to
-        // be wanted.
-        std::vector<std::string> base_paths;
-        base_paths.reserve(sizeof...(Services));
-        (
-            [&] {
-                if constexpr (detail::reference_service_interface<Services>)
-                {
-                    base_paths.push_back(detail::reference_base_path<Services>(user_path));
-                }
-                else if constexpr (detail::subscription_service_interface<Services>)
-                {
-                    base_paths.push_back(detail::subscription_base_path<Services>(user_path));
-                }
-                else if constexpr (detail::request_reply_service_interface<Services>)
-                {
-                    base_paths.push_back(detail::request_reply_base_path<Services>(user_path));
-                }
-            }(),
-            ...);
+        [[nodiscard]] static std::string_view kind()
+        {
+            if constexpr (service::detail::reference_service_interface<Service>)
+            {
+                return "reference service";
+            }
+            else if constexpr (service::detail::subscription_service_interface<Service>)
+            {
+                return "subscription service";
+            }
+            else
+            {
+                return "request/reply service";
+            }
+        }
 
-        // LAZY, matching register_adaptors and the erased
-        // register_multi_service_impl (RFC 0011 step 4). This was the only
-        // eager registration on either surface, and it diverged from its own
-        // erased counterpart. Being lazy also makes this the single-interface
-        // BY-STUB registration - the quadrant services previously lacked
-        // against register_adaptor / register_automatic_adaptor.
+        static void append_required_endpoints(
+            std::vector<WiringServiceImplementationEndpoint> &endpoints, const BoundaryPath &user_path)
+        {
+            service::detail::append_required_stub_endpoints<Service>(endpoints, user_path);
+        }
+    };
+}   // namespace hgraph::boundary_detail
+
+namespace hgraph::service
+{
+    /**
+     * Register ONE implementation providing several interfaces.
+     *
+     * The interface pack may MIX services and adaptors (RFC 0011 step 7):
+     * each member is described through ``boundary_detail::group_member``, which
+     * ``service_wiring.h`` specializes for service interfaces and
+     * ``adaptor_wiring.h`` for adaptor interfaces. This is what keeps the
+     * documented "sink-only interface in, source-only interface out" shape
+     * expressible as a single atomic registration.
+     *
+     * Lazy: the implementation is composed only once a client requests one of
+     * its interfaces.
+     */
+    template <typename Impl, typename... Interfaces, typename... Args>
+    void register_services(Wiring &w, BoundaryPath user_path, const Args &...args)
+    {
+        static_assert(sizeof...(Interfaces) > 0,
+                      "register_services requires at least one interface");
+        std::vector<std::string> base_paths{
+            boundary_detail::group_member<Interfaces>::base_path(user_path)...};
         auto stored_args = std::tuple<std::decay_t<Args>...>{args...};
         w.register_service_implementation_candidate(
             base_paths, "multi-service implementation",
             [user_path, stored_args = std::move(stored_args)](Wiring &target) {
-                (
-                    [&] {
-                        if constexpr (detail::reference_service_interface<Services>)
-                        {
-                            target.register_built_service_path(
-                                detail::reference_base_path<Services>(user_path), "reference service");
-                        }
-                        else if constexpr (detail::subscription_service_interface<Services>)
-                        {
-                            target.register_built_service_path(
-                                detail::subscription_base_path<Services>(user_path), "subscription service");
-                        }
-                        else if constexpr (detail::request_reply_service_interface<Services>)
-                        {
-                            target.register_built_service_path(
-                                detail::request_reply_base_path<Services>(user_path),
-                                "request/reply service");
-                        }
-                    }(),
-                    ...);
+                (target.register_built_service_path(
+                     boundary_detail::group_member<Interfaces>::base_path(user_path),
+                     boundary_detail::group_member<Interfaces>::kind()),
+                 ...);
                 std::vector<WiringServiceImplementationEndpoint> required_endpoints;
-                (detail::append_required_stub_endpoints<Services>(required_endpoints, user_path), ...);
+                (boundary_detail::group_member<Interfaces>::append_required_endpoints(
+                     required_endpoints, user_path),
+                 ...);
                 std::apply(
                     [&](const auto &...stored) {
                         detail::wire_service_graph_with_scope<Impl>(
