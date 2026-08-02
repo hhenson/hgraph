@@ -419,6 +419,7 @@ namespace hgraph::python_bridge
     {
         TSOutputHandle handle;
         DateTime       now{};
+        NodeScheduler  scheduler;
         PyTsLease      lease;
 
         [[nodiscard]] TSOutputView checked() const
@@ -446,7 +447,7 @@ namespace hgraph::python_bridge
         {
             const NodeView owner = checked().owner_node();
             return owner.valid()
-                       ? nb::cast(PyNode{owner.pointer(), NodeScheduler{}, lease})
+                       ? nb::cast(PyNode{owner.pointer(), scheduler, lease})
                        : nb::none();
         }
 
@@ -469,7 +470,7 @@ namespace hgraph::python_bridge
                     const auto &field = view.schema()->fields()[index];
                     auto child = bundle.at(index);
                     value[nb::str{field.name}] =
-                        PyOutput{TSOutputHandle{child}, now, lease}.value();
+                        PyOutput{TSOutputHandle{child}, now, scheduler, lease}.value();
                 }
                 return materialize_tsb_value(view.schema(), std::move(value));
             }
@@ -516,18 +517,19 @@ namespace hgraph::python_bridge
                     {
                         throw nb::key_error("output key not found");
                     }
-                    return PyOutput{dict.at(key_value.view()).handle(), now, lease};
+                    return PyOutput{dict.at(key_value.view()).handle(), now, scheduler, lease};
                 }
                 case TSTypeKind::TSL: {
                     auto list = view.as_list();
-                    return PyOutput{list.at(nb::cast<std::size_t>(key)).handle(), now, lease};
+                    return PyOutput{
+                        list.at(nb::cast<std::size_t>(key)).handle(), now, scheduler, lease};
                 }
                 case TSTypeKind::TSB: {
                     auto bundle = view.as_bundle();
                     TSOutputView result = nb::isinstance<nb::str>(key)
                                               ? bundle.field(nb::cast<std::string>(key))
                                               : bundle.at(nb::cast<std::size_t>(key));
-                    return PyOutput{result.handle(), now, lease};
+                    return PyOutput{result.handle(), now, scheduler, lease};
                 }
                 default: throw nb::type_error("this output kind has no children");
             }
@@ -543,7 +545,8 @@ namespace hgraph::python_bridge
             Value key_value = py_to_value_as(key, view.schema()->key_type());
             auto  mutation  = view.as_dict().begin_mutation(now);
             auto  child     = mutation.at(key_value.view());
-            return PyOutput{TSOutputHandle{view.output(), child}, now, lease};
+            return PyOutput{
+                TSOutputHandle{view.output(), child}, now, scheduler, lease};
         }
 
         void erase(nb::handle key) const
@@ -712,6 +715,7 @@ namespace hgraph::python_bridge
     struct PyTimeSeries
     {
         TSInputView       view;
+        NodeScheduler     scheduler;
         PyTsLease         lease;
         TSDataStorageRef<> evaluation_data{};
         const TSDataOps   *python_value_ops{nullptr};
@@ -749,7 +753,7 @@ namespace hgraph::python_bridge
         {
             const NodeView owner = checked().consumer_node();
             return owner.valid()
-                       ? nb::cast(PyNode{owner.pointer(), NodeScheduler{}, lease})
+                       ? nb::cast(PyNode{owner.pointer(), scheduler, lease})
                        : nb::none();
         }
 
@@ -833,7 +837,7 @@ namespace hgraph::python_bridge
                     const auto &field = schema->fields()[index];
                     auto child = bundle.at(index);
                     result[nb::str{field.name}] =
-                        PyTimeSeries{std::move(child), lease}.value();
+                        PyTimeSeries{std::move(child), scheduler, lease}.value();
                 }
                 return materialize_tsb_value(schema, std::move(result));
             }
@@ -892,19 +896,23 @@ namespace hgraph::python_bridge
             {
                 case TSTypeKind::TSD: {
                     Value key_value = py_to_value_as(key, ts.schema()->key_type());
-                    return PyTimeSeries{ts.as_dict().at(key_value.view()), lease};
+                    return PyTimeSeries{
+                        ts.as_dict().at(key_value.view()), scheduler, lease};
                 }
                 case TSTypeKind::TSL: {
                     auto list = ts.as_list();
-                    return PyTimeSeries{list[nb::cast<std::size_t>(key)], lease};
+                    return PyTimeSeries{
+                        list[nb::cast<std::size_t>(key)], scheduler, lease};
                 }
                 case TSTypeKind::TSB: {
                     auto bundle = ts.as_bundle();
                     if (nb::isinstance<nb::str>(key))
                     {
-                        return PyTimeSeries{bundle.field(nb::cast<std::string>(key)), lease};
+                        return PyTimeSeries{
+                            bundle.field(nb::cast<std::string>(key)), scheduler, lease};
                     }
-                    return PyTimeSeries{bundle[nb::cast<std::size_t>(key)], lease};
+                    return PyTimeSeries{
+                        bundle[nb::cast<std::size_t>(key)], scheduler, lease};
                 }
                 default: throw nb::type_error("this time-series kind has no children");
             }
@@ -945,7 +953,8 @@ namespace hgraph::python_bridge
             auto dict = checked().as_dict();
             for (auto &&[key, child] : dict.modified_items())
             {
-                result.append(nb::make_tuple(value_to_py(key), PyTimeSeries{std::move(child), lease}));
+                result.append(nb::make_tuple(
+                    value_to_py(key), PyTimeSeries{std::move(child), scheduler, lease}));
             }
             return result;
         }
@@ -957,7 +966,7 @@ namespace hgraph::python_bridge
             for (auto &&[key, child] : dict.modified_items())
             {
                 static_cast<void>(key);
-                result.append(PyTimeSeries{std::move(child), lease});
+                result.append(PyTimeSeries{std::move(child), scheduler, lease});
             }
             return result;
         }
@@ -973,7 +982,8 @@ namespace hgraph::python_bridge
                     auto dict = ts.as_dict();
                     for (const ValueView &key : dict.keys())
                     {
-                        result.append(nb::cast(PyTimeSeries{dict.at(key), lease}));
+                        result.append(
+                            nb::cast(PyTimeSeries{dict.at(key), scheduler, lease}));
                     }
                     return result;
                 }
@@ -981,7 +991,8 @@ namespace hgraph::python_bridge
                     auto bundle = ts.as_bundle();
                     for (std::size_t index = 0; index < bundle.size(); ++index)
                     {
-                        result.append(nb::cast(PyTimeSeries{bundle[index], lease}));
+                        result.append(
+                            nb::cast(PyTimeSeries{bundle[index], scheduler, lease}));
                     }
                     return result;
                 }
@@ -989,7 +1000,8 @@ namespace hgraph::python_bridge
                     auto list = ts.as_list();
                     for (std::size_t index = 0; index < list.size(); ++index)
                     {
-                        result.append(nb::cast(PyTimeSeries{list[index], lease}));
+                        result.append(
+                            nb::cast(PyTimeSeries{list[index], scheduler, lease}));
                     }
                     return result;
                 }

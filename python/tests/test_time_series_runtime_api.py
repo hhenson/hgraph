@@ -5,6 +5,7 @@ import pytest
 from hgraph import (
     MIN_DT,
     MIN_ST,
+    MIN_TD,
     NODE,
     REF,
     TS,
@@ -68,6 +69,43 @@ def test_input_and_output_views_expose_generic_time_series_interrogation():
     for owner in retained[1::4] + retained[3::4]:
         with pytest.raises(RuntimeError, match="outside its lifecycle callback"):
             _ = owner.graph_id
+
+
+def test_input_and_output_owners_keep_the_callback_scheduler():
+    evaluations = []
+
+    @compute_node
+    def reschedule(value: TS[int], _output: TS_OUT[int] = None) -> TS[int]:
+        evaluations.append(value.value)
+        if len(evaluations) == 1:
+            value.owning_node.notify_next_cycle()
+            _output.owning_node.notify()
+        return value.value
+
+    eval_node(
+        reschedule,
+        value=[1],
+        __end_time__=MIN_ST + 2 * MIN_TD,
+    )
+    assert evaluations == [1, 1]
+
+
+def test_fast_compute_input_owner_keeps_the_callback_scheduler():
+    evaluations = []
+
+    @compute_node
+    def reschedule(value: TS[int]) -> TS[int]:
+        evaluations.append(value.value)
+        if len(evaluations) == 1:
+            value.owning_node.notify_next_cycle()
+        return value.value
+
+    eval_node(
+        reschedule,
+        value=[1],
+        __end_time__=MIN_ST + 2 * MIN_TD,
+    )
+    assert evaluations == [1, 1]
 
 
 def test_reference_input_and_output_views_identify_their_runtime_schema():
