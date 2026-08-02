@@ -77,6 +77,11 @@ namespace hgraph::ts_data_plan_factory_detail
             return factory.output_type_for(&schema).as_role();
         }
 
+        [[nodiscard]] TSRoleTypeRef realized_input_type(const TSValueTypeMetaData &schema)
+        {
+            return standalone_ts_storage_type(schema, TypeRole::Input);
+        }
+
         [[nodiscard]] const MemoryUtils::StoragePlan &ts_data_aux_plan_for_role(
             const TSValueTypeMetaData &schema, TypeRole role)
         {
@@ -89,7 +94,7 @@ namespace hgraph::ts_data_plan_factory_detail
             }
             if (is_slot_ts_data(schema))
             {
-                if (role == TypeRole::Output)
+                if (role == TypeRole::Input || role == TypeRole::Output)
                 {
                     const auto *key_schema = schema.kind == TSTypeKind::TSS
                                                  ? schema.value_schema->element_type
@@ -102,8 +107,10 @@ namespace hgraph::ts_data_plan_factory_detail
                         {
                             throw std::logic_error("TSDataPlanFactory: TSD element schema is not resolved");
                         }
-                        const auto *plan = synthesise_slot_tsd_plan(
-                            schema, key_binding, realized_output_type(*element_schema));
+                        const auto element_type = role == TypeRole::Input
+                                                      ? realized_input_type(*element_schema)
+                                                      : realized_output_type(*element_schema);
+                        const auto *plan = synthesise_slot_tsd_plan(schema, key_binding, element_type);
                         if (plan == nullptr)
                         {
                             throw std::logic_error("TSDataPlanFactory: realized TSD auxiliary plan is not resolved");
@@ -135,7 +142,10 @@ namespace hgraph::ts_data_plan_factory_detail
             }
             if (is_window_ts_data(schema))
             {
-                const auto *plan = synthesise_window_plan(schema);
+                const auto *plan = role == TypeRole::Input
+                                       ? synthesise_window_plan(
+                                             schema, realized_value_binding(schema.value_type))
+                                       : synthesise_window_plan(schema);
                 if (plan == nullptr)
                 {
                     throw std::logic_error("TSDataPlanFactory: window auxiliary plan is not resolved");
@@ -460,19 +470,21 @@ namespace hgraph::ts_data_plan_factory_detail
             const auto *key_schema = schema.kind == TSTypeKind::TSS
                                          ? schema.value_schema->element_type
                                          : schema.key_type();
-            const auto key_binding = role == TypeRole::Output
+            const auto key_binding = role == TypeRole::Input || role == TypeRole::Output
                                          ? realized_value_binding(key_schema)
                                          : ValuePlanFactory::instance().type_for(key_schema);
             const auto *plan = synthesise_slot_plan(schema, key_binding);
             if (plan == nullptr) throw std::logic_error("embedded keyed TSData plan is not resolved");
-            if (role == TypeRole::Output && schema.kind == TSTypeKind::TSD)
+            if ((role == TypeRole::Input || role == TypeRole::Output) && schema.kind == TSTypeKind::TSD)
             {
                 const auto *element_schema = schema.element_ts();
                 if (element_schema == nullptr)
                 {
                     throw std::logic_error("embedded TSD element schema is not resolved");
                 }
-                const auto element_type = realized_output_type(*element_schema);
+                const auto element_type = role == TypeRole::Input
+                                              ? realized_input_type(*element_schema)
+                                              : realized_output_type(*element_schema);
                 plan = synthesise_slot_tsd_plan(schema, key_binding, element_type);
                 if (plan == nullptr)
                 {
@@ -544,6 +556,13 @@ namespace hgraph::ts_data_plan_factory_detail
 
     [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_fixed_plan(const TSValueTypeMetaData &schema)
     {
+        return synthesise_fixed_plan(schema, TypeRole::Data);
+    }
+
+    [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_fixed_plan(
+        const TSValueTypeMetaData &schema,
+        TypeRole role)
+    {
         const auto value_binding = fixed_value_storage_binding(schema);
         if (!value_binding)
         {
@@ -552,7 +571,7 @@ namespace hgraph::ts_data_plan_factory_detail
         auto builder = MemoryUtils::named_tuple();
         builder.reserve(2);
         builder.add_field("value", value_binding.checked_plan());
-        builder.add_field("aux", ts_data_aux_plan(schema));
+        builder.add_field("aux", ts_data_aux_plan(schema, role));
         return &builder.build();
     }
 

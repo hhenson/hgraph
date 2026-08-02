@@ -36,8 +36,14 @@ namespace hgraph::ts_data_plan_factory_detail
         const TSValueTypeMetaData &schema,
         ValueTypeRef value_binding);
     [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_fixed_plan(const TSValueTypeMetaData &schema);
+    [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_fixed_plan(
+        const TSValueTypeMetaData &schema,
+        TypeRole role);
     [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_dynamic_list_plan(const TSValueTypeMetaData &schema);
     [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_window_plan(const TSValueTypeMetaData &schema);
+    [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_window_plan(
+        const TSValueTypeMetaData &schema,
+        ValueTypeRef element_binding);
     [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_slot_plan(const TSValueTypeMetaData &schema);
     [[nodiscard]] const MemoryUtils::StoragePlan *synthesise_slot_plan(
         const TSValueTypeMetaData &schema,
@@ -83,6 +89,13 @@ namespace hgraph::ts_data_plan_factory_detail
                                                       std::size_t value_offset,
                                                       std::size_t tracking_offset,
                                                       TypeRole role = TypeRole::Data,
+                                                      bool embedded = false);
+    [[nodiscard]] const TSDataOps &window_ts_data_ops(const TSValueTypeMetaData      &schema,
+                                                      const MemoryUtils::StoragePlan &plan,
+                                                      std::size_t value_offset,
+                                                      std::size_t tracking_offset,
+                                                      ValueTypeRef element_binding,
+                                                      TypeRole role,
                                                       bool embedded = false);
 
     [[nodiscard]] const TSDataOps &slot_ts_data_ops(const TSValueTypeMetaData      &schema,
