@@ -276,8 +276,10 @@ namespace hgraph::stdlib
      *   in-place child graph slot per observed index). TSD child lifecycle follows
      *   a required ``__keys__`` TSS input; wiring may supply it explicitly or infer
      *   it from the union of multiplexed TSD keys. A TSD multiplexes when the
-     *   corresponding ``func`` parameter accepts its element; a whole-time-series
-     *   type variable or concrete whole-TSD parameter receives it directly.
+     *   corresponding ``func`` parameter accepts its element. A whole-time-series
+     *   type variable multiplexes the first TSD argument and later same-key
+     *   TSDs; later different-key TSDs and all non-TSDs pass through whole. A
+     *   concrete whole-TSD parameter always receives it directly.
      *   Unresolved operator element variables retain element-wise behaviour.
      *   The first multiplexed TSD establishes the key type. Membership changes
      *   only create/destroy children through ``__keys__``. Same-size TSLs in the TSL form

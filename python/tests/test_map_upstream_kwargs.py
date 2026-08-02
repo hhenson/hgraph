@@ -34,6 +34,25 @@ def _add_generic_dict_size(
 
 
 @graph
+def _add_one_generic(value: TIME_SERIES_TYPE) -> TS[int]:
+    return value + 1
+
+
+@graph
+def _add_two_generics(
+    lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE
+) -> TS[int]:
+    return lhs + rhs
+
+
+@graph
+def _add_generic_offset(
+    value: TS[int], offset: TIME_SERIES_TYPE
+) -> TS[int]:
+    return value + offset
+
+
+@graph
 def _add_concrete_dict_size(
     whole: TSD[int, TS[int]], value: TS[int]
 ) -> TS[int]:
@@ -82,7 +101,29 @@ def test_map_mismatched_key_types_retain_the_classifier_diagnostic():
         eval_node(g, [{"a": 1}], [{1: 2}])
 
 
-def test_map_generic_parameter_receives_later_tsd_whole():
+def test_map_first_generic_tsd_is_multiplexed():
+    @graph
+    def g(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return map_(_add_one_generic, tsd)
+
+    assert eval_node(g, [{"a": 1, "b": 2}]) == [{"a": 2, "b": 3}]
+
+
+def test_map_later_same_key_generic_tsd_is_multiplexed():
+    @graph
+    def g(
+        lhs: TSD[str, TS[int]], rhs: TSD[str, TS[int]]
+    ) -> TSD[str, TS[int]]:
+        return map_(_add_two_generics, lhs, rhs)
+
+    assert eval_node(
+        g,
+        [{"a": 1, "b": 2}],
+        [{"a": 10, "b": 20}],
+    ) == [{"a": 11, "b": 22}]
+
+
+def test_map_later_different_key_generic_tsd_is_direct():
     @graph
     def g(
         mux: TSD[str, TS[int]], whole: TSD[int, TS[int]]
@@ -94,6 +135,20 @@ def test_map_generic_parameter_receives_later_tsd_whole():
         [{"a": 1, "b": 2}, None],
         [{1: 10, 2: 20}, {3: 30}],
     ) == [{"a": 3, "b": 4}, {"a": 4, "b": 5}]
+
+
+def test_map_non_tsd_generic_input_is_direct():
+    @graph
+    def g(
+        mux: TSD[str, TS[int]], offset: TS[int]
+    ) -> TSD[str, TS[int]]:
+        return map_(_add_generic_offset, mux, offset)
+
+    assert eval_node(
+        g,
+        [{"a": 1, "b": 2}, None],
+        [10, 20],
+    ) == [{"a": 11, "b": 12}, {"a": 21, "b": 22}]
 
 
 def test_map_concrete_tsd_before_first_multiplexed_input_is_direct():

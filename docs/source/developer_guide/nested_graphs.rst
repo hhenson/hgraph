@@ -679,11 +679,14 @@ input(s) — an operator like the rest of the family
 - **The variadic tail is classified against the child signature**: a TSD is
   multiplexed when the corresponding child parameter accepts its element. A
   whole-time-series type variable (for example ``TIME_SERIES_TYPE`` or C++
-  ``Port<void>``), or a parameter accepting the concrete whole TSD, receives
-  it directly. Unresolved operator element variables retain element-wise map
-  behaviour. The first multiplexed TSD establishes the key type; later
-  multiplexed TSDs must agree. The live key set is the **union** of their key
-  sets; a key absent from one dict leaves that
+  ``Port<void>``) multiplexes the first TSD in the argument list and establishes
+  its key type. A later TSD supplied to such a variable multiplexes when its key
+  type matches, and otherwise passes through whole. A parameter accepting the
+  concrete whole TSD always receives it directly. Non-TSD values supplied to a
+  whole-time-series variable also pass through. Unresolved operator element
+  variables retain element-wise map behaviour. Later multiplexed TSDs must
+  agree with the established key type. The live key set is the **union** of
+  their key sets; a key absent from one dict leaves that
   child input unbound (invalid) until it appears there (the phantom-element
   behaviour), and the output entry is removed only when the key has left
   every multiplexed input. Non-TSD args broadcast whole; in the TSL form a

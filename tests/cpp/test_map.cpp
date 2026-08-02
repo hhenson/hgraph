@@ -7,8 +7,9 @@
 // element. func is a WiredFn (graph, node, or operator) and may take the key
 // when its first parameter is named "key" (or the configured __key_arg__). TSD
 // inputs multiplex when the child parameter accepts their element;
-// whole-time-series type variables and concrete whole-TSD parameters receive
-// the collection directly. See *Nested Graphs*.
+// whole-time-series type variables multiplex the first TSD and later same-key
+// TSDs, while concrete whole-TSD parameters receive the collection directly.
+// See *Nested Graphs*.
 
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/std/std_nodes.h>
@@ -1626,6 +1627,70 @@ namespace
         }
     };
 
+    struct AddOneGenericG
+    {
+        static constexpr auto name = "add_one_generic_g";
+        static Port<TS<Int>> compose(Wiring &, Port<void> value)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (value.as<TS<Int>>() + Int{1}).as<TS<Int>>();
+        }
+    };
+
+    struct MapFirstGenericTsdG
+    {
+        static constexpr auto name = "map_first_generic_tsd_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> tsd)
+        {
+            return wire<stdlib::map_>(w, fn<AddOneGenericG>(), tsd)
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct AddTwoGenericsG
+    {
+        static constexpr auto name = "add_two_generics_g";
+        static Port<TS<Int>> compose(Wiring &, Port<void> lhs, Port<void> rhs)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (lhs.as<TS<Int>>() + rhs.as<TS<Int>>()).as<TS<Int>>();
+        }
+    };
+
+    struct MapSameKeyGenericsG
+    {
+        static constexpr auto name = "map_same_key_generics_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w,
+                                               Port<TSD<Str, TS<Int>>> lhs,
+                                               Port<TSD<Str, TS<Int>>> rhs)
+        {
+            return wire<stdlib::map_>(w, fn<AddTwoGenericsG>(), lhs, rhs)
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct AddGenericOffsetG
+    {
+        static constexpr auto name = "add_generic_offset_g";
+        static Port<TS<Int>> compose(Wiring &, Port<TS<Int>> value, Port<void> offset)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (value + offset.as<TS<Int>>()).as<TS<Int>>();
+        }
+    };
+
+    struct MapGenericOffsetG
+    {
+        static constexpr auto name = "map_generic_offset_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w,
+                                               Port<TSD<Str, TS<Int>>> mux,
+                                               Port<TS<Int>> offset)
+        {
+            return wire<stdlib::map_>(w, fn<AddGenericOffsetG>(), mux, offset)
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
     struct MapGenericDictAfterMuxG
     {
         static constexpr auto name = "map_generic_dict_after_mux_g";
@@ -2095,7 +2160,28 @@ TEST_CASE("map_: a broadcast TSD update reaches every existing child")
                                dict_delta<Str, TS<Int>>({{"a"s, 5}, {"b"s, 6}})));
 }
 
-TEST_CASE("map_: a generic child parameter receives a later TSD whole")
+TEST_CASE("map_: the first TSD passed to a generic child parameter multiplexes")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<MapFirstGenericTsdG>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}})))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 2}, {"b"s, 3}})));
+}
+
+TEST_CASE("map_: a later same-key TSD passed to a generic child parameter multiplexes")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<MapSameKeyGenericsG>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 10}, {"b"s, 20}})))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 11}, {"b"s, 22}})));
+}
+
+TEST_CASE("map_: a later different-key TSD passed to a generic child parameter is direct")
 {
     using namespace hgraph;
     stdlib::register_standard_operators();
@@ -2106,6 +2192,18 @@ TEST_CASE("map_: a generic child parameter receives a later TSD whole")
                                    dict_delta<Int, TS<Int>>({{3, 30}})))),
                  values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 3}, {"b"s, 4}}),
                                dict_delta<Str, TS<Int>>({{"a"s, 4}, {"b"s, 5}})));
+}
+
+TEST_CASE("map_: a non-TSD passed to a generic child parameter is direct")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<MapGenericOffsetG>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}}), none),
+                     values<Int>(10, 20))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 11}, {"b"s, 12}}),
+                               dict_delta<Str, TS<Int>>({{"a"s, 21}, {"b"s, 22}})));
 }
 
 TEST_CASE("map_: a whole-TSD child parameter before the first multiplexed input is direct")

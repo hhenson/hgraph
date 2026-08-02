@@ -2449,11 +2449,12 @@ namespace hgraph::stdlib
 
         /**
          * Classify the ``map_`` time-series arguments against ``func``'s
-         * ordered parameters. An unmarked TSD binds whole when the parameter
-         * is a whole-time-series type variable or accepts that concrete TSD;
-         * it multiplexes only when the parameter instead accepts the TSD
-         * element. The first multiplexed TSD establishes the key type and
-         * later multiplexed TSDs must agree.
+         * ordered parameters. A whole-time-series type variable multiplexes
+         * the first TSD argument and later TSDs with the established key type;
+         * a later TSD with a different key type binds whole. A parameter that
+         * accepts the concrete TSD always binds it whole, while a parameter
+         * accepting only the element multiplexes it. The first multiplexed
+         * TSD establishes the key type and later multiplexed TSDs must agree.
          */
         struct MapArgClassification
         {
@@ -2467,6 +2468,7 @@ namespace hgraph::stdlib
         {
             bool whole{false};
             bool element{false};
+            bool whole_variable{false};
         };
 
         /** Determine whether one mapped parameter accepts a TSD whole or its
@@ -2493,12 +2495,15 @@ namespace hgraph::stdlib
                     input_ts_pattern_match(*pattern, whole, whole_resolution);
                 const bool pattern_accepts_element =
                     input_ts_pattern_match(*pattern, element, element_resolution);
+                result.whole_variable =
+                    pattern_accepts_whole && pattern_accepts_element &&
+                    pattern->kind == TypePattern::Kind::Var && func.operator_name.empty();
                 result.element = result.element || pattern_accepts_element;
                 result.whole = result.whole ||
                     (pattern_accepts_whole &&
                      (!pattern_accepts_element ||
                       pattern->kind == TypePattern::Kind::TSD ||
-                      (pattern->kind == TypePattern::Kind::Var && func.operator_name.empty())));
+                      result.whole_variable));
             }
             else if (func.input_schema(parameter) == nullptr)
             {
@@ -2519,25 +2524,33 @@ namespace hgraph::stdlib
             bool takes_leading_key,
             std::span<const TSValueTypeMetaData *const> ts_schemas,
             std::span<const std::uint8_t> arg_tags,
-            const ValueTypeMetaData *fallback_key_meta = nullptr) {
+            const ValueTypeMetaData *fallback_key_meta = nullptr,
+            bool require_multiplexed_tsd = true) {
             MapArgClassification result;
             result.is_multiplexed.reserve(ts_schemas.size());
             result.exclude_from_keys.reserve(ts_schemas.size());
             result.child_schemas.reserve(ts_schemas.size());
+            bool seen_tsd = false;
             for (std::size_t i = 0; i < ts_schemas.size(); ++i)
             {
                 const auto tag = i < arg_tags.size() ? static_cast<WiringPortRef::ArgTag>(arg_tags[i])
                                                      : WiringPortRef::ArgTag::None;
                 const auto *tsd = time_series_schema_as<AnyTSD>(ts_schemas[i]);
+                const bool first_tsd = tsd != nullptr && !seen_tsd;
+                seen_tsd = seen_tsd || tsd != nullptr;
                 const auto parameter = i + (takes_leading_key ? 1 : 0);
                 const auto acceptance = tsd != nullptr
                                             ? map_parameter_acceptance(
                                                   func, parameter, ts_schemas[i], tsd->element_ts())
                                             : MapParameterAcceptance{};
                 const bool force_multiplex = tag == WiringPortRef::ArgTag::NoKey;
+                const bool generic_multiplex =
+                    acceptance.whole_variable &&
+                    (first_tsd ||
+                     (result.key_meta != nullptr && tsd->key_type() == result.key_meta));
                 const bool is_multiplexed =
                     tsd != nullptr && tag != WiringPortRef::ArgTag::PassThrough &&
-                    (force_multiplex || !acceptance.whole);
+                    (force_multiplex || generic_multiplex || !acceptance.whole);
                 if (is_multiplexed)
                 {
                     if (!acceptance.element)
@@ -2557,7 +2570,7 @@ namespace hgraph::stdlib
                 }
                 else
                 {
-                    if (tag == WiringPortRef::ArgTag::NoKey)
+                    if (tag == WiringPortRef::ArgTag::NoKey && require_multiplexed_tsd)
                     {
                         throw std::invalid_argument("map_: 'no_key' applies to multiplexed TSD inputs only");
                     }
@@ -2572,7 +2585,7 @@ namespace hgraph::stdlib
                 // dictionaries) takes its key type from the key set.
                 result.key_meta = fallback_key_meta;
             }
-            if (result.key_meta == nullptr)
+            if (result.key_meta == nullptr && require_multiplexed_tsd)
             {
                 throw std::invalid_argument(
                     "map_: at least one input must be a multiplexed TSD (or supply an explicit '__keys__')");
@@ -3422,6 +3435,11 @@ namespace hgraph::stdlib
             auto ordered = ordered_map_schemas(context, "key");
             if (!ordered.has_value()) { ordered = ordered_map_schemas(context, "ndx"); }
             if (!ordered.has_value()) { return nullptr; }
+            const MapArgClassification classified = classify_map_args(
+                *func, ordered->takes_key,
+                {ordered->schemas.data(), ordered->schemas.size()},
+                {ordered->arg_tags.data(), ordered->arg_tags.size()},
+                keys_kwarg_element(context), false);
             for (std::size_t i = 0; i < ordered->schemas.size(); ++i)
             {
                 const auto tag = i < ordered->arg_tags.size()
@@ -3433,13 +3451,7 @@ namespace hgraph::stdlib
                 }
                 if (const auto *schema = time_series_schema_as<AnyTSD>(ordered->schemas[i]))
                 {
-                    if (tag != WiringPortRef::ArgTag::NoKey &&
-                        map_parameter_acceptance(
-                            *func, i + (ordered->takes_key ? 1 : 0),
-                            ordered->schemas[i], schema->element_ts()).whole)
-                    {
-                        continue;   // whole-time-series parameter: direct input
-                    }
+                    if (!classified.is_multiplexed[i]) { continue; }
                     return schema;
                 }
                 if (const auto *schema = time_series_schema_as<AnyTSL>(ordered->schemas[i]))
@@ -3454,9 +3466,10 @@ namespace hgraph::stdlib
          * ``map_(func, *args, **kwargs)`` over TSDs — keyed runtime children,
          * the Python shape: no fixed anchor parameter; positional + keyword
          * arguments resolve onto ``func``'s parameters. TSDs whose parameters
-         * accept their elements multiplex (union key set); whole-time-series
-         * type variables and concrete whole-TSD parameters bind directly, and
-         * everything else broadcasts.
+         * accept their elements multiplex (union key set). A whole-time-series
+         * type variable multiplexes the first TSD or a later same-key TSD and
+         * binds a later different-key TSD directly. Concrete whole-TSD
+         * parameters and all other time-series shapes bind directly.
          */
         /**
          * Split the ``__keys__`` special out of the collected kwargs — it is
