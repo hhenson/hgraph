@@ -716,20 +716,20 @@ Internal de-duplication only, both public surfaces retained
 Unresolved questions
 --------------------
 
-**Decided (Howard, 2026-08-02):** client scalar options and time-series
-registration configuration are **lifted onto the service surface**, not traded
-away — "the best of both worlds, not a restriction of one to enforce the other".
-The ``from_graph`` / ``to_graph`` usage model is lifted with them. Recorded as
-capabilities A, B and D above.
+**Decided (Howard, 2026-08-02):**
+
+* Client scalar options and time-series registration configuration are **lifted
+  onto the service surface**, not traded away — "the best of both worlds, not a
+  restriction of one to enforce the other". The ``from_graph`` / ``to_graph``
+  usage model is lifted with them. Recorded as capabilities A, B and D above.
+* Step 4 **adds no new registration verb**: ``register_services`` becomes lazy
+  and serves the single-interface by-stub case, and no singular
+  ``service::register_service`` alias is introduced.
+* The C++-template-only fail-fast check for a never-published *unused*
+  registration is **dropped**; ``test_service_wiring.cpp:2128`` gains a client.
 
 Still open:
 
-* **Does the fail-fast check for unused registrations matter?** Step 4 makes
-  ``register_services`` lazy, which drops the C++-template-only check that a
-  never-published multi-service implementation fails at build time even with no
-  client (``test_service_wiring.cpp:2128``). Recommended: accept the drop and
-  add a client to that test. If the check is wanted, it should return as an
-  opt-in "validate all registered candidates" facility across every flavour.
 * **The multi-interface case.** With services gaining ``to_graph`` and a lazy
   by-stub registration, the documented sink-in/source-out example becomes
   expressible again *if* one implementation may span an adaptor and a service.
@@ -906,8 +906,8 @@ primary spelling and keep the old ones as aliases. Python gains the same
 spelling over ``impl_output`` / ``set_service_output``. No behaviour changes,
 so the existing service tests are the regression suite.
 
-Step 4 — the missing registration quadrant
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Step 4 — the missing registration quadrant (make ``register_services`` lazy)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Add a **lazy, single-interface, by-stub** service registration — the
 ``register_adaptor`` analogue. Concretely, give the service materializers the
@@ -919,7 +919,8 @@ diagnostic.
 Generalise ``AdaptorImplMode`` to a flavour-neutral ``ServiceImplMode`` (or
 equivalent) rather than adding a second enum.
 
-*Naming — recommendation: add no verb at all.* The by-stub quadrant already
+*Naming — decided (Howard, 2026-08-02): add no verb at all.* The by-stub
+quadrant already
 exists on the template surface. ``register_services<Impl, Services...>``
 (``service_wiring.h:1178-1208``) is by-stub and scope-enforced, and it already
 accepts a **single** interface — ``test_service_wiring.cpp:1543`` uses
@@ -946,15 +947,16 @@ catches it. Once lazy, an unrequested candidate is never materialized, so its
 scope never runs and nothing throws; the test must add a client, after which the
 same enforcement fires as before.
 
-That check is worth naming rather than dropping silently, but it should not
-decide the design: it is C++-template-only (Python never had it), it contradicts
-the documented "implementation candidates materialize only on demand" contract
-that ``test_service_wiring.cpp:1793`` pins for reference services, and it forces
-an unused implementation to be built. If fail-fast validation of *unused*
-registrations is wanted, that is a separate opt-in facility across all
-flavours — not a property to preserve by keeping one verb eager.
+**Accepted (Howard, 2026-08-02): take the drop**, and add a client to that
+test. The check should not decide the design: it is C++-template-only (Python
+never had it), it contradicts the documented "implementation candidates
+materialize only on demand" contract that ``test_service_wiring.cpp:1793`` pins
+for reference services, and it forces an unused implementation to be built. If
+fail-fast validation of *unused* registrations is wanted later, it returns as a
+separate opt-in facility across all flavours — not as a property preserved by
+keeping one verb eager.
 
-*Recommended against: a singular ``service::register_service`` alias.* It would
+*Also decided — no singular ``service::register_service`` alias.* It would
 read symmetrically with ``adaptor::register_adaptor``, but Python's
 ``register_service(path, impl)`` is the *general* registration verb covering the
 by-return single-interface case. The same name would mean something different in
