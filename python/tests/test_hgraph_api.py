@@ -959,11 +959,30 @@ def test_services_from_python():
     out = eval_node(rr_graph, [5, 7], __end_time__=hg.MIN_ST + 4 * hg.MIN_TD)
     check(out == [None, None, 10, 14], f"request/reply service: {out}")
 
-    # @service_impl validates: wrong signature shape for the flavour...
+    # @service_impl validates the shape for the flavour. A reference impl
+    # takes no interface input, so a surplus time-series parameter is now
+    # REGISTRATION configuration (RFC 0011 step 2) rather than a decoration
+    # error - the failure moves to registration when it is not supplied.
+    @hg.service_impl(interfaces=base_rate)
+    def surplus_impl(extra) -> TS[int]:
+        return hg.const(1, tp=TS[int])
+
+    @graph
+    def unsupplied(x: TS[int]) -> TS[int]:
+        hg.register_service("surplus", surplus_impl)
+        return x
+
     try:
-        @hg.service_impl(interfaces=base_rate)
-        def bad_impl(extra) -> TS[int]:
-            return hg.const(1, tp=TS[int])
+        eval_node(unsupplied, [1])
+        check(False, "expected a missing time-series configuration error")
+    except hg.WiringError as error:
+        check("extra" in str(error), f"missing ts config names the parameter: {error}")
+
+    # Too FEW time-series parameters is still a decoration-time shape error.
+    try:
+        @hg.service_impl(interfaces=doubler)
+        def too_few_impl() -> TSD[int, TS[int]]:
+            return hg.nothing(TSD[int, TS[int]])
         check(False, "expected a shape validation error")
     except TypeError:
         pass

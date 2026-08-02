@@ -86,18 +86,21 @@ namespace hgraph
                                                                        std::string_view path);
     HGRAPH_EXPORT void register_reference_service_impl(Wiring &w, const RuntimeServiceDescriptor &descriptor,
                                                        std::string_view path, const WiredFn &impl,
+                                                       std::span<const WiringPortRef> implementation_inputs = {},
                                                        bool default_fallback = false);
 
     [[nodiscard]] HGRAPH_EXPORT WiringPortRef subscription_service_subscribe(
         Wiring &w, const RuntimeServiceDescriptor &descriptor, std::string_view path, const WiringPortRef &key);
     HGRAPH_EXPORT void register_subscription_service_impl(Wiring &w, const RuntimeServiceDescriptor &descriptor,
                                                           std::string_view path, const WiredFn &impl,
+                                                          std::span<const WiringPortRef> implementation_inputs = {},
                                                           bool default_fallback = false);
 
     [[nodiscard]] HGRAPH_EXPORT WiringPortRef request_reply_service_call(
         Wiring &w, const RuntimeServiceDescriptor &descriptor, std::string_view path, const WiringPortRef &request);
     HGRAPH_EXPORT void register_request_reply_service_impl(Wiring &w, const RuntimeServiceDescriptor &descriptor,
                                                            std::string_view path, const WiredFn &impl,
+                                                           std::span<const WiringPortRef> implementation_inputs = {},
                                                            bool default_fallback = false);
 
     /**

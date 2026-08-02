@@ -1066,7 +1066,7 @@ def register_adaptor(path, implementation, resolution_dict=None, **kwargs):
 def _register_resolved_adaptor(path, implementation, kwargs, wiring=None):
     wiring = wiring or _current_wiring()
     default_fallback = path is None
-    implementation_inputs, scalar_kwargs = _adaptor_registration_inputs(
+    implementation_inputs, scalar_kwargs = _registration_inputs(
         implementation, kwargs)
     if not implementation.interfaces:
         impl_fn = _bind_registered_impl(implementation, path, scalar_kwargs)
@@ -1106,17 +1106,34 @@ def _register_resolved_adaptor(path, implementation, kwargs, wiring=None):
             default_fallback=default_fallback)
 
 
-def _adaptor_registration_inputs(implementation, config):
+def _registration_inputs(implementation, config):
+    """Split time-series values out of a registration's keyword configuration.
+
+    Two shapes supply implementation inputs at registration time:
+
+    * a MANUAL adaptor, whose every time-series parameter is supplied by the
+      registration rather than by the interface; and
+    * a service (or automatic adaptor) declaring time-series parameters BEYOND
+      the ones its interface supplies - the surplus is registration
+      configuration (RFC 0011 step 2).
+
+    Returns ``(ports, remaining_scalar_config)``.
+    """
     config = dict(config)
-    if not implementation.manual_adaptor:
+    if implementation.manual_adaptor:
+        wanted = implementation.ts_parameters
+        described = f"manual adaptor implementation '{implementation.__name__}'"
+    else:
+        wanted = implementation.registration_ts_parameters
+        described = f"implementation '{implementation.__name__}'"
+    if not wanted:
         return (), config
     inputs = []
     from ._node import _lift_time_series_argument
-    for parameter in implementation.ts_parameters:
+    for parameter in wanted:
         if parameter.name not in config:
             raise WiringError(
-                f"manual adaptor implementation '{implementation.__name__}' requires "
-                f"time-series configuration '{parameter.name}'")
+                f"{described} requires time-series configuration '{parameter.name}'")
         value = config.pop(parameter.name)
         if not isinstance(value, WiringPort):
             value = _lift_time_series_argument(value, parameter.annotation)
@@ -1226,6 +1243,7 @@ class _ServiceImpl:
             and parameter.name not in ts_names
             and parameter.annotation not in _INJECTABLE_MARKERS)
         ts_params = self.ts_parameters
+        self.registration_ts_parameters = ()
         if len(self.interfaces) > 1:
             # Multi-interface implementations take NO wired inputs: they
             # fetch each interface's input via impl_input and publish via
@@ -1243,11 +1261,16 @@ class _ServiceImpl:
                     continue
                 if stub.flavour == "adaptor":
                     _validate_interface_implementation_signature(self, stub)
-                if len(ts_params) != expected:
+                if len(ts_params) < expected:
                     raise TypeError(
                         f"@service_impl '{self.__name__}': a {stub.flavour} implementation takes "
                         f"{expected} time-series parameter(s), found {len(ts_params)}"
                     )
+                # Time-series parameters beyond the interface's own are
+                # supplied at registration (RFC 0011 step 2). Adaptors express
+                # the same thing through manual_adaptor.
+                if not self.manual_adaptor:
+                    self.registration_ts_parameters = ts_params[expected:]
 
     @staticmethod
     def _resolve(stub):
@@ -1317,18 +1340,24 @@ def _bind_registered_impl(implementation, path, config):
         stub, "implementation_arity", _FLAVOUR_TS_ARITY[stub.flavour]
     )
     port_parameters = list(implementation.ts_parameters)
+    # Registration-supplied inputs are still ports the bound function
+    # receives - they arrive appended to the flavour's transport input rather
+    # than from the transport itself (RFC 0011 step 2).
+    registration_count = len(implementation.registration_ts_parameters)
     manual_adaptor = bool(
         implementation.manual_adaptor
         and (stub is None or stub.flavour == "adaptor"))
     if manual_adaptor:
         expected_ports = len(port_parameters)
         native_ports = len(port_parameters)
+        transport_ports = native_ports
     else:
-        native_ports = (
+        transport_ports = (
             0 if stub is None or stub.flavour == "reference"
             or (stub.flavour == "adaptor" and expected_ports == 0) else 1
         )
-    if len(port_parameters) != expected_ports:
+        native_ports = transport_ports + registration_count
+    if len(port_parameters) != expected_ports + registration_count:
         raise WiringError(
             f"implementation '{implementation.__name__}' requires {expected_ports} native service input(s)"
         )
@@ -1386,11 +1415,14 @@ def _bind_registered_impl(implementation, path, config):
             raise WiringError(
                 f"implementation '{implementation.__name__}' received {len(ports)} native service inputs"
             )
+        # The transport port(s) come first, then the registration inputs.
+        transport = list(ports[:len(ports) - registration_count]) if registration_count else list(ports)
+        extras = list(ports[len(ports) - registration_count:]) if registration_count else []
         user_ports = (
-            _split_service_requests(stub, ports[0])
-            if not manual_adaptor and native_ports and expected_ports > 1
-            else list(ports)
-        )
+            _split_service_requests(stub, transport[0])
+            if not manual_adaptor and transport_ports and expected_ports > 1
+            else transport
+        ) + extras
         arguments = dict(zip((param.name for param in port_parameters), user_ports))
         effective_path = path
         matched_stub = stub
@@ -1834,9 +1866,13 @@ def _register_resolved_service(path, implementation, kwargs, *, wiring=None):
     stub = implementation.interfaces[0]
     resolved_path = _resolved_service_path(stub, path)
     user_path = getattr(stub, "_default_path", "") if path is None else path
-    impl_fn = _bind_registered_impl(implementation, user_path, kwargs)
+    # Time-series values in the registration kwargs become implementation
+    # inputs; the rest stays scalar configuration (RFC 0011 step 2).
+    implementation_inputs, scalar_kwargs = _registration_inputs(implementation, kwargs)
+    impl_fn = _bind_registered_impl(implementation, user_path, scalar_kwargs)
     _hgraph.register_service_impl(
         wiring, stub.descriptor, resolved_path, _wrap_graph_fn(impl_fn),
+        inputs=[_unwrap(port) for port in implementation_inputs],
         default_fallback=default_fallback)
 
 

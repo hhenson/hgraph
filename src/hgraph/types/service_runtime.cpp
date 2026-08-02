@@ -177,6 +177,29 @@ namespace hgraph
             return capture.peered_node();
         }
 
+        /** Combine the flavour's own transport input (if any) with the extra
+         *  time-series inputs supplied at registration, and check the total
+         *  against the implementation's arity. Registration inputs follow the
+         *  flavour input, matching the adaptor contract. */
+        [[nodiscard]] std::vector<WiringPortRef> combine_impl_inputs(
+            const RuntimeServiceDescriptor &descriptor,
+            const WiredFn &impl,
+            std::span<const WiringPortRef> flavour_inputs,
+            std::span<const WiringPortRef> registration_inputs)
+        {
+            std::vector<WiringPortRef> inputs;
+            inputs.reserve(flavour_inputs.size() + registration_inputs.size());
+            inputs.insert(inputs.end(), flavour_inputs.begin(), flavour_inputs.end());
+            inputs.insert(inputs.end(), registration_inputs.begin(), registration_inputs.end());
+            if (impl.arity != inputs.size())
+            {
+                throw std::invalid_argument(
+                    "service '" + descriptor.name +
+                    "' implementation input count does not match supplied inputs");
+            }
+            return inputs;
+        }
+
         [[nodiscard]] WiringPortRef wire_impl(Wiring &w, const RuntimeServiceDescriptor &descriptor,
                                               const WiredFn &impl, std::span<const WiringPortRef> inputs)
         {
@@ -271,20 +294,28 @@ namespace hgraph
 
     void register_reference_service_impl(Wiring &w, const RuntimeServiceDescriptor &descriptor,
                                          std::string_view path, const WiredFn &impl,
+                                         std::span<const WiringPortRef> implementation_inputs,
                                          bool default_fallback)
     {
         require_flavour(descriptor, ServiceFlavour::Reference, "reference");
         const std::string base = reference_base(descriptor, path);
         const auto *descriptor_ptr = &descriptor;
-        auto materialize = [descriptor_ptr, impl](Wiring &target, std::string_view requested_path) {
+        std::vector<WiringPortRef> stored_inputs{
+            implementation_inputs.begin(), implementation_inputs.end()};
+        auto materialize = [descriptor_ptr, impl, stored_inputs](Wiring &target,
+                                                                 std::string_view requested_path) {
                 const std::string requested_base = reference_base(*descriptor_ptr, requested_path);
                 target.register_built_service_path(requested_base, "reference service");
                 WiringPortRef shared = shared_output_source_node(
                     target, std::type_index(typeid(service::detail::reference_output_source_marker)),
                     descriptor_ptr->output_schema, requested_base);
+                // A reference service has no transport input, so the whole
+                // input list is the registration configuration.
+                const auto impl_inputs = combine_impl_inputs(
+                    *descriptor_ptr, impl, {}, stored_inputs);
                 WiringPortRef output = describe_service_output(
                     *descriptor_ptr, descriptor_ptr->output_schema,
-                    wire_impl(target, *descriptor_ptr, impl, {}));
+                    wire_impl(target, *descriptor_ptr, impl, impl_inputs));
                 const WiringInstance *capture = shared_output_capture_node(
                     target, std::type_index(typeid(service::detail::reference_output_capture_marker)),
                     descriptor_ptr->output_schema, requested_base, output, shared);
@@ -396,12 +427,16 @@ namespace hgraph
 
     void register_subscription_service_impl(Wiring &w, const RuntimeServiceDescriptor &descriptor,
                                             std::string_view path, const WiredFn &impl,
+                                            std::span<const WiringPortRef> implementation_inputs,
                                             bool default_fallback)
     {
         require_flavour(descriptor, ServiceFlavour::Subscription, "subscription");
         const std::string base      = subscription_base(descriptor, path);
         const auto *descriptor_ptr = &descriptor;
-        auto materialize = [descriptor_ptr, impl](Wiring &target, std::string_view requested_path) {
+        std::vector<WiringPortRef> stored_inputs{
+            implementation_inputs.begin(), implementation_inputs.end()};
+        auto materialize = [descriptor_ptr, impl, stored_inputs](Wiring &target,
+                                                                 std::string_view requested_path) {
                 const std::string requested_base = subscription_base(*descriptor_ptr, requested_path);
                 const std::string subs_path = requested_base + "/subs";
                 const std::string out_path  = requested_base + "/out";
@@ -421,7 +456,9 @@ namespace hgraph
                     target, std::type_index(typeid(service::detail::shared_output_source_marker)),
                     dict_meta, out_path);
                 target.register_service_rank_anchor(subs_path, subscriptions.peered_node());
-                std::array<WiringPortRef, 1> impl_inputs{subscriptions};
+                std::array<WiringPortRef, 1> transport{subscriptions};
+                const auto impl_inputs = combine_impl_inputs(
+                    *descriptor_ptr, impl, transport, stored_inputs);
                 WiringPortRef output = describe_service_output(
                     *descriptor_ptr, dict_meta,
                     wire_impl(target, *descriptor_ptr, impl, impl_inputs));
@@ -551,19 +588,25 @@ namespace hgraph
 
     void register_request_reply_service_impl(Wiring &w, const RuntimeServiceDescriptor &descriptor,
                                              std::string_view path, const WiredFn &impl,
+                                             std::span<const WiringPortRef> implementation_inputs,
                                              bool default_fallback)
     {
         require_flavour(descriptor, ServiceFlavour::RequestReply, "request/reply");
         const std::string base         = request_reply_base(descriptor, path);
         const auto *descriptor_ptr = &descriptor;
-        auto materialize = [descriptor_ptr, impl](Wiring &target, std::string_view requested_path) {
+        std::vector<WiringPortRef> stored_inputs{
+            implementation_inputs.begin(), implementation_inputs.end()};
+        auto materialize = [descriptor_ptr, impl, stored_inputs](Wiring &target,
+                                                                 std::string_view requested_path) {
                 const std::string requested_base = request_reply_base(*descriptor_ptr, requested_path);
                 const std::string request_path = requested_base + "/request";
                 const std::string replies_path = requested_base + "/replies";
                 target.register_built_service_path(requested_base, "request/reply service");
                 WiringPortRef requests = request_input_source_node(target, *descriptor_ptr, request_path);
                 target.register_service_rank_anchor(request_path, requests.peered_node());
-                std::array<WiringPortRef, 1> impl_inputs{requests};
+                std::array<WiringPortRef, 1> transport{requests};
+                const auto impl_inputs = combine_impl_inputs(
+                    *descriptor_ptr, impl, transport, stored_inputs);
                 WiringPortRef output = wire_impl(target, *descriptor_ptr, impl, impl_inputs);
                 if (descriptor_ptr->response_schema == nullptr)
                 {
