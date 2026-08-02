@@ -28,6 +28,7 @@
 #include "nested_lifecycle_test_support.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <optional>
 #include <span>
@@ -1625,6 +1626,18 @@ namespace
         }
     };
 
+    struct MapMismatchedKeyTypesG
+    {
+        static constexpr auto name = "map_mismatched_key_types_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w,
+                                                Port<TSD<Str, TS<Int>>> lhs,
+                                                Port<TSD<Int, TS<Int>>> rhs)
+        {
+            return wire<stdlib::map_>(w, fn<AddPairG>(), lhs, rhs)
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
     struct MapAllNoKeyG
     {
         static constexpr auto             name = "map_all_no_key_g";
@@ -2047,6 +2060,19 @@ TEST_CASE("map_: no_key demultiplexes but is excluded from key inference")
                      values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 1}, {"y"s, 2}})),
                      values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 10}, {"z"s, 30}})))),
                  values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 11}})));
+}
+
+TEST_CASE("map_: mismatched multiplexed key types retain the classifier diagnostic")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    REQUIRE_THROWS_WITH(
+        (eval_node<MapMismatchedKeyTypesG>(
+            values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}})),
+            values<Value>(dict_delta<Int, TS<Int>>({{1, 2}})))),
+        Catch::Matchers::ContainsSubstring(
+            "map_: every multiplexed TSD must share the same key type"));
 }
 
 TEST_CASE("map_: every multiplexed input no_key requires an explicit __keys__")

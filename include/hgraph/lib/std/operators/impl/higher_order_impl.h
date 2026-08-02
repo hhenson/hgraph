@@ -2766,15 +2766,17 @@ namespace hgraph::stdlib
             std::span<const std::uint8_t> arg_tags,
             const ValueTypeMetaData *fallback_key_meta = nullptr)
         {
-            return fallback_on_exception<std::optional<const TSValueTypeMetaData *>>(std::nullopt, [&] {
-                const TSValueTypeMetaData *output_schema = nullptr;
-                std::vector<WiringPortRef> captured;
-                std::vector<NestedServiceInput> external_services;
-                (void)compile_map_child(func, ts_schemas, arg_tags, output_schema, &captured,
-                                        fallback_key_meta, &external_services);
-                if (output_schema == nullptr) { return std::optional<const TSValueTypeMetaData *>{}; }
-                return std::optional<const TSValueTypeMetaData *>{output_schema};
-            });
+            // OperatorRegistry already probes each overload behind an exception
+            // boundary and records what() as that candidate's rejection reason.
+            // Let classification/compilation failures reach that boundary so an
+            // invalid map call retains its actionable diagnostic.
+            const TSValueTypeMetaData *output_schema = nullptr;
+            std::vector<WiringPortRef> captured;
+            std::vector<NestedServiceInput> external_services;
+            (void)compile_map_child(func, ts_schemas, arg_tags, output_schema, &captured,
+                                    fallback_key_meta, &external_services);
+            if (output_schema == nullptr) { return std::optional<const TSValueTypeMetaData *>{}; }
+            return std::optional<const TSValueTypeMetaData *>{output_schema};
         }
 
         [[nodiscard]] inline std::optional<bool> try_resolve_map_output_mode(
@@ -2783,14 +2785,12 @@ namespace hgraph::stdlib
             std::span<const std::uint8_t> arg_tags,
             const ValueTypeMetaData *fallback_key_meta = nullptr)
         {
-            return fallback_on_exception<std::optional<bool>>(std::nullopt, [&] {
-                const TSValueTypeMetaData *output_schema = nullptr;
-                std::vector<WiringPortRef> captured;
-                std::vector<NestedServiceInput> external_services;
-                (void)compile_map_child(func, ts_schemas, arg_tags, output_schema, &captured,
-                                        fallback_key_meta, &external_services);
-                return std::optional<bool>{output_schema != nullptr};
-            });
+            const TSValueTypeMetaData *output_schema = nullptr;
+            std::vector<WiringPortRef> captured;
+            std::vector<NestedServiceInput> external_services;
+            (void)compile_map_child(func, ts_schemas, arg_tags, output_schema, &captured,
+                                    fallback_key_meta, &external_services);
+            return std::optional<bool>{output_schema != nullptr};
         }
 
         /**
@@ -3314,32 +3314,23 @@ namespace hgraph::stdlib
 
             if (const TSValueTypeMetaData *element = func->output_schema())
             {
-                const auto output_schema = fallback_on_exception(
-                    static_cast<const TSValueTypeMetaData *>(nullptr), [&] {
-                        const MapArgClassification classified = classify_map_args(
-                            {ordered->schemas.data(), ordered->schemas.size()},
-                            {ordered->arg_tags.data(), ordered->arg_tags.size()},
-                            keys_kwarg_element(context));
-                        std::size_t parameter = 0;
-                        const auto accepts = [&](const TSValueTypeMetaData *actual) {
-                            const TSValueTypeMetaData *expected = func->input_schema(parameter++);
-                            return expected == nullptr ||
-                                   graph_wiring_detail::input_accepts_output_schema(expected, actual);
-                        };
-                        if (ordered->takes_key &&
-                            !accepts(TypeRegistry::instance().ts(classified.key_meta)))
-                        {
-                            return static_cast<const TSValueTypeMetaData *>(nullptr);
-                        }
-                        for (const TSValueTypeMetaData *child : classified.child_schemas)
-                        {
-                            if (!accepts(child))
-                            {
-                                return static_cast<const TSValueTypeMetaData *>(nullptr);
-                            }
-                        }
-                        return TypeRegistry::instance().tsd(classified.key_meta, element);
-                    });
+                const MapArgClassification classified = classify_map_args(
+                    {ordered->schemas.data(), ordered->schemas.size()},
+                    {ordered->arg_tags.data(), ordered->arg_tags.size()},
+                    keys_kwarg_element(context));
+                std::size_t parameter = 0;
+                const auto accepts = [&](const TSValueTypeMetaData *actual) {
+                    const TSValueTypeMetaData *expected = func->input_schema(parameter++);
+                    return expected == nullptr ||
+                           graph_wiring_detail::input_accepts_output_schema(expected, actual);
+                };
+                const bool key_accepted =
+                    !ordered->takes_key || accepts(TypeRegistry::instance().ts(classified.key_meta));
+                const bool inputs_accepted = key_accepted &&
+                    std::ranges::all_of(classified.child_schemas, accepts);
+                const auto *output_schema = inputs_accepted
+                                                ? TypeRegistry::instance().tsd(classified.key_meta, element)
+                                                : nullptr;
                 if (output_schema != nullptr)
                 {
                     bind_graph_output(resolution, output_schema, "O");
