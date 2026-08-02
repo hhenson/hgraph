@@ -348,27 +348,30 @@ namespace hgraph::python_bridge
         throw std::logic_error("unreachable");
     }, nb::arg("w"), nb::arg("desc"), nb::arg("path") = std::string{}, nb::arg("ts") = nb::none());
     m.def("register_service_impl", [](PyWiring &w, const PyServiceDesc &desc, const std::string &path,
-                                      const PyWiredFn &impl, bool default_fallback) {
+                                      const PyWiredFn &impl, nb::list inputs, bool default_fallback) {
+        // Extra time-series inputs supplied at registration, mirroring
+        // register_adaptor_impl. They follow the flavour's transport input.
+        auto implementation_inputs = wiring_ports(inputs);
         switch (desc.descriptor->flavour)
         {
             case ServiceFlavour::Reference:
                 register_reference_service_impl(w.wiring_ref(), *desc.descriptor, path, impl.fn,
-                                                default_fallback);
+                                                implementation_inputs, default_fallback);
                 return;
             case ServiceFlavour::Subscription:
                 register_subscription_service_impl(w.wiring_ref(), *desc.descriptor, path, impl.fn,
-                                                   default_fallback);
+                                                   implementation_inputs, default_fallback);
                 return;
             case ServiceFlavour::RequestReply:
                 register_request_reply_service_impl(w.wiring_ref(), *desc.descriptor, path, impl.fn,
-                                                    default_fallback);
+                                                    implementation_inputs, default_fallback);
                 return;
             case ServiceFlavour::Adaptor:
             case ServiceFlavour::ServiceAdaptor:
                 throw std::logic_error("register_service_impl does not accept adaptor descriptors");
         }
     }, nb::arg("w"), nb::arg("desc"), nb::arg("path") = std::string{}, nb::arg("impl"),
-       nb::arg("default_fallback") = false);
+       nb::arg("inputs") = nb::list(), nb::arg("default_fallback") = false);
 
     m.def("mesh_scope_exists", [](const std::string &name) {
         return OperatorRegistry::instance().resolve_mesh_scope(name) != nullptr;

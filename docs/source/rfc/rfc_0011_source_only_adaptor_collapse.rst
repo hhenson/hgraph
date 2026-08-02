@@ -1,7 +1,7 @@
 RFC 0011: Source-Only Adaptors Are Reference Services
 =====================================================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-08-02
 :Target: Public C++ and Python service/adaptor wiring surface
@@ -1129,8 +1129,50 @@ suggested, and most of it is generalising code that already exists.
 Implementation status
 ---------------------
 
-Not started. This RFC is the first commit on its branch, per
-:doc:`rfc_0000` workflow step 1; the plan above is the proposed sequencing.
+**Implemented.** All nine steps landed on
+``agent/rfc-0011-unify-service-adaptor-surface``, one commit per step, each
+green against the full native and Python suites. Final state: 1414 ctest, 1864
+Python tests.
+
+Implementation changed four things in this design, all recorded in the commits:
+
+* **Steps 7 and 8 swapped.** Dedup was planned last as cosmetic cleanup; it is
+  a *prerequisite*. ``service_wiring.h`` and ``adaptor_wiring.h`` do not include
+  each other, so a mixed-flavour group is not expressible until the two path
+  types are one - ``ServicePath`` and ``AdaptorPath`` are now aliases of a
+  shared ``BoundaryPath``.
+* **Mixed groups needed a customization point, not a relaxed assert.** Because
+  neither family header sees the other, ``register_services`` describes each
+  member through ``boundary_detail::group_member``, specialized per family - the
+  same idiom as ``wire_customization``.
+* **The concepts are separated structurally, not by inclusion.**
+  ``reference_service_interface`` excludes adaptor-derived types via a tag
+  member on ``adaptor::interface``, so ``service_wiring.h`` needs no dependency
+  on ``adaptor_wiring.h``.
+* **The source-only spelling was kept, and costs nothing.** With
+  ``boundary_detail::shared_output_relay_source`` / ``_capture`` as the single
+  relay implementation, the spelling is no longer a second implementation, so
+  deleting it buys nothing and would break unknown downstream users. Deletion
+  can follow once exposure is known, with no further RFC.
+
+Two smaller findings worth keeping:
+
+* Client scalar options had **no C++ component at all** and the
+  implementation-consumption half already worked for services; only client
+  recording was missing.
+* Step 5's generic output-schema hole was confirmed by a test that did **not**
+  throw before the fix - after two false starts where the test failed for an
+  unrelated resolution error instead.
+
+One behaviour change beyond the plan: a surplus time-series parameter on a
+service implementation used to be a decoration-time ``TypeError``. It is now
+registration configuration, so the failure moves to registration and names the
+missing parameter.
+
+An accepted-but-unexercised consequence: the pre-existing adaptor semantic
+where a client's *defaulted* scalar option is recorded as though passed, so a
+registration option conflicts with a client that merely defaulted. Left
+unchanged rather than altered as a side effect of lifting it to services.
 
 References
 ----------

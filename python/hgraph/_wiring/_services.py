@@ -24,8 +24,8 @@ from ._node import _PyNode, _warn_deprecated
 
 _TS_ANNOTATIONS = (_TsExpr, _GenericTsExpr)
 _SERVICE_ADAPTOR_CLIENT_TOKENS = itertools.count()
-_ADAPTOR_CLIENT_CONFIGS = {}
-_ADAPTOR_CLIENT_CONFIG_CLEANUPS = set()
+_CLIENT_CONFIGS = {}
+_CLIENT_CONFIG_CLEANUPS = set()
 
 
 def _is_ts_annotation(annotation):
@@ -49,8 +49,28 @@ def _is_resolution_annotation(annotation):
     )
 
 
-def _record_adaptor_client_config(stub, path, bound):
-    """Record the wiring-time scalar options shared by one adaptor path."""
+_FLAVOUR_LABELS = {
+    "reference": "reference service",
+    "subscription": "subscription service",
+    "request_reply": "request/reply service",
+    "adaptor": "adaptor",
+    "service_adaptor": "service adaptor",
+}
+
+
+def _flavour_label(flavour):
+    """Human-readable name for a flavour, for diagnostics.
+
+    ``flavour`` alone reads oddly for services ("reference 'x' clients"), and
+    these messages became service-visible when client scalar options were
+    lifted onto the service surface (RFC 0011 step 1).
+    """
+    return _FLAVOUR_LABELS.get(flavour, flavour.replace("_", " "))
+
+
+def _record_client_config(stub, path, bound):
+    """Record the wiring-time scalar options shared by one service or
+    adaptor path. Flavour-neutral: the key carries ``stub.flavour``."""
     config = {
         parameter.name: bound.arguments[parameter.name]
         for parameter in stub._signature.parameters.values()
@@ -61,43 +81,49 @@ def _record_adaptor_client_config(stub, path, bound):
     }
     wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
     identity = wiring.identity()
-    if identity not in _ADAPTOR_CLIENT_CONFIG_CLEANUPS:
+    if identity not in _CLIENT_CONFIG_CLEANUPS:
         def clear_configs():
-            for existing in tuple(_ADAPTOR_CLIENT_CONFIGS):
+            # The C++ Wiring may outlive this module: at interpreter shutdown
+            # module globals are cleared to None, and the cleanup still fires.
+            # Nothing is left to release at that point, so bail out quietly
+            # rather than raising out of a destructor.
+            if _CLIENT_CONFIGS is None or _CLIENT_CONFIG_CLEANUPS is None:
+                return
+            for existing in tuple(_CLIENT_CONFIGS):
                 if existing[0] == identity:
-                    del _ADAPTOR_CLIENT_CONFIGS[existing]
-            _ADAPTOR_CLIENT_CONFIG_CLEANUPS.discard(identity)
+                    del _CLIENT_CONFIGS[existing]
+            _CLIENT_CONFIG_CLEANUPS.discard(identity)
 
         # The C++ Wiring owns this callback. A temporary borrowed PyWiring can
         # disappear before build_services(), but its underlying Wiring retains
         # both the config and cleanup for its actual lifetime.
         wiring._retain_cleanup(clear_configs)
-        _ADAPTOR_CLIENT_CONFIG_CLEANUPS.add(identity)
+        _CLIENT_CONFIG_CLEANUPS.add(identity)
     key = (
         identity, stub.flavour, stub.__name__,
         stub._specialization, path,
     )
-    previous = _ADAPTOR_CLIENT_CONFIGS.setdefault(key, config)
+    previous = _CLIENT_CONFIGS.setdefault(key, config)
     if previous != config:
         differences = sorted(
             name for name in previous.keys() | config.keys()
             if previous.get(name) != config.get(name)
         )
         raise WiringError(
-            f"{stub.flavour.replace('_', ' ')} '{stub.__name__}' clients at "
+            f"{_flavour_label(stub.flavour)} '{stub.__name__}' clients at "
             f"path {path!r} disagree on wiring-time option(s) {differences!r}")
 
 
-def _adaptor_client_config(stub, path):
+def _client_config(stub, path):
     wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
     key = (
         wiring.identity(), stub.flavour, stub.__name__,
         stub._specialization, path,
     )
-    return _ADAPTOR_CLIENT_CONFIGS.get(key, {})
+    return _CLIENT_CONFIGS.get(key, {})
 
 
-def _resolved_adaptor_client_path(stub, path):
+def _resolved_client_path(stub, path):
     """Return the config key and concrete native client path."""
     resolved = stub._resolved_path(path) if path else stub._default_path
     resolved = resolved or f"{stub.__name__}_default"
@@ -488,11 +514,14 @@ class _ServiceStub:
             path = ""
         if not isinstance(path, str):
             raise TypeError(f"service '{self.__name__}' path must be a string")
-        return path, [bound.arguments[p.name] for p in self._request_params]
+        # ``bound`` carries the client's wiring-time scalar options; the caller
+        # records them so the registered implementation can read them back
+        # (RFC 0011 step 1 - the same channel adaptor clients have always had).
+        return path, [bound.arguments[p.name] for p in self._request_params], bound
 
     def __call__(self, *args, **kwargs):
         _warn_deprecated(self.__name__, self._deprecated)
-        path, requests = self._bind_call(args, kwargs)
+        path, requests, bound = self._bind_call(args, kwargs)
         if requests:
             from ._node import _lift_time_series_argument
 
@@ -537,6 +566,11 @@ class _ServiceStub:
                 pending_registrations=self._pending_registrations,
                 registered_resolutions=self._registered_resolutions)
         _materialize_pending_registrations(self, stub._resolution, w)
+        # Record the client's wiring-time scalar options against the resolved
+        # path, exactly as adaptor clients do. The key carries the flavour, and
+        # ``_bind_registered_impl`` reads it back through ``_client_config``.
+        config_path, _ = _resolved_client_path(stub, path)
+        _record_client_config(stub, config_path, bound)
         request = None
         if len(requests) == 1:
             request = _unwrap(requests[0])
@@ -620,7 +654,7 @@ class _AdaptorClientStub:
         if path is None:
             path = ""
         if not isinstance(path, str):
-            raise TypeError(f"{self.flavour.replace('_', ' ')} '{self.__name__}' path must be a string")
+            raise TypeError(f"{_flavour_label(self.flavour)} '{self.__name__}' path must be a string")
 
         from ._node import _lift_time_series_argument
         requests = [
@@ -638,15 +672,15 @@ class _AdaptorClientStub:
                 if not resolution.match(
                         _pattern_of(parameter.annotation), _unwrap(request).ts_type):
                     raise TypeError(
-                        f"generic {self.flavour.replace('_', ' ')} '{self.__name__}' "
+                        f"generic {_flavour_label(self.flavour)} '{self.__name__}' "
                         "request does not match its type pattern")
             _apply_service_defaults(self._signature, resolution)
             _apply_service_resolvers(resolution, self._resolvers)
             specialization = _specialization_label(resolution)
             stub = self._specialized_stub(resolution, specialization)
         self._materialize_client_registration(stub)
-        config_path, path = _resolved_adaptor_client_path(stub, path)
-        _record_adaptor_client_config(stub, config_path, bound)
+        config_path, path = _resolved_client_path(stub, path)
+        _record_client_config(stub, config_path, bound)
         request = (
             None if not requests else requests[0]
             if len(requests) == 1 else WiringPort(_hgraph.tsb_port(
@@ -983,24 +1017,43 @@ def service_adaptor(fn=None, resolvers=None):
 
 
 def from_graph(stub, path=""):
-    """Impl-side: the client input of ``stub`` (inside a registered impl)."""
+    """Impl-side: the client input of ``stub`` (inside a registered impl).
+
+    Works for every flavour that has a client input. For services this is the
+    same operation as ``impl_input``/``get_service_inputs`` under the adaptor
+    spelling (RFC 0011 step 3); a reference service has no input and raises.
+    """
     descriptor = stub._require_descriptor() if hasattr(stub, "_require_descriptor") else stub.descriptor
     path = _resolved_service_path(stub, path)
     if stub.flavour == "service_adaptor":
         return WiringPort(_hgraph.service_adaptor_from_graph(
             _current_wiring(), descriptor, path))
-    return WiringPort(_hgraph.adaptor_from_graph(_current_wiring(), descriptor, path))
+    if stub.flavour == "adaptor":
+        return WiringPort(_hgraph.adaptor_from_graph(_current_wiring(), descriptor, path))
+    if stub.flavour == "reference":
+        raise WiringError(
+            f"reference service '{stub.__name__}' has no client input to read")
+    return WiringPort(_hgraph.service_impl_input(_current_wiring(), descriptor, path))
 
 
 def to_graph(stub, out, path=""):
-    """Impl-side: publish the adaptor output of ``stub`` back to clients."""
+    """Impl-side: publish ``stub``'s output back to clients.
+
+    Works for every flavour that has an output. For services this is the same
+    operation as ``impl_output``/``set_service_output`` under the adaptor
+    spelling (RFC 0011 step 3) - the underlying wiring is identical.
+    """
     descriptor = stub._require_descriptor() if hasattr(stub, "_require_descriptor") else stub.descriptor
     path = _resolved_service_path(stub, path)
     if stub.flavour == "service_adaptor":
         _hgraph.service_adaptor_to_graph(
             _current_wiring(), descriptor, path, out=_unwrap(out))
         return
-    _hgraph.adaptor_to_graph(_current_wiring(), descriptor, path, out=_unwrap(out))
+    if stub.flavour == "adaptor":
+        _hgraph.adaptor_to_graph(_current_wiring(), descriptor, path, out=_unwrap(out))
+        return
+    _hgraph.service_impl_output(
+        _current_wiring(), descriptor, path, out=_unwrap(out))
 
 
 def register_adaptor(path, implementation, resolution_dict=None, **kwargs):
@@ -1032,7 +1085,7 @@ def register_adaptor(path, implementation, resolution_dict=None, **kwargs):
 def _register_resolved_adaptor(path, implementation, kwargs, wiring=None):
     wiring = wiring or _current_wiring()
     default_fallback = path is None
-    implementation_inputs, scalar_kwargs = _adaptor_registration_inputs(
+    implementation_inputs, scalar_kwargs = _registration_inputs(
         implementation, kwargs)
     if not implementation.interfaces:
         impl_fn = _bind_registered_impl(implementation, path, scalar_kwargs)
@@ -1072,17 +1125,34 @@ def _register_resolved_adaptor(path, implementation, kwargs, wiring=None):
             default_fallback=default_fallback)
 
 
-def _adaptor_registration_inputs(implementation, config):
+def _registration_inputs(implementation, config):
+    """Split time-series values out of a registration's keyword configuration.
+
+    Two shapes supply implementation inputs at registration time:
+
+    * a MANUAL adaptor, whose every time-series parameter is supplied by the
+      registration rather than by the interface; and
+    * a service (or automatic adaptor) declaring time-series parameters BEYOND
+      the ones its interface supplies - the surplus is registration
+      configuration (RFC 0011 step 2).
+
+    Returns ``(ports, remaining_scalar_config)``.
+    """
     config = dict(config)
-    if not implementation.manual_adaptor:
+    if implementation.manual_adaptor:
+        wanted = implementation.ts_parameters
+        described = f"manual adaptor implementation '{implementation.__name__}'"
+    else:
+        wanted = implementation.registration_ts_parameters
+        described = f"implementation '{implementation.__name__}'"
+    if not wanted:
         return (), config
     inputs = []
     from ._node import _lift_time_series_argument
-    for parameter in implementation.ts_parameters:
+    for parameter in wanted:
         if parameter.name not in config:
             raise WiringError(
-                f"manual adaptor implementation '{implementation.__name__}' requires "
-                f"time-series configuration '{parameter.name}'")
+                f"{described} requires time-series configuration '{parameter.name}'")
         value = config.pop(parameter.name)
         if not isinstance(value, WiringPort):
             value = _lift_time_series_argument(value, parameter.annotation)
@@ -1192,6 +1262,7 @@ class _ServiceImpl:
             and parameter.name not in ts_names
             and parameter.annotation not in _INJECTABLE_MARKERS)
         ts_params = self.ts_parameters
+        self.registration_ts_parameters = ()
         if len(self.interfaces) > 1:
             # Multi-interface implementations take NO wired inputs: they
             # fetch each interface's input via impl_input and publish via
@@ -1209,11 +1280,16 @@ class _ServiceImpl:
                     continue
                 if stub.flavour == "adaptor":
                     _validate_interface_implementation_signature(self, stub)
-                if len(ts_params) != expected:
+                if len(ts_params) < expected:
                     raise TypeError(
                         f"@service_impl '{self.__name__}': a {stub.flavour} implementation takes "
                         f"{expected} time-series parameter(s), found {len(ts_params)}"
                     )
+                # Time-series parameters beyond the interface's own are
+                # supplied at registration (RFC 0011 step 2). Adaptors express
+                # the same thing through manual_adaptor.
+                if not self.manual_adaptor:
+                    self.registration_ts_parameters = ts_params[expected:]
 
     @staticmethod
     def _resolve(stub):
@@ -1283,18 +1359,24 @@ def _bind_registered_impl(implementation, path, config):
         stub, "implementation_arity", _FLAVOUR_TS_ARITY[stub.flavour]
     )
     port_parameters = list(implementation.ts_parameters)
+    # Registration-supplied inputs are still ports the bound function
+    # receives - they arrive appended to the flavour's transport input rather
+    # than from the transport itself (RFC 0011 step 2).
+    registration_count = len(implementation.registration_ts_parameters)
     manual_adaptor = bool(
         implementation.manual_adaptor
         and (stub is None or stub.flavour == "adaptor"))
     if manual_adaptor:
         expected_ports = len(port_parameters)
         native_ports = len(port_parameters)
+        transport_ports = native_ports
     else:
-        native_ports = (
+        transport_ports = (
             0 if stub is None or stub.flavour == "reference"
             or (stub.flavour == "adaptor" and expected_ports == 0) else 1
         )
-    if len(port_parameters) != expected_ports:
+        native_ports = transport_ports + registration_count
+    if len(port_parameters) != expected_ports + registration_count:
         raise WiringError(
             f"implementation '{implementation.__name__}' requires {expected_ports} native service input(s)"
         )
@@ -1352,11 +1434,14 @@ def _bind_registered_impl(implementation, path, config):
             raise WiringError(
                 f"implementation '{implementation.__name__}' received {len(ports)} native service inputs"
             )
+        # The transport port(s) come first, then the registration inputs.
+        transport = list(ports[:len(ports) - registration_count]) if registration_count else list(ports)
+        extras = list(ports[len(ports) - registration_count:]) if registration_count else []
         user_ports = (
-            _split_service_requests(stub, ports[0])
-            if not manual_adaptor and native_ports and expected_ports > 1
-            else list(ports)
-        )
+            _split_service_requests(stub, transport[0])
+            if not manual_adaptor and transport_ports and expected_ports > 1
+            else transport
+        ) + extras
         arguments = dict(zip((param.name for param in port_parameters), user_ports))
         effective_path = path
         matched_stub = stub
@@ -1377,9 +1462,30 @@ def _bind_registered_impl(implementation, path, config):
                     effective_path = effective_path[:-len(typed_suffix)]
         if any(param.name == "path" for param in parameters):
             arguments["path"] = effective_path
-        client_config = (
-            _adaptor_client_config(matched_stub, effective_path)
-            if matched_stub is not None else {})
+        if matched_stub is not None:
+            client_config = _client_config(matched_stub, effective_path)
+        else:
+            # A MULTI-interface implementation has no single stub, and
+            # service_materialization_path() is only exposed while
+            # materializing default-fallback candidates - so an exact
+            # multi-interface registration would otherwise see no client
+            # configuration at all and silently substitute its own defaults.
+            # Merge across every interface the implementation provides,
+            # rejecting interfaces that disagree at the same path.
+            client_config = {}
+            sources = {}
+            for candidate in implementation.interfaces:
+                for name, value in _client_config(candidate, effective_path).items():
+                    if name in client_config and client_config[name] != value:
+                        raise WiringError(
+                            f"implementation '{implementation.__name__}' clients at path "
+                            f"{effective_path!r} disagree on wiring-time option {name!r}: "
+                            f"{_flavour_label(sources[name].flavour)} "
+                            f"'{sources[name].__name__}' says {client_config[name]!r}, "
+                            f"{_flavour_label(candidate.flavour)} "
+                            f"'{candidate.__name__}' says {value!r}")
+                    client_config[name] = value
+                    sources[name] = candidate
         for param in scalar_parameters:
             configured = resolved_config.get(param.name, inspect.Parameter.empty)
             client_value = client_config.get(param.name, inspect.Parameter.empty)
@@ -1388,7 +1494,7 @@ def _bind_registered_impl(implementation, path, config):
                         and client_value != configured):
                     raise WiringError(
                         f"implementation '{implementation.__name__}' option "
-                        f"'{param.name}' conflicts with adaptor clients at path "
+                        f"'{param.name}' conflicts with clients at path "
                         f"{effective_path!r}")
                 arguments[param.name] = configured
             elif client_value is not inspect.Parameter.empty:
@@ -1785,6 +1891,19 @@ def impl_output(stub, out, path=""):
 def _register_resolved_service(path, implementation, kwargs, *, wiring=None):
     wiring = _current_wiring() if wiring is None else wiring
     default_fallback = path is None
+    if not implementation.interfaces:
+        # Catch-all: an implementation declaring NO interface claims every
+        # otherwise-unclaimed endpoint. The underlying candidate mechanism
+        # (register_catch_all_service_implementation_candidate) has no
+        # flavour, so this is the same facility adaptors reach through
+        # @adaptor_impl(interfaces=()) - it is simply no longer
+        # adaptor-exclusive (RFC 0011 step 6).
+        implementation_inputs, scalar_kwargs = _registration_inputs(implementation, kwargs)
+        impl_fn = _bind_registered_impl(implementation, path or "", scalar_kwargs)
+        _hgraph.register_unbound_adaptor_impl(
+            wiring, _wrap_graph_fn(impl_fn),
+            [_unwrap(port) for port in implementation_inputs])
+        return
     if len(implementation.interfaces) > 1:
         resolved_paths = {
             _resolved_service_path(stub, path) for stub in implementation.interfaces
@@ -1800,9 +1919,13 @@ def _register_resolved_service(path, implementation, kwargs, *, wiring=None):
     stub = implementation.interfaces[0]
     resolved_path = _resolved_service_path(stub, path)
     user_path = getattr(stub, "_default_path", "") if path is None else path
-    impl_fn = _bind_registered_impl(implementation, user_path, kwargs)
+    # Time-series values in the registration kwargs become implementation
+    # inputs; the rest stays scalar configuration (RFC 0011 step 2).
+    implementation_inputs, scalar_kwargs = _registration_inputs(implementation, kwargs)
+    impl_fn = _bind_registered_impl(implementation, user_path, scalar_kwargs)
     _hgraph.register_service_impl(
         wiring, stub.descriptor, resolved_path, _wrap_graph_fn(impl_fn),
+        inputs=[_unwrap(port) for port in implementation_inputs],
         default_fallback=default_fallback)
 
 

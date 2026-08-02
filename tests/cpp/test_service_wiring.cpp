@@ -4,6 +4,7 @@
 #include <hgraph/lib/std/std_nodes.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/types/adaptor_wiring.h>
 #include <hgraph/types/service_wiring.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value_builder.h>
@@ -1579,7 +1580,166 @@ namespace
 
         static void compose(Wiring &w)
         {
-            service::register_services<MissingMultiServiceOutputImpl, AddOneService>(w, service::path("missing"));
+            const auto custom = service::path("missing");
+            service::register_services<MissingMultiServiceOutputImpl, AddOneService>(w, custom);
+            // register_services is LAZY (RFC 0011 step 4), so an implementation
+            // nothing asks for is never materialized and never validated. A
+            // client makes the candidate wanted, at which point the
+            // required-endpoint scope fires as before.
+            static_cast<void>(wire<AddOneService>(
+                w, custom, wire<stdlib::const_>(w, Int{1}).as<TS<Int>>()));
+        }
+    };
+
+    // RFC 0011 step 5: a GENERIC reference service whose implementation
+    // returns the wrong resolved type. The concrete path has always rejected
+    // this via Port::as<>; the non-concrete branch of wire_service_impl did
+    // not compare against the resolved meta at all.
+    struct GenericRateService
+    {
+        static constexpr std::string_view name{"generic_rate"};
+        using output_schema = TS<ScalarVar<"NUMBER", Int, Float>>;
+    };
+
+    struct MismatchedGenericRateImpl
+    {
+        [[maybe_unused]] static constexpr auto name = "mismatched_generic_rate_impl";
+
+        // Declared NUMBER=Int by the registration path, but produces a Float.
+        static Port<TS<Float>> compose(Wiring &w)
+        {
+            return wire<stdlib::const_>(w, Float{1.5}).as<TS<Float>>();
+        }
+    };
+
+    struct MismatchedGenericRateGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "mismatched_generic_rate_graph";
+
+        static Port<TS<Int>> compose(Wiring &w)
+        {
+            service::register_reference_service<GenericRateService, MismatchedGenericRateImpl>(
+                w, service::path("generic_rate", arg<"NUMBER">(scalar_type<Int>())));
+            return wire<GenericRateService>(
+                w, service::path("generic_rate", arg<"NUMBER">(scalar_type<Int>()))).as<TS<Int>>();
+        }
+    };
+
+    // RFC 0011 step 9: a SOURCE-ONLY adaptor (output, no input) in a
+    // translation unit that includes BOTH service_wiring.h and
+    // adaptor_wiring.h. Before the concepts were made disjoint this did not
+    // compile - wire<Interface> matched both wire_customization
+    // specializations. It now lowers onto the reference-service machinery.
+    struct SourceOnlyFeedAdaptor : adaptor::interface
+    {
+        static constexpr std::string_view name{"source_only_feed"};
+        using output_schema = TS<Int>;
+    };
+
+    struct SourceOnlyFeedImpl
+    {
+        [[maybe_unused]] static constexpr auto name = "source_only_feed_impl";
+
+        static void compose(Wiring &w, Scalar<"path", Str> path)
+        {
+            adaptor::to_graph<SourceOnlyFeedAdaptor>(
+                w, service::path(path.value()), wire<stdlib::const_>(w, Int{9}).as<TS<Int>>());
+        }
+    };
+
+    struct SourceOnlyFeedGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "source_only_feed_graph";
+
+        static Port<TS<Int>> compose(Wiring &w)
+        {
+            const auto custom = service::path("feed");
+            adaptor::register_adaptor<SourceOnlyFeedAdaptor, SourceOnlyFeedImpl>(w, custom);
+            return wire<SourceOnlyFeedAdaptor>(w, custom);
+        }
+    };
+
+    // RFC 0011 step 7: ONE implementation spanning an adaptor and a service.
+    // This is the shape services.rst documents as "a sink-only interface in, a
+    // source-only interface out" - now expressible as a single atomic
+    // registration rather than two.
+    struct CollectAdaptor : adaptor::interface
+    {
+        static constexpr std::string_view name{"collect_in"};
+        using input_schema = TS<Int>;
+    };
+
+    struct PublishService
+    {
+        static constexpr std::string_view name{"publish_out"};
+        using output_schema = TS<Int>;
+    };
+
+    struct MixedFlavourImpl
+    {
+        [[maybe_unused]] static constexpr auto name = "mixed_flavour_impl";
+
+        static void compose(Wiring &w, Scalar<"path", Str> path)
+        {
+            const auto custom = service::path(path.value());
+            auto collected = adaptor::from_graph<CollectAdaptor>(w, custom);
+            service::to_graph<PublishService>(
+                w, custom, wire<AddOneValueNode>(w, collected).as<TS<Int>>());
+        }
+    };
+
+    struct MixedFlavourGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "mixed_flavour_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value)
+        {
+            const auto custom = service::path("mixed");
+            service::register_services<MixedFlavourImpl, CollectAdaptor, PublishService>(w, custom);
+            adaptor::adaptor<CollectAdaptor>(w, custom, value);
+            return wire<PublishService>(w, custom);
+        }
+    };
+
+    inline int single_interface_stub_compositions = 0;
+
+    // RFC 0011 step 4: register_services with ONE interface is the
+    // single-interface BY-STUB registration - the quadrant services lacked
+    // against register_adaptor / register_automatic_adaptor.
+    struct SingleInterfaceStubImpl
+    {
+        [[maybe_unused]] static constexpr auto name = "single_interface_stub_impl";
+
+        static void compose(Wiring &w, Scalar<"path", Str> path)
+        {
+            ++single_interface_stub_compositions;
+            const auto custom = service::path(path.value());
+            auto requests = service::from_graph<AddOneService>(w, custom);
+            service::to_graph<AddOneService>(
+                w, custom, wire<AddOneImplNode>(w, requests).as<TSD<Int, TS<Int>>>());
+        }
+    };
+
+    struct SingleInterfaceStubClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "single_interface_stub_client_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> request)
+        {
+            const auto custom = service::path("single_stub");
+            service::register_services<SingleInterfaceStubImpl, AddOneService>(w, custom);
+            return wire<AddOneService>(w, custom, request);
+        }
+    };
+
+    struct UnrequestedMultiServiceGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "unrequested_multi_service_graph";
+
+        static void compose(Wiring &w)
+        {
+            service::register_services<SingleInterfaceStubImpl, AddOneService>(
+                w, service::path("unrequested"));
         }
     };
 
@@ -1596,6 +1756,39 @@ namespace
             auto add_ten_replies = wire<AddTenImplNode>(w, add_ten_requests).as<TSD<Int, TS<Int>>>();
             service::impl_output<AddOneService>(w, custom, add_one_replies);
             service::impl_output<AddTenService>(w, custom, add_ten_replies);
+        }
+    };
+
+    // RFC 0011 step 3: the adaptor spelling of impl_input/impl_output. Same
+    // wiring, so the same graph must produce the same result.
+    struct MultiRequestReplyFromToGraphImpl
+    {
+        [[maybe_unused]] static constexpr auto name = "multi_request_reply_from_to_graph_impl";
+
+        static void compose(Wiring &w, Scalar<"path", Str> path)
+        {
+            const auto custom = service::path(path.value());
+            auto add_one_requests = service::from_graph<AddOneService>(w, custom);
+            auto add_ten_requests = service::from_graph<AddTenService>(w, custom);
+            auto add_one_replies = wire<AddOneImplNode>(w, add_one_requests).as<TSD<Int, TS<Int>>>();
+            auto add_ten_replies = wire<AddTenImplNode>(w, add_ten_requests).as<TSD<Int, TS<Int>>>();
+            service::to_graph<AddOneService>(w, custom, add_one_replies);
+            service::to_graph<AddTenService>(w, custom, add_ten_replies);
+        }
+    };
+
+    struct MultiServiceFromToGraphClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "multi_service_from_to_graph_client_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> request)
+        {
+            const auto custom = service::path("multi_from_to");
+            service::register_services<
+                MultiRequestReplyFromToGraphImpl, AddOneService, AddTenService>(w, custom);
+            auto add_one = wire<AddOneService>(w, custom, request);
+            auto add_ten = wire<AddTenService>(w, custom, request);
+            return wire<stdlib::add_>(w, add_one, add_ten).as<TS<Int>>();
         }
     };
 
@@ -2215,6 +2408,73 @@ TEST_CASE("service wiring: multi-interface implementation graph wires explicit s
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<MultiServiceClientGraph>(values<Int>(1)), values<Int>(none, none, 13));
+}
+
+TEST_CASE("service wiring: a source-only adaptor is unambiguous alongside services")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // RFC 0011 step 9. The value of this case is largely that it COMPILES:
+    // this file includes both boundary headers, which previously made
+    // wire<SourceOnlyFeedAdaptor> an ambiguous partial specialization.
+    CHECK_OUTPUT(eval_node<SourceOnlyFeedGraph>(), values<Int>(9));
+}
+
+TEST_CASE("service wiring: one implementation may span an adaptor and a service")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // RFC 0011 step 7. register_services describes each member through
+    // boundary_detail::group_member, so the pack may mix families when both
+    // headers are visible. Value in through the sink-only adaptor, out through
+    // the reference service, +1 in between.
+    CHECK_OUTPUT(eval_node<MixedFlavourGraph>(values<Int>(1, 2)), values<Int>(2, 3));
+}
+
+TEST_CASE("service wiring: a generic implementation output must match the resolved interface schema")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // RFC 0011 step 5. Without the resolved-meta comparison in the
+    // non-concrete branch of wire_service_impl this builds happily and the
+    // capture is created over the IMPLEMENTATION's schema while the source
+    // uses the interface's - the same unchecked mismatch adaptors had.
+    CHECK_THROWS_AS(build_graph<MismatchedGenericRateGraph>(), std::invalid_argument);
+}
+
+TEST_CASE("service wiring: a single-interface implementation may publish by stub")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // RFC 0011 step 4. register_services with one interface publishes through
+    // from_graph/to_graph rather than by returning a port.
+    single_interface_stub_compositions = 0;
+    CHECK_OUTPUT(eval_node<SingleInterfaceStubClientGraph>(values<Int>(1)),
+                 values<Int>(none, none, 2));
+    CHECK(single_interface_stub_compositions == 1);
+}
+
+TEST_CASE("service wiring: register_services materializes only on demand")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // RFC 0011 step 4: register_services is now LAZY, matching
+    // register_adaptors and the erased register_multi_service_impl. An
+    // implementation nothing requests is never composed.
+    single_interface_stub_compositions = 0;
+    CHECK_NOTHROW(build_graph<UnrequestedMultiServiceGraph>());
+    CHECK(single_interface_stub_compositions == 0);
+}
+
+TEST_CASE("service wiring: service from_graph/to_graph spell the same wiring as impl_input/impl_output")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // RFC 0011 step 3. Identical to the case above, written with the adaptor
+    // verbs - they are aliases onto impl_input/impl_output, not a second
+    // mechanism, so the observable result must match exactly.
+    CHECK_OUTPUT(eval_node<MultiServiceFromToGraphClientGraph>(values<Int>(1)),
+                 values<Int>(none, none, 13));
 }
 
 TEST_CASE("service wiring: shared replay service hands clients to the live reference")

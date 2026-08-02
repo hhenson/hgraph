@@ -25,12 +25,10 @@
 
 namespace hgraph::service
 {
-    struct ServicePath
-    {
-        std::string   value{};
-        ResolutionMap resolution{};
-        bool          has_typed_suffix{false};
-    };
+    /** Alias of the shared ``hgraph::BoundaryPath`` (RFC 0011 step 8): the
+     *  two path types were field-identical, and a single implementation can
+     *  only span services and adaptors if they are one type. */
+    using ServicePath = BoundaryPath;
 
     [[nodiscard]] inline ServicePath path(std::string_view value)
     {
@@ -168,9 +166,22 @@ namespace hgraph::service
         {
         };
 
+        /** An interface deriving from ``adaptor::interface``, WITHOUT needing
+         *  ``adaptor_wiring.h`` to be included.
+         *
+         *  A source-only adaptor (output, no input) satisfies every other
+         *  clause of ``reference_service_interface``, so without this the two
+         *  concepts overlap and ``wire<Interface>`` is an ambiguous partial
+         *  specialization in any translation unit including both headers
+         *  (RFC 0011 step 9). Detected structurally via the tag member the
+         *  adaptor base declares, so this header stays independent. */
+        template <typename Interface>
+        concept declares_adaptor_interface = requires { typename Interface::__adaptor_interface_tag__; };
+
         template <typename Service>
         concept reference_service_interface =
             has_reference_output_schema<Service>::value &&
+            !declares_adaptor_interface<Service> &&
             !has_adaptor_input_schema<Service>::value &&
             !has_key_value_schema<Service>::value &&
             !has_request_reply_schema<Service>::value;
@@ -400,6 +411,30 @@ namespace hgraph::service
             return has_path_scalar<params>(std::make_index_sequence<std::tuple_size_v<params>>{});
         }
 
+        /** Check a GENERIC implementation's output against the resolved
+         *  interface schema.
+         *
+         *  The concrete branch below gets this from ``Port::as<OutputSchema>()``.
+         *  The non-concrete branch previously returned the implementation's
+         *  port unchecked, so a generic service accepted a mismatched output
+         *  and built its capture over the implementation's schema while the
+         *  source used the interface's - exactly the hole this RFC attributes
+         *  to adaptors (RFC 0011 step 5). */
+        template <typename OutputSchema>
+        [[nodiscard]] Port<OutputSchema> checked_generic_output(
+            Wiring &w, const ServicePath &user_path, WiringPortRef output)
+        {
+            const auto *expected = resolved_schema_meta<OutputSchema>(
+                user_path.resolution, "service implementation output");
+            if (output.schema == nullptr ||
+                !graph_wiring_detail::input_accepts_output_schema(expected, output.schema))
+            {
+                throw std::invalid_argument(
+                    "service implementation output does not match the resolved interface schema");
+            }
+            return Port<OutputSchema>{w, std::move(output)};
+        }
+
         template <typename Impl, typename OutputSchema, typename... Args>
         [[nodiscard]] Port<OutputSchema> wire_service_impl(Wiring &w, const ServicePath &user_path, const Args &...args)
         {
@@ -412,7 +447,7 @@ namespace hgraph::service
                 }
                 else
                 {
-                    return Port<OutputSchema>{w, output.erased()};
+                    return checked_generic_output<OutputSchema>(w, user_path, output.erased());
                 }
             }
             else
@@ -424,7 +459,7 @@ namespace hgraph::service
                 }
                 else
                 {
-                    return Port<OutputSchema>{w, output.erased()};
+                    return checked_generic_output<OutputSchema>(w, user_path, output.erased());
                 }
             }
         }
@@ -684,24 +719,14 @@ namespace hgraph::service
             const ServicePath &user_path)
         {
             using output_schema = reference_output_schema_t<Service>;
-
-            std::string full_path = reference_output_path<Service>(user_path);
-            const auto *target_meta = resolved_schema_meta<output_schema>(
-                user_path.resolution, "reference service output");
-            const auto *ref_meta = TypeRegistry::instance().ref(target_meta);
-
-            WiringNodeSchema schema;
-            schema.output = ref_meta;
-            schema.state  = ref_meta->value_schema;
-            Value path_key = path_key_value(full_path);
-
-            WiringPortRef port = w.add_node(
-                std::type_index(typeid(reference_output_source_marker)), schema,
-                std::span<const WiringPortRef>{}, std::move(path_key),
-                [path = std::move(full_path), target_meta]() {
-                    return make_shared_output_source_node(path, *target_meta);
-                });
-            return Port<REF<output_schema>>{w, std::move(port)};
+            // Shared with adaptor::detail::output_source (RFC 0011 step 9).
+            return Port<REF<output_schema>>{
+                w,
+                boundary_detail::shared_output_relay_source(
+                    w, std::type_index(typeid(reference_output_source_marker)),
+                    resolved_schema_meta<output_schema>(
+                        user_path.resolution, "reference service output"),
+                    reference_output_path<Service>(user_path))};
         }
 
         template <typename Service>
@@ -875,45 +900,26 @@ namespace hgraph::service
             return capture.peered_node();
         }
 
-        template <typename Service, typename Impl>
+        // ``Impl`` was a template parameter here but never used in the body,
+        // so the two call sites' differing arguments interned to the same node
+        // regardless. Dropped (RFC 0011 step 8).
+        template <typename Service>
         const WiringInstance *capture_reference_service_output(Wiring &w,
                                                                Port<reference_output_schema_t<Service>> output,
                                                                Port<REF<reference_output_schema_t<Service>>> shared_output,
                                                                const ServicePath &user_path)
         {
             using output_schema = reference_output_schema_t<Service>;
-
-            std::array<WiringPortRef, 2> sources{output.erased(), shared_output.erased()};
-            std::array<WiringInputRef, 2> inputs{{
-                WiringInputRef{.source = sources[0]},
-                WiringInputRef{.source = sources[1], .rank_dependency = false},
-            }};
             const auto *output_meta = output.erased().schema;
             if (output_meta == nullptr)
             {
                 output_meta = resolved_schema_meta<output_schema>(
                     user_path.resolution, "reference service output");
             }
-            NodeBuilder builder = make_shared_output_capture_node(
-                reference_output_path<Service>(user_path), *output_meta);
-            builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
-                builder.type().schema()->input_schema,
-                std::span<const WiringPortRef>{sources.data(), sources.size()}));
-
-            WiringPortRef capture = w.add_node(std::type_index(typeid(reference_output_capture_marker)),
-                                               std::move(builder),
-                                               std::span<const WiringInputRef>{inputs.data(), inputs.size()},
-                                               Value{});
-            // Shared-output relays are RANK-CORRECT and same-cycle: the rank
-            // dependency places the paired source after this capture (and
-            // Wiring::finish's topological sort re-ranks once ALL captures are
-            // known), so the capture schedules the source for the CURRENT
-            // evaluation time — no next-cycle workaround. Request/reply stubs
-            // above still schedule their transport sources for the next cycle.
-            // The same rule applies at every add_rank_dependency site below
-            // and in adaptor_wiring.h.
-            w.add_same_cycle_pair(capture.peered_node(), shared_output.node());
-            return capture.peered_node();
+            // Shared with adaptor::detail::capture_output (RFC 0011 step 9).
+            return boundary_detail::shared_output_relay_capture(
+                w, std::type_index(typeid(reference_output_capture_marker)), output_meta,
+                reference_output_path<Service>(user_path), output.erased(), shared_output.erased());
         }
 
         template <typename Service, typename Impl>
@@ -1052,7 +1058,7 @@ namespace hgraph::service
                         return detail::wire_service_impl<Impl, output_schema>(target, user_path, stored...);
                     }, stored_args);
                 const WiringInstance *capture =
-                    detail::capture_reference_service_output<Service, Impl>(
+                    detail::capture_reference_service_output<Service>(
                         target, output, shared_output, user_path);
                 target.register_service_rank_anchor(base_path, capture);
             });
@@ -1119,7 +1125,7 @@ namespace hgraph::service
             user_path.resolution, w.service_implementation_stub_resolution(endpoint));
         w.register_service_implementation_stub(endpoint, "reference service");
         auto shared_output = detail::reference_shared_output_source<Service>(w, user_path);
-        const WiringInstance *capture = detail::capture_reference_service_output<Service, explicit_impl_output_marker>(
+        const WiringInstance *capture = detail::capture_reference_service_output<Service>(
             w, std::move(output), shared_output, user_path);
         w.register_service_rank_anchor(detail::reference_base_path<Service>(user_path), capture);
     }
@@ -1178,36 +1184,123 @@ namespace hgraph::service
         impl_output<Service>(w, detail::default_service_path<Service>(), std::move(output));
     }
 
-    template <typename Impl, typename... Services, typename... Args>
-    void register_services(Wiring &w, ServicePath user_path, const Args &...args)
+    /**
+     * ``from_graph`` / ``to_graph`` — the adaptor spelling of ``impl_input`` /
+     * ``impl_output`` (RFC 0011 step 3).
+     *
+     * These are aliases, not a second mechanism: ``impl_output`` and
+     * ``adaptor::to_graph`` already build the same stub registration, shared
+     * output source, capture and rank anchor. The adaptor names are the
+     * discoverable ones for "publish this implementation's output", so a
+     * service implementation may use them too and read the same in either
+     * flavour. ``impl_input`` / ``impl_output`` remain and are unchanged.
+     *
+     * A reference service has no client input, so it has no ``from_graph``.
+     */
+    template <typename Service, typename... Args>
+        requires requires(Wiring &w, Args &&...args) { impl_input<Service>(w, std::forward<Args>(args)...); }
+    [[nodiscard]] decltype(auto) from_graph(Wiring &w, Args &&...args)
     {
-        static_assert(sizeof...(Services) > 0,
-                      "register_services requires at least one service interface");
-        static_assert((detail::service_interface<Services> && ...),
-                      "register_services requires service descriptor types");
-        (
-            [&] {
-                if constexpr (detail::reference_service_interface<Services>)
-                {
-                    w.register_built_service_path(
-                        detail::reference_base_path<Services>(user_path), "reference service");
-                }
-                else if constexpr (detail::subscription_service_interface<Services>)
-                {
-                    w.register_built_service_path(
-                        detail::subscription_base_path<Services>(user_path), "subscription service");
-                }
-                else if constexpr (detail::request_reply_service_interface<Services>)
-                {
-                    w.register_built_service_path(
-                        detail::request_reply_base_path<Services>(user_path), "request/reply service");
-                }
-            }(),
-            ...);
-        std::vector<WiringServiceImplementationEndpoint> required_endpoints;
-        (detail::append_required_stub_endpoints<Services>(required_endpoints, user_path), ...);
-        detail::wire_service_graph_with_scope<Impl>(
-            w, user_path, "multi-service implementation", std::move(required_endpoints), args...);
+        return impl_input<Service>(w, std::forward<Args>(args)...);
+    }
+
+    template <typename Service, typename... Args>
+        requires requires(Wiring &w, Args &&...args) { impl_output<Service>(w, std::forward<Args>(args)...); }
+    void to_graph(Wiring &w, Args &&...args)
+    {
+        impl_output<Service>(w, std::forward<Args>(args)...);
+    }
+
+}   // namespace hgraph::service
+
+namespace hgraph::boundary_detail
+{
+    /** Service interfaces in a multi-interface group (RFC 0011 step 7). */
+    template <typename Service>
+    struct group_member<Service, std::enable_if_t<service::detail::service_interface<Service>>>
+    {
+        [[nodiscard]] static std::string base_path(const BoundaryPath &user_path)
+        {
+            if constexpr (service::detail::reference_service_interface<Service>)
+            {
+                return service::detail::reference_base_path<Service>(user_path);
+            }
+            else if constexpr (service::detail::subscription_service_interface<Service>)
+            {
+                return service::detail::subscription_base_path<Service>(user_path);
+            }
+            else
+            {
+                return service::detail::request_reply_base_path<Service>(user_path);
+            }
+        }
+
+        [[nodiscard]] static std::string_view kind()
+        {
+            if constexpr (service::detail::reference_service_interface<Service>)
+            {
+                return "reference service";
+            }
+            else if constexpr (service::detail::subscription_service_interface<Service>)
+            {
+                return "subscription service";
+            }
+            else
+            {
+                return "request/reply service";
+            }
+        }
+
+        static void append_required_endpoints(
+            std::vector<WiringServiceImplementationEndpoint> &endpoints, const BoundaryPath &user_path)
+        {
+            service::detail::append_required_stub_endpoints<Service>(endpoints, user_path);
+        }
+    };
+}   // namespace hgraph::boundary_detail
+
+namespace hgraph::service
+{
+    /**
+     * Register ONE implementation providing several interfaces.
+     *
+     * The interface pack may MIX services and adaptors (RFC 0011 step 7):
+     * each member is described through ``boundary_detail::group_member``, which
+     * ``service_wiring.h`` specializes for service interfaces and
+     * ``adaptor_wiring.h`` for adaptor interfaces. This is what keeps the
+     * documented "sink-only interface in, source-only interface out" shape
+     * expressible as a single atomic registration.
+     *
+     * Lazy: the implementation is composed only once a client requests one of
+     * its interfaces.
+     */
+    template <typename Impl, typename... Interfaces, typename... Args>
+    void register_services(Wiring &w, BoundaryPath user_path, const Args &...args)
+    {
+        static_assert(sizeof...(Interfaces) > 0,
+                      "register_services requires at least one interface");
+        std::vector<std::string> base_paths{
+            boundary_detail::group_member<Interfaces>::base_path(user_path)...};
+        auto stored_args = std::tuple<std::decay_t<Args>...>{args...};
+        w.register_service_implementation_candidate(
+            base_paths, "multi-service implementation",
+            [user_path, stored_args = std::move(stored_args)](Wiring &target) {
+                (target.register_built_service_path(
+                     boundary_detail::group_member<Interfaces>::base_path(user_path),
+                     boundary_detail::group_member<Interfaces>::kind()),
+                 ...);
+                std::vector<WiringServiceImplementationEndpoint> required_endpoints;
+                (boundary_detail::group_member<Interfaces>::append_required_endpoints(
+                     required_endpoints, user_path),
+                 ...);
+                std::apply(
+                    [&](const auto &...stored) {
+                        detail::wire_service_graph_with_scope<Impl>(
+                            target, user_path, "multi-service implementation",
+                            std::move(required_endpoints), stored...);
+                    },
+                    stored_args);
+            });
     }
 
     template <typename Service>
@@ -1641,7 +1734,8 @@ namespace hgraph::service_adaptor
 
         [[nodiscard]] inline Value path_key_value(const std::string &full_path)
         {
-            return Value{Str{full_path}};
+            // Shared implementation (RFC 0011 step 8).
+            return wiring_path_detail::boundary_path_key(full_path);
         }
 
         struct request_input_source_marker
