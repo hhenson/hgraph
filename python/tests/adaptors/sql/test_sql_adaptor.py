@@ -33,8 +33,8 @@ class _Row(hg.CompoundScalar):
     value: int
 
 
-def _end_time():
-    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=5)
+def _end_time(seconds=5):
+    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=seconds)
 
 
 def _environment(path):
@@ -82,7 +82,6 @@ def test_sql_raw_adaptor_serves_repeated_requests_from_the_same_client(
 ):
     import importlib
     import threading
-    import time
 
     database = tmp_path / "repeated-read.sqlite"
     with sqlite3.connect(database) as connection:
@@ -90,7 +89,11 @@ def test_sql_raw_adaptor_serves_repeated_requests_from_the_same_client(
         connection.executemany("insert into rows values (?)", [(1,), (2,)])
     target = f"sqlite:///{database}"
     captured = []
+    first_query_started = threading.Event()
+    first_response_captured = threading.Event()
     release_first = threading.Event()
+    feeder_errors = []
+    feeder_threads = []
     sql_module = importlib.import_module("hgraph.adaptors.sql.sql_connection")
     connection_type = sql_module.SqlAdaptorConnectionSQLServer
     original_read = connection_type.read_database
@@ -100,7 +103,11 @@ def test_sql_raw_adaptor_serves_repeated_requests_from_the_same_client(
         nonlocal calls
         calls += 1
         if calls == 1:
-            release_first.wait(timeout=2.0)
+            first_query_started.set()
+            if not release_first.wait(timeout=10.0):
+                raise TimeoutError("the second request was not sent while the first SQL read was blocked")
+        elif calls == 2 and not first_response_captured.wait(timeout=10.0):
+            raise TimeoutError("the first SQL response was not captured before the second completed")
         return original_read(connection, statement)
 
     monkeypatch.setattr(connection_type, "read_database", blocked_first_read)
@@ -108,18 +115,27 @@ def test_sql_raw_adaptor_serves_repeated_requests_from_the_same_client(
     @hg.push_queue(hg.TS[str])
     def query(sender):
         def feed():
-            sender("select value from rows where value = 1")
-            time.sleep(0.05)
-            sender("select value from rows where value = 2")
-            release_first.set()
+            try:
+                sender("select value from rows where value = 1")
+                if not first_query_started.wait(timeout=10.0):
+                    raise TimeoutError("the first SQL request did not start")
+                sender("select value from rows where value = 2")
+            except Exception as error:
+                feeder_errors.append(error)
+            finally:
+                release_first.set()
 
-        threading.Thread(target=feed, daemon=True).start()
+        thread = threading.Thread(target=feed, daemon=True)
+        feeder_threads.append(thread)
+        thread.start()
 
     @hg.sink_node
     def capture(response: hg.TSB[hg.stream.Stream[hg.stream.Data[hg.Frame]]],
                 engine: hg.EvaluationEngineApi = None):
         if response.status.value is StreamStatus.OK:
             captured.append(response["values"].value.column("value")[0].as_py())
+            if captured == [1]:
+                first_response_captured.set()
             if len(captured) == 2:
                 engine.request_engine_stop()
 
@@ -129,7 +145,12 @@ def test_sql_raw_adaptor_serves_repeated_requests_from_the_same_client(
         capture(sql_read_adaptor_raw(query(), path=target))
 
     with hg.GlobalContext(hg.GlobalState()):
-        hg.run_graph(app, run_mode=hg.EvaluationMode.REAL_TIME, end_time=_end_time())
+        hg.run_graph(app, run_mode=hg.EvaluationMode.REAL_TIME, end_time=_end_time(15))
+
+    for thread in feeder_threads:
+        thread.join(timeout=1.0)
+        assert not thread.is_alive()
+    assert not feeder_errors
 
     assert captured == [1, 2]
 

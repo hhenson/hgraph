@@ -67,6 +67,8 @@ source/capture pair** — applied with different payloads:
     and the capture schedules the service source for
     ``evaluation_time + MIN_TD`` (current time during ``start``). The temporal
     request mutation does not run the implementation in the capture cycle.
+    A request/reply input source retains its earliest outstanding publication
+    time, so a later request cannot postpone work that is already due.
   - **Request/reply responses** cross an explicit feedback source/sink pair in
     the graph that owns the implementation, then publish through the ordinary
     same-cycle shared-output relay. Request/reply clients are omitted from
@@ -105,10 +107,11 @@ The per-flavour payloads:
   the cycle after capture; releases are reference-counted across captures
   (``tests/cpp/test_service_node.cpp``).
 - **Request/reply service**: the source owns ``TSD<int, request_schema>``.
-  Each client has a **stable wiring-time request id**; capture sinks update
-  source-local mutable delta state; the source applies that delta in one
-  mutation when scheduled and then resets it. Multiple captures can update
-  before the source emits, so the final request delta is **cumulative**
+  Each live client instance has a stable runtime request id; capture sinks
+  queue source-local deltas. Same-cycle captures for one client combine into
+  one delta, while captures from successive cycles are published in order, at
+  most one per client per cycle. Different clients can still be published in
+  the same source mutation, so the request delta is **cumulative**
   (``make_request_input_source_node`` / ``make_request_input_capture_node``;
   proven by "request/reply source emits cumulative client requests" in
   ``test_service_wiring.cpp``). The implementation output is captured by an

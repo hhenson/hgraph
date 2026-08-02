@@ -37,8 +37,8 @@ def test_service_adaptor_roundtrip_takes_one_transport_cycle():
         hg.register_adaptor(None, echo_impl)
         return echo(value)
 
-    out = eval_node(roundtrip, [1], __end_time__=hg.MIN_ST + 3 * hg.MIN_TD)
-    assert out == [None, 1]
+    out = eval_node(roundtrip, [1, 2, 3], __end_time__=hg.MIN_ST + 5 * hg.MIN_TD)
+    assert out == [None, 1, 2, 3]
 
 
 def test_resubscription_samples_existing_value_in_the_same_cycle():
