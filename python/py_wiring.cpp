@@ -1069,9 +1069,9 @@ namespace hgraph::python_bridge
     nb::class_<PyWiring>(m, "Wiring", nb::is_weak_referenceable())
         .def(nb::init<>())
         .def(nb::init<GlobalState &>(), nb::arg("state"))
-        .def("_identity", [](const PyWiring &wiring) {
+        .def("identity", [](const PyWiring &wiring) {
             return wiring.raw->identity();
-        })
+        }, "Return the stable identity of the underlying C++ Wiring.")
         .def("_retain_cleanup", [](PyWiring &wiring, nb::object callback) {
             wiring.raw->retain_extension_state(
                 std::make_shared<PyWiringCleanup>(std::move(callback)));

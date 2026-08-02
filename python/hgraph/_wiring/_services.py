@@ -60,7 +60,7 @@ def _record_adaptor_client_config(stub, path, bound):
         and parameter.annotation not in _INJECTABLE_MARKERS
     }
     wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
-    identity = wiring._identity()
+    identity = wiring.identity()
     if identity not in _ADAPTOR_CLIENT_CONFIG_CLEANUPS:
         def clear_configs():
             for existing in tuple(_ADAPTOR_CLIENT_CONFIGS):
@@ -91,7 +91,7 @@ def _record_adaptor_client_config(stub, path, bound):
 def _adaptor_client_config(stub, path):
     wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
     key = (
-        wiring._identity(), stub.flavour, stub.__name__,
+        wiring.identity(), stub.flavour, stub.__name__,
         stub._specialization, path,
     )
     return _ADAPTOR_CLIENT_CONFIGS.get(key, {})

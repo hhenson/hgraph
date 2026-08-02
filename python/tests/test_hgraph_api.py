@@ -1516,7 +1516,11 @@ def test_adaptor_client_config_follows_cxx_first_wiring_lifetime():
         _wiring_stack.pop()
     source = wiring.wire("nothing", output_type=TS[int].handle)
     client = wiring.wire(cxx_first_client._registry_name, (source,), {})
-    wiring_identity = wiring._identity()
+    wiring_identity = wiring.identity()
+    check(isinstance(wiring_identity, int) and wiring_identity > 0,
+          f"invalid public Wiring identity: {wiring_identity!r}")
+    check(wiring.identity() == wiring_identity,
+          "public Wiring identity changed during its lifetime")
     check(any(key[0] == wiring_identity for key in _ADAPTOR_CLIENT_CONFIGS),
           "C++-first adaptor config was not retained")
     wiring.build_services()
