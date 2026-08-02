@@ -776,6 +776,16 @@ another instance requested it.
   ``TSD<K, OUT>`` output; child terminals are forwarding outputs bound to
   real elements in that owned TSD, so branch/map/switch terminals inside the
   instance write through to the mesh element rather than copying values.
+- **TSD argument classification follows ``map_``.** A whole-time-series type
+  variable multiplexes the first TSD argument and establishes the key type;
+  later matching-key TSDs multiplex, while later different-key TSDs and
+  non-TSDs pass through. Concrete whole-TSD parameters pass through and
+  element parameters multiplex. The first multiplexed input drives the
+  signature. ``pass_through`` inputs do not contribute to inferred
+  ``__keys__``; ``no_key`` inputs remain multiplexed but are excluded from the
+  inferred union, so all-``no_key`` inputs require explicit ``__keys__``.
+  TSL-specific ``map_`` rules do not apply because ``mesh_`` has no TSL
+  kernel.
 - **One internal key-slot store is authoritative.** Mesh instance membership
   is a superset of ``__keys__`` because dependency reads may create keys on
   demand. A mesh therefore cannot mirror only the external set's slot ids.
@@ -813,7 +823,8 @@ another instance requested it.
   mirror ``map_`` because the mesh output is an owned TSD whose elements are
   real storage targets.
 
-Tests: ``tests/cpp/test_mesh.cpp``.
+Tests: ``tests/cpp/test_mesh.cpp`` and
+``python/tests/test_mesh_map_classification.py``.
 
 
 ``dispatch_`` — runtime type dispatch (design record)

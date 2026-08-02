@@ -308,7 +308,7 @@ namespace hgraph::stdlib
      * endpoint shape safely.
      */
     /**
-     * Python's ``pass_through()`` — tag a ``map_`` input so it is NOT
+     * Python's ``pass_through()`` — tag a ``map_`` / ``mesh_`` input so it is NOT
      * demultiplexed: the child binds the input whole (broadcast), whatever
      * its kind. A wiring-time tag on the port; never part of graph structure.
      */
@@ -319,7 +319,7 @@ namespace hgraph::stdlib
     }
 
     /**
-     * Python's ``no_key()`` — tag a multiplexed ``map_`` input so it is
+     * Python's ``no_key()`` — tag a multiplexed ``map_`` / ``mesh_`` input so it is
      * demultiplexed as usual but EXCLUDED from key-set inference (its keys do
      * not contribute to the derived ``__keys__`` union).
      */
@@ -330,7 +330,7 @@ namespace hgraph::stdlib
     }
 
     /**
-     * The ``map_`` call configuration folded into the node's interning
+     * The ``map_`` / ``mesh_`` call configuration folded into the node's interning
      * identity: two calls with equal inputs but different function, key-arg
      * name, or argument tags must NOT dedup to one node.
      */
@@ -370,7 +370,9 @@ namespace hgraph::stdlib
      * create instances on demand, and evaluate in dependency-rank order within a
      * cycle. The instantiation call surface mirrors ``map_``; cross-instance
      * access uses ``mesh_ref<OUT>(w, key)`` inside the mesh body. See the
-     * developer guide *Mesh*.
+     * developer guide *Mesh*. TSD argument classification, including generic
+     * whole-time-series inputs and ``pass_through`` / ``no_key`` tags, follows
+     * ``map_`` exactly; mesh does not implement map's TSL kernels.
      */
     struct mesh_ : Operator<"mesh_",
                             Scalar<"func", WiredFn>,
