@@ -400,6 +400,30 @@ namespace hgraph::service
             return has_path_scalar<params>(std::make_index_sequence<std::tuple_size_v<params>>{});
         }
 
+        /** Check a GENERIC implementation's output against the resolved
+         *  interface schema.
+         *
+         *  The concrete branch below gets this from ``Port::as<OutputSchema>()``.
+         *  The non-concrete branch previously returned the implementation's
+         *  port unchecked, so a generic service accepted a mismatched output
+         *  and built its capture over the implementation's schema while the
+         *  source used the interface's - exactly the hole this RFC attributes
+         *  to adaptors (RFC 0011 step 5). */
+        template <typename OutputSchema>
+        [[nodiscard]] Port<OutputSchema> checked_generic_output(
+            Wiring &w, const ServicePath &user_path, WiringPortRef output)
+        {
+            const auto *expected = resolved_schema_meta<OutputSchema>(
+                user_path.resolution, "service implementation output");
+            if (output.schema == nullptr ||
+                !graph_wiring_detail::input_accepts_output_schema(expected, output.schema))
+            {
+                throw std::invalid_argument(
+                    "service implementation output does not match the resolved interface schema");
+            }
+            return Port<OutputSchema>{w, std::move(output)};
+        }
+
         template <typename Impl, typename OutputSchema, typename... Args>
         [[nodiscard]] Port<OutputSchema> wire_service_impl(Wiring &w, const ServicePath &user_path, const Args &...args)
         {
@@ -412,7 +436,7 @@ namespace hgraph::service
                 }
                 else
                 {
-                    return Port<OutputSchema>{w, output.erased()};
+                    return checked_generic_output<OutputSchema>(w, user_path, output.erased());
                 }
             }
             else
@@ -424,7 +448,7 @@ namespace hgraph::service
                 }
                 else
                 {
-                    return Port<OutputSchema>{w, output.erased()};
+                    return checked_generic_output<OutputSchema>(w, user_path, output.erased());
                 }
             }
         }

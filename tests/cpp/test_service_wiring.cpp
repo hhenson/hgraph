@@ -1590,6 +1590,40 @@ namespace
         }
     };
 
+    // RFC 0011 step 5: a GENERIC reference service whose implementation
+    // returns the wrong resolved type. The concrete path has always rejected
+    // this via Port::as<>; the non-concrete branch of wire_service_impl did
+    // not compare against the resolved meta at all.
+    struct GenericRateService
+    {
+        static constexpr std::string_view name{"generic_rate"};
+        using output_schema = TS<ScalarVar<"NUMBER", Int, Float>>;
+    };
+
+    struct MismatchedGenericRateImpl
+    {
+        [[maybe_unused]] static constexpr auto name = "mismatched_generic_rate_impl";
+
+        // Declared NUMBER=Int by the registration path, but produces a Float.
+        static Port<TS<Float>> compose(Wiring &w)
+        {
+            return wire<stdlib::const_>(w, Float{1.5}).as<TS<Float>>();
+        }
+    };
+
+    struct MismatchedGenericRateGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "mismatched_generic_rate_graph";
+
+        static Port<TS<Int>> compose(Wiring &w)
+        {
+            service::register_reference_service<GenericRateService, MismatchedGenericRateImpl>(
+                w, service::path("generic_rate", arg<"NUMBER">(scalar_type<Int>())));
+            return wire<GenericRateService>(
+                w, service::path("generic_rate", arg<"NUMBER">(scalar_type<Int>()))).as<TS<Int>>();
+        }
+    };
+
     inline int single_interface_stub_compositions = 0;
 
     // RFC 0011 step 4: register_services with ONE interface is the
@@ -2297,6 +2331,17 @@ TEST_CASE("service wiring: multi-interface implementation graph wires explicit s
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<MultiServiceClientGraph>(values<Int>(1)), values<Int>(none, none, 13));
+}
+
+TEST_CASE("service wiring: a generic implementation output must match the resolved interface schema")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // RFC 0011 step 5. Without the resolved-meta comparison in the
+    // non-concrete branch of wire_service_impl this builds happily and the
+    // capture is created over the IMPLEMENTATION's schema while the source
+    // uses the interface's - the same unchecked mismatch adaptors had.
+    CHECK_THROWS_AS(build_graph<MismatchedGenericRateGraph>(), std::invalid_argument);
 }
 
 TEST_CASE("service wiring: a single-interface implementation may publish by stub")
