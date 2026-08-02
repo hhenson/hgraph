@@ -2448,12 +2448,12 @@ namespace hgraph::stdlib
         {};
 
         /**
-         * Classify the ``map_`` time-series arguments, Python-style: every
-         * TSD argument is **multiplexed** (the key types must all agree —
-         * the live key set is their union); everything else broadcasts whole.
-         * The argument list has already been resolved onto ``func``'s
-         * parameter order, so argument ``i`` feeds ``func`` parameter ``i``
-         * (after the optional key).
+         * Classify the ``map_`` time-series arguments against ``func``'s
+         * ordered parameters. An unmarked TSD binds whole when the parameter
+         * is a whole-time-series type variable or accepts that concrete TSD;
+         * it multiplexes only when the parameter instead accepts the TSD
+         * element. The first multiplexed TSD establishes the key type and
+         * later multiplexed TSDs must agree.
          */
         struct MapArgClassification
         {
@@ -2463,15 +2463,63 @@ namespace hgraph::stdlib
             const ValueTypeMetaData                 *key_meta{nullptr};
         };
 
+        struct MapParameterAcceptance
+        {
+            bool whole{false};
+            bool element{false};
+        };
+
+        /** Determine whether one mapped parameter accepts a TSD whole or its
+            element. A bare pattern variable on a user callable denotes a
+            whole-time-series parameter; abstract operator markers retain the
+            established element-wise default because their variables are
+            resolved by overload selection after map has chosen its boundary. */
+        [[nodiscard]] inline MapParameterAcceptance map_parameter_acceptance(
+            const WiredFn &func, std::size_t parameter,
+            const TSValueTypeMetaData *whole, const TSValueTypeMetaData *element)
+        {
+            MapParameterAcceptance result;
+            if (const auto *expected = func.input_schema(parameter))
+            {
+                result.whole = graph_wiring_detail::input_accepts_output_schema(expected, whole);
+                result.element = graph_wiring_detail::input_accepts_output_schema(expected, element);
+            }
+
+            if (auto pattern = func.input_pattern(parameter))
+            {
+                ResolutionMap whole_resolution;
+                ResolutionMap element_resolution;
+                const bool pattern_accepts_whole =
+                    input_ts_pattern_match(*pattern, whole, whole_resolution);
+                const bool pattern_accepts_element =
+                    input_ts_pattern_match(*pattern, element, element_resolution);
+                result.element = result.element || pattern_accepts_element;
+                result.whole = result.whole ||
+                    (pattern_accepts_whole &&
+                     (!pattern_accepts_element ||
+                      pattern->kind == TypePattern::Kind::TSD ||
+                      (pattern->kind == TypePattern::Kind::Var && func.operator_name.empty())));
+            }
+            else if (func.input_schema(parameter) == nullptr)
+            {
+                // Unreflective runtime operators and unannotated lambdas keep
+                // map_'s long-standing element-wise default.
+                result.element = true;
+            }
+            return result;
+        }
+
         /**
-         * Classification honours the wiring-time argument tags (Python's
-         * wrappers): ``pass_through`` forces broadcast whatever the kind;
-         * ``no_key`` keeps the TSD multiplexed but excludes it from key-set
-         * inference.
+         * Classification honours the wiring-time argument tags:
+         * ``pass_through`` forces broadcast whatever the kind; ``no_key``
+         * forces a TSD to multiplex but excludes it from key-set inference.
          */
-        [[nodiscard]] inline MapArgClassification classify_map_args(std::span<const TSValueTypeMetaData *const> ts_schemas,
-                                                                    std::span<const std::uint8_t>               arg_tags,
-                                                                    const ValueTypeMetaData *fallback_key_meta = nullptr) {
+        [[nodiscard]] inline MapArgClassification classify_map_args(
+            const WiredFn &func,
+            bool takes_leading_key,
+            std::span<const TSValueTypeMetaData *const> ts_schemas,
+            std::span<const std::uint8_t> arg_tags,
+            const ValueTypeMetaData *fallback_key_meta = nullptr) {
             MapArgClassification result;
             result.is_multiplexed.reserve(ts_schemas.size());
             result.exclude_from_keys.reserve(ts_schemas.size());
@@ -2481,8 +2529,22 @@ namespace hgraph::stdlib
                 const auto tag = i < arg_tags.size() ? static_cast<WiringPortRef::ArgTag>(arg_tags[i])
                                                      : WiringPortRef::ArgTag::None;
                 const auto *tsd = time_series_schema_as<AnyTSD>(ts_schemas[i]);
-                if (tag != WiringPortRef::ArgTag::PassThrough && tsd != nullptr)
+                const auto parameter = i + (takes_leading_key ? 1 : 0);
+                const auto acceptance = tsd != nullptr
+                                            ? map_parameter_acceptance(
+                                                  func, parameter, ts_schemas[i], tsd->element_ts())
+                                            : MapParameterAcceptance{};
+                const bool force_multiplex = tag == WiringPortRef::ArgTag::NoKey;
+                const bool is_multiplexed =
+                    tsd != nullptr && tag != WiringPortRef::ArgTag::PassThrough &&
+                    (force_multiplex || !acceptance.whole);
+                if (is_multiplexed)
                 {
+                    if (!acceptance.element)
+                    {
+                        throw std::invalid_argument(
+                            "map_: a multiplexed TSD value is incompatible with the mapped function parameter");
+                    }
                     if (result.key_meta == nullptr) { result.key_meta = tsd->key_type(); }
                     else if (tsd->key_type() != result.key_meta)
                     {
@@ -2490,7 +2552,7 @@ namespace hgraph::stdlib
                             "map_: every multiplexed TSD must share the same key type");
                     }
                     result.is_multiplexed.push_back(true);
-                    result.exclude_from_keys.push_back(tag == WiringPortRef::ArgTag::NoKey);
+                    result.exclude_from_keys.push_back(force_multiplex);
                     result.child_schemas.push_back(tsd->element_ts());
                 }
                 else
@@ -2540,10 +2602,6 @@ namespace hgraph::stdlib
                 throw std::invalid_argument("map_: 'func' must be a wirable function (fn<X>())");
             }
 
-            auto &registry = TypeRegistry::instance();
-
-            const MapArgClassification classified = classify_map_args(ts_schemas, arg_tags, fallback_key_meta);
-
             const std::size_t base_arity = ts_schemas.size();
             const bool        takes_key  = !func.variadic && func.arity == base_arity + 1;
             if (!takes_key && (func.variadic ? base_arity < func.arity : func.arity != base_arity))
@@ -2552,6 +2610,10 @@ namespace hgraph::stdlib
                     "map_: 'func' must take one parameter per time-series argument, with an optional key "
                     "already resolved by name");
             }
+
+            auto &registry = TypeRegistry::instance();
+            const MapArgClassification classified = classify_map_args(
+                func, takes_key, ts_schemas, arg_tags, fallback_key_meta);
 
             const auto *key_ts = registry.ts(classified.key_meta);
 
@@ -2824,7 +2886,10 @@ namespace hgraph::stdlib
                     explicit_key_meta = keys_schema->value_schema->element_type;
                 }
             }
+            const bool takes_key =
+                !func.value().variadic && func.value().arity == ts_schemas.size() + 1;
             const MapArgClassification classified = classify_map_args(
+                func.value(), takes_key,
                 {ts_schemas.data(), ts_schemas.size()}, {arg_tags.data(), arg_tags.size()},
                 explicit_key_meta);
             std::vector<WiringPortRef> captured;
@@ -3000,7 +3065,10 @@ namespace hgraph::stdlib
                     explicit_key_meta = keys_schema->value_schema->element_type;
                 }
             }
+            const bool takes_key =
+                !func.value().variadic && func.value().arity == ts_schemas.size() + 1;
             const MapArgClassification classified = classify_map_args(
+                func.value(), takes_key,
                 {ts_schemas.data(), ts_schemas.size()}, {arg_tags.data(), arg_tags.size()},
                 explicit_key_meta);
 
@@ -3315,6 +3383,7 @@ namespace hgraph::stdlib
             if (const TSValueTypeMetaData *element = func->output_schema())
             {
                 const MapArgClassification classified = classify_map_args(
+                    *func, ordered->takes_key,
                     {ordered->schemas.data(), ordered->schemas.size()},
                     {ordered->arg_tags.data(), ordered->arg_tags.size()},
                     keys_kwarg_element(context));
@@ -3345,22 +3414,32 @@ namespace hgraph::stdlib
             bind_graph_output(resolution, *output_schema, "O");
         }
 
-        /** The first NON-pass-through collection decides the map kernel. */
+        /** The first genuinely multiplexed collection decides the map kernel. */
         [[nodiscard]] inline const TSValueTypeMetaData *first_map_collection(OperatorCallContext context)
         {
+            const WiredFn *func = context.scalar_as<WiredFn>("func");
+            if (func == nullptr) { return nullptr; }
             auto ordered = ordered_map_schemas(context, "key");
             if (!ordered.has_value()) { ordered = ordered_map_schemas(context, "ndx"); }
             if (!ordered.has_value()) { return nullptr; }
             for (std::size_t i = 0; i < ordered->schemas.size(); ++i)
             {
-                if (i < ordered->arg_tags.size() &&
-                    static_cast<WiringPortRef::ArgTag>(ordered->arg_tags[i]) ==
-                        WiringPortRef::ArgTag::PassThrough)
+                const auto tag = i < ordered->arg_tags.size()
+                                     ? static_cast<WiringPortRef::ArgTag>(ordered->arg_tags[i])
+                                     : WiringPortRef::ArgTag::None;
+                if (tag == WiringPortRef::ArgTag::PassThrough)
                 {
                     continue;   // pass_through never selects the kernel
                 }
                 if (const auto *schema = time_series_schema_as<AnyTSD>(ordered->schemas[i]))
                 {
+                    if (tag != WiringPortRef::ArgTag::NoKey &&
+                        map_parameter_acceptance(
+                            *func, i + (ordered->takes_key ? 1 : 0),
+                            ordered->schemas[i], schema->element_ts()).whole)
+                    {
+                        continue;   // whole-time-series parameter: direct input
+                    }
                     return schema;
                 }
                 if (const auto *schema = time_series_schema_as<AnyTSL>(ordered->schemas[i]))
@@ -3374,8 +3453,10 @@ namespace hgraph::stdlib
         /**
          * ``map_(func, *args, **kwargs)`` over TSDs — keyed runtime children,
          * the Python shape: no fixed anchor parameter; positional + keyword
-         * arguments resolve onto ``func``'s parameters, every TSD multiplexes
-         * (union key set), everything else broadcasts.
+         * arguments resolve onto ``func``'s parameters. TSDs whose parameters
+         * accept their elements multiplex (union key set); whole-time-series
+         * type variables and concrete whole-TSD parameters bind directly, and
+         * everything else broadcasts.
          */
         /**
          * Split the ``__keys__`` special out of the collected kwargs — it is
@@ -3508,7 +3589,8 @@ namespace hgraph::stdlib
             try
             {
                 const MapArgClassification classified =
-                    classify_map_args({ordered->schemas.data(), ordered->schemas.size()},
+                    classify_map_args(*func, ordered->takes_key,
+                                      {ordered->schemas.data(), ordered->schemas.size()},
                                       {ordered->arg_tags.data(), ordered->arg_tags.size()},
                                       keys_kwarg_element(context));
                 const auto *output_schema = TypeRegistry::instance().tsd(classified.key_meta, element);
