@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "issue-64-service-adaptor-cycle",
-  "description": "Track the designed service_adaptor transport timing: the round trip lands one cycle after released hgraph's same-cycle adaptor wiring (known deviation, services.rst scheduling matrix).",
+  "description": "Pin same-cycle service-adaptor transport parity: ranked client input, implementation, and reply complete in one engine cycle.",
   "template": "service_adaptor_roundtrip",
   "inputs": {
     "value": [
@@ -17,7 +17,7 @@
     "binding:non-peered",
     "framework:adaptor",
     "implementation:path-injection",
-    "lifecycle:transport-delay",
+    "lifecycle:same-cycle",
     "reference:REF",
     "shape:TS",
     "shape:TSD",

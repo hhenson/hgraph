@@ -1,6 +1,7 @@
 #include <hgraph/runtime/service_node.h>
 
 #include <hgraph/runtime/graph.h>
+#include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_input/bundle_view.h>
@@ -34,6 +35,7 @@ namespace hgraph
     {
         constexpr std::string_view subscription_key_source_storage_field{"subscription_key_source"};
         constexpr std::string_view subscription_key_capture_storage_field{"subscription_key_capture"};
+        constexpr std::string_view subscription_response_gate_storage_field{"subscription_response_gate"};
         constexpr std::string_view request_input_source_storage_field{"request_input_source"};
         constexpr std::string_view request_input_capture_storage_field{"request_input_capture"};
 
@@ -60,8 +62,9 @@ namespace hgraph
 
         struct SubscriptionKeyChange
         {
-            Value key{};
-            bool  add{true};
+            Value    key{};
+            DateTime observed_at{};
+            bool     add{true};
         };
 
         struct SubscriptionKeySourceStorage
@@ -88,6 +91,14 @@ namespace hgraph
         {
             std::string path{};
             std::size_t storage_offset{0};
+        };
+
+        struct SubscriptionResponseGateStorage
+        {
+            Value previous_key{};
+            Value pending_response{};
+            bool  has_previous{false};
+            bool  awaiting_fresh_response{false};
         };
 
         struct RequestInputSourceContext
@@ -122,6 +133,7 @@ namespace hgraph
         {
             std::string path{};
             std::size_t storage_offset{0};
+            bool        same_cycle{false};
         };
 
         [[nodiscard]] std::vector<std::unique_ptr<SubscriptionKeySourceContext>> &
@@ -194,6 +206,14 @@ namespace hgraph
                 MemoryUtils::advance(view.data(), context.storage_offset));
         }
 
+        [[nodiscard]] SubscriptionResponseGateStorage &response_gate_storage_of(
+            const NodeView &view,
+            std::size_t storage_offset)
+        {
+            return *MemoryUtils::cast<SubscriptionResponseGateStorage>(
+                MemoryUtils::advance(view.data(), storage_offset));
+        }
+
         [[nodiscard]] std::vector<std::unique_ptr<RequestInputSourceContext>> &
         request_input_source_contexts() noexcept
         {
@@ -238,18 +258,21 @@ namespace hgraph
 
         [[nodiscard]] const RequestInputCaptureContext &register_request_input_capture_context(
             std::string path,
-            std::size_t storage_offset)
+            std::size_t storage_offset,
+            bool same_cycle)
         {
             auto &contexts = request_input_capture_contexts();
             const auto existing = std::ranges::find_if(
                 contexts,
                 [&](const auto &context) {
-                    return context->path == path && context->storage_offset == storage_offset;
+                    return context->path == path && context->storage_offset == storage_offset
+                        && context->same_cycle == same_cycle;
                 });
             if (existing != contexts.end()) { return **existing; }
             auto context = std::make_unique<RequestInputCaptureContext>(RequestInputCaptureContext{
                 .path           = std::move(path),
                 .storage_offset = storage_offset,
+                .same_cycle     = same_cycle,
             });
             const auto *result = context.get();
             contexts.push_back(std::move(context));
@@ -285,13 +308,14 @@ namespace hgraph
                 };
             }
 
-            void enqueue(Value key, bool add, DateTime schedule_time) const
+            void enqueue(Value key, bool add, DateTime schedule_time, DateTime observed_at) const
             {
                 if (!key.has_value()) { return; }
                 auto &pending = source_storage_of(view_, *context_).pending;
                 pending.push_back(SubscriptionKeyChange{
-                    .key = std::move(key),
-                    .add = add,
+                    .key         = std::move(key),
+                    .observed_at = observed_at,
+                    .add         = add,
                 });
 
                 GraphValue *graph = view_.graph_value();
@@ -470,16 +494,13 @@ namespace hgraph
         }
 
         /**
-         * Request stubs (subscription keys, request/reply requests) are
-         * NEXT-cycle forwarders. Wiring rank places the first sending client
-         * before the source and later clients after it when they have work at
-         * the same engine time; this function provides the temporal break by
-         * scheduling newly captured work later.
+         * Request/reply inputs publish on the next cycle and intentionally omit
+         * service ranking because that temporal break permits recursive graphs.
          * Root capture during ``start`` can schedule for the current engine
          * time because evaluation has not begun. A dynamically started nested
          * capture schedules the next cycle because the outer source rank may
-         * already have passed. (Shared-output relays are the opposite:
-         * rank-correct and same-cycle — see shared_output_node.cpp.)
+         * already have passed. Subscription and service-adaptor sends are the
+         * rank-correct same-cycle cases and do not use this helper.
          */
         [[nodiscard]] DateTime request_stub_forward_time(
             const NodeView &view,
@@ -500,8 +521,15 @@ namespace hgraph
             SubscriptionKeySourceStorage &storage,
             TSSDataMutationView &mutation)
         {
+            const DateTime publication = storage.pending.front().observed_at;
+            std::vector<SubscriptionKeyChange> deferred;
             for (SubscriptionKeyChange &change : storage.pending)
             {
+                if (change.observed_at != publication)
+                {
+                    deferred.push_back(std::move(change));
+                    continue;
+                }
                 if (!change.key.has_value()) { continue; }
 
                 if (change.add)
@@ -524,7 +552,7 @@ namespace hgraph
                 storage.counts.erase(it);
                 static_cast<void>(mutation.remove(removed_key.view()));
             }
-            storage.pending.clear();
+            storage.pending = std::move(deferred);
         }
 
         void apply_pending_request_input_changes(
@@ -575,6 +603,10 @@ namespace hgraph
             auto set      = output.as_set();
             auto mutation = set.begin_mutation(evaluation_time);
             apply_pending_subscription_key_changes(storage, mutation);
+            if (!storage.pending.empty())
+            {
+                view.graph().schedule_node(view.node_index(), evaluation_time + MIN_TD);
+            }
             return true;
         }
 
@@ -630,11 +662,15 @@ namespace hgraph
             const SubscriptionKeySourceView &source,
             SubscriptionKeyCaptureStorage &storage,
             const TSInputView &key_input,
-            DateTime schedule_time)
+            DateTime schedule_time,
+            DateTime observed_at)
         {
             if (!key_input.valid())
             {
-                if (storage.has_previous) { source.enqueue(std::move(storage.previous_key), false, schedule_time); }
+                if (storage.has_previous)
+                {
+                    source.enqueue(std::move(storage.previous_key), false, schedule_time, observed_at);
+                }
                 storage.previous_key = Value{};
                 storage.has_previous = false;
                 return;
@@ -643,8 +679,11 @@ namespace hgraph
             Value key{key_input.value()};
             if (storage.has_previous && storage.previous_key.equals(key)) { return; }
 
-            if (storage.has_previous) { source.enqueue(std::move(storage.previous_key), false, schedule_time); }
-            source.enqueue(key, true, schedule_time);
+            if (storage.has_previous)
+            {
+                source.enqueue(std::move(storage.previous_key), false, schedule_time, observed_at);
+            }
+            source.enqueue(key, true, schedule_time, observed_at);
             storage.previous_key = std::move(key);
             storage.has_previous = true;
         }
@@ -659,9 +698,118 @@ namespace hgraph
             initialize_subscription_capture(view, evaluation_time, storage);
             auto key    = storage.input.borrowed_ref(evaluation_time);
             auto source = NodeView{storage.source}.as<SubscriptionKeySourceView>();
-            const DateTime schedule_time = request_stub_forward_time(
-                view, evaluation_time, start_phase);
-            record_subscription_key(source, storage, key, schedule_time);
+            static_cast<void>(start_phase);
+            const DateTime schedule_time = view.graph().is_nested()
+                                               ? evaluation_time + MIN_TD
+                                               : evaluation_time;
+            record_subscription_key(source, storage, key, schedule_time, evaluation_time);
+        }
+
+        [[nodiscard]] bool response_key_changed(
+            SubscriptionResponseGateStorage &storage,
+            const TSInputView &key)
+        {
+            if (!key.valid())
+            {
+                const bool changed = storage.has_previous;
+                storage.previous_key = Value{};
+                storage.has_previous = false;
+                return changed;
+            }
+
+            Value current{key.value()};
+            if (storage.has_previous && storage.previous_key.equals(current)) { return false; }
+            storage.previous_key = std::move(current);
+            storage.has_previous = true;
+            return true;
+        }
+
+        void evaluate_subscription_response_gate(
+            std::size_t storage_offset,
+            const NodeView &view,
+            DateTime evaluation_time)
+        {
+            auto input_root = view.input(evaluation_time);
+            auto input = input_root.as_bundle();
+            auto value = input.at(0);
+            auto key   = input.at(1);
+            auto subscriptions_input = input.at(2);
+            auto subscriptions = subscriptions_input.as_set();
+            auto &storage = response_gate_storage_of(view, storage_offset);
+            NodeScheduler scheduler{
+                view.scheduler_state(), view.graph_value(), view.node_index(), evaluation_time};
+            auto output = view.output(evaluation_time);
+
+            const auto key_was_added = [&]() {
+                if (!key.valid()) { return false; }
+                return std::ranges::any_of(
+                    subscriptions.added(),
+                    [&](const ValueView &added) { return added.equals(key.value()); });
+            };
+
+            const auto stage_fresh_response = [&]() {
+                if (!value.valid() || !value.modified()) { return; }
+                storage.pending_response = Value{value.value()};
+                scheduler.schedule(MIN_TD);
+            };
+
+            if (response_key_changed(storage, key))
+            {
+                storage.pending_response = Value{};
+                storage.awaiting_fresh_response = key_was_added();
+                auto mutation = output.begin_mutation(evaluation_time);
+                static_cast<void>(mutation.invalidate());
+                if (!key.valid()) { return; }
+                if (storage.awaiting_fresh_response)
+                {
+                    stage_fresh_response();
+                    return;
+                }
+            }
+
+            if (storage.awaiting_fresh_response)
+            {
+                if (scheduler.is_scheduled_now() && storage.pending_response.has_value())
+                {
+                    if (!value.valid())
+                    {
+                        storage.pending_response = Value{};
+                        return;
+                    }
+                    // A newer first-generation value in the release cycle wins;
+                    // Python exposes the child's current value at this boundary.
+                    if (value.modified())
+                    {
+                        storage.pending_response = Value{value.value()};
+                    }
+                    apply_current_value(output, storage.pending_response.view());
+                    storage.pending_response = Value{};
+                    storage.awaiting_fresh_response = false;
+                    return;
+                }
+                stage_fresh_response();
+                return;
+            }
+
+            if (!value.valid())
+            {
+                auto mutation = output.begin_mutation(evaluation_time);
+                static_cast<void>(mutation.invalidate());
+                return;
+            }
+
+            if (!output.valid()) { apply_current_value(output, value.value()); }
+            else if (value.modified()) { apply_delta(output, capture_delta(value).view()); }
+        }
+
+        bool subscription_key_capture_evaluate_impl(
+            const void *, const NodeView &view, DateTime evaluation_time)
+        {
+            if (!view.started()) { return true; }
+            const auto *context = static_cast<const SubscriptionKeyCaptureContext *>(
+                view.type().ops_ref().extended_view_context);
+            capture_subscription_key(*context, view, evaluation_time, false);
+            return true;
         }
 
         void capture_request_input(
@@ -674,8 +822,11 @@ namespace hgraph
             initialize_request_capture(view, evaluation_time, storage);
             auto request = storage.input.borrowed_ref(evaluation_time);
             auto source  = NodeView{storage.source}.as<RequestInputSourceView>();
-            const DateTime schedule_time = request_stub_forward_time(
-                view, evaluation_time, start_phase);
+            const DateTime schedule_time = context.same_cycle
+                                               ? (view.graph().is_nested()
+                                                      ? evaluation_time + MIN_TD
+                                                      : evaluation_time)
+                                               : request_stub_forward_time(view, evaluation_time, start_phase);
 
             if (request.valid())
             {
@@ -694,15 +845,6 @@ namespace hgraph
                 source.remove(storage.request_id, schedule_time, evaluation_time);
                 storage.live = false;
             }
-        }
-
-        bool subscription_key_capture_evaluate_impl(const void *, const NodeView &view, DateTime evaluation_time)
-        {
-            if (!view.started()) { return true; }
-            const auto *context = static_cast<const SubscriptionKeyCaptureContext *>(
-                view.type().ops_ref().extended_view_context);
-            capture_subscription_key(*context, view, evaluation_time, false);
-            return true;
         }
 
         bool request_input_capture_evaluate_impl(const void *, const NodeView &view, DateTime evaluation_time)
@@ -728,7 +870,10 @@ namespace hgraph
 
             initialize_subscription_capture(view, evaluation_time, storage);
             auto source = NodeView{storage.source}.as<SubscriptionKeySourceView>();
-            source.enqueue(std::move(storage.previous_key), false, evaluation_time + MIN_TD);
+            source.enqueue(
+                std::move(storage.previous_key), false,
+                view.graph().is_nested() ? evaluation_time + MIN_TD : evaluation_time,
+                evaluation_time);
             storage.previous_key = Value{};
             storage.has_previous = false;
             storage.source       = NodePtr{};
@@ -750,7 +895,11 @@ namespace hgraph
             initialize_request_capture(view, evaluation_time, storage);
             auto source = NodeView{storage.source}.as<RequestInputSourceView>();
             source.remove(
-                storage.request_id, evaluation_time + MIN_TD, evaluation_time);
+                storage.request_id,
+                context->same_cycle && !view.graph().is_nested()
+                    ? evaluation_time
+                    : evaluation_time + MIN_TD,
+                evaluation_time);
             storage.live   = false;
             storage.source = NodePtr{};
             storage.input  = TSInputView{};
@@ -841,7 +990,7 @@ namespace hgraph
             {"key", key_ts_schema},
             {"subscriptions", subscription_schema},
         });
-        descriptor.schema.node_kind    = NodeKind::Sink;
+        descriptor.schema.node_kind     = NodeKind::Sink;
         descriptor.schema.active_inputs = std::vector<std::size_t>{0};
         descriptor.schema.valid_inputs  = std::vector<std::size_t>{};
 
@@ -857,13 +1006,53 @@ namespace hgraph
         descriptor.callbacks.start = [context](const NodeView &view, DateTime evaluation_time) {
             capture_subscription_key(*context, view, evaluation_time, true);
         };
-        descriptor.callbacks.stop             = &subscription_key_capture_stop;
-        descriptor.ops.evaluate_impl          = &subscription_key_capture_evaluate_impl;
-        descriptor.ops.extended_view_context  = context;
+        descriptor.callbacks.stop            = &subscription_key_capture_stop;
+        descriptor.ops.evaluate_impl         = &subscription_key_capture_evaluate_impl;
+        descriptor.ops.extended_view_context = context;
 
         NodeBuilder builder = NodeBuilder::from_canonical_descriptor(
             std::move(descriptor), context);
         builder.label(std::string{"subscription_key_capture:"} + context->path);
+        return builder;
+    }
+
+    NodeBuilder make_subscription_response_gate_node(
+        const ValueTypeMetaData &key_schema,
+        const TSValueTypeMetaData &response_schema)
+    {
+        auto &registry = TypeRegistry::instance();
+        const auto *key_ts_schema = registry.ts(&key_schema);
+
+        NodeTypeDescriptor descriptor;
+        descriptor.schema.display_name = "subscription_response_gate";
+        descriptor.schema.input_schema = registry.un_named_tsb({
+            {"value", &response_schema},
+            {"key", key_ts_schema},
+            {"subscriptions", registry.tss(&key_schema)},
+        });
+        descriptor.schema.output_schema = &response_schema;
+        descriptor.schema.node_kind = NodeKind::Compute;
+        descriptor.schema.uses_scheduler = true;
+        descriptor.schema.active_inputs = std::vector<std::size_t>{0, 1};
+        descriptor.schema.valid_inputs = std::vector<std::size_t>{};
+
+        const std::array fields{NodeStorageField{
+            .name = subscription_response_gate_storage_field,
+            .plan = &MemoryUtils::plan_for<SubscriptionResponseGateStorage>(),
+        }};
+        descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, fields);
+        const std::size_t storage_offset =
+            descriptor.storage_plan->component(subscription_response_gate_storage_field).offset;
+        const auto *canonical_context = descriptor.storage_plan;
+
+        descriptor.callbacks.evaluate = [storage_offset](
+            const NodeView &view, DateTime evaluation_time) {
+            evaluate_subscription_response_gate(storage_offset, view, evaluation_time);
+        };
+
+        NodeBuilder builder = NodeBuilder::from_canonical_descriptor(
+            std::move(descriptor), canonical_context);
+        builder.label("subscription_response_gate");
         return builder;
     }
 
@@ -902,7 +1091,8 @@ namespace hgraph
 
     NodeBuilder make_request_input_capture_node(
         std::string path,
-        const TSValueTypeMetaData &request_schema)
+        const TSValueTypeMetaData &request_schema,
+        bool same_cycle)
     {
         path = request_input_path(std::move(path));
 
@@ -928,7 +1118,9 @@ namespace hgraph
         descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, fields);
 
         const auto *context = &register_request_input_capture_context(
-            path, descriptor.storage_plan->component(request_input_capture_storage_field).offset);
+            path,
+            descriptor.storage_plan->component(request_input_capture_storage_field).offset,
+            same_cycle);
 
         descriptor.callbacks.start = [context](const NodeView &view, DateTime evaluation_time) {
             // A request_id operator publishes during evaluation rather than

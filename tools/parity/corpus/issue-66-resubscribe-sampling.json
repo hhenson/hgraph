@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "issue-66-resubscribe-sampling",
-  "description": "Track the designed late-subscription sampling timing: re-subscribing a previously computed symbol delivers the existing value in the same cycle, one cycle earlier than released hgraph (known deviation, services.rst scheduling matrix).",
+  "description": "Pin subscription replacement parity: rapid key transitions publish in order and re-subscription waits for the fresh implementation value.",
   "template": "service_subscription",
   "inputs": {
     "symbol": [

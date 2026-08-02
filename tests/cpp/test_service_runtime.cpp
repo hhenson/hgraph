@@ -290,7 +290,7 @@ TEST_CASE("service runtime: erased service-adaptor registration serves typed cli
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<ErasedServiceAdaptorRegisterTemplateClients>(
                      values<Int>(1, none, 2), values<Int>(10, none, 20)),
-                 values<Int>(none, 11, none, 22));
+                 values<Int>(11, none, 22));
 }
 
 TEST_CASE("service runtime: C++ service adaptors carry multi-field requests and responses")
@@ -298,7 +298,7 @@ TEST_CASE("service runtime: C++ service adaptors carry multi-field requests and 
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<RuntimeMultiFieldServiceAdaptorGraph>(
                      values<Int>(1, none, 2), values<Int>(10, none, 20)),
-                 values<Int>(none, 11, none, 22));
+                 values<Int>(11, none, 22));
 }
 
 TEST_CASE("service runtime: erased automatic adaptor registration serves a typed client")

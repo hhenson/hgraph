@@ -785,6 +785,34 @@ namespace
         }
     };
 
+    inline std::vector<std::pair<std::vector<Int>, std::vector<Int>>> observed_subscription_keys;
+
+    struct ObserveSubscriptionKeysNode
+    {
+        static constexpr auto name = "observe_subscription_keys_node";
+
+        static void eval(In<"keys", TSS<Int>> keys)
+        {
+            std::vector<Int> added;
+            std::vector<Int> removed;
+            for (Int key : keys.added()) { added.push_back(key); }
+            for (Int key : keys.removed()) { removed.push_back(key); }
+            observed_subscription_keys.emplace_back(
+                std::move(added), std::move(removed));
+        }
+    };
+
+    struct ObservedPricesImpl
+    {
+        [[maybe_unused]] static constexpr auto name = "observed_prices_impl";
+
+        static Port<TSD<Int, TS<Int>>> compose(Wiring &w, Port<TSS<Int>> keys)
+        {
+            static_cast<void>(wire<ObserveSubscriptionKeysNode>(w, keys));
+            return wire<PricesImplNode>(w, keys).as<TSD<Int, TS<Int>>>();
+        }
+    };
+
     struct BundlePricesImpl
     {
         [[maybe_unused]] static constexpr auto name = "bundle_prices_impl";
@@ -907,6 +935,17 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> instrument)
         {
             service::register_subscription_service<PricesService, PricesImpl>(w);
+            return wire<PricesService>(w, instrument);
+        }
+    };
+
+    struct ObservedPriceClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "observed_price_client_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> instrument)
+        {
+            service::register_subscription_service<PricesService, ObservedPricesImpl>(w);
             return wire<PricesService>(w, instrument);
         }
     };
@@ -1602,6 +1641,37 @@ namespace
         }
     };
 
+    struct ServiceAdaptorSwitchBranch
+    {
+        [[maybe_unused]] static constexpr auto name = "service_adaptor_switch_branch";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> request)
+        {
+            return wire<AddTwentyServiceAdaptor>(
+                w, service_adaptor::path("switch_adaptor"), request);
+        }
+    };
+
+    struct ServiceAdaptorSwitchGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "service_adaptor_switch_graph";
+
+        static Port<TS<Int>> compose(
+            Wiring &w, Port<TS<Str>> selector, Port<TS<Int>> request)
+        {
+            service_adaptor::register_service_adaptor<
+                AddTwentyServiceAdaptor, AddTwentyServiceAdaptorImpl>(
+                    w, service_adaptor::path("switch_adaptor"));
+            return wire<stdlib::switch_>(
+                       w, selector,
+                       stdlib::switch_cases({
+                           {Value{Str{"adaptor"}}, fn<ServiceAdaptorSwitchBranch>()},
+                       }),
+                       request)
+                .as<TS<Int>>();
+        }
+    };
+
     struct ServiceAdaptorImplTwoClientGraph
     {
         [[maybe_unused]] static constexpr auto name = "service_adaptor_impl_two_client_graph";
@@ -1824,6 +1894,18 @@ TEST_CASE("service wiring: subscription client reads implementation output by re
                  values<Int>(none, 70, none, 80));
 }
 
+TEST_CASE("service wiring: successive subscription keys are published in order")
+{
+    hgraph::stdlib::register_standard_operators();
+    observed_subscription_keys.clear();
+
+    CHECK_OUTPUT(eval_node<ObservedPriceClientGraph>(values<Int>(7, none, 8, 7)),
+                 values<Int>(none, 70, none, none, 70));
+    CHECK(observed_subscription_keys ==
+          std::vector<std::pair<std::vector<Int>, std::vector<Int>>>{
+              {{7}, {}}, {{8}, {7}}, {{7}, {8}}});
+}
+
 TEST_CASE("service wiring: subscription keys preserve registered derived Bundles")
 {
     hgraph::stdlib::register_standard_operators();
@@ -1864,7 +1946,7 @@ TEST_CASE("service wiring: mapped subscription results retain their declared val
                  values<Int>(0, 70));
 }
 
-TEST_CASE("service wiring: late duplicate subscription samples the existing value")
+TEST_CASE("service wiring: a late client samples a key kept live by another client")
 {
     hgraph::stdlib::register_standard_operators();
 
@@ -2151,7 +2233,17 @@ TEST_CASE("service wiring: service adaptors collect multiple client requests")
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<ServiceAdaptorTwoClientGraph>(values<Int>(1), values<Int>(10)),
-                 values<Int>(none, 51));
+                 values<Int>(51));
+}
+
+TEST_CASE("service wiring: a dynamically started adaptor branch hands off on the next cycle")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<ServiceAdaptorSwitchGraph>(
+            values<Str>(Str{"adaptor"}), values<Int>(1)),
+        values<Int>(none, 21));
 }
 
 TEST_CASE("service wiring: service adaptors preserve successive requests from one client")
@@ -2159,7 +2251,7 @@ TEST_CASE("service wiring: service adaptors preserve successive requests from on
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<ServiceAdaptorSingleClientGraph>(values<Int>(1, 2, 3)),
-                 values<Int>(none, 21, 22, 23));
+                 values<Int>(21, 22, 23));
 }
 
 TEST_CASE("service wiring: service_adaptor_impl auto-wires single-interface implementations")
@@ -2167,7 +2259,7 @@ TEST_CASE("service wiring: service_adaptor_impl auto-wires single-interface impl
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<ServiceAdaptorImplTwoClientGraph>(values<Int>(1), values<Int>(10)),
-                 values<Int>(none, 51));
+                 values<Int>(51));
 }
 
 TEST_CASE("service wiring: sink-only service adaptors collect multiple bundled clients")
@@ -2213,7 +2305,7 @@ TEST_CASE("service wiring: multi-interface service adaptors wire explicit stubs"
 {
     hgraph::stdlib::register_standard_operators();
 
-    CHECK_OUTPUT(eval_node<MultiServiceAdaptorClientGraph>(values<Int>(1)), values<Int>(none, 52));
+    CHECK_OUTPUT(eval_node<MultiServiceAdaptorClientGraph>(values<Int>(1)), values<Int>(52));
 }
 
 TEST_CASE("service wiring: service adaptors validate requested implementations and ignore unused candidates")
@@ -2239,7 +2331,7 @@ TEST_CASE("service wiring: generic service descriptors resolve from client input
     CHECK_OUTPUT(eval_node<GenericServiceClientGraph>(values<Int>(3)), values<Int>(none, none, 4));
     CHECK_OUTPUT(eval_node<GenericFloatServiceClientGraph>(values<Float>(1.5)),
                  values<Float>(none, none, 2.0));
-    CHECK_OUTPUT(eval_node<GenericServiceAdaptorClientGraph>(values<Int>(3)), values<Int>(none, 23));
+    CHECK_OUTPUT(eval_node<GenericServiceAdaptorClientGraph>(values<Int>(3)), values<Int>(23));
     CHECK_THROWS_AS((void)eval_node<GenericStringServiceClientGraph>(values<Str>("not numeric")),
                     std::invalid_argument);
 }

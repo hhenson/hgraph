@@ -34,7 +34,7 @@ source/capture pair** — applied with different payloads:
       cons["consumers bind here and are woken by<br/>ordinary output notification"]
 
       client --> cap
-      cap -->|"write state; schedule_node<br/>(relays: same cycle / request stubs: +MIN_TD)"| src
+      cap -->|"write state; schedule_node<br/>(ranked adaptors: same cycle / deferred services: +MIN_TD)"| src
       src -->|"applies state in one mutation<br/>of its own output"| out
       out --> cons
 
@@ -53,19 +53,34 @@ source/capture pair** — applied with different payloads:
 - **Scheduling matrix** (see *Lifecycle Teardown* in :doc:`architecture` for
   the invariant statement):
 
-  - **Shared-output relays** (reference and subscription outputs, adaptor
-    ``from_graph``/``to_graph``, contexts) are **rank-correct and
-    same-cycle**: pairs are declared with ``Wiring::add_same_cycle_pair``
+  - **Ranked boundaries in their owning graph** (reference and subscription
+    outputs, adaptor ``from_graph``/``to_graph``, service-adaptor requests,
+    contexts) are **rank-correct and same-cycle**: pairs are declared with
+    ``Wiring::add_same_cycle_pair``
     (source rank-constrained after every capture); ``Wiring::finish`` re-ranks
     once all captures are known — which is what keeps chains of multiple
     adaptors/services correct — and **validates** every pair's final order.
     The runtime trusts the wiring-time proof: a capture always schedules the
     source for the **current** evaluation time with no hot-path checks (debug
-    asserts only) — never a silent next-cycle deferral.
-  - **Request stubs** (subscription keys, request/reply requests) forward
-    **next cycle** by design: the pairing is rank-free (no rank dependency),
-    and the capture schedules the service source for
-    ``evaluation_time + MIN_TD`` (current time during ``start``). The temporal
+    asserts only) — never a silent next-cycle deferral. A dynamically-started
+    child service-adaptor client cannot precede an outer source whose rank has
+    already passed, so its boundary hand-off occurs on the following cycle;
+    the implementation and reply then remain rank-ordered in that owning
+    graph. This is the released Python lifecycle behavior, not the old
+    top-level adaptor delay.
+  - **Subscription keys** in the owning graph are ranked before their source
+    and publish in the capture cycle. A dynamically-started nested client hands
+    off to the outer source on the following cycle because the outer rank may
+    already have passed. Changes are queued by observed engine time so rapid
+    replacements cannot coalesce. When a key becomes globally live, the
+    response boundary invalidates an old keyed value immediately and publishes
+    the first fresh implementation value one cycle after it arrives, matching
+    Python's keyed-child lifecycle and preventing cached values from leaking on
+    re-add. A client joining a key that another client has kept live samples the
+    existing value immediately.
+  - **Request/reply requests** forward **next cycle** by design: the pairing is
+    rank-free (no rank dependency), and the capture schedules the service source
+    for ``evaluation_time + MIN_TD`` (current time during ``start``). The temporal
     request mutation does not run the implementation in the capture cycle.
     A request/reply input source retains its earliest outstanding publication
     time, so a later request cannot postpone work that is already due.
@@ -103,8 +118,9 @@ The per-flavour payloads:
 - **Subscription service**: the source owns a ``TSS<K>`` output and graph-local
   reference counts; capture sinks enqueue key add/remove intents and schedule
   the source (``make_subscription_key_source_node`` /
-  ``make_subscription_key_capture_node``). Keys published by the source appear
-  the cycle after capture; releases are reference-counted across captures
+  ``make_subscription_key_capture_node``). Keys publish in the owning graph's
+  capture cycle; a dynamically-started nested client hands off on the next
+  cycle. Releases are reference-counted across captures
   (``tests/cpp/test_service_node.cpp``).
 - **Request/reply service**: the source owns ``TSD<int, request_schema>``.
   Each live client instance has a stable runtime request id; capture sinks
@@ -486,10 +502,11 @@ second implementation for the same service kind + path throws
 
 **Semantics proven by tests** (``test_service_wiring.cpp``): a reference client
 reads the implementation output by reference (no copy); paths keep shared
-outputs separate; a subscription client's keys reach the implementation on the
-next cycle and the response flows back keyed; request/reply replies cross the
-outer feedback edge and remain keyed by the client's request id; two clients'
-requests reach the implementation as one cumulative delta.
+outputs separate; a subscription client's key transitions reach the
+implementation in order and the response flows back keyed with Python timing;
+request/reply replies cross the outer feedback edge and remain keyed by the
+client's request id; two clients' requests reach the implementation as one
+cumulative delta.
 
 
 How a client expression lowers

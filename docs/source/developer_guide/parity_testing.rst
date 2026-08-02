@@ -120,14 +120,14 @@ Generated discovery targets the agreed compatibility contract, not accepted
 deviations.  The fixed corpus permanently retains the latter, but unrestricted
 generation works around them: every reduction supplies its explicit identity
 zero; collection and nested scalar outputs use ``dedup`` to normalize equal
-re-ticks; subscription keys are not repeated and use a non-zero multiplier;
-nested service-backed invalid windows remain fixed-corpus cases while
-standalone service generators cover their agreed behavior; and the designed
-one-cycle service-adaptor round trip is available only by explicit template
-selection; reference-unsupported temporal method-call spellings and cyclic
-adaptor/outer-switch composition remain ordinary compatibility or fixed
-coverage.  This keeps churn, branch lifecycle, service, and reduction coverage
-while reserving random examples for previously unruled behavior.
+re-ticks; subscription keys include replacements and re-subscriptions while
+using a non-zero multiplier; nested service-backed invalid windows remain
+fixed-corpus cases while standalone service and service-adaptor generators
+cover their agreed behavior; reference-unsupported temporal method-call
+spellings and cyclic adaptor/outer-switch composition remain ordinary
+compatibility or fixed coverage.  This keeps churn, branch lifecycle, service,
+and reduction coverage while reserving random examples for previously unruled
+behavior.
 
 Coverage is semantic rather than only line-based.  Reports count templates,
 time-series shapes, scalar types, operator families, topology, lifecycle
@@ -166,9 +166,9 @@ production triage has actually produced (the 2026-07 batch, issues #74-#92):
   restricted to upstream-supported space (a per-key adaptor client cycles
   released hgraph's toposort, so the adaptor consumes the reduced pipeline
   output; subscriptions subscribe per key outside the flipping switch), and
-  the subscription variant stays out of the ruled re-subscription timing
-  space (no key re-adds, no outer switch). Its first differential replays
-  surfaced issues #94 and #95.
+  the subscription variant avoids key re-adds inside this already-complex
+  composition; standalone subscription generation covers that lifecycle.
+  Its first differential replays surfaced issues #94 and #95.
 
 When a new compatibility issue is fixed, extend this list: either an
 existing template's generated space must provably contain the issue's
@@ -224,15 +224,8 @@ way:
 
 * ``trace-value`` accepts only a trace value difference, used by the
   non-identity reduce-zero deviation;
-* ``service-adaptor-one-cycle`` requires the candidate trace to equal one
-  leading no-tick cycle followed by the complete reference trace;
 * ``key-set-size-no-retick`` removes only ``size`` fields and then requires
   every remaining field to compare within the template's float tolerance;
-* ``subscription-resample-one-cycle`` requires repeated non-null subscription
-  keys and proves that delaying the **subset** of repeats that actually emit
-  an existing value — a repeat that emits nothing shifts nothing — makes the
-  complete payload traces equal, with at least one repeat accounting for the
-  mismatch; and
 * ``switch-flip-map-removal`` requires the candidate to remove exactly every
   currently-live mapped output, opposite the reference's canonical empty-map
   delta, on the exact ``beta``-to-request/reply-``alpha`` switch flip. Later
