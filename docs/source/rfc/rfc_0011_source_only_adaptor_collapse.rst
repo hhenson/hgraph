@@ -724,6 +724,12 @@ capabilities A, B and D above.
 
 Still open:
 
+* **Does the fail-fast check for unused registrations matter?** Step 4 makes
+  ``register_services`` lazy, which drops the C++-template-only check that a
+  never-published multi-service implementation fails at build time even with no
+  client (``test_service_wiring.cpp:2128``). Recommended: accept the drop and
+  add a client to that test. If the check is wanted, it should return as an
+  opt-in "validate all registered candidates" facility across every flavour.
 * **The multi-interface case.** With services gaining ``to_graph`` and a lazy
   by-stub registration, the documented sink-in/source-out example becomes
   expressible again *if* one implementation may span an adaptor and a service.
@@ -913,11 +919,47 @@ diagnostic.
 Generalise ``AdaptorImplMode`` to a flavour-neutral ``ServiceImplMode`` (or
 equivalent) rather than adding a second enum.
 
-*Open naming decision:* the C++ template spelling. Adaptors use
-``register_adaptor`` (by-stub) versus ``register_automatic_adaptor``
-(by-return), but ``service::register_reference_service`` is already the
-by-return one, so the names cannot be mirrored directly. Options: a mode
-argument on the existing verb, or a new verb. Flagged rather than assumed.
+*Naming — recommendation: add no verb at all.* The by-stub quadrant already
+exists on the template surface. ``register_services<Impl, Services...>``
+(``service_wiring.h:1178-1208``) is by-stub and scope-enforced, and it already
+accepts a **single** interface — ``test_service_wiring.cpp:1543`` uses
+``register_services<MissingMultiServiceOutputImpl, AddOneService>`` with one
+service today. Its only defect against the adaptor equivalent is that it wires
+**eagerly** while ``register_adaptors`` is lazy.
+
+Worse, it is eager only on the *template* surface: the erased
+``register_multi_service_impl`` registers a candidate
+(``service_runtime.cpp:854-861``), so a Python multi-service implementation is
+already lazy. The template path diverges from its own erased counterpart, with
+no rationale comment — evidence that the eagerness is incidental rather than
+designed.
+
+So step 4 becomes "make ``register_services`` lazy" rather than "add a verb":
+register a candidate over the interfaces' base paths and move the
+``register_built_service_path`` calls inside the materializer, exactly as
+``register_reference_service`` does.
+
+*The one real cost.* ``test_service_wiring.cpp:2128`` asserts that
+``build_graph<MissingMultiServiceStubGraph>()`` throws — a ``register_services``
+implementation that never publishes, **with no client**. Eager wiring is what
+catches it. Once lazy, an unrequested candidate is never materialized, so its
+scope never runs and nothing throws; the test must add a client, after which the
+same enforcement fires as before.
+
+That check is worth naming rather than dropping silently, but it should not
+decide the design: it is C++-template-only (Python never had it), it contradicts
+the documented "implementation candidates materialize only on demand" contract
+that ``test_service_wiring.cpp:1793`` pins for reference services, and it forces
+an unused implementation to be built. If fail-fast validation of *unused*
+registrations is wanted, that is a separate opt-in facility across all
+flavours — not a property to preserve by keeping one verb eager.
+
+*Recommended against: a singular ``service::register_service`` alias.* It would
+read symmetrically with ``adaptor::register_adaptor``, but Python's
+``register_service(path, impl)`` is the *general* registration verb covering the
+by-return single-interface case. The same name would mean something different in
+each language. Keep the plural; it reads correctly for one interface ("register
+the services this implementation provides").
 
 Step 5 — close the generic output-schema hole
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
