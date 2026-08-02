@@ -319,10 +319,23 @@ class _PyNode:
         raise WiringError(
             f"AUTO_RESOLVE could not resolve '{param.name}' ({arguments[0]!r}) from the wired arguments")
 
-    def _diagnostic_label(self):
+    def _diagnostic_label(self, scalar_values=None):
         """User-facing node identity for diagnostics (issue #247): trace,
-        wiring-trace, and profiler render implementation:label."""
-        return self._label or getattr(self.fn, "__name__", None) or self.__name__
+        wiring-trace, and profiler render implementation:label. Explicit
+        labels resolve ``{scalar}`` placeholders with the call's wiring-time
+        scalar values (upstream parity: label="custom_label {i}")."""
+        if self._label:
+            if scalar_values and "{" in self._label:
+                class _Keep(dict):
+                    def __missing__(self, key):
+                        return "{" + key + "}"
+
+                try:
+                    return self._label.format_map(_Keep(scalar_values))
+                except (ValueError, IndexError):
+                    return self._label
+            return self._label
+        return getattr(self.fn, "__name__", None) or self.__name__
 
     def _check_binding(self, scope, param, value):
         """Match the wired port against the parameter's TYPE PATTERN,
@@ -791,9 +804,11 @@ class _PyNode:
             op_name = ("__py_compute_recordable" if recordable_state_type is not None
                        else "__py_compute")
             return wire(op_name, packed, output_type=out_tp,
-                        __node_label__=self._diagnostic_label(), **node_kwargs)
+                        __node_label__=self._diagnostic_label(scalar_values),
+                        **node_kwargs)
         return wire("__py_sink", packed,
-                    __node_label__=self._diagnostic_label(), **node_kwargs)
+                    __node_label__=self._diagnostic_label(scalar_values),
+                    **node_kwargs)
 
 
 def _make_py_node(fn, *, has_output, active, valid, all_valid, resolvers,
