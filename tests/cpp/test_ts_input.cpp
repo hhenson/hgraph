@@ -141,6 +141,41 @@ TEST_CASE("TSInput target-link plans allocate structural state only for keyed sl
     REQUIRE(static_cast<const void *>(&structural_link->tracking) == structural_storage.data());
 }
 
+TEST_CASE("TSInput storage caching excludes endpoint trees with owned payloads")
+{
+    using namespace hgraph;
+    using detail::input_storage_type_is_realization_invariant;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts = registry.ts(integer);
+    const auto *base = registry.bundle(
+        "tests.ts_input_cache", "Base", {{"id", integer}}, {}, true);
+    registry.bundle(
+        "tests.ts_input_cache", "Leaf", {{"id", integer}, {"value", integer}}, {base});
+    const auto *polymorphic = registry.ts(base);
+    const auto *inner = registry.tsb("TSInputCacheableInner", {{"value", polymorphic}});
+    const auto *root = registry.tsb("TSInputCacheableRoot", {{"scalar", ts}, {"inner", inner}});
+
+    const auto all_peered = TSEndpointSchema::non_peered(
+        root,
+        {TSEndpointSchema::peered(ts),
+         TSEndpointSchema::non_peered(inner, {TSEndpointSchema::peered(polymorphic)})});
+    const auto owned_leaf = TSEndpointSchema::non_peered(
+        root,
+        {TSEndpointSchema::owned(ts),
+         TSEndpointSchema::non_peered(inner, {TSEndpointSchema::peered(polymorphic)})});
+    const auto owned_subtree = TSEndpointSchema::non_peered(
+        root,
+        {TSEndpointSchema::peered(ts), TSEndpointSchema::owned(inner)});
+
+    REQUIRE(input_storage_type_is_realization_invariant(TSEndpointSchema::peered(root)));
+    REQUIRE(input_storage_type_is_realization_invariant(all_peered));
+    REQUIRE_FALSE(input_storage_type_is_realization_invariant(TSEndpointSchema::owned(root)));
+    REQUIRE_FALSE(input_storage_type_is_realization_invariant(owned_leaf));
+    REQUIRE_FALSE(input_storage_type_is_realization_invariant(owned_subtree));
+}
+
 TEST_CASE("TSInput builds a non-peered TSB root with nested peered terminals")
 {
     using namespace hgraph;

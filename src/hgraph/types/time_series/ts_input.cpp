@@ -2636,11 +2636,24 @@ namespace hgraph
         return TSInputConstructionPlan{root_schema, endpoint_schema};
     }
 
-    TSInputBuilder::TSInputBuilder(TSInputConstructionPlan plan)
-        : plan_(std::move(plan)),
-          storage_type_(TSInputTypeRef::checked(input_storage_type_for(plan_.endpoint_schema())))
+    namespace
     {
-        if (!storage_type_) { throw std::logic_error("TSInputBuilder could not resolve input storage type"); }
+        [[nodiscard]] TSInputTypeRef resolved_input_storage_type(const TSInputConstructionPlan &plan,
+                                                                 std::string_view owner)
+        {
+            const auto type = TSInputTypeRef::checked(input_storage_type_for(plan.endpoint_schema()));
+            if (!type) { throw std::logic_error(std::string{owner} + " could not resolve input storage type"); }
+            return type;
+        }
+    }
+
+    TSInputBuilder::TSInputBuilder(TSInputConstructionPlan plan)
+        : plan_(std::move(plan))
+    {
+        if (detail::input_storage_type_is_realization_invariant(plan_.endpoint_schema()))
+        {
+            storage_type_ = resolved_input_storage_type(plan_, "TSInputBuilder");
+        }
     }
 
     const TSValueTypeMetaData &TSInputBuilder::schema() const noexcept
@@ -2719,7 +2732,8 @@ namespace hgraph
     TSInput::TSInput(const TSInputBuilder &builder)
         : builder_(&builder),
           schema_(&builder.plan_.schema()),
-          data_(builder.storage_type_)
+          data_(builder.storage_type_ ? builder.storage_type_
+                                     : resolved_input_storage_type(builder.plan_, "TSInput"))
     {
         attach_root_parent();
     }
