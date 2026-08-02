@@ -191,13 +191,13 @@ def passive(ts):
 
 
 def pass_through(tsd):
-    """map_'s pass-through marker: do NOT demultiplex this argument."""
+    """map_/mesh_ pass-through marker: do NOT demultiplex this argument."""
     ts = tsd
     return WiringPort(_hgraph.pass_through_tag(_unwrap(ts)))
 
 
 def no_key(tsd):
-    """map_'s no-key marker: demultiplex, but exclude from key inference."""
+    """map_/mesh_ no-key marker: demultiplex, but exclude from key inference."""
     ts = tsd
     return WiringPort(_hgraph.no_key_tag(_unwrap(ts)))
 

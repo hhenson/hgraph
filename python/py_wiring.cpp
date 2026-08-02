@@ -359,6 +359,7 @@ namespace
                     record.name_views.data(), record.name_views.size()};
             },
             [](const void *, std::size_t) -> const TSValueTypeMetaData * { return nullptr; },
+            nullptr,
             [](const void *context) -> const TSValueTypeMetaData * {
                 return static_cast<const RuntimeOperatorRecord *>(context)->expected_output;
             },
@@ -533,6 +534,11 @@ namespace
             [](const void *context, std::size_t index) -> const TSValueTypeMetaData * {
                 const auto &record = *static_cast<const PyGraphFnRecord *>(context);
                 return index < record.input_schemas.size() ? record.input_schemas[index] : nullptr;
+            },
+            [](const void *context, std::size_t index) -> std::optional<TypePattern> {
+                const auto &record = *static_cast<const PyGraphFnRecord *>(context);
+                return index < record.input_patterns.size() ? record.input_patterns[index]
+                                                            : std::nullopt;
             },
             [](const void *context) {
                 // Known when the python fn carries a TS return annotation
@@ -928,6 +934,7 @@ namespace hgraph::python_bridge
 
     m.def("graph_fn", [](nb::object wrapper, nb::object identity, nb::list param_names, bool has_output,
                          std::optional<PyTsType> output_type, nb::list input_types,
+                         nb::list input_patterns,
                          nb::object user_callable) {
         auto &registry = py_graph_fn_registry();
         auto  found    = registry.find(identity.ptr());
@@ -953,6 +960,14 @@ namespace hgraph::python_bridge
                 record->input_schemas.push_back(
                     input_type.is_none() ? nullptr : nb::cast<PyTsType &>(input_type).meta);
             }
+            record->input_patterns.reserve(record->arity);
+            for (nb::handle input_pattern : input_patterns)
+            {
+                record->input_patterns.push_back(
+                    input_pattern.is_none()
+                        ? std::nullopt
+                        : std::optional<TypePattern>{nb::cast<PyTypePattern &>(input_pattern).pattern});
+            }
             record->name_storage.reserve(record->arity);
             for (nb::handle name : param_names) { record->name_storage.push_back(nb::cast<std::string>(name)); }
             for (const auto &name : record->name_storage) { record->names.emplace_back(name); }
@@ -968,6 +983,7 @@ namespace hgraph::python_bridge
         }};
     }, nb::arg("wrapper"), nb::arg("identity"), nb::arg("param_names"), nb::arg("has_output"),
        nb::arg("output_type") = nb::none(), nb::arg("input_types") = nb::list(),
+       nb::arg("input_patterns") = nb::list(),
        nb::arg("user_callable") = nb::none());
 
     nb::class_<PySwitchCases>(m, "SwitchCases");

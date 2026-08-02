@@ -676,9 +676,17 @@ input(s) — an operator like the rest of the family
   terminals that already require forwarding/non-peered topology are rejected;
   this initial path supports ordinary owned whole-node outputs and sink
   functions.
-- **The variadic tail is classified, Python-style**: every TSD argument is
-  multiplexed alongside the anchor (key types must agree) — the live key set
-  is the **union** of their key sets; a key absent from one dict leaves that
+- **The variadic tail is classified against the child signature**: a TSD is
+  multiplexed when the corresponding child parameter accepts its element. A
+  whole-time-series type variable (for example ``TIME_SERIES_TYPE`` or C++
+  ``Port<void>``) multiplexes the first TSD in the argument list and establishes
+  its key type. A later TSD supplied to such a variable multiplexes when its key
+  type matches, and otherwise passes through whole. A parameter accepting the
+  concrete whole TSD always receives it directly. Non-TSD values supplied to a
+  whole-time-series variable also pass through. Unresolved operator element
+  variables retain element-wise map behaviour. Later multiplexed TSDs must
+  agree with the established key type. The live key set is the **union** of
+  their key sets; a key absent from one dict leaves that
   child input unbound (invalid) until it appears there (the phantom-element
   behaviour), and the output entry is removed only when the key has left
   every multiplexed input. Non-TSD args broadcast whole; in the TSL form a
@@ -768,6 +776,16 @@ another instance requested it.
   ``TSD<K, OUT>`` output; child terminals are forwarding outputs bound to
   real elements in that owned TSD, so branch/map/switch terminals inside the
   instance write through to the mesh element rather than copying values.
+- **TSD argument classification follows ``map_``.** A whole-time-series type
+  variable multiplexes the first TSD argument and establishes the key type;
+  later matching-key TSDs multiplex, while later different-key TSDs and
+  non-TSDs pass through. Concrete whole-TSD parameters pass through and
+  element parameters multiplex. The first multiplexed input drives the
+  signature. ``pass_through`` inputs do not contribute to inferred
+  ``__keys__``; ``no_key`` inputs remain multiplexed but are excluded from the
+  inferred union, so all-``no_key`` inputs require explicit ``__keys__``.
+  TSL-specific ``map_`` rules do not apply because ``mesh_`` has no TSL
+  kernel.
 - **One internal key-slot store is authoritative.** Mesh instance membership
   is a superset of ``__keys__`` because dependency reads may create keys on
   demand. A mesh therefore cannot mirror only the external set's slot ids.
@@ -805,7 +823,8 @@ another instance requested it.
   mirror ``map_`` because the mesh output is an owned TSD whose elements are
   real storage targets.
 
-Tests: ``tests/cpp/test_mesh.cpp``.
+Tests: ``tests/cpp/test_mesh.cpp`` and
+``python/tests/test_mesh_map_classification.py``.
 
 
 ``dispatch_`` — runtime type dispatch (design record)

@@ -5,7 +5,7 @@ import inspect
 import _hgraph
 
 from .._types import (_ContextExpr, _GenericTsExpr, _TsExpr,
-                      _TypeVarSentinel, _type_var_name)
+                      _TypeVarSentinel, _pattern_of, _type_var_name)
 from ._core import (ParseError, WiringError, WiringPort, _current_wiring,
                     _resolve_context, _unwrap, _wiring_stack, wire)
 from ._markers import _INJECTABLE_MARKERS
@@ -97,14 +97,20 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None):
     out_tp = sig.return_annotation
     out_handle = out_tp.handle if isinstance(out_tp, _TsExpr) else None
     input_handles = []
+    input_patterns = []
     for name in names:
         annotation = sig.parameters[name].annotation
         input_handles.append(
             annotation.handle if isinstance(annotation, _TsExpr) else None)
+        try:
+            input_patterns.append(_pattern_of(annotation))
+        except TypeError:
+            input_patterns.append(None)
     identity = wrapper if input_names is not None or scalar_bindings else gfn
     return _hgraph.graph_fn(
         wrapper, identity, names, has_output, output_type=out_handle,
-        input_types=input_handles, user_callable=gfn)
+        input_types=input_handles, input_patterns=input_patterns,
+        user_callable=gfn)
 
 
 def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg):

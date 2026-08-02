@@ -6,8 +6,10 @@
 // element directly (no copy); removed keys destroy the child and remove the
 // element. func is a WiredFn (graph, node, or operator) and may take the key
 // when its first parameter is named "key" (or the configured __key_arg__). TSD
-// inputs multiplex; other time-series inputs broadcast whole. See *Nested
-// Graphs*.
+// inputs multiplex when the child parameter accepts their element;
+// whole-time-series type variables multiplex the first TSD and later same-key
+// TSDs, while concrete whole-TSD parameters receive the collection directly.
+// See *Nested Graphs*.
 
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/std/std_nodes.h>
@@ -28,6 +30,7 @@
 #include "nested_lifecycle_test_support.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <optional>
 #include <span>
@@ -939,10 +942,10 @@ TEST_CASE("map_ over TSL: ndx key plus broadcast")
 }
 
 // ---------------------------------------------------------------------------
-// Multi-multiplexed inputs (Python parity): every TSD in *args demultiplexes
-// by key — the live key set is the UNION; a key absent from one TSD leaves
-// that child input invalid until it appears. Same-size TSLs multiplex per
-// index in the TSL form.
+// Multi-multiplexed inputs: each TSD whose child parameter accepts its element
+// demultiplexes by key — the live key set is the UNION; a key absent from one
+// TSD leaves that child input invalid until it appears. Same-size TSLs
+// multiplex per index in the TSL form.
 // ---------------------------------------------------------------------------
 
 namespace
@@ -1582,8 +1585,8 @@ TEST_CASE("map_: __key_arg__ is keyword-only")
 
 namespace
 {
-    // Reads a whole TSD: only reachable through pass_through (an untagged TSD
-    // argument is always multiplexed).
+    // Reads a whole TSD. pass_through explicitly forces the direct binding;
+    // signature-directed classification also binds a matching TSD parameter whole.
     struct ElemPlusDictSizeNode
     {
         static constexpr auto name = "elem_plus_dict_size";
@@ -1614,6 +1617,115 @@ namespace
         }
     };
 
+    struct ElemPlusGenericDictSizeG
+    {
+        static constexpr auto name = "elem_plus_generic_dict_size_g";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value, Port<void> whole)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (value + wire<stdlib::len_>(w, whole).as<TS<Int>>()).as<TS<Int>>();
+        }
+    };
+
+    struct AddOneGenericG
+    {
+        static constexpr auto name = "add_one_generic_g";
+        static Port<TS<Int>> compose(Wiring &, Port<void> value)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (value.as<TS<Int>>() + Int{1}).as<TS<Int>>();
+        }
+    };
+
+    struct MapFirstGenericTsdG
+    {
+        static constexpr auto name = "map_first_generic_tsd_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> tsd)
+        {
+            return wire<stdlib::map_>(w, fn<AddOneGenericG>(), tsd)
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct AddTwoGenericsG
+    {
+        static constexpr auto name = "add_two_generics_g";
+        static Port<TS<Int>> compose(Wiring &, Port<void> lhs, Port<void> rhs)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (lhs.as<TS<Int>>() + rhs.as<TS<Int>>()).as<TS<Int>>();
+        }
+    };
+
+    struct MapSameKeyGenericsG
+    {
+        static constexpr auto name = "map_same_key_generics_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w,
+                                               Port<TSD<Str, TS<Int>>> lhs,
+                                               Port<TSD<Str, TS<Int>>> rhs)
+        {
+            return wire<stdlib::map_>(w, fn<AddTwoGenericsG>(), lhs, rhs)
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct AddGenericOffsetG
+    {
+        static constexpr auto name = "add_generic_offset_g";
+        static Port<TS<Int>> compose(Wiring &, Port<TS<Int>> value, Port<void> offset)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (value + offset.as<TS<Int>>()).as<TS<Int>>();
+        }
+    };
+
+    struct MapGenericOffsetG
+    {
+        static constexpr auto name = "map_generic_offset_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w,
+                                               Port<TSD<Str, TS<Int>>> mux,
+                                               Port<TS<Int>> offset)
+        {
+            return wire<stdlib::map_>(w, fn<AddGenericOffsetG>(), mux, offset)
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct MapGenericDictAfterMuxG
+    {
+        static constexpr auto name = "map_generic_dict_after_mux_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w,
+                                               Port<TSD<Str, TS<Int>>> mux,
+                                               Port<TSD<Int, TS<Int>>> whole)
+        {
+            return wire<stdlib::map_>(w, fn<ElemPlusGenericDictSizeG>(), mux, whole)
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct ElemPlusConcreteDictSizeG
+    {
+        static constexpr auto name = "elem_plus_concrete_dict_size_g";
+        static Port<TS<Int>> compose(Wiring &w, Port<TSD<Int, TS<Int>>> whole,
+                                     Port<TS<Int>> value)
+        {
+            using namespace hgraph::stdlib::syntax;
+            return (value + wire<stdlib::len_>(w, whole).as<TS<Int>>()).as<TS<Int>>();
+        }
+    };
+
+    struct MapConcreteDictBeforeMuxG
+    {
+        static constexpr auto name = "map_concrete_dict_before_mux_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w,
+                                               Port<TSD<Int, TS<Int>>> whole,
+                                               Port<TSD<Str, TS<Int>>> mux)
+        {
+            return wire<stdlib::map_>(w, fn<ElemPlusConcreteDictSizeG>(), whole, mux)
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
     struct MapNoKeyG
     {
         static constexpr auto             name = "map_no_key_g";
@@ -1621,6 +1733,63 @@ namespace
                                                Port<TSD<Str, TS<Int>>> rhs)
         {
             return wire<stdlib::map_>(w, fn<AddPairG>(), lhs, stdlib::no_key(rhs))
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct ReturnRightG
+    {
+        static constexpr auto name = "return_right_g";
+        static Port<TS<Int>> compose(Wiring &, Port<TS<Int>>, Port<TS<Int>> rhs)
+        {
+            return rhs;
+        }
+    };
+
+    struct MapNoKeyUnionG
+    {
+        static constexpr auto name = "map_no_key_union_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w,
+                                               Port<TSD<Str, TS<Int>>> keys_source,
+                                               Port<TSD<Str, TS<Int>>> values)
+        {
+            return wire<stdlib::map_>(w, fn<ReturnRightG>(), keys_source,
+                                      stdlib::no_key(values))
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct WholeDictSizeG
+    {
+        static constexpr auto name = "whole_dict_size_g";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>>,
+                                     Port<TSD<Str, TS<Int>>> whole)
+        {
+            return wire<stdlib::len_>(w, whole).as<TS<Int>>();
+        }
+    };
+
+    struct MapPassThroughUnionG
+    {
+        static constexpr auto name = "map_pass_through_union_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w,
+                                               Port<TSD<Str, TS<Int>>> keys_source,
+                                               Port<TSD<Str, TS<Int>>> whole)
+        {
+            return wire<stdlib::map_>(w, fn<WholeDictSizeG>(), keys_source,
+                                      stdlib::pass_through(whole))
+                .as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct MapMismatchedKeyTypesG
+    {
+        static constexpr auto name = "map_mismatched_key_types_g";
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w,
+                                                Port<TSD<Str, TS<Int>>> lhs,
+                                                Port<TSD<Int, TS<Int>>> rhs)
+        {
+            return wire<stdlib::map_>(w, fn<AddPairG>(), lhs, rhs)
                 .as<TSD<Str, TS<Int>>>();
         }
     };
@@ -2036,6 +2205,65 @@ TEST_CASE("map_: a broadcast TSD update reaches every existing child")
                                dict_delta<Str, TS<Int>>({{"a"s, 5}, {"b"s, 6}})));
 }
 
+TEST_CASE("map_: the first TSD passed to a generic child parameter multiplexes")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<MapFirstGenericTsdG>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}})))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 2}, {"b"s, 3}})));
+}
+
+TEST_CASE("map_: a later same-key TSD passed to a generic child parameter multiplexes")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<MapSameKeyGenericsG>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 10}, {"b"s, 20}})))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 11}, {"b"s, 22}})));
+}
+
+TEST_CASE("map_: a later different-key TSD passed to a generic child parameter is direct")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<MapGenericDictAfterMuxG>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}}), none),
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 10}, {2, 20}}),
+                                   dict_delta<Int, TS<Int>>({{3, 30}})))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 3}, {"b"s, 4}}),
+                               dict_delta<Str, TS<Int>>({{"a"s, 4}, {"b"s, 5}})));
+}
+
+TEST_CASE("map_: a non-TSD passed to a generic child parameter is direct")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<MapGenericOffsetG>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}}), none),
+                     values<Int>(10, 20))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 11}, {"b"s, 12}}),
+                               dict_delta<Str, TS<Int>>({{"a"s, 21}, {"b"s, 22}})));
+}
+
+TEST_CASE("map_: a whole-TSD child parameter before the first multiplexed input is direct")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<MapConcreteDictBeforeMuxG>(
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 10}, {2, 20}}),
+                                   dict_delta<Int, TS<Int>>({{3, 30}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}}), none))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 3}, {"b"s, 4}}),
+                               dict_delta<Str, TS<Int>>({{"a"s, 4}, {"b"s, 5}})));
+}
+
 TEST_CASE("map_: no_key demultiplexes but is excluded from key inference")
 {
     using namespace hgraph;
@@ -2047,6 +2275,46 @@ TEST_CASE("map_: no_key demultiplexes but is excluded from key inference")
                      values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 1}, {"y"s, 2}})),
                      values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 10}, {"z"s, 30}})))),
                  values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 11}})));
+}
+
+TEST_CASE("map_: no_key keys are observably excluded from the inferred union")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    // ReturnRightG can publish rhs independently of lhs. If the no_key input
+    // contributed to the inferred union, its z key would therefore emit.
+    CHECK_OUTPUT((eval_node<MapNoKeyUnionG>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 1}, {"y"s, 2}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 10}, {"z"s, 30}})))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 10}})));
+}
+
+TEST_CASE("map_: pass_through keys are observably excluded from the inferred union")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    // WholeDictSizeG does not depend on keys_source's value. If the
+    // pass-through input contributed keys, p/q/r would therefore emit.
+    CHECK_OUTPUT((eval_node<MapPassThroughUnionG>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}})),
+                     values<Value>(dict_delta<Str, TS<Int>>(
+                         {{"p"s, 10}, {"q"s, 20}, {"r"s, 30}})))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 3}, {"b"s, 3}})));
+}
+
+TEST_CASE("map_: mismatched multiplexed key types retain the classifier diagnostic")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    REQUIRE_THROWS_WITH(
+        (eval_node<MapMismatchedKeyTypesG>(
+            values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}})),
+            values<Value>(dict_delta<Int, TS<Int>>({{1, 2}})))),
+        Catch::Matchers::ContainsSubstring(
+            "map_: every multiplexed TSD must share the same key type"));
 }
 
 TEST_CASE("map_: every multiplexed input no_key requires an explicit __keys__")

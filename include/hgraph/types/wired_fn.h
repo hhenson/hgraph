@@ -3,6 +3,7 @@
 
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/subgraph_wiring.h>
+#include <hgraph/types/type_pattern.h>
 #include <hgraph/types/value/value_view.h>
 
 #include <cstddef>
@@ -124,6 +125,7 @@ namespace hgraph
                                     std::span<const TSValueTypeMetaData *const>){nullptr};
         std::span<const std::string_view> (*param_names)(const void *context){nullptr};
         const TSValueTypeMetaData *(*input_schema)(const void *context, std::size_t index){nullptr};
+        std::optional<TypePattern> (*input_pattern)(const void *context, std::size_t index){nullptr};
         const TSValueTypeMetaData *(*output_schema)(const void *context){nullptr};
         std::string_view (*diagnostic_label)(const void *context){nullptr};
     };
@@ -167,6 +169,23 @@ namespace hgraph
             return ops != nullptr && ops->input_schema != nullptr
                        ? ops->input_schema(context, index)
                        : nullptr;
+        }
+
+        /** The declared input type pattern, including generic structure.
+
+            Unlike ``input_schema()``, this distinguishes a whole-time-series
+            variable from a structured generic such as ``TS<ScalarVar>``.
+            Runtime callables which cannot expose a pattern return nullopt. */
+        [[nodiscard]] std::optional<TypePattern> input_pattern(std::size_t index) const
+        {
+            if (index >= arity) { return std::nullopt; }
+            if (lifted != nullptr)
+            {
+                return TypePattern::concrete(lifted->input_schema(index));
+            }
+            return ops != nullptr && ops->input_pattern != nullptr
+                       ? ops->input_pattern(context, index)
+                       : std::nullopt;
         }
 
         /**
@@ -738,6 +757,63 @@ namespace hgraph
         }
 
         template <typename X>
+        [[nodiscard]] std::optional<TypePattern> input_pattern_thunk(std::size_t index)
+        {
+            std::optional<TypePattern> out;
+            if constexpr (std::is_base_of_v<operator_tag, X>)
+            {
+                using params = typename X::param_types;
+                std::size_t next = 0;
+                [&]<std::size_t... I>(std::index_sequence<I...>) {
+                    (
+                        [&] {
+                            using P = std::tuple_element_t<I, params>;
+                            if constexpr (static_node_detail::is_input_selector<P>::value)
+                            {
+                                if (next == index) { out = to_pattern<typename P::schema>(); }
+                                ++next;
+                            }
+                        }(),
+                        ...);
+                }(std::make_index_sequence<std::tuple_size_v<params>>{});
+            }
+            else if constexpr (graph_wiring_detail::is_graph_def<X>)
+            {
+                using params = typename StaticGraphSignature<X>::param_types;
+                std::size_t next = 0;
+                [&]<std::size_t... I>(std::index_sequence<I...>) {
+                    (
+                        [&] {
+                            using P = std::tuple_element_t<I, params>;
+                            if constexpr (graph_wiring_detail::is_port<P>::value)
+                            {
+                                if (next == index)
+                                {
+                                    using S = typename graph_wiring_detail::port_static_schema<P>::type;
+                                    if constexpr (std::is_void_v<S>)
+                                    {
+                                        out = TypePattern::var(
+                                            std::string{"__erased_input_"} + std::to_string(index));
+                                    }
+                                    else { out = to_pattern<S>(); }
+                                }
+                                ++next;
+                            }
+                        }(),
+                        ...);
+                }(std::make_index_sequence<std::tuple_size_v<params>>{});
+            }
+            else
+            {
+                using inputs = typename StaticNodeSignature<X>::input_schema_types;
+                [&]<std::size_t... I>(std::index_sequence<I...>) {
+                    ((index == I ? void(out = to_pattern<std::tuple_element_t<I, inputs>>()) : void()), ...);
+                }(std::make_index_sequence<std::tuple_size_v<inputs>>{});
+            }
+            return out;
+        }
+
+        template <typename X>
         [[nodiscard]] const TSValueTypeMetaData *output_schema_thunk()
         {
             if constexpr (!has_output_of<X>()) { return nullptr; }
@@ -773,6 +849,7 @@ namespace hgraph
                 },
                 [](const void *) { return param_names_thunk<X>(); },
                 [](const void *, std::size_t index) { return input_schema_thunk<X>(index); },
+                [](const void *, std::size_t index) { return input_pattern_thunk<X>(index); },
                 [](const void *) { return output_schema_thunk<X>(); },
                 [](const void *) -> std::string_view {
                     if constexpr (static_node_detail::has_name<X>) {

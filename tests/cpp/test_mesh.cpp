@@ -19,6 +19,7 @@
 #include "nested_lifecycle_test_support.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <array>
 #include <span>
@@ -86,6 +87,176 @@ struct KeyIdentityG {
   static constexpr auto name = "mesh_key_identity_g";
   static Port<TS<Int>> compose(Wiring &, NamedPort<"key", TS<Int>> key) {
     return key;
+  }
+};
+
+struct AddPairG {
+  static constexpr auto name = "mesh_add_pair_g";
+  static Port<TS<Int>> compose(Wiring &, Port<TS<Int>> lhs,
+                               Port<TS<Int>> rhs) {
+    using namespace hgraph::stdlib::syntax;
+    return (lhs + rhs).as<TS<Int>>();
+  }
+};
+
+struct AddOneGenericG {
+  static constexpr auto name = "mesh_add_one_generic_g";
+  static Port<TS<Int>> compose(Wiring &, Port<void> value) {
+    using namespace hgraph::stdlib::syntax;
+    return (value.as<TS<Int>>() + Int{1}).as<TS<Int>>();
+  }
+};
+
+struct MeshFirstGenericTsdG {
+  static constexpr auto name = "mesh_first_generic_tsd_g";
+  static Port<TSD<Str, TS<Int>>>
+  compose(Wiring &w, Port<TSD<Str, TS<Int>>> values) {
+    return wire<stdlib::mesh_>(w, fn<AddOneGenericG>(), values)
+        .as<TSD<Str, TS<Int>>>();
+  }
+};
+
+struct AddTwoGenericsG {
+  static constexpr auto name = "mesh_add_two_generics_g";
+  static Port<TS<Int>> compose(Wiring &, Port<void> lhs, Port<void> rhs) {
+    using namespace hgraph::stdlib::syntax;
+    return (lhs.as<TS<Int>>() + rhs.as<TS<Int>>()).as<TS<Int>>();
+  }
+};
+
+struct MeshSameKeyGenericsG {
+  static constexpr auto name = "mesh_same_key_generics_g";
+  static Port<TSD<Str, TS<Int>>>
+  compose(Wiring &w, Port<TSD<Str, TS<Int>>> lhs,
+          Port<TSD<Str, TS<Int>>> rhs) {
+    return wire<stdlib::mesh_>(w, fn<AddTwoGenericsG>(), lhs, rhs)
+        .as<TSD<Str, TS<Int>>>();
+  }
+};
+
+struct GenericDictSizeG {
+  static constexpr auto name = "mesh_generic_dict_size_g";
+  static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value,
+                               Port<void> whole) {
+    using namespace hgraph::stdlib::syntax;
+    return (value + wire<stdlib::len_>(w, whole).as<TS<Int>>())
+        .as<TS<Int>>();
+  }
+};
+
+struct MeshGenericDictAfterMuxG {
+  static constexpr auto name = "mesh_generic_dict_after_mux_g";
+  static Port<TSD<Str, TS<Int>>>
+  compose(Wiring &w, Port<TSD<Str, TS<Int>>> mux,
+          Port<TSD<Int, TS<Int>>> whole) {
+    return wire<stdlib::mesh_>(w, fn<GenericDictSizeG>(), mux, whole)
+        .as<TSD<Str, TS<Int>>>();
+  }
+};
+
+struct GenericOffsetG {
+  static constexpr auto name = "mesh_generic_offset_g";
+  static Port<TS<Int>> compose(Wiring &, Port<TS<Int>> value,
+                               Port<void> offset) {
+    using namespace hgraph::stdlib::syntax;
+    return (value + offset.as<TS<Int>>()).as<TS<Int>>();
+  }
+};
+
+struct MeshGenericOffsetG {
+  static constexpr auto name = "mesh_generic_offset_wrapper_g";
+  static Port<TSD<Str, TS<Int>>>
+  compose(Wiring &w, Port<TSD<Str, TS<Int>>> mux, Port<TS<Int>> offset) {
+    return wire<stdlib::mesh_>(w, fn<GenericOffsetG>(), mux, offset)
+        .as<TSD<Str, TS<Int>>>();
+  }
+};
+
+struct ConcreteDictSizeG {
+  static constexpr auto name = "mesh_concrete_dict_size_g";
+  static Port<TS<Int>> compose(Wiring &w,
+                               Port<TSD<Int, TS<Int>>> whole,
+                               Port<TS<Int>> value) {
+    using namespace hgraph::stdlib::syntax;
+    return (value + wire<stdlib::len_>(w, whole).as<TS<Int>>())
+        .as<TS<Int>>();
+  }
+};
+
+struct MeshConcreteDictBeforeMuxG {
+  static constexpr auto name = "mesh_concrete_dict_before_mux_g";
+  static Port<TSD<Str, TS<Int>>>
+  compose(Wiring &w, Port<TSD<Int, TS<Int>>> whole,
+          Port<TSD<Str, TS<Int>>> mux) {
+    return wire<stdlib::mesh_>(w, fn<ConcreteDictSizeG>(), whole, mux)
+        .as<TSD<Str, TS<Int>>>();
+  }
+};
+
+struct MeshMismatchedKeyTypesG {
+  static constexpr auto name = "mesh_mismatched_key_types_g";
+  static Port<TSD<Str, TS<Int>>>
+  compose(Wiring &w, Port<TSD<Str, TS<Int>>> lhs,
+          Port<TSD<Int, TS<Int>>> rhs) {
+    return wire<stdlib::mesh_>(w, fn<AddPairG>(), lhs, rhs)
+        .as<TSD<Str, TS<Int>>>();
+  }
+};
+
+struct ReturnRightG {
+  static constexpr auto name = "mesh_return_right_g";
+  static Port<TS<Int>> compose(Wiring &, Port<TS<Int>>, Port<TS<Int>> rhs) {
+    return rhs;
+  }
+};
+
+struct MeshNoKeyUnionG {
+  static constexpr auto name = "mesh_no_key_union_g";
+  static Port<TSD<Str, TS<Int>>>
+  compose(Wiring &w, Port<TSD<Str, TS<Int>>> keys_source,
+          Port<TSD<Str, TS<Int>>> values) {
+    return wire<stdlib::mesh_>(w, fn<ReturnRightG>(), keys_source,
+                               stdlib::no_key(values))
+        .as<TSD<Str, TS<Int>>>();
+  }
+};
+
+struct WholeDictSizeG {
+  static constexpr auto name = "mesh_whole_dict_size_g";
+  static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>>,
+                               Port<TSD<Str, TS<Int>>> whole) {
+    return wire<stdlib::len_>(w, whole).as<TS<Int>>();
+  }
+};
+
+struct MeshPassThroughUnionG {
+  static constexpr auto name = "mesh_pass_through_union_g";
+  static Port<TSD<Str, TS<Int>>>
+  compose(Wiring &w, Port<TSD<Str, TS<Int>>> keys_source,
+          Port<TSD<Str, TS<Int>>> whole) {
+    return wire<stdlib::mesh_>(w, fn<WholeDictSizeG>(), keys_source,
+                               stdlib::pass_through(whole))
+        .as<TSD<Str, TS<Int>>>();
+  }
+};
+
+struct MeshAllNoKeyG {
+  static constexpr auto name = "mesh_all_no_key_g";
+  static Port<TSD<Str, TS<Int>>>
+  compose(Wiring &w, Port<TSD<Str, TS<Int>>> values) {
+    return wire<stdlib::mesh_>(w, fn<AddOneG>(), stdlib::no_key(values))
+        .as<TSD<Str, TS<Int>>>();
+  }
+};
+
+struct MeshAllNoKeyExplicitKeysG {
+  static constexpr auto name = "mesh_all_no_key_explicit_keys_g";
+  static Port<TSD<Str, TS<Int>>>
+  compose(Wiring &w, Port<TSD<Str, TS<Int>>> values,
+          Port<TSS<Str>> keys) {
+    return wire<stdlib::mesh_>(w, fn<AddOneG>(), stdlib::no_key(values),
+                               arg<"__keys__">(keys))
+        .as<TSD<Str, TS<Int>>>();
   }
 };
 
@@ -417,6 +588,136 @@ TEST_CASE("mesh_: with no cross-instance access a mesh is observably map_") {
       values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 2}, {"b"s, 3}}),
                     dict_delta<Str, TS<Int>>({{"a"s, 11}}),
                     dict_delta<Str, TS<Int>>({}, {"b"s})));
+}
+
+TEST_CASE("mesh_: the first TSD passed to a generic child parameter multiplexes") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  CHECK_OUTPUT(
+      (eval_node<MeshFirstGenericTsdG>(values<Value>(
+          dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}})))),
+      values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 2}, {"b"s, 3}})));
+}
+
+TEST_CASE(
+    "mesh_: a later same-key TSD passed to a generic child parameter multiplexes") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  CHECK_OUTPUT(
+      (eval_node<MeshSameKeyGenericsG>(
+          values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}})),
+          values<Value>(
+              dict_delta<Str, TS<Int>>({{"a"s, 10}, {"b"s, 20}})))),
+      values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 11}, {"b"s, 22}})));
+}
+
+TEST_CASE(
+    "mesh_: a later different-key TSD passed to a generic child parameter is direct") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  CHECK_OUTPUT(
+      (eval_node<MeshGenericDictAfterMuxG>(
+          values<Value>(
+              dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}}), none),
+          values<Value>(dict_delta<Int, TS<Int>>({{1, 10}, {2, 20}}),
+                        dict_delta<Int, TS<Int>>({{3, 30}})))),
+      values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 3}, {"b"s, 4}}),
+                    dict_delta<Str, TS<Int>>({{"a"s, 4}, {"b"s, 5}})));
+}
+
+TEST_CASE("mesh_: a non-TSD passed to a generic child parameter is direct") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  CHECK_OUTPUT(
+      (eval_node<MeshGenericOffsetG>(
+          values<Value>(
+              dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}}), none),
+          values<Int>(10, 20))),
+      values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 11}, {"b"s, 12}}),
+                    dict_delta<Str, TS<Int>>({{"a"s, 21}, {"b"s, 22}})));
+}
+
+TEST_CASE(
+    "mesh_: a whole-TSD child parameter before the first multiplexed input is direct") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  CHECK_OUTPUT(
+      (eval_node<MeshConcreteDictBeforeMuxG>(
+          values<Value>(dict_delta<Int, TS<Int>>({{1, 10}, {2, 20}}),
+                        dict_delta<Int, TS<Int>>({{3, 30}})),
+          values<Value>(
+              dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}}), none))),
+      values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 3}, {"b"s, 4}}),
+                    dict_delta<Str, TS<Int>>({{"a"s, 4}, {"b"s, 5}})));
+}
+
+TEST_CASE(
+    "mesh_: mismatched multiplexed key types retain the classifier diagnostic") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  REQUIRE_THROWS_WITH(
+      (eval_node<MeshMismatchedKeyTypesG>(
+          values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}})),
+          values<Value>(dict_delta<Int, TS<Int>>({{1, 2}})))),
+      Catch::Matchers::ContainsSubstring(
+          "mesh_: every multiplexed TSD must share the same key type"));
+}
+
+TEST_CASE("mesh_: no_key keys are observably excluded from the inferred union") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  // ReturnRightG can publish values independently of keys_source. If the
+  // no_key input contributed to the inferred union, its z key would emit.
+  CHECK_OUTPUT(
+      (eval_node<MeshNoKeyUnionG>(
+          values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 1}, {"y"s, 2}})),
+          values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 10}, {"z"s, 30}})))),
+      values<Value>(dict_delta<Str, TS<Int>>({{"x"s, 10}})));
+}
+
+TEST_CASE(
+    "mesh_: pass_through keys are observably excluded from the inferred union") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  // WholeDictSizeG does not depend on keys_source's value. If the
+  // pass-through input contributed keys, p/q/r would therefore emit.
+  CHECK_OUTPUT(
+      (eval_node<MeshPassThroughUnionG>(
+          values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}})),
+          values<Value>(dict_delta<Str, TS<Int>>(
+              {{"p"s, 10}, {"q"s, 20}, {"r"s, 30}})))),
+      values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 3}, {"b"s, 3}})));
+}
+
+TEST_CASE("mesh_: every multiplexed input no_key requires explicit __keys__") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  REQUIRE_THROWS_WITH(
+      (eval_node<MeshAllNoKeyG>(
+          values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}})))),
+      Catch::Matchers::ContainsSubstring(
+          "mesh_: every multiplexed input is no_key"));
+}
+
+TEST_CASE("mesh_: no_key with explicit __keys__ uses that lifecycle") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  CHECK_OUTPUT(
+      (eval_node<MeshAllNoKeyExplicitKeysG>(
+          values<Value>(
+              dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}, {"c"s, 3}})),
+          values<Value>(set_delta<Str>({"a"s, "c"s}, {})))),
+      values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 2}, {"c"s, 4}})));
 }
 
 TEST_CASE("mesh_: a peer-instantiation func may consume the key") {
