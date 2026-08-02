@@ -2231,6 +2231,9 @@ def _time_series_full_value_type(ts_type):
     if handle.is_ref:
         return _time_series_full_value_type(
             _TsExpr(_hgraph.ref_target(handle), repr(handle)))
+    if handle.kind == _hgraph.TS_KIND_TSW:
+        return _value_type_python_type(
+            _hgraph.vt_element(_hgraph.ts_value_vt(handle)))
     if handle.is_ts:
         python_type = _TS_SCALAR_TYPES.get(handle)
         return python_type if python_type is not None else _value_type_python_type(
