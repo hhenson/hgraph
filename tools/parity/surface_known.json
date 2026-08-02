@@ -2738,6 +2738,43 @@
       "name": "TornadoWeb.add_handler",
       "kind": "method-signature-mismatch",
       "reason": "TornadoWeb is an internal transport manager excluded by issue #215; the candidate's optional options argument supports the same internal calls"
+    },
+    {
+      "module": "hgraph.adaptors.perspective",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "issue #216 defines hgraph.adaptors.perspective.__all__ as the curated Perspective user API; upstream dependency imports, type variables and implementation helpers are not package API"
+    },
+    {
+      "module": "hgraph.adaptors.perspective._perspective",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "issue #216 makes _perspective.__all__ authoritative; upstream dependency imports, legacy Perspective 2 handlers and implementation helpers are excluded"
+    },
+    {
+      "module": "hgraph.adaptors.perspective._perspetive_publish",
+      "kind": "name-missing",
+      "side": "candidate",
+      "reason": "the misspelled compatibility module mirrors the curated publisher __all__; upstream reflection classes and implementation imports are not user API"
+    },
+    {
+      "module": "hgraph.adaptors.perspective*",
+      "name": "TableEdits.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "TableEdits is a generic TimeSeriesSchema wiring annotation, not a user-constructed scalar; values are produced as a typed TSB by publish_table_editable"
+    },
+    {
+      "module": "hgraph.adaptors.perspective*",
+      "name": "TableEdits.to_scalar_schema",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "TableEdits contains TSD/TSS fields and has no scalar-row analogue; native reflection and the typed TSB contract replace upstream's Python metadata conversion helper"
+    },
+    {
+      "module": "hgraph.adaptors.perspective*",
+      "name": "publish*_impl",
+      "kind": "kind-mismatch",
+      "reason": "C++-first adaptor implementations are passive registration objects rather than directly invoked Python graph callables; registration and publication behaviour are parity-tested"
     }
   ]
 }

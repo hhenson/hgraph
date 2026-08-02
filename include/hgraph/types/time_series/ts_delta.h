@@ -38,6 +38,12 @@ namespace hgraph
      */
     [[nodiscard]] HGRAPH_EXPORT Value capture_delta(const TSInputView &in);
 
+    /** Rebuild a canonical delta containing every currently-valid value.
+        Unlike ``capture_delta``, this is independent of per-cycle modified
+        flags and is used when a transport first observes an already-partial
+        composite input. */
+    [[nodiscard]] HGRAPH_EXPORT Value capture_current_delta(const TSInputView &in);
+
     HGRAPH_EXPORT void apply_delta(const TSOutputView &out, const ValueView &delta);
 
     /**

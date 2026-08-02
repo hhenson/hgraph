@@ -143,7 +143,8 @@ namespace hgraph
         std::span<const WiringPortRef> implementation_inputs = {});
 
     /** Per-client keyed adaptor exchange (the erased counterpart of
-        ``service_adaptor::adaptor`` / ``wire<Interface>``). */
+        ``service_adaptor::adaptor`` / ``wire<Interface>``). Returns an empty
+        port for a sink-only descriptor with no output schema. */
     [[nodiscard]] HGRAPH_EXPORT WiringPortRef service_adaptor_client(
         Wiring &w, const RuntimeServiceDescriptor &descriptor, std::string_view path,
         const WiringPortRef &in);

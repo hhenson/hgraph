@@ -776,7 +776,11 @@ namespace hgraph
                     break;
                 case ServiceFlavour::ServiceAdaptor:
                     required_endpoints.push_back(WiringServiceImplementationEndpoint{base + "/from_graph", {}});
-                    required_endpoints.push_back(WiringServiceImplementationEndpoint{base + "/to_graph", {}});
+                    if (descriptor->output_schema != nullptr)
+                    {
+                        required_endpoints.push_back(
+                            WiringServiceImplementationEndpoint{base + "/to_graph", {}});
+                    }
                     break;
                 case ServiceFlavour::Adaptor:
                     append_adaptor_required_endpoints(
@@ -1210,14 +1214,16 @@ namespace hgraph
                                          std::string_view path,
                                          const WiringPortRef &in)
     {
-        if (descriptor.input_schema == nullptr || descriptor.output_schema == nullptr)
+        if (descriptor.input_schema == nullptr)
         {
             throw std::invalid_argument(
-                "service adaptor '" + descriptor.name + "' requires input and output schemas");
+                "service adaptor '" + descriptor.name + "' requires an input schema");
         }
         WiringPortRef request_id = request_id_source_node(w);
         service_adaptor_client_from_graph(w, descriptor, path, in, request_id);
-        return service_adaptor_client_to_graph(w, descriptor, path, request_id);
+        return descriptor.output_schema != nullptr
+            ? service_adaptor_client_to_graph(w, descriptor, path, request_id)
+            : WiringPortRef{};
     }
 
     namespace
@@ -1232,14 +1238,27 @@ namespace hgraph
         w.register_built_service_path(base, "service adaptor");
         std::vector<WiringServiceImplementationEndpoint> required_endpoints{
             WiringServiceImplementationEndpoint{base + "/from_graph", {}},
-            WiringServiceImplementationEndpoint{base + "/to_graph", {}},
         };
+        if (descriptor.output_schema != nullptr)
+        {
+            required_endpoints.push_back(
+                WiringServiceImplementationEndpoint{base + "/to_graph", {}});
+        }
         auto scope = w.service_implementation_scope(
             "service adaptor " + base, std::move(required_endpoints));
         WiringPortRef requests = service_adaptor_from_graph(w, descriptor, path);
         std::array<WiringPortRef, 1> impl_inputs{requests};
         WiringPortRef replies = wire_impl(w, descriptor, impl, impl_inputs);
-        service_adaptor_to_graph(w, descriptor, path, replies);
+        if (descriptor.output_schema != nullptr)
+        {
+            service_adaptor_to_graph(w, descriptor, path, replies);
+        }
+        else if (replies.schema != nullptr)
+        {
+            throw std::invalid_argument(
+                "sink-only service adaptor '" + descriptor.name +
+                "' implementation returned an output");
+        }
         scope.complete();
     }
     }

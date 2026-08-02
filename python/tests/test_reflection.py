@@ -5,18 +5,22 @@ family (see ``docs/source/developer_guide/type_reflection.rst``).
 """
 
 from dataclasses import dataclass
+from typing import Generic
 
 import pytest
 
-from hgraph import (REF, TS, TSB, TSD, TSL, TSS, TS_SCHEMA, CompoundScalar,
-                    TimeSeriesSchema, compute_node, graph, operator)
+from hgraph import (Frame, K, REF, TIME_SERIES_TYPE, TS, TSB, TSD, TSL, TSS,
+                    TS_SCHEMA, CompoundScalar, TimeSeriesSchema, compute_node,
+                    graph, operator)
 from hgraph.reflection import (
     bundle_schema_type,
     dereference,
     element_type,
     fields,
+    frame_schema,
     is_bundle,
     is_compound_scalar,
+    is_frame,
     is_reference,
     is_ts,
     is_tsd,
@@ -83,6 +87,52 @@ def test_fields_tsb():
     f = fields(TSB[MyB])
     assert f == {"a": TS[int], "b": TS[str]}
     assert list(f) == ["a", "b"]  # ordered
+
+
+def test_fields_mixed_scalar_and_time_series_generic_tsb():
+    class Edits(TimeSeriesSchema, Generic[K, TIME_SERIES_TYPE]):
+        edits: TSD[K, TIME_SERIES_TYPE]
+        removes: TSS[K]
+
+    concrete = TSB[Edits[int, TS[str]]]
+
+    assert fields(concrete) == {
+        "edits": TSD[int, TS[str]],
+        "removes": TSS[int],
+    }
+    assert repr(TSB[Edits[K, TIME_SERIES_TYPE]]) == "TSB[Edits]"
+
+
+def test_mixed_generic_tsb_rejects_cross_kind_specialization():
+    class Edits(TimeSeriesSchema, Generic[K, TIME_SERIES_TYPE]):
+        edits: TSD[K, TIME_SERIES_TYPE]
+        removes: TSS[K]
+
+    with pytest.raises(TypeError, match="scalar schema parameter"):
+        TSB[Edits[TS[int], TS[str]]]
+    with pytest.raises(TypeError, match="time-series schema parameter"):
+        TSB[Edits[int, str]]
+
+
+def test_container_key_reflection_preserves_the_declared_python_type():
+    key = tuple[int, str]
+
+    assert key_type(TSD[key, TS[int]]) == key
+    assert scalar_type(TSS[key]) == key
+
+
+def test_frame_reflection_preserves_the_row_schema():
+    @dataclass
+    class Row(CompoundScalar):
+        value: int
+
+    assert is_frame(Frame[Row])
+    assert is_frame(TS[Frame[Row]])
+    assert frame_schema(Frame[Row]) is Row
+    assert frame_schema(TS[Frame[Row]]) is Row
+    assert not is_frame(TS[int])
+    with pytest.raises(TypeError):
+        frame_schema(TS[int])
 
 
 def test_bundle_schema_type_preserves_nominal_schema():

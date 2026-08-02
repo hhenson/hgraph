@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <deque>
 #include <stdexcept>
@@ -18,6 +19,8 @@
 
 namespace hgraph {
 namespace {
+std::atomic<std::uint64_t> next_wiring_identity{1};
+
 // Interning key: node definition identity (typeid of the static node type)
 // + input edges by (producing instance, source path, target path) + the scalar
 // configuration values. The output schema is implied by the node + path, so it
@@ -1083,6 +1086,8 @@ struct WiringObserverRegistry {
 };
 
 struct Wiring::Impl {
+  const std::uint64_t identity{next_wiring_identity.fetch_add(
+      1, std::memory_order_relaxed)};
   std::unordered_set<std::string> component_ids; // claimed recordable ids
 
   explicit Impl(WiringKind wiring_kind,
@@ -1327,6 +1332,8 @@ void Wiring::claim_component_id(std::string_view fq_recordable_id) {
 Wiring::~Wiring() = default;
 Wiring::Wiring(Wiring &&) noexcept = default;
 Wiring &Wiring::operator=(Wiring &&) noexcept = default;
+
+std::uint64_t Wiring::identity() const noexcept { return impl_->identity; }
 
 ErasedDelayedBindingWiringPort::ErasedDelayedBindingWiringPort(
     Wiring &wiring, const TSValueTypeMetaData *schema) {

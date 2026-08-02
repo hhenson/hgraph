@@ -1372,6 +1372,98 @@ def test_service_adaptor_explicit_request_id_client_split():
     check(out == [None, 1, None, 2], f"split service adaptor client: {out}")
 
 
+def test_sink_only_service_adaptor_from_python():
+    published = []
+    key_snapshot = {}
+    value_snapshot = {}
+
+    @hg.service_adaptor
+    def publish(key: TS[str], value: TS[int]) -> None: ...
+
+    @hg.sink_node
+    def capture(
+        keys: TSD[int, TS[str]], values: TSD[int, TS[int]]
+    ):
+        if keys.modified or values.modified:
+            key_snapshot.update(
+                (request_id, value.value)
+                for request_id, value in keys.modified_items())
+            value_snapshot.update(
+                (request_id, value.value)
+                for request_id, value in values.modified_items())
+            for request_id in value_snapshot:
+                key_snapshot[request_id] = keys[request_id].value
+            published.append((dict(key_snapshot), dict(value_snapshot)))
+
+    @hg.service_adaptor_impl(interfaces=publish)
+    def publish_impl(
+        key: TSD[int, TS[str]], value: TSD[int, TS[int]]
+    ) -> None:
+        capture(key, value)
+
+    @graph
+    def two_publishers(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        hg.register_adaptor("publish", publish_impl)
+        publish(hg.const("lhs", tp=TS[str]), lhs, path="publish")
+        publish(hg.const("rhs", tp=TS[str]), rhs, path="publish")
+        return lhs + rhs
+
+    out = eval_node(two_publishers, [1, 2], [10, 20])
+    check(out == [11, 22], f"sink service adaptor passthrough: {out}")
+    check(len(published) == 2, f"sink service adaptor cycles: {published}")
+    check(all(set(keys.values()) == {"lhs", "rhs"}
+              for keys, _ in published),
+          f"sink service adaptor static keys: {published}")
+    check([sorted(values.values()) for _, values in published]
+          == [[1, 10], [2, 20]],
+          f"sink service adaptor values: {published}")
+
+
+def test_adaptor_client_scalar_options_reach_the_registered_implementation():
+    observed = []
+
+    @hg.adaptor
+    def configured_publish(
+        value: TS[int], multiplier: int, label: str = "value",
+    ) -> None: ...
+
+    @hg.sink_node
+    def capture_configured(value: TS[int], multiplier: int, label: str):
+        observed.append((label, value.value * multiplier))
+
+    @hg.adaptor_impl(interfaces=configured_publish)
+    def configured_publish_impl(
+        value: TS[int], multiplier: int, label: str = "value",
+    ) -> None:
+        capture_configured(value, multiplier, label)
+
+    @graph
+    def app(value: TS[int]) -> TS[int]:
+        hg.register_adaptor("configured-publish", configured_publish_impl)
+        configured_publish(
+            value, multiplier=10, label="scaled",
+            path="configured-publish",
+        )
+        return value
+
+    check(eval_node(app, [2, 3]) == [2, 3], "configured adaptor passthrough")
+    check(observed == [("scaled", 20), ("scaled", 30)],
+          f"configured adaptor options: {observed}")
+
+    @graph
+    def conflicting(value: TS[int]) -> TS[int]:
+        hg.register_adaptor("conflicting-publish", configured_publish_impl)
+        configured_publish(value, multiplier=2, path="conflicting-publish")
+        configured_publish(value, multiplier=3, path="conflicting-publish")
+        return value
+
+    try:
+        eval_node(conflicting, [1])
+        check(False, "expected conflicting client options")
+    except hg.WiringError as error:
+        check("disagree" in str(error), f"unexpected scalar option error: {error}")
+
+
 def test_generic_adaptor_specializations_from_python():
     from typing import TypeVar
 

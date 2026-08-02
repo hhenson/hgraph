@@ -503,9 +503,10 @@ The following deliberate restrictions replace advanced Python-first code:
   requests in Python. Normal read/write/execute and catalogue routing work.
 - Delta scheduled maintenance and a second Python batching buffer are omitted;
   TSD history publication consumes the native per-cycle table delta directly.
-- Perspective read-only and editable tables, typed edit feedback, and the
-  Perspective websocket endpoint work. Empty-row creation and multi-client
-  reduction must be expressed as a native TSD before publication.
+- Perspective read-only and editable tables, typed edit feedback, empty-row
+  creation, multi-client reduction, and the Perspective websocket endpoint
+  work. Perspective 2.10's legacy manager API is intentionally not restored;
+  the optional extra targets the current server/client API.
 - The dataframe record/replay names delegate to the C++ record/replay
   operators. Arrow memory/file storage remains a client utility; the old
   Polars-owned pluggable runtime store is not restored.

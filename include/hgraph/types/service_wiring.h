@@ -1444,9 +1444,11 @@ namespace hgraph::service_adaptor
      * Multi-client adaptor wiring.
      *
      * Client code calls ``wire<Interface>(w, input)`` and receives that client's
-     * output. Implementation graphs call ``from_graph<Interface>()`` to receive
-     * all client inputs as ``TSD<Int, input_schema>`` and ``to_graph`` to publish
-     * ``TSD<Int, output_schema>`` replies keyed by the same client id.
+     * output when the interface declares ``output_schema``. Implementation
+     * graphs call ``from_graph<Interface>()`` to receive all client inputs as
+     * ``TSD<Int, input_schema>``. Duplex interfaces additionally call
+     * ``to_graph`` to publish ``TSD<Int, output_schema>`` replies keyed by the
+     * same client id; sink-only interfaces have no reply endpoint.
      */
     namespace detail
     {
@@ -1473,8 +1475,7 @@ namespace hgraph::service_adaptor
         template <typename Interface>
         concept service_adaptor_interface =
             std::derived_from<Interface, interface> &&
-            has_input_schema<Interface>::value &&
-            has_output_schema<Interface>::value;
+            has_input_schema<Interface>::value;
 
         template <typename Interface>
         using input_schema_t = typename Interface::input_schema;
@@ -1606,8 +1607,11 @@ namespace hgraph::service_adaptor
         {
             endpoints.push_back(WiringServiceImplementationEndpoint{
                 adaptor_from_graph_path<Interface>(user_path), user_path.resolution});
-            endpoints.push_back(WiringServiceImplementationEndpoint{
-                adaptor_to_graph_path<Interface>(user_path), user_path.resolution});
+            if constexpr (has_output_schema<Interface>::value)
+            {
+                endpoints.push_back(WiringServiceImplementationEndpoint{
+                    adaptor_to_graph_path<Interface>(user_path), user_path.resolution});
+            }
         }
 
         [[nodiscard]] inline Value path_key_value(const std::string &full_path)
@@ -1879,7 +1883,6 @@ namespace hgraph::service_adaptor
     {
         static_assert(detail::service_adaptor_interface<Interface>,
                       "register_service_adaptor_impl requires a service adaptor interface");
-        using output_schema = detail::request_output_schema_t<Interface>;
 
         std::string base_path = detail::adaptor_base_path<Interface>(user_path);
         auto stored_args = std::tuple<std::decay_t<Args>...>{args...};
@@ -1892,11 +1895,21 @@ namespace hgraph::service_adaptor
                 auto scope = target.service_implementation_scope(
                     "service adaptor impl " + base_path, std::move(required_endpoints));
                 auto requests = from_graph<Interface>(target, user_path);
-                auto replies = std::apply([&](const auto &...stored) {
-                    return detail::wire_impl_output<Impl, output_schema>(
-                        target, user_path, requests, stored...);
-                }, stored_args);
-                to_graph<Interface>(target, user_path, replies);
+                if constexpr (detail::has_output_schema<Interface>::value)
+                {
+                    using output_schema = detail::request_output_schema_t<Interface>;
+                    auto replies = std::apply([&](const auto &...stored) {
+                        return detail::wire_impl_output<Impl, output_schema>(
+                            target, user_path, requests, stored...);
+                    }, stored_args);
+                    to_graph<Interface>(target, user_path, replies);
+                }
+                else
+                {
+                    std::apply([&](const auto &...stored) {
+                        detail::wire_impl<Impl>(target, user_path, requests, stored...);
+                    }, stored_args);
+                }
                 scope.complete();
             });
     }
@@ -1941,6 +1954,8 @@ namespace hgraph::service_adaptor
     {
         static_assert(detail::service_adaptor_interface<Interface>,
                       "service_adaptor::to_graph requires a service adaptor interface");
+        static_assert(detail::has_output_schema<Interface>::value,
+                      "service_adaptor::to_graph requires an interface with output_schema");
         const std::string endpoint = detail::adaptor_to_graph_path<Interface>(user_path);
         wiring_path_detail::merge_resolution(
             user_path.resolution, w.service_implementation_stub_resolution(endpoint));
@@ -1958,50 +1973,53 @@ namespace hgraph::service_adaptor
     }
 
     template <typename Interface>
-    [[nodiscard]] Port<detail::output_schema_t<Interface>> adaptor(
+    auto adaptor(
         Wiring &w,
         ServiceAdaptorPath user_path,
         auto input)
     {
         static_assert(detail::service_adaptor_interface<Interface>,
                       "service_adaptor::adaptor requires a service adaptor interface");
-        using replies_schema = detail::request_output_schema_t<Interface>;
-        using output_schema = detail::output_schema_t<Interface>;
 
         user_path = detail::resolve_client_path<Interface>(std::move(user_path), input);
         auto request_id      = service::detail::request_id_source(w);
         w.register_service_client_path(detail::adaptor_base_path<Interface>(user_path), "service adaptor");
         const std::string from_endpoint = detail::adaptor_from_graph_path<Interface>(user_path);
-        const std::string to_endpoint = detail::adaptor_to_graph_path<Interface>(user_path);
         auto requests        = detail::request_input_source<Interface>(w, user_path);
-        auto replies         = detail::output_source<Interface>(w, user_path);
         w.register_service_rank_anchor(from_endpoint, requests.node());
         const WiringInstance *capture =
             detail::capture_request_input<Interface>(w, std::move(input), requests, user_path, request_id);
         w.register_service_client_rank(from_endpoint, "service adaptor", capture, false);
-        w.register_service_client_rank(to_endpoint, "service adaptor", replies.node(), true);
-        if constexpr (schema_descriptor<replies_schema>::is_concrete())
+        if constexpr (detail::has_output_schema<Interface>::value)
         {
-            auto reply = wire<stdlib::getitem_>(w, replies.template as<replies_schema>(), request_id);
-            if constexpr (schema_descriptor<output_schema>::is_concrete())
+            using replies_schema = detail::request_output_schema_t<Interface>;
+            using output_schema = detail::output_schema_t<Interface>;
+            const std::string to_endpoint = detail::adaptor_to_graph_path<Interface>(user_path);
+            auto replies = detail::output_source<Interface>(w, user_path);
+            w.register_service_client_rank(to_endpoint, "service adaptor", replies.node(), true);
+            if constexpr (schema_descriptor<replies_schema>::is_concrete())
             {
-                return reply.template as<output_schema>();
+                auto reply = wire<stdlib::getitem_>(w, replies.template as<replies_schema>(), request_id);
+                if constexpr (schema_descriptor<output_schema>::is_concrete())
+                {
+                    return reply.template as<output_schema>();
+                }
+                else
+                {
+                    return Port<output_schema>{w, reply.erased()};
+                }
             }
             else
             {
+                auto dict = Port<replies_schema>{w, replies.erased()};
+                auto reply = wire<stdlib::getitem_>(w, dict, request_id);
                 return Port<output_schema>{w, reply.erased()};
             }
-        }
-        else
-        {
-            auto dict = Port<replies_schema>{w, replies.erased()};
-            auto reply = wire<stdlib::getitem_>(w, dict, request_id);
-            return Port<output_schema>{w, reply.erased()};
         }
     }
 
     template <typename Interface>
-    [[nodiscard]] Port<detail::output_schema_t<Interface>> adaptor(
+    auto adaptor(
         Wiring &w,
         auto input)
     {
@@ -2011,7 +2029,7 @@ namespace hgraph::service_adaptor
     /** Pack the fields of a TSB request schema from separate client ports. */
     template <typename Interface, typename... Inputs>
         requires(sizeof...(Inputs) > 1)
-    [[nodiscard]] Port<detail::output_schema_t<Interface>> adaptor(
+    auto adaptor(
         Wiring &w,
         ServiceAdaptorPath user_path,
         const Inputs &...inputs)
@@ -2026,7 +2044,7 @@ namespace hgraph::service_adaptor
     /** Pack the fields of a TSB request schema from separate client ports. */
     template <typename Interface, typename... Inputs>
         requires(sizeof...(Inputs) > 1)
-    [[nodiscard]] Port<detail::output_schema_t<Interface>> adaptor(
+    auto adaptor(
         Wiring &w,
         const Inputs &...inputs)
     {

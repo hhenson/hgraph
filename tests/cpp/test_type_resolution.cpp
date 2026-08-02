@@ -67,6 +67,13 @@ namespace
     using GenericScalarBundle = UnNamedTSB<Field<"p1", TS<ScalarVar<"T">>>>;
     using IntScalarBundle     = UnNamedTSB<Field<"p1", TS<Int>>>;
 
+    using GenericEditsBundle = UnNamedTSB<
+        Field<"edits", TSD<ScalarVar<"K">, TsVar<"V">>>,
+        Field<"removes", TSS<ScalarVar<"K">>>>;
+    using ConcreteEditsBundle = UnNamedTSB<
+        Field<"edits", TSD<Int, TS<Str>>>,
+        Field<"removes", TSS<Int>>>;
+
     struct GenericBundleFromScalar
     {
         static constexpr auto name = "rt_generic_bundle_from_scalar";
@@ -75,6 +82,27 @@ namespace
         {
             const Value delta = capture_delta(p1.base());
             apply_delta(out.field<"p1">(), delta.view());
+        }
+    };
+
+    struct GenericEditsFromInputs
+    {
+        static constexpr auto name = "rt_generic_edits_from_inputs";
+
+        static void eval(In<"edits", TSD<ScalarVar<"K">, TsVar<"V">>> edits,
+                         In<"removes", TSS<ScalarVar<"K">>> removes,
+                         Out<GenericEditsBundle> out)
+        {
+            if (edits.modified())
+            {
+                const Value delta = capture_delta(edits.base());
+                apply_delta(out.field<"edits">().base(), delta.view());
+            }
+            if (removes.modified())
+            {
+                const Value delta = capture_delta(removes.base());
+                apply_delta(out.field<"removes">().base(), delta.view());
+            }
         }
     };
 
@@ -189,6 +217,17 @@ namespace
         }
     };
 
+    struct GenericEditsGraph
+    {
+        static constexpr auto name = "rt_generic_edits_graph";
+
+        static Port<ConcreteEditsBundle> compose(Wiring &w, Port<TSD<Int, TS<Str>>> edits,
+                                                  Port<TSS<Int>> removes)
+        {
+            return wire<GenericEditsFromInputs>(w, edits, removes).as<ConcreteEditsBundle>();
+        }
+    };
+
 }  // namespace
 
 TEST_CASE("type_resolution: a generic node resolves its TS type from the connected input port")
@@ -236,6 +275,24 @@ TEST_CASE("type_resolution: a concrete input resolves a scalar-generic TSB outpu
     CHECK_OUTPUT(eval_node<GenericBundleFromIntGraph>(values<Int>(1, 2)),
                  values<Value>(tsb_delta<IntScalarBundle>(Int{1}),
                                tsb_delta<IntScalarBundle>(Int{2})));
+}
+
+TEST_CASE("type_resolution: scalar and time-series variables resolve together inside a TSB")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    (void)TypeRegistry::instance().register_scalar<Str>("str");
+
+    const auto edits = values<Value>(dict_delta<Int, TS<Str>>({{1, Str{"one"}}}),
+                                     dict_delta<Int, TS<Str>>({{2, Str{"two"}}}, {1}));
+    const auto removes = values<Value>(set_delta<Int>({}, {}), set_delta<Int>({1}, {}));
+
+    CHECK_OUTPUT(
+        eval_node<GenericEditsGraph>(edits, removes),
+        values<Value>(
+            tsb_delta<ConcreteEditsBundle>(dict_delta<Int, TS<Str>>({{1, Str{"one"}}}),
+                                           set_delta<Int>({}, {})),
+            tsb_delta<ConcreteEditsBundle>(dict_delta<Int, TS<Str>>({{2, Str{"two"}}}, {1}),
+                                           set_delta<Int>({1}, {}))));
 }
 
 TEST_CASE("type_resolution: a generic source infers its type from the configured scalar value")

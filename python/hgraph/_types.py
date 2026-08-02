@@ -34,6 +34,8 @@ _PYTHON_OBJECT_TYPE_CACHE = {}
 _PYTHON_OBJECT_REGISTRATIONS = {}
 _PYTHON_OBJECT_CLASSES = []
 _TSB_SCHEMA_CLASSES = {}
+_TS_SCALAR_TYPES = {}
+_VALUE_SCALAR_TYPES = {}
 
 
 def register_native_scalar_type(python_type, native_value_type):
@@ -1852,6 +1854,7 @@ class _TSMeta(type):
             expr = _TsExpr(_hgraph.ts(_value_type(scalar)), f"TS[{getattr(scalar, '__name__', scalar)}]")
         except _GenericType as e:
             return _GenericTsExpr(f"TS[{scalar!r}]", pattern=_hgraph.type_pattern_ts(e.pattern))
+        _TS_SCALAR_TYPES[expr.handle] = scalar
         from ._compat import CompoundScalar as _CS
 
         structured_origin = typing.get_origin(scalar) or scalar
@@ -1892,6 +1895,7 @@ class _TSSMeta(type):
     def __getitem__(cls, scalar):
         try:
             value_type = _value_type(scalar)
+            _VALUE_SCALAR_TYPES[value_type] = scalar
             if not value_type.is_hashable or not value_type.is_equatable:
                 raise TypeError(
                     f"TSS element type {scalar!r} must be hashable and equatable")
@@ -1924,6 +1928,7 @@ class _TSDMeta(type):
             if isinstance(value, (_GenericTsExpr, _TypeVarSentinel)):
                 raise _GenericType()
             key_type = _value_type(key)
+            _VALUE_SCALAR_TYPES[key_type] = key
             if not key_type.is_hashable or not key_type.is_equatable:
                 raise TypeError(
                     f"TSD key type {key!r} must be hashable and equatable")
@@ -2185,24 +2190,52 @@ class _TSBMeta(type):
         size_replacements = {}
         ts_replacements = {}
         for parameter, argument in zip(parameters, type_args):
+            if not _type_var_is_scalar(parameter):
+                if isinstance(argument, (typing.TypeVar, _TypeVarSentinel)):
+                    if _type_var_is_scalar(argument):
+                        raise TypeError(
+                            f"time-series schema parameter {parameter!r} cannot be "
+                            f"specialized with scalar type variable {argument!r}")
+                    # The common unresolved spelling, for example
+                    # ``TableEdits[K, TIME_SERIES_TYPE]``, already carries the
+                    # correct variable name in every field pattern.
+                    if _type_var_name(parameter) != _type_var_name(argument):
+                        raise TypeError(
+                            "renaming an unresolved time-series schema parameter "
+                            "is not supported; specialize it with a concrete "
+                            "time-series type")
+                    continue
+
+                ts_argument = None
+                if isinstance(argument, _TsExpr):
+                    ts_argument = argument
+                elif isinstance(argument, type) and issubclass(argument, TimeSeriesSchema):
+                    ts_argument = cls[argument]
+                if not isinstance(ts_argument, _TsExpr):
+                    raise TypeError(
+                        f"time-series schema parameter {parameter!r} requires a "
+                        f"concrete time-series type, got {argument!r}")
+                ts_replacements[_type_var_name(parameter)] = ts_argument.handle
+                continue
+
             if isinstance(argument, int) and not isinstance(argument, bool):
                 size_replacements[_type_var_name(parameter)] = _hgraph.size_pattern_value(argument)
                 continue
             if isinstance(argument, (_TypeVarSentinel, typing.TypeVar)):
+                if not _type_var_is_scalar(argument):
+                    raise TypeError(
+                        f"scalar schema parameter {parameter!r} cannot be "
+                        f"specialized with time-series type variable {argument!r}")
                 replacement = _hgraph.scalar_pattern_var(_type_var_name(argument))
                 size_replacements[_type_var_name(parameter)] = _hgraph.size_pattern_var(
                     _type_var_name(argument))
             else:
+                if isinstance(argument, (_TsExpr, _GenericTsExpr)):
+                    raise TypeError(
+                        f"scalar schema parameter {parameter!r} cannot be "
+                        f"specialized with time-series type {argument!r}")
                 replacement = _scalar_pattern(argument)
             scalar_replacements[_type_var_name(parameter)] = replacement
-
-            ts_argument = None
-            if isinstance(argument, _TsExpr):
-                ts_argument = argument
-            elif isinstance(argument, type) and issubclass(argument, TimeSeriesSchema):
-                ts_argument = cls[argument]
-            if isinstance(ts_argument, _TsExpr):
-                ts_replacements[_type_var_name(parameter)] = ts_argument.handle
 
         is_cs = issubclass(origin, _CS)
         is_python_object = _is_python_object_class(origin)
@@ -2403,14 +2436,14 @@ SCALAR_2 = _TypeVarSentinel("SCALAR_2", is_scalar=True)
 KEYABLE_SCALAR = _TypeVarSentinel("KEYABLE_SCALAR", is_scalar=True)
 NUMBER = _TypeVarSentinel("NUMBER", is_scalar=True, constraints=(int, float))
 NUMBER_2 = _TypeVarSentinel("NUMBER_2", is_scalar=True, constraints=(int, float))
-TIME_SERIES_TYPE = _TypeVarSentinel("TIME_SERIES_TYPE")
-TIME_SERIES_TYPE_1 = _TypeVarSentinel("TIME_SERIES_TYPE_1")
-TIME_SERIES_TYPE_2 = _TypeVarSentinel("TIME_SERIES_TYPE_2")
+TIME_SERIES_TYPE = _typing.TypeVar("TIME_SERIES_TYPE", bound=TimeSeriesSchema)
+TIME_SERIES_TYPE_1 = _typing.TypeVar("TIME_SERIES_TYPE_1", bound=TimeSeriesSchema)
+TIME_SERIES_TYPE_2 = _typing.TypeVar("TIME_SERIES_TYPE_2", bound=TimeSeriesSchema)
 OUT = _TypeVarSentinel("OUT")
-K_1 = _TypeVarSentinel("K_1", is_scalar=True)
+K_1 = _typing.TypeVar("K_1")
 SIZE = _typing.TypeVar("SIZE")
 V = _TypeVarSentinel("V")
-K = _TypeVarSentinel("K", is_scalar=True)
+K = _typing.TypeVar("K")
 WINDOW_SIZE = _TypeVarSentinel("WINDOW_SIZE", is_scalar=True)
 ENUM = _TypeVarSentinel("ENUM", is_scalar=True)
 WINDOW_SIZE_MIN = _TypeVarSentinel("WINDOW_SIZE_MIN", is_scalar=True)

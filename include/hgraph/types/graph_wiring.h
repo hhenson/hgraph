@@ -788,6 +788,10 @@ namespace hgraph
         Wiring(Wiring &&) noexcept;
         Wiring &operator=(Wiring &&) noexcept;
 
+        /** Process-unique identity for associating wiring-lifetime adapter
+            state across owned and borrowed language wrappers. */
+        [[nodiscard]] std::uint64_t identity() const noexcept;
+
         /**
          * Intern a node with its input edges + scalar configuration and return its
          * output port. ``def`` is the node *definition's* stable identity

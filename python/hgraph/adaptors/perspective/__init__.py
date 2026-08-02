@@ -1,20 +1,29 @@
-"""Optional Perspective table publishing.
+"""Perspective publication without importing the optional client eagerly."""
 
-Importing this package does not import ``perspective``. The client is loaded
-only when a real table or web endpoint is requested; tests and applications
-may inject a compatible client through :class:`PerspectiveTablesManager`.
-"""
-
-from ._perspective import *
-from ._perspective_publish import *
-from ._perspective_adaptor import *
+from ._perspective import (
+    IndexPageHandler,
+    PerspectiveTablesManager,
+    TablePageHandler,
+    perspective_web,
+)
+from ._perspective_publish import TableEdits, defaultdbldict
+from ._perspective_adaptor import (
+    publish_multitable,
+    publish_multitable_impl,
+    publish_table,
+    publish_table_editable,
+    publish_table_editable_impl,
+    publish_table_impl,
+    register_perspective_adaptors,
+)
 
 __all__ = [
-    "PerspectiveTablesManager",
     "perspective_web",
-    "_publish_table",
-    "_receive_table_edits",
+    "PerspectiveTablesManager",
+    "TablePageHandler",
+    "IndexPageHandler",
     "TableEdits",
+    "defaultdbldict",
     "publish_table",
     "publish_table_editable",
     "publish_multitable",

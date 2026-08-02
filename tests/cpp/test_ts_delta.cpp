@@ -68,6 +68,28 @@ template <typename S> struct ProbeRecord {
   }
 };
 
+// Capture a canonical full-state delta on each input tick. This is the
+// transport snapshot form: fields that did not tick in the current cycle are
+// still represented from their current values.
+template <typename S> struct ProbeCurrentRecord {
+  static constexpr auto name = "ts_delta_probe_current_record";
+  static void start(Scalar<"key", Str> key, GlobalStateView gs) {
+    gs.set(key.value(), make_buffer());
+  }
+  static void eval(In<"ts", S> ts, Scalar<"key", Str> key, GlobalStateView gs,
+                   DateTime now) {
+    const std::size_t offset = cycle_offset(now);
+    auto list = gs.get(key.value()).as_list();
+    auto mutation = list.begin_mutation();
+    std::size_t size = list.size();
+    while (size < offset) {
+      mutation.push_back(empty_any().view());
+      ++size;
+    }
+    mutation.push_back(make_any(capture_current_delta(ts.base())).view());
+  }
+};
+
 // A `replay` clone whose eval re-creates ticks with the runtime `apply_delta`
 // instead of `ts_delta<S>::apply`. `out` (an Out<S>) slices to the erased
 // `TSOutputView` the function takes.
@@ -121,6 +143,14 @@ template <typename S> struct RoundTripGraph {
   static void compose(Wiring &w) {
     auto src = wire<ProbeReplay<S>>(w, Str{"in"});
     wire<ProbeRecord<S>>(w, src, Str{"out"});
+  }
+};
+
+template <typename S> struct CurrentCaptureGraph {
+  static constexpr auto name = "ts_delta_current_capture_graph";
+  static void compose(Wiring &w) {
+    auto src = wire<stdlib::replay_impl, S>(w, Str{"in"});
+    wire<ProbeCurrentRecord<S>>(w, src, Str{"out"});
   }
 };
 
@@ -471,6 +501,21 @@ TEST_CASE(
       {tsb_delta<QuoteWithSet>(set_delta<Int>({1, 2}, {}), std::nullopt),
        tsb_delta<QuoteWithSet>(std::nullopt, 5),
        tsb_delta<QuoteWithSet>(set_delta<Int>({3}, {1}), 6)});
+}
+
+TEST_CASE("ts_delta: capture_current_delta includes unchanged scalar and collection fields") {
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+  const std::vector<std::optional<Value>> deltas{
+      tsb_delta<QuoteWithSet>(set_delta<Int>({1, 2}, {}), 5),
+      tsb_delta<QuoteWithSet>(std::nullopt, 6),
+  };
+
+  auto captured = run_graph<CurrentCaptureGraph<QuoteWithSet>>(
+      [&](const GlobalStateView &gs) { set_replay_deltas(gs, "in", deltas); });
+  CHECK_OUTPUT(
+      get_recorded_deltas(captured.view().graph().global_state(), "out"),
+      {tsb_delta<QuoteWithSet>(set_delta<Int>({1, 2}, {}), 5),
+       tsb_delta<QuoteWithSet>(set_delta<Int>({1, 2}, {}), 6)});
 }
 
 TEST_CASE("ts_delta: capture/apply round-trip a TSW scalar push delta") {

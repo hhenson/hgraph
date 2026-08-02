@@ -1039,6 +1039,9 @@ namespace hgraph::python_bridge
     nb::class_<PyWiring>(m, "Wiring", nb::is_weak_referenceable())
         .def(nb::init<>())
         .def(nb::init<GlobalState &>(), nb::arg("state"))
+        .def("_identity", [](const PyWiring &wiring) {
+            return wiring.raw->identity();
+        })
         .def("exception_time_series", &PyWiring::exception_time_series,
              nb::arg("port"), nb::arg("trace_back_depth") = 1,
              nb::arg("capture_values") = false)
