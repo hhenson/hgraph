@@ -1569,7 +1569,7 @@ def test_adaptor_client_config_follows_cxx_first_wiring_lifetime():
     import _hgraph
     import gc
     from hgraph._wiring import _wiring_stack
-    from hgraph._wiring._services import _ADAPTOR_CLIENT_CONFIGS
+    from hgraph._wiring._services import _CLIENT_CONFIGS
 
     built_config = []
 
@@ -1606,7 +1606,7 @@ def test_adaptor_client_config_follows_cxx_first_wiring_lifetime():
           f"invalid public Wiring identity: {wiring_identity!r}")
     check(wiring.identity() == wiring_identity,
           "public Wiring identity changed during its lifetime")
-    check(any(key[0] == wiring_identity for key in _ADAPTOR_CLIENT_CONFIGS),
+    check(any(key[0] == wiring_identity for key in _CLIENT_CONFIGS),
           "C++-first adaptor config was not retained")
     wiring.build_services()
     check(built_config == [(6, "cxx")],
@@ -1614,7 +1614,7 @@ def test_adaptor_client_config_follows_cxx_first_wiring_lifetime():
 
     del client, source, wiring
     gc.collect()
-    check(not any(key[0] == wiring_identity for key in _ADAPTOR_CLIENT_CONFIGS),
+    check(not any(key[0] == wiring_identity for key in _CLIENT_CONFIGS),
           "C++-first adaptor config outlived its Wiring")
 
 

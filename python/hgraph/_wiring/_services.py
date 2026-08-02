@@ -24,8 +24,8 @@ from ._node import _PyNode, _warn_deprecated
 
 _TS_ANNOTATIONS = (_TsExpr, _GenericTsExpr)
 _SERVICE_ADAPTOR_CLIENT_TOKENS = itertools.count()
-_ADAPTOR_CLIENT_CONFIGS = {}
-_ADAPTOR_CLIENT_CONFIG_CLEANUPS = set()
+_CLIENT_CONFIGS = {}
+_CLIENT_CONFIG_CLEANUPS = set()
 
 
 def _is_ts_annotation(annotation):
@@ -49,8 +49,28 @@ def _is_resolution_annotation(annotation):
     )
 
 
-def _record_adaptor_client_config(stub, path, bound):
-    """Record the wiring-time scalar options shared by one adaptor path."""
+_FLAVOUR_LABELS = {
+    "reference": "reference service",
+    "subscription": "subscription service",
+    "request_reply": "request/reply service",
+    "adaptor": "adaptor",
+    "service_adaptor": "service adaptor",
+}
+
+
+def _flavour_label(flavour):
+    """Human-readable name for a flavour, for diagnostics.
+
+    ``flavour`` alone reads oddly for services ("reference 'x' clients"), and
+    these messages became service-visible when client scalar options were
+    lifted onto the service surface (RFC 0011 step 1).
+    """
+    return _FLAVOUR_LABELS.get(flavour, flavour.replace("_", " "))
+
+
+def _record_client_config(stub, path, bound):
+    """Record the wiring-time scalar options shared by one service or
+    adaptor path. Flavour-neutral: the key carries ``stub.flavour``."""
     config = {
         parameter.name: bound.arguments[parameter.name]
         for parameter in stub._signature.parameters.values()
@@ -61,43 +81,49 @@ def _record_adaptor_client_config(stub, path, bound):
     }
     wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
     identity = wiring.identity()
-    if identity not in _ADAPTOR_CLIENT_CONFIG_CLEANUPS:
+    if identity not in _CLIENT_CONFIG_CLEANUPS:
         def clear_configs():
-            for existing in tuple(_ADAPTOR_CLIENT_CONFIGS):
+            # The C++ Wiring may outlive this module: at interpreter shutdown
+            # module globals are cleared to None, and the cleanup still fires.
+            # Nothing is left to release at that point, so bail out quietly
+            # rather than raising out of a destructor.
+            if _CLIENT_CONFIGS is None or _CLIENT_CONFIG_CLEANUPS is None:
+                return
+            for existing in tuple(_CLIENT_CONFIGS):
                 if existing[0] == identity:
-                    del _ADAPTOR_CLIENT_CONFIGS[existing]
-            _ADAPTOR_CLIENT_CONFIG_CLEANUPS.discard(identity)
+                    del _CLIENT_CONFIGS[existing]
+            _CLIENT_CONFIG_CLEANUPS.discard(identity)
 
         # The C++ Wiring owns this callback. A temporary borrowed PyWiring can
         # disappear before build_services(), but its underlying Wiring retains
         # both the config and cleanup for its actual lifetime.
         wiring._retain_cleanup(clear_configs)
-        _ADAPTOR_CLIENT_CONFIG_CLEANUPS.add(identity)
+        _CLIENT_CONFIG_CLEANUPS.add(identity)
     key = (
         identity, stub.flavour, stub.__name__,
         stub._specialization, path,
     )
-    previous = _ADAPTOR_CLIENT_CONFIGS.setdefault(key, config)
+    previous = _CLIENT_CONFIGS.setdefault(key, config)
     if previous != config:
         differences = sorted(
             name for name in previous.keys() | config.keys()
             if previous.get(name) != config.get(name)
         )
         raise WiringError(
-            f"{stub.flavour.replace('_', ' ')} '{stub.__name__}' clients at "
+            f"{_flavour_label(stub.flavour)} '{stub.__name__}' clients at "
             f"path {path!r} disagree on wiring-time option(s) {differences!r}")
 
 
-def _adaptor_client_config(stub, path):
+def _client_config(stub, path):
     wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
     key = (
         wiring.identity(), stub.flavour, stub.__name__,
         stub._specialization, path,
     )
-    return _ADAPTOR_CLIENT_CONFIGS.get(key, {})
+    return _CLIENT_CONFIGS.get(key, {})
 
 
-def _resolved_adaptor_client_path(stub, path):
+def _resolved_client_path(stub, path):
     """Return the config key and concrete native client path."""
     resolved = stub._resolved_path(path) if path else stub._default_path
     resolved = resolved or f"{stub.__name__}_default"
@@ -488,11 +514,14 @@ class _ServiceStub:
             path = ""
         if not isinstance(path, str):
             raise TypeError(f"service '{self.__name__}' path must be a string")
-        return path, [bound.arguments[p.name] for p in self._request_params]
+        # ``bound`` carries the client's wiring-time scalar options; the caller
+        # records them so the registered implementation can read them back
+        # (RFC 0011 step 1 - the same channel adaptor clients have always had).
+        return path, [bound.arguments[p.name] for p in self._request_params], bound
 
     def __call__(self, *args, **kwargs):
         _warn_deprecated(self.__name__, self._deprecated)
-        path, requests = self._bind_call(args, kwargs)
+        path, requests, bound = self._bind_call(args, kwargs)
         if requests:
             from ._node import _lift_time_series_argument
 
@@ -537,6 +566,11 @@ class _ServiceStub:
                 pending_registrations=self._pending_registrations,
                 registered_resolutions=self._registered_resolutions)
         _materialize_pending_registrations(self, stub._resolution, w)
+        # Record the client's wiring-time scalar options against the resolved
+        # path, exactly as adaptor clients do. The key carries the flavour, and
+        # ``_bind_registered_impl`` reads it back through ``_client_config``.
+        config_path, _ = _resolved_client_path(stub, path)
+        _record_client_config(stub, config_path, bound)
         request = None
         if len(requests) == 1:
             request = _unwrap(requests[0])
@@ -620,7 +654,7 @@ class _AdaptorClientStub:
         if path is None:
             path = ""
         if not isinstance(path, str):
-            raise TypeError(f"{self.flavour.replace('_', ' ')} '{self.__name__}' path must be a string")
+            raise TypeError(f"{_flavour_label(self.flavour)} '{self.__name__}' path must be a string")
 
         from ._node import _lift_time_series_argument
         requests = [
@@ -638,15 +672,15 @@ class _AdaptorClientStub:
                 if not resolution.match(
                         _pattern_of(parameter.annotation), _unwrap(request).ts_type):
                     raise TypeError(
-                        f"generic {self.flavour.replace('_', ' ')} '{self.__name__}' "
+                        f"generic {_flavour_label(self.flavour)} '{self.__name__}' "
                         "request does not match its type pattern")
             _apply_service_defaults(self._signature, resolution)
             _apply_service_resolvers(resolution, self._resolvers)
             specialization = _specialization_label(resolution)
             stub = self._specialized_stub(resolution, specialization)
         self._materialize_client_registration(stub)
-        config_path, path = _resolved_adaptor_client_path(stub, path)
-        _record_adaptor_client_config(stub, config_path, bound)
+        config_path, path = _resolved_client_path(stub, path)
+        _record_client_config(stub, config_path, bound)
         request = (
             None if not requests else requests[0]
             if len(requests) == 1 else WiringPort(_hgraph.tsb_port(
@@ -1378,7 +1412,7 @@ def _bind_registered_impl(implementation, path, config):
         if any(param.name == "path" for param in parameters):
             arguments["path"] = effective_path
         client_config = (
-            _adaptor_client_config(matched_stub, effective_path)
+            _client_config(matched_stub, effective_path)
             if matched_stub is not None else {})
         for param in scalar_parameters:
             configured = resolved_config.get(param.name, inspect.Parameter.empty)
@@ -1388,7 +1422,7 @@ def _bind_registered_impl(implementation, path, config):
                         and client_value != configured):
                     raise WiringError(
                         f"implementation '{implementation.__name__}' option "
-                        f"'{param.name}' conflicts with adaptor clients at path "
+                        f"'{param.name}' conflicts with clients at path "
                         f"{effective_path!r}")
                 arguments[param.name] = configured
             elif client_value is not inspect.Parameter.empty:
