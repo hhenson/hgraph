@@ -13,7 +13,6 @@ from frozendict import frozendict
 
 from hgraph import (
     CompoundScalar,
-    GlobalState,
     TS,
     TSD,
     adaptor,
@@ -479,12 +478,12 @@ def http_server_adaptor_impl(path: str, port: int = 80) -> None:
     routes.sort(key=lambda base: handler_priority.get(
         http_server_adaptor.path_from_full_path(base), len(handler_priority)))
 
-    queue_key = f"http_server_adaptor://{port}/queue"
+    sender_ref = {}
     manager = HttpAdaptorManager.instance(port)
 
     @push_queue(TSD[int, TS[HttpRequest]])
     def from_web(sender) -> None:
-        GlobalState.instance()[queue_key] = sender
+        sender_ref["sender"] = sender
 
     @sink_node
     def to_web(responses: TSD[int, TS[HttpResponse]]) -> None:
@@ -493,19 +492,18 @@ def http_server_adaptor_impl(path: str, port: int = 80) -> None:
             loop.add_callback(manager.complete_request, request_id, response.value)
 
     @to_web.start
-    def to_web_start(_global_state: GlobalState = None) -> None:
+    def to_web_start() -> None:
         manager.start_routes(
             tuple(http_server_adaptor.path_from_full_path(base) for base in routes),
-            _global_state[queue_key])
+            sender_ref["sender"])
 
     @to_web.stop
-    def to_web_stop(_global_state: GlobalState = None) -> None:
+    def to_web_stop() -> None:
         try:
             manager.stop_routes(tuple(
                 http_server_adaptor.path_from_full_path(base) for base in routes))
         finally:
-            if queue_key in _global_state:
-                del _global_state[queue_key]
+            sender_ref.clear()
 
     requests = from_web()
 

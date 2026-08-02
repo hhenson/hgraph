@@ -190,6 +190,17 @@ still performs exactly one acquire/release pair. The GIL is free during native
 executor scheduling and while the real-time loop waits between cycles,
 preserving the sender-liveness guarantee for Python feeder threads.
 
+Runtime ``GlobalState`` access follows the normal injectable path. A Python
+graph or node declares a ``GlobalState`` parameter; the bridge constructs its
+guarded projection directly from the native ``GlobalStateView`` injected into
+that callback. ``GlobalState.instance()`` is wiring/configuration convenience
+only and raises during graph execution, preventing an ambient runtime-state
+path from competing with injection. Nodes that do not request the injectable
+perform no runtime-state lookup or wrapper construction. The fast compute path
+does not accept injectable arguments and keeps its transient-view guard in its
+node-owned cache, so evaluation uses neither C++ thread-local state nor a
+process-global runtime context.
+
 The phase runner is an optional, first-class C++ executor facility and is
 unset for ordinary native C++ execution. Nodes that need an embedding context
 declare ``requires_phase_runner``; Python nodes do so, and nested-node builders

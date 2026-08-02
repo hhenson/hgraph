@@ -3,8 +3,7 @@
  * the lazy TimeSeries/Output views, per-node python STATE, scheduler and
  * clock views, recordable state, and the guarded GlobalState view. See
  * docs/source/developer_guide/python_bridge.rst (GIL boundaries; transient
- * node/time-series views are call-scoped, while RuntimeGlobalState is scoped
- * to the complete graph execution).
+ * node/time-series views and RuntimeGlobalState are call-scoped).
  */
 #ifndef HGRAPH_PYTHON_PY_RUNTIME_H
 #define HGRAPH_PYTHON_PY_RUNTIME_H
@@ -91,9 +90,12 @@ namespace hgraph::python_bridge
      * fields must hold values before the python function is called (the
      * all-valid gate).
      */
+    struct PyCallLeaseState;
+
     struct PyStateRef
     {
-        PyObject *ns{nullptr};   ///< a SimpleNamespace, lazily created (per-node python STATE)
+        PyObject         *ns{nullptr};   ///< a SimpleNamespace, lazily created (per-node python STATE)
+        PyCallLeaseState *call_lease{nullptr};
         friend bool operator==(const PyStateRef &, const PyStateRef &) noexcept = default;
     };
 
@@ -158,30 +160,13 @@ namespace hgraph::python_bridge
         return value;
     }
 
-    inline void py_release_state(State<PyStateRef> &state)
-    {
-        PyStateRef ref = state.get();
-        if (ref.ns != nullptr)
-        {
-            nb::steal(nb::handle(ref.ns));   // drop the held reference
-            state.set(PyStateRef{});
-        }
-    }
-
-    inline void py_release_state(PyStateRef &state)
-    {
-        if (state.ns != nullptr)
-        {
-            nb::steal(nb::handle(state.ns));
-            state = PyStateRef{};
-        }
-    }
-
     /** Call-scope lifetime guard: python must not use a view after its eval. */
     struct PyTsGuard
     {
         bool          alive{true};
         std::uint64_t generation{0};
+        std::size_t   deferred_users{0};
+        bool          owner_released{false};
     };
 
     struct PyTsLease
@@ -204,55 +189,98 @@ namespace hgraph::python_bridge
         {
             if (guard == nullptr) { return; }
             if (guard->generation == generation) { ++guard->generation; }
-            if (owns_guard_lifetime) { guard->alive = false; }
+            if (owns_guard_lifetime)
+            {
+                guard->owner_released = true;
+                if (guard->deferred_users == 0) { guard->alive = false; }
+            }
+        }
+
+        void retain_for_deferred_call() const noexcept
+        {
+            if (guard != nullptr) { ++guard->deferred_users; }
+        }
+
+        void release_from_deferred_call() const noexcept
+        {
+            if (guard == nullptr || guard->deferred_users == 0) { return; }
+            if (--guard->deferred_users == 0 && guard->owner_released)
+            {
+                guard->alive = false;
+            }
         }
     };
 
+    struct PyRuntimeGlobalState;
+
+    /** Node-owned guard and injectable cache for general compute and sink callbacks. */
+    struct PyCallLeaseState
+    {
+        std::shared_ptr<PyTsGuard> guard{std::make_shared<PyTsGuard>()};
+        PyObject                  *runtime_global_state{nullptr};
+        PyRuntimeGlobalState      *runtime_global_state_view{nullptr};
+    };
+
+    [[nodiscard]] inline PyTsLease py_ts_lease_for_node(State<PyStateRef> &state)
+    {
+        PyStateRef ref = state.get();
+        if (ref.call_lease == nullptr)
+        {
+            ref.call_lease = new PyCallLeaseState{};
+            state.set(ref);
+        }
+        auto &guard = ref.call_lease->guard;
+        return PyTsLease{
+            .guard = guard,
+            .generation = ++guard->generation,
+            .owns_guard_lifetime = false,
+        };
+    }
+
+    inline void py_release_call_lease(PyStateRef &state) noexcept
+    {
+        if (state.call_lease == nullptr) { return; }
+        auto &guard = state.call_lease->guard;
+        guard->owner_released = true;
+        if (guard->deferred_users == 0) { guard->alive = false; }
+        if (state.call_lease->runtime_global_state != nullptr)
+        {
+            nb::steal(nb::handle(state.call_lease->runtime_global_state));
+        }
+        delete state.call_lease;
+        state.call_lease = nullptr;
+    }
+
+    inline void py_release_state(State<PyStateRef> &state)
+    {
+        PyStateRef ref = state.get();
+        if (ref.ns != nullptr) { nb::steal(nb::handle(ref.ns)); }
+        py_release_call_lease(ref);
+        state.set(PyStateRef{});
+    }
+
+    inline void py_release_state(PyStateRef &state)
+    {
+        if (state.ns != nullptr) { nb::steal(nb::handle(state.ns)); }
+        py_release_call_lease(state);
+        state = PyStateRef{};
+    }
+
     struct PyRuntimeGlobalState
     {
-        GlobalStateView            state;
-        std::shared_ptr<PyTsGuard> guard;
+        GlobalStateView state;
+        PyTsLease      lease;
 
         [[nodiscard]] GlobalStateView checked() const
         {
-            if (guard == nullptr || !guard->alive)
-            {
-                throw std::logic_error("a GlobalState view was accessed outside its graph execution");
-            }
+            lease.require_alive(
+                "a GlobalState view was accessed outside its node's evaluation");
             return state;
         }
     };
 
-    /**
-     * The Python projection of GlobalState is run-scoped, matching the native
-     * GlobalState lifetime. PyWiring installs the exact Python object here
-     * before releasing the GIL; user-node calls borrow it instead of creating
-     * and publishing a new wrapper on every evaluation.
-     */
-    inline thread_local PyObject *py_active_runtime_global_state{nullptr};
-
-    [[nodiscard]] inline std::shared_ptr<PyTsGuard> &py_active_runtime_guard()
-    {
-        static thread_local std::shared_ptr<PyTsGuard> guard{};
-        return guard;
-    }
-
-    [[nodiscard]] inline bool py_has_active_runtime_global_state() noexcept
-    {
-        return py_active_runtime_global_state != nullptr;
-    }
-
     [[nodiscard]] inline PyTsLease py_ts_lease_for_call()
     {
-        auto &active_guard = py_active_runtime_guard();
-        if (active_guard != nullptr)
-        {
-            return PyTsLease{
-                .guard = active_guard,
-                .generation = ++active_guard->generation,
-                .owns_guard_lifetime = false,
-            };
-        }
         auto guard = std::make_shared<PyTsGuard>();
         return PyTsLease{
             .guard = guard,
@@ -262,14 +290,33 @@ namespace hgraph::python_bridge
     }
 
     [[nodiscard]] inline nb::object
-    py_runtime_global_state_for_call(GlobalStateView state,
-                                     const std::shared_ptr<PyTsGuard> &fallback_guard)
+    py_runtime_global_state_for_call(std::string_view layout,
+                                     GlobalStateView state,
+                                     const PyTsLease &lease,
+                                     PyCallLeaseState *call_state = nullptr)
     {
-        if (py_active_runtime_global_state != nullptr)
+        if (layout.find('g') == std::string_view::npos) { return nb::object{}; }
+        if (call_state != nullptr)
         {
-            return nb::borrow(nb::handle(py_active_runtime_global_state));
+            if (call_state->runtime_global_state == nullptr)
+            {
+                nb::object wrapper = nb::cast(PyRuntimeGlobalState{state, lease});
+                call_state->runtime_global_state_view =
+                    nb::inst_ptr<PyRuntimeGlobalState>(wrapper.ptr());
+                call_state->runtime_global_state = wrapper.release().ptr();
+            }
+            else
+            {
+                // The cached wrapper and its guard are both node-owned.  Only
+                // the call generation changes between evaluations; replacing
+                // the whole lease here would add shared_ptr reference-count
+                // traffic to every injected GlobalState access.
+                call_state->runtime_global_state_view->state = state;
+                call_state->runtime_global_state_view->lease.generation = lease.generation;
+            }
+            return nb::borrow(nb::handle(call_state->runtime_global_state));
         }
-        return nb::cast(PyRuntimeGlobalState{state, fallback_guard});
+        return nb::cast(PyRuntimeGlobalState{state, lease});
     }
 
     /** Call-scoped Python projection over the native engine-control view. */

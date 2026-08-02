@@ -24,9 +24,8 @@ namespace hgraph::python_bridge
             boundary). */
 
         /** Temporarily reactivate the registering Python call's lease while
-            its notification runs. The run guard still owns the hard lifetime
-            bound; restoring only the generation lets documented callbacks
-            safely read the captured TimeSeries/API views at their boundary. */
+            its notification runs. The queue holder keeps the call-owned guard
+            alive until all deferred callbacks using it have drained. */
         class PyNotificationLeaseScope
         {
           public:
@@ -66,7 +65,14 @@ namespace hgraph::python_bridge
             struct GilSafeCallable
             {
                 PyObject *fn;
-                explicit GilSafeCallable(nb::object object) : fn(object.release().ptr()) {}
+                PyTsLease lease;
+
+                GilSafeCallable(nb::object object, PyTsLease call_lease)
+                    : fn(object.release().ptr()), lease(std::move(call_lease))
+                {
+                    lease.retain_for_deferred_call();
+                }
+
                 ~GilSafeCallable()
                 {
                     if (fn != nullptr)
@@ -74,11 +80,12 @@ namespace hgraph::python_bridge
                         nb::gil_scoped_acquire gil;
                         Py_DECREF(fn);
                     }
+                    lease.release_from_deferred_call();
                 }
             };
-            auto holder = std::make_shared<GilSafeCallable>(std::move(fn));
-            return [holder, lease = std::move(lease)]() {
-                PyNotificationLeaseScope active_lease{lease};
+            auto holder = std::make_shared<GilSafeCallable>(std::move(fn), std::move(lease));
+            return [holder]() {
+                PyNotificationLeaseScope active_lease{holder->lease};
                 nb::borrow<nb::object>(nb::handle(holder->fn))();
             };
         }

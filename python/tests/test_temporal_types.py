@@ -220,15 +220,21 @@ def test_provider_backed_value_operations_match_graph_operators_inside_compute_n
     def at_zone_value(
         value: hg.TS[dt.datetime],
         zone_value: hg.TS[hg.ZoneId],
+        global_state: hg.GlobalState = None,
     ) -> hg.TS[hg.ZonedDateTime]:
-        return hg.temporal.at_zone(value.value, zone_value.value)
+        return hg.temporal.at_zone(
+            value.value, zone_value.value, global_state=global_state
+        )
 
     @hg.compute_node
     def add_zoned_value(
         value: hg.TS[hg.ZonedDateTime],
         amount: hg.TS[dt.timedelta],
+        global_state: hg.GlobalState = None,
     ) -> hg.TS[hg.ZonedDateTime]:
-        return hg.temporal.checked_add(value.value, amount.value)
+        return hg.temporal.checked_add(
+            value.value, amount.value, global_state=global_state
+        )
 
     with hg.GlobalContext(hg.GlobalState()):
         hg.set_time_zone_provider()

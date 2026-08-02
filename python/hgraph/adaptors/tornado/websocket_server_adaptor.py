@@ -12,7 +12,6 @@ from frozendict import frozendict
 
 from hgraph import (
     CompoundScalar,
-    GlobalState,
     REMOVE_IF_EXISTS,
     TS,
     TSB,
@@ -373,17 +372,15 @@ def _wire_websocket_message_type(port, message_type, entries):
         for base in entries
     }
     manager = WebSocketAdaptorManager.instance(port, message_type)
-    type_label = message_type.__name__
-    connect_key = f"websocket_server_adaptor://{port}/{type_label}/connect_queue"
-    message_key = f"websocket_server_adaptor://{port}/{type_label}/message_queue"
+    sender_refs = {}
 
     @push_queue(TSD[int, TS[WebSocketConnectRequest]])
     def connections_from_web(sender) -> None:
-        GlobalState.instance()[connect_key] = sender
+        sender_refs["connect"] = sender
 
     @push_queue(TSD[int, message_ts])
     def messages_from_web(sender) -> None:
-        GlobalState.instance()[message_key] = sender
+        sender_refs["message"] = sender
 
     @graph
     def make_request(
@@ -407,19 +404,17 @@ def _wire_websocket_message_type(port, message_type, entries):
                 manager.complete_request, request_id, response.delta_value)
 
     @to_web.start
-    def to_web_start(_global_state: GlobalState = None) -> None:
+    def to_web_start() -> None:
         manager.start_routes(
             tuple(routes.values()),
-            _global_state[connect_key], _global_state[message_key])
+            sender_refs["connect"], sender_refs["message"])
 
     @to_web.stop
-    def to_web_stop(_global_state: GlobalState = None) -> None:
+    def to_web_stop() -> None:
         try:
             manager.stop_routes(tuple(routes.values()))
         finally:
-            for key in (connect_key, message_key):
-                if key in _global_state:
-                    del _global_state[key]
+            sender_refs.clear()
 
     connections = connections_from_web()
     messages = messages_from_web()

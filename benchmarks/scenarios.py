@@ -395,6 +395,13 @@ def _discard_py(value: TS[int]):
     pass
 
 
+@compute_node
+def _read_injected_global_state(
+    value: TS[int], global_state: hg.GlobalState = None
+) -> TS[int]:
+    return value.value + global_state.get("benchmark_offset", 0)
+
+
 def scheduler_fan_out_std(cycle_scale: float, size_scale: float):
     cycles = int(20_000 * cycle_scale)
     width = max(2, int(32 * size_scale))
@@ -453,6 +460,16 @@ def python_sink_boundary(scale: float):
     @graph
     def g():
         _discard_py(_int_pulse(cycles))
+
+    return g, cycles
+
+
+def python_global_state_boundary(scale: float):
+    cycles = int(20_000 * scale)
+
+    @graph
+    def g():
+        null_sink(_read_injected_global_state(_int_pulse(cycles)))
 
     return g, cycles
 
@@ -1440,6 +1457,9 @@ SCENARIOS = {
     "python_sink_boundary": _scenario(
         "Python boundary", "Python scalar generator to Python sink",
         python_sink_boundary, suite="diagnostic"),
+    "python_global_state_boundary": _scenario(
+        "Python boundary", "Python compute with injected GlobalState",
+        python_global_state_boundary, suite="diagnostic", modes=HG_CPP_ONLY),
 
     "type_int_std": _scenario(
         "Value types", "Integer arithmetic", type_int_std),

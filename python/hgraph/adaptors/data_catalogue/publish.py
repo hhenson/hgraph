@@ -5,7 +5,7 @@ import inspect
 from frozendict import frozendict
 
 from hgraph import (
-    AUTO_RESOLVE, DEFAULT, SCHEMA, CompoundScalar, Frame, TS, TSB, TSD, TSS,
+    AUTO_RESOLVE, DEFAULT, SCHEMA, CompoundScalar, Frame, GlobalState, TS, TSB, TSD, TSS,
     WiringPort, combine, compute_node, const, dispatch, downcast_ref, emit, feedback, graph,
     len_, map_, max_, nothing, null_sink, operator, reduce, service_adaptor, service_adaptor_impl,
     switch_,
@@ -38,10 +38,11 @@ class DataCatalogSinkResult(CompoundScalar):
 @compute_node
 def find_data_catalogue_entries(
     dataset: TS[str], options: TS[object], schema: object,
+    global_state: GlobalState = None,
 ) -> TSS[DataCatalogSinkResult]:
     return frozenset(
         DataCatalogSinkResult(entry, resolved)
-        for entry, resolved in DataCatalogue.instance().matching_entries(
+        for entry, resolved in DataCatalogue.instance(global_state).matching_entries(
             schema, dataset.value, DataSink, options.value or {})
     )
 

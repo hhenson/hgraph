@@ -5,6 +5,7 @@ from frozendict import frozendict
 
 from hgraph import (
     CompoundScalar,
+    GlobalState,
     AUTO_RESOLVE,
     Frame,
     SCHEMA,
@@ -55,9 +56,10 @@ class FindDCEResult(CompoundScalar):
 
 @compute_node
 def find_data_catalogue_entry(
-    dataset: TS[str], options: TS[object], schema: object
+    dataset: TS[str], options: TS[object], schema: object,
+    global_state: GlobalState = None,
 ) -> TS[FindDCEResult]:
-    match = DataCatalogue.instance().matching_entries(
+    match = DataCatalogue.instance(global_state).matching_entries(
         schema, dataset.value, DataSource, options.value or {}
     )[0]
     return FindDCEResult(*match)

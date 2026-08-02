@@ -46,9 +46,10 @@ def test_lower_replays_arrow_frames_through_native_graph():
 
 def test_lower_captures_scalar_arguments_and_copies_global_state_back():
     @compute_node
-    def remember(ts: TS[int], factor: int) -> TS[int]:
-        value = ts.value * factor + GlobalState.instance()["seed"]
-        GlobalState.instance()["lower.last"] = value
+    def remember(ts: TS[int], factor: int,
+                 global_state: GlobalState = None) -> TS[int]:
+        value = ts.value * factor + global_state["seed"]
+        global_state["lower.last"] = value
         return value
 
     @graph

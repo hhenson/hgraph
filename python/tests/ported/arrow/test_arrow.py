@@ -307,8 +307,8 @@ def test_debug_():
 def test_side_effects():
 
     @compute_node
-    def side_effect(ts: TS[int]) -> TS[int]:
-        GlobalState.instance()["t"] = ts.value
+    def side_effect(ts: TS[int], global_state: GlobalState = None) -> TS[int]:
+        global_state["t"] = ts.value
 
     @graph
     def g():

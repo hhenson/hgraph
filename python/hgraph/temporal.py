@@ -16,8 +16,8 @@ import _hgraph
 from ._wiring._state import GlobalState
 
 
-def _active_state_handle():
-    state = GlobalState.instance()
+def _active_state_handle(global_state=None):
+    state = global_state if global_state is not None else GlobalState.instance()
     return state._impl if isinstance(state, GlobalState) else state
 
 
@@ -26,15 +26,16 @@ def checked_add(
     rhs: Any,
     *,
     month_end_policy=_hgraph.MonthEndPolicy.REJECT,
+    global_state=None,
 ):
     """Checked value addition with the same contracts as ``hgraph.add_``."""
     if isinstance(lhs, _hgraph.ZonedDateTime):
         return _hgraph._temporal_checked_add_zoned(
-            _active_state_handle(), lhs, rhs
+            _active_state_handle(global_state), lhs, rhs
         )
     if isinstance(rhs, _hgraph.ZonedDateTime):
         return _hgraph._temporal_checked_add_zoned(
-            _active_state_handle(), rhs, lhs
+            _active_state_handle(global_state), rhs, lhs
         )
     if isinstance(rhs, _hgraph.Period):
         if isinstance(lhs, datetime):
@@ -51,11 +52,12 @@ def checked_subtract(
     rhs: Any,
     *,
     month_end_policy=_hgraph.MonthEndPolicy.REJECT,
+    global_state=None,
 ):
     """Checked value subtraction with the same contracts as ``hgraph.sub_``."""
     if isinstance(lhs, _hgraph.ZonedDateTime):
         return _hgraph._temporal_checked_add_zoned(
-            _active_state_handle(), lhs, -rhs
+            _active_state_handle(global_state), lhs, -rhs
         )
     if isinstance(rhs, _hgraph.Period):
         if isinstance(lhs, datetime):
@@ -92,9 +94,9 @@ def apply_period(
     )
 
 
-def at_zone(instant, zone):
+def at_zone(instant, zone, *, global_state=None):
     return _hgraph._temporal_at_zone(
-        _active_state_handle(), instant, zone
+        _active_state_handle(global_state), instant, zone
     )
 
 
@@ -104,18 +106,19 @@ def resolve(
     *,
     ambiguous=_hgraph.AmbiguousTimePolicy.REJECT,
     nonexistent=_hgraph.NonexistentTimePolicy.REJECT,
+    global_state=None,
 ):
     return _hgraph._temporal_resolve(
-        _active_state_handle(), local, zone, ambiguous, nonexistent
+        _active_state_handle(global_state), local, zone, ambiguous, nonexistent
     )
 
 
 resolve_civil = resolve
 
 
-def convert_zone(value, zone):
+def convert_zone(value, zone, *, global_state=None):
     return _hgraph._temporal_convert_zone(
-        _active_state_handle(), value, zone
+        _active_state_handle(global_state), value, zone
     )
 
 

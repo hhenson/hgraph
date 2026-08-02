@@ -121,8 +121,9 @@ class DataFrameStorage(ABC):
         self._previous = self._MISSING
 
     @classmethod
-    def instance(cls):
-        return GlobalState.instance().get(_STORAGE_KEY)
+    def instance(cls, global_state=None):
+        state = global_state if global_state is not None else GlobalState.instance()
+        return state.get(_STORAGE_KEY)
 
     def set_as_instance(self):
         state = GlobalState.instance()
@@ -289,7 +290,9 @@ def _df_model_active(m):
             and GlobalState.instance().get("__record_replay_model__") == DATA_FRAME_RECORD_REPLAY)
 
 
-def _configured_as_of(default=None):
+def _configured_as_of(default=None, global_state=None):
+    if global_state is not None:
+        return global_state.get("__as_of__", default)
     if GlobalState.has_instance():
         return GlobalState.instance().get("__as_of__", default)
     return default
@@ -344,17 +347,18 @@ _LITERAL_FRAMES = {}
 _LITERAL_FRAMES = {}
 
 
-def _storage_frame(key, recordable_id):
+def _storage_frame(key, recordable_id, global_state):
     # Internal replay consumption: a user-implemented storage (or a
     # user-supplied literal frame) may return the user-facing form —
     # normalize back to the canonical Arrow representation (issue #80).
     literal = _LITERAL_FRAMES.get((key, recordable_id))
     if literal is not None:
         return _as_arrow(literal)
-    storage = DataFrameStorage.instance()
+    storage = DataFrameStorage.instance(global_state)
     if storage is None:
         raise RuntimeError("data-frame record/replay requires an active DataFrameStorage")
-    return _as_arrow(storage.read_frame(f"{recordable_id}.{key}", as_of=_configured_as_of()))
+    return _as_arrow(storage.read_frame(
+        f"{recordable_id}.{key}", as_of=_configured_as_of(global_state=global_state)))
 
 
 _REPLAY_SCHEMAS = {}
@@ -373,8 +377,9 @@ def _register_data_frame_record_replay():
     @sink_node
     def _df_record_rows(rows: TIME_SERIES_TYPE, key: str, recordable_id: str,
                         col_indices: tuple, col_names: tuple, multi_row: bool,
-                        _state: STATE = None):
-        storage = DataFrameStorage.instance()
+                        _state: STATE = None,
+                        global_state: GlobalState = None):
+        storage = DataFrameStorage.instance(global_state)
         if storage is None:
             raise RuntimeError("data-frame record requires an active DataFrameStorage")
         row_values = list(rows.value) if multi_row else [rows.value]
@@ -407,11 +412,12 @@ def _register_data_frame_record_replay():
 
     @generator(resolvers={TIME_SERIES_TYPE: _replay_rows_type})
     def _df_replay_rows(key: str, recordable_id: str,
-                        multi_row: bool) -> TIME_SERIES_TYPE:
+                        multi_row: bool,
+                        global_state: GlobalState = None) -> TIME_SERIES_TYPE:
         # upstream filter: rows strictly before the evaluation start are
         # dropped (dt_col >= start_time)
         schema, overrides, start = _REPLAY_SCHEMAS[(key, recordable_id)]
-        frame = _storage_frame(key, recordable_id)
+        frame = _storage_frame(key, recordable_id, global_state)
         for when, rows in _read_row_groups(frame, schema, overrides):
             if start is not None and when < start:
                 continue
@@ -419,11 +425,12 @@ def _register_data_frame_record_replay():
 
     @generator(resolvers={TIME_SERIES_TYPE: _replay_rows_type})
     def _df_replay_const_rows(key: str, recordable_id: str,
-                              multi_row: bool) -> TIME_SERIES_TYPE:
+                              multi_row: bool,
+                              global_state: GlobalState = None) -> TIME_SERIES_TYPE:
         # const semantics (upstream replay_const_from_data_frame): the FIRST
         # group at/after the evaluation start, emitted once.
         schema, overrides, start = _REPLAY_SCHEMAS[(key, recordable_id)]
-        frame = _storage_frame(key, recordable_id)
+        frame = _storage_frame(key, recordable_id, global_state)
         for when, rows in _read_row_groups(frame, schema, overrides):
             if start is not None and when < start:
                 continue

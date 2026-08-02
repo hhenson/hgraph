@@ -11,7 +11,7 @@ from ._sentinels import (
 from ._state import (
     GlobalContext, GlobalState, RecordReplayContext, RecordReplayEnum, _GLOBAL_MISSING,
     _MemoryRecording, _RecordReplayModes, _friendly_recording_delta, _global_state_local,
-    _pop_runtime_global_state, _push_runtime_global_state, comparison_summary, evaluate_const,
+    _enter_runtime, _exit_runtime, comparison_summary, evaluate_const,
     record_replay_scope, set_as_of, set_record_replay_config, set_record_replay_model,
     set_table_schema_as_of_key, set_table_schema_date_key, get_recorded_value,
     get_recorder_api, get_recording_label, set_recorder_api, set_recording_label, utc_now
@@ -81,9 +81,9 @@ __all__ = [
     "_dispatch_key_node", "_dispatch_keys_node", "_dispatch_specificity",
     "_friendly_recording_delta", "_global_state_local", "_graph_auto_resolve", "_infer_ts_type",
     "_is_object_vt", "_make_py_node", "_merge_cs", "_overload_registry_name",
-    "_overload_wire_trampoline", "_pop_runtime_global_state", "_port_enter", "_port_exit",
+    "_enter_runtime", "_exit_runtime", "_overload_wire_trampoline", "_port_enter", "_port_exit",
     "_port_getattr", "_port_getitem", "_port_iter", "_port_keys", "_port_len", "_port_reduce",
-    "_published_contexts", "_push_runtime_global_state", "_register_overload",
+    "_published_contexts", "_register_overload",
     "_requires_bridge", "_resolve_context", "_resolve_requested_target", "_run_requires",
     "_simplify_delta", "_times_for", "_tsw_kind", "_type_pattern_for_target",
     "_unbounded_tuple_kind", "_unwrap", "_wiring_stack", "_wrap_graph_fn", "adaptor",
