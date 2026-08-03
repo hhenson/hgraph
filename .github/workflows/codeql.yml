@@ -43,7 +43,7 @@ jobs:
           uv tool install --upgrade conan==2.26.2
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@v4.37.4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.language == 'cpp' && 'manual' || 'none' }}
@@ -60,6 +60,6 @@ jobs:
           uv build -v
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@v4.37.4
         with:
           category: '/language:${{matrix.language}}'
