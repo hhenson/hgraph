@@ -270,6 +270,21 @@ namespace hgraph
 
     namespace mutable_container_detail
     {
+        using MaterializedOwner = MemoryUtils::ErasedOwner<MemoryUtils::InlineStoragePolicy<>, TypeRecord>;
+
+        [[nodiscard]] inline bool accepts_container_source(const void *, ValueTypeRef binding,
+                                                           ValueTypeRef source) noexcept
+        {
+            return binding && source && binding.schema() == source.schema();
+        }
+
+        [[nodiscard]] inline MaterializedOwner materialize_element(ValueTypeRef target, const ValueView &source)
+        {
+            MaterializedOwner result{*target.record()};
+            target.ops_ref().copy_assign_from(target, result.data(), source.binding(), source.data());
+            return result;
+        }
+
         struct MutableListState
         {
             ValueTypeRef element_binding{nullptr};
@@ -445,6 +460,43 @@ namespace hgraph
             static_cast<MutableListStorage *>(memory)->clear();
         }
 
+        inline void list_copy_assign_from(const void *, ValueTypeRef binding, void *memory, ValueTypeRef source,
+                                          const void *src)
+        {
+            if (binding == source)
+            {
+                binding.copy_assign_at(memory, src);
+                return;
+            }
+            auto &target = *static_cast<MutableListStorage *>(memory);
+            target.clear();
+            const ValueView source_view{source, src};
+            const auto values = source_view.as_list();
+            for (std::size_t index = 0; index < values.size(); ++index)
+            {
+                const auto child = values.at(index);
+                if (child.has_value())
+                {
+                    target.push_back(child.binding(), child.data());
+                }
+                else
+                {
+                    target.push_back_unset();
+                }
+            }
+        }
+
+        inline void list_move_assign_from(const void *context, ValueTypeRef binding, void *memory, ValueTypeRef source,
+                                          void *src)
+        {
+            if (binding == source)
+            {
+                binding.move_assign_at(memory, src);
+                return;
+            }
+            list_copy_assign_from(context, binding, memory, source, src);
+        }
+
         inline compact_detail::CompactContainerPlanRegistry<compact_detail::UnaryBindingKey, MutableListState,
                                                             compact_detail::UnaryBindingKeyHash> &
         list_registry()
@@ -505,6 +557,9 @@ namespace hgraph
             };
             value.dynamic_storage_metrics_impl =
                 &container_ops_detail::compact_dynamic_storage_metrics<MutableListStorage>;
+            value.accepts_source_impl = &accepts_container_source;
+            value.copy_assign_from_impl = &list_copy_assign_from;
+            value.move_assign_from_impl = &list_move_assign_from;
             return value;
         }();
         return ops;
@@ -1060,6 +1115,36 @@ namespace hgraph
             const auto set_binding = mutable_map_key_set_type(s->key_binding(), s->value_binding());
             return SetView{ValueView{set_binding, memory}};
         }
+
+        inline void map_copy_assign_from(const void *, ValueTypeRef binding, void *memory, ValueTypeRef source,
+                                         const void *src)
+        {
+            if (binding == source)
+            {
+                binding.copy_assign_at(memory, src);
+                return;
+            }
+            auto &target = *static_cast<MutableMapStorage *>(memory);
+            target.clear();
+            const ValueView source_view{source, src};
+            for (const auto entry : source_view.as_map())
+            {
+                auto key = materialize_element(target.key_binding(), entry.first);
+                auto value = materialize_element(target.value_binding(), entry.second);
+                target.insert(key.data(), value.data());
+            }
+        }
+
+        inline void map_move_assign_from(const void *context, ValueTypeRef binding, void *memory, ValueTypeRef source,
+                                         void *src)
+        {
+            if (binding == source)
+            {
+                binding.move_assign_at(memory, src);
+                return;
+            }
+            map_copy_assign_from(context, binding, memory, source, src);
+        }
     }  // namespace mutable_container_detail
 
     [[nodiscard]] inline const MemoryUtils::StoragePlan &mutable_map_plan(const ValueTypeRef &key_binding,
@@ -1122,6 +1207,9 @@ namespace hgraph
             };
             value.dynamic_storage_metrics_impl =
                 &container_ops_detail::compact_dynamic_storage_metrics<MutableMapStorage>;
+            value.accepts_source_impl = &accepts_container_source;
+            value.copy_assign_from_impl = &map_copy_assign_from;
+            value.move_assign_from_impl = &map_move_assign_from;
             return value;
         }();
         return ops;
@@ -1376,6 +1464,35 @@ namespace hgraph
         inline bool set_remove(const void *, void *m, const void *key) { return static_cast<MutableSetStorage *>(m)->remove(key); }
         inline void set_clear(const void *, void *m) { static_cast<MutableSetStorage *>(m)->clear(); }
 
+        inline void set_copy_assign_from(const void *, ValueTypeRef binding, void *memory, ValueTypeRef source,
+                                         const void *src)
+        {
+            if (binding == source)
+            {
+                binding.copy_assign_at(memory, src);
+                return;
+            }
+            auto &target = *static_cast<MutableSetStorage *>(memory);
+            target.clear();
+            const ValueView source_view{source, src};
+            for (const auto child : source_view.as_set())
+            {
+                auto value = materialize_element(target.element_binding(), child);
+                static_cast<void>(target.add(value.data()));
+            }
+        }
+
+        inline void set_move_assign_from(const void *context, ValueTypeRef binding, void *memory, ValueTypeRef source,
+                                         void *src)
+        {
+            if (binding == source)
+            {
+                binding.move_assign_at(memory, src);
+                return;
+            }
+            set_copy_assign_from(context, binding, memory, source, src);
+        }
+
         inline compact_detail::CompactContainerPlanRegistry<compact_detail::UnaryBindingKey, MutableSetState,
                                                             compact_detail::UnaryBindingKeyHash> &
         set_registry()
@@ -1435,6 +1552,9 @@ namespace hgraph
             };
             value.dynamic_storage_metrics_impl =
                 &container_ops_detail::compact_dynamic_storage_metrics<MutableSetStorage>;
+            value.accepts_source_impl = &accepts_container_source;
+            value.copy_assign_from_impl = &set_copy_assign_from;
+            value.move_assign_from_impl = &set_move_assign_from;
             return value;
         }();
         return ops;

@@ -4,6 +4,7 @@
 #include <hgraph/types/metadata/type_record_registry.h>
 #include <hgraph/types/value/value_ops.h>
 
+#include <atomic>
 #include <stdexcept>
 #include <string>
 
@@ -123,5 +124,35 @@ namespace hgraph
     ValuePtr ValueTypeRef::writable(void *data) const noexcept
     {
         return ValuePtr{AnyPtr{record_, data, AccessMode::Writable}, ValuePtr::UncheckedTag{}};
+    }
+
+    void register_value_owning_type(ValueTypeRef binding,
+                                    ValueTypeRef owning_type)
+    {
+        if (!binding || !owning_type)
+        {
+            throw std::invalid_argument(
+                "register_value_owning_type requires bound source and owner types");
+        }
+        if (binding.schema() != owning_type.schema())
+        {
+            throw std::invalid_argument(
+                "register_value_owning_type requires matching schemas");
+        }
+        TypeRecordRegistry::instance().publish_external_value_owner(
+            *binding.record(), *owning_type.record());
+    }
+
+    ValueTypeRef value_owning_type(ValueTypeRef binding)
+    {
+        if (!binding) return {};
+        std::atomic_ref<const TypeRecord *> published{
+            binding.record()->external_value_owner};
+        if (const TypeRecord *owner =
+                published.load(std::memory_order_acquire))
+        {
+            return ValueTypeRef{owner};
+        }
+        return binding.ops_ref().owning_type(binding);
     }
 } // namespace hgraph

@@ -232,6 +232,16 @@ def set_record_replay_config(model):
     GlobalState.instance()["__record_replay_model__"] = model
 
 
+def set_pooled_compound_scalar_storage(enabled=True):
+    """Select pooled storage for eligible polymorphic compound scalars.
+
+    The option is captured when the current graph is wired. It is disabled by
+    default and does not alter graphs wired from another ``GlobalState``.
+    """
+    _hgraph._set_pooled_compound_scalar_storage(
+        GlobalState.instance()._impl, bool(enabled))
+
+
 def set_as_of(dt):
     value = dt
     _hgraph._set_as_of(GlobalState.instance()._impl, value)

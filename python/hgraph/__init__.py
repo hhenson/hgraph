@@ -46,7 +46,7 @@ from ._wiring import _PyNode as WiringNodeClass
 from ._wiring import _PyNode as PythonWiringNodeClass  # upstream-parity name kept alongside PR #15's WiringNodeClass
 from ._wiring import _GraphFn as GraphWiringNodeClass
 from ._wiring import _Generator as PythonGeneratorWiringNodeClass
-from ._wiring import GlobalContext, GlobalState, set_record_replay_config, set_as_of, set_table_schema_date_key, set_table_schema_as_of_key, evaluate_const, utc_now, get_recorded_value, get_recorder_api, get_recording_label, set_recorder_api, set_recording_label, EvaluationClock, TSW_OUT, get_context, equal_lambdas, callable_shape_key
+from ._wiring import GlobalContext, GlobalState, set_pooled_compound_scalar_storage, set_record_replay_config, set_as_of, set_table_schema_date_key, set_table_schema_as_of_key, evaluate_const, utc_now, get_recorded_value, get_recorder_api, get_recording_label, set_recorder_api, set_recording_label, EvaluationClock, TSW_OUT, get_context, equal_lambdas, callable_shape_key
 from ._wiring._state import set_time_zone_provider
 from ._wiring import WiringPort, WiringGraphContext, graph, run_graph, eval_node, wire, operator_function, map_, reduce, mesh_, MeshWiringPort, get_mesh, REMOVE, REMOVE_IF_EXISTS, feedback, delayed_binding, switch_, passive, compute_node, sink_node, generator, lift, lower, STATE, SCHEDULER, CLOCK, EvaluationEngineApi, LOGGER, NODE, Node, DebugContext, component, record_replay_scope, RecordReplayEnum, comparison_summary, push_queue, EvaluationMode, context, WiringError, reference_service, subscription_service, request_reply_service, register_service, service_impl, adaptor, adaptor_impl, service_adaptor, service_adaptor_impl, register_adaptor, from_graph, to_graph, impl_input, impl_output, get_service_inputs, set_service_output
 
@@ -130,7 +130,7 @@ __all__ = [
     "date", "datetime", "time", "timedelta", "default_path",
     "utc_now", "get_recorded_value", "get_recorder_api", "get_recording_label", "set_recorder_api", "set_recording_label", "EvaluationClock", "TSW_OUT", "get_context", "equal_lambdas", "is_feature_enabled",
     "GlobalContext", "GlobalState", "set_as_of", "set_table_schema_date_key", "set_table_schema_as_of_key",
-    "set_record_replay_config", "set_time_zone_provider", "frame_store_contains", "frame_store_read", "evaluate_const",
+    "set_pooled_compound_scalar_storage", "set_record_replay_config", "set_time_zone_provider", "frame_store_contains", "frame_store_read", "evaluate_const",
     "CivilDateTime", "Period", "ZoneId", "ZonedDateTime", "InstantRange", "CivilDateRange",
     "InstantRangeSet", "CivilDateRangeSet", "MonthEndPolicy", "AmbiguousTimePolicy",
     "NonexistentTimePolicy", "Boundary", "temporal",

@@ -4,6 +4,7 @@
 #include <hgraph/runtime/node_error.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/utils/slot_bitmap.h>
+#include <hgraph/types/value/impl/graph_local_value.h>
 #include <hgraph/util/scope.h>
 
 #include "mapped_child_bindings.h"
@@ -479,7 +480,8 @@ namespace hgraph
             MapKeyEntry *existing = storage.entries.entry_at(slot);
             auto &entry = existing != nullptr
                               ? *existing
-                              : storage.entries.construct_at(slot, Value{key_view});
+                              : storage.entries.construct_at(
+                                    slot, value_impl::graph_local_value(key_view));
             if (entry.graph.has_value() && entry.graph.view().started()) { return; }
             auto rollback = UnwindCleanupGuard([&] {
                 clear_entry_output_binding(view, context, entry, evaluation_time);
@@ -622,7 +624,8 @@ namespace hgraph
                     auto dict = mux_input.as_dict();
                     for (const ValueView &key : dict.modified_keys())
                     {
-                        storage.repoint_modified_keys.emplace_back(key);
+                        storage.repoint_modified_keys.push_back(
+                            value_impl::graph_local_value(key));
                     }
                 }
             }
@@ -644,7 +647,8 @@ namespace hgraph
                 for (std::size_t slot = dict.next_added_slot(); slot != TS_DATA_NO_CHILD_ID;
                      slot = dict.next_added_slot(slot))
                 {
-                    storage.membership_changed_keys.emplace_back(dict.key_at_slot(slot));
+                    storage.membership_changed_keys.push_back(
+                        value_impl::graph_local_value(dict.key_at_slot(slot)));
                 }
                 const std::size_t first_removed_slot = dict.next_removed_slot();
                 if (first_removed_slot != TS_DATA_NO_CHILD_ID && dict.slot_removed(first_removed_slot))
@@ -652,7 +656,8 @@ namespace hgraph
                     for (std::size_t slot = first_removed_slot; slot != TS_DATA_NO_CHILD_ID;
                          slot = dict.next_removed_slot(slot))
                     {
-                        storage.membership_changed_keys.emplace_back(dict.removed_key_at_slot(slot));
+                        storage.membership_changed_keys.push_back(
+                            value_impl::graph_local_value(dict.removed_key_at_slot(slot)));
                     }
                 }
                 else
@@ -661,7 +666,8 @@ namespace hgraph
                     // surface independently of the current source slots.
                     for (const ValueView &removed_key : dict.removed_keys())
                     {
-                        storage.membership_changed_keys.emplace_back(removed_key);
+                        storage.membership_changed_keys.push_back(
+                            value_impl::graph_local_value(removed_key));
                     }
                 }
             }

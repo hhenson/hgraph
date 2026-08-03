@@ -3,6 +3,7 @@
 #include <hgraph/runtime/reduce_node.h>
 #include <hgraph/types/wired_fn.h>
 #include <hgraph/types/utils/slot_bitmap.h>
+#include <hgraph/types/value/impl/graph_local_value.h>
 #include <hgraph/util/scope.h>
 
 #include "reduce_output_binding.h"
@@ -467,7 +468,7 @@ namespace hgraph
                     // endpoint that owns the slot.
                     TSOutputView source = resolve_forwarding_source(output.at_slot(slot));
                     if (!source.valid()) { continue; }
-                    Value key{dict.key_at_slot(slot)};
+                    Value key = value_impl::graph_local_value(dict.key_at_slot(slot));
                     storage.key_to_leaf.emplace(key, storage.dense_to_key.size());
                     storage.dense_to_key.push_back(std::move(key));
                     storage.dense_to_source_slot.push_back(slot);
@@ -510,7 +511,7 @@ namespace hgraph
             {
                 TSOutputView source = resolve_forwarding_source(output.at_slot(slot));
                 if (!source.valid()) { continue; }
-                Value typed_key{dict.key_at_slot(slot)};
+                Value typed_key = value_impl::graph_local_value(dict.key_at_slot(slot));
                 if (storage.key_to_leaf.find(typed_key) != storage.key_to_leaf.end()) { continue; }
                 storage.structural_leaves.push_back(storage.dense_to_key.size());
                 storage.key_to_leaf.emplace(typed_key, storage.dense_to_key.size());
@@ -542,7 +543,7 @@ namespace hgraph
                 {
                     const std::size_t leaf = storage.dense_to_key.size();
                     storage.structural_leaves.push_back(leaf);
-                    Value typed_key{key};
+                    Value typed_key = value_impl::graph_local_value(key);
                     storage.key_to_leaf.emplace(typed_key, leaf);
                     storage.dense_to_key.push_back(std::move(typed_key));
                     storage.dense_to_source_slot.push_back(slot);
@@ -834,7 +835,10 @@ namespace hgraph
                 removed_keys.reserve(snapshot.size());
                 for (const ValueView &key : snapshot.keys())
                 {
-                    if (!source_dict.contains(key)) { removed_keys.emplace_back(key); }
+                    if (!source_dict.contains(key))
+                    {
+                        removed_keys.push_back(value_impl::graph_local_value(key));
+                    }
                 }
                 for (const Value &key : removed_keys)
                 {
@@ -887,7 +891,10 @@ namespace hgraph
                 removed_keys.reserve(snapshot.size());
                 for (const ValueView &key : snapshot.values())
                 {
-                    if (!source_set.contains(key)) { removed_keys.emplace_back(key); }
+                    if (!source_set.contains(key))
+                    {
+                        removed_keys.push_back(value_impl::graph_local_value(key));
+                    }
                 }
                 for (const Value &key : removed_keys)
                 {

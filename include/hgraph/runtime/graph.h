@@ -11,6 +11,7 @@
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/runtime/graph_type_ref.h>
 #include <hgraph/runtime/node.h>
+#include <hgraph/types/value/compound_scalar_storage.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -166,6 +167,8 @@ struct HGRAPH_EXPORT GraphEdge
         LifecycleObserverList *(*lifecycle_observers_impl)(const void *context, const void *memory) noexcept = nullptr;
         const TypeRealizationSnapshot *(*type_realization_impl)(const void *context,
                                                                 const void *memory) noexcept = nullptr;
+        CompoundScalarStorageView (*compound_scalar_storage_impl)(const void *context,
+                                                                  const void *memory) noexcept = nullptr;
         /** Cached borrowed pointer to the executor-owned run logger. */
         spdlog::logger *(*logger_impl)(const void *context, const void *memory) noexcept = nullptr;
     };
@@ -238,6 +241,8 @@ struct HGRAPH_EXPORT GraphEdge
         [[nodiscard]] spdlog::logger *logger() const noexcept;
         /** Closed Bundle hierarchy snapshot used by this graph instance. */
         [[nodiscard]] const TypeRealizationSnapshot *type_realization() const noexcept;
+        /** Root-owned graph-local storage shared by all nested graphs. */
+        [[nodiscard]] CompoundScalarStorageView compound_scalar_storage() const noexcept;
 
         void start(DateTime start_time = MIN_ST) const;
         void stop() const;

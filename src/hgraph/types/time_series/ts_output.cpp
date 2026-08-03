@@ -26,7 +26,9 @@ realized_output_type_for(const TSValueTypeMetaData *schema,
 
   if (schema->value_schema != nullptr &&
       (schema->kind == TSTypeKind::TS || schema->kind == TSTypeKind::TSB)) {
-    const auto realized = snapshot.type_for(schema->value_schema);
+    const auto realized = active_graph_value_realization()
+                              ? snapshot.graph_type_for(schema->value_schema)
+                              : snapshot.type_for(schema->value_schema);
     if (schema->kind == TSTypeKind::TS &&
         (realized !=
              ValuePlanFactory::instance().type_for(schema->value_schema) ||
@@ -41,7 +43,9 @@ realized_output_type_for(const TSValueTypeMetaData *schema,
   }
 
   if (schema->kind == TSTypeKind::TSD && schema->element_ts() != nullptr) {
-    const auto realized_key = snapshot.type_for(schema->key_type());
+    const auto realized_key = active_graph_value_realization()
+                                  ? snapshot.graph_type_for(schema->key_type())
+                                  : snapshot.type_for(schema->key_type());
     const auto canonical_key =
         ValuePlanFactory::instance().type_for(schema->key_type());
     const auto realized_element = realized_output_type_for(
@@ -57,7 +61,9 @@ realized_output_type_for(const TSValueTypeMetaData *schema,
 
   if (schema->kind == TSTypeKind::TSS && schema->value_schema != nullptr) {
     const auto *key_schema = schema->value_schema->element_type;
-    const auto realized_key = snapshot.type_for(key_schema);
+    const auto realized_key = active_graph_value_realization()
+                                  ? snapshot.graph_type_for(key_schema)
+                                  : snapshot.type_for(key_schema);
     const auto canonical_key =
         ValuePlanFactory::instance().type_for(key_schema);
     if (realized_key && realized_key != canonical_key) {

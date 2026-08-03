@@ -91,7 +91,7 @@ TEST_CASE("type record common enums and capability operations are fixed", "[type
     STATIC_REQUIRE(SCHEMA_HEADER_MAGIC == 0x48475348u);
     STATIC_REQUIRE(TYPE_RECORD_MAGIC == 0x48475452u);
     STATIC_REQUIRE(SCHEMA_HEADER_ABI_VERSION == 1);
-    STATIC_REQUIRE(TYPE_RECORD_ABI_VERSION == 1);
+    STATIC_REQUIRE(TYPE_RECORD_ABI_VERSION == 2);
     STATIC_REQUIRE(INVALID_OPS_ABI_VERSION == 0);
 
     STATIC_REQUIRE(static_cast<std::uint32_t>(TypeCapabilities::None) == 0);
@@ -256,7 +256,7 @@ TEST_CASE("type record common layouts are fixed", "[type-erasure][type-record]")
     STATIC_REQUIRE(std::is_standard_layout_v<TypeRecord>);
     STATIC_REQUIRE(std::is_trivially_copyable_v<TypeRecord>);
     STATIC_REQUIRE(alignof(TypeRecord) == alignof(void *));
-    STATIC_REQUIRE(sizeof(TypeRecord) == 16 + 5 * sizeof(void *));
+    STATIC_REQUIRE(sizeof(TypeRecord) == 16 + 6 * sizeof(void *));
     STATIC_REQUIRE(offsetof(TypeRecord, magic) == 0);
     STATIC_REQUIRE(offsetof(TypeRecord, abi_version) == 4);
     STATIC_REQUIRE(offsetof(TypeRecord, role) == 6);
@@ -269,6 +269,7 @@ TEST_CASE("type record common layouts are fixed", "[type-erasure][type-record]")
     STATIC_REQUIRE(offsetof(TypeRecord, plan) == 16 + 2 * sizeof(void *));
     STATIC_REQUIRE(offsetof(TypeRecord, ops) == 16 + 3 * sizeof(void *));
     STATIC_REQUIRE(offsetof(TypeRecord, debug) == 16 + 4 * sizeof(void *));
+    STATIC_REQUIRE(offsetof(TypeRecord, external_value_owner) == 16 + 5 * sizeof(void *));
 
     STATIC_REQUIRE(std::is_standard_layout_v<TypeRecordKey>);
     STATIC_REQUIRE(std::is_trivially_copyable_v<TypeRecordKey>);

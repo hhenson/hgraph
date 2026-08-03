@@ -152,6 +152,9 @@ TEST_CASE("distinct native graph engines progress independently on different thr
         make_simulation_executor(std::move(independent_graph));
     auto blocked_view     = blocked_executor.view();
     auto independent_view = independent_executor.view();
+    REQUIRE_FALSE(blocked_view.graph().compound_scalar_storage().available());
+    REQUIRE_FALSE(
+        independent_view.graph().compound_scalar_storage().available());
 
     testing::AsyncGraphExecutorRun blocked_run{blocked_view};
     {

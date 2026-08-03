@@ -474,7 +474,7 @@ namespace hgraph
             if (schema == nullptr) { return {}; }
             if (const auto *snapshot = active_type_realization(); snapshot != nullptr)
             {
-                if (const auto realized = snapshot->type_for(schema)) { return realized; }
+                if (const auto realized = value_type_for_active_realization(schema)) { return realized; }
             }
             return ValuePlanFactory::instance().type_for(schema);
         }
@@ -2570,7 +2570,7 @@ namespace hgraph
                 const auto *key_schema = schema->key_type();
                 const auto *snapshot = active_type_realization();
                 const ValueTypeRef key_binding = snapshot != nullptr
-                                                     ? snapshot->type_for(key_schema)
+                                                     ? value_type_for_active_realization(key_schema)
                                                      : ValuePlanFactory::instance().type_for(key_schema);
                 const auto *plan = ts_data_plan_factory_detail::synthesise_slot_tsd_plan(
                     *schema, key_binding, element_type);

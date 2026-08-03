@@ -242,6 +242,7 @@ final byte layout:
        const StoragePlan *plan;
        const void *ops;
        const DebugDescriptor *debug;
+       mutable const TypeRecord *external_value_owner;
    };
 
 The labels answer different questions and live on the records which own their
@@ -260,6 +261,15 @@ addressable common record allow a debugger to reject unrelated or incompatible
 memory instead of guessing.  The schema ABI versions the schema-header layout;
 the type-record ABI versions the record layout; the ops ABI versions the table
 selected by family and role.
+
+``external_value_owner`` is the one deliberately publish-once link in the
+otherwise immutable record.  It is null for ordinary owning value records.  A
+graph-local value representation points at the independently owning value
+record to which it must materialise before escaping graph storage.  Publication
+uses an atomic compare/exchange before a running graph can expose the record;
+after publication the link never changes.  This keeps ordinary ``Value``
+construction O(1), avoids a process-global side map on the hot path, and leaves
+the plan, ops, schema, capabilities, and identity metadata immutable.
 
 The value-family pilot makes this concrete: ``ValueTypeMetaData`` is a
 standard-layout type whose first member is ``SchemaHeader`` and whose second
@@ -433,12 +443,24 @@ from a larger externally owned value without fabricating a non-owning
 ``Value``. Read-only views are rejected before dispatch.
 
 ``GraphValue`` stores a ``GraphPtr`` followed by an optional ``ErasedOwner``.
-Ordinary root/nested graphs point into their owner. Slot-placed nested graphs
-have no owner and point into graph/slot memory, whose stop/delete and
-destructor/erase protocol remains the lifetime authority. The uniform pointer
-costs one additional word compared with the former owner-plus-boolean layout:
-five words instead of four on 64-bit builds; ``ErasedOwner`` itself remains
-three words and all borrowed pointers remain two words.
+Pooling is an explicit graph-level realisation policy.  An opted-in root
+graph's named storage plan contains a two-word compound-scalar owner, and its
+nested plan contains the two-word borrowed view.  Disabled plans contain
+neither field and select lifecycle/evaluation ops which do not establish a
+compound-storage scope.  The owner allocates its concrete per-leaf registry
+only when a pooled value is first constructed.  Ordinary root/nested graphs
+point into their owner. Slot-placed nested graphs have no owner and point into
+graph/slot memory, whose stop/delete and destructor/erase protocol remains the
+lifetime authority.  ``GraphValue`` remains five words on 64-bit builds;
+``ErasedOwner`` itself remains three words and all borrowed pointers remain two
+words.
+
+Representation selection is also type-erased. ``PolymorphicValueType`` is a
+two-word, move-only passive-ops owner held by the realisation snapshot.  Its
+default and moved-from states bind a canonical no-op table.  The concrete
+pooled-union strategy and its Python source resolver remain under the
+implementation boundary; semantic realisation code asks only for the facade's
+binding and does not name or branch on that strategy.
 
 This makes the following invariants visible in the types:
 

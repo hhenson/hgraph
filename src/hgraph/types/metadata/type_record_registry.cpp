@@ -1,5 +1,6 @@
 #include <hgraph/types/metadata/type_record_registry.h>
 
+#include <atomic>
 #include <functional>
 #include <stdexcept>
 #include <utility>
@@ -133,6 +134,30 @@ namespace hgraph
         std::lock_guard lock(m_mutex);
         const auto found = m_entries.find(key);
         return found == m_entries.end() ? nullptr : &found->second->record;
+    }
+
+    void TypeRecordRegistry::publish_external_value_owner(
+        const TypeRecord &record, const TypeRecord &owner)
+    {
+        if (record.classification().family != TypeFamily::Value ||
+            owner.classification().family != TypeFamily::Value ||
+            record.role != TypeRole::Instance || owner.role != TypeRole::Instance ||
+            record.schema != owner.schema)
+        {
+            throw std::invalid_argument(
+                "external value ownership requires matching value schemas");
+        }
+
+        std::atomic_ref<const TypeRecord *> published{
+            record.external_value_owner};
+        const TypeRecord *expected = nullptr;
+        if (!published.compare_exchange_strong(
+                expected, &owner, std::memory_order_release,
+                std::memory_order_acquire) && expected != &owner)
+        {
+            throw std::logic_error(
+                "value record already has a different external owner");
+        }
     }
 
     std::size_t TypeRecordRegistry::size() const noexcept

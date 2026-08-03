@@ -39,6 +39,23 @@ namespace hgraph
             return binding;
         }
 
+        using MaterializedOwner =
+            MemoryUtils::ErasedOwner<MemoryUtils::InlineStoragePolicy<>, TypeRecord>;
+
+        [[nodiscard]] MaterializedOwner materialize_as(
+            ValueTypeRef target, const ValueView &source, const char *fn)
+        {
+            if (!target || !source.binding())
+            {
+                throw std::logic_error(
+                    fmt::format("{}: unresolved value materialization", fn));
+            }
+            MaterializedOwner result{*target.record()};
+            target.ops_ref().copy_assign_from(
+                target, result.data(), source.binding(), source.data());
+            return result;
+        }
+
         [[nodiscard]] TSRoleTypeRef ts_type_for(const TSValueTypeMetaData *schema, const char *fn)
         {
             const auto type = TSDataPlanFactory::instance().data_type_for(schema);
@@ -407,9 +424,17 @@ namespace hgraph
 
             const auto set = in.as_set();
             SetBuilder added{elem_binding};
-            for (const auto &e : set.added()) { (void)added.insert_copy(e.data()); }
+            for (const auto &e : set.added())
+            {
+                auto value = materialize_as(elem_binding, e, "capture_delta");
+                (void)added.insert_copy(value.data());
+            }
             SetBuilder removed{elem_binding};
-            for (const auto &e : set.removed()) { (void)removed.insert_copy(e.data()); }
+            for (const auto &e : set.removed())
+            {
+                auto value = materialize_as(elem_binding, e, "capture_delta");
+                (void)removed.insert_copy(value.data());
+            }
 
             BundleBuilder bundle{binding_for(bundle_meta, "capture_delta")};
             bundle.set("added", added.build());
@@ -419,17 +444,11 @@ namespace hgraph
 
         Value capture_delta_tsd(const TSInputView &in)
         {
-            const auto &data = in.data_view();
-            const auto  data_dict = data.as_dict();
-            const auto &layout = data_dict.layout();
-            const ValueTypeRef key_binding = layout.key_binding;
+            const ValueTypeRef key_binding =
+                binding_for(in.schema()->key_type(), "capture_delta");
             const auto *element_schema = in.schema()->element_ts();
-            const ValueTypeRef canonical_delta_binding =
-                binding_for(element_schema->delta_value_schema, "capture_delta");
             const ValueTypeRef delta_binding =
-                element_schema->kind == TSTypeKind::TS
-                    ? layout.element_delta_binding
-                    : canonical_delta_binding;
+                binding_for(element_schema->delta_value_schema, "capture_delta");
             if (delta_binding.schema() != in.schema()->element_ts()->delta_value_schema)
             {
                 throw std::logic_error("capture_delta_tsd resolved the wrong element delta binding");
@@ -437,7 +456,12 @@ namespace hgraph
 
             const auto dict = in.as_dict();
             SetBuilder removed{key_binding};
-            for (const auto &key : dict.removed_keys()) { (void)removed.insert_copy(key.data()); }
+            for (const auto &key : dict.removed_keys())
+            {
+                auto owned_key = materialize_as(
+                    key_binding, key, "capture_delta");
+                (void)removed.insert_copy(owned_key.data());
+            }
 
             MapBuilder modified{key_binding, delta_binding};
             for (const auto &[key, child] : dict.modified_items())
@@ -447,10 +471,13 @@ namespace hgraph
                 {
                     throw std::logic_error("capture_delta_tsd resolved the wrong child TS schema");
                 }
+                auto owned_key = materialize_as(
+                    key_binding, key, "capture_delta");
                 const Value child_delta = capture_delta(child);
                 if (child_delta.binding() == delta_binding)
                 {
-                    modified.set_item_copy(key.data(), child_delta.view().data());
+                    modified.set_item_copy(
+                        owned_key.data(), child_delta.view().data());
                     continue;
                 }
                 Value stored_delta{delta_binding};
@@ -461,7 +488,8 @@ namespace hgraph
                     const_cast<void *>(stored_delta.view().data()),
                     child_delta.binding(),
                     child_delta.view().data());
-                modified.set_item_copy(key.data(), stored_delta.view().data());
+                modified.set_item_copy(
+                    owned_key.data(), stored_delta.view().data());
             }
 
             SetBuilder removed_strict{key_binding};   // captures never carry strict removals
@@ -710,7 +738,9 @@ namespace hgraph
                 const auto set = in.as_set();
                 for (const auto &value : set.values())
                 {
-                    static_cast<void>(added.insert_copy(value.data()));
+                    auto owned_value = materialize_as(
+                        element, value, "capture_current_delta");
+                    static_cast<void>(added.insert_copy(owned_value.data()));
                 }
                 SetBuilder removed{element};
                 BundleBuilder bundle{
@@ -721,17 +751,11 @@ namespace hgraph
             }
             case TSTypeKind::TSD:
             {
-                const auto &data = in.data_view();
-                const auto data_dict = data.as_dict();
-                const auto &layout = data_dict.layout();
-                const ValueTypeRef key_binding = layout.key_binding;
+                const ValueTypeRef key_binding = binding_for(
+                    schema.key_type(), "capture_current_delta");
                 const auto *element_schema = schema.element_ts();
-                const ValueTypeRef canonical_delta_binding = binding_for(
+                const ValueTypeRef delta_binding = binding_for(
                     element_schema->delta_value_schema, "capture_current_delta");
-                const ValueTypeRef delta_binding =
-                    element_schema->kind == TSTypeKind::TS
-                        ? layout.element_delta_binding
-                        : canonical_delta_binding;
 
                 SetBuilder removed{key_binding};
                 SetBuilder removed_strict{key_binding};
@@ -739,10 +763,13 @@ namespace hgraph
                 const auto dict = in.as_dict();
                 for (const auto &[key, child] : dict.valid_items())
                 {
+                    auto owned_key = materialize_as(
+                        key_binding, key, "capture_current_delta");
                     Value child_delta = capture_current_delta(child);
                     if (child_delta.binding() == delta_binding)
                     {
-                        modified.set_item_copy(key.data(), child_delta.view().data());
+                        modified.set_item_copy(
+                            owned_key.data(), child_delta.view().data());
                         continue;
                     }
                     Value stored_delta{delta_binding};
@@ -751,7 +778,8 @@ namespace hgraph
                         const_cast<void *>(stored_delta.view().data()),
                         child_delta.binding(),
                         child_delta.view().data());
-                    modified.set_item_copy(key.data(), stored_delta.view().data());
+                    modified.set_item_copy(
+                        owned_key.data(), stored_delta.view().data());
                 }
 
                 Value removed_delta = removed.build();

@@ -51,7 +51,7 @@ namespace hgraph
     };
 
     static_assert(sizeof(ValueOpsKind) == 1);
-    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 4;
+    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 5;
 
     struct ValueOps;
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
@@ -150,6 +150,12 @@ namespace hgraph
                                             const void *memory) = nullptr;
         DynamicStorageMetrics (*dynamic_storage_metrics_impl)(const void *context,
                                                               const void *memory) noexcept = nullptr;
+        /**
+         * Return writable concrete storage, detaching shared representations
+         * when required.  This is deliberately a throwing hook: obtaining a
+         * writable projection may allocate and copy.
+         */
+        void *(*writable_concrete_memory_impl)(const void *context, void *memory) = nullptr;
 
         [[nodiscard]] std::size_t hash(const void *memory) const
         {
@@ -344,6 +350,13 @@ namespace hgraph
             return mutable_concrete_memory_impl != nullptr
                        ? mutable_concrete_memory_impl(context, memory)
                        : memory;
+        }
+
+        [[nodiscard]] void *writable_concrete_memory(void *memory) const
+        {
+            return writable_concrete_memory_impl != nullptr
+                       ? writable_concrete_memory_impl(context, memory)
+                       : mutable_concrete_memory(memory);
         }
 
         /** Heap storage exclusively owned by this value payload. */

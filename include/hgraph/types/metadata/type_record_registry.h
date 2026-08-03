@@ -41,6 +41,9 @@ namespace hgraph
         TypeRecordRegistry &operator=(TypeRecordRegistry &&) = delete;
 
         [[nodiscard]] const TypeRecord &intern(const TypeRecordDefinition &definition);
+        /** Publish a graph-local value record's ordinary owning record once. */
+        void publish_external_value_owner(const TypeRecord &record,
+                                          const TypeRecord &owner);
         [[nodiscard]] const TypeRecord *find(const TypeRecordKey &key) const noexcept;
         /** Cold-path cardinality used by registry diagnostics. */
         [[nodiscard]] std::size_t size() const noexcept;

@@ -6,6 +6,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/utils/slot_bitmap.h>
+#include <hgraph/types/value/impl/graph_local_value.h>
 #include <hgraph/util/date_time.h>
 #include <hgraph/util/scope.h>
 
@@ -347,11 +348,12 @@ struct MeshNodeContext {
 };
 
 void initialise_mesh_storage(MeshNodeStorage &storage,
-                             const MeshNodeContext &context) {
-  if (context.key_binding == nullptr) {
+                             const MeshNodeContext &context,
+                             ValueTypeRef key_binding) {
+  if (!key_binding || key_binding.schema() != context.key_binding.schema()) {
     throw std::logic_error("mesh_ has no resolved key binding");
   }
-  storage.initialise(context.key_binding, context.graph_layout);
+  storage.initialise(key_binding, context.graph_layout);
 }
 
 struct MeshSubscribeStorage {
@@ -673,13 +675,13 @@ MeshKeySetStorage &mesh_key_set_storage_of(const NodeView &view) {
 }
 
 void queue_graph_removal(MeshNodeStorage &storage, const ValueView &key) {
-  storage.graphs_to_remove.emplace_back(key);
+  storage.graphs_to_remove.push_back(value_impl::graph_local_value(key));
 }
 
 void remove_requester_edges(MeshNodeStorage &storage,
                             const ValueView &requester) {
   for (auto it = storage.dependents.begin(); it != storage.dependents.end();) {
-    it->second.erase(Value{requester});
+    it->second.erase(value_impl::graph_local_value(requester));
     if (it->second.empty()) {
       queue_graph_removal(storage, it->first.view());
       it = storage.dependents.erase(it);
@@ -761,7 +763,9 @@ MeshEntry &create_instance(const NodeView &view, const MeshNodeContext &context,
                            MeshNodeStorage &storage, const ValueView &key_view,
                            int rank, DateTime evaluation_time) {
   const MeshNodeSpec &spec = context.spec;
-  initialise_mesh_storage(storage, context);
+  if (!storage.instance_keys.has_value()) {
+    throw std::logic_error("mesh_ instance storage is not initialized");
+  }
 
   const auto inserted = storage.instance_keys->insert(key_view);
   const std::size_t slot = inserted.slot;
@@ -778,8 +782,7 @@ MeshEntry &create_instance(const NodeView &view, const MeshNodeContext &context,
   auto &entry = existing != nullptr
                     ? *existing
                     : storage.entries.construct_at(
-                          slot, Value{ValueView{context.key_binding,
-                                               (*storage.instance_keys)[slot]}});
+                          slot, value_impl::graph_local_value(key_view));
   entry.rank = rank;
   entry.paused = true;
   entry.settled_time = MIN_DT;
@@ -947,7 +950,7 @@ void re_rank(MeshNodeStorage &storage, const ValueView &key,
   key_entry->rank = dep_entry->rank + 1;
   storage.max_rank = std::max(storage.max_rank, key_entry->rank);
 
-  stack.push_back(Value{key});
+  stack.push_back(value_impl::graph_local_value(key));
   // Re-rank everything that depends on ``key``.
   if (auto it = storage.dependents.find(key); it != storage.dependents.end()) {
     for (const Value &dependent : it->second) {
@@ -978,7 +981,10 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
       *static_cast<const MeshNodeContext *>(mesh_view.internal_context());
   auto &storage = storage_of(view, context);
   const auto &spec = context.spec;
-  initialise_mesh_storage(storage, context);
+  auto output = view.output(evaluation_time);
+  const auto runtime_key_binding =
+      output.as_dict().data_view().layout().key_binding;
+  initialise_mesh_storage(storage, context, runtime_key_binding);
   storage.erase_retired_before(evaluation_time);
 
   auto root_input = view.input(evaluation_time);
@@ -987,7 +993,6 @@ bool mesh_evaluate_impl(const void *, const NodeView &view,
   // 1. __keys__ key-set membership drives instance create/remove.
   if (!keys_input.valid()) {
     storage.unsubscribe_requested_keys_noexcept();
-    auto output = view.output(evaluation_time);
     // Only tear down what was ever published: clear() on a never-valid
     // dict would touch-VALIDATE it (the empty-tick rule), making a mesh
     // whose __keys__ never validated tick a valid empty dict at start
@@ -1365,7 +1370,7 @@ bool mesh_subscribe_evaluate_impl(const void *, const NodeView &view,
   }
 
   const ValueView my_key = mesh->current_key();
-  const Value item{item_in.value()};
+  const Value item = value_impl::graph_local_value(item_in.value());
   if (!my_key.has_value()) {
     remove_subscribe_dependency(view, storage);
     clear_subscribe_runtime_links(view, storage, evaluation_time);
@@ -1375,7 +1380,7 @@ bool mesh_subscribe_evaluate_impl(const void *, const NodeView &view,
   if (!same_subscribe_dependency(storage, my_key, item.view())) {
     remove_subscribe_dependency(view, storage);
     clear_subscribe_runtime_links(view, storage, evaluation_time);
-    storage.requester = Value{my_key};
+    storage.requester = value_impl::graph_local_value(my_key);
     storage.dependency = item;
     storage.has_dependency = true;
   }
@@ -1497,7 +1502,8 @@ bool MeshNodeView::add_dependency(const ValueView &key,
   const auto &context = *static_cast<const MeshNodeContext *>(context_);
   const DateTime t = view_.graph().evaluation_time();
 
-  storage.dependents[Value{depends_on}].insert(Value{key});
+  storage.dependents[value_impl::graph_local_value(depends_on)].insert(
+      value_impl::graph_local_value(key));
 
   MeshEntry *key_entry = storage.find(key);
   if (key_entry == nullptr) {
@@ -1545,7 +1551,7 @@ void MeshNodeView::remove_dependency(const ValueView &key,
   if (it == storage.dependents.end()) {
     return;
   }
-  it->second.erase(Value{key});
+  it->second.erase(value_impl::graph_local_value(key));
   if (it->second.empty()) {
     queue_graph_removal(storage, depends_on);
     storage.dependents.erase(it);

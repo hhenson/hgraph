@@ -36,6 +36,7 @@ def node_record(**overrides):
         "plan": 0x1000,
         "ops": 0x2000,
         "debug": 0,
+        "external_value_owner": 0,
     }
     snapshot.update(overrides)
     return snapshot

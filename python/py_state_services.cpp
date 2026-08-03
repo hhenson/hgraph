@@ -9,6 +9,8 @@
 #include "py_wiring.h"
 #include "py_bindings.h"
 
+#include <hgraph/types/metadata/type_realization.h>
+
 namespace nb = nanobind;
 using namespace hgraph;
 using namespace hgraph::python_bridge;
@@ -213,6 +215,11 @@ namespace hgraph::python_bridge
         config.model = model;
         record_replay::set_config(state.view(), std::move(config));
     });
+    m.def("_set_pooled_compound_scalar_storage",
+          [](GlobalState &state, bool enabled) {
+              set_pooled_compound_scalar_storage(state.view(), enabled);
+          },
+          nb::arg("state"), nb::arg("enabled") = true);
     m.def("_set_as_of", [](GlobalState &state, nb::object value) {
         auto config = record_replay::config(state.view());
         config.as_of = value.is_none() ? std::optional<DateTime>{}

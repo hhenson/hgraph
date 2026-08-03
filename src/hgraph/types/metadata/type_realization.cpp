@@ -5,14 +5,19 @@
 #include <hgraph/python/bridge_state.h>
 #endif
 
+#include <hgraph/runtime/global_state.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/primitive_types.h>
 #include <hgraph/types/value/compact_container_ops.h>
 #include <hgraph/types/value/container_ops.h>
 #include <hgraph/types/value/mutable_container_ops.h>
+#include <hgraph/types/value/polymorphic_value_type.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_range.h>
 #include <hgraph/util/scope.h>
+
+#include "../value/impl/pooled_polymorphic_value_type.h"
 
 #include <algorithm>
 #include <compare>
@@ -30,6 +35,9 @@
 namespace hgraph {
 namespace {
 thread_local const TypeRealizationSnapshot *active_snapshot = nullptr;
+thread_local bool graph_value_realization = false;
+inline constexpr std::string_view type_realization_options_key{
+    "__hgraph.type_realization.options.pooled_polymorphic_compounds__"};
 
 [[nodiscard]] constexpr std::size_t align_up(std::size_t value,
                                              std::size_t alignment) noexcept {
@@ -169,8 +177,8 @@ struct TypeRealizationSnapshot::Impl {
       return found != alternatives_by_record.end() && found->second == source;
     }
 
-    [[nodiscard]] ValueTypeRef alternative_for_schema(
-        const ValueTypeMetaData *schema) const noexcept {
+    [[nodiscard]] ValueTypeRef
+    alternative_for_schema(const ValueTypeMetaData *schema) const noexcept {
       const auto found = alternatives_by_schema.find(schema);
       return found != alternatives_by_schema.end() ? found->second
                                                    : ValueTypeRef{};
@@ -188,8 +196,8 @@ struct TypeRealizationSnapshot::Impl {
         target_type.default_construct_at(payload(*this, dst));
         set_active_record(dst, target_type.record());
       }
-      target_type.ops_ref().copy_assign_from(
-          target_type, payload(*this, dst), source_type, source_memory);
+      target_type.ops_ref().copy_assign_from(target_type, payload(*this, dst),
+                                             source_type, source_memory);
     }
 
     void replace_move_from(void *dst, ValueTypeRef target_type,
@@ -204,8 +212,8 @@ struct TypeRealizationSnapshot::Impl {
         target_type.default_construct_at(payload(*this, dst));
         set_active_record(dst, target_type.record());
       }
-      target_type.ops_ref().move_assign_from(
-          target_type, payload(*this, dst), source_type, source_memory);
+      target_type.ops_ref().move_assign_from(target_type, payload(*this, dst),
+                                             source_type, source_memory);
     }
 
     static void default_construct(void *memory, const void *context) {
@@ -228,8 +236,9 @@ struct TypeRealizationSnapshot::Impl {
       const auto &self = entry(context);
       const auto active = self.active_type(src);
       if (!active) {
-        throw std::logic_error(
-            "closed Bundle source has an invalid active type");
+        throw std::logic_error("closed Bundle '" +
+                               std::string{self.declared->name()} +
+                               "' copy source has an invalid active type");
       }
       set_active_record(dst, nullptr);
       active.copy_construct_at(payload(self, dst), payload(self, src));
@@ -240,8 +249,9 @@ struct TypeRealizationSnapshot::Impl {
       const auto &self = entry(context);
       const auto active = self.active_type(src);
       if (!active) {
-        throw std::logic_error(
-            "closed Bundle source has an invalid active type");
+        throw std::logic_error("closed Bundle '" +
+                               std::string{self.declared->name()} +
+                               "' move source has an invalid active type");
       }
       set_active_record(dst, nullptr);
       active.move_construct_at(payload(self, dst), payload(self, src));
@@ -297,7 +307,8 @@ struct TypeRealizationSnapshot::Impl {
       const auto source_type = self.active_type(src);
       if (!source_type) {
         throw std::logic_error(
-            "closed Bundle source has an invalid active type");
+            "closed Bundle '" + std::string{self.declared->name()} +
+            "' copy-assignment source has an invalid active type");
       }
       self.replace_copy(dst, source_type, payload(self, src));
     }
@@ -307,7 +318,8 @@ struct TypeRealizationSnapshot::Impl {
       const auto source_type = self.active_type(src);
       if (!source_type) {
         throw std::logic_error(
-            "closed Bundle source has an invalid active type");
+            "closed Bundle '" + std::string{self.declared->name()} +
+            "' move-assignment source has an invalid active type");
       }
       self.replace_move(dst, source_type, payload(self, src));
     }
@@ -331,7 +343,8 @@ struct TypeRealizationSnapshot::Impl {
       if (!self.contains(source) && source.schema() == self.declared) {
         const auto source_type = source.ops_ref().concrete_type(source, src);
         const auto *source_memory = source.ops_ref().concrete_memory(src);
-        const auto target_type = self.alternative_for_schema(source_type.schema());
+        const auto target_type =
+            self.alternative_for_schema(source_type.schema());
         if (!target_type) {
           throw std::invalid_argument(
               "closed Bundle source alternative '" +
@@ -360,8 +373,9 @@ struct TypeRealizationSnapshot::Impl {
       }
       if (!self.contains(source) && source.schema() == self.declared) {
         const auto source_type = source.ops_ref().concrete_type(source, src);
-        auto *source_memory = source.ops_ref().mutable_concrete_memory(src);
-        const auto target_type = self.alternative_for_schema(source_type.schema());
+        auto *source_memory = source.ops_ref().writable_concrete_memory(src);
+        const auto target_type =
+            self.alternative_for_schema(source_type.schema());
         if (!target_type || source_memory == nullptr) {
           throw std::invalid_argument(
               "closed Bundle source alternative '" +
@@ -396,13 +410,13 @@ struct TypeRealizationSnapshot::Impl {
       return payload(entry(context), memory);
     }
 
-    [[nodiscard]] static DynamicStorageMetrics dynamic_storage_metrics(
-        const void *context, const void *memory) noexcept {
+    [[nodiscard]] static DynamicStorageMetrics
+    dynamic_storage_metrics(const void *context, const void *memory) noexcept {
       const auto &self = entry(context);
       const auto active = self.active_type(memory);
-      return active
-                 ? active.ops_ref().dynamic_storage_metrics(payload(self, memory))
-                 : DynamicStorageMetrics{};
+      return active ? active.ops_ref().dynamic_storage_metrics(
+                          payload(self, memory))
+                    : DynamicStorageMetrics{};
     }
 
     [[nodiscard]] static const IndexedValueOps &
@@ -738,6 +752,7 @@ struct TypeRealizationSnapshot::Impl {
   };
 
   std::uint64_t generation{0};
+  TypeRealizationOptions options{};
   std::vector<const ValueTypeMetaData *> registration_order{};
   std::unordered_map<const ValueTypeMetaData *,
                      std::vector<const ValueTypeMetaData *>>
@@ -753,15 +768,31 @@ struct TypeRealizationSnapshot::Impl {
   mutable std::unordered_map<const ValueTypeMetaData *,
                              std::unique_ptr<UnionEntry>>
       union_types{};
+  mutable std::unordered_map<const ValueTypeMetaData *, ValueTypeRef>
+      graph_exact_types{};
+  mutable std::unordered_map<const ValueTypeMetaData *, ValueTypeRef>
+      graph_union_bindings{};
+  mutable std::unordered_map<const ValueTypeMetaData *,
+                             std::unique_ptr<UnionEntry>>
+      graph_inline_union_types{};
+  mutable std::unordered_map<const ValueTypeMetaData *, PolymorphicValueType>
+      graph_pooled_union_types{};
+  enum class RealizationKind : std::uint8_t {
+    ExternalExact,
+    ExternalUnion,
+    GraphExact,
+    GraphUnion,
+  };
   struct RealizationStep {
     const ValueTypeMetaData *schema{nullptr};
-    bool union_type{false};
+    RealizationKind kind{RealizationKind::ExternalExact};
 
     bool operator==(const RealizationStep &) const = default;
   };
   mutable std::vector<RealizationStep> realization_path{};
 
-  explicit Impl(TypeRegistry &registry) {
+  explicit Impl(TypeRegistry &registry, TypeRealizationOptions requested_options)
+      : options(requested_options) {
     const auto snapshot = registry.bundle_hierarchy_snapshot();
     generation = snapshot.generation;
     registration_order.reserve(snapshot.entries.size());
@@ -827,8 +858,8 @@ struct TypeRealizationSnapshot::Impl {
   }
 
   [[nodiscard]] auto enter_realization(const ValueTypeMetaData *schema,
-                                       bool union_type) const {
-    const RealizationStep requested{schema, union_type};
+                                       RealizationKind kind) const {
+    const RealizationStep requested{schema, kind};
     if (const auto cycle = std::ranges::find(realization_path, requested);
         cycle != realization_path.end()) {
       std::string message{"recursive value schema requires an Owned edge: "};
@@ -837,11 +868,17 @@ struct TypeRealizationSnapshot::Impl {
           message.append(" -> ");
         }
         message.append(current->schema->name());
-        message.append(current->union_type ? "[union]" : "[exact]");
+        message.append(current->kind == RealizationKind::ExternalUnion ||
+                               current->kind == RealizationKind::GraphUnion
+                           ? "[union]"
+                           : "[exact]");
       }
       message.append(" -> ");
       message.append(schema->name());
-      message.append(union_type ? "[union]" : "[exact]");
+      message.append(kind == RealizationKind::ExternalUnion ||
+                             kind == RealizationKind::GraphUnion
+                         ? "[union]"
+                         : "[exact]");
       throw std::logic_error(message);
     }
     realization_path.push_back(requested);
@@ -857,7 +894,8 @@ struct TypeRealizationSnapshot::Impl {
         found != exact_types.end()) {
       return found->second;
     }
-    auto realization = enter_realization(schema, false);
+    auto realization =
+        enter_realization(schema, RealizationKind::ExternalExact);
 
     auto &factory = ValuePlanFactory::instance();
     if (!schema->is_owned() && schema->value_kind() == ValueTypeKind::List) {
@@ -964,12 +1002,15 @@ struct TypeRealizationSnapshot::Impl {
         found != union_types.end()) {
       return found->second->binding;
     }
-    if (std::ranges::find(realization_path, RealizationStep{schema, true}) !=
+    if (std::ranges::find(
+            realization_path,
+            RealizationStep{schema, RealizationKind::ExternalUnion}) !=
         realization_path.end()) {
       return ValuePlanFactory::instance().type_for(
           TypeRegistry::instance().owned(schema));
     }
-    auto realization = enter_realization(schema, true);
+    auto realization =
+        enter_realization(schema, RealizationKind::ExternalUnion);
     std::vector<ValueTypeRef> alternatives;
     const auto &alternative_schemas = closure_for_locked(schema);
     alternatives.reserve(alternative_schemas.size());
@@ -983,52 +1024,340 @@ struct TypeRealizationSnapshot::Impl {
     return result;
   }
 
+  [[nodiscard]] ValueTypeRef
+  graph_exact_type_for_locked(const ValueTypeMetaData *schema) const {
+    if (schema == nullptr) {
+      return {};
+    }
+    if (const auto found = graph_exact_types.find(schema);
+        found != graph_exact_types.end()) {
+      return found->second;
+    }
+    auto realization = enter_realization(schema, RealizationKind::GraphExact);
+
+    auto &factory = ValuePlanFactory::instance();
+    const auto canonical = factory.type_for(schema);
+    const auto external = exact_type_for_locked(schema);
+    if (schema->is_owned()) {
+      graph_exact_types.emplace(schema, canonical);
+      return canonical;
+    }
+
+    ValueTypeRef result = canonical;
+    switch (schema->value_kind()) {
+    case ValueTypeKind::Tuple:
+    case ValueTypeKind::Bundle: {
+      std::vector<ValueTypeRef> fields;
+      fields.reserve(schema->field_count);
+      bool changed = false;
+      for (std::size_t index = 0; index < schema->field_count; ++index) {
+        const auto child = graph_type_for_locked(schema->fields[index].type);
+        fields.push_back(child);
+        changed =
+            changed || child != factory.type_for(schema->fields[index].type);
+      }
+      if (changed) {
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+        if (const auto python =
+                python_bridge::python_bundle_binding_for(schema, fields)) {
+          result = python;
+        } else
+#endif
+        {
+          result = factory.realized_composite_type_for(schema, fields);
+        }
+      }
+      break;
+    }
+    case ValueTypeKind::List: {
+      const auto element = graph_type_for_locked(schema->element_type);
+      if (element != factory.type_for(schema->element_type)) {
+        if (schema->fixed_size != 0) {
+          throw std::logic_error("polymorphic Bundle elements are not "
+                                 "supported in fixed List schemas");
+        }
+        result = schema->is_mutable() ? mutable_list_type(element)
+                                      : compact_list_type(element, *schema);
+      }
+      break;
+    }
+    case ValueTypeKind::Set: {
+      const auto element = graph_type_for_locked(schema->element_type);
+      if (element != factory.type_for(schema->element_type)) {
+        if (schema->is_mutable()) {
+          throw std::logic_error("polymorphic Bundle elements are not "
+                                 "supported in mutable Set schemas");
+        }
+        result = compact_set_type(element);
+      }
+      break;
+    }
+    case ValueTypeKind::Map: {
+      const auto key = graph_type_for_locked(schema->key_type);
+      const auto value = graph_type_for_locked(schema->element_type);
+      if (key != factory.type_for(schema->key_type) ||
+          value != factory.type_for(schema->element_type)) {
+        if (schema->is_mutable()) {
+          throw std::logic_error("polymorphic Bundle keys or values are not "
+                                 "supported in mutable Map schemas");
+        }
+        result = compact_map_type(key, value);
+      }
+      break;
+    }
+    case ValueTypeKind::CyclicBuffer: {
+      const auto element = graph_type_for_locked(schema->element_type);
+      if (element != factory.type_for(schema->element_type)) {
+        result = compact_cyclic_buffer_type(element, schema->fixed_size);
+      }
+      break;
+    }
+    case ValueTypeKind::Queue: {
+      const auto element = graph_type_for_locked(schema->element_type);
+      if (element != factory.type_for(schema->element_type)) {
+        result = compact_queue_type(element, schema->fixed_size);
+      }
+      break;
+    }
+    case ValueTypeKind::Atomic:
+    case ValueTypeKind::Any:
+      break;
+    }
+    graph_exact_types.emplace(schema, result);
+    if (result != external) {
+      register_value_owning_type(result, external);
+    }
+    return result;
+  }
+
+  [[nodiscard]] ValueTypeRef
+  graph_type_for_locked(const ValueTypeMetaData *schema) const {
+    if (!polymorphic(schema)) {
+      return graph_exact_type_for_locked(schema);
+    }
+    if (const auto found = graph_union_bindings.find(schema);
+        found != graph_union_bindings.end()) {
+      return found->second;
+    }
+    if (std::ranges::find(
+            realization_path,
+            RealizationStep{schema, RealizationKind::GraphUnion}) !=
+        realization_path.end()) {
+      return ValuePlanFactory::instance().type_for(
+          TypeRegistry::instance().owned(schema));
+    }
+    auto realization = enter_realization(schema, RealizationKind::GraphUnion);
+    std::vector<ValueTypeRef> alternatives;
+    const auto &alternative_schemas = closure_for_locked(schema);
+    alternatives.reserve(alternative_schemas.size());
+    std::size_t minimum_size = std::numeric_limits<std::size_t>::max();
+    std::size_t maximum_size = 0;
+    for (const auto *alternative : alternative_schemas) {
+      const auto realized = graph_exact_type_for_locked(alternative);
+      alternatives.push_back(realized);
+      minimum_size =
+          std::min(minimum_size, realized.checked_plan().layout.size);
+      maximum_size =
+          std::max(maximum_size, realized.checked_plan().layout.size);
+    }
+
+    constexpr std::size_t pooling_size_spread_threshold = 32;
+    const bool use_pool =
+        options.polymorphic_compound_storage ==
+            PolymorphicCompoundStoragePolicy::Pooled &&
+        !alternatives.empty() &&
+        maximum_size - minimum_size > pooling_size_spread_threshold;
+    const auto external_binding = type_for_locked(schema);
+    const auto external_found = union_types.find(schema);
+    if (external_found == union_types.end()) {
+      throw std::logic_error("external closed Bundle realization is missing");
+    }
+
+    ValueTypeRef result{};
+    if (use_pool) {
+      auto created = detail::make_pooled_polymorphic_value_type(
+          schema, std::move(alternatives)
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+                      ,
+          detail::PolymorphicPythonSourceResolver{
+              .context = external_found->second.get(),
+              .resolve =
+                  [](const void *context, nb::handle source) {
+                    return static_cast<const UnionEntry *>(context)
+                        ->python_source_type(source);
+                  },
+          }
+#endif
+      );
+      result = created.binding();
+      graph_pooled_union_types.emplace(schema, std::move(created));
+    } else {
+      auto created =
+          std::make_unique<UnionEntry>(schema, std::move(alternatives));
+      result = created->binding;
+      graph_inline_union_types.emplace(schema, std::move(created));
+    }
+    graph_union_bindings.emplace(schema, result);
+    if (result != external_binding) {
+      register_value_owning_type(result, external_binding);
+    }
+    return result;
+  }
+
   [[nodiscard]] ValueTypeRef type_for(const ValueTypeMetaData *schema) const {
     std::lock_guard lock(mutex);
     return type_for_locked(schema);
   }
+
+  [[nodiscard]] ValueTypeRef
+  graph_type_for(const ValueTypeMetaData *schema) const {
+    std::lock_guard lock(mutex);
+    return graph_type_for_locked(schema);
+  }
+
+  [[nodiscard]] TypeRealizationInspection
+  inspect(const ValueTypeMetaData *schema) const {
+    if (schema == nullptr) {
+      return {};
+    }
+    std::lock_guard lock(mutex);
+    const auto external = type_for_locked(schema);
+    const auto graph = graph_type_for_locked(schema);
+    TypeRealizationInspection result{
+        .representation = GraphValueRepresentation::Exact,
+        .external_size = external.checked_plan().layout.size,
+        .graph_size = graph.checked_plan().layout.size,
+    };
+    if (!polymorphic(schema)) {
+      return result;
+    }
+    const auto &schemas = closure_for_locked(schema);
+    result.alternative_count = schemas.size();
+    result.minimum_leaf_size = std::numeric_limits<std::size_t>::max();
+    for (const auto *alternative : schemas) {
+      const auto leaf = graph_exact_type_for_locked(alternative);
+      result.minimum_leaf_size =
+          std::min(result.minimum_leaf_size, leaf.checked_plan().layout.size);
+      result.maximum_leaf_size =
+          std::max(result.maximum_leaf_size, leaf.checked_plan().layout.size);
+    }
+    if (schemas.empty()) {
+      result.minimum_leaf_size = 0;
+    }
+    result.representation = graph_pooled_union_types.contains(schema)
+                                ? GraphValueRepresentation::PooledUnion
+                                : GraphValueRepresentation::InlineUnion;
+    return result;
+  }
 };
 
 namespace {
+struct SnapshotKey {
+  std::uint64_t generation{0};
+  TypeRealizationOptions options{};
+
+  bool operator==(const SnapshotKey &) const = default;
+};
+
+struct SnapshotKeyHash {
+  [[nodiscard]] std::size_t operator()(const SnapshotKey &key) const noexcept {
+    std::size_t result = std::hash<std::uint64_t>{}(key.generation);
+    result ^= static_cast<std::size_t>(
+                  key.options.polymorphic_compound_storage) +
+              0x9e3779b97f4a7c15ULL + (result << 6U) + (result >> 2U);
+    return result;
+  }
+};
+
 std::mutex &snapshot_mutex() {
   static auto *value = new std::mutex();
   return *value;
 }
 
-std::unordered_map<std::uint64_t,
-                   std::shared_ptr<const TypeRealizationSnapshot>> &
+std::unordered_map<SnapshotKey, std::shared_ptr<const TypeRealizationSnapshot>,
+                   SnapshotKeyHash> &
 snapshots() {
   static auto *value =
-      new std::unordered_map<std::uint64_t,
-                             std::shared_ptr<const TypeRealizationSnapshot>>();
+      new std::unordered_map<SnapshotKey,
+                             std::shared_ptr<const TypeRealizationSnapshot>,
+                             SnapshotKeyHash>();
   return *value;
 }
 } // namespace
+
+void set_type_realization_options(GlobalStateView state,
+                                  TypeRealizationOptions options) {
+  if (!state.valid()) {
+    throw std::logic_error(
+        "type realization configuration requires GlobalState");
+  }
+  state.set(type_realization_options_key,
+            Value{Bool{options.polymorphic_compound_storage ==
+                       PolymorphicCompoundStoragePolicy::Pooled}});
+}
+
+void set_pooled_compound_scalar_storage(GlobalStateView state, bool enabled) {
+  set_type_realization_options(
+      state,
+      TypeRealizationOptions{
+          .polymorphic_compound_storage =
+              enabled ? PolymorphicCompoundStoragePolicy::Pooled
+                      : PolymorphicCompoundStoragePolicy::Inline,
+      });
+}
+
+TypeRealizationOptions type_realization_options(GlobalStateView state) {
+  if (!state.valid()) {
+    return {};
+  }
+  const ValueView configured = state.get(type_realization_options_key);
+  if (!configured.valid()) {
+    return {};
+  }
+  return TypeRealizationOptions{
+      .polymorphic_compound_storage =
+          configured.checked_as<Bool>()
+              ? PolymorphicCompoundStoragePolicy::Pooled
+              : PolymorphicCompoundStoragePolicy::Inline,
+  };
+}
 
 TypeRealizationSnapshot::TypeRealizationSnapshot(
     std::shared_ptr<Impl> impl) noexcept
     : impl_(std::move(impl)) {}
 
 std::shared_ptr<const TypeRealizationSnapshot>
-TypeRealizationSnapshot::capture(TypeRegistry &registry) {
+TypeRealizationSnapshot::capture(TypeRegistry &registry,
+                                 TypeRealizationOptions options) {
   const auto requested_generation = registry.bundle_hierarchy_generation();
+  const SnapshotKey requested_key{requested_generation, options};
   {
     std::lock_guard lock(snapshot_mutex());
-    if (const auto found = snapshots().find(requested_generation);
+    if (const auto found = snapshots().find(requested_key);
         found != snapshots().end()) {
       return found->second;
     }
   }
   auto snapshot = std::shared_ptr<const TypeRealizationSnapshot>{
-      new TypeRealizationSnapshot{std::make_shared<Impl>(registry)}};
+      new TypeRealizationSnapshot{std::make_shared<Impl>(registry, options)}};
   std::lock_guard lock(snapshot_mutex());
   return snapshots()
-      .try_emplace(snapshot->generation(), snapshot)
+      .try_emplace(SnapshotKey{snapshot->generation(), snapshot->options()},
+                   snapshot)
       .first->second;
 }
 
 std::uint64_t TypeRealizationSnapshot::generation() const noexcept {
   return impl_->generation;
+}
+
+TypeRealizationOptions TypeRealizationSnapshot::options() const noexcept {
+  return impl_->options;
+}
+
+bool TypeRealizationSnapshot::pooled_compound_storage_enabled() const noexcept {
+  return impl_->options.polymorphic_compound_storage ==
+         PolymorphicCompoundStoragePolicy::Pooled;
 }
 
 bool TypeRealizationSnapshot::is_polymorphic(
@@ -1063,6 +1392,19 @@ TypeRealizationSnapshot::type_for(const ValueTypeMetaData *schema) const {
   return impl_->type_for(schema);
 }
 
+ValueTypeRef
+TypeRealizationSnapshot::graph_type_for(const ValueTypeMetaData *schema) const {
+  if (schema == nullptr) {
+    return {};
+  }
+  return impl_->graph_type_for(schema);
+}
+
+TypeRealizationInspection
+TypeRealizationSnapshot::inspect(const ValueTypeMetaData *schema) const {
+  return impl_->inspect(schema);
+}
+
 TypeRealizationScope::TypeRealizationScope(
     const TypeRealizationSnapshot *snapshot) noexcept
     : previous_(std::exchange(active_snapshot, snapshot)) {}
@@ -1075,11 +1417,35 @@ const TypeRealizationSnapshot *active_type_realization() noexcept {
   return active_snapshot;
 }
 
+GraphValueRealizationScope::GraphValueRealizationScope() noexcept
+    : previous_(std::exchange(graph_value_realization, true)) {}
+
+GraphValueRealizationScope::~GraphValueRealizationScope() noexcept {
+  graph_value_realization = previous_;
+}
+
+bool active_graph_value_realization() noexcept {
+  return graph_value_realization;
+}
+
+ValueTypeRef
+value_type_for_active_realization(const ValueTypeMetaData *schema) {
+  if (active_snapshot == nullptr) {
+    return ValuePlanFactory::instance().type_for(schema);
+  }
+  return graph_value_realization ? active_snapshot->graph_type_for(schema)
+                                 : active_snapshot->type_for(schema);
+}
+
 ValueTypeRef value_type_for_wiring(const ValueTypeMetaData *schema) {
   if (active_snapshot != nullptr) {
     return active_snapshot->type_for(schema);
   }
-  return TypeRealizationSnapshot::capture(TypeRegistry::instance())
+  GlobalState *state = GlobalContext::active_state();
+  const TypeRealizationOptions options =
+      state != nullptr ? type_realization_options(state->view())
+                       : TypeRealizationOptions{};
+  return TypeRealizationSnapshot::capture(TypeRegistry::instance(), options)
       ->type_for(schema);
 }
 
