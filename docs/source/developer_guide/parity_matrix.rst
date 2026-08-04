@@ -310,13 +310,15 @@ model.
        request/reply services, and late subscription to an existing value all
        execute through the erased C++ service runtime. Matching public C++
        tests cover constrained generics, erased specialization identity,
-       reply-less requests, and sampled late subscriptions. Request/reply uses
-       the Python timing model: request capture advances one cycle and reply
-       publication crosses an outer-graph feedback edge before the client sees
-       it. Compiled ``map_`` and ``mesh_`` children import their outer service
-       transport inputs through the nested boundary; request/reply feedback is
-       owned by the outer implementation, not by the child consumer. Private
-       Python service-builder layouts are not compatibility targets.
+       reply-less requests, and sampled late subscriptions. Reply-full
+       request/reply transport is selected by native wiring: decoupled
+       sink/source implementations are direct, self-coupled implementations
+       defer only the request, and service/adaptor-dependent implementations
+       retain full feedback. Compiled ``map_`` and ``mesh_`` children import
+       their outer service transport inputs through the nested boundary; any
+       response feedback is owned by the outer implementation, not by the child
+       consumer. Private Python service-builder layouts are not compatibility
+       targets.
 
 The 215 upstream ``ts_tests`` tests were also copied mechanically to a
 temporary directory and run against the current bridge under Python 3.12.8.
@@ -566,7 +568,12 @@ Wiring and node-authoring surface
        an empty delta and retains the stale value. Issues
        #105/#117/#119/#133/#145 are pinned by the mapped request/reply Python
        and C++ regressions and the bounded ``switch-flip-map-removal`` parity
-       family.
+       family. RFC 0014 additionally makes a self-coupled response observable
+       one cycle earlier than released hgraph 0.5.34 by removing its redundant
+       response-feedback boundary. Standalone service recipes are bounded by
+       ``request-reply-one-cycle-earlier``; the switch/map family admits the
+       same single-cycle advance only when composed with its exact flip, and
+       the issue-175 outer-input collision remains fingerprint-pinned.
    * - ``dispatch_``
      - Full for Bundle values
      - Native ``dispatch_cases`` / ``dispatch_case`` wiring builds a closed

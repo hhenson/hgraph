@@ -236,6 +236,7 @@ def test_keyed_child_response_survives_new_key_in_delivery_cycle(use_mesh):
         keyed_operator = hg.mesh_ if use_mesh else hg.map_
         return keyed_operator(per_key, values, selector)
 
-    # k2 arrives EXACTLY in k1's response-delivery cycle (t2).
+    # The direct response leg advances both deliveries by one cycle; the
+    # higher-order worklist must still keep each due child.
     assert eval_node(g, [{"k1": 8}, None, {"k2": -2}], ["alpha", None, None]) == [
-        {}, None, {"k1": 8}, None, {"k2": -2}]
+        {}, {"k1": 8}, {}, {"k2": -2}]

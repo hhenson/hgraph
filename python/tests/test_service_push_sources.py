@@ -19,6 +19,7 @@ and the one ``@service_impl`` case (kafka) needs a broker.
 """
 
 import datetime
+import queue
 import threading
 import time
 
@@ -148,6 +149,57 @@ def test_request_reply_service_impl_may_own_a_push_queue():
     for thread in threads:
         thread.join()
     assert collected == [55]
+
+
+def test_request_reply_from_to_graph_decouples_request_sink_and_response_source():
+    """The Kafka-style shape needs no artificial request/response feedback."""
+    collected = []
+    outbound = queue.Queue()
+    workers = []
+
+    @hg.request_reply_service
+    def exchange(value: TS[int], path: str = "exchange") -> TS[int]: ...
+
+    @hg.reference_service
+    def transport_ready(path: str = "exchange") -> TS[bool]: ...
+
+    @hg.push_queue(TSD[int, TS[int]])
+    def response_source(sender):
+        def respond():
+            # The graph runs for two seconds; leave additional headroom for a
+            # loaded CI worker without allowing a missing request to hang.
+            request_id, value = outbound.get(timeout=5.0)
+            sender({request_id: value + 100})
+
+        worker = threading.Thread(target=respond)
+        workers.append(worker)
+        worker.start()
+
+    @hg.sink_node
+    def request_sink(requests: TSD[int, TS[int]]) -> None:
+        for request_id, value in requests.modified_items():
+            if value.valid:
+                outbound.put((request_id, value.value))
+
+    @hg.service_impl(interfaces=(exchange, transport_ready))
+    def exchange_impl(path: str):
+        request_sink(hg.from_graph(exchange, path))
+        hg.to_graph(exchange, response_source(), path)
+        hg.to_graph(transport_ready, hg.const(True), path)
+
+    @hg.sink_node
+    def collect(value: TS[int]) -> None:
+        collected.append(value.value)
+
+    @graph
+    def live() -> None:
+        hg.register_service("exchange", exchange_impl)
+        collect(exchange(hg.const(7), path="exchange"))
+
+    _run(live)
+    for worker in workers:
+        worker.join()
+    assert collected == [107]
 
 
 def test_push_queue_inside_a_nested_graph_is_still_rejected():

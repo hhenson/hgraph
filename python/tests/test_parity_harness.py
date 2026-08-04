@@ -942,6 +942,47 @@ def test_mesh_empty_initial_fingerprint_is_pinned_and_suppressed(monkeypatch):
     assert not any(arguments[:2] == ["issue", "create"] for arguments in calls)
 
 
+def test_issue_175_rfc_14_timing_fingerprint_is_pinned():
+    from tools.parity.known import load_known_divergences
+
+    fingerprints, _families = load_known_divergences()
+    recipe = Recipe.load(
+        CORPUS / "issue-175-map-response-delivery-vs-new-key.json"
+    )
+    mapped = lambda entries: {"$map": entries}
+    reference = {
+        "status": "ok",
+        "trace": [
+            mapped([]),
+            None,
+            mapped([["k1", 8]]),
+            None,
+            mapped([["k2", -2]]),
+        ],
+    }
+    candidate = {
+        "status": "ok",
+        "trace": [
+            mapped([]),
+            mapped([["k1", 8]]),
+            mapped([]),
+            mapped([["k2", -2]]),
+        ],
+    }
+    difference = compare_outcomes(reference, candidate)
+    failure = {
+        "minimized_recipe": recipe.to_dict(),
+        "difference": difference.to_dict(),
+        "reference": reference,
+        "candidate": candidate,
+    }
+    fingerprint = failure_fingerprint(failure)
+    assert fingerprint == (
+        "70b8f025dfa3f8d634861689a9bdf0ca1ec3c46b0dccb6d8153d340f57e66fa1"
+    )
+    assert fingerprint in fingerprints
+
+
 def test_generated_key_set_recipes_avoid_ruled_no_tick_space():
     # The generator stays out of the ruled no-change space: dedup_size is
     # always true, the initial map is never empty, and no delta nets to no
@@ -1203,6 +1244,22 @@ def test_switch_flip_map_removal_relation_is_narrowly_bounded():
         )
 
     assert classify(reference, candidate)
+    earlier_candidate = [initial, candidate[1], response]
+    assert classify(reference, earlier_candidate)
+    # Only the single silent feedback cycle immediately after the flip may be
+    # removed; multiple-cycle shifts and altered earlier responses are defects.
+    assert not classify(
+        [initial, mapped([]), None, None, response],
+        earlier_candidate,
+    )
+    assert not classify(
+        reference,
+        [initial, candidate[1], mapped([["k1", 4], ["k2", 6]])],
+    )
+    assert not classify(
+        [initial, mapped([]), mapped([]), response],
+        earlier_candidate,
+    )
     # The removal must cover exactly every output live before the flip.
     assert not classify(
         reference,
@@ -1240,6 +1297,51 @@ def test_switch_flip_map_removal_relation_is_narrowly_bounded():
         },
     }
     assert not classify(reference, candidate, with_recipe=initial_alpha)
+
+
+def test_request_reply_one_cycle_earlier_relation_is_exact():
+    from tools.parity.known import (
+        is_known_family_failure,
+        load_known_divergences,
+        matches_known_family,
+    )
+
+    _fingerprints, families = load_known_divergences()
+    timing_families = [
+        family
+        for family in families
+        if family["family"] == "self-coupled-request-reply-one-cycle-earlier"
+    ]
+    assert len(timing_families) == 1
+    recipe = {
+        "template": "service_request_reply",
+        "inputs": {"value": [5, 7, None, 2]},
+        "parameters": {"increment": 3, "path": "requests"},
+    }
+    assert matches_known_family(recipe, timing_families)
+    ok = lambda trace: {"status": "ok", "trace": trace}
+
+    def classify(reference, candidate):
+        difference = compare_outcomes(ok(reference), ok(candidate))
+        assert difference is not None
+        return is_known_family_failure(
+            recipe,
+            difference.to_dict(),
+            ok(reference),
+            ok(candidate),
+            timing_families,
+        )
+
+    reference = [None, None, 8, 10, None, 5]
+    candidate = [None, 8, 10, None, 5]
+    assert classify(reference, candidate)
+    # Payload changes, interior-cycle removal, and multiple-cycle advances are
+    # not the RFC 0014 timing difference.
+    assert not classify(reference, [None, 8, 11, None, 5])
+    assert not classify(reference, [None, 8, 10, 5, None])
+    assert not classify(reference, [8, 10, None, 5])
+    # A trace without a response is not accepted merely because it is shorter.
+    assert not classify([None, None], [None])
 
 
 def test_nested_no_change_retick_family_is_elision_only():

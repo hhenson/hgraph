@@ -18,9 +18,24 @@
       "issue": "https://github.com/hhenson/hg_cpp/pull/67",
       "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst): a mesh over an initially empty key set emits no tick in hg_cpp where released hgraph ticks an empty map. Fingerprint pinned by test_parity_harness.py against the corpus recipe mesh-empty-initial-no-tick.",
       "review_after": "2027-07-26"
+    },
+    {
+      "fingerprint": "70b8f025dfa3f8d634861689a9bdf0ca1ec3c46b0dccb6d8153d340f57e66fa1",
+      "issue": "https://github.com/hhenson/hg_cpp/pull/270",
+      "reason": "RFC 0014 intentional timing difference composed with issue #175: the mapped request/reply response and the next outer-key event preserve their order and payloads but each occupies the preceding candidate output cycle after removal of the response-feedback boundary. The fixed corpus recipe and public map scheduling regressions continue to detect response loss or starvation.",
+      "review_after": "2027-08-04"
     }
   ],
   "families": [
+    {
+      "family": "self-coupled-request-reply-one-cycle-earlier",
+      "template": "service_request_reply",
+      "parameters_not_equal": {},
+      "relation": "request-reply-one-cycle-earlier",
+      "issue": "https://github.com/hhenson/hg_cpp/pull/270",
+      "reason": "RFC 0014 selects deferred-request/direct-response transport for the self-coupled request/reply template. Relative to released hgraph 0.5.34, hg_cpp removes exactly the leading silent response-feedback cycle while preserving every subsequent payload and silent cycle.",
+      "review_after": "2027-08-04"
+    },
     {
       "family": "key-set-size-no-retick",
       "template": "tsd_key_set_pipeline",
@@ -100,8 +115,8 @@
       "parameters_not_equal": {},
       "relation": "switch-flip-map-removal",
       "issue": "https://github.com/hhenson/hg_cpp/issues/105",
-      "reason": "Accepted map-validity deviation (issues #105/#117/#119/#133/#145, nested_graphs.rst): a beta-to-request-reply-alpha switch flip transiently invalidates the mapped child while the response is in flight. Released hgraph publishes an empty TSD delta and retains the stale element; hg_cpp removes every currently-live invalid child output so the map contains exactly its valid outputs, then republishes the response normally. Suppress only an all-live-key, removal-only candidate delta opposite the reference's canonical empty-map delta on the exact beta-to-alpha flip; all other ticks and payloads must match.",
-      "review_after": "2027-07-28"
+      "reason": "Accepted map-validity deviation (issues #105/#117/#119/#133/#145, nested_graphs.rst) composed with RFC 0014 timing: a beta-to-request-reply-alpha switch flip transiently invalidates the mapped child while the response is in flight. Released hgraph publishes an empty TSD delta and retains the stale element; hg_cpp removes every currently-live invalid child output so the map contains exactly its valid outputs. Suppress only an all-live-key, removal-only candidate delta opposite the reference's canonical empty-map delta on the exact beta-to-alpha flip, plus at most the single silent response-feedback cycle removed immediately afterward by RFC 0014; the earlier response and every other payload must match.",
+      "review_after": "2027-08-04"
     }
   ]
 }

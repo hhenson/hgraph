@@ -152,9 +152,10 @@ inserting a cycle of latency. Nothing in this tree relies on it. If a concrete
 use emerges, the answer is an explicit opt-in rather than restoring the implicit
 next-cycle behaviour for everyone.
 
-**Reply-full request/reply is untouched.** Its rank-freedom and response
-feedback are exactly what make recursive request/reply legal, and
-``test_service_wiring.cpp`` pins that behaviour.
+**Reply-full request/reply was outside this RFC.** RFC 0014 subsequently
+replaced its unconditional full-feedback transport with automatic planning,
+while retaining full feedback for service-dependent and recursive
+implementations.
 
 Alternatives considered
 -----------------------
@@ -246,5 +247,7 @@ References
 * :doc:`rfc_0011_source_only_adaptor_collapse` — the unified boundary model this
   extends, and whose "explicitly out of scope" note this supersedes for the
   reply-less case.
+* :doc:`rfc_0014_request_reply_transport_planning` — the later automatic
+  transport selection for reply-full services.
 * ``docs/source/developer_guide/services.rst`` — the scheduling matrix
   distinguishing same-cycle relays from next-cycle request stubs.

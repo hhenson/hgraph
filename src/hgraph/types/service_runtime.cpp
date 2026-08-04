@@ -3,6 +3,7 @@
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/adaptor_wiring.h>
+#include <hgraph/types/request_reply_transport.h>
 #include <hgraph/types/service_wiring.h>
 
 #include <unordered_set>
@@ -545,38 +546,32 @@ namespace hgraph
         WiringPortRef requests = request_input_source_node(w, descriptor, request_path);
         w.register_service_rank_anchor(request_path, requests.peered_node());
 
-        // A REPLY-LESS service is a keyed sink: there is no response, hence no
-        // response feedback edge, hence no request/reply cycle to permit. It
-        // therefore takes the ranked same-cycle relay, like a sink-only
-        // adaptor, and the implementation observes a request in the cycle the
-        // client sent it rather than the next one (RFC 0012). A service WITH a
-        // response keeps the rank-free path below: that is what makes
-        // recursive request/reply legal, and its ordering comes from the
-        // feedback edge instead.
+        // A REPLY-LESS service is a keyed sink and takes the ranked same-cycle
+        // relay (RFC 0012). Reply-full clients are deferred until their
+        // implementation has materialized so RFC 0014 can choose the least
+        // costly transport that preserves its dependency cycles.
         const bool reply_less = descriptor.response_schema == nullptr;
-
-        WiringPortRef adapted_request = graph_wiring_detail::adapt_source_for_input(
-            w, descriptor.request_schema, request);
-        std::array<WiringPortRef, 3>  sources{std::move(adapted_request), requests, request_id};
-        std::array<WiringInputRef, 3> inputs{{
-            WiringInputRef{.source = sources[0]},
-            // Never a rank dependency: the capture must not wait on the source
-            // it feeds. Ordering comes from the reply-less service-client rank
-            // below or from the response feedback edge (reply-full).
-            WiringInputRef{.source = sources[1], .rank_dependency = false},
-            WiringInputRef{.source = sources[2]},
-        }};
-        NodeBuilder builder = make_request_input_capture_node(
-            request_path, *descriptor.request_schema, /*same_cycle=*/reply_less);
-        builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
-            builder.type().schema()->input_schema,
-            std::span<const WiringPortRef>{sources.data(), sources.size()}));
-        WiringPortRef capture = w.add_node(
-            std::type_index(typeid(service::detail::request_input_capture_marker)), std::move(builder),
-            std::span<const WiringInputRef>{inputs.data(), inputs.size()}, Value{});
 
         if (reply_less)
         {
+            WiringPortRef adapted_request = graph_wiring_detail::adapt_source_for_input(
+                w, descriptor.request_schema, request);
+            std::array<WiringPortRef, 3> sources{
+                std::move(adapted_request), requests, request_id};
+            std::array<WiringInputRef, 3> inputs{{
+                WiringInputRef{.source = sources[0]},
+                WiringInputRef{.source = sources[1], .rank_dependency = false},
+                WiringInputRef{.source = sources[2]},
+            }};
+            NodeBuilder builder = make_request_input_capture_node(
+                request_path, *descriptor.request_schema, true);
+            builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
+                builder.type().schema()->input_schema,
+                std::span<const WiringPortRef>{sources.data(), sources.size()}));
+            WiringPortRef capture = w.add_node(
+                std::type_index(typeid(service::detail::request_input_capture_marker)),
+                std::move(builder),
+                std::span<const WiringInputRef>{inputs.data(), inputs.size()}, Value{});
             // A reply-less client is a sending boundary, like a sink-only
             // adaptor. At the root the capture ranks before the request source.
             // A dynamically-started nested capture retains the runtime's
@@ -587,6 +582,19 @@ namespace hgraph
         }
 
         WiringPortRef replies = reply_output_source_node(w, descriptor, replies_path);
+        WiringPortRef adapted_request = graph_wiring_detail::adapt_source_for_input(
+            w, descriptor.request_schema, request);
+        request_reply_transport::defer_client(
+            w,
+            base,
+            request_path,
+            replies_path,
+            *descriptor.request_schema,
+            std::move(adapted_request),
+            requests,
+            request_id,
+            replies,
+            std::type_index(typeid(service::detail::request_input_capture_marker)));
 
         WiringPortRef dict = replies;
         dict.schema        = TypeRegistry::instance().tsd(scalar_descriptor<Int>::value_meta(),
@@ -627,9 +635,10 @@ namespace hgraph
                 std::array<WiringPortRef, 1> transport{requests};
                 const auto impl_inputs = combine_impl_inputs(
                     *descriptor_ptr, impl, transport, stored_inputs);
-                WiringPortRef output = wire_impl(target, *descriptor_ptr, impl, impl_inputs);
                 if (descriptor_ptr->response_schema == nullptr)
                 {
+                    WiringPortRef output = wire_impl(
+                        target, *descriptor_ptr, impl, impl_inputs);
                     if (output.schema != nullptr)
                     {
                         throw std::invalid_argument("reply-less service '" + descriptor_ptr->name +
@@ -637,16 +646,26 @@ namespace hgraph
                     }
                     return;
                 }
+                auto scope = target.service_implementation_scope(
+                    "request/reply service " + requested_base,
+                    std::vector<WiringServiceImplementationEndpoint>{}, false);
+                request_reply_transport::register_implementation_input(
+                    target, requested_base, requests.peered_node());
+                WiringPortRef output = wire_impl(
+                    target, *descriptor_ptr, impl, impl_inputs);
                 WiringPortRef replies = reply_output_source_node(target, *descriptor_ptr, replies_path);
                 const auto *dict_meta = TypeRegistry::instance().tsd(
                     scalar_descriptor<Int>::value_meta(), descriptor_ptr->response_schema);
                 output = describe_service_output(*descriptor_ptr, dict_meta, std::move(output));
-                output = service::detail::request_reply_response_feedback(
-                    target, std::move(output), *dict_meta);
-                const WiringInstance *capture = shared_output_capture_node(
-                    target, std::type_index(typeid(service::detail::request_reply_output_capture_marker)),
-                    dict_meta, replies_path, output, replies);
-                target.register_service_rank_anchor(replies_path, capture);
+                request_reply_transport::defer_implementation_output(
+                    target,
+                    requested_base,
+                    replies_path,
+                    *dict_meta,
+                    std::move(output),
+                    std::move(replies),
+                    std::type_index(typeid(service::detail::request_reply_output_capture_marker)));
+                scope.complete();
             };
         if (default_fallback)
         {
@@ -741,10 +760,16 @@ namespace hgraph
                 return source;
             }
             case ServiceFlavour::RequestReply: {
-                const std::string endpoint = request_reply_base(descriptor, path) + "/request";
+                const std::string base = request_reply_base(descriptor, path);
+                const std::string endpoint = base + "/request";
                 w.register_service_implementation_stub(endpoint, "request/reply service");
                 WiringPortRef source = request_input_source_node(w, descriptor, endpoint);
                 w.register_service_rank_anchor(endpoint, source.peered_node());
+                if (descriptor.response_schema != nullptr)
+                {
+                    request_reply_transport::register_implementation_input(
+                        w, base, source.peered_node());
+                }
                 return source;
             }
             case ServiceFlavour::ServiceAdaptor:
@@ -792,17 +817,20 @@ namespace hgraph
                     throw std::invalid_argument("reply-less service '" + descriptor.name +
                                                 "' has no implementation output");
                 }
-                const std::string endpoint = request_reply_base(descriptor, path) + "/replies";
+                const std::string base = request_reply_base(descriptor, path);
+                const std::string endpoint = base + "/replies";
                 w.register_service_implementation_stub(endpoint, "request/reply service");
                 WiringPortRef shared = reply_output_source_node(w, descriptor, endpoint);
                 const auto *dict_meta = TypeRegistry::instance().tsd(scalar_descriptor<Int>::value_meta(),
                                                                      descriptor.response_schema);
-                WiringPortRef feedback = service::detail::request_reply_response_feedback(
-                    w, out, *dict_meta);
-                const WiringInstance *capture = shared_output_capture_node(
-                    w, std::type_index(typeid(service::detail::request_reply_output_capture_marker)),
-                    dict_meta, endpoint, feedback, shared);
-                w.register_service_rank_anchor(endpoint, capture);
+                request_reply_transport::defer_implementation_output(
+                    w,
+                    base,
+                    endpoint,
+                    *dict_meta,
+                    out,
+                    std::move(shared),
+                    std::type_index(typeid(service::detail::request_reply_output_capture_marker)));
                 return;
             }
             case ServiceFlavour::ServiceAdaptor:

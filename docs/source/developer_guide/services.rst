@@ -21,8 +21,11 @@ and ``include/hgraph/runtime/context_node.h`` (the shared primitive). Tests:
 The boundary model (design decisions)
 -------------------------------------
 
-Everything on this page is built from one runtime shape — a **feedback-style
-source/capture pair** — applied with different payloads:
+Everything on this page is built from one runtime shape — a boundary
+**source/capture pair** — applied with different payloads. Some pairs are
+ranked for same-cycle delivery, some deliberately defer delivery, and an
+actual feedback pair is retained only where it is needed to break a dependency
+cycle:
 
 .. mermaid::
 
@@ -81,13 +84,42 @@ source/capture pair** — applied with different payloads:
     Python's keyed-child lifecycle and preventing cached values from leaking on
     re-add. A client joining a key that another client has kept live samples the
     existing value immediately.
-  - **Request/reply requests** forward **next cycle** *when the service declares
-    a response*: the pairing is rank-free (no rank dependency), and the capture
-    schedules the service source for ``evaluation_time + MIN_TD`` (current time
-    during ``start``). The temporal request mutation does not run the
-    implementation in the capture cycle. A request/reply input source retains
-    its earliest outstanding publication time, so a later request cannot
-    postpone work that is already due.
+  - **Reply-full request/reply transport is selected automatically after lazy
+    implementation materialization and before ranking.** There is no user flag
+    and no per-tick policy branch:
+
+    .. list-table::
+       :header-rows: 1
+       :widths: 30 24 24 22
+
+       * - Implementation shape
+         - Request relay
+         - Response relay
+         - Engine latency
+       * - Decoupled request sink and response source
+         - ranked, same cycle
+         - ranked, same cycle
+         - none
+       * - Response causally depends on its own request input
+         - next cycle
+         - ranked, same cycle
+         - one cycle
+       * - Calls another service or adaptor
+         - next cycle
+         - feedback, then same cycle
+         - two cycles
+
+    The decoupled form is the external-transport shape: requests may flow to a
+    Kafka or network sink while correlated replies arrive through a push
+    source. The response graph has no causal path from the service request
+    source, so neither side needs an artificial delay. A self-contained graph
+    whose output is driven by its request input defers only that input, which
+    breaks the direct dependency cycle while allowing the resulting response
+    to publish immediately. Calling any service or adaptor from the active
+    implementation conservatively retains the full two-boundary form because
+    the referenced implementation may close a cycle. A deferred request source
+    retains its earliest outstanding publication time, so a later request
+    cannot postpone work that is already due.
   - **A reply-less request/reply service forwards in the owning capture
     cycle.** With no response there is no response feedback edge, hence no
     request/reply cycle for the rank-free path to permit. A root client is
@@ -101,11 +133,12 @@ source/capture pair** — applied with different payloads:
     Both timings match released hgraph. A root dependency cycle through a
     reply-less service is reported at wiring time rather than being silently
     broken by a cycle boundary.
-  - **Request/reply responses** cross an explicit feedback source/sink pair in
-    the graph that owns the implementation, then publish through the ordinary
-    same-cycle shared-output relay. Reply-full request/reply clients are omitted
-    from indirect service ranking, so recursive request/reply calls are legal.
-    No nested client or higher-order operator constructs this feedback path.
+  - **Nested request/reply clients** keep the existing lifecycle hand-off. A
+    dynamically started child cannot safely schedule an outer request source
+    whose rank may already have passed, so its request reaches the owning graph
+    on the following cycle even when the selected root transport is direct.
+    Higher-order operators do not construct response feedback themselves; the
+    owning implementation's one selected plan remains authoritative.
 - **Lifecycle:** the source clears its captured state on ``stop``. A restarted
   graph must republish through capture before the source can produce a live
   shared output.
@@ -147,10 +180,11 @@ The per-flavour payloads:
   the same source mutation, so the request delta is **cumulative**
   (``make_request_input_source_node`` / ``make_request_input_capture_node``;
   proven by "request/reply source emits cumulative client requests" in
-  ``test_service_wiring.cpp``). The implementation output is captured by an
-  outer-graph feedback sink and replayed on the following cycle before the
-  keyed shared response is published. A direct request therefore has Python's
-  observable sequence ``[None, None, response]``.
+  ``test_service_wiring.cpp``). The implementation output is published using
+  the transport plan above. A self-coupled implementation therefore has the
+  observable sequence ``[None, response]``; a service/adaptor-dependent or
+  recursive implementation retains ``[None, None, response]``; and a truly
+  decoupled external response can arrive without an engine-imposed cycle.
 
 Related decision recorded with this layer: real-time wall-clock scheduler
 alarms use the normal graph schedule queue — ``NodeScheduler(...,
@@ -393,6 +427,14 @@ Genuine nested children are unaffected: a push source inside a
 child is still rejected, because a graph with a push prefix never gets a nested
 graph type interned (``GraphBuilder::nested_type()``). See :doc:`nested_graphs`.
 
+Reply-full request/reply transport planning also relies on this inlining. Once
+all demanded implementations have materialized, wiring can inspect the actual
+native dependency graph rather than infer behavior from a decorator or an API
+signature. ``impl_input``/``from_graph`` records the implementation's request
+source, ``impl_output``/``to_graph`` records its response, and the planner
+selects one immutable transport before ranks are built. The Python decorators
+use this same erased C++ path; Python does not repeat the analysis.
+
 
 The service and adaptor surfaces are one boundary model
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -427,11 +469,13 @@ The two concepts are **disjoint**: a source-only adaptor once satisfied both
 types, detected through a structural tag so ``service_wiring.h`` stays
 independent of ``adaptor_wiring.h``.
 
-Which spelling to choose is a question of intent, not capability: an **adaptor**
-says "this boundary talks to the outside world", a **service** says "this value
-is provided to whoever asks". A source-only adaptor and a reference service
-describe the same wiring; prefer the reference service unless the external-world
-framing is the point.
+For new code, prefer a service whenever its contract fits. A reference service
+covers source-only publication, a reply-less request/reply service covers a
+keyed sink, and a reply-full request/reply service now covers a correlated
+external exchange without imposing feedback on a decoupled implementation.
+The plain adaptor spelling remains useful for an unkeyed merged stream or for
+compatibility with existing adaptor APIs; it is no longer required merely to
+obtain the direct external-transport path.
 
 Adaptors
 --------
@@ -616,9 +660,10 @@ second implementation for the same service kind + path throws
 reads the implementation output by reference (no copy); paths keep shared
 outputs separate; a subscription client's key transitions reach the
 implementation in order and the response flows back keyed with Python timing;
-request/reply replies cross the outer feedback edge and remain keyed by the
-client's request id; two clients' requests reach the implementation as one
-cumulative delta.
+request/reply replies remain keyed by the client's request id; decoupled,
+self-coupled, and service-dependent implementations select direct,
+request-deferred, and full-feedback transport respectively; two clients'
+requests reach the implementation as one cumulative delta.
 
 
 How a client expression lowers

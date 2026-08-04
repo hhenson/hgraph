@@ -855,6 +855,22 @@ namespace hgraph
         void retain_extension_state(std::shared_ptr<void> state);
 
         /**
+         * Return wiring-lifetime state for ``key``, creating it once on first
+         * use. Native wiring extensions use this to share planning state
+         * without process globals; the state is owned by this Wiring.
+         */
+        [[nodiscard]] std::shared_ptr<void> acquire_extension_state(
+            std::type_index key,
+            std::function<std::shared_ptr<void>()> create);
+
+        /** Register an idempotent extension finalizer run after lazy service
+         *  materialization and before rank dependencies are applied. */
+        void register_pre_rank_finalizer(std::function<void(Wiring &)> finalizer);
+
+        /** Whether this wiring is a root graph or an isolated child graph. */
+        [[nodiscard]] WiringKind kind() const noexcept;
+
+        /**
          * Intern a node with its input edges + scalar configuration and return its
          * output port. ``def`` is the node *definition's* stable identity
          * (``typeid(T)`` for a C++ static node) — two calls with the same ``def``,
@@ -982,6 +998,14 @@ namespace hgraph
         [[nodiscard]] std::vector<std::pair<std::string, std::string>>
         built_service_paths() const;
         [[nodiscard]] std::string_view service_materialization_path() const noexcept;
+
+        /**
+         * Stable state for the active implementation scope. Service/adaptor
+         * client registration flips the value to true. Consumers may retain
+         * the handle until pre-rank finalization, after the scope has closed.
+         */
+        [[nodiscard]] std::shared_ptr<const bool>
+        service_implementation_boundary_dependency() const;
 
         /**
          * RAII wrapper for implementation-owned service/adaptor stub scopes.
@@ -1158,6 +1182,7 @@ namespace hgraph
         [[nodiscard]] WiringScopeEvent begin_observation(WiringScopeEvent event);
         void end_observation(const WiringScopeEvent &event, std::string_view error);
         void apply_service_rank_dependencies();
+        void finalize_extensions();
         /** Shared body of finish()/snapshot(): validate + rank + build; the
             wiring GlobalState is moved when consuming, copied otherwise. */
         [[nodiscard]] GraphBuilder finish_top_level(bool consume_state);

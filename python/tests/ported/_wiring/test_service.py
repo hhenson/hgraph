@@ -277,8 +277,8 @@ def test_specialized_numeric_request_reply_services_use_native_exchange():
         hg.register_service("adjust", float_adjust_impl)
         return float_adjust(value, path="adjust")
 
-    assert eval_node(integer_client, [1], __end_time__=hg.MIN_ST + 3 * hg.MIN_TD) == [None, None, 2]
-    assert eval_node(float_client, [1.5], __end_time__=hg.MIN_ST + 3 * hg.MIN_TD) == [None, None, 2.0]
+    assert eval_node(integer_client, [1], __end_time__=hg.MIN_ST + 3 * hg.MIN_TD) == [None, 2]
+    assert eval_node(float_client, [1.5], __end_time__=hg.MIN_ST + 3 * hg.MIN_TD) == [None, 2.0]
 
 
 def test_request_reply_accepts_positional_path_and_multiple_requests():
@@ -298,7 +298,7 @@ def test_request_reply_accepts_positional_path_and_multiple_requests():
 
     assert eval_node(
         client, [1], [2], __end_time__=hg.MIN_ST + 3 * hg.MIN_TD,
-    ) == [None, None, 3]
+    ) == [None, 3]
 
 
 def test_replyless_request_reply_service_captures_requests():
@@ -349,7 +349,7 @@ def test_higher_order_child_calls_outer_request_reply_service(higher_order):
         client,
         [{1: 10, 2: 20}],
         __end_time__=hg.MIN_ST + 6 * hg.MIN_TD,
-    ) == [{}, None, {1: 12, 2: 22}]
+    ) == [{}, {1: 12, 2: 22}]
 
 
 def test_mapped_subscription_result_uses_the_declared_value_schema():
