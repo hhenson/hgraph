@@ -60,6 +60,7 @@ def test_multi_interface_service_flavours_are_order_independent(order):
         "s": price, "S": premium_price,
         "q": adjust, "Q": adjust_ten,
     }
+    result_type = hg.TSL[hg.TS[int], hg.Size[len(order)]]
     compositions = []
 
     @hg.service_impl(interfaces=tuple(by_flavour[item] for item in order))
@@ -96,7 +97,7 @@ def test_multi_interface_service_flavours_are_order_independent(order):
                 )
 
     @graph
-    def app(key: TS[int], request: TS[int]) -> TS[int]:
+    def app(key: TS[int], request: TS[int]) -> result_type:
         hg.register_service("mixed", impl)
         clients = []
         for flavour in order:
@@ -112,19 +113,26 @@ def test_multi_interface_service_flavours_are_order_independent(order):
                 clients.append(adjust(request, path="mixed"))
             else:
                 clients.append(adjust_ten(request, path="mixed"))
-        result = clients[0]
-        for client in clients[1:]:
-            result = result + client
-        return result
+        return hg.combine[result_type](*clients)
 
-    expected = sum(
-        {"r": 10, "R": 11, "s": 20, "S": 21, "q": 8, "Q": 17}[item]
-        for item in order
-    )
-    expected_trace = (
-        [None, expected] if any(item in "sSqQ" for item in order)
-        else [expected]
-    )
+    expected_values = {"r": 10, "R": 11, "s": 20, "S": 21, "q": 8, "Q": 17}
+    reference_delta = {
+        index: expected_values[item]
+        for index, item in enumerate(order)
+        if item in "rR"
+    }
+    keyed_delta = {
+        index: expected_values[item]
+        for index, item in enumerate(order)
+        if item in "sSqQ"
+    }
+    expected_trace = []
+    if reference_delta:
+        expected_trace.append(reference_delta)
+    elif keyed_delta:
+        expected_trace.append(None)
+    if keyed_delta:
+        expected_trace.append(keyed_delta)
     assert eval_node(
         app, [2], [7], __end_time__=hg.MIN_ST + 6 * hg.MIN_TD,
     ) == expected_trace
