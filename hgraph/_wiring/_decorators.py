@@ -176,10 +176,19 @@ def compute_node(
     function will be called. If set, then only the nodes that are listed are included in the guard. When using this the
     function is required to test if an input is valid when not explicitly listed.
 
-    `all_valid`, when not specified, is defaulted to not requiring the inputs to be all valid. For collection time-series
-    values such as: TSB, TSD, and TSL; if any of the elements are valid, then the collection is marked as valid.
-    However, there are times when you want to ensure all inputs of a collection are valid, in this case mark the inputs
-    in the all_valid clause. This will ensure the function is only evaluated when this state is true.
+    `all_valid`, when not specified, is defaulted to not requiring the inputs to be all valid. For a TSL or a TSB, if
+    any of the elements are valid then the collection is marked as valid. However, there are times when you want to
+    ensure all elements of the collection are valid, in this case mark the inputs in the all_valid clause. This will
+    ensure the function is only evaluated when this state is true.
+
+    `all_valid` is only distinct from `valid` for TSL and TSB (and for TSW, where it additionally requires the buffer
+    to have reached its min_size). For TS, TSD and TSS, `all_valid` is defined as `valid`, so listing such an input
+    adds a cost without adding a constraint. Note also that the check does not recurse: a collection asks its elements
+    for `valid`, not for `all_valid`.
+
+    Be aware of the cost. The check is not cached and is re-evaluated on every evaluation of the node, for the life of
+    the graph, walking the collection's elements each time. On a large collection attached to a frequently ticking
+    node this is not free; only ask for it where the constraint is genuinely required.
 
     The `overload` argument allows the node to be marked as implementing an `operator`, see help on the :func:`operator`
     decorator for more information.

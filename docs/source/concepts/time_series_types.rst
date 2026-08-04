@@ -200,14 +200,94 @@ In tick 1 ``a`` is not yet valid at all (``a.valid`` is ``False``, and reading
 ``a.value`` is not meaningful). From tick 2 onwards ``a`` is valid for the rest of
 the run, but it is only ``modified`` in the cycle it actually ticked.
 
-The ``all_valid`` flag is ``True`` when all inputs / outputs of a collection
+The ``all_valid`` flag is ``True`` when all the elements of a collection
 type are valid, for example in a TSL (time-series list), it is possible that
 only some of the elements in the list could be valid and others not yet
-valid. The ``all_valid`` property ensures that each input is valid. This
+valid. The ``all_valid`` property ensures that each element is valid. This
 is a stronger requirement then ``valid`` which becomes true as soon as at
-least one element becomes valid. Checking for ``all_valid`` is potentially
-a very expensive operation and as such should only be used when this
-constraint is actually required to be enforced.
+least one element becomes valid.
+
+Where ``all_valid`` differs from ``valid``
+..........................................
+
+The distinction only exists for the types that are made up of independently
+ticking elements, which is to say ``TSL`` and ``TSB``. Everywhere else
+``all_valid`` is defined as ``valid``, and asking for it buys you nothing:
+
+.. list-table::
+    :header-rows: 1
+    :widths: 20 80
+
+    * - Type
+      - ``all_valid``
+    * - ``TS``
+      - Same as ``valid``. A single value is either set or it is not.
+    * - ``TSL``, ``TSB``
+      - ``valid`` **and** every element valid. This is the case worth using.
+    * - ``TSD``
+      - Same as ``valid``. A key only exists once it has a value, so there is
+        no partially populated state to detect.
+    * - ``TSS``
+      - Same as ``valid``. The set holds scalars, not time-series.
+    * - ``TSW``
+      - ``valid`` **and** the buffer has reached its ``min_size``. Useful, but
+        it means something different to the collection case.
+
+It follows that ``all_valid`` on a ``TS``, ``TSD`` or ``TSS`` input is not a
+stricter guard, it is the same guard written the long way:
+
+.. testcode::
+
+    from hgraph import compute_node, TS, TSD, TSS
+    from hgraph.test import eval_node
+    from frozendict import frozendict as fd
+
+    @compute_node(valid=tuple())
+    def same(ts: TS[int], tsd: TSD[str, TS[int]], tss: TSS[int]) -> TS[bool]:
+        return all(x.valid == x.all_valid for x in (ts, tsd, tss))
+
+    assert eval_node(same, [1], [fd(k=1)], [frozenset({1})]) == [True]
+
+.. warning:: The check is one level deep, it does **not** recurse. A collection
+             asks each of its elements for ``valid``, not for ``all_valid``, so
+             a partially populated collection nested inside another does not
+             make the outer one ``all_valid``-false. This surprises people, as
+             the name suggests otherwise.
+
+The example below demonstrates this. Each inner list has had only its first
+element set, so each is ``valid`` but not ``all_valid``; the outer list is
+nevertheless ``all_valid`` because it only asks its elements for ``valid``:
+
+.. testcode::
+
+    from hgraph import compute_node, TSL, TS, Size
+    from hgraph.test import eval_node
+
+    @compute_node(valid=tuple())
+    def nested(x: TSL[TSL[TS[int], Size[2]], Size[2]]) -> TS[str]:
+        return f"outer={x.all_valid} inner0={x[0].all_valid} inner1={x[1].all_valid}"
+
+    assert eval_node(nested, [{0: {0: 1}, 1: {0: 2}}]) == [
+        "outer=True inner0=False inner1=False",
+    ]
+
+If you need the nested guarantee, check it explicitly in the body.
+
+The cost
+........
+
+``all_valid`` is not cached and it is not a one-off gate. When declared as a
+node pre-condition it is re-evaluated on **every** evaluation of that node, for
+the life of the graph, including long after the condition has been satisfied
+and can no longer become false. Each evaluation walks the collection's elements,
+so the cost is proportional to the size of the collection, paid per engine cycle
+in which the node is scheduled.
+
+For a ``TSL[..., Size[2]]`` that is irrelevant. For a large ``TSB``, on a node
+that ticks frequently, it is not. Only ask for ``all_valid`` when the constraint
+is actually required; where a node simply needs to wait for a collection to fill
+up once, it is usually cheaper to check in the body and make the input passive,
+or to gate the subgraph, than to pay the scan on every cycle.
 
 To make the difference concrete, take a ``TSL[TS[int], Size[2]]`` where only the
 first element has ever ticked. The list as a whole is ``valid``, because one of its

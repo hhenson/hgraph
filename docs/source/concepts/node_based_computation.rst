@@ -250,8 +250,15 @@ valid
 all_valid
     The tuple of inputs names that are to be checked to ensure that they are marked as being all_valid. If set to None,
     no inputs are considered. This is similar to the valid, but the check is stronger. All valid requires that each
-    element of the input is valid and not just any element. This is a more expensive check, ensure that it is necessary
-    before using this constraint.
+    element of the input is valid and not just any element.
+
+    This is only a stronger check for the types built out of independently ticking elements, namely ``TSL`` and ``TSB``
+    (and ``TSW``, where it also requires the buffer to have reached its ``min_size``). For ``TS``, ``TSD`` and ``TSS``,
+    ``all_valid`` is defined as ``valid``, so naming such an input here costs something and constrains nothing.
+
+    The check is also more expensive than it looks: it is not cached, and it is re-run on every evaluation of the node
+    for the life of the graph, scanning the collection's elements each time, long after the condition can no longer
+    become false. Ensure it is necessary before using this constraint. See :doc:`time_series_types` for the details.
 
 It is also possible for the user to programmatically update the active / passive state of an input, by calling the
 ``make_active`` / ``make_passive`` methods on the input.
