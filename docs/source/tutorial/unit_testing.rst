@@ -38,9 +38,9 @@ values, each value produces a "tick" to the function. The output is the collecte
 
 The ``eval_node`` function runs in SIMULATION mode and by default will start at ``MIN_ST`` (the constant defining the first
 possible start time, which is currently 1970-01-01 00:00:00.000001). Each entry in the list will be introduced to the
-graph in ``MIN_TD`` increments (in Python this is 1 microsecond intervals). If no tick is expected to be produced, use ``None``
-to indicate this. Also, by default, the results are collected into a list at ``MIN_TD`` increments. When nothing changed
-a ``None`` will be placed in the output list.
+graph in ``MIN_TD`` increments (in Python this is 1 microsecond intervals). If no tick is expected to be
+produced, use ``None`` to indicate this. Also, by default, the results are collected into a list at ``MIN_TD``
+increments. When nothing changed a ``None`` will be placed in the output list.
 
 For example:
 
@@ -91,7 +91,8 @@ why. The ``__trace__`` parameter will create a trace of each step the graph take
 life-cycle events such as graphs and nodes being started, evaluated, and stopped.
 
 During evaluation it is possible to see which nodes are evaluated, what inputs are marked as modified along with the
-input value and the result produced (if any result is produced). This can help to identify why a particular issue arises. However, this is very detailed and can be a bit overwhelming in complicated scenarios.
+input value and the result produced (if any result is produced). This can help to identify why a particular
+issue arises, though the output is very detailed and can be a bit overwhelming in complicated scenarios.
 
 Using these options just requires setting the attributes to True.
 

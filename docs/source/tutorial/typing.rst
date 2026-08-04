@@ -95,8 +95,8 @@ The downcast allows a type to be re-cast to a child type, for example:
 
 This may seem a bit strange, since we supply a datetime instance to start with. But in Python
 datetime is an instance of date, thus the type checking logic correctly accepts the datetime
-instance as a date. But if we got rid of the ``downcast_`` operator the graph would complain, as ``TS[date]`` is not a ``TS[datetime]``
-as far as the type system is concerned.
+instance as a date. But if we got rid of the ``downcast_`` operator the graph would complain, as ``TS[date]``
+is not a ``TS[datetime]`` as far as the type system is concerned.
 
 Additionally if we supplied a date as an input, the downcast would raise an assertion error.
 

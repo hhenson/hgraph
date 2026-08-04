@@ -167,7 +167,8 @@ To change the validation behaviour, the decorator option ``valid`` is set to be 
 node to ignore validation checks before calling the wrapped function. This means that one of the inputs could be unset,
 i.e. having no valid value when the function is called. It is now the function's responsibility to handle that possible
 scenario, which is where the additional logic comes in. Here we ask the time-series if it is valid, if it is we use
-the value, otherwise we provide a default. In the general case your code needs to correctly handle the case where an input could be invalid. The ``valid`` takes a tuple of values, we used an empty tuple to indicate we require none of the
+the value, otherwise we provide a default. In the general case your code needs to correctly handle the case where
+an input could be invalid. The ``valid`` takes a tuple of values, we used an empty tuple to indicate we require none of the
 inputs to be valid, but it is possible to indicate a subset of time-series inputs must be valid, this depends on your
 use-case.
 
