@@ -1000,6 +1000,39 @@ namespace hgraph
 
     namespace container_ops_detail
     {
+        [[nodiscard]] bool compact_accepts_source(
+            const void *, ValueTypeRef binding, ValueTypeRef source) noexcept;
+        void compact_list_copy_assign_from(
+            const void *, ValueTypeRef binding, void *dst,
+            ValueTypeRef source, const void *src);
+        void compact_list_move_assign_from(
+            const void *, ValueTypeRef binding, void *dst,
+            ValueTypeRef source, void *src);
+        void compact_set_copy_assign_from(
+            const void *, ValueTypeRef binding, void *dst,
+            ValueTypeRef source, const void *src);
+        void compact_set_move_assign_from(
+            const void *, ValueTypeRef binding, void *dst,
+            ValueTypeRef source, void *src);
+        void compact_map_copy_assign_from(
+            const void *, ValueTypeRef binding, void *dst,
+            ValueTypeRef source, const void *src);
+        void compact_map_move_assign_from(
+            const void *, ValueTypeRef binding, void *dst,
+            ValueTypeRef source, void *src);
+        void compact_cyclic_buffer_copy_assign_from(
+            const void *, ValueTypeRef binding, void *dst,
+            ValueTypeRef source, const void *src);
+        void compact_cyclic_buffer_move_assign_from(
+            const void *, ValueTypeRef binding, void *dst,
+            ValueTypeRef source, void *src);
+        void compact_queue_copy_assign_from(
+            const void *, ValueTypeRef binding, void *dst,
+            ValueTypeRef source, const void *src);
+        void compact_queue_move_assign_from(
+            const void *, ValueTypeRef binding, void *dst,
+            ValueTypeRef source, void *src);
+
         template <typename Storage>
         [[nodiscard]] DynamicStorageMetrics compact_dynamic_storage_metrics(
             const void *, const void *memory) noexcept
@@ -1052,6 +1085,9 @@ namespace hgraph
                 };
                 value.dynamic_storage_metrics_impl =
                     &compact_dynamic_storage_metrics<ListStorage>;
+                value.accepts_source_impl = &compact_accepts_source;
+                value.copy_assign_from_impl = &compact_list_copy_assign_from;
+                value.move_assign_from_impl = &compact_list_move_assign_from;
                 return value;
             }();
             return ops;
@@ -1091,6 +1127,11 @@ namespace hgraph
             };
             value.dynamic_storage_metrics_impl =
                 &container_ops_detail::compact_dynamic_storage_metrics<SetStorage>;
+            value.accepts_source_impl = &container_ops_detail::compact_accepts_source;
+            value.copy_assign_from_impl =
+                &container_ops_detail::compact_set_copy_assign_from;
+            value.move_assign_from_impl =
+                &container_ops_detail::compact_set_move_assign_from;
             return value;
         }();
         return ops;
@@ -1146,6 +1187,11 @@ namespace hgraph
             };
             value.dynamic_storage_metrics_impl =
                 &container_ops_detail::compact_dynamic_storage_metrics<MapStorage>;
+            value.accepts_source_impl = &container_ops_detail::compact_accepts_source;
+            value.copy_assign_from_impl =
+                &container_ops_detail::compact_map_copy_assign_from;
+            value.move_assign_from_impl =
+                &container_ops_detail::compact_map_move_assign_from;
             return value;
         }();
         return ops;
@@ -1179,6 +1225,11 @@ namespace hgraph
             };
             value.dynamic_storage_metrics_impl =
                 &container_ops_detail::compact_dynamic_storage_metrics<CyclicBufferStorage>;
+            value.accepts_source_impl = &container_ops_detail::compact_accepts_source;
+            value.copy_assign_from_impl =
+                &container_ops_detail::compact_cyclic_buffer_copy_assign_from;
+            value.move_assign_from_impl =
+                &container_ops_detail::compact_cyclic_buffer_move_assign_from;
             return value;
         }();
         return ops;
@@ -1212,6 +1263,11 @@ namespace hgraph
             };
             value.dynamic_storage_metrics_impl =
                 &container_ops_detail::compact_dynamic_storage_metrics<QueueStorage>;
+            value.accepts_source_impl = &container_ops_detail::compact_accepts_source;
+            value.copy_assign_from_impl =
+                &container_ops_detail::compact_queue_copy_assign_from;
+            value.move_assign_from_impl =
+                &container_ops_detail::compact_queue_move_assign_from;
             return value;
         }();
         return ops;

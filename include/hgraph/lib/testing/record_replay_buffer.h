@@ -34,7 +34,7 @@ namespace hgraph::testing
     {
         if (const auto *snapshot = active_type_realization(); snapshot != nullptr)
         {
-            return snapshot->type_for(schema);
+            return value_type_for_active_realization(schema);
         }
         return ValuePlanFactory::instance().type_for(schema);
     }

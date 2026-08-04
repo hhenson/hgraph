@@ -143,8 +143,8 @@ namespace hgraph::ts_data_plan_factory_detail
             const auto canonical_value = ValuePlanFactory::instance().type_for(value_schema);
             const auto canonical_delta = ValuePlanFactory::instance().type_for(delta_schema);
             const auto *snapshot       = active_type_realization();
-            value_owning_binding = snapshot != nullptr ? snapshot->type_for(value_schema) : canonical_value;
-            delta_owning_binding = snapshot != nullptr ? snapshot->type_for(delta_schema) : canonical_delta;
+            value_owning_binding = snapshot != nullptr ? value_type_for_active_realization(value_schema) : canonical_value;
+            delta_owning_binding = snapshot != nullptr ? value_type_for_active_realization(delta_schema) : canonical_delta;
             if (canonical_value == nullptr || canonical_delta == nullptr || value_owning_binding == nullptr ||
                 delta_owning_binding == nullptr)
             {

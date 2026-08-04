@@ -3,6 +3,7 @@
 
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/debug_descriptor.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/time_series/endpoint_schema.h>
@@ -36,6 +37,39 @@ namespace hgraph::ts_data_plan_factory_detail
 {
     namespace
     {
+        using MaterializedValue =
+            MemoryUtils::ErasedOwner<MemoryUtils::InlineStoragePolicy<>, TypeRecord>;
+
+        [[nodiscard]] MaterializedValue materialize_value(
+            ValueTypeRef target, const ValueView &source)
+        {
+            if (!target || !source.has_value())
+            {
+                throw std::invalid_argument(
+                    "value materialization requires a bound target and live source");
+            }
+
+            const auto source_binding = source.binding();
+            const auto &source_ops = source_binding.ops_ref();
+            const auto natural_owner = source_ops.owning_type(source_binding);
+            return MaterializedValue::owning_constructed(
+                *target.record(), [&](void *destination) {
+                    if (target == natural_owner)
+                    {
+                        source_ops.copy_construct_view(
+                            target, destination, source.data());
+                        return;
+                    }
+
+                    target.default_construct_at(destination);
+                    auto destroy = make_scope_exit(
+                        [&]() noexcept { target.destroy_at(destination); });
+                    target.ops_ref().copy_assign_from(
+                        target, destination, source_binding, source.data());
+                    destroy.release();
+                });
+        }
+
         template <typename SourceBinding, typename SourceMemory>
         void copy_projected_bundle_fields(const ValueTypeRef &binding,
                                           void *destination_memory,
@@ -45,10 +79,12 @@ namespace hgraph::ts_data_plan_factory_detail
         {
             const auto &plan = binding.checked_plan();
             const auto components = plan.components();
+            const auto &destination_ops = *checked_value_ops<IndexedValueOps>(
+                binding, "projected delta destination");
             for (std::size_t index = 0; index < field_count; ++index)
             {
-                const auto destination = ValuePlanFactory::instance().type_for(
-                    binding.schema()->fields[index].type);
+                const auto destination = destination_ops.element_binding(
+                    destination_ops.context, destination_memory, index);
                 const auto source = source_binding(index);
                 if (!destination || !source)
                 {
@@ -56,7 +92,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
                 const auto &source_ops = source.ops_ref();
                 const auto owning_source = source_ops.owning_type(source);
-                if (destination.plan() != owning_source.plan())
+                if (destination != owning_source)
                 {
                     throw std::logic_error("projected bundle field has an incompatible owning binding");
                 }
@@ -1211,7 +1247,8 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static ValueTypeRef
             canonical_value_binding(const void *, ValueTypeRef view_binding)
             {
-                const auto binding = ValuePlanFactory::instance().type_for(view_binding.schema());
+                const auto binding =
+                    value_type_for_active_realization(view_binding.schema());
                 if (binding == nullptr)
                 {
                     throw std::logic_error("TSS value surface has no canonical owning binding");
@@ -1247,8 +1284,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     throw std::logic_error("TSS set copy requires a canonical set binding");
                 }
-                const auto key_binding = ValuePlanFactory::instance().type_for(binding.schema()->element_type);
-                if (key_binding == nullptr || key_binding != ctx(context)->set_layout.key_binding)
+                const auto key_binding = value_type_for_active_realization(
+                    binding.schema()->element_type);
+                if (!key_binding)
                 {
                     throw std::logic_error("TSS set copy key binding is not resolved");
                 }
@@ -1256,7 +1294,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 SetBuilder builder{key_binding};
                 for (const auto key : set_make_range<Surface>(context, memory))
                 {
-                    builder.insert_copy(key.data());
+                    auto owned_key = materialize_value(key_binding, key);
+                    builder.insert_copy(owned_key.data());
                 }
                 return builder.build_storage();
             }
@@ -2313,14 +2352,11 @@ namespace hgraph::ts_data_plan_factory_detail
                     throw std::logic_error("TSD map copy requires a canonical map binding");
                 }
 
-                const auto *state       = ctxd(context);
-                const auto key_binding = ValuePlanFactory::instance().type_for(binding.schema()->key_type);
-                const auto projected_value_binding = map_value_binding<Surface>(context, memory);
-                const auto value_binding = projected_value_binding == nullptr
-                                               ? ValueTypeRef{}
-                                               : projected_value_binding.ops_ref().owning_type(
-                                                     projected_value_binding);
-                if (key_binding == nullptr || key_binding != state->dict_layout.key_binding)
+                const auto key_binding = value_type_for_active_realization(
+                    binding.schema()->key_type);
+                const auto value_binding = value_type_for_active_realization(
+                    binding.schema()->element_type);
+                if (!key_binding)
                 {
                     throw std::logic_error("TSD map copy key binding is not resolved");
                 }
@@ -2333,12 +2369,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 MapBuilder builder{key_binding, value_binding};
                 for (const auto [key, value] : map_kv_range<Surface>(context, memory))
                 {
-                    Value owned_value{value};
-                    if (owned_value.binding() != value_binding)
-                    {
-                        throw std::logic_error("TSD map copy materialized the wrong owning value binding");
-                    }
-                    builder.set_item_copy(key.data(), owned_value.view().data());
+                    auto owned_key = materialize_value(key_binding, key);
+                    auto owned_value = materialize_value(value_binding, value);
+                    builder.set_item_copy(owned_key.data(), owned_value.data());
                 }
                 return builder.build_storage();
             }

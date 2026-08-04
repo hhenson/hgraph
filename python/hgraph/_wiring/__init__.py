@@ -13,6 +13,7 @@ from ._state import (
     _MemoryRecording, _RecordReplayModes, _friendly_recording_delta, _global_state_local,
     _enter_runtime, _exit_runtime, comparison_summary, evaluate_const,
     record_replay_scope, set_as_of, set_record_replay_config, set_record_replay_model,
+    set_pooled_compound_scalar_storage,
     set_table_schema_as_of_key, set_table_schema_date_key, get_recorded_value,
     get_recorder_api, get_recording_label, set_recorder_api, set_recording_label, utc_now
 )
@@ -95,7 +96,7 @@ __all__ = [
     "operator_function", "pass_through", "passive", "push_queue", "record_replay_scope",
     "reduce", "reference_service", "register_adaptor", "register_service",
     "request_reply_service", "run_graph", "service_adaptor", "service_adaptor_impl",
-    "service_impl", "set_as_of", "set_delta", "set_record_replay_config",
+    "service_impl", "set_as_of", "set_delta", "set_pooled_compound_scalar_storage", "set_record_replay_config",
     "set_record_replay_model", "set_service_output", "set_table_schema_as_of_key",
     "set_table_schema_date_key", "sink_node", "subscription_service", "switch_", "to_graph",
     "wire", "WiringGraphContext"

@@ -1,7 +1,9 @@
 #include <hgraph/lib/std/standard_types.h>
+#include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node.h>
 #include <hgraph/runtime/registry_snapshot.h>
 #include <hgraph/types/frame.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_record.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_schema.h>
@@ -12,6 +14,8 @@
 #include <hgraph/types/type_resolution.h>
 #include <hgraph/types/utils/stable_slot_store.h>
 #include <hgraph/types/value/any_ops.h>
+#include <hgraph/types/value/compound_scalar_storage.h>
+#include <hgraph/types/value/polymorphic_value_type.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/visitor.h>
@@ -43,6 +47,45 @@ int main()
     static_assert(std::is_standard_layout_v<AnyPtr>);
     static_assert(std::is_trivially_copyable_v<AnyPtr>);
     static_assert(TS_DATA_OPS_ABI_VERSION == 5);
+    static_assert(sizeof(CompoundScalarStorageView) == 2 * sizeof(void *));
+    static_assert(std::is_trivially_copyable_v<CompoundScalarStorageView>);
+    static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
+    static_assert(std::is_standard_layout_v<PolymorphicValueType>);
+
+    CompoundScalarStorage compound_storage =
+        CompoundScalarStorage::make_default();
+    const auto compound_view = compound_storage.view();
+    const auto compound_inspection = compound_view.inspect();
+    if (!compound_view.available() || compound_inspection.leaf_pool_count != 0 ||
+        compound_inspection.live_slot_count != 0 ||
+        compound_inspection.slot_capacity != 0)
+    {
+        throw std::runtime_error(
+            "installed compound-scalar storage contract is unusable");
+    }
+
+    PolymorphicValueType empty_polymorphic_type;
+    if (empty_polymorphic_type.binding())
+    {
+        throw std::runtime_error(
+            "installed polymorphic value type no-op contract is unusable");
+    }
+
+    GraphBuilder inline_graph;
+    if (inline_graph.root_type().checked_plan().find_component(
+            "compound_scalar_storage") != nullptr)
+    {
+        throw std::runtime_error(
+            "default installed graph unexpectedly planned pooled storage");
+    }
+    GraphBuilder pooled_graph;
+    set_pooled_compound_scalar_storage(pooled_graph.global_state());
+    if (pooled_graph.root_type().checked_plan().find_component(
+            "compound_scalar_storage") == nullptr)
+    {
+        throw std::runtime_error(
+            "installed pooled graph configuration was not realized");
+    }
 
     StableSlotStore<StableSlotStateModel::ConstructedAndLive> stable_slots{
         MemoryUtils::StorageLayout{sizeof(std::uintptr_t), alignof(std::uintptr_t)}};

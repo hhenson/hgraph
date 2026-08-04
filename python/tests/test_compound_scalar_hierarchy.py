@@ -4,6 +4,7 @@ from enum import Enum
 from typing import Callable, Generic, Optional, TypeVar
 
 import _hgraph
+import hgraph as hg
 import pytest
 from hgraph import CompoundScalar, TS, TSB, TSD, TSW, TimeSeriesSchema, WindowSize, combine, compute_node, const, default, from_json_builder, graph, mesh_, operator, to_json_builder
 # White-box: these tests assert on the interned C++ value-type metadata
@@ -331,6 +332,107 @@ def test_mesh_normalizes_realized_composite_dependency_keys():
     root = Request("root", option)
     leaf = Request("leaf", option)
     assert eval_node(app, [{root: leaf}]) == [{root: 2, leaf: 1}]
+
+
+def test_wide_polymorphic_keys_preserve_public_map_mesh_reduce_api():
+    @dataclass(frozen=True)
+    class Base(CompoundScalar, namespace="tests.graph_pool", abstract=True):
+        identifier: int
+
+    @dataclass(frozen=True)
+    class Small(Base):
+        pass
+
+    @dataclass(frozen=True)
+    class Large(Base):
+        a: str
+        b: str
+        c: str
+
+    @graph
+    def identity(value: TS[int]) -> TS[int]:
+        return value
+
+    @graph
+    def app(values: TSD[Base, TS[int]]) -> TS[int]:
+        mapped = hg.map_(identity, values)
+        meshed = mesh_(identity, values)
+        return hg.reduce(hg.add_, mapped, 0) + hg.reduce(hg.add_, meshed, 0)
+
+    small = Small(identifier=1)
+    large = Large(identifier=2, a="large-a", b="large-b", c="large-c")
+    with hg.GlobalContext(hg.GlobalState()):
+        hg.set_pooled_compound_scalar_storage()
+        assert eval_node(
+            app,
+            [
+                {small: 2, large: 5},
+                {small: 3},
+                {large: hg.REMOVE},
+                {small: hg.REMOVE},
+            ],
+        ) == [14, 16, 6, 0]
+
+
+def test_wide_polymorphic_keys_cross_realtime_push_queue_as_external_values():
+    import datetime
+    import threading
+    import time
+
+    @dataclass(frozen=True)
+    class Base(CompoundScalar, namespace="tests.graph_pool_push", abstract=True):
+        identifier: int
+
+    @dataclass(frozen=True)
+    class Small(Base):
+        pass
+
+    @dataclass(frozen=True)
+    class Large(Base):
+        a: str
+        b: str
+        c: str
+
+    small = Small(identifier=1)
+    large = Large(identifier=2, a="large-a", b="large-b", c="large-c")
+    observed = []
+    threads = []
+
+    @hg.push_queue(TSD[Base, TS[int]])
+    def source(sender):
+        def feed():
+            time.sleep(0.05)
+            sender({small: 2, large: 5})
+            time.sleep(0.02)
+            sender({small: 3, large: hg.REMOVE})
+
+        thread = threading.Thread(target=feed)
+        threads.append(thread)
+        thread.start()
+
+    @graph
+    def identity(value: TS[int]) -> TS[int]:
+        return value
+
+    @hg.sink_node
+    def capture(value: TS[int]) -> None:
+        observed.append(value.value)
+
+    @graph
+    def app() -> None:
+        capture(hg.reduce(hg.add_, hg.map_(identity, source()), 0))
+
+    end = (
+        datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+        + datetime.timedelta(seconds=0.5)
+    )
+    with hg.GlobalContext(hg.GlobalState()):
+        hg.set_pooled_compound_scalar_storage()
+        hg.run_graph(app, end_time=end, run_mode=hg.EvaluationMode.REAL_TIME)
+    for thread in threads:
+        thread.join()
+
+    assert observed == [0, 7, 3]
 
 
 def test_polymorphic_bundle_field_uses_the_graph_realization():

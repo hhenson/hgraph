@@ -1,18 +1,24 @@
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value.h>
+#include <hgraph/types/value/value_builder.h>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <optional>
+#include <span>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -113,6 +119,97 @@ namespace
             wire<WallClockScheduledSource>(w, delay);
         }
     };
+
+    struct PushPolymorphicSchemas
+    {
+        const ValueTypeMetaData *base{nullptr};
+        const ValueTypeMetaData *small{nullptr};
+        const ValueTypeMetaData *large{nullptr};
+        const TSValueTypeMetaData *dict{nullptr};
+        std::shared_ptr<const TypeRealizationSnapshot> realization{};
+    };
+
+    [[nodiscard]] PushPolymorphicSchemas push_polymorphic_schemas()
+    {
+        auto &registry = TypeRegistry::instance();
+        const auto *integer = registry.register_scalar<Int>("int");
+        const auto *text = registry.register_scalar<Str>("str");
+        const auto *base = registry.bundle(
+            "tests.push_pool", "Value", {{"id", integer}}, {}, true);
+        const auto *small = registry.bundle(
+            "tests.push_pool", "Small", {{"id", integer}}, {base});
+        const auto *large = registry.bundle(
+            "tests.push_pool", "Large",
+            {{"id", integer}, {"a", text}, {"b", text}, {"c", text}},
+            {base});
+        return PushPolymorphicSchemas{
+            .base = base,
+            .small = small,
+            .large = large,
+            .dict = registry.tsd(base, registry.ts(integer)),
+            .realization = TypeRealizationSnapshot::capture(
+                registry,
+                TypeRealizationOptions{
+                    .polymorphic_compound_storage =
+                        PolymorphicCompoundStoragePolicy::Pooled,
+                }),
+        };
+    }
+
+    [[nodiscard]] Value make_push_leaf(
+        const ValueTypeMetaData *schema, Int id, std::string label = {})
+    {
+        BundleBuilder builder{ValuePlanFactory::instance().type_for(schema)};
+        builder.set("id", Value{id});
+        if (schema->field_count > 1)
+        {
+            builder.set("a", Value{Str{label + "-a"}});
+            builder.set("b", Value{Str{label + "-b"}});
+            builder.set("c", Value{Str{label + "-c"}});
+        }
+        return builder.build();
+    }
+
+    [[nodiscard]] Value make_push_union(
+        const PushPolymorphicSchemas &schemas, const Value &leaf)
+    {
+        const auto binding = schemas.realization->type_for(schemas.base);
+        Value result{binding};
+        binding.ops_ref().copy_assign_from(
+            binding, result.begin_mutation().mutable_data(), leaf.binding(),
+            leaf.view().data());
+        return result;
+    }
+
+    [[nodiscard]] Value make_push_dict_delta(
+        const PushPolymorphicSchemas &schemas,
+        std::span<const std::pair<const Value *, Int>> modified,
+        std::span<const Value> removed)
+    {
+        const auto key_binding = schemas.realization->type_for(schemas.base);
+        const auto value_binding = ValuePlanFactory::instance().type_for(
+            TypeRegistry::instance().value_type("int"));
+        MapBuilder modified_builder{key_binding, value_binding};
+        for (const auto &[leaf, value] : modified)
+        {
+            const Value key = make_push_union(schemas, *leaf);
+            modified_builder.set_item_copy(key.view().data(),
+                                           std::addressof(value));
+        }
+        SetBuilder removed_builder{key_binding};
+        for (const Value &leaf : removed)
+        {
+            const Value key = make_push_union(schemas, leaf);
+            static_cast<void>(removed_builder.insert_copy(key.view().data()));
+        }
+        SetBuilder removed_strict_builder{key_binding};
+        BundleBuilder delta{
+            schemas.realization->type_for(schemas.dict->delta_value_schema)};
+        delta.set("removed", removed_builder.build());
+        delta.set("modified", modified_builder.build());
+        delta.set("removed_strict", removed_strict_builder.build());
+        return delta.build();
+    }
 }  // namespace
 
 TEST_CASE("real-time executor waits for the future scheduled time")
@@ -730,6 +827,98 @@ TEST_CASE("real-time push source applies queued collection deltas in order")
     const auto second = observed_values[1].view().as_map();
     CHECK(second.at(Value{Str{"a"}}.view()).checked_as<Int>() == Int{3});
     CHECK_FALSE(second.contains(Value{Str{"b"}}.view()));
+}
+
+TEST_CASE("real-time push source moves external polymorphic keys into graph pools")
+{
+    using namespace hgraph;
+
+    const auto schemas = push_polymorphic_schemas();
+    REQUIRE(schemas.realization->inspect(schemas.base).representation ==
+            GraphValueRepresentation::PooledUnion);
+
+    const Value small = make_push_leaf(schemas.small, Int{1});
+    const Value large = make_push_leaf(schemas.large, Int{2}, "large");
+    const std::array<std::pair<const Value *, Int>, 2> initial{
+        std::pair{&small, Int{10}}, std::pair{&large, Int{20}}};
+    const std::array<std::pair<const Value *, Int>, 1> update{
+        std::pair{&small, Int{30}}};
+    const std::array<Value, 1> remove_large{large};
+    const Value initial_delta = make_push_dict_delta(schemas, initial, {});
+    const Value update_delta =
+        make_push_dict_delta(schemas, update, remove_large);
+
+    const auto *input_schema =
+        hgraph::testing::single_input_schema(*schemas.dict);
+    std::vector<Value> observed_values;
+    PushSourceSender sender;
+
+    GraphBuilder graph_builder;
+    set_pooled_compound_scalar_storage(graph_builder.global_state());
+    graph_builder.type_realization(schemas.realization);
+    TypeRealizationScope realization_scope{schemas.realization.get()};
+    graph_builder.add_node(
+        hgraph::testing::capturing_push_source(*schemas.dict, sender));
+
+    NodeTypeMetaData sink_schema;
+    sink_schema.display_name = "testing_collecting_polymorphic_push_sink";
+    sink_schema.input_schema = input_schema;
+    sink_schema.node_kind = NodeKind::Sink;
+    NodeCallbacks sink_callbacks;
+    sink_callbacks.evaluate = [&observed_values](
+                                  const NodeView &view,
+                                  DateTime evaluation_time) {
+        auto root = view.input(evaluation_time);
+        auto bundle = root.as_bundle();
+        observed_values.emplace_back(bundle[0].value());
+        if (observed_values.size() == 2)
+        {
+            view.graph().executor().request_stop();
+        }
+    };
+    graph_builder.add_node(NodeBuilder::native(
+        std::move(sink_schema), std::move(sink_callbacks),
+        hgraph::testing::single_input_endpoint(*input_schema, *schemas.dict)));
+    graph_builder.add_edge(GraphEdge{
+        .source_node = make_graph_edge_source(0),
+        .source_path = {},
+        .target_node = 1,
+        .target_path = {0},
+    });
+
+    const DateTime start_time = hgraph::testing::wall_now();
+    {
+        GraphExecutorBuilder executor_builder;
+        executor_builder.graph_builder(std::move(graph_builder))
+            .mode(GraphExecutorMode::RealTime)
+            .start_time(start_time)
+            .end_time(start_time + TimeDelta{1'000'000});
+        GraphExecutorValue executor = executor_builder.make_executor();
+        auto view = executor.view();
+        hgraph::testing::AsyncGraphExecutorRun runner{view};
+
+        std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        REQUIRE(sender.valid());
+        sender.send(initial_delta);
+        sender.send(update_delta);
+        runner.join();
+
+        const auto pools = view.graph().compound_scalar_storage().inspect();
+        REQUIRE(pools.leaf_pool_count >= 2);
+        REQUIRE(pools.live_slot_count > 0);
+    }
+
+    REQUIRE(observed_values.size() == 2);
+    const Value small_key = make_push_union(schemas, small);
+    const Value large_key = make_push_union(schemas, large);
+    const auto first = observed_values[0].view().as_map();
+    REQUIRE(first.size() == 2);
+    CHECK(first.at(small_key.view()).checked_as<Int>() == Int{10});
+    CHECK(first.at(large_key.view()).checked_as<Int>() == Int{20});
+    const auto second = observed_values[1].view().as_map();
+    REQUIRE(second.size() == 1);
+    CHECK(second.at(small_key.view()).checked_as<Int>() == Int{30});
+    CHECK_FALSE(second.contains(large_key.view()));
 }
 
 TEST_CASE("real-time conflating push source emits only the latest pending value")

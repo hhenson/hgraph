@@ -27,7 +27,7 @@ namespace hgraph::ts_data_plan_factory_detail
         {
             if (const auto *snapshot = active_type_realization(); snapshot != nullptr)
             {
-                if (const auto realized = snapshot->type_for(schema)) { return realized; }
+                if (const auto realized = value_type_for_active_realization(schema)) { return realized; }
             }
             return ValuePlanFactory::instance().type_for(schema);
         }
@@ -45,7 +45,7 @@ namespace hgraph::ts_data_plan_factory_detail
             if (snapshot != nullptr && schema.value_schema != nullptr &&
                 (schema.kind == TSTypeKind::TS || schema.kind == TSTypeKind::TSB))
             {
-                const auto realized = snapshot->type_for(schema.value_schema);
+                const auto realized = value_type_for_active_realization(schema.value_schema);
                 const auto canonical = ValuePlanFactory::instance().type_for(schema.value_schema);
                 if (realized && realized != canonical)
                 {
@@ -55,7 +55,7 @@ namespace hgraph::ts_data_plan_factory_detail
             if (snapshot != nullptr && schema.kind == TSTypeKind::TSD &&
                 schema.key_type() != nullptr && schema.element_ts() != nullptr)
             {
-                const auto key = snapshot->type_for(schema.key_type());
+                const auto key = value_type_for_active_realization(schema.key_type());
                 const auto element = realized_output_type(*schema.element_ts());
                 const auto canonical_key = ValuePlanFactory::instance().type_for(schema.key_type());
                 const auto canonical_element = factory.output_type_for(schema.element_ts()).as_role();
@@ -68,7 +68,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 schema.value_schema != nullptr)
             {
                 const auto *key_schema = schema.value_schema->element_type;
-                const auto key = snapshot->type_for(key_schema);
+                const auto key = value_type_for_active_realization(key_schema);
                 if (key != ValuePlanFactory::instance().type_for(key_schema))
                 {
                     return factory.keyed_output_type_for(&schema, key).as_role();

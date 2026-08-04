@@ -363,14 +363,15 @@ composite_indexed_make_mutable_range(const void *context, void *memory) {
   return state != nullptr && source && source.schema() == state->schema;
 }
 
-[[nodiscard]] DynamicStorageMetrics composite_dynamic_storage_metrics(
-    const void *context, const void *memory) noexcept {
+[[nodiscard]] DynamicStorageMetrics
+composite_dynamic_storage_metrics(const void *context,
+                                  const void *memory) noexcept {
   const auto *state = static_cast<const CompositeIndexedContext *>(context);
   DynamicStorageMetrics result{};
   for (std::size_t index = 0; index < state->child_bindings.size(); ++index) {
     const auto &binding = state->child_bindings[index];
-    const auto *child = static_cast<const std::byte *>(memory) +
-                        state->offsets[index];
+    const auto *child =
+        static_cast<const std::byte *>(memory) + state->offsets[index];
     const auto metrics = binding.ops_ref().dynamic_storage_metrics(child);
     result += metrics;
   }
@@ -977,8 +978,9 @@ array_value_compare(const void *context, const void *lhs,
   return fmt::to_string(out);
 }
 
-[[nodiscard]] DynamicStorageMetrics array_dynamic_storage_metrics(
-    const void *context, const void *memory) noexcept {
+[[nodiscard]] DynamicStorageMetrics
+array_dynamic_storage_metrics(const void *context,
+                              const void *memory) noexcept {
   const auto *state = static_cast<const ArrayIndexedContext *>(context);
   const auto &ops = state->element_binding.ops_ref();
   DynamicStorageMetrics result{};
@@ -1132,6 +1134,7 @@ struct OwnedValueEntry {
     ops.concrete_type_impl = &concrete_type;
     ops.concrete_memory_impl = &concrete_memory;
     ops.mutable_concrete_memory_impl = &mutable_concrete_memory;
+    ops.writable_concrete_memory_impl = &writable_concrete_memory;
     ops.dynamic_storage_metrics_impl = &dynamic_storage_metrics;
     ops.size = &indexed_size;
     ops.element_at = &element_at;
@@ -1490,8 +1493,18 @@ struct OwnedValueEntry {
     });
   }
 
-  [[nodiscard]] static DynamicStorageMetrics dynamic_storage_metrics(
-      const void *, const void *memory) noexcept {
+  [[nodiscard]] static void *writable_concrete_memory(const void *,
+                                                      void *memory) {
+    auto *allocation = owned_allocation(memory);
+    if (allocation == nullptr) {
+      return memory;
+    }
+    const auto type = allocation_type(allocation);
+    return type.ops_ref().writable_concrete_memory(owned_payload(*allocation));
+  }
+
+  [[nodiscard]] static DynamicStorageMetrics
+  dynamic_storage_metrics(const void *, const void *memory) noexcept {
     const auto *allocation = owned_allocation(memory);
     if (allocation == nullptr) {
       return {};
@@ -1503,7 +1516,8 @@ struct OwnedValueEntry {
         .live_bytes = layout.size,
         .reserved_bytes = layout.size,
     };
-    result += type.ops_ref().dynamic_storage_metrics(owned_payload(*allocation));
+    result +=
+        type.ops_ref().dynamic_storage_metrics(owned_payload(*allocation));
     return result;
   }
 };
@@ -1868,8 +1882,8 @@ retained_python_supported(const ValueTypeMetaData *schema) noexcept {
   return false;
 }
 
-[[nodiscard]] bool python_cache_beneficial(
-    ValueTypeRef native_binding) noexcept {
+[[nodiscard]] bool
+python_cache_beneficial(ValueTypeRef native_binding) noexcept {
   const auto *schema = native_binding.schema();
   return retained_python_supported(schema) &&
          !python_bridge::is_python_bundle_binding(native_binding) &&
@@ -1894,8 +1908,7 @@ python_bundle_storage_binding(ValueTypeRef source_binding) {
   std::vector<ValueTypeRef> fields;
   fields.reserve(schema->field_count);
   for (std::size_t index = 0; index < schema->field_count; ++index) {
-    const auto field =
-        ops->element_binding(ops->context, nullptr, index);
+    const auto field = ops->element_binding(ops->context, nullptr, index);
     if (!field) {
       return {};
     }
@@ -1921,8 +1934,7 @@ prepare_retained_python_value(const ValueTypeMetaData *schema,
   if (schema->value_kind() == ValueTypeKind::Bundle) {
     const auto *info = python_bundle_info(schema);
     if (info == nullptr || !info->type.is_valid()) {
-      invalid_retained_python_value(*schema,
-                                    "has no registered Python class");
+      invalid_retained_python_value(*schema, "has no registered Python class");
     }
     if (nb::isinstance(source, info->type)) {
       return nb::borrow<nb::object>(source);

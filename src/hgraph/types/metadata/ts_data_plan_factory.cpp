@@ -29,7 +29,7 @@ namespace hgraph
         {
             if (const auto *snapshot = active_type_realization(); snapshot != nullptr)
             {
-                if (const auto realized = snapshot->type_for(schema)) { return realized; }
+                if (const auto realized = value_type_for_active_realization(schema)) { return realized; }
             }
             return ValuePlanFactory::instance().type_for(schema);
         }

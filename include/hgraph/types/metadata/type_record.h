@@ -75,7 +75,7 @@ namespace hgraph
     inline constexpr std::uint32_t SCHEMA_HEADER_MAGIC = 0x48475348u;
     inline constexpr std::uint32_t TYPE_RECORD_MAGIC = 0x48475452u;
     inline constexpr std::uint16_t SCHEMA_HEADER_ABI_VERSION = 1;
-    inline constexpr std::uint16_t TYPE_RECORD_ABI_VERSION = 1;
+    inline constexpr std::uint16_t TYPE_RECORD_ABI_VERSION = 2;
     inline constexpr std::uint16_t INVALID_OPS_ABI_VERSION = 0;
 
     struct SchemaHeader
@@ -126,6 +126,11 @@ namespace hgraph
         const MemoryUtils::StoragePlan *plan;
         const void *ops;
         const DebugDescriptor *debug;
+        /** Ordinary owning representation for graph-local value records.
+            Null means that the record's normal ValueOps owning projection is
+            authoritative.  Published once before the record is exposed to a
+            running graph. */
+        mutable const TypeRecord *external_value_owner;
 
         [[nodiscard]] bool valid() const noexcept;
 
@@ -160,7 +165,7 @@ namespace hgraph
             : magic(TYPE_RECORD_MAGIC), abi_version(TYPE_RECORD_ABI_VERSION), role(record_role), reserved0(0),
               ops_abi_version(record_ops_abi_version), reserved1(0), capabilities(record_capabilities),
               implementation_label(record_implementation_label), schema(record_schema), plan(record_plan),
-              ops(record_ops), debug(record_debug)
+              ops(record_ops), debug(record_debug), external_value_owner(nullptr)
         {
         }
     };

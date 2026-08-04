@@ -1,11 +1,209 @@
-#include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/mutable_container_ops.h>
+#include <hgraph/types/value/value_builder.h>
 
 #include <stdexcept>
 #include <string>
 
 namespace hgraph
 {
+    namespace container_ops_detail
+    {
+        namespace
+        {
+            using MaterializedOwner = MemoryUtils::ErasedOwner<MemoryUtils::InlineStoragePolicy<>, TypeRecord>;
+
+            [[nodiscard]] MaterializedOwner materialize_element(ValueTypeRef target, const ValueView &source)
+            {
+                MaterializedOwner result{*target.record()};
+                target.ops_ref().copy_assign_from(target, result.data(), source.binding(), source.data());
+                return result;
+            }
+
+            template <typename State>
+            [[nodiscard]] const State &compact_target_state(ValueTypeRef binding, const char *what)
+            {
+                const auto *state = static_cast<const State *>(binding.lifecycle_context());
+                if (state == nullptr)
+                {
+                    throw std::logic_error(std::string{what} + " target has no lifecycle state");
+                }
+                return *state;
+            }
+        } // namespace
+
+        bool compact_accepts_source(const void *, ValueTypeRef binding, ValueTypeRef source) noexcept
+        {
+            return binding && source && (binding.schema() == source.schema() || binding.plan() == source.plan());
+        }
+
+        void compact_list_copy_assign_from(const void *, ValueTypeRef binding, void *dst, ValueTypeRef source,
+                                           const void *src)
+        {
+            if (binding == source)
+            {
+                binding.copy_assign_at(dst, src);
+                return;
+            }
+            const auto &state = compact_target_state<ListState>(binding, "List");
+            ListBuilder builder{state.element_binding};
+            const ValueView source_view{source, src};
+            const auto values = source_view.as_list();
+            const auto *source_storage =
+                source.ops_ref().kind == ValueOpsKind::List ? static_cast<const ListStorage *>(src) : nullptr;
+            for (std::size_t index = 0; index < values.size(); ++index)
+            {
+                const auto child = values.at(index);
+                if (!child.has_value() || (source_storage != nullptr && !source_storage->element_set(index)))
+                {
+                    builder.push_back_unset();
+                    continue;
+                }
+                auto materialized = materialize_element(state.element_binding, child);
+                builder.push_back_copy(materialized.data());
+            }
+            *static_cast<ListStorage *>(dst) = builder.build_storage();
+        }
+
+        void compact_list_move_assign_from(const void *context, ValueTypeRef binding, void *dst, ValueTypeRef source,
+                                           void *src)
+        {
+            if (binding == source)
+            {
+                binding.move_assign_at(dst, src);
+                return;
+            }
+            compact_list_copy_assign_from(context, binding, dst, source, src);
+        }
+
+        void compact_set_copy_assign_from(const void *, ValueTypeRef binding, void *dst, ValueTypeRef source,
+                                          const void *src)
+        {
+            if (binding == source)
+            {
+                binding.copy_assign_at(dst, src);
+                return;
+            }
+            const auto &state = compact_target_state<SetState>(binding, "Set");
+            SetBuilder builder{state.element_binding};
+            const ValueView source_view{source, src};
+            for (const auto child : source_view.as_set())
+            {
+                auto materialized = materialize_element(state.element_binding, child);
+                static_cast<void>(builder.insert_copy(materialized.data()));
+            }
+            *static_cast<SetStorage *>(dst) = builder.build_storage();
+        }
+
+        void compact_set_move_assign_from(const void *context, ValueTypeRef binding, void *dst, ValueTypeRef source,
+                                          void *src)
+        {
+            if (binding == source)
+            {
+                binding.move_assign_at(dst, src);
+                return;
+            }
+            compact_set_copy_assign_from(context, binding, dst, source, src);
+        }
+
+        void compact_map_copy_assign_from(const void *, ValueTypeRef binding, void *dst, ValueTypeRef source,
+                                          const void *src)
+        {
+            if (binding == source)
+            {
+                binding.copy_assign_at(dst, src);
+                return;
+            }
+            const auto &state = compact_target_state<MapState>(binding, "Map");
+            MapBuilder builder{state.key_binding, state.value_binding};
+            const ValueView source_view{source, src};
+            for (const auto entry : source_view.as_map())
+            {
+                auto materialized_key = materialize_element(state.key_binding, entry.first);
+                if (!entry.second.has_value())
+                {
+                    builder.set_item_unset(materialized_key.data());
+                    continue;
+                }
+                auto materialized_value = materialize_element(state.value_binding, entry.second);
+                builder.set_item_copy(materialized_key.data(), materialized_value.data());
+            }
+            *static_cast<MapStorage *>(dst) = builder.build_storage();
+        }
+
+        void compact_map_move_assign_from(const void *context, ValueTypeRef binding, void *dst, ValueTypeRef source,
+                                          void *src)
+        {
+            if (binding == source)
+            {
+                binding.move_assign_at(dst, src);
+                return;
+            }
+            compact_map_copy_assign_from(context, binding, dst, source, src);
+        }
+
+        void compact_cyclic_buffer_copy_assign_from(const void *, ValueTypeRef binding, void *dst, ValueTypeRef source,
+                                                    const void *src)
+        {
+            if (binding == source)
+            {
+                binding.copy_assign_at(dst, src);
+                return;
+            }
+            const auto &state = compact_target_state<CyclicBufferState>(binding, "CyclicBuffer");
+            CyclicBufferBuilder builder{state.element_binding, state.capacity};
+            const ValueView source_view{source, src};
+            const auto values = source_view.as_cyclic_buffer();
+            for (std::size_t index = 0; index < values.size(); ++index)
+            {
+                auto materialized = materialize_element(state.element_binding, values.at(index));
+                builder.push_back_copy(materialized.data());
+            }
+            *static_cast<CyclicBufferStorage *>(dst) = builder.build_storage();
+        }
+
+        void compact_cyclic_buffer_move_assign_from(const void *context, ValueTypeRef binding, void *dst,
+                                                    ValueTypeRef source, void *src)
+        {
+            if (binding == source)
+            {
+                binding.move_assign_at(dst, src);
+                return;
+            }
+            compact_cyclic_buffer_copy_assign_from(context, binding, dst, source, src);
+        }
+
+        void compact_queue_copy_assign_from(const void *, ValueTypeRef binding, void *dst, ValueTypeRef source,
+                                            const void *src)
+        {
+            if (binding == source)
+            {
+                binding.copy_assign_at(dst, src);
+                return;
+            }
+            const auto &state = compact_target_state<QueueState>(binding, "Queue");
+            QueueBuilder builder{state.element_binding, state.max_capacity};
+            const ValueView source_view{source, src};
+            const auto values = source_view.as_queue();
+            for (std::size_t index = 0; index < values.size(); ++index)
+            {
+                auto materialized = materialize_element(state.element_binding, values.at(index));
+                builder.push_copy(materialized.data());
+            }
+            *static_cast<QueueStorage *>(dst) = builder.build_storage();
+        }
+
+        void compact_queue_move_assign_from(const void *context, ValueTypeRef binding, void *dst, ValueTypeRef source,
+                                            void *src)
+        {
+            if (binding == source)
+            {
+                binding.move_assign_at(dst, src);
+                return;
+            }
+            compact_queue_copy_assign_from(context, binding, dst, source, src);
+        }
+    } // namespace container_ops_detail
+
     ValueTypeRef compact_list_type(const ValueTypeRef &element_binding)
     {
         const auto *meta = TypeRegistry::instance().list(element_binding.schema(), /*fixed_size=*/0);

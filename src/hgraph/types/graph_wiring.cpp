@@ -2416,19 +2416,6 @@ GraphBuilder Wiring::finish_top_level(bool consume_state) {
   }
 
   apply_service_rank_dependencies(); // add_rank_dependency de-dupes: idempotent
-  const auto realization =
-      TypeRealizationSnapshot::capture(TypeRegistry::instance());
-  TypeRealizationScope realization_scope{realization.get()};
-  RankedGraphBuild build = build_ranked_graph(impl_->instances, nullptr);
-  validate_same_cycle_pairs(build.index_of);
-  build.graph_builder.type_realization(realization);
-  // The wiring end FIXES the seed (ruling 2026-07-27): a live-seeded wiring
-  // copies the selected GlobalState as it stands NOW — wiring-time
-  // configuration and entries included — into the graph as its initial
-  // state; the user's state object stays theirs (results copy back at run
-  // end). The selected state must span the wiring process. A stateless
-  // wiring keeps the internal store: moved on the consuming finish() path,
-  // copied on the snapshot() path so the wiring stays live.
   GlobalState *live = impl_->kind == WiringKind::TopLevel && impl_->live_seeded
                           ? GlobalContext::active_state()
                           : nullptr;
@@ -2437,10 +2424,25 @@ GraphBuilder Wiring::finish_top_level(bool consume_state) {
         "Wiring: the selected GlobalState exited before wiring finished — "
         "the global state must span the wiring process");
   }
+  const GlobalStateView selected_state =
+      live != nullptr ? live->view() : impl_->global_state.view();
+  const auto realization = TypeRealizationSnapshot::capture(
+      TypeRegistry::instance(), type_realization_options(selected_state));
+  TypeRealizationScope realization_scope{realization.get()};
+  RankedGraphBuild build = build_ranked_graph(impl_->instances, nullptr);
+  validate_same_cycle_pairs(build.index_of);
+  // The wiring end FIXES the seed (ruling 2026-07-27): a live-seeded wiring
+  // copies the selected GlobalState as it stands NOW — wiring-time
+  // configuration and entries included — into the graph as its initial
+  // state; the user's state object stays theirs (results copy back at run
+  // end). The selected state must span the wiring process. A stateless
+  // wiring keeps the internal store: moved on the consuming finish() path,
+  // copied on the snapshot() path so the wiring stays live.
   build.graph_builder.global_state(
       live != nullptr    ? GlobalState{*live}
       : consume_state    ? std::move(impl_->global_state)
                          : GlobalState{impl_->global_state});
+  build.graph_builder.type_realization(realization);
   const ValueView traits_value = impl_->traits.as_value().view();
   const auto traits_map = traits_value.as_map();
   for (const auto [key, boxed] : traits_map) {
@@ -2461,6 +2463,18 @@ CompiledSubGraph Wiring::finish_subgraph(
                            "unterminated service/adaptor implementation scope");
   }
   apply_service_rank_dependencies();
+  const TypeRealizationSnapshot *active_realization =
+      active_type_realization();
+  GlobalState *active_state = GlobalContext::active_state();
+  const TypeRealizationOptions realization_options =
+      active_realization != nullptr
+          ? active_realization->options()
+          : active_state != nullptr
+                ? type_realization_options(active_state->view())
+                : TypeRealizationOptions{};
+  const auto realization = TypeRealizationSnapshot::capture(
+      TypeRegistry::instance(), realization_options);
+  TypeRealizationScope realization_scope{realization.get()};
   CompiledSubGraph compiled;
   compiled.input_schemas = std::move(input_schemas);
 
@@ -2600,6 +2614,9 @@ CompiledSubGraph Wiring::finish_subgraph(
   // GlobalContext. A compiled child must instead share its root graph's
   // runtime state, so discard that constructor-time seed here.
   build.graph_builder.global_state(GlobalState{});
+  // Clearing the child's private seed must not clear representation policy:
+  // nested runtime storage and values use the root's immutable realization.
+  build.graph_builder.type_realization(realization);
   const ValueView traits_value = impl_->traits.as_value().view();
   const auto traits_map = traits_value.as_map();
   for (const auto [key, boxed] : traits_map) {

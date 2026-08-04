@@ -1356,6 +1356,41 @@ Each built graph gets its own copy seeded with the wiring-time entries, so the
 builder stays reusable. Values are heterogeneous (a mutable ``Map<string, Any>``
 under the hood). This is the store the testing toolkit's replay/record use.
 
+Opt-in polymorphic compound-scalar pooling
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Polymorphic compound scalars use the existing inline closed-union layout by
+default.  A graph which replicates many keys or values from a wide hierarchy
+can opt into per-leaf stable pools through its wiring-time ``GlobalState``:
+
+.. code-block:: cpp
+
+   #include <hgraph/types/metadata/type_realization.h>
+
+   GlobalState state;
+   set_pooled_compound_scalar_storage(state.view());
+   GlobalContext context{state};
+   GraphBuilder gb = build_graph<MyGraph>();
+
+The context must remain active until wiring finishes so scalar and time-series
+bindings, the immutable realisation snapshot, and the erased graph layout all
+capture the same policy.  Disable it explicitly with
+``set_pooled_compound_scalar_storage(state.view(), false)``.  A disabled graph
+has no pool owner/view field in its planned storage and pays no pool lifecycle
+or per-tick scope cost.
+
+The Python surface selects the same C++ policy:
+
+.. code-block:: python
+
+   state = GlobalState()
+   with GlobalContext(state):
+       set_pooled_compound_scalar_storage()
+       run_graph(my_graph)
+
+Off-thread push values remain self-contained and move into graph-local pools
+only after reaching the graph evaluation thread.
+
 
 What's planned
 --------------

@@ -21,10 +21,14 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <cstdint>
 
 #include <optional>
+#include <span>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -182,6 +186,193 @@ namespace
         }
     };
 
+    struct WidePolymorphicSchemas
+    {
+        const ValueTypeMetaData *base{nullptr};
+        const ValueTypeMetaData *small{nullptr};
+        const ValueTypeMetaData *large{nullptr};
+        const TSValueTypeMetaData *ts{nullptr};
+        const TSValueTypeMetaData *tss{nullptr};
+        const TSValueTypeMetaData *tsd{nullptr};
+        std::shared_ptr<const TypeRealizationSnapshot> realization{};
+    };
+
+    [[nodiscard]] WidePolymorphicSchemas wide_polymorphic_schemas()
+    {
+        auto &registry = TypeRegistry::instance();
+        const auto *integer = registry.value_type("int");
+        const auto *text = registry.value_type("str");
+        if (integer == nullptr || text == nullptr)
+        {
+            throw std::logic_error(
+                "wide polymorphic graph test requires primitive schemas");
+        }
+        const auto *base = registry.bundle(
+            "tests.graph_pool", "Value", {{"id", integer}}, {}, true);
+        const auto *small = registry.bundle(
+            "tests.graph_pool", "Small", {{"id", integer}}, {base});
+        const auto *large = registry.bundle(
+            "tests.graph_pool", "Large",
+            {{"id", integer}, {"a", text}, {"b", text}, {"c", text}},
+            {base});
+        return WidePolymorphicSchemas{
+            .base = base,
+            .small = small,
+            .large = large,
+            .ts = registry.ts(base),
+            .tss = registry.tss(base),
+            .tsd = registry.tsd(base, registry.ts(integer)),
+            .realization = TypeRealizationSnapshot::capture(
+                registry,
+                TypeRealizationOptions{
+                    .polymorphic_compound_storage =
+                        PolymorphicCompoundStoragePolicy::Pooled,
+                }),
+        };
+    }
+
+    [[nodiscard]] Value make_polymorphic_leaf(
+        const ValueTypeMetaData *schema, Int id, std::string label = {})
+    {
+        BundleBuilder builder{ValuePlanFactory::instance().type_for(schema)};
+        builder.set("id", Value{id});
+        if (schema->field_count > 1)
+        {
+            builder.set("a", Value{Str{label + "-a"}});
+            builder.set("b", Value{Str{label + "-b"}});
+            builder.set("c", Value{Str{label + "-c"}});
+        }
+        return builder.build();
+    }
+
+    [[nodiscard]] Value make_polymorphic_union(
+        const WidePolymorphicSchemas &schemas, const Value &leaf)
+    {
+        const auto binding = schemas.realization->type_for(schemas.base);
+        Value result{binding};
+        binding.ops_ref().copy_assign_from(
+            binding, result.begin_mutation().mutable_data(), leaf.binding(),
+            leaf.view().data());
+        return result;
+    }
+
+    [[nodiscard]] Value make_polymorphic_set_delta(
+        const WidePolymorphicSchemas &schemas,
+        std::span<const Value> added,
+        std::span<const Value> removed)
+    {
+        const auto element = schemas.realization->type_for(schemas.base);
+        SetBuilder added_builder{element};
+        for (const Value &value : added)
+        {
+            const Value union_value = make_polymorphic_union(schemas, value);
+            static_cast<void>(added_builder.insert_copy(union_value.view().data()));
+        }
+        SetBuilder removed_builder{element};
+        for (const Value &value : removed)
+        {
+            const Value union_value = make_polymorphic_union(schemas, value);
+            static_cast<void>(removed_builder.insert_copy(union_value.view().data()));
+        }
+        BundleBuilder delta{
+            schemas.realization->type_for(schemas.tss->delta_value_schema)};
+        delta.set("added", added_builder.build());
+        delta.set("removed", removed_builder.build());
+        return delta.build();
+    }
+
+    [[nodiscard]] Value make_polymorphic_dict_delta(
+        const WidePolymorphicSchemas &schemas,
+        std::span<const std::pair<const Value *, Int>> modified,
+        std::span<const Value> removed)
+    {
+        const auto key = schemas.realization->type_for(schemas.base);
+        const auto integer = ValuePlanFactory::instance().type_for(
+            TypeRegistry::instance().value_type("int"));
+        MapBuilder modified_builder{key, integer};
+        for (const auto &[leaf, value] : modified)
+        {
+            const Value union_key = make_polymorphic_union(schemas, *leaf);
+            modified_builder.set_item_copy(union_key.view().data(),
+                                           std::addressof(value));
+        }
+        SetBuilder removed_builder{key};
+        for (const Value &leaf : removed)
+        {
+            const Value union_key = make_polymorphic_union(schemas, leaf);
+            static_cast<void>(removed_builder.insert_copy(union_key.view().data()));
+        }
+        SetBuilder removed_strict_builder{key};
+        BundleBuilder delta{
+            schemas.realization->type_for(schemas.tsd->delta_value_schema)};
+        delta.set("removed", removed_builder.build());
+        delta.set("modified", modified_builder.build());
+        delta.set("removed_strict", removed_strict_builder.build());
+        return delta.build();
+    }
+
+    [[nodiscard]] WiringArg scalar_wiring_arg(Value value)
+    {
+        WiringArg result;
+        result.kind = WiringArg::Kind::Scalar;
+        result.scalar_meta = value.schema();
+        result.scalar_value = std::move(value);
+        return result;
+    }
+
+    [[nodiscard]] Port<void> runtime_replay(
+        Wiring &w, std::string_view key, const TSValueTypeMetaData *schema)
+    {
+        std::array<WiringArg, 1> args{
+            scalar_wiring_arg(Value{Str{key}})};
+        auto result = wire_operator(
+            w, "replay", std::span<const WiringArg>{args}, true, schema);
+        if (!result.has_output)
+        {
+            throw std::logic_error("runtime replay did not produce an output");
+        }
+        return result.output;
+    }
+
+    struct PolymorphicIntIdentity
+    {
+        static constexpr auto name = "polymorphic_int_identity";
+        static Port<TS<Int>> compose(Wiring &, Port<TS<Int>> value)
+        {
+            return value;
+        }
+    };
+
+    struct WidePolymorphicGraph
+    {
+        static constexpr auto name = "wide_polymorphic_graph";
+
+        static void compose(Wiring &w)
+        {
+            const auto schemas = wide_polymorphic_schemas();
+            auto scalar = runtime_replay(w, "pool::ts", schemas.ts);
+            auto set = runtime_replay(w, "pool::tss", schemas.tss);
+            auto dict = runtime_replay(w, "pool::tsd", schemas.tsd);
+
+            auto mapped = wire<stdlib::map_>(
+                w, fn<PolymorphicIntIdentity>(), dict);
+            auto meshed = wire<stdlib::mesh_>(
+                w, fn<PolymorphicIntIdentity>(), dict);
+            auto reduced = wire<stdlib::reduce_>(
+                w, fn<stdlib::add_>(), mapped, Int{0});
+
+            wire<stdlib::dense_record_impl>(w, scalar, Str{"pool::ts::out"});
+            wire<stdlib::dense_record_impl>(w, set, Str{"pool::tss::out"});
+            wire<stdlib::dense_record_impl>(w, dict, Str{"pool::tsd::out"});
+            wire<stdlib::dense_record_impl>(w, mapped,
+                                             Str{"pool::map::out"});
+            wire<stdlib::dense_record_impl>(w, meshed,
+                                             Str{"pool::mesh::out"});
+            wire<stdlib::dense_record_impl>(w, reduced,
+                                             Str{"pool::reduce::out"});
+        }
+    };
+
 }  // namespace
 
 TEST_CASE("stdlib::const_ emits its configured value once at start")
@@ -264,6 +455,128 @@ TEST_CASE("stdlib::const_ keeps polymorphic TSD values in the graph realization"
     const ValueView child = recorded.front()->as_bundle()["modified"].as_map().at(key.view());
     REQUIRE(std::string{child.concrete().schema()->name()} == "tests.const::PolymorphicLeaf");
     REQUIRE(child.concrete().as_bundle()["label"].checked_as<Str>() == "seven");
+}
+
+TEST_CASE("wide polymorphic values preserve public graph behaviour across keyed operators")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    const auto schemas = wide_polymorphic_schemas();
+    REQUIRE(schemas.realization->inspect(schemas.base).representation ==
+            GraphValueRepresentation::PooledUnion);
+
+    const Value small = make_polymorphic_leaf(schemas.small, 1);
+    const Value large = make_polymorphic_leaf(schemas.large, 2, "large");
+    const Value small_update = make_polymorphic_leaf(schemas.small, 3);
+
+    const std::vector<std::optional<Value>> scalar_ticks{
+        make_polymorphic_union(schemas, small),
+        make_polymorphic_union(schemas, large),
+        make_polymorphic_union(schemas, small_update),
+        make_polymorphic_union(schemas, small),
+    };
+    const std::array<Value, 2> both{small, large};
+    const std::array<Value, 1> only_large{large};
+    const std::array<Value, 1> only_small{small};
+    const std::vector<std::optional<Value>> set_ticks{
+        make_polymorphic_set_delta(schemas, both, {}),
+        make_polymorphic_set_delta(schemas, {}, only_large),
+        make_polymorphic_set_delta(schemas, only_large, {}),
+        make_polymorphic_set_delta(schemas, {}, both),
+    };
+    const std::array<std::pair<const Value *, Int>, 2> initial{
+        std::pair{&small, Int{2}}, std::pair{&large, Int{5}}};
+    const std::array<std::pair<const Value *, Int>, 1> update{
+        std::pair{&small, Int{3}}};
+    const std::vector<std::optional<Value>> dict_ticks{
+        make_polymorphic_dict_delta(schemas, initial, {}),
+        make_polymorphic_dict_delta(schemas, update, {}),
+        make_polymorphic_dict_delta(schemas, {}, only_large),
+        make_polymorphic_dict_delta(schemas, {}, only_small),
+    };
+
+    std::vector<std::optional<Value>> recorded_scalar;
+    std::vector<std::optional<Value>> recorded_set;
+    std::vector<std::optional<Value>> recorded_dict;
+    std::vector<std::optional<Value>> recorded_map;
+    std::vector<std::optional<Value>> recorded_mesh;
+    {
+        GlobalState graph_state;
+        set_pooled_compound_scalar_storage(graph_state.view());
+        GlobalContext graph_context{graph_state};
+        GraphBuilder graph = build_graph<WidePolymorphicGraph>();
+        testing::set_replay_deltas(graph.global_state(), "pool::ts",
+                                   scalar_ticks);
+        testing::set_replay_deltas(graph.global_state(), "pool::tss",
+                                   set_ticks);
+        testing::set_replay_deltas(graph.global_state(), "pool::tsd",
+                                   dict_ticks);
+
+        GraphExecutorBuilder executor_builder;
+        executor_builder.graph_builder(std::move(graph))
+            .start_time(MIN_ST)
+            .end_time(MAX_ET);
+        GraphExecutorValue executor = executor_builder.make_executor();
+        auto view = executor.view();
+        view.run();
+
+        const auto pools = view.graph().compound_scalar_storage().inspect();
+        REQUIRE(pools.leaf_pool_count >= 2);
+        REQUIRE(pools.live_slot_count > 0);
+        REQUIRE(pools.slot_capacity >= pools.live_slot_count);
+        const auto metrics =
+            view.graph().compound_scalar_storage().metrics();
+        REQUIRE(metrics.live_bytes > 0);
+        REQUIRE(metrics.reserved_bytes >= metrics.live_bytes);
+
+        const auto state = view.graph().global_state();
+        recorded_scalar =
+            testing::get_recorded_deltas(state, "pool::ts::out");
+        recorded_set = testing::get_recorded_deltas(state, "pool::tss::out");
+        recorded_dict = testing::get_recorded_deltas(state, "pool::tsd::out");
+        recorded_map = testing::get_recorded_deltas(state, "pool::map::out");
+        recorded_mesh = testing::get_recorded_deltas(state, "pool::mesh::out");
+        REQUIRE(testing::get_recorded_values<Int>(
+                    state, "pool::reduce::out") ==
+                std::vector<std::optional<Int>>{Int{7}, Int{8}, Int{3},
+                                                 Int{0}});
+    }
+
+    REQUIRE(recorded_scalar.size() == scalar_ticks.size());
+    REQUIRE(recorded_set.size() == set_ticks.size());
+    REQUIRE(recorded_dict.size() == dict_ticks.size());
+    REQUIRE(recorded_map.size() == dict_ticks.size());
+    REQUIRE(recorded_mesh.size() == dict_ticks.size());
+    for (std::size_t index = 0; index < scalar_ticks.size(); ++index)
+    {
+        if (!scalar_ticks[index].has_value())
+        {
+            REQUIRE_FALSE(recorded_scalar[index].has_value());
+            continue;
+        }
+        REQUIRE(recorded_scalar[index].has_value());
+        REQUIRE(recorded_scalar[index]->equals(*scalar_ticks[index]));
+    }
+    for (std::size_t index = 0; index < set_ticks.size(); ++index)
+    {
+        REQUIRE(recorded_set[index].has_value());
+        REQUIRE(recorded_set[index]->equals(*set_ticks[index]));
+    }
+    for (std::size_t index = 0; index < dict_ticks.size(); ++index)
+    {
+        REQUIRE(recorded_dict[index].has_value());
+        REQUIRE(recorded_map[index].has_value());
+        REQUIRE(recorded_mesh[index].has_value());
+        REQUIRE(recorded_dict[index]->equals(*dict_ticks[index]));
+        REQUIRE(recorded_map[index]->equals(*dict_ticks[index]));
+        REQUIRE(recorded_mesh[index]->equals(*dict_ticks[index]));
+    }
+
+    REQUIRE(recorded_scalar[1]
+                ->view()
+                .concrete()
+                .as_bundle()["a"]
+                .checked_as<Str>() == "large-a");
 }
 
 TEST_CASE("stdlib::const_ creates a non-peered TSB from a structural bundle value")

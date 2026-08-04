@@ -79,6 +79,7 @@ namespace hgraph
       private:
         friend ValueTypeRef intern_value_type(const ValueTypeMetaData &, const MemoryUtils::StoragePlan &,
                                               const ValueOps &, const DebugDescriptor *);
+        friend HGRAPH_EXPORT ValueTypeRef value_owning_type(ValueTypeRef);
         friend class Value;
         friend class ValueView;
 
@@ -94,6 +95,14 @@ namespace hgraph
                                                  const MemoryUtils::StoragePlan &plan,
                                                  const ValueOps &ops,
                                                  const DebugDescriptor *debug = nullptr);
+
+    /** Register and resolve the ordinary owning representation for a
+        graph-local binding.  The association is published once on the type
+        record, so ordinary construction requires no registry lookup. */
+    HGRAPH_EXPORT void register_value_owning_type(ValueTypeRef binding,
+                                                  ValueTypeRef owning_type);
+    [[nodiscard]] HGRAPH_EXPORT ValueTypeRef
+    value_owning_type(ValueTypeRef binding);
 
     static_assert(sizeof(ValueTypeRef) == sizeof(void *));
     static_assert(alignof(ValueTypeRef) == alignof(void *));

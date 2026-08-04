@@ -5,6 +5,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/utils/memory_utils.h>
+#include <hgraph/types/value/compound_scalar_storage.h>
 #include <hgraph/types/value/json_codec.h>
 #include <hgraph/types/value/value.h>
 
@@ -12,6 +13,7 @@
 #include <cstdint>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 struct LabelScalarA {
@@ -514,6 +516,178 @@ TEST_CASE("TypeRealizationSnapshot closes polymorphic Bundle storage without "
                         first->type_for(base), destination.mutable_data(),
                         newer.binding(), newer.view().data()),
                     std::invalid_argument);
+}
+
+TEST_CASE("graph realization pools wide polymorphic Bundles without escaping "
+          "pool ownership") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  const auto *text = registry.value_type("str");
+  REQUIRE(integer != nullptr);
+  REQUIRE(text != nullptr);
+
+  const auto *base = registry.bundle("tests.realization.pool", "Base",
+                                     {{"id", integer}}, {}, true);
+  const auto *small = registry.bundle("tests.realization.pool", "Small",
+                                      {{"id", integer}}, {base});
+  const auto *large = registry.bundle(
+      "tests.realization.pool", "Large",
+      {{"id", integer}, {"a", text}, {"b", text}, {"c", text}}, {base});
+
+  const auto inline_snapshot = TypeRealizationSnapshot::capture(registry);
+  REQUIRE(inline_snapshot->options().polymorphic_compound_storage ==
+          PolymorphicCompoundStoragePolicy::Inline);
+  REQUIRE(inline_snapshot->inspect(base).representation ==
+          GraphValueRepresentation::InlineUnion);
+
+  const TypeRealizationOptions pooled_options{
+      .polymorphic_compound_storage =
+          PolymorphicCompoundStoragePolicy::Pooled,
+  };
+  const auto snapshot =
+      TypeRealizationSnapshot::capture(registry, pooled_options);
+  REQUIRE(snapshot != inline_snapshot);
+  REQUIRE(TypeRealizationSnapshot::capture(registry, pooled_options) ==
+          snapshot);
+  const auto external = snapshot->type_for(base);
+  const auto graph = snapshot->graph_type_for(base);
+  REQUIRE(graph != external);
+  REQUIRE(graph.checked_plan().layout.size == sizeof(void *));
+  REQUIRE(external.checked_plan().layout.size >
+          graph.checked_plan().layout.size);
+  REQUIRE(value_owning_type(graph) == external);
+  const auto inspection = snapshot->inspect(base);
+  REQUIRE(inspection.representation == GraphValueRepresentation::PooledUnion);
+  REQUIRE(inspection.maximum_leaf_size - inspection.minimum_leaf_size > 32);
+  REQUIRE(inspection.graph_size == sizeof(void *));
+
+  Value canonical_large{ValuePlanFactory::instance().type_for(large)};
+  auto canonical_fields = canonical_large.as_bundle().begin_mutation();
+  canonical_fields["id"].set(Int{7});
+  canonical_fields["a"].set(Str{"original"});
+
+  CompoundScalarStorage pools = CompoundScalarStorage::make_default();
+  TypeRealizationScope realization_scope{snapshot.get()};
+  CompoundScalarStorageScope pool_scope{pools.view()};
+
+  Value escaped;
+  {
+    Value::storage_type first{*graph.record()};
+    graph.ops_ref().copy_assign_from(graph, first.data(),
+                                     canonical_large.binding(),
+                                     canonical_large.view().data());
+    Value::storage_type second{first};
+
+    const void *const first_payload =
+        graph.ops_ref().concrete_memory(first.data());
+    REQUIRE(first_payload == graph.ops_ref().concrete_memory(second.data()));
+    REQUIRE(pools.view().owns(first_payload));
+    REQUIRE(graph.ops_ref().concrete_type(graph, first.data()).schema() ==
+            large);
+
+    CompoundScalarStorage other_root = CompoundScalarStorage::make_default();
+    {
+      CompoundScalarStorageScope other_scope{other_root.view()};
+      Value::storage_type cross_root{first};
+      const void *const cross_root_payload =
+          graph.ops_ref().concrete_memory(cross_root.data());
+      REQUIRE(cross_root_payload != first_payload);
+      REQUIRE(other_root.view().owns(cross_root_payload));
+      REQUIRE_FALSE(pools.view().owns(cross_root_payload));
+      REQUIRE(other_root.view().inspect().live_slot_count == 1);
+    }
+    REQUIRE(other_root.view().inspect().live_slot_count == 0);
+
+    std::vector<Value::storage_type> replicated_keys;
+    replicated_keys.reserve(1024);
+    for (std::size_t index = 0; index < 1024; ++index) {
+      replicated_keys.emplace_back(first);
+    }
+    const auto replicated_metrics = pools.view().metrics();
+    const auto pooled_bytes =
+        replicated_metrics.reserved_bytes +
+        replicated_keys.size() * graph.checked_plan().layout.size;
+    const auto flat_bytes =
+        replicated_keys.size() * external.checked_plan().layout.size;
+    REQUIRE(pooled_bytes < flat_bytes);
+    replicated_keys.clear();
+
+    Value::storage_type moved_source{first};
+    Value::storage_type move_survivor{moved_source};
+    Value moved_external{external};
+    external.ops_ref().move_assign_from(
+        external, moved_external.begin_mutation().mutable_data(), graph,
+        moved_source.data());
+    REQUIRE(graph.ops_ref().concrete_memory(moved_source.data()) !=
+            graph.ops_ref().concrete_memory(move_survivor.data()));
+    const auto &move_survivor_read = move_survivor;
+    REQUIRE(ValueView{graph, move_survivor_read.data()}
+                .concrete()
+                .as_bundle()["a"]
+                .checked_as<Str>() == "original");
+    REQUIRE(
+        moved_external.view().concrete().as_bundle()["a"].checked_as<Str>() ==
+        "original");
+
+    auto second_concrete =
+        ValueView{graph, second.data()}.begin_mutation().concrete();
+    second_concrete.as_bundle().begin_mutation()["a"].set(Str{"detached"});
+    REQUIRE(graph.ops_ref().concrete_memory(first.data()) == first_payload);
+    REQUIRE(graph.ops_ref().concrete_memory(second.data()) != first_payload);
+    const auto &first_read = first;
+    REQUIRE(ValueView{graph, first_read.data()}
+                .concrete()
+                .as_bundle()["a"]
+                .checked_as<Str>() == "original");
+
+    std::vector<Value::storage_type> values;
+    values.reserve(128);
+    for (std::size_t index = 0; index < 128; ++index) {
+      values.emplace_back(*graph.record());
+      graph.ops_ref().copy_assign_from(graph, values.back().data(),
+                                       canonical_large.binding(),
+                                       canonical_large.view().data());
+    }
+    REQUIRE(graph.ops_ref().concrete_memory(first.data()) == first_payload);
+    REQUIRE(pools.view().inspect().slot_capacity >= 128);
+
+    escaped = Value{ValueView{graph, second.data()}};
+    REQUIRE(escaped.binding() == external);
+  }
+
+  REQUIRE(escaped.view().concrete().schema() == large);
+  REQUIRE(escaped.view().concrete().as_bundle()["a"].checked_as<Str>() ==
+          "detached");
+  const auto after_release = pools.view().inspect();
+  REQUIRE(after_release.leaf_pool_count == 2);
+  REQUIRE(after_release.live_slot_count == 0);
+  REQUIRE(small != nullptr);
+}
+
+TEST_CASE("graph realization keeps narrow polymorphic Bundles inline") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  REQUIRE(integer != nullptr);
+
+  const auto *base = registry.bundle("tests.realization.inline", "Base",
+                                     {{"id", integer}}, {}, true);
+  registry.bundle("tests.realization.inline", "Small", {{"id", integer}},
+                  {base});
+  registry.bundle("tests.realization.inline", "Medium",
+                  {{"id", integer}, {"quantity", integer}}, {base});
+
+  const auto snapshot = TypeRealizationSnapshot::capture(
+      registry,
+      TypeRealizationOptions{
+          .polymorphic_compound_storage =
+              PolymorphicCompoundStoragePolicy::Pooled,
+      });
+  const auto inspection = snapshot->inspect(base);
+  REQUIRE(inspection.representation == GraphValueRepresentation::InlineUnion);
+  REQUIRE(inspection.maximum_leaf_size - inspection.minimum_leaf_size <= 32);
+  REQUIRE(inspection.graph_size > sizeof(void *));
 }
 
 TEST_CASE("abstract Bundle without a concrete alternative cannot be realized") {

@@ -127,12 +127,13 @@ namespace hgraph
             if (!valid()) { return ValueView{}; }
             const auto declared = binding();
             const auto concrete_type = declared.ops_ref().concrete_type(declared, data());
-            const auto *concrete_data = declared.ops_ref().concrete_memory(data());
             if (writable_payload())
             {
-                return ValueView{concrete_type, const_cast<void *>(concrete_data)};
+                return ValueView{concrete_type,
+                                 declared.ops_ref().writable_concrete_memory(
+                                     const_cast<void *>(data()))};
             }
-            return ValueView{concrete_type, concrete_data};
+            return ValueView{concrete_type, declared.ops_ref().concrete_memory(data())};
         }
         [[nodiscard]] void *mutable_data() const
         {

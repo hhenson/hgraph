@@ -20,6 +20,12 @@ Python-authored compute, sink, generator, graph, service, adaptor, component,
 and push-source code executes in the C++ runtime. Python adapts values and
 callables; it does not implement a second graph engine.
 
+``set_pooled_compound_scalar_storage()`` is an optional graph-level memory
+policy for wide polymorphic ``CompoundScalar`` hierarchies.  Call it inside the
+``GlobalContext`` which wires the graph.  It changes only the native graph
+representation; the Python value API and graph behaviour remain unchanged.
+The default inline policy adds no pool storage to the graph layout.
+
 Runtime time-series views expose the authoring and interrogation surface backed
 by the native endpoints. Input and mutable ``_output`` views provide
 ``owning_node``, ``owning_graph``, and ``is_reference()`` in addition to their

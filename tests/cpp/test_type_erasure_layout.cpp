@@ -1,5 +1,8 @@
 #include <hgraph/runtime/runtime.h>
+#include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_meta_data.h>
+#include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/time_series/ts_data.h>
@@ -7,6 +10,7 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/type_pointer.h>
 #include <hgraph/types/utils/memory_utils.h>
+#include <hgraph/types/value/polymorphic_value_type.h>
 #include <hgraph/types/value/value.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -15,6 +19,7 @@
 #include <bit>
 #include <cstddef>
 #include <type_traits>
+#include <utility>
 
 namespace
 {
@@ -37,6 +42,7 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(std::is_trivially_copyable_v<NodeTypeRef>);
     static_assert(sizeof(GraphTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<GraphTypeRef>);
+    static_assert(GRAPH_OPS_ABI_VERSION == 5);
     static_assert(sizeof(ExecutorTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<ExecutorTypeRef>);
     static_assert(EXECUTOR_OPS_ABI_VERSION == 4);
@@ -44,6 +50,8 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(std::is_trivially_copyable_v<ClockTypeRef>);
     static_assert(sizeof(ValueView) == sizeof(void *) * 2);
     static_assert(sizeof(Value) == sizeof(void *) * 3);
+    static_assert(sizeof(PolymorphicValueType) == sizeof(void *) * 2);
+    static_assert(std::is_standard_layout_v<PolymorphicValueType>);
     static_assert(sizeof(AnyPtr) == sizeof(void *) * 2);
     static_assert(sizeof(TypedPtr<TypeFamily::Value>) == sizeof(void *) * 2);
     static_assert(sizeof(NodePtr) == sizeof(void *) * 2);
@@ -106,6 +114,94 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(alignof(RawHandle) == alignof(void *));
 
     SUCCEED("compile-time type-erasure layout assertions passed");
+}
+
+TEST_CASE("polymorphic value type owner keeps a canonical no-op state")
+{
+    using namespace hgraph;
+
+    PolymorphicValueType original;
+    CHECK_FALSE(original.binding());
+    PolymorphicValueType moved{std::move(original)};
+    CHECK_FALSE(moved.binding());
+    CHECK_FALSE(original.binding());
+}
+
+TEST_CASE("compound scalar pools are absent from graphs unless selected")
+{
+    using namespace hgraph;
+
+    GraphBuilder inline_builder;
+    const auto inline_root = inline_builder.root_type();
+    const auto inline_nested = inline_builder.nested_type();
+    REQUIRE(inline_root.checked_plan().find_component(
+                "compound_scalar_storage") == nullptr);
+    REQUIRE(inline_nested.checked_plan().find_component(
+                "compound_scalar_storage") == nullptr);
+
+    GraphBuilder pooled_builder;
+    set_pooled_compound_scalar_storage(pooled_builder.global_state());
+    const auto pooled_root = pooled_builder.root_type();
+    const auto pooled_nested = pooled_builder.nested_type();
+    const auto *root_storage = pooled_root.checked_plan().find_component(
+        "compound_scalar_storage");
+    const auto *nested_storage = pooled_nested.checked_plan().find_component(
+        "compound_scalar_storage");
+    REQUIRE(root_storage != nullptr);
+    REQUIRE(nested_storage != nullptr);
+    REQUIRE(root_storage->plan->layout.size ==
+            MemoryUtils::plan_for<CompoundScalarStorage>().layout.size);
+    REQUIRE(root_storage->plan->layout.alignment ==
+            MemoryUtils::plan_for<CompoundScalarStorage>().layout.alignment);
+    REQUIRE(nested_storage->plan->layout.size ==
+            MemoryUtils::plan_for<CompoundScalarStorageView>().layout.size);
+    REQUIRE(nested_storage->plan->layout.alignment ==
+            MemoryUtils::plan_for<CompoundScalarStorageView>().layout.alignment);
+    REQUIRE(pooled_root.checked_plan().layout.size >
+            inline_root.checked_plan().layout.size);
+    REQUIRE(pooled_nested.checked_plan().layout.size >
+            inline_nested.checked_plan().layout.size);
+    REQUIRE(pooled_root != inline_root);
+    REQUIRE(pooled_nested != inline_nested);
+
+    GraphExecutorBuilder inline_executor_builder;
+    inline_executor_builder.graph_builder(std::move(inline_builder));
+    GraphExecutorValue inline_executor =
+        inline_executor_builder.make_executor();
+    REQUIRE_FALSE(inline_executor.view()
+                      .graph()
+                      .compound_scalar_storage()
+                      .available());
+
+    GraphExecutorBuilder pooled_executor_builder;
+    pooled_executor_builder.graph_builder(std::move(pooled_builder));
+    GraphExecutorValue pooled_executor =
+        pooled_executor_builder.make_executor();
+    REQUIRE(pooled_executor.view()
+                .graph()
+                .compound_scalar_storage()
+                .available());
+}
+
+TEST_CASE("compiled child graphs inherit pooled realization without owning state")
+{
+    using namespace hgraph;
+
+    GlobalState state;
+    set_pooled_compound_scalar_storage(state.view());
+    GlobalContext context{state};
+    Wiring child{WiringKind::SubGraph};
+    CompiledSubGraph compiled =
+        std::move(child).finish_subgraph(std::nullopt, {});
+
+    REQUIRE(compiled.graph_builder.type_realization()
+                ->pooled_compound_storage_enabled());
+    REQUIRE(compiled.graph_builder.nested_type()
+                .checked_plan()
+                .find_component("compound_scalar_storage") != nullptr);
+    REQUIRE(type_realization_options(compiled.graph_builder.global_state())
+                .polymorphic_compound_storage ==
+            PolymorphicCompoundStoragePolicy::Inline);
 }
 
 TEST_CASE("dynamic TSL and TSW physical plans retain their baseline layouts")
@@ -198,7 +294,7 @@ TEST_CASE("value ops discriminator has a fixed byte ABI at offset zero")
     static_assert(sizeof(ValueOpsKind) == 1);
     static_assert(offsetof(ValueOps, kind) == 0);
     static_assert(std::is_same_v<decltype(VALUE_OPS_ABI_VERSION), const std::uint16_t>);
-    static_assert(VALUE_OPS_ABI_VERSION == 4);
+    static_assert(VALUE_OPS_ABI_VERSION == 5);
     static_assert(static_cast<std::uint8_t>(ValueOpsKind::Invalid) == 0);
     static_assert(static_cast<std::uint8_t>(ValueOpsKind::Base) == 1);
     static_assert(static_cast<std::uint8_t>(ValueOpsKind::Indexed) == 2);

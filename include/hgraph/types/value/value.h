@@ -13,6 +13,7 @@
 #include <hgraph/types/value/specialized_views.h>
 #include <hgraph/types/value/value_ops.h>
 #include <hgraph/types/value/value_view.h>
+#include <hgraph/util/scope.h>
 
 #include <compare>
 #include <memory>
@@ -24,6 +25,11 @@
 
 namespace hgraph
 {
+    namespace value_impl
+    {
+        class GraphLocalValueAccess;
+    }
+
     /**
      * Owning value-layer instance.
      *
@@ -64,16 +70,40 @@ namespace hgraph
          * binding's plan default-constructs the payload).
          */
         explicit Value(const ValueTypeRef &binding)
-            : storage_(*binding.record())
         {
+            const auto owning_type = value_owning_type(binding);
+            if (!owning_type)
+            {
+                throw std::invalid_argument("Value(binding): binding is unbound");
+            }
+            storage_ = storage_type{*owning_type.record()};
         }
 
         /**
          * Copy-construct a payload from external storage using ``binding``.
          */
         Value(const ValueTypeRef &binding, const void *src)
-            : storage_(storage_type::owning_copy(*binding.record(), src))
         {
+            const auto owning_type = value_owning_type(binding);
+            if (!owning_type || src == nullptr)
+            {
+                throw std::invalid_argument(
+                    "Value(binding, source): binding and source must be live");
+            }
+            if (owning_type == binding)
+            {
+                storage_ = storage_type::owning_copy(*binding.record(), src);
+                return;
+            }
+            storage_ = storage_type::owning_constructed(
+                *owning_type.record(), [&](void *dst) {
+                    owning_type.default_construct_at(dst);
+                    auto destroy = make_scope_exit(
+                        [&]() noexcept { owning_type.destroy_at(dst); });
+                    owning_type.ops_ref().copy_assign_from(
+                        owning_type, dst, binding, src);
+                    destroy.release();
+                });
         }
 
         /** Copy or bind-null construct from a non-owning view. */
@@ -85,7 +115,8 @@ namespace hgraph
                 throw std::invalid_argument("Value(ValueView): view has no binding");
             }
             const auto &ops = view_type.ops_ref();
-            const auto owning_type = ops.owning_type(view_type);
+            const auto natural_owning_type = ops.owning_type(view_type);
+            const auto owning_type = value_owning_type(view_type);
             if (view.data() == nullptr)
             {
                 storage_ = storage_type::empty(*owning_type.record());
@@ -93,7 +124,17 @@ namespace hgraph
             }
 
             storage_ = storage_type::owning_constructed(*owning_type.record(), [&](void *dst) {
-                ops.copy_construct_view(owning_type, dst, view.data());
+                if (owning_type == natural_owning_type)
+                {
+                    ops.copy_construct_view(owning_type, dst, view.data());
+                    return;
+                }
+                owning_type.default_construct_at(dst);
+                auto destroy = make_scope_exit(
+                    [&]() noexcept { owning_type.destroy_at(dst); });
+                owning_type.ops_ref().copy_assign_from(
+                    owning_type, dst, view_type, view.data());
+                destroy.release();
             });
         }
 
@@ -323,6 +364,7 @@ namespace hgraph
 #endif
 
       private:
+        friend class value_impl::GraphLocalValueAccess;
         storage_type storage_{};
     };
 }  // namespace hgraph

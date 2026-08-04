@@ -2,15 +2,18 @@
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/mock_runtime.h>
+#include <hgraph/runtime/global_state.h>
 #include <hgraph/runtime/mesh_node.h>
 #include <hgraph/runtime/reduce_node.h>
 #include <hgraph/runtime/runtime.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/visitor.h>
+#include <hgraph/types/value/compound_scalar_storage.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/visitor.h>
 
@@ -164,6 +167,22 @@ namespace
     {
         const char *filter = std::getenv("HGRAPH_TYPE_ERASURE_PERF_FILTER");
         return filter == nullptr || *filter == '\0' || name.contains(filter);
+    }
+
+    [[nodiscard]] bool env_enabled(const char *name)
+    {
+        const char *value = std::getenv(name);
+        if (value == nullptr || *value == '\0' || std::string_view{value} == "0" ||
+            std::string_view{value} == "false" || std::string_view{value} == "off")
+        {
+            return false;
+        }
+        if (std::string_view{value} == "1" || std::string_view{value} == "true" ||
+            std::string_view{value} == "on")
+        {
+            return true;
+        }
+        throw std::invalid_argument(std::string{name} + " must be one of 0, 1, false, true, off, or on");
     }
 
     void retain(std::uint64_t value) noexcept
@@ -551,6 +570,12 @@ int main()
     using namespace hgraph;
     using namespace hgraph::testing;
 
+    const bool pooled_compound_scalars =
+        env_enabled("HGRAPH_TYPE_ERASURE_PERF_POOLED_COMPOUND_SCALARS");
+    GlobalState benchmark_state;
+    set_pooled_compound_scalar_storage(benchmark_state.view(), pooled_compound_scalars);
+    GlobalContext benchmark_context{benchmark_state};
+
     stdlib::register_standard_operators();
     auto &registry = TypeRegistry::instance();
     const auto *int_meta = registry.register_scalar<Int>("type_erasure_perf_int");
@@ -583,6 +608,7 @@ int main()
               << " warmup_iterations=" << warmup << " filter="
               << (filter == nullptr || *filter == '\0' ? "all" : filter) << " host="
               << (host_label == nullptr || *host_label == '\0' ? "unspecified" : host_label)
+              << " pooled_compound_scalars=" << (pooled_compound_scalars ? "on" : "off")
               << " compiler=" << compiler_family
 #if defined(__clang__)
               << " compiler_version=" << __clang_major__ << '.' << __clang_minor__ << '.' << __clang_patchlevel__
@@ -594,6 +620,95 @@ int main()
               << " compiler_version=unknown"
 #endif
               << " architecture=" << architecture << '\n';
+
+    if (benchmark_selected("polymorphic_union_external_copy_hash") ||
+        benchmark_selected("polymorphic_union_pooled_copy_hash"))
+    {
+        const auto *polymorphic_integer = int_meta;
+        const auto *base = registry.bundle("type_erasure_perf", "PooledBase", {{"id", polymorphic_integer}}, {}, true);
+        const auto *small = registry.bundle("type_erasure_perf", "PooledSmall", {{"id", polymorphic_integer}}, {base});
+        registry.bundle("type_erasure_perf", "PooledLarge",
+                        {{"id", polymorphic_integer},
+                         {"a", polymorphic_integer},
+                         {"b", polymorphic_integer},
+                         {"c", polymorphic_integer},
+                         {"d", polymorphic_integer},
+                         {"e", polymorphic_integer},
+                         {"f", polymorphic_integer},
+                         {"g", polymorphic_integer}},
+                        {base});
+
+        const auto realization = TypeRealizationSnapshot::capture(
+            registry,
+            TypeRealizationOptions{
+                .polymorphic_compound_storage =
+                    PolymorphicCompoundStoragePolicy::Pooled,
+            });
+        const auto external = realization->type_for(base);
+        const auto pooled = realization->graph_type_for(base);
+        if (realization->inspect(base).representation != GraphValueRepresentation::PooledUnion ||
+            pooled.checked_plan().layout.size != sizeof(void *))
+        {
+            throw std::runtime_error("polymorphic union benchmark did not select pooled storage");
+        }
+
+        BundleBuilder small_builder{ValuePlanFactory::instance().type_for(small)};
+        small_builder.set("id", Value{Int{41}});
+        const Value small_value = small_builder.build();
+
+        CompoundScalarStorage pools = CompoundScalarStorage::make_default();
+        TypeRealizationScope realization_scope{realization.get()};
+        CompoundScalarStorageScope storage_scope{pools.view()};
+        Value::storage_type external_source{*external.record()};
+        Value::storage_type pooled_source{*pooled.record()};
+        external.ops_ref().copy_assign_from(external, external_source.data(), small_value.binding(),
+                                            small_value.view().data());
+        pooled.ops_ref().copy_assign_from(pooled, pooled_source.data(), small_value.binding(),
+                                          small_value.view().data());
+
+        const auto &allocator = MemoryUtils::allocator();
+        void *external_destination = allocator.allocate_storage(external.checked_plan().layout);
+        void *pooled_destination = allocator.allocate_storage(pooled.checked_plan().layout);
+
+        const auto external_hash = external.ops_ref().hash(external_source.data());
+        const auto pooled_hash = pooled.ops_ref().hash(pooled_source.data());
+        if (external_hash != pooled_hash)
+        {
+            throw std::runtime_error("polymorphic union benchmark representations hash differently");
+        }
+
+        run_benchmark(
+            "polymorphic_union_external_copy_hash", 200'000, samples, warmup,
+            [&] {
+                external.copy_construct_at(external_destination, external_source.data());
+                const auto result = external.ops_ref().hash(external_destination);
+                external.destroy_at(external_destination);
+                return static_cast<std::uint64_t>(result);
+            },
+            [external_hash](std::uint64_t value) {
+                if (value != external_hash)
+                {
+                    throw std::runtime_error("external polymorphic copy/hash checksum failed");
+                }
+            });
+        run_benchmark(
+            "polymorphic_union_pooled_copy_hash", 200'000, samples, warmup,
+            [&] {
+                pooled.copy_construct_at(pooled_destination, pooled_source.data());
+                const auto result = pooled.ops_ref().hash(pooled_destination);
+                pooled.destroy_at(pooled_destination);
+                return static_cast<std::uint64_t>(result);
+            },
+            [pooled_hash](std::uint64_t value) {
+                if (value != pooled_hash)
+                {
+                    throw std::runtime_error("pooled polymorphic copy/hash checksum failed");
+                }
+            });
+
+        allocator.deallocate_storage(external_destination, external.checked_plan().layout);
+        allocator.deallocate_storage(pooled_destination, pooled.checked_plan().layout);
+    }
 
     Value atomic_value{Int{41}};
     auto atomic_view = atomic_value.view();

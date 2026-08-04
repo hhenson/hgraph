@@ -244,6 +244,22 @@ namespace hgraph
             entry.snapshot.storage.dynamic_reserved_bytes = 0;
         }
 
+        [[nodiscard]] NodeStorageMetrics graph_storage_metrics(
+            const GraphView &graph) noexcept
+        {
+            NodeStorageMetrics result{};
+            if (!graph.valid()) { return result; }
+            result.static_bytes = graph.type().checked_plan().layout.size;
+            if (graph.is_root())
+            {
+                const DynamicStorageMetrics pooled =
+                    graph.compound_scalar_storage().metrics();
+                result.dynamic_live_bytes = pooled.live_bytes;
+                result.dynamic_reserved_bytes = pooled.reserved_bytes;
+            }
+            return result;
+        }
+
         void refresh_graph(Inspector::State &state, const GraphView &graph)
         {
             auto *entry = find_entry(state, state.graph_entities, graph.data());
@@ -251,6 +267,7 @@ namespace hgraph
             entry->snapshot.started = graph.started();
             entry->snapshot.evaluation_time = graph.evaluation_time();
             entry->snapshot.scheduled_time = graph.next_scheduled_time();
+            update_totals(state, *entry, graph_storage_metrics(graph));
 
             for (std::size_t index = 0; index < graph.node_count(); ++index)
             {
@@ -361,9 +378,10 @@ namespace hgraph
             .evaluation_time = graph.evaluation_time(),
             .scheduled_time = graph.next_scheduled_time(),
         };
-        snapshot.storage.static_bytes = graph.type().checked_plan().layout.size;
-        snapshot.peak_storage = snapshot.storage;
-        state_->entries.emplace(id, State::EntryState{.snapshot = std::move(snapshot)});
+        auto [entry, inserted] = state_->entries.emplace(
+            id, State::EntryState{.snapshot = std::move(snapshot)});
+        static_cast<void>(inserted);
+        update_totals(*state_, entry->second, graph_storage_metrics(graph));
         state_->graph_entities[graph.data()] = id;
         attach_to_parent(*state_, parent_id, id);
         if (graph.is_root())
@@ -393,6 +411,7 @@ namespace hgraph
             end_phase(*entry, InspectionPhase::Start, true, options_.recent_window);
             entry->snapshot.stopped = true;
             entry->snapshot.started = false;
+            clear_dynamic_totals(*state_, *entry);
         }
         state_->graph_entities.erase(graph.data());
         if (graph.is_root() && state_->wall_started.has_value())
@@ -585,6 +604,7 @@ namespace hgraph
             entry->snapshot.started = false;
             entry->snapshot.stopped = true;
             entry->snapshot.scheduled_time = MIN_DT;
+            clear_dynamic_totals(*state_, *entry);
         }
         state_->graph_entities.erase(graph.data());
         if (graph.is_root() && state_->wall_started.has_value())
@@ -603,6 +623,7 @@ namespace hgraph
             entry->snapshot.started = false;
             entry->snapshot.stopped = true;
             entry->snapshot.scheduled_time = MIN_DT;
+            clear_dynamic_totals(*state_, *entry);
         }
         state_->graph_entities.erase(graph.data());
         if (graph.is_root() && state_->wall_started.has_value())
