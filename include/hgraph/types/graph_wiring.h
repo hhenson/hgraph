@@ -917,10 +917,12 @@ namespace hgraph
          * Declare a same-cycle boundary pair (shared-output relays): the
          * ``source`` is rank-constrained after the ``capture``, and ``finish``
          * VALIDATES the final order, so the runtime schedules the source for
-         * the current evaluation time with no hot-path checks. Request stubs
-         * (subscription/request-reply) do not use this helper: their sources
-         * are scheduled for the next cycle. Same-time work is ordered as the
-         * first sending client, then the source, then later sending clients.
+         * the current evaluation time with no hot-path checks. Deferred
+         * request stubs do not use this helper. Ranked reply-less
+         * request/reply clients use the service-rank contract instead because
+         * their source may be external to a nested graph. Same-time work is
+         * ordered as the first sending client, then the source, then later
+         * sending clients.
          */
         void add_same_cycle_pair(const WiringInstance *capture, const WiringInstance *source);
 

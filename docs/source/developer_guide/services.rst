@@ -34,7 +34,7 @@ source/capture pair** — applied with different payloads:
       cons["consumers bind here and are woken by<br/>ordinary output notification"]
 
       client --> cap
-      cap -->|"write state; schedule_node<br/>(ranked adaptors: same cycle / deferred services: +MIN_TD)"| src
+      cap -->|"write state; schedule_node<br/>(ranked boundaries: same cycle / deferred requests: +MIN_TD)"| src
       src -->|"applies state in one mutation<br/>of its own output"| out
       out --> cons
 
@@ -55,19 +55,22 @@ source/capture pair** — applied with different payloads:
 
   - **Ranked boundaries in their owning graph** (reference and subscription
     outputs, adaptor ``from_graph``/``to_graph``, service-adaptor requests,
-    contexts) are **rank-correct and same-cycle**: pairs are declared with
-    ``Wiring::add_same_cycle_pair``
-    (source rank-constrained after every capture); ``Wiring::finish`` re-ranks
-    once all captures are known — which is what keeps chains of multiple
-    adaptors/services correct — and **validates** every pair's final order.
-    The runtime trusts the wiring-time proof: a capture always schedules the
-    source for the **current** evaluation time with no hot-path checks (debug
-    asserts only) — never a silent next-cycle deferral. A dynamically-started
-    child service-adaptor client cannot precede an outer source whose rank has
-    already passed, so its boundary hand-off occurs on the following cycle;
-    the implementation and reply then remain rank-ordered in that owning
-    graph. This is the released Python lifecycle behavior, not the old
-    top-level adaptor delay.
+    reply-less request/reply requests, and contexts) are **rank-correct and
+    same-cycle**. Fixed source/capture pairs use
+    ``Wiring::add_same_cycle_pair``; service clients whose sources can cross a
+    nested boundary use the equivalent sending service-rank relation. In both
+    cases the source is rank-constrained after every capture.
+    ``Wiring::finish`` re-ranks once all captures are known — which is what
+    keeps chains of multiple adaptors/services correct — and validates the
+    final order.
+    For a capture in the graph that owns its source, the runtime trusts the
+    wiring-time proof and schedules the source for the **current** evaluation
+    time with no hot-path checks (debug asserts only). A dynamically-started
+    child service-adaptor client instead hands off to an outer source on the
+    following cycle because that source's rank may already have passed; the
+    implementation and reply then remain rank-ordered in the owning graph.
+    This explicit nested boundary is released Python lifecycle behavior, not a
+    silent fallback to the old top-level adaptor delay.
   - **Subscription keys** in the owning graph are ranked before their source
     and publish in the capture cycle. A dynamically-started nested client hands
     off to the outer source on the following cycle because the outer rank may
@@ -78,17 +81,31 @@ source/capture pair** — applied with different payloads:
     Python's keyed-child lifecycle and preventing cached values from leaking on
     re-add. A client joining a key that another client has kept live samples the
     existing value immediately.
-  - **Request/reply requests** forward **next cycle** by design: the pairing is
-    rank-free (no rank dependency), and the capture schedules the service source
-    for ``evaluation_time + MIN_TD`` (current time during ``start``). The temporal
-    request mutation does not run the implementation in the capture cycle.
-    A request/reply input source retains its earliest outstanding publication
-    time, so a later request cannot postpone work that is already due.
+  - **Request/reply requests** forward **next cycle** *when the service declares
+    a response*: the pairing is rank-free (no rank dependency), and the capture
+    schedules the service source for ``evaluation_time + MIN_TD`` (current time
+    during ``start``). The temporal request mutation does not run the
+    implementation in the capture cycle. A request/reply input source retains
+    its earliest outstanding publication time, so a later request cannot
+    postpone work that is already due.
+  - **A reply-less request/reply service forwards in the owning capture
+    cycle.** With no response there is no response feedback edge, hence no
+    request/reply cycle for the rank-free path to permit. A root client is
+    registered as a sending service-rank dependency and its capture is built
+    with ``same_cycle`` — the implementation observes the request in the cycle
+    the client sent it. This makes it agree with a sink-only adaptor, which is
+    the same construct at a different keying
+    (:doc:`../rfc/rfc_0012_replyless_request_reply_relay`). A dynamically
+    started nested client cannot safely schedule an outer source whose rank
+    may already have passed, so its outer hand-off occurs on the next cycle.
+    Both timings match released hgraph. A root dependency cycle through a
+    reply-less service is reported at wiring time rather than being silently
+    broken by a cycle boundary.
   - **Request/reply responses** cross an explicit feedback source/sink pair in
     the graph that owns the implementation, then publish through the ordinary
-    same-cycle shared-output relay. Request/reply clients are omitted from
-    indirect service ranking, so recursive request/reply calls are legal. No
-    nested client or higher-order operator constructs this feedback path.
+    same-cycle shared-output relay. Reply-full request/reply clients are omitted
+    from indirect service ranking, so recursive request/reply calls are legal.
+    No nested client or higher-order operator constructs this feedback path.
 - **Lifecycle:** the source clears its captured state on ``stop``. A restarted
   graph must republish through capture before the source can produce a live
   shared output.
@@ -159,8 +176,8 @@ A service is declared as a plain struct naming its schemas. The type aliases a
 descriptor declares are its **flavour tag** — exactly one of the three alias
 sets must be present, and the sets are mutually exclusive (checked by concepts
 at compile time: ``output_schema`` = reference, ``key_type`` +
-``value_schema`` = subscription, ``request_schema`` + ``response_schema`` =
-request/reply):
+``value_schema`` = subscription, and ``request_schema`` with an optional
+``response_schema`` = request/reply):
 
 .. code-block:: cpp
 
@@ -182,6 +199,12 @@ request/reply):
        static constexpr std::string_view name{"add_one"};
        using request_schema  = TS<Int>;
        using response_schema = TS<Int>;
+   };
+
+   struct PublishService                  // reply-less request/reply sink
+   {
+       static constexpr std::string_view name{"publish"};
+       using request_schema = TS<Int>;
    };
 
 An implementation is an ordinary node or sub-graph whose signature matches the
@@ -207,11 +230,13 @@ registered:
    register_reference_service<ReferencePricesService, ReferencePricesImpl>(w);
    register_subscription_service<PricesService, PricesImpl>(w);
    register_request_reply_service<AddOneService, AddOneImplNode>(w, path("premium"));
+   register_request_reply_service<PublishService, PublishImpl>(w, path("events"));
 
    // client side — the flavour tag selects the call shape:
    auto prices = wire<ReferencePricesService>(w);                   // reference: no argument
    auto quote  = wire<PricesService>(w, instrument);                // subscription: the key
    auto reply  = wire<AddOneService>(w, path("premium"), request);  // request/reply: the request
+   wire<PublishService>(w, path("events"), event);                  // reply-less: returns void
 
 When a non-default path is used, ``service::path("…")`` is always the **first**
 argument after ``w`` (for registration and consumption alike). Passing an
@@ -248,6 +273,11 @@ output. The per-flavour contract, with the complications each one must handle:
   ``InputValidity::Unchecked`` and gate on ``requests.modified()``; erase
   ``removed_items()``; a request element that ticked **invalid** means the
   client's request went away — erase that reply too.
+- **Reply-less request/reply** (``request_schema`` only): input is the same
+  stable-client-id ``TSD<Int, request_schema>`` and the implementation is a
+  sink (a node/graph with no output). The public call remains
+  ``wire<Service>(w, request)`` but returns ``void``; no reply source, response
+  capture, or response feedback edge is built.
 
 .. code-block:: cpp
 
@@ -289,8 +319,9 @@ interfaces at once. Register it with
   ``Port<TSD<Int, request_schema>>`` for request/reply (a reference service
   has no input);
 - ``service::impl_output<Service>(w[, path], port)`` publishes the
-  implementation's result as that service's shared output (all three
-  flavours).
+  implementation's result as that service's shared output (reference,
+  subscription, and reply-full request/reply; a reply-less service has no
+  output endpoint).
 
 .. code-block:: cpp
 
