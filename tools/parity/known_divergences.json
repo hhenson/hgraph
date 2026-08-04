@@ -37,6 +37,21 @@
       "review_after": "2027-08-04"
     },
     {
+      "family": "nested-mapped-request-reply-one-cycle-earlier",
+      "template": "nested_higher_order",
+      "parameters_equal": {
+        "inner": "request_reply",
+        "outer": "map",
+        "wrap_switch": false,
+        "reduce_output": false
+      },
+      "parameters_not_equal": {},
+      "relation": "nested-request-reply-one-cycle-earlier",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/274",
+      "reason": "RFC 0014 removes the same response-feedback cycle when a self-coupled request/reply client is nested under an unreduced map. A stable structural-map prefix may precede the response; suppress only when the alpha request/reply branch is active at the removed cycle, the advanced tick contains a mapped response value, and deleting that single silence makes every payload and remaining silence identical. The full issue-175 response-versus-new-key collision remains exact-fingerprint-only.",
+      "review_after": "2027-08-04"
+    },
+    {
       "family": "key-set-size-no-retick",
       "template": "tsd_key_set_pipeline",
       "parameters_not_equal": {

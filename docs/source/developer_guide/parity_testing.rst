@@ -233,7 +233,12 @@ way:
   RFC 0014; the earlier response payload and every other tick must still match;
 * ``request-reply-one-cycle-earlier`` requires a self-coupled request/reply
   candidate trace to equal the complete released-hgraph trace after removing
-  exactly its leading silent response-feedback cycle.
+  exactly its leading silent response-feedback cycle;
+* ``nested-request-reply-one-cycle-earlier`` permits an unchanged structural
+  map prefix before that cycle so a reducer may remove unrelated later input
+  events without minting a new divergence. The request/reply-backed ``alpha``
+  branch must be active at the removed cycle, the advanced tick must carry a
+  mapped response value, and every payload and remaining silence must agree.
 
 An unknown relation, payload corruption, unrelated missing field, candidate
 crash, or status difference does not match and therefore continues through

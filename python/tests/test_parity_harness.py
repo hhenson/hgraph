@@ -1340,8 +1340,117 @@ def test_request_reply_one_cycle_earlier_relation_is_exact():
     assert not classify(reference, [None, 8, 11, None, 5])
     assert not classify(reference, [None, 8, 10, 5, None])
     assert not classify(reference, [8, 10, None, 5])
+    assert not classify(
+        [None, None, 8, None, 10, None, 5],
+        [None, None, 8, 10, None, 5],
+    )
     # A trace without a response is not accepted merely because it is shorter.
     assert not classify([None, None], [None])
+
+
+def test_nested_request_reply_one_cycle_earlier_preserves_structural_prefix():
+    from tools.parity.known import (
+        is_known_family_failure,
+        load_known_divergences,
+        matches_known_family,
+    )
+
+    _fingerprints, families = load_known_divergences()
+    timing_family_name = "nested-mapped-request-reply-one-cycle-earlier"
+    timing_families = [
+        family
+        for family in families
+        if family["family"] == timing_family_name
+    ]
+    assert len(timing_families) == 1
+    recipe = {
+        "template": "nested_higher_order",
+        "inputs": {
+            "selector": ["alpha"],
+            "values": [{"k1": 8}],
+        },
+        "parameters": {
+            "increment": 0,
+            "inner": "request_reply",
+            "outer": "map",
+            "reduce_output": False,
+            "wrap_switch": False,
+        },
+    }
+    assert matches_known_family(recipe, timing_families)
+    for name, value in (
+        ("inner", "arithmetic"),
+        ("outer", "mesh"),
+        ("reduce_output", True),
+        ("wrap_switch", True),
+    ):
+        assert not matches_known_family(
+            {
+                **recipe,
+                "parameters": {**recipe["parameters"], name: value},
+            },
+            timing_families,
+        )
+
+    mapped = lambda entries: {"$map": entries}
+    empty = mapped([])
+    first = mapped([["k1", 8]])
+    second = mapped([["k2", -2]])
+    ok = lambda trace: {"status": "ok", "trace": trace}
+
+    def classify(reference, candidate, *, with_recipe=recipe):
+        difference = compare_outcomes(ok(reference), ok(candidate))
+        assert difference is not None
+        return is_known_family_failure(
+            with_recipe,
+            difference.to_dict(),
+            ok(reference),
+            ok(candidate),
+            timing_families,
+        )
+
+    # Issue #274: reduction removed the later outer-key collision, leaving
+    # exactly RFC 0014's one-cycle response advance after a stable map prefix.
+    assert classify([empty, None, first], [empty, first])
+    # Payload changes, prefix loss, multiple removed cycles, and trailing
+    # silence removal remain reportable.
+    assert not classify(
+        [empty, None, first],
+        [empty, mapped([["k1", 9]])],
+    )
+    assert not classify([empty, None, first], [first])
+    assert not classify([empty, None, None, first], [empty, first])
+    assert not classify([empty, first, None], [empty, first])
+    assert not classify(
+        [empty, first, None, second],
+        [empty, first, second],
+    )
+    assert not classify([empty, None, empty], [empty, empty])
+    beta_only = {
+        **recipe,
+        "inputs": {**recipe["inputs"], "selector": ["beta"]},
+    }
+    assert matches_known_family(beta_only, timing_families)
+    assert not classify(
+        [empty, None, first],
+        [empty, first],
+        with_recipe=beta_only,
+    )
+    beta_at_removal = {
+        **recipe,
+        "inputs": {**recipe["inputs"], "selector": ["alpha", "beta"]},
+    }
+    assert not classify(
+        [empty, None, first],
+        [empty, first],
+        with_recipe=beta_at_removal,
+    )
+    # The complete issue-175 collision also changes the map delta at the next
+    # outer-key event, so its existing exact fingerprint remains necessary.
+    assert not classify(
+        [empty, None, first, None, second],
+        [empty, first, empty, second],
+    )
 
 
 def test_nested_no_change_retick_family_is_elision_only():
