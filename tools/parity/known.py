@@ -327,23 +327,36 @@ def _request_reply_one_cycle_earlier_relation(
     _family: dict[str, Any],
 ) -> bool:
     """RFC 0014 self-coupled request/reply transport removes exactly the
-    released implementation's leading response-feedback cycle.
+    released implementation's response-feedback cycle immediately before the
+    first response which differs between the traces.
 
-    Preserve every payload and silent cycle after that boundary.  This is a
-    sequence relation, not a general tolerance for shifted or missing ticks.
+    Preserve any structural prefix, every payload, and every remaining silent
+    cycle.  This is a sequence relation, not a general tolerance for shifted
+    or missing ticks.
     """
     if difference.get("classification") != "length":
         return False
     reference_trace = reference.get("trace")
     candidate_trace = candidate.get("trace")
-    return (
-        isinstance(reference_trace, list)
-        and isinstance(candidate_trace, list)
-        and len(reference_trace) == len(candidate_trace) + 1
-        and reference_trace[0] is None
-        and any(tick is not None for tick in candidate_trace)
-        and reference_trace[1:] == candidate_trace
-    )
+    if (
+        not isinstance(reference_trace, list)
+        or not isinstance(candidate_trace, list)
+        or len(reference_trace) != len(candidate_trace) + 1
+    ):
+        return False
+
+    for index, (ref, cand) in enumerate(
+        zip(reference_trace, candidate_trace)
+    ):
+        if ref == cand:
+            continue
+        return (
+            ref is None
+            and cand is not None
+            and reference_trace[index + 1 :] == candidate_trace[index:]
+        )
+    # Removing an unrelated trailing silence exposes no earlier response.
+    return False
 
 
 def _switch_flip_map_removal_relation(

@@ -574,10 +574,13 @@ Wiring and node-authoring surface
        and C++ regressions and the bounded ``switch-flip-map-removal`` parity
        family. RFC 0014 additionally makes a self-coupled response observable
        one cycle earlier than released hgraph 0.5.34 by removing its redundant
-       response-feedback boundary. Standalone service recipes are bounded by
-       ``request-reply-one-cycle-earlier``; the switch/map family admits the
+       response-feedback boundary. Standalone service recipes and the reduced
+       nested-map shape from issue #274 are bounded by
+       ``request-reply-one-cycle-earlier``; the relation permits an unchanged
+       structural prefix but otherwise removes exactly the silence immediately
+       before the first divergent response. The switch/map family admits the
        same single-cycle advance only when composed with its exact flip, and
-       the issue-175 outer-input collision remains fingerprint-pinned.
+       the complete issue-175 outer-input collision remains fingerprint-pinned.
    * - ``dispatch_``
      - Full for Bundle values
      - Native ``dispatch_cases`` / ``dispatch_case`` wiring builds a closed
