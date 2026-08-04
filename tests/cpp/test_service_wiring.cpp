@@ -2120,6 +2120,149 @@ namespace
         }
     };
 
+    template <typename... Interfaces>
+    struct MixedServicePermutationImpl
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "mixed_service_permutation_impl";
+        inline static int compositions = 0;
+
+        template <typename Interface>
+        static void wire_interface(Wiring &w, const service::ServicePath &custom)
+        {
+            if constexpr (std::same_as<Interface, BaseValueService>)
+            {
+                service::impl_output<BaseValueService>(w, custom, wire<TenSourceNode>(w));
+            }
+            else if constexpr (std::same_as<Interface, DerivedValueService>)
+            {
+                service::impl_output<DerivedValueService>(
+                    w, custom,
+                    wire<stdlib::const_>(w, Int{11}).as<TS<Int>>());
+            }
+            else if constexpr (std::same_as<Interface, PricesService>)
+            {
+                auto keys = service::impl_input<PricesService>(w, custom);
+                service::impl_output<PricesService>(
+                    w, custom,
+                    wire<PricesImplNode>(w, keys).as<TSD<Int, TS<Int>>>());
+            }
+            else if constexpr (std::same_as<Interface, DerivedPricesService>)
+            {
+                auto keys = service::impl_input<DerivedPricesService>(w, custom);
+                service::impl_output<DerivedPricesService>(
+                    w, custom,
+                    wire<PricesImplNode>(w, keys).as<TSD<Int, TS<Int>>>());
+            }
+            else if constexpr (std::same_as<Interface, AddOneService>)
+            {
+                auto requests = service::impl_input<AddOneService>(w, custom);
+                service::impl_output<AddOneService>(
+                    w, custom,
+                    wire<AddOneImplNode>(w, requests).as<TSD<Int, TS<Int>>>());
+            }
+            else
+            {
+                static_assert(std::same_as<Interface, AddTenService>);
+                auto requests = service::impl_input<AddTenService>(w, custom);
+                service::impl_output<AddTenService>(
+                    w, custom,
+                    wire<AddTenImplNode>(w, requests).as<TSD<Int, TS<Int>>>());
+            }
+        }
+
+        static void compose(Wiring &w, Scalar<"path", Str> path)
+        {
+            ++compositions;
+            const auto custom = service::path(path.value());
+            // Follow the declared interface order so the matrix also proves
+            // that stub discovery and keyed transport finalization are not
+            // order-dependent.
+            (wire_interface<Interfaces>(w, custom), ...);
+        }
+    };
+
+    template <typename... Interfaces>
+    struct MixedServicePermutationClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "mixed_service_permutation_client_graph";
+
+        template <typename Interface>
+        static Port<TS<Int>> add_client(
+            Wiring &w, const service::ServicePath &custom,
+            Port<TS<Int>> key, Port<TS<Int>> request,
+            Port<TS<Int>> total)
+        {
+            Port<TS<Int>> value = [&]() {
+                if constexpr (std::same_as<Interface, BaseValueService>)
+                {
+                    return wire<BaseValueService>(w, custom);
+                }
+                else if constexpr (std::same_as<Interface, DerivedValueService>)
+                {
+                    return wire<DerivedValueService>(w, custom);
+                }
+                else if constexpr (std::same_as<Interface, PricesService>)
+                {
+                    return wire<PricesService>(w, custom, key);
+                }
+                else if constexpr (std::same_as<Interface, DerivedPricesService>)
+                {
+                    return wire<DerivedPricesService>(w, custom, key);
+                }
+                else if constexpr (std::same_as<Interface, AddOneService>)
+                {
+                    return wire<AddOneService>(w, custom, request);
+                }
+                else
+                {
+                    static_assert(std::same_as<Interface, AddTenService>);
+                    return wire<AddTenService>(w, custom, request);
+                }
+            }();
+            return wire<stdlib::add_>(w, total, value).as<TS<Int>>();
+        }
+
+        static Port<TS<Int>> compose(
+            Wiring &w, Port<TS<Int>> key, Port<TS<Int>> request)
+        {
+            const auto custom = service::path("mixed_permutation");
+            service::register_services<
+                MixedServicePermutationImpl<Interfaces...>, Interfaces...>(
+                    w, custom);
+
+            auto total = wire<stdlib::const_>(w, Int{0}).as<TS<Int>>();
+            ((total = add_client<Interfaces>(
+                  w, custom, key, request, std::move(total))), ...);
+            return total;
+        }
+    };
+
+    template <typename... Interfaces>
+    void check_mixed_service_permutation(Int expected)
+    {
+        using Implementation = MixedServicePermutationImpl<Interfaces...>;
+        Implementation::compositions = 0;
+        const auto actual =
+            eval_node<MixedServicePermutationClientGraph<Interfaces...>>(
+                values<Int>(2), values<Int>(7));
+        constexpr bool has_keyed_interface =
+            ((std::same_as<Interfaces, PricesService>
+              || std::same_as<Interfaces, DerivedPricesService>
+              || std::same_as<Interfaces, AddOneService>
+              || std::same_as<Interfaces, AddTenService>) || ...);
+        if constexpr (has_keyed_interface)
+        {
+            CHECK_OUTPUT(actual, values<Int>(none, expected));
+        }
+        else
+        {
+            CHECK_OUTPUT(actual, values<Int>(expected));
+        }
+        CHECK(Implementation::compositions == 1);
+    }
+
     struct ServiceAdaptorTwoClientGraph
     {
         [[maybe_unused]] static constexpr auto name = "service_adaptor_two_client_graph";
@@ -2891,6 +3034,41 @@ TEST_CASE("service wiring: multi-interface implementation graph wires explicit s
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<MultiServiceClientGraph>(values<Int>(1)), values<Int>(none, 13));
+}
+
+TEST_CASE("service wiring: every service-interface flavour permutation shares one implementation")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    // Exercise both orders of same-flavour and mixed-flavour pairs, followed
+    // by every ordering of a reference/subscription/request-reply pack.
+    check_mixed_service_permutation<BaseValueService, DerivedValueService>(21);
+    check_mixed_service_permutation<DerivedValueService, BaseValueService>(21);
+    check_mixed_service_permutation<PricesService, DerivedPricesService>(40);
+    check_mixed_service_permutation<DerivedPricesService, PricesService>(40);
+    check_mixed_service_permutation<AddOneService, AddTenService>(25);
+    check_mixed_service_permutation<AddTenService, AddOneService>(25);
+
+    // Reference=10, subscription(key=2)=20, request/reply(7)=8.
+    check_mixed_service_permutation<BaseValueService, PricesService>(30);
+    check_mixed_service_permutation<PricesService, BaseValueService>(30);
+    check_mixed_service_permutation<BaseValueService, AddOneService>(18);
+    check_mixed_service_permutation<AddOneService, BaseValueService>(18);
+    check_mixed_service_permutation<PricesService, AddOneService>(28);
+    check_mixed_service_permutation<AddOneService, PricesService>(28);
+
+    check_mixed_service_permutation<
+        BaseValueService, PricesService, AddOneService>(38);
+    check_mixed_service_permutation<
+        BaseValueService, AddOneService, PricesService>(38);
+    check_mixed_service_permutation<
+        PricesService, BaseValueService, AddOneService>(38);
+    check_mixed_service_permutation<
+        PricesService, AddOneService, BaseValueService>(38);
+    check_mixed_service_permutation<
+        AddOneService, BaseValueService, PricesService>(38);
+    check_mixed_service_permutation<
+        AddOneService, PricesService, BaseValueService>(38);
 }
 
 TEST_CASE("service wiring: a source-only adaptor is unambiguous alongside services")
