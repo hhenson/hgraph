@@ -219,7 +219,7 @@ set:
     from hgraph import compute_node, TSL, TS, Size
     from hgraph.test import eval_node
 
-    @compute_node(valid=tuple())
+    @compute_node
     def probe(tsl: TSL[TS[int], Size[2]]) -> TS[str]:
         return f"valid={tsl.valid} all_valid={tsl.all_valid}"
 
@@ -228,8 +228,29 @@ set:
         "valid=True all_valid=True",
     ]
 
-Note the use of ``valid=tuple()`` on the decorator; without it the node would not be called
-at all until the input was valid, and we would never observe the interesting first case.
+Note that the node is called in the first engine cycle even though it uses the default
+validity check, which requires its inputs to be valid. That is exactly the point: one element
+of the list has ticked, which is enough to make the list itself ``valid``, so the node runs.
+
+Asking for ``all_valid`` instead is the stronger constraint, and it does suppress that first
+cycle:
+
+.. testcode::
+
+    from hgraph import compute_node, TSL, TS, Size
+    from hgraph.test import eval_node
+
+    @compute_node(all_valid=("tsl",))
+    def probe(tsl: TSL[TS[int], Size[2]]) -> TS[str]:
+        return f"valid={tsl.valid} all_valid={tsl.all_valid}"
+
+    assert eval_node(probe, [{0: 1}, {1: 2}]) == [
+        None,
+        "valid=True all_valid=True",
+    ]
+
+The node is not evaluated until every element of the list has been set, which is why the
+first entry is ``None``.
 
 Finally, the ``last_modified_time`` represents the time this time-series
 value was last modified. This can be useful for a number of reasons, but
