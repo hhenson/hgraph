@@ -45,20 +45,23 @@ namespace hgraph
      */
     [[nodiscard]] HGRAPH_EXPORT NodeBuilder make_subscription_key_capture_node(
         std::string path,
-        const ValueTypeMetaData &key_schema);
+        const ValueTypeMetaData &key_schema,
+        bool same_cycle = true);
 
     /**
      * Build the response boundary for one subscription client.
      *
      * A newly-live service key immediately invalidates any response sampled
      * through the shared dictionary. The first fresh implementation value is
-     * published one cycle after it arrives, matching Python's keyed-child
-     * lifecycle and preventing cached values from leaking on re-add. A client
-     * joining a key already kept live by another client samples it immediately.
+     * published either immediately or one cycle after it arrives, according to
+     * the immutable wiring-time transport. Both forms prevent cached values
+     * from leaking on re-add. A client joining a key already kept live by
+     * another client samples it immediately.
      */
     [[nodiscard]] HGRAPH_EXPORT NodeBuilder make_subscription_response_gate_node(
         const ValueTypeMetaData &key_schema,
-        const TSValueTypeMetaData &response_schema);
+        const TSValueTypeMetaData &response_schema,
+        bool response_same_cycle = false);
 
     /**
      * Build a source node that owns a request/reply service request dictionary.

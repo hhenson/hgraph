@@ -1,17 +1,17 @@
-RFC 0014: Automatic Request/Reply Transport Planning
+RFC 0014: Automatic Keyed-Service Transport Planning
 ====================================================
 
 :Status: Accepted
 :Author: Howard Henson
 :Created: 2026-08-04
-:Target: Request/reply service wiring, scheduling, and Python compatibility
+:Target: Request/reply and subscription service wiring, scheduling, and Python compatibility
 
 Summary
 -------
 
-Reply-full request/reply services no longer unconditionally insert one
-next-cycle request hand-off and one response feedback hand-off. After lazy
-service materialization, native wiring selects the least costly transport that
+Reply-full request/reply and subscription services no longer unconditionally
+pay their conservative request and response hand-offs. After lazy service
+materialization, native wiring selects the least costly transport that
 preserves the implementation's dependency structure:
 
 .. list-table::
@@ -40,15 +40,24 @@ registration, ``get_service_inputs``/``set_service_output``, and
 ``from_graph``/``to_graph`` APIs do not gain a policy argument. The plan is
 fixed before graph ranking and introduces no per-tick policy branch.
 
+The two flavours differ only in correlation shape. Request/reply uses a stable
+integer request id and publishes ``TSD<int, response>``. A subscription request
+is only the service key, represented by ``TSS<key>``, and its response is
+selected from ``TSD<key, value>`` by that same key. Subscription full feedback
+therefore remains after per-client key selection; feeding back the shared
+dictionary itself would change the identity and lifetime of mapped/reference
+children.
+
 Motivation
 ----------
 
 The old reply-full transport assumed that the implementation output could feed
 back, directly or through another boundary, to its request input. That was the
 safest universal choice and permits recursion, but it charged two cycles to
-every implementation.
+every implementation. Subscription wiring similarly imposed one response-gate
+cycle even when its key sink and response source were completely independent.
 
-An external request/reply transport has a different shape. A Kafka-backed
+An external keyed transport has a different shape. A Kafka-backed
 implementation, for example, can sink client requests to an outbound channel
 and publish independently received correlated responses through a push source.
 There is no graph edge from that response source to the request dictionary.
@@ -57,30 +66,32 @@ this shape; both are artificial latency.
 
 RFC 0011 made services and adaptors share one boundary model, and RFC 0012 made
 reply-less request/reply use the direct keyed-sink relay. This RFC completes
-the keyed exchange: a normal request/reply service can now provide the direct
-external-transport behavior that previously encouraged users to choose an
-adaptor solely for scheduling reasons.
+the keyed exchange: normal request/reply and subscription services can now
+provide the direct external-transport behavior that previously encouraged
+users to choose an adaptor solely for scheduling reasons.
 
 User contract
 -------------
 
 No existing user-facing signature changes. Python code continues to declare
-``@request_reply_service`` and ``@service_impl`` and may expose implementation
-boundaries with either:
+``@request_reply_service`` or ``@subscription_service`` with
+``@service_impl`` and may expose implementation boundaries with either:
 
 * a conventional implementation argument and return value;
 * ``get_service_inputs`` and ``set_service_output``; or
 * ``from_graph`` and ``to_graph``.
 
 The native equivalents remain ``register_request_reply_service``,
-``service::impl_input``/``impl_output``, and the service aliases of
-``from_graph``/``to_graph``. All routes lower to the same C++ planner.
+``register_subscription_service``, ``service::impl_input``/``impl_output``,
+and the service aliases of ``from_graph``/``to_graph``. All routes lower to the
+same C++ planner.
 
-A decoupled implementation may send the keyed request dictionary to an
-external sink and provide a keyed response dictionary from a push source. The
-stable client request id remains the correlation key. External concurrency and
-wall-clock timing are not made deterministic by this RFC; the engine preserves
-the ordering presented by the constructed graph and the external transport.
+A decoupled implementation may send requests to an external sink and provide a
+keyed response dictionary from a push source. Request/reply retains its stable
+client request id; subscription uses the requested subscription key directly.
+External concurrency and wall-clock timing are not made deterministic by this
+RFC; the engine preserves the ordering presented by the constructed graph and
+the external transport.
 
 Planning model
 --------------
@@ -89,7 +100,7 @@ Planning occurs after ``Wiring::build_services()`` has materialized every
 demanded implementation and before service-rank dependencies are applied. A
 wiring-lifetime planner records:
 
-* each pending reply-full client capture;
+* each pending request/reply or subscription client capture;
 * the implementation-owned request source for each concrete service path;
 * the implementation response port and shared response source; and
 * whether the active implementation wired any service or adaptor client.
@@ -103,17 +114,19 @@ followed so bundles and generic wiring do not hide a dependency.
 The decision for one concrete service path is:
 
 ``FullFeedback``
-   The implementation calls any service or adaptor. The request remains
-   next-cycle and the response crosses a feedback pair before entering the
-   same-cycle shared-output relay. This conservative rule preserves direct and
-   indirect recursion without requiring inter-service whole-graph cycle
-   speculation.
+   A request/reply implementation calls any service or adaptor. The request
+   remains next-cycle and the response crosses a feedback pair before entering
+   the same-cycle shared-output relay. This conservative request/reply rule
+   preserves direct and indirect recursion without requiring inter-service
+   whole-graph cycle speculation.
 
 ``RequestDeferred``
-   The response causally depends on the implementation's own request source
-   and the implementation has no boundary dependency. Deferring the request
-   breaks that cycle; the computed response then publishes directly in the
-   implementation cycle.
+   The response causally depends on the implementation's own request source,
+   or a subscription implementation calls another service/adaptor. Deferring
+   the request breaks that input cycle; the computed response then publishes
+   directly in the implementation cycle. Subscription never adds a second
+   selected-response delay: its key is both request and response identity, and
+   delaying a transient selected value can move it beyond that key's lifetime.
 
 ``Direct``
    The response has no causal path from the request source and the
@@ -135,6 +148,11 @@ when the owning implementation selected ``Direct``. The child does not create
 or own a response feedback pair; the root implementation plan remains the
 single owner of response transport.
 
+A subscription's direct freshness gate is wired immediately and only its key
+capture waits for the implementation plan. The public response is therefore a
+concrete port during composition, so it can be published as context or imported
+by ``switch_``, ``map_``, and other nested graphs before outer finalization.
+
 Consequences
 ------------
 
@@ -142,8 +160,8 @@ Consequences
 required. A request captured in the owning graph can reach its sink in that
 cycle, and an externally supplied response can publish in its arrival cycle.
 
-**Self-coupled services lose one artificial cycle.** The observable sequence
-for a conventional request-driven implementation changes from
+**Self-coupled request/reply loses one artificial cycle.** The observable sequence
+for a conventional request/reply implementation changes from
 ``[None, None, response]`` to ``[None, response]``. The request boundary still
 breaks the graph cycle. Differential testing against released hgraph 0.5.34
 tracks this as an exact one-cycle response advance: payloads, ordering, and all
@@ -152,17 +170,26 @@ already accepted transient map-removal behavior on a request/reply switch
 flip; the issue-175 response-versus-new-key collision remains an exact pinned
 corpus divergence so a lost or reordered response is never accepted broadly.
 
-**Service-dependent and recursive behavior is retained.** Such an
-implementation continues to observe the full two-boundary sequence. The rule
-is deliberately conservative: a service call that does not happen to feed the
-response still selects full feedback because the referenced implementation may
-complete a wider cycle.
+For a self-coupled subscription, the one required break moves from the first
+fresh response to the key relay. Its public output sequence remains
+tick-for-tick compatible, while the response can publish in the implementation
+cycle and the freshness gate no longer needs a scheduler. Re-add protection,
+rapid key-transition ordering, and immediate sampling of a key already kept
+live by another subscriber remain unchanged.
+
+**Service-dependent behavior retains each flavour's lifetime semantics.** A
+request/reply implementation continues to use the conservative two-boundary
+sequence because the referenced implementation may complete a wider cycle.
+A subscription defers only its key relay and keeps the selected response
+direct. This is tick-for-tick compatible with released hgraph for rapid key
+replacement and avoids publishing a short-lived response after its key is no
+longer the active subscription.
 
 **Adaptor scope narrows without a disruptive deprecation.** New keyed,
-correlated external exchanges should use request/reply services. Plain
-adaptors remain supported for existing APIs and unkeyed merged streams. This
-RFC does not emit a deprecation warning; removing or formally deprecating an
-adaptor decorator requires a separate compatibility decision.
+correlated external exchanges should use request/reply or subscription
+services. Plain adaptors remain supported for existing APIs and unkeyed merged
+streams. This RFC does not emit a deprecation warning; removing or formally
+deprecating an adaptor decorator requires a separate compatibility decision.
 
 C++ ownership
 -------------
@@ -173,9 +200,11 @@ contract. Python does not classify the implementation or build a parallel
 transport, preserving the repository's C++-first ownership rule.
 
 The reusable erased contract lives in
-``include/hgraph/types/request_reply_transport.h``. Its concrete planner and
-feedback representation stay under ``src/hgraph/types/impl``. Semantic service
-owners depend on the contract and do not name the concrete strategy.
+``include/hgraph/types/keyed_service_transport.h``. The original
+``request_reply_transport.h`` names remain as compatibility aliases. The
+concrete planner and feedback representations stay under
+``src/hgraph/types/impl``. Semantic service owners depend on the contract and
+do not name the concrete strategy.
 
 Alternatives considered
 -----------------------
@@ -202,10 +231,10 @@ Always use deferred request and direct response
 Acceptance criteria
 -------------------
 
-* Public typed C++ wiring proves all three transport selections.
-* Matching Python tests prove self-coupled and service-dependent timing and a
-  real-time Kafka-style sink/push-source exchange through the existing public
-  API.
+* Public typed C++ wiring proves all three transport selections for both keyed
+  service flavours.
+* Matching Python tests prove self-coupled and service-dependent timing and
+  Kafka-style sink/source exchanges through the existing public API.
 * Recursive, mapped, meshed, switch, cumulative-delta, removal, and teardown
   behavior remains valid.
 * Repeated wiring snapshots do not duplicate synthesized nodes or plans.

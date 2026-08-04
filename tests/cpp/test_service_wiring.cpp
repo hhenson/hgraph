@@ -6,6 +6,7 @@
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/adaptor_wiring.h>
+#include <hgraph/types/context_wiring.h>
 #include <hgraph/types/service_wiring.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value_builder.h>
@@ -383,6 +384,31 @@ namespace
             {
                 Value key_value{key};
                 Value price{key * Int{10}};
+                mutation.set(key_value.view(), price.view());
+            }
+        }
+    };
+
+    struct OffsetPricesImplNode
+    {
+        static constexpr auto name = "offset_prices_impl_node";
+
+        static void eval(
+            In<"keys", TSS<Int>, InputValidity::Unchecked> keys,
+            In<"offset", TS<Int>> offset,
+            Out<TSD<Int, TS<Int>>> out)
+        {
+            if (!keys.valid()) { return; }
+
+            auto mutation = out.begin_mutation(out.evaluation_time());
+            for (Int removed : keys.removed())
+            {
+                static_cast<void>(mutation.erase(Value{removed}.view()));
+            }
+            for (Int key : keys.values())
+            {
+                Value key_value{key};
+                Value price{key * Int{10} + offset.value()};
                 mutation.set(key_value.view(), price.view());
             }
         }
@@ -832,6 +858,19 @@ namespace
         }
     };
 
+    struct ServiceDependentPricesImpl
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "service_dependent_prices_impl";
+
+        static Port<TSD<Int, TS<Int>>> compose(Wiring &w, Port<TSS<Int>> keys)
+        {
+            auto offset = wire<BaseValueService>(w, service::path("subscription_offset"));
+            return wire<OffsetPricesImplNode>(w, keys, offset)
+                .as<TSD<Int, TS<Int>>>();
+        }
+    };
+
     inline std::vector<std::pair<std::vector<Int>, std::vector<Int>>> observed_subscription_keys;
 
     struct ObserveSubscriptionKeysNode
@@ -983,6 +1022,56 @@ namespace
         {
             service::register_subscription_service<PricesService, PricesImpl>(w);
             return wire<PricesService>(w, instrument);
+        }
+    };
+
+    struct ServiceDependentPriceClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "service_dependent_price_client_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> instrument)
+        {
+            service::register_reference_service<BaseValueService, BaseValueImpl>(
+                w, service::path("subscription_offset"));
+            service::register_subscription_service<
+                PricesService, ServiceDependentPricesImpl>(
+                w, service::path("dependent_prices"));
+            return wire<PricesService>(
+                w, service::path("dependent_prices"), instrument);
+        }
+    };
+
+    struct SubscriptionContextBranch
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "subscription_context_branch";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>>)
+        {
+            return context::get<TS<Int>>(w, "subscription_price");
+        }
+    };
+
+    struct SubscriptionContextSwitchGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "subscription_context_switch_graph";
+
+        static Port<TS<Int>> compose(
+            Wiring &w, Port<TS<Int>> instrument, Port<TS<Str>> selector)
+        {
+            service::register_subscription_service<PricesService, PricesImpl>(w);
+            auto price = wire<PricesService>(w, instrument);
+            context::scope<"subscription_price"> context_scope{w, price};
+            return wire<stdlib::switch_>(
+                       w, selector,
+                       stdlib::switch_cases({
+                           {Value{Str{"left"}}, fn<SubscriptionContextBranch>()},
+                           {Value{Str{"right"}}, fn<SubscriptionContextBranch>()},
+                       }),
+                       instrument)
+                .as<TS<Int>>();
         }
     };
 
@@ -1286,6 +1375,41 @@ namespace
             auto requests = service::from_graph<AddOneService>(w, custom);
             static_cast<void>(wire<ObserveReplylessRequestsNode>(w, requests));
             service::to_graph<AddOneService>(w, custom, responses);
+        }
+    };
+
+    struct DecoupledSubscriptionImplGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "decoupled_subscription_impl_graph";
+
+        static void compose(
+            Wiring &w,
+            Port<TSD<Int, TS<Int>>> responses,
+            Scalar<"path", Str> path)
+        {
+            const auto custom = service::path(path.value());
+            auto keys = service::from_graph<PricesService>(w, custom);
+            static_cast<void>(wire<ObserveSubscriptionKeysNode>(w, keys));
+            service::to_graph<PricesService>(w, custom, responses);
+        }
+    };
+
+    struct DecoupledSubscriptionClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "decoupled_subscription_client_graph";
+
+        static Port<TS<Int>> compose(
+            Wiring &w,
+            Port<TS<Int>> key,
+            Port<TSD<Int, TS<Int>>> responses)
+        {
+            const auto custom = service::path("decoupled_prices");
+            service::register_services<
+                DecoupledSubscriptionImplGraph, PricesService>(
+                w, custom, responses);
+            return wire<PricesService>(w, custom, key);
         }
     };
 
@@ -2275,6 +2399,88 @@ TEST_CASE("service wiring: subscription client reads implementation output by re
 
     CHECK_OUTPUT(eval_node<PriceClientGraph>(values<Int>(7, none, 8)),
                  values<Int>(none, 70, none, 80));
+}
+
+TEST_CASE("service wiring: decoupled subscription transport is direct")
+{
+    hgraph::stdlib::register_standard_operators();
+    observed_subscription_keys.clear();
+
+    CHECK_OUTPUT(
+        eval_node<DecoupledSubscriptionClientGraph>(
+            values<Int>(7),
+            values<Value>(dict_delta<Int, TS<Int>>({{7, 70}}))),
+        values<Int>(70));
+    CHECK(observed_subscription_keys ==
+          std::vector<std::pair<std::vector<Int>, std::vector<Int>>>{
+              {{7}, {}}});
+}
+
+TEST_CASE("service wiring: self-coupled subscription defers only its key relay")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    Wiring wiring;
+    auto key = ts_harness<TS<Int>>::wire_replay(
+        wiring, "subscription_direct_response_owner");
+    static_cast<void>(PriceClientGraph::compose(wiring, key));
+    const GraphBuilder graph = std::move(wiring).finish();
+
+    std::size_t scheduled_gates = 0;
+    std::size_t feedback_sources = 0;
+    std::size_t feedback_sinks = 0;
+    for (const NodeBuilder &node : graph.nodes())
+    {
+        const NodeTypeMetaData *meta = node.type().schema();
+        if (meta == nullptr || meta->display_name == nullptr) { continue; }
+        const std::string_view name{meta->display_name};
+        scheduled_gates += name == "subscription_response_gate"
+                           && meta->uses_scheduler
+                               ? 1
+                               : 0;
+        feedback_sources += name == "feedback_source" ? 1 : 0;
+        feedback_sinks += name == "feedback_sink" ? 1 : 0;
+    }
+    CHECK(scheduled_gates == 0);
+    CHECK(feedback_sources == 0);
+    CHECK(feedback_sinks == 0);
+}
+
+TEST_CASE("service wiring: service-dependent subscription defers only its key relay")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<ServiceDependentPriceClientGraph>(values<Int>(7)),
+        values<Int>(none, 80));
+
+    Wiring wiring;
+    auto key = ts_harness<TS<Int>>::wire_replay(
+        wiring, "subscription_plan_owner");
+    static_cast<void>(ServiceDependentPriceClientGraph::compose(wiring, key));
+    const GraphBuilder graph = std::move(wiring).finish();
+    std::size_t scheduled_gates = 0;
+    for (const NodeBuilder &node : graph.nodes())
+    {
+        const NodeTypeMetaData *meta = node.type().schema();
+        if (meta == nullptr || meta->display_name == nullptr) { continue; }
+        scheduled_gates += std::string_view{meta->display_name}
+                               == "subscription_response_gate"
+                           && meta->uses_scheduler
+                               ? 1
+                               : 0;
+    }
+    CHECK(scheduled_gates == 0);
+}
+
+TEST_CASE("service wiring: subscription response crosses a nested context boundary")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<SubscriptionContextSwitchGraph>(
+            values<Int>(7), values<Str>(Str{"left"})),
+        values<Int>(none, 70));
 }
 
 TEST_CASE("service wiring: successive subscription keys are published in order")

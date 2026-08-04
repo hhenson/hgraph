@@ -82,6 +82,78 @@ def test_subscription_replacement_waits_for_fresh_value_and_preserves_transition
     assert calls == {"rates": 2, "fx": 1}
 
 
+def test_decoupled_subscription_from_to_graph_is_same_cycle():
+    """An external response source does not pay a synthetic subscription cycle."""
+    transitions = []
+
+    @hg.subscription_service
+    def quote(symbol: TS[str], path: str = "direct-quotes") -> TS[int]: ...
+
+    @hg.reference_service
+    def transport_ready(path: str = "direct-quotes") -> TS[bool]: ...
+
+    @hg.sink_node
+    def observe(symbols: TSS[str]):
+        transitions.append((sorted(symbols.added()), sorted(symbols.removed())))
+
+    @hg.service_impl(interfaces=(quote, transport_ready))
+    def quote_transport(path: str):
+        symbols = hg.from_graph(quote, path)
+        observe(symbols)
+        hg.to_graph(
+            quote,
+            hg.const({"rates": 70}, TSD[str, TS[int]]),
+            path,
+        )
+        hg.to_graph(transport_ready, hg.const(True), path)
+
+    @graph
+    def app(symbol: TS[str]) -> TS[int]:
+        hg.register_service("direct-quotes", quote_transport)
+        return quote(symbol, path="direct-quotes")
+
+    assert eval_node(
+        app,
+        ["rates"],
+        __end_time__=hg.MIN_ST + 3 * hg.MIN_TD,
+    ) == [70]
+    assert transitions == [(["rates"], [])]
+
+
+def test_service_dependent_subscription_defers_only_its_key_relay():
+    @hg.reference_service
+    def offset(path: str = "subscription-offset") -> TS[int]: ...
+
+    @hg.service_impl(interfaces=offset)
+    def offset_impl(path: str = "subscription-offset") -> TS[int]:
+        return hg.const(10)
+
+    @hg.subscription_service
+    def quote(symbol: TS[str], path: str = "dependent-quotes") -> TS[int]: ...
+
+    @hg.service_impl(interfaces=quote)
+    def quote_impl(symbols: TSS[str]) -> TSD[str, TS[int]]:
+        amount = offset(path="subscription-offset")
+        return hg.map_(
+            lambda symbol, value: hg.len_(symbol) * 10 + value,
+            __keys__=symbols,
+            __key_arg__="symbol",
+            value=amount,
+        )
+
+    @graph
+    def app(symbol: TS[str]) -> TS[int]:
+        hg.register_service("subscription-offset", offset_impl)
+        hg.register_service("dependent-quotes", quote_impl)
+        return quote(symbol, path="dependent-quotes")
+
+    assert eval_node(
+        app,
+        ["rates"],
+        __end_time__=hg.MIN_ST + 5 * hg.MIN_TD,
+    ) == [None, 60]
+
+
 def test_request_reply_inside_a_mapped_switch_keeps_late_keys():
     @hg.request_reply_service
     def adjust(path: str, request: TS[int]) -> TS[int]: ...

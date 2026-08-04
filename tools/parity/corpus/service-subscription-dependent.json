@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "service-subscription-dependent",
+  "description": "A subscription implementation that calls another service defers its key relay without delaying the selected response.",
+  "template": "service_subscription",
+  "inputs": {
+    "symbol": ["rates", null, "fx", "rates"]
+  },
+  "parameters": {
+    "dependency": true,
+    "multiplier": 4,
+    "path": "dependent-quotes"
+  },
+  "features": [
+    "framework:service",
+    "service:subscription",
+    "service:reference",
+    "lifecycle:keyed",
+    "lifecycle:transport-delay",
+    "topology:service-dependent",
+    "reference:REF",
+    "binding:non-peered"
+  ]
+}

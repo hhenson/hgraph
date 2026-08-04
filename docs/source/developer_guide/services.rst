@@ -74,27 +74,17 @@ cycle:
     implementation and reply then remain rank-ordered in the owning graph.
     This explicit nested boundary is released Python lifecycle behavior, not a
     silent fallback to the old top-level adaptor delay.
-  - **Subscription keys** in the owning graph are ranked before their source
-    and publish in the capture cycle. A dynamically-started nested client hands
-    off to the outer source on the following cycle because the outer rank may
-    already have passed. Changes are queued by observed engine time so rapid
-    replacements cannot coalesce. When a key becomes globally live, the
-    response boundary invalidates an old keyed value immediately and publishes
-    the first fresh implementation value one cycle after it arrives, matching
-    Python's keyed-child lifecycle and preventing cached values from leaking on
-    re-add. A client joining a key that another client has kept live samples the
-    existing value immediately.
-  - **Reply-full request/reply transport is selected automatically after lazy
-    implementation materialization and before ranking.** There is no user flag
-    and no per-tick policy branch:
+  - **Subscription keys and reply-full request/reply use one automatic keyed-
+    service transport planner after lazy implementation materialization and
+    before ranking.** There is no user flag and no per-tick policy branch:
 
     .. list-table::
        :header-rows: 1
        :widths: 30 24 24 22
 
        * - Implementation shape
-         - Request relay
-         - Response relay
+         - Key/request relay
+         - Selected response relay
          - Engine latency
        * - Decoupled request sink and response source
          - ranked, same cycle
@@ -106,20 +96,34 @@ cycle:
          - one cycle
        * - Calls another service or adaptor
          - next cycle
-         - feedback, then same cycle
-         - two cycles
+         - request/reply: feedback; subscription: ranked, same cycle
+         - request/reply: two cycles; subscription: one cycle
 
     The decoupled form is the external-transport shape: requests may flow to a
     Kafka or network sink while correlated replies arrive through a push
-    source. The response graph has no causal path from the service request
-    source, so neither side needs an artificial delay. A self-contained graph
-    whose output is driven by its request input defers only that input, which
-    breaks the direct dependency cycle while allowing the resulting response
-    to publish immediately. Calling any service or adaptor from the active
-    implementation conservatively retains the full two-boundary form because
-    the referenced implementation may close a cycle. A deferred request source
-    retains its earliest outstanding publication time, so a later request
-    cannot postpone work that is already due.
+    source. Request/reply correlates with a stable integer request id;
+    subscription uses the subscription key itself and has only a ``TSS<key>``
+    input. When the response graph has no causal path from that input, neither
+    side needs an artificial delay. A self-contained graph whose output is
+    driven by its request input defers only that input, which breaks the direct
+    dependency cycle while allowing the resulting response to publish
+    immediately. Calling any service or adaptor from the active implementation
+    conservatively retains the full two-boundary form for request/reply because
+    the referenced implementation may close a cycle. Subscription defers its
+    key relay but keeps the shared dictionary and per-client response direct.
+    Its key is both the request and the response identity, so a second response
+    boundary can hide a short-lived value after the subscription has already
+    changed. The single deferred key boundary preserves released subscription
+    timing and ordering while still breaking the input dependency.
+    Subscription freshness remains strict in every plan: a re-added key cannot
+    expose a cached value, while a client joining a key another client already
+    keeps live still samples immediately. The response gate is a concrete port
+    as soon as the client is wired; only the key capture waits for planning, so
+    subscription values remain usable as context across nested graph boundaries.
+    Changes are queued by observed engine time so rapid replacements cannot
+    coalesce. A deferred request source
+    retains its earliest outstanding publication time, so later work cannot
+    postpone a publication already due.
   - **A reply-less request/reply service forwards in the owning capture
     cycle.** With no response there is no response feedback edge, hence no
     request/reply cycle for the rank-free path to permit. A root client is
@@ -427,13 +431,14 @@ Genuine nested children are unaffected: a push source inside a
 child is still rejected, because a graph with a push prefix never gets a nested
 graph type interned (``GraphBuilder::nested_type()``). See :doc:`nested_graphs`.
 
-Reply-full request/reply transport planning also relies on this inlining. Once
-all demanded implementations have materialized, wiring can inspect the actual
-native dependency graph rather than infer behavior from a decorator or an API
-signature. ``impl_input``/``from_graph`` records the implementation's request
-source, ``impl_output``/``to_graph`` records its response, and the planner
-selects one immutable transport before ranks are built. The Python decorators
-use this same erased C++ path; Python does not repeat the analysis.
+Keyed-service transport planning also relies on this inlining. Once all
+demanded request/reply and subscription implementations have materialized,
+wiring can inspect the actual native dependency graph rather than infer
+behavior from a decorator or an API signature. ``impl_input``/``from_graph``
+records the implementation's request source, ``impl_output``/``to_graph``
+records its response, and the planner selects one immutable transport before
+ranks are built. The Python decorators use this same erased C++ path; Python
+does not repeat the analysis.
 
 
 The service and adaptor surfaces are one boundary model
@@ -471,11 +476,11 @@ independent of ``adaptor_wiring.h``.
 
 For new code, prefer a service whenever its contract fits. A reference service
 covers source-only publication, a reply-less request/reply service covers a
-keyed sink, and a reply-full request/reply service now covers a correlated
-external exchange without imposing feedback on a decoupled implementation.
-The plain adaptor spelling remains useful for an unkeyed merged stream or for
-compatibility with existing adaptor APIs; it is no longer required merely to
-obtain the direct external-transport path.
+keyed sink, and reply-full request/reply or subscription services cover
+correlated external exchanges without imposing feedback on a decoupled
+implementation. The plain adaptor spelling remains useful for an unkeyed
+merged stream or for compatibility with existing adaptor APIs; it is no longer
+required merely to obtain the direct external-transport path.
 
 Adaptors
 --------
@@ -660,9 +665,10 @@ second implementation for the same service kind + path throws
 reads the implementation output by reference (no copy); paths keep shared
 outputs separate; a subscription client's key transitions reach the
 implementation in order and the response flows back keyed with Python timing;
-request/reply replies remain keyed by the client's request id; decoupled,
-self-coupled, and service-dependent implementations select direct,
-request-deferred, and full-feedback transport respectively; two clients'
+request/reply replies remain keyed by the client's request id; decoupled and
+self-coupled implementations select direct and request-deferred transport;
+service-dependent request/reply selects full feedback while subscription keeps
+its direct selected-response path; two clients'
 requests reach the implementation as one cumulative delta.
 
 

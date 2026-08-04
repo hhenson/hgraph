@@ -923,26 +923,56 @@ def _service_subscription(hg, recipe):
 
     multiplier = recipe.parameters.get("multiplier", 10)
     path = recipe.parameters.get("path", "quotes")
+    dependency = recipe.parameters.get("dependency", False)
 
     @hg.subscription_service
     def quote(path: str, symbol: hg.TS[str]) -> hg.TS[int]: ...
 
-    @hg.graph
-    def quote_value(symbol: hg.TS[str]) -> hg.TS[int]:
-        return hg.len_(symbol) * multiplier
+    if dependency:
+        dependency_path = f"{path}-offset"
 
-    @hg.service_impl(interfaces=quote)
-    def quote_values(
-        symbol: hg.TSS[str],
-    ) -> hg.TSD[str, hg.TS[int]]:
-        return hg.map_(
-            quote_value,
-            __keys__=symbol,
-            __key_arg__="symbol",
-        )
+        @hg.reference_service
+        def offset(path: str = dependency_path) -> hg.TS[int]: ...
+
+        @hg.service_impl(interfaces=offset)
+        def offset_impl(path: str = dependency_path) -> hg.TS[int]:
+            return hg.const(1)
+
+        @hg.graph
+        def quote_value(
+            symbol: hg.TS[str], amount: hg.TS[int]
+        ) -> hg.TS[int]:
+            return hg.len_(symbol) * multiplier + amount
+
+        @hg.service_impl(interfaces=quote)
+        def quote_values(
+            symbol: hg.TSS[str],
+        ) -> hg.TSD[str, hg.TS[int]]:
+            return hg.map_(
+                quote_value,
+                __keys__=symbol,
+                __key_arg__="symbol",
+                amount=offset(path=dependency_path),
+            )
+    else:
+        @hg.graph
+        def quote_value(symbol: hg.TS[str]) -> hg.TS[int]:
+            return hg.len_(symbol) * multiplier
+
+        @hg.service_impl(interfaces=quote)
+        def quote_values(
+            symbol: hg.TSS[str],
+        ) -> hg.TSD[str, hg.TS[int]]:
+            return hg.map_(
+                quote_value,
+                __keys__=symbol,
+                __key_arg__="symbol",
+            )
 
     @hg.graph
     def parity_graph(symbol: hg.TS[str]) -> hg.TS[int]:
+        if dependency:
+            hg.register_service(dependency_path, offset_impl)
         hg.register_service(path, quote_values)
         symbol = _via_non_peered_ref(hg, symbol)
         return quote(path, symbol)
@@ -951,7 +981,7 @@ def _service_subscription(hg, recipe):
     return eval_node(
         parity_graph,
         inputs["symbol"],
-        __end_time__=hg.MIN_ST + (recipe.tick_count + 3) * hg.MIN_TD,
+        __end_time__=hg.MIN_ST + (recipe.tick_count + 4) * hg.MIN_TD,
     )
 
 
@@ -1793,6 +1823,8 @@ def validate_recipe(recipe):
             recipe, "multiplier", 10, minimum=-20, maximum=20
         )
         _validate_path_parameter(recipe, "quotes")
+        if not isinstance(recipe.parameters.get("dependency", False), bool):
+            raise RecipeError("service_subscription dependency must be a boolean")
     elif recipe.template == "adaptor_loopback":
         _validate_bounded_int_parameter(
             recipe, "factor", 2, minimum=-20, maximum=20
