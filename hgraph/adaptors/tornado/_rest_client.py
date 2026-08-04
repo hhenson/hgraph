@@ -53,9 +53,9 @@ def rest_read(
 ) -> TS[RestReadResponse[COMPOUND_SCALAR]]:
     """
     Requests the value associated with the id from the rest server. This is a once off operation. To force a refresh,
-    re-tick the id_.
+    re-tick the ``id_``.
 
-    This performs a GET request to the rest server with the id_ provided. The request is sent to ``url/id_``.
+    This performs a GET request to the rest server with the ``id_`` provided. The request is sent to ``url/id_``.
 
     :param base_url: The base url of the rest server, e.g. http://localhost:8080/my_cs/v1/cs/
     :param id_: The id of the data object to retrieve

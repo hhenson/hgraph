@@ -19,7 +19,7 @@ the node. For example::
     def my_compute_node(ts: TS[int], s: str) -> TS[int]:
         ...
 
-In this case we accept ``s`` as an input. when calling the compute node, scalar values are captured and associated
+In this case we accept ``s`` as an input. When calling the compute node, scalar values are captured and associated
 to that instance of the compute node.
 
 Node Instance
@@ -76,7 +76,7 @@ However, if any of the inputs differ, then we have multiple instances created. F
 
     @enduml
 
-Let's create a simple compute node to experiment with it's behaviour.
+Let's create a simple compute node to experiment with its behaviour.
 
 .. testcode::
 
@@ -89,7 +89,7 @@ Let's create a simple compute node to experiment with it's behaviour.
 
     assert eval_node(my_compute_node, [1, 2], [3, 4]) == [4, 6]
 
-This code currently add's inputs from ``ts1`` and ``ts2``.
+This code currently adds the inputs from ``ts1`` and ``ts2``.
 
 Timing
 ------
@@ -101,15 +101,15 @@ But what would happen if the timing of the ticks were different? Consider::
 In this case ``ts2`` will first tick with 3, and then, in the next engine cycle, ``ts1`` will tick with 1.
 Finally, in the third evaluation cycle, ``ts1`` ticks with 2 and ``ts2`` with 4.
 
-How, does the code evaluation proceed?
+How does the code evaluation proceed?
 ::
 
     eval_node(my_compute_node, [None, 1, 2], [3, None, 4]) == [None, 4, 6]
 
 So the first tick does not produce an output. The reason for this is due to the default configuration of the
-``compute_node``. The default configuration for a the compute node is to make all inputs active (make the node respond
+``compute_node``. The default configuration for the compute node is to make all inputs active (make the node respond
 to each modification of each input) and to assume that all inputs must be valid before calling the evaluation function.
-Valid is defined as having a value set on the inputs corresponding output.
+Valid is defined as having a value set on the output the input is bound to.
 
 So in the example above we can see that only one input was valid on the first engine cycle (``ts2``). Thus the function
 was not evaluated in the first engine cycle. In the next engine cycle ``ts1`` is modified making both inputs valid,
@@ -117,7 +117,7 @@ this results in the function being called and the result produced (4). Another i
 inputs don't contain the values that have been modified in the current engine cycle only, but refer to the last computed
 value of the output bound to the input.
 
-If we were to look at the time-line of value it would look something like this:
+If we were to look at the time-line of values it would look something like this:
 
 +----------+---------+---------+---------+
 | **tick** | **ts1** | **ts2** | **out** |
@@ -148,7 +148,12 @@ produce:
 +----------+---------+---------+---------+
 
 To do this we need to adjust the code in two places, first we need to change the default validation behaviour and
-secondly we are now responsible for ensuring a time-series input is in fact valid, these changes are shown below::
+secondly we are now responsible for ensuring a time-series input is in fact valid, these changes are shown below:
+
+.. testcode::
+
+    from hgraph import compute_node, TS
+    from hgraph.test import eval_node
 
     @compute_node(valid=tuple())
     def my_compute_node(ts1: TS[int], ts2: TS[int]) -> TS[int]:
@@ -156,12 +161,13 @@ secondly we are now responsible for ensuring a time-series input is in fact vali
         rhs = ts2.value if ts2.valid else 0
         return lhs + rhs
 
+    assert eval_node(my_compute_node, [None, 1, 2], [3, None, 4]) == [3, 4, 6]
+
 To change the validation behaviour, the decorator option ``valid`` is set to be an empty tuple. This configures the
 node to ignore validation checks before calling the wrapped function. This means that one of the inputs could be unset,
-i.e. having no valid value when the function is called. It is now the functions responsibility handle that possible
+i.e. having no valid value when the function is called. It is now the function's responsibility to handle that possible
 scenario, which is where the additional logic comes in. Here we ask the time-series if it is valid, if it is we use
-the value, otherwise we provide a default. In the general case your code needs to correctly handle the case where a
-node could be invalid. The ``valid`` takes a tuple of values, we used an empty tuple to indicate we require none of the
+the value, otherwise we provide a default. In the general case your code needs to correctly handle the case where an input could be invalid. The ``valid`` takes a tuple of values, we used an empty tuple to indicate we require none of the
 inputs to be valid, but it is possible to indicate a subset of time-series inputs must be valid, this depends on your
 use-case.
 
@@ -177,18 +183,39 @@ This second question is interesting and will be discussed in an aside at this se
 
 To control which inputs cause the node to be evaluated, there are two mechanisms, the first is similar to the
 ``valid`` attribute. Let's assume we wish to make ``ts1`` the only input that will trigger evaluation. Below is
-the example::
+the example:
+
+.. testcode::
+
+    from hgraph import compute_node, TS
+    from hgraph.test import eval_node
 
     @compute_node(active=('ts1',))
     def my_compute_node(ts1: TS[int], ts2: TS[int]) -> TS[int]:
-        ...
+        return ts1.value + ts2.value
+
+    assert eval_node(my_compute_node, [None, 1, None, 2], [3, None, 4, 5]) == [None, 4, None, 7]
 
 This declares that the ``ts1`` input is to be active, and no others (in this case ``ts2``) will cause the node to be
-activated. This tick table shows how this affects the output::
+activated. Laid out as a tick table:
 
-     eval_node(my_compute_node, [None, 1, None, 2], [3, None, 4, 5]) == [None, 4, None, 7]
++----------+---------+---------+---------+
+| **tick** | **ts1** | **ts2** | **out** |
++----------+---------+---------+---------+
+|     1    |         |     3   |         |
++----------+---------+---------+---------+
+|     2    |     1   |     3   |     4   |
++----------+---------+---------+---------+
+|     3    |     1   |     4   |         |
++----------+---------+---------+---------+
+|     4    |     2   |     5   |     7   |
++----------+---------+---------+---------+
 
-In this example the output is only emitted when ``ts1`` ticks.
+In this example the output is only emitted when ``ts1`` ticks. Note tick 3, where ``ts2`` changed
+to ``4`` but the node was not evaluated, and tick 4, where the node was evaluated and picked up the
+latest value of ``ts2``, which by then was ``5``. The value of ``4`` never took part in a
+computation; a passive input is always current, but you only ever see it when something active
+wakes the node.
 
 This can also be controlled programmatically. Consider the function ``first``, which returns the first value and
 then stops emitting any further values, the implementation of this would look like:
@@ -215,11 +242,11 @@ Aside
 
 Why would you only want some inputs marked active and others not?
 
-To discuss this, let's take a example of a trade-acceptance node. In this scenario we make the following assumptions:
+To discuss this, let's take an example of a trade-acceptance node. In this scenario we make the following assumptions:
 
 1. There is an input that represent the trade to accept.
 2. We need to validate the price on the trade for price slippage.
-3. We make use configuration to drive trade-acceptance.
+3. We make use of configuration to drive trade-acceptance.
 
 The signature for the trade acceptance may take the form below::
 
@@ -232,11 +259,11 @@ The signature for the trade acceptance may take the form below::
     ...
 
 If we did not restrict the activation of this node we will be called each time market data or configuration changed.
-Since we are only interested in the values of these inputs when we receive a trade request. It is not desired to
+Since we are only interested in the values of these inputs when we receive a trade request, it is not desirable to
 be notified when the non-trade-request items are updated.
 So, by setting the active input to be the ``trade`` input, we can ensure that we only get activated when we need to
-produce a result. It is important to note that the other inputs that are not marked as active does not mean that the
-value is not up-to-date. It just means that when the value is modified it does not cause the function to be evaluated.
+produce a result. It is important to note that an input not being marked as active does not mean that its
+value is out-of-date. It just means that when the value is modified it does not cause the function to be evaluated.
 Thus when the function is evaluated as a consequence of the TradeRequest being modified the other inputs will have the
 most recent values present.
 

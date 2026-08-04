@@ -31,9 +31,9 @@ def keys_(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
 def values_(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
     """
     Returns a tuple of the values in the dictionary.
-    One options for a TSD, the values_ can be applied when the time-series value is a suitable TS[SCALAR],
-    where the results are returned as a set.
-    In this case use values_[TSS[...]](tsd)
+
+    For a TSD, ``values_`` can also be applied when the time-series value is a suitable ``TS[SCALAR]``,
+    in which case the results are returned as a set. To select this form use ``values_[TSS[...]](tsd)``.
     """
     ...
 

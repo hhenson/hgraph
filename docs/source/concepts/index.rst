@@ -1,7 +1,7 @@
 HGraph Concepts
 ===============
 
-HGraph embodies a number of interesting and potentially unique ideas. In it's simplest form
+HGraph embodies a number of interesting and potentially unique ideas. In its simplest form
 HGraph is an advanced event processor. This section will describe the key concepts and patterns
 that make up the framework.
 
@@ -11,7 +11,6 @@ that make up the framework.
     typing_system
     time_series_types
     dynamic_graphs
-    tsd_map_node
     services
 
 

@@ -84,9 +84,9 @@ These are the operators that are provided by the HGraph library.
 
 .. autofunction:: hgraph.drop
 
-.. autofunction:: hgraph.emwa
-
 .. autofunction:: hgraph.emit
+
+.. autofunction:: hgraph.ewma
 
 .. autofunction:: hgraph.eq_
 
@@ -95,8 +95,6 @@ These are the operators that are provided by the HGraph library.
 .. autofunction:: hgraph.explode
 
 .. autofunction:: hgraph.filter_
-
-.. autofunction:: hgraph.filter_by
 
 .. autofunction:: hgraph.flip
 
@@ -223,8 +221,6 @@ These are the operators that are provided by the HGraph library.
 .. autofunction:: hgraph.split
 
 .. autofunction:: hgraph.std
-
-.. autofunction:: hgraph.str_
 
 .. autofunction:: hgraph.step
 

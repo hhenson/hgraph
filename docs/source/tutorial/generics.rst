@@ -134,11 +134,9 @@ not possible to resolve without explicit logic. A simple example is:
     from dataclasses import dataclass
     from frozendict import frozendict as fd
 
-    def _resolve_out(mappings, scalars):
-        tsb_tp = mappings[TS_SCHEMA]
-        key = scalars["key"]
-        out_tp = tsb_tp.py_type.__meta_data_schema__[key].py_type
-        return out_tp
+    def _resolve_out(mapping, key):
+        tsb_tp = mapping[TS_SCHEMA]
+        return tsb_tp.py_type.__meta_data_schema__[key].py_type
 
     @compute_node(resolvers={OUT: _resolve_out})
     def my_get_item(tsb: TSB[TS_SCHEMA], key: str) -> OUT:
@@ -153,10 +151,19 @@ not possible to resolve without explicit logic. A simple example is:
 
 In this example we define the ``resolvers`` attribute. The resolvers defines the type-var's that have logic associated
 to resolve the type. When the node is being wired, the function will be called and the return value of the type is
-used to resolve the type. The resolver function is provided with two inputs, namely the ``mappings`` and the ``scalars``,
-the ``mappings`` is a dictionary of types that have been resolved to date. The dictionary is keyed by ``TypeVar`` and
-contain ``HgTypeMetaData`` instances describing the types resolution. The ``scalars`` is a dictionary keyed by the
-name of the scalar inputs and contains the values supplied.
+used to resolve the type.
+
+The resolver function's signature describes what it needs. The first parameter is always the
+resolution mapping, a dictionary of the types that have been resolved to date. The dictionary is keyed by
+``TypeVar`` and contains ``HgTypeMetaData`` instances describing the type's resolution. Any parameters
+after the first are matched **by name** against the scalar inputs of the node, and the values supplied
+for those scalars are passed in. In the example above, ``key`` is the ``key: str`` scalar of
+``my_get_item``. If the resolver needs nothing but the mapping, a single parameter is sufficient::
+
+    resolvers={OUT: lambda m: TSS[m[K].py_type]}
+
+.. note:: Naming matters here. A parameter of the resolver that does not match a scalar on the node
+          will not be filled in, so keep the names in step with the signature.
 
 If, using this information, it is possible to resolve a type, then the resolver function is a great tool to make
 generic types more usable making the user experience a bit better.
@@ -166,8 +173,9 @@ Requires
 
 Very closely related to ``resolvers`` is the requires attribute, this allows a graph or node to specify requirements
 that must be met in order to pass wiring successfully. The signature for a requires function is the same as for
-the resolver for inputs, but is expected to return True if the requirements are met, otherwise it can return False or
-a message indicating why it did not resolve the inputs.
+the resolver, that is the mapping first and then the scalars it needs by name. It is expected to return ``True``
+if the requirements are met, otherwise it can return ``False`` or a message indicating why the inputs were rejected.
+Returning a message is preferable, as the message is included in the wiring error.
 
 There are many potential uses for this feature, however, a simple example is provided below:
 
@@ -177,8 +185,8 @@ There are many potential uses for this feature, however, a simple example is pro
     from hgraph import compute_node, TS, RequirementsNotMetWiringError
     from hgraph.test import eval_node
 
-    def _requires_true(mappings, scalars):
-        return scalars["__strict__"] or "This requires strict to be True"
+    def _requires_true(mapping, __strict__):
+        return __strict__ or "This requires strict to be True"
 
     @compute_node(requires=_requires_true)
     def add_strict(lhs: TS[int], rhs: TS[int], __strict__: bool) -> TS[int]:
@@ -188,6 +196,13 @@ There are many potential uses for this feature, however, a simple example is pro
 
     with pytest.raises(RequirementsNotMetWiringError):
         assert eval_node(add_strict, [1], [2], False) == [3]
+
+The same shape can be written inline as a lambda, which is the form most commonly found in the
+library code::
+
+    @compute_node(requires=lambda m, __strict__: __strict__ is True)
+    def add_strict(lhs: TS[int], rhs: TS[int], __strict__: bool) -> TS[int]:
+        ...
 
 The above example may seem a bit strange, however, this will make more sense when reviewing the ``operators`` section.
 

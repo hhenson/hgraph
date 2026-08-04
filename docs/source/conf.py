@@ -61,6 +61,12 @@ autodoc_typehints_format = "short"
 autodoc_member_order = "groupwise"
 add_module_names = False
 
+# Only run examples that are explicitly marked with `testcode`/`doctest` directives.
+# Without this, `sphinx-build -b doctest` also harvests bare `>>>` blocks, which pulls in the
+# third-party doctests embedded in the numpy docstrings that hgraph.numpy_ re-exports. Those
+# fail whenever numpy changes its repr, which tells us nothing about hgraph.
+doctest_test_doctest_blocks = ""
+
 templates_path = ["_templates"]
 exclude_patterns = ["build", "_build", "Thumbs.db", ".DS_Store"]
 

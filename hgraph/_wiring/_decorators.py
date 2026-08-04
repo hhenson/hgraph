@@ -184,16 +184,18 @@ def compute_node(
     The `overload` argument allows the node to be marked as implementing an `operator`, see help on the :func:`operator`
     decorator for more information.
 
-    Resolvers allow the user to provide additional logic to determine a resolution of a `TypeVar`. The `resolver`
+    Resolvers allow the user to provide additional logic to determine a resolution of a `TypeVar`. The `resolvers`
     argument is set as a dictionary mapping the type var to be resolved and a function that will be able to resolve
     the type.
+
+    The resolver function takes the resolution mapping as its first parameter. Any further parameters are matched
+    **by name** against the scalar inputs of the node and are supplied with the values provided for those scalars.
     For example:
     ::
 
-        def _resolve_type(mapping: dict[TypeVar, type], scalars: dict[str, Any]) -> type:
+        def _resolve_type(mapping: dict[TypeVar, HgTypeMetaData], attr: str) -> type:
             schema = mapping[TS_SCHEMA]  # resolved as it is an input in to the node
-            attr = scalars['attr']
-            return schema.__meta_data_schema__[attr].value_type.py_type
+            return schema.py_type.__meta_data_schema__[attr].py_type
 
         @compute_node(resolvers={SCALAR: _resolve_type})
         def get_attr_tsb(ts: TSB[TS_SCHEMA], attr: str) -> TS[SCALAR]:
@@ -202,14 +204,23 @@ def compute_node(
     In the above example, the `_resolve_type` function gets the resolved schema, extracts out the type of the attr
     and returns the type, which is the resolution of the SCALAR type var.
 
-    The `requires` argument is similar to the `resolver` argument, but only takes a single function whose responsibility
-    is to determine if the provided inputs meet with the requirements of the node.
+    If the resolver only needs the mapping, a single parameter is enough:
+    ::
+
+        @compute_node(resolvers={OUT: lambda m: TSS[m[K].py_type]})
+        def key_set(ts: TSD[K, TIME_SERIES_TYPE]) -> OUT:
+            ...
+
+    The `requires` argument is similar to the `resolvers` argument, but only takes a single function whose
+    responsibility is to determine if the provided inputs meet with the requirements of the node. It uses the same
+    calling convention as a resolver: the mapping first, then the scalars it needs by name. It must return ``True``
+    when the requirements are met; returning ``False`` or a string rejects the wiring, with the string being used as
+    the reason reported in the error.
     For example:
     ::
 
-        def _requires_enum_values(_resolve_type(mapping: dict[TypeVar, type], scalars: dict[str, Any]):
-            if scalars['rw_flags'] not in ('r', 'w', 'rw'):
-                raise ValueError("rw_flags must be one of 'r', 'w' or 'rw'")
+        def _requires_enum_values(mapping: dict[TypeVar, HgTypeMetaData], rw_flags: str):
+            return rw_flags in ('r', 'w', 'rw') or "rw_flags must be one of 'r', 'w' or 'rw'"
 
         @compute_node(requires=_requires_enum_values)
         def some_func(ts: TS[float], rw_flags: str) -> TS[float]:
@@ -225,8 +236,8 @@ def compute_node(
     :param overloads: If this node overloads an operator, this is the operator it is designed to overload.
     :param resolvers: A resolver method to assist with resolving types when they can be inferred but not deduced
                       directly.
-    :param requires: Callable which accepts the mapping and scalars as parameters and validates the inputs meet with
-                     the requirements defined in the function.
+    :param requires: Callable which accepts the resolution mapping, followed by any scalars it needs by name, and
+                     validates that the inputs meet with the requirements defined in the function.
     :param deprecated: Marks the node as no longer supported and likely to be removed shortly
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
@@ -365,8 +376,8 @@ def sink_node(
     :param overloads: If this node overloads an operator, this is the operator it is designed to overload.
     :param resolvers: A resolver method to assist with resolving types when they can be inferred but not deduced
                       directly.
-    :param requires: Callable which accepts the mapping and scalars as parameters and validates the inputs meet with
-                     the requirements defined in the function.
+    :param requires: Callable which accepts the resolution mapping, followed by any scalars it needs by name, and
+                     validates that the inputs meet with the requirements defined in the function.
     :param deprecated: Marks the node as no longer supported and likely to be removed shortly
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
@@ -421,22 +432,22 @@ def graph(
     This is the smallest meaningful graph.
 
     The graph signature, whilst being more flexible takes the same form as for a source, compute or sink node.
-    A common design principle would be to describe behaviour with graph's initially and then convert to the appropriate
+    A common design principle would be to describe behaviour with graphs initially and then convert to the appropriate
     nodes once the logic is decomposed sufficiently. It is also possible to re-code a node as a graph, for example:
     ::
 
         @compute_node
-        def a_plus_b_plus_c(a: TS[float], b: TS[float]) -> TS[float]:
+        def a_plus_b_plus_c(a: TS[float], b: TS[float], c: TS[float]) -> TS[float]:
             return a.value + b.value + c.value
 
     Can be reworked to be:
     ::
 
         @graph
-        def a_plus_b_plus_c(a: TS[float], b: TS[float]) -> TS[float]:
-            return a+b+c
+        def a_plus_b_plus_c(a: TS[float], b: TS[float], c: TS[float]) -> TS[float]:
+            return a + b + c
 
-    Or vice-versa. The trade-off is, typically, fewer compute nodes can be faster to evaluate, but ``graph``s are far
+    Or vice-versa. The trade-off is, typically, fewer compute nodes can be faster to evaluate, but graphs are far
     better at re-use of existing components. The preference should always be to use graph logic before constructing
     node functions.
 

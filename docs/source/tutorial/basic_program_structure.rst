@@ -69,15 +69,19 @@ of how this may be done:
     from logging import INFO
 
     @graph
-    def main():
+    def hello_world():
         world = const("world")
         debug_print("Hello", world)
 
     def main():
-        evaluate_graph(main, GraphConfiguration(default_log_level=INFO))
+        evaluate_graph(hello_world, GraphConfiguration(default_log_level=INFO))
 
     if __name__ == "__main__":
         main()
+
+.. note:: Give the graph and the Python entry point different names. It is tempting to call both of them
+          ``main``, but the second definition simply replaces the first, and ``evaluate_graph`` would then
+          be handed the plain Python function rather than the wired graph.
 
 For more advanced applications there may be a requirement to parse args, etc. HGraph provides no features to handle
 these requirements, instead use your favourite tools to perform these tasks.

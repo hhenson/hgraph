@@ -1,6 +1,6 @@
 
 hgraph.numpy\_
-=============
+==============
 
 .. module:: hgraph.numpy_
 
