@@ -1,6 +1,7 @@
 #include <hgraph/types/service_runtime.h>
 
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/keyed_service_transport.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/adaptor_wiring.h>
 #include <hgraph/types/request_reply_transport.h>
@@ -367,29 +368,11 @@ namespace hgraph
             w, std::type_index(typeid(service::detail::shared_output_source_marker)), dict_meta, out_path);
 
         w.register_service_rank_anchor(subs_path, subscriptions.peered_node());
-        w.register_service_client_rank(out_path, "subscription service", shared.peered_node(), true);
-
         // Subscription keys use the same input adaptation as request/reply
         // payloads. In particular, a concrete Bundle leaf is materialized in
         // the service interface's closed base union before capture.
         WiringPortRef adapted_key = graph_wiring_detail::adapt_source_for_input(
             w, TypeRegistry::instance().ts(descriptor.key_type), key);
-        // Root captures rank before the shared key source and publish in the
-        // same cycle. Nested hand-offs retain their one-cycle temporal boundary.
-        std::array<WiringPortRef, 2>  sources{adapted_key, subscriptions};
-        std::array<WiringInputRef, 2> inputs{{
-            WiringInputRef{.source = sources[0]},
-            WiringInputRef{.source = sources[1], .rank_dependency = false},
-        }};
-        NodeBuilder builder = make_subscription_key_capture_node(subs_path, *descriptor.key_type);
-        builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
-            builder.type().schema()->input_schema,
-            std::span<const WiringPortRef>{sources.data(), sources.size()}));
-        WiringPortRef capture = w.add_node(
-            std::type_index(typeid(service::detail::subscription_capture_marker)), std::move(builder),
-            std::span<const WiringInputRef>{inputs.data(), inputs.size()}, Value{});
-        w.register_service_client_rank(subs_path, "subscription service", capture.peered_node(), false);
-
         // The subscribed value: the shared TSD (descriptive-schema patched,
         // as Port::as does) keyed at the subscribed key.
         WiringPortRef dict = shared;
@@ -406,22 +389,19 @@ namespace hgraph
         WiringPortRef output =
             resolved.impl->wire(w, resolved.map, resolved.args, resolved.kwargs).output;
         output.schema = descriptor.value_schema;
-        std::array<WiringPortRef, 3> gate_sources{
-            output, adapted_key, subscriptions};
-        std::array<WiringInputRef, 3> gate_inputs{{
-            WiringInputRef{.source = gate_sources[0]},
-            WiringInputRef{.source = gate_sources[1]},
-            WiringInputRef{.source = gate_sources[2]},
-        }};
-        NodeBuilder gate_builder = make_subscription_response_gate_node(
-            *descriptor.key_type, *descriptor.value_schema);
-        gate_builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
-            gate_builder.type().schema()->input_schema,
-            std::span<const WiringPortRef>{gate_sources.data(), gate_sources.size()}));
-        WiringPortRef gated = w.add_node(
-            std::type_index(typeid(service::detail::subscription_response_gate_marker)),
-            std::move(gate_builder),
-            std::span<const WiringInputRef>{gate_inputs.data(), gate_inputs.size()}, Value{});
+        WiringPortRef gated = keyed_service_transport::defer_subscription_client(
+            w,
+            base,
+            subs_path,
+            out_path,
+            *descriptor.key_type,
+            *descriptor.value_schema,
+            std::move(adapted_key),
+            subscriptions,
+            std::move(output),
+            shared,
+            std::type_index(typeid(service::detail::subscription_capture_marker)),
+            std::type_index(typeid(service::detail::subscription_response_gate_marker)));
         gated.schema = descriptor.value_schema;
         return gated;
     }
@@ -457,16 +437,26 @@ namespace hgraph
                     target, std::type_index(typeid(service::detail::shared_output_source_marker)),
                     dict_meta, out_path);
                 target.register_service_rank_anchor(subs_path, subscriptions.peered_node());
+                auto scope = target.service_implementation_scope(
+                    "subscription service " + requested_base,
+                    std::vector<WiringServiceImplementationEndpoint>{}, false);
+                keyed_service_transport::register_implementation_input(
+                    target, requested_base, subscriptions.peered_node());
                 std::array<WiringPortRef, 1> transport{subscriptions};
                 const auto impl_inputs = combine_impl_inputs(
                     *descriptor_ptr, impl, transport, stored_inputs);
                 WiringPortRef output = describe_service_output(
                     *descriptor_ptr, dict_meta,
                     wire_impl(target, *descriptor_ptr, impl, impl_inputs));
-                const WiringInstance *capture = shared_output_capture_node(
-                    target, std::type_index(typeid(service::detail::shared_output_capture_marker)),
-                    dict_meta, out_path, output, shared);
-                target.register_service_rank_anchor(out_path, capture);
+                keyed_service_transport::defer_subscription_implementation_output(
+                    target,
+                    requested_base,
+                    out_path,
+                    *dict_meta,
+                    std::move(output),
+                    std::move(shared),
+                    std::type_index(typeid(service::detail::shared_output_capture_marker)));
+                scope.complete();
             };
         if (default_fallback)
         {
@@ -757,6 +747,8 @@ namespace hgraph
                         return make_subscription_key_source_node(endpoint, *key_meta);
                     });
                 w.register_service_rank_anchor(endpoint, source.peered_node());
+                keyed_service_transport::register_implementation_input(
+                    w, subscription_base(descriptor, path), source.peered_node());
                 return source;
             }
             case ServiceFlavour::RequestReply: {
@@ -805,10 +797,14 @@ namespace hgraph
                     TypeRegistry::instance().tsd(descriptor.key_type, descriptor.value_schema);
                 WiringPortRef shared = shared_output_source_node(
                     w, std::type_index(typeid(service::detail::shared_output_source_marker)), dict_meta, endpoint);
-                const WiringInstance *capture = shared_output_capture_node(
-                    w, std::type_index(typeid(service::detail::shared_output_capture_marker)),
-                    out.schema != nullptr ? out.schema : dict_meta, endpoint, out, shared);
-                w.register_service_rank_anchor(endpoint, capture);
+                keyed_service_transport::defer_subscription_implementation_output(
+                    w,
+                    subscription_base(descriptor, path),
+                    endpoint,
+                    *dict_meta,
+                    out,
+                    std::move(shared),
+                    std::type_index(typeid(service::detail::shared_output_capture_marker)));
                 return;
             }
             case ServiceFlavour::RequestReply: {

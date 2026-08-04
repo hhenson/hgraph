@@ -1,4 +1,4 @@
-#include <hgraph/types/request_reply_transport.h>
+#include <hgraph/types/keyed_service_transport.h>
 
 #include <hgraph/runtime/feedback_node.h>
 #include <hgraph/runtime/service_node.h>
@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-namespace hgraph::request_reply_transport
+namespace hgraph::keyed_service_transport
 {
     namespace
     {
@@ -23,6 +23,18 @@ namespace hgraph::request_reply_transport
 
         struct request_reply_feedback_sink_marker
         {
+        };
+
+        struct PendingSubscriptionClient
+        {
+            std::string                    base_path{};
+            std::string                    request_path{};
+            std::string                    response_path{};
+            const ValueTypeMetaData       *key_schema{nullptr};
+            WiringPortRef                  key{};
+            WiringPortRef                  request_source{};
+            WiringPortRef                  response_source{};
+            std::type_index                capture_role{typeid(void)};
         };
 
         struct PendingClient
@@ -47,15 +59,18 @@ namespace hgraph::request_reply_transport
             WiringPortRef               response_source{};
             std::type_index             capture_role{typeid(void)};
             std::shared_ptr<const bool> boundary_dependency{};
+            bool                        full_feedback_on_boundary_dependency{true};
         };
 
         struct Planner
         {
             std::unordered_map<std::string, const WiringInstance *>    implementation_inputs{};
-            std::unordered_map<std::string, RequestReplyTransportPlan> plans{};
+            std::unordered_map<std::string, KeyedServiceTransportPlan> plans{};
             std::vector<PendingClient>                                 clients{};
+            std::vector<PendingSubscriptionClient>                     subscription_clients{};
             std::vector<PendingOutput>                                 outputs{};
             std::size_t                                                finalized_clients{0};
+            std::size_t                                                finalized_subscription_clients{0};
             std::size_t                                                finalized_outputs{0};
 
             void finalize(Wiring &w);
@@ -143,11 +158,16 @@ namespace hgraph::request_reply_transport
         }
 
         [[nodiscard]] const WiringInstance *publish_response(Wiring &w, const PendingOutput &pending,
-                                                             RequestReplyTransportPlan plan)
+                                                             KeyedServiceTransportPlan plan)
         {
             WiringPortRef output = pending.output;
-            if (plan == RequestReplyTransportPlan::FullFeedback)
+            if (plan == KeyedServiceTransportPlan::FullFeedback)
             {
+                if (!pending.full_feedback_on_boundary_dependency)
+                {
+                    throw std::logic_error(
+                        "subscription transport cannot select response feedback");
+                }
                 output = response_feedback(w, std::move(output), *pending.response_dict_schema);
             }
             else
@@ -171,9 +191,9 @@ namespace hgraph::request_reply_transport
             return capture.peered_node();
         }
 
-        void publish_request(Wiring &w, const PendingClient &pending, RequestReplyTransportPlan plan)
+        void publish_request(Wiring &w, const PendingClient &pending, KeyedServiceTransportPlan plan)
         {
-            const bool                    direct = plan == RequestReplyTransportPlan::Direct;
+            const bool                    direct = plan == KeyedServiceTransportPlan::Direct;
             std::array<WiringPortRef, 3>  sources{pending.request, pending.request_source, pending.request_id};
             std::array<WiringInputRef, 3> inputs{{
                 WiringInputRef{.source = sources[0]},
@@ -191,11 +211,46 @@ namespace hgraph::request_reply_transport
                 w.register_service_client_rank(pending.request_path, "request/reply service", capture.peered_node(),
                                                false);
             }
-            if (plan != RequestReplyTransportPlan::FullFeedback)
+            if (plan != KeyedServiceTransportPlan::FullFeedback)
             {
                 w.register_service_client_rank(pending.response_path, "request/reply service",
                                                pending.response_source.peered_node(), true);
             }
+        }
+
+        void publish_subscription_request(
+            Wiring &w, PendingSubscriptionClient &pending,
+            KeyedServiceTransportPlan plan)
+        {
+            const bool direct = plan == KeyedServiceTransportPlan::Direct;
+            std::array<WiringPortRef, 2> capture_sources{
+                pending.key, pending.request_source};
+            std::array<WiringInputRef, 2> capture_inputs{{
+                WiringInputRef{.source = capture_sources[0]},
+                WiringInputRef{
+                    .source = capture_sources[1], .rank_dependency = false},
+            }};
+            NodeBuilder capture_builder = make_subscription_key_capture_node(
+                pending.request_path, *pending.key_schema, direct);
+            capture_builder.input_endpoint(
+                graph_wiring_detail::input_endpoint_for_sources(
+                    capture_builder.type().schema()->input_schema,
+                    std::span<const WiringPortRef>{
+                        capture_sources.data(), capture_sources.size()}));
+            WiringPortRef capture = w.add_node(
+                pending.capture_role, std::move(capture_builder),
+                std::span<const WiringInputRef>{
+                    capture_inputs.data(), capture_inputs.size()},
+                Value{});
+            if (direct)
+            {
+                w.register_service_client_rank(
+                    pending.request_path, "subscription service",
+                    capture.peered_node(), false);
+            }
+            w.register_service_client_rank(
+                pending.response_path, "subscription service",
+                pending.response_source.peered_node(), true);
         }
 
         void Planner::finalize(Wiring &w)
@@ -206,23 +261,27 @@ namespace hgraph::request_reply_transport
                 const auto           input = implementation_inputs.find(pending.base_path);
                 if (input == implementation_inputs.end() || input->second == nullptr)
                 {
-                    throw std::logic_error("request/reply implementation '" + pending.base_path +
+                    throw std::logic_error("keyed service implementation '" + pending.base_path +
                                            "' published an output without its request input");
                 }
 
-                RequestReplyTransportPlan plan = RequestReplyTransportPlan::Direct;
-                if (pending.boundary_dependency != nullptr && *pending.boundary_dependency)
+                KeyedServiceTransportPlan plan = KeyedServiceTransportPlan::Direct;
+                if (pending.full_feedback_on_boundary_dependency
+                    && pending.boundary_dependency != nullptr
+                    && *pending.boundary_dependency)
                 {
-                    plan = RequestReplyTransportPlan::FullFeedback;
+                    plan = KeyedServiceTransportPlan::FullFeedback;
                 }
-                else if (output_depends_on(pending.output, input->second))
+                else if ((pending.boundary_dependency != nullptr
+                          && *pending.boundary_dependency)
+                         || output_depends_on(pending.output, input->second))
                 {
-                    plan = RequestReplyTransportPlan::RequestDeferred;
+                    plan = KeyedServiceTransportPlan::RequestDeferred;
                 }
                 auto [it, inserted] = plans.try_emplace(pending.base_path, plan);
                 if (!inserted && it->second != plan)
                 {
-                    throw std::logic_error("request/reply implementation '" + pending.base_path +
+                    throw std::logic_error("keyed service implementation '" + pending.base_path +
                                            "' produced conflicting transport plans");
                 }
                 static_cast<void>(publish_response(w, pending, plan));
@@ -242,10 +301,30 @@ namespace hgraph::request_reply_transport
                     // A child externalizes the service. Both request modes hand
                     // off to the owner on the next tick, so retain the
                     // conservative unranked capture in the compiled child.
-                    publish_request(w, pending, RequestReplyTransportPlan::RequestDeferred);
+                    publish_request(w, pending, KeyedServiceTransportPlan::RequestDeferred);
                     continue;
                 }
                 publish_request(w, pending, selected->second);
+            }
+
+            while (finalized_subscription_clients < subscription_clients.size())
+            {
+                PendingSubscriptionClient &pending =
+                    subscription_clients[finalized_subscription_clients++];
+                const auto selected = plans.find(pending.base_path);
+                if (selected == plans.end())
+                {
+                    if (w.kind() == WiringKind::TopLevel)
+                    {
+                        throw std::logic_error(
+                            "subscription implementation '" + pending.base_path
+                            + "' did not publish a response transport");
+                    }
+                    publish_subscription_request(
+                        w, pending, KeyedServiceTransportPlan::RequestDeferred);
+                    continue;
+                }
+                publish_subscription_request(w, pending, selected->second);
             }
         }
 
@@ -253,7 +332,8 @@ namespace hgraph::request_reply_transport
         {
             auto state = std::static_pointer_cast<Planner>(w.acquire_extension_state(
                 std::type_index(typeid(Planner)), [] { return std::make_shared<Planner>(); }));
-            if (state->clients.empty() && state->outputs.empty() && state->implementation_inputs.empty())
+            if (state->clients.empty() && state->subscription_clients.empty()
+                && state->outputs.empty() && state->implementation_inputs.empty())
             {
                 std::weak_ptr<Planner> weak = state;
                 w.register_pre_rank_finalizer(
@@ -269,9 +349,12 @@ namespace hgraph::request_reply_transport
         }
     }  // namespace
 
-    void defer_client(Wiring &w, std::string base_path, std::string request_path, std::string response_path,
-                      const TSValueTypeMetaData &request_schema, WiringPortRef request, WiringPortRef request_source,
-                      WiringPortRef request_id, WiringPortRef response_source, std::type_index capture_role)
+    void defer_request_reply_client(
+        Wiring &w, std::string base_path, std::string request_path,
+        std::string response_path, const TSValueTypeMetaData &request_schema,
+        WiringPortRef request, WiringPortRef request_source,
+        WiringPortRef request_id, WiringPortRef response_source,
+        std::type_index capture_role)
     {
         planner_for(w)->clients.push_back(PendingClient{
             .base_path = std::move(base_path),
@@ -286,37 +369,108 @@ namespace hgraph::request_reply_transport
         });
     }
 
+    WiringPortRef defer_subscription_client(
+        Wiring &w, std::string base_path, std::string request_path,
+        std::string response_path, const ValueTypeMetaData &key_schema,
+        const TSValueTypeMetaData &response_schema, WiringPortRef key,
+        WiringPortRef request_source, WiringPortRef response,
+        WiringPortRef response_source, std::type_index capture_role,
+        std::type_index gate_role)
+    {
+        std::array<WiringPortRef, 3> gate_sources{
+            std::move(response), key, request_source};
+        std::array<WiringInputRef, 3> gate_inputs{{
+            WiringInputRef{.source = gate_sources[0]},
+            WiringInputRef{.source = gate_sources[1]},
+            WiringInputRef{.source = gate_sources[2]},
+        }};
+        NodeBuilder gate_builder = make_subscription_response_gate_node(
+            key_schema, response_schema, /*response_same_cycle=*/true);
+        gate_builder.input_endpoint(
+            graph_wiring_detail::input_endpoint_for_sources(
+                gate_builder.type().schema()->input_schema,
+                std::span<const WiringPortRef>{
+                    gate_sources.data(), gate_sources.size()}));
+        WiringPortRef gated = w.add_node(
+            gate_role, std::move(gate_builder),
+            std::span<const WiringInputRef>{
+                gate_inputs.data(), gate_inputs.size()},
+            Value{});
+        planner_for(w)->subscription_clients.push_back(PendingSubscriptionClient{
+            .base_path       = std::move(base_path),
+            .request_path    = std::move(request_path),
+            .response_path   = std::move(response_path),
+            .key_schema      = &key_schema,
+            .key             = std::move(key),
+            .request_source  = std::move(request_source),
+            .response_source = std::move(response_source),
+            .capture_role    = capture_role,
+        });
+        return gated;
+    }
+
     void register_implementation_input(Wiring &w, std::string base_path, const WiringInstance *request_source)
     {
         if (request_source == nullptr)
         {
-            throw std::invalid_argument("request/reply implementation input must name a source");
+            throw std::invalid_argument("keyed service implementation input must name a source");
         }
         auto planner = planner_for(w);
         auto [it, inserted] = planner->implementation_inputs.try_emplace(std::move(base_path), request_source);
         if (!inserted && it->second != request_source)
         {
-            throw std::invalid_argument("duplicate request/reply implementation input for '" + it->first + "'");
+            throw std::invalid_argument("duplicate keyed service implementation input for '" + it->first + "'");
         }
     }
 
-    void defer_implementation_output(Wiring &w, std::string base_path, std::string response_path,
-                                     const TSValueTypeMetaData &response_dict_schema, WiringPortRef output,
-                                     WiringPortRef response_source, std::type_index capture_role)
+    namespace
     {
-        auto dependency = w.service_implementation_boundary_dependency();
-        if (dependency == nullptr)
+        void defer_output(
+            Wiring &w, std::string base_path, std::string response_path,
+            const TSValueTypeMetaData &response_dict_schema,
+            WiringPortRef output, WiringPortRef response_source,
+            std::type_index capture_role,
+            bool full_feedback_on_boundary_dependency)
         {
-            throw std::logic_error("request/reply output must be wired inside its implementation scope");
+            auto dependency = w.service_implementation_boundary_dependency();
+            if (dependency == nullptr)
+            {
+                throw std::logic_error(
+                    "keyed service output must be wired inside its implementation scope");
+            }
+            planner_for(w)->outputs.push_back(PendingOutput{
+                .base_path                = std::move(base_path),
+                .response_path            = std::move(response_path),
+                .response_dict_schema     = &response_dict_schema,
+                .output                   = std::move(output),
+                .response_source          = std::move(response_source),
+                .capture_role             = capture_role,
+                .boundary_dependency      = std::move(dependency),
+                .full_feedback_on_boundary_dependency =
+                    full_feedback_on_boundary_dependency,
+            });
         }
-        planner_for(w)->outputs.push_back(PendingOutput{
-            .base_path = std::move(base_path),
-            .response_path = std::move(response_path),
-            .response_dict_schema = &response_dict_schema,
-            .output = std::move(output),
-            .response_source = std::move(response_source),
-            .capture_role = capture_role,
-            .boundary_dependency = std::move(dependency),
-        });
+    }  // namespace
+
+    void defer_request_reply_implementation_output(
+        Wiring &w, std::string base_path, std::string response_path,
+        const TSValueTypeMetaData &response_dict_schema, WiringPortRef output,
+        WiringPortRef response_source, std::type_index capture_role)
+    {
+        defer_output(
+            w, std::move(base_path), std::move(response_path),
+            response_dict_schema, std::move(output), std::move(response_source),
+            capture_role, true);
     }
-}  // namespace hgraph::request_reply_transport
+
+    void defer_subscription_implementation_output(
+        Wiring &w, std::string base_path, std::string response_path,
+        const TSValueTypeMetaData &response_dict_schema, WiringPortRef output,
+        WiringPortRef response_source, std::type_index capture_role)
+    {
+        defer_output(
+            w, std::move(base_path), std::move(response_path),
+            response_dict_schema, std::move(output), std::move(response_source),
+            capture_role, false);
+    }
+}  // namespace hgraph::keyed_service_transport

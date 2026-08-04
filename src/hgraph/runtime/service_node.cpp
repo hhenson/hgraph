@@ -17,6 +17,7 @@
 #include <atomic>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -91,6 +92,13 @@ namespace hgraph
         {
             std::string path{};
             std::size_t storage_offset{0};
+            bool        same_cycle{true};
+        };
+
+        struct SubscriptionResponseGateContext
+        {
+            std::size_t storage_offset{0};
+            bool        response_same_cycle{false};
         };
 
         struct SubscriptionResponseGateStorage
@@ -99,6 +107,7 @@ namespace hgraph
             Value pending_response{};
             bool  has_previous{false};
             bool  awaiting_fresh_response{false};
+            bool  awaiting_subscription{false};
         };
 
         struct RequestInputSourceContext
@@ -172,19 +181,53 @@ namespace hgraph
 
         [[nodiscard]] const SubscriptionKeyCaptureContext &register_subscription_key_capture_context(
             std::string path,
-            std::size_t storage_offset)
+            std::size_t storage_offset,
+            bool same_cycle)
         {
             auto &contexts = subscription_key_capture_contexts();
             const auto existing = std::ranges::find_if(
                 contexts,
                 [&](const auto &context) {
-                    return context->path == path && context->storage_offset == storage_offset;
+                    return context->path == path && context->storage_offset == storage_offset
+                        && context->same_cycle == same_cycle;
                 });
             if (existing != contexts.end()) { return **existing; }
             auto context = std::make_unique<SubscriptionKeyCaptureContext>(SubscriptionKeyCaptureContext{
                 .path           = std::move(path),
                 .storage_offset = storage_offset,
+                .same_cycle     = same_cycle,
             });
+            const auto *result = context.get();
+            contexts.push_back(std::move(context));
+            return *result;
+        }
+
+        [[nodiscard]] std::vector<std::unique_ptr<SubscriptionResponseGateContext>> &
+        subscription_response_gate_contexts() noexcept
+        {
+            static auto *contexts =
+                new std::vector<std::unique_ptr<SubscriptionResponseGateContext>>;
+            return *contexts;
+        }
+
+        [[nodiscard]] const SubscriptionResponseGateContext &
+        register_subscription_response_gate_context(
+            std::size_t storage_offset,
+            bool response_same_cycle)
+        {
+            auto &contexts = subscription_response_gate_contexts();
+            const auto existing = std::ranges::find_if(
+                contexts,
+                [&](const auto &context) {
+                    return context->storage_offset == storage_offset
+                        && context->response_same_cycle == response_same_cycle;
+                });
+            if (existing != contexts.end()) { return **existing; }
+            auto context = std::make_unique<SubscriptionResponseGateContext>(
+                SubscriptionResponseGateContext{
+                    .storage_offset = storage_offset,
+                    .response_same_cycle = response_same_cycle,
+                });
             const auto *result = context.get();
             contexts.push_back(std::move(context));
             return *result;
@@ -699,9 +742,12 @@ namespace hgraph
             auto key    = storage.input.borrowed_ref(evaluation_time);
             auto source = NodeView{storage.source}.as<SubscriptionKeySourceView>();
             static_cast<void>(start_phase);
-            const DateTime schedule_time = view.graph().is_nested()
-                                               ? evaluation_time + MIN_TD
-                                               : evaluation_time;
+            const DateTime schedule_time = context.same_cycle
+                                               ? (view.graph().is_nested()
+                                                      ? evaluation_time + MIN_TD
+                                                      : evaluation_time)
+                                               : request_stub_forward_time(
+                                                     view, evaluation_time, start_phase);
             record_subscription_key(source, storage, key, schedule_time, evaluation_time);
         }
 
@@ -725,7 +771,7 @@ namespace hgraph
         }
 
         void evaluate_subscription_response_gate(
-            std::size_t storage_offset,
+            const SubscriptionResponseGateContext &context,
             const NodeView &view,
             DateTime evaluation_time)
         {
@@ -735,9 +781,13 @@ namespace hgraph
             auto key   = input.at(1);
             auto subscriptions_input = input.at(2);
             auto subscriptions = subscriptions_input.as_set();
-            auto &storage = response_gate_storage_of(view, storage_offset);
-            NodeScheduler scheduler{
-                view.scheduler_state(), view.graph_value(), view.node_index(), evaluation_time};
+            auto &storage = response_gate_storage_of(view, context.storage_offset);
+            std::optional<NodeScheduler> scheduler;
+            if (!context.response_same_cycle)
+            {
+                scheduler.emplace(
+                    view.scheduler_state(), view.graph_value(), view.node_index(), evaluation_time);
+            }
             auto output = view.output(evaluation_time);
 
             const auto key_was_added = [&]() {
@@ -747,19 +797,49 @@ namespace hgraph
                     [&](const ValueView &added) { return added.equals(key.value()); });
             };
 
+            const auto key_is_live = [&]() {
+                return key.valid() && subscriptions.contains(key.value());
+            };
+
             const auto stage_fresh_response = [&]() {
                 if (!value.valid() || !value.modified()) { return; }
+                if (context.response_same_cycle)
+                {
+                    apply_current_value(output, value.value());
+                    storage.pending_response = Value{};
+                    storage.awaiting_fresh_response = false;
+                    return;
+                }
                 storage.pending_response = Value{value.value()};
-                scheduler.schedule(MIN_TD);
+                scheduler->schedule(MIN_TD);
             };
 
             if (response_key_changed(storage, key))
             {
                 storage.pending_response = Value{};
-                storage.awaiting_fresh_response = key_was_added();
+                storage.awaiting_subscription = false;
+                storage.awaiting_fresh_response = false;
                 auto mutation = output.begin_mutation(evaluation_time);
                 static_cast<void>(mutation.invalidate());
                 if (!key.valid()) { return; }
+                if (!key_is_live())
+                {
+                    storage.awaiting_subscription = true;
+                    return;
+                }
+                storage.awaiting_fresh_response = key_was_added();
+                if (storage.awaiting_fresh_response)
+                {
+                    stage_fresh_response();
+                    return;
+                }
+            }
+
+            if (storage.awaiting_subscription)
+            {
+                if (!key_is_live()) { return; }
+                storage.awaiting_subscription = false;
+                storage.awaiting_fresh_response = key_was_added();
                 if (storage.awaiting_fresh_response)
                 {
                     stage_fresh_response();
@@ -769,7 +849,8 @@ namespace hgraph
 
             if (storage.awaiting_fresh_response)
             {
-                if (scheduler.is_scheduled_now() && storage.pending_response.has_value())
+                if (!context.response_same_cycle && scheduler->is_scheduled_now()
+                    && storage.pending_response.has_value())
                 {
                     if (!value.valid())
                     {
@@ -872,7 +953,9 @@ namespace hgraph
             auto source = NodeView{storage.source}.as<SubscriptionKeySourceView>();
             source.enqueue(
                 std::move(storage.previous_key), false,
-                view.graph().is_nested() ? evaluation_time + MIN_TD : evaluation_time,
+                context->same_cycle && !view.graph().is_nested()
+                    ? evaluation_time
+                    : evaluation_time + MIN_TD,
                 evaluation_time);
             storage.previous_key = Value{};
             storage.has_previous = false;
@@ -976,7 +1059,8 @@ namespace hgraph
         return builder;
     }
 
-    NodeBuilder make_subscription_key_capture_node(std::string path, const ValueTypeMetaData &key_schema)
+    NodeBuilder make_subscription_key_capture_node(
+        std::string path, const ValueTypeMetaData &key_schema, bool same_cycle)
     {
         path = subscription_key_path(std::move(path));
 
@@ -1001,7 +1085,8 @@ namespace hgraph
         descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, fields);
 
         const auto *context = &register_subscription_key_capture_context(
-            path, descriptor.storage_plan->component(subscription_key_capture_storage_field).offset);
+            path, descriptor.storage_plan->component(subscription_key_capture_storage_field).offset,
+            same_cycle);
 
         descriptor.callbacks.start = [context](const NodeView &view, DateTime evaluation_time) {
             capture_subscription_key(*context, view, evaluation_time, true);
@@ -1018,7 +1103,8 @@ namespace hgraph
 
     NodeBuilder make_subscription_response_gate_node(
         const ValueTypeMetaData &key_schema,
-        const TSValueTypeMetaData &response_schema)
+        const TSValueTypeMetaData &response_schema,
+        bool response_same_cycle)
     {
         auto &registry = TypeRegistry::instance();
         const auto *key_ts_schema = registry.ts(&key_schema);
@@ -1032,8 +1118,8 @@ namespace hgraph
         });
         descriptor.schema.output_schema = &response_schema;
         descriptor.schema.node_kind = NodeKind::Compute;
-        descriptor.schema.uses_scheduler = true;
-        descriptor.schema.active_inputs = std::vector<std::size_t>{0, 1};
+        descriptor.schema.uses_scheduler = !response_same_cycle;
+        descriptor.schema.active_inputs = std::vector<std::size_t>{0, 1, 2};
         descriptor.schema.valid_inputs = std::vector<std::size_t>{};
 
         const std::array fields{NodeStorageField{
@@ -1041,17 +1127,17 @@ namespace hgraph
             .plan = &MemoryUtils::plan_for<SubscriptionResponseGateStorage>(),
         }};
         descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, fields);
-        const std::size_t storage_offset =
-            descriptor.storage_plan->component(subscription_response_gate_storage_field).offset;
-        const auto *canonical_context = descriptor.storage_plan;
+        const auto *context = &register_subscription_response_gate_context(
+            descriptor.storage_plan->component(subscription_response_gate_storage_field).offset,
+            response_same_cycle);
 
-        descriptor.callbacks.evaluate = [storage_offset](
+        descriptor.callbacks.evaluate = [context](
             const NodeView &view, DateTime evaluation_time) {
-            evaluate_subscription_response_gate(storage_offset, view, evaluation_time);
+            evaluate_subscription_response_gate(*context, view, evaluation_time);
         };
 
         NodeBuilder builder = NodeBuilder::from_canonical_descriptor(
-            std::move(descriptor), canonical_context);
+            std::move(descriptor), context);
         builder.label("subscription_response_gate");
         return builder;
     }

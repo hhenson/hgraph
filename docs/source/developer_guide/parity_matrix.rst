@@ -310,11 +310,15 @@ model.
        request/reply services, and late subscription to an existing value all
        execute through the erased C++ service runtime. Matching public C++
        tests cover constrained generics, erased specialization identity,
-       reply-less requests, and sampled late subscriptions. Reply-full
-       request/reply transport is selected by native wiring: decoupled
-       sink/source implementations are direct, self-coupled implementations
-       defer only the request, and service/adaptor-dependent implementations
-       retain full feedback. Compiled ``map_`` and ``mesh_`` children import
+       reply-less requests, and sampled late subscriptions. Keyed-service
+       transport for both subscription and reply-full request/reply is selected
+       by native wiring: decoupled sink/source implementations are direct,
+       self-coupled implementations defer only the request, and service/adaptor-
+       dependent request/reply implementations retain full feedback.
+       Service-dependent subscription defers its key but keeps its response
+       direct, preserving released rapid-transition behavior and shared
+       mapped/reference value identity. Compiled ``map_``
+       and ``mesh_`` children import
        their outer service transport inputs through the nested boundary; any
        response feedback is owned by the outer implementation, not by the child
        consumer. Private Python service-builder layouts are not compatibility
