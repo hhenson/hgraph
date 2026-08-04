@@ -228,8 +228,12 @@ way:
   every remaining field to compare within the template's float tolerance;
 * ``switch-flip-map-removal`` requires the candidate to remove exactly every
   currently-live mapped output, opposite the reference's canonical empty-map
-  delta, on the exact ``beta``-to-request/reply-``alpha`` switch flip. Later
-  response payloads and every other tick must still match.
+  delta, on the exact ``beta``-to-request/reply-``alpha`` switch flip. It may
+  additionally remove the one silent response-feedback cycle made obsolete by
+  RFC 0014; the earlier response payload and every other tick must still match;
+* ``request-reply-one-cycle-earlier`` requires a self-coupled request/reply
+  candidate trace to equal the complete released-hgraph trace after removing
+  exactly its leading silent response-feedback cycle.
 
 An unknown relation, payload corruption, unrelated missing field, candidate
 crash, or status difference does not match and therefore continues through

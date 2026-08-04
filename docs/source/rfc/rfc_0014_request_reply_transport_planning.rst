@@ -145,7 +145,12 @@ cycle, and an externally supplied response can publish in its arrival cycle.
 **Self-coupled services lose one artificial cycle.** The observable sequence
 for a conventional request-driven implementation changes from
 ``[None, None, response]`` to ``[None, response]``. The request boundary still
-breaks the graph cycle.
+breaks the graph cycle. Differential testing against released hgraph 0.5.34
+tracks this as an exact one-cycle response advance: payloads, ordering, and all
+remaining silent cycles must agree. The same advance may compose with the
+already accepted transient map-removal behavior on a request/reply switch
+flip; the issue-175 response-versus-new-key collision remains an exact pinned
+corpus divergence so a lost or reordered response is never accepted broadly.
 
 **Service-dependent and recursive behavior is retained.** Such an
 implementation continues to observe the full two-boundary sequence. The rule

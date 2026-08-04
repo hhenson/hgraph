@@ -30,6 +30,7 @@ KEY_SET_SIZE_NO_RETICK = "key-set-size-no-retick"
 NO_CHANGE_ELISION = "no-change-elision"
 VALID_SUBSET_REDUCE = "valid-subset-reduce"
 SWITCH_FLIP_MAP_REMOVAL = "switch-flip-map-removal"
+REQUEST_REPLY_ONE_CYCLE_EARLIER = "request-reply-one-cycle-earlier"
 
 
 def load_known_divergences(
@@ -318,6 +319,33 @@ def _canonical_map_entries(tick: Any) -> list[Any] | None:
     return None
 
 
+def _request_reply_one_cycle_earlier_relation(
+    _recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """RFC 0014 self-coupled request/reply transport removes exactly the
+    released implementation's leading response-feedback cycle.
+
+    Preserve every payload and silent cycle after that boundary.  This is a
+    sequence relation, not a general tolerance for shifted or missing ticks.
+    """
+    if difference.get("classification") != "length":
+        return False
+    reference_trace = reference.get("trace")
+    candidate_trace = candidate.get("trace")
+    return (
+        isinstance(reference_trace, list)
+        and isinstance(candidate_trace, list)
+        and len(reference_trace) == len(candidate_trace) + 1
+        and reference_trace[0] is None
+        and any(tick is not None for tick in candidate_trace)
+        and reference_trace[1:] == candidate_trace
+    )
+
+
 def _switch_flip_map_removal_relation(
     recipe: dict[str, Any],
     difference: dict[str, Any],
@@ -333,16 +361,16 @@ def _switch_flip_map_removal_relation(
 
     Admit only removal-only candidate deltas for every currently-live output,
     exactly on those flips, opposite a canonical empty reference delta.
-    Everything else must match, including later response payloads.
+    RFC 0014 may additionally remove the single silent response-feedback tick
+    immediately after one such flip. Everything else must match, including
+    the response payload now delivered one cycle earlier.
     """
     if difference.get("classification") not in ("value", "length"):
         return False
     reference_trace = reference.get("trace")
     candidate_trace = candidate.get("trace")
-    if (
-        not isinstance(reference_trace, list)
-        or not isinstance(candidate_trace, list)
-        or len(reference_trace) != len(candidate_trace)
+    if not isinstance(reference_trace, list) or not isinstance(
+        candidate_trace, list
     ):
         return False
 
@@ -356,6 +384,26 @@ def _switch_flip_map_removal_relation(
         if selector == "alpha" and active_selector == "beta":
             flip_to_alpha.add(index)
         active_selector = selector
+
+    if len(reference_trace) != len(candidate_trace):
+        if (
+            len(reference_trace) != len(candidate_trace) + 1
+            or len(flip_to_alpha) != 1
+        ):
+            return False
+        flip = next(iter(flip_to_alpha))
+        if (
+            flip + 2 >= len(reference_trace)
+            or reference_trace[flip + 1] is not None
+            or reference_trace[flip + 2] is None
+        ):
+            return False
+        # Align the traces only by removing the old response-feedback cycle.
+        # The loop below still proves the flip removal and every payload.
+        reference_trace = [
+            *reference_trace[: flip + 1],
+            *reference_trace[flip + 2 :],
+        ]
 
     live_keys: set[str] = set()
     admitted = 0
@@ -410,6 +458,9 @@ RELATIONS = {
     VALID_SUBSET_REDUCE: _valid_subset_reduce_relation,
     SWITCH_FLIP_VALID_SUBSET: _switch_flip_valid_subset_relation,
     SWITCH_FLIP_MAP_REMOVAL: _switch_flip_map_removal_relation,
+    REQUEST_REPLY_ONE_CYCLE_EARLIER: (
+        _request_reply_one_cycle_earlier_relation
+    ),
     KEY_SET_SIZE_NO_RETICK: _key_set_size_no_retick_relation,
 }
 

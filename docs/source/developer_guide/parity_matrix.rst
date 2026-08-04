@@ -568,7 +568,12 @@ Wiring and node-authoring surface
        an empty delta and retains the stale value. Issues
        #105/#117/#119/#133/#145 are pinned by the mapped request/reply Python
        and C++ regressions and the bounded ``switch-flip-map-removal`` parity
-       family.
+       family. RFC 0014 additionally makes a self-coupled response observable
+       one cycle earlier than released hgraph 0.5.34 by removing its redundant
+       response-feedback boundary. Standalone service recipes are bounded by
+       ``request-reply-one-cycle-earlier``; the switch/map family admits the
+       same single-cycle advance only when composed with its exact flip, and
+       the issue-175 outer-input collision remains fingerprint-pinned.
    * - ``dispatch_``
      - Full for Bundle values
      - Native ``dispatch_cases`` / ``dispatch_case`` wiring builds a closed
