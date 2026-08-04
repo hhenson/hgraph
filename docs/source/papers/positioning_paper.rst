@@ -5,7 +5,7 @@ Abstract
 --------
 
 HGraph is an implementation of the Functional Reactive Programming (FRP) paradigm in Python. This document provides
-a description of FRP, how HGraph implements FPG and how the implementation matches the FRP model.
+a description of FRP, how HGraph implements an FPG and how the implementation matches the FRP model.
 
 
 Introduction
@@ -63,7 +63,7 @@ of time being abstracted into a system wide clock that abstracts the system from
 allows for time to be precisely controlled and simulated.
 
 The current FRP implementations are generally implemented as pure functional languages or within a pure functional
-language (such as Haskel). HGraph leverages off of the mixed model of Python, which supports functional programming
+language (such as Haskell). HGraph leverages off of the mixed model of Python, which supports functional programming
 but also can be used to implement imperative programs, to provide a more gentle introduction to the world of functional
 programming.
 
@@ -78,12 +78,12 @@ Functional programming (FP) emphasises the following key characteristics:
 * No explicit support for traditional control flow operators (such as if/else and while loops)
 * Declarative
 
-Functional languages can be broken down into two main types, namely pure functional with examples such as Haskel, or
-hybrid languages that support both functional and imperative styles such as Python, Scalar, OCaml, etc.
+Functional languages can be broken down into two main types, namely pure functional with examples such as Haskell, or
+hybrid languages that support both functional and imperative styles such as Python, Scala, OCaml, etc.
 
 As a contrast imperative programming is characterised through the specification of the steps that the computer must
 perform to compute a task. It makes use of variable assignment for state modification and uses control primitives to
-direct the flow of evaluation. The classic example of these types of langauge are C and Pascal.
+direct the flow of evaluation. The classic examples of these types of language are C and Pascal.
 
 With FRP being functional in nature, HGraph uses the functional aspects of the Python model, thus there are no classes
 (with the exception of specifying data classes). Extension of behaviour is achieved through composition and by using
@@ -106,12 +106,14 @@ The quanta of time are expressed in the constant ``MIN_TD`` which is the smalles
 the clock by. This is currently limited to 1 micro-second due to the use of Python as the Domain Specific Language (DSL)
 embedding language.
 
-There are also a minimum time and and a maximum time (``MIN_TD`` and ``MAX_TD`` respectively). The minimum time is the
+There are also a minimum time and a maximum time (``MIN_DT`` and ``MAX_DT`` respectively). The minimum time is the
 smallest time we can represent. This gets set to the UNIX epoch (1970-01-01 00:00:00) as the runtime engine is ultimately
 to be written in ``C++`` and the conversion between Python and C++ is done using the C ctime conventions. This results
 in 0 being the smallest time value and it maps to the UNIX epoch. The maximum time is set to a value in far in the
 future. These constants define the operational range of the engine times. These are extracted into constants as they
-are intended to be implementation specific and can vary.
+are intended to be implementation specific and can vary. The related constants ``MIN_ST`` and ``MAX_ET`` are the
+smallest usable start time and the largest usable end time, that is ``MIN_DT + MIN_TD`` and ``MAX_DT - MIN_TD``
+respectively; a start time of ``MIN_DT`` itself is reserved to mean "not yet started".
 
 There are a number of perspectives on time, these include:
 
@@ -150,11 +152,11 @@ Time-Series
 ...........
 
 The term time-series is used to represent the concept of a signal in the Arrowized FRP model. A time-series is represented
-in the model however and provides the ability to describe the nature of the signal as well as providing an application
+explicitly in the model and provides the ability to describe the nature of the signal as well as providing an application
 programmers interface (API) for accessing the attributes of the signal from within a signal function (or node).
 
 There are a number of different time-series types implemented in HGraph, these model the FRP equivalent of normal
-data types. Note that all value's (non-time-series) in HGraph are expected to be immutable, only the time-sieres
+data types. Note that all value's (non-time-series) in HGraph are expected to be immutable, only the time-series
 types can change over time. The time-series types are:
 
 **TS**
@@ -164,7 +166,7 @@ types can change over time. The time-series types are:
     This is the time-series equivalent of a value.
 
 **TSS**
-    This is a the equivalent of a set in FRP. It describes the change in values of a collection of values over time.
+    This is the equivalent of a set in FRP. It describes the change in values of a collection of values over time.
     The constraint being the values must be hashable. As HGraph is a typed extension, the full form of this is:
     ``TSS[SCALAR]``, where ``SCALAR`` is constrained to be a hashable type.
 
@@ -172,7 +174,7 @@ types can change over time. The time-series types are:
     Representing a homogeneous collection of time-series signals. This is the equivalent of a list in FRP. The
     full expression of a TSL is ``TSL[TIME_SERIES_TYPE, SIZE]``, where ``TIME_SERIES_TYPE`` represents any valid
     time-series type and ``SIZE`` is the number of elements in the list, due to the restrictions on generics in Python
-    this value must be a type and so if we wanted to expressed a list of 2 time-series we would express that as:
+    this value must be a type and so if we wanted to express a list of 2 time-series we would express that as:
     ``TSL[TS[int], Size[2]]``.
 
 **TSB**
@@ -182,7 +184,7 @@ types can change over time. The time-series types are:
 
 **TSD**
     This is a dictionary of time-series signals. This is the equivalent of a dictionary in FRP. The full expression
-    of a ``TSD`` is ``TSD[K, V]``, where ``K`` is the type of the key (e.g. str) and ``VALUE_TYPE`` is
+    of a ``TSD`` is ``TSD[K, V]``, where ``K`` is the type of the key (e.g. str) and ``V`` is
     the type of the time-series value, for example: ``TSD[str, TS[float]]``. This is the only dynamically sizeable
     type in the system. It supports the dynamic addition and removal of time-series signals.
 
@@ -194,15 +196,15 @@ additional types that represent more advanced time-series parallels to tradition
     but does not have access to the value of the signal. To use this any of the standard time-series types can be wrapped
     with this, for example: ``REF[TS[float]]``. When this is used to describe the type of an input or output, the
     time-series is passed by reference and not value. However, unlike a pointer, there is no standard deference operator.
-    Instead when a reference is to be de-referenced it is passed to a node that does not indicate the input type is a
+    Instead, when a reference is to be de-referenced it is passed to a node that does not declare the input type as a
     ``REF``. The library will automatically de-reference the value at this point.
 
     ``REF`` is generally used by framework developers as a performance enhancement. Specifically when the value of a
     time-series is not required to be inspected as part of the behaviour implementation.
 
 **TSW**
-    This provides a standard wrapper over a buffered time-series. This provide history of the previous states and times
-    those states were valid. This is useful for implementing rolling window operations.
+    This provides a standard wrapper over a buffered time-series. This provides the history of the previous states and the
+    times those states were valid. This is useful for implementing rolling window operations.
 
 Nodes
 .....
@@ -212,7 +214,7 @@ a signal function primitive). HGraph is, as mentioned earlier, implemented as a 
 usefully applied. The signals (or time-series) provide the edges and associated flow direction of the graph
 and the signal functions (or behaviours) provide the nodes.
 
-Using graph semantics, there three types of nodes in any DAG, namely ``source``, ``intermediate`` and ``sink``.
+Using graph semantics, there are three types of nodes in any DAG, namely ``source``, ``intermediate`` and ``sink``.
 Source nodes are the entry point to the graph, these are the nodes that introduce events into the graph.
 Intermediate nodes have input edges and output edges and are connected to either source nodes (or other intermediate nodes)
 as inputs and sink nodes (or other intermediate nodes) as outputs.
@@ -247,8 +249,8 @@ nodes, given this to be the expected behaviour of this node type.
 **Sink Nodes**
     As mentioned earlier, these are the leaves of the DAG and are, by design, allowed to have side effects.
     These nodes can produce events for other systems, capture the values of the time-series to storage, display items
-    on the screen or otherwise turn the time-series inputs into something useful. These can be though of time-series
-    to real-world adaptors. Applications logic should never be encoded in a sink node.
+    on the screen or otherwise turn the time-series inputs into something useful. These can be thought of as time-series
+    to real-world adaptors. Application logic should never be encoded in a sink node.
 
 Wiring
 ......
@@ -275,7 +277,7 @@ Runtime
 -------
 
 HGraph applications are split into the declaration of logic and the evaluation of the graph described by the logic.
-This is separation is described as a separation into wiring logic and runtime behaviour. The wiring logic is what the
+This separation is described as a separation into wiring logic and runtime behaviour. The wiring logic is what the
 application developer specifies, the runtime behaviour is the logic supplied by the HGraph package to evaluate the
 graphs.
 
@@ -284,7 +286,7 @@ DAG is ranked and converted into a builder graph. The builder graph is used to g
 that are evaluated. The final step is the run-loop, this is the logic that controls the order of evaluation of the nodes
 and the time of the evaluations.
 
-There are two main runtime engines provide, namely simulation and real-time. The simulation engine evaluates the graph
+There are two main runtime engines provided, namely simulation and real-time. The simulation engine evaluates the graph
 using compressed time, that is the evaluation clock is advanced to the next event time as soon as the last evaluation
 cycle is completed. The real-time engine attempts to keep in sync with the computer clock. Thus if the next evaluation
 cycle is scheduled for a time in the future (from the perspective of the computer clock) the engine will wait until the
@@ -316,15 +318,15 @@ To start with, consider the core operators or concepts described in "Functional 
 
 **Widening**
     In this example we are shown how to affect a sub-component of a time-series collection. With the type system
-    supported by HGraph, this is a relatively easy operations, using the example in the paper, we could model
+    supported by HGraph, this is a relatively easy operation, using the example in the paper, we could model
     the inputs ``i: TSL[TS[int], Size[2]]``, then the logic would be something to the effect of:
-    ``result = convert[TSL](i[0], i[2]+7)``.
+    ``result = convert[TSL](i[0], i[1]+7)``.
     In this case the result would contain the value (untouched) of the first element in the time-series and
     the second element having seven added to it.
     There are many other examples using ``TSB`` for heterogeneous collections or ``TSD`` for dynamic collections.
     A feature on the time-series collection API's (only available during wiring) is to use the ``copy_with`` method
-    on the time-series object. This allows for pass-through of all non-over written values and replacing the
-    values supplied. This is a very efficient operation as the cost is only born during wiring, not evaluation.
+    on the time-series object. This allows for pass-through of all values that are not over-written, replacing only the
+    values supplied. This is a very efficient operation as the cost is only borne during wiring, not evaluation.
 
     .. image:: ../_static/images/Widening.svg
       :alt: A diagram showing widening
@@ -335,17 +337,17 @@ To start with, consider the core operators or concepts described in "Functional 
     State in FP is often implemented using recursive definitions, given HGraph is evaluated as DAG, this is
     problematic. We require evaluation of a wave to be directional and acyclic. Thus it is not possible to
     compute a recursive value at point :math:`t` in time. To overcome this we have a couple of options provided,
-    the first is to use a concept of ``feedback``, this is similar to that discussed in section 3.5 by Parez, et. al.
+    the first is to use a concept of ``feedback``, this is similar to that discussed in section 3.5 by Perez, et. al.
     :cite:year:`perez2016functional`.
-    This creates a recursive relationship where the cycle is broken overtime. With the result been returned to the
+    This creates a recursive relationship where the cycle is broken over time, with the result being returned to the
     graph on the next smallest time-interval (``MIN_TD``).
 
     .. image:: ../_static/images/Feedback.svg
       :alt: A diagram showing feedback
       :align: center
 
-    The other mechanism for state, specifically in the case of the ``compute_node`` or ``sync_node``, is using the
-    concept of injectable attributes. This a mechanism to declare a need to track state, then the runtime engine
+    The other mechanism for state, specifically in the case of the ``compute_node`` or ``sink_node``, is using the
+    concept of injectable attributes. This is a mechanism to declare a need to track state, then the runtime engine
     provides a state object to the function. This is logically a shortcut for using a feedback, but also allows for
     mutable values to be stored on the state object. The state is provided to the function and as a consequence
     the function itself is stateless, and any state can be provided to the function, although in actual use, the
@@ -354,8 +356,8 @@ To start with, consider the core operators or concepts described in "Functional 
 
 **Constant**
     In the FRP, a constant is a value that is held continuously from a point-in-time and never changes thereafter.
-    The ``const`` operators performs this function in HGraph, the ``const`` operator emits the value provided at the
-    first time possible in the runtime of the graph. This is usually the start-time, although in the case on nested
+    The ``const`` operator performs this function in HGraph, emitting the value provided at the
+    first time possible in the runtime of the graph. This is usually the start-time, although in the case of nested
     graphs, this is the start time of the sub-graph and not the outer graph. Each time-series type can be expressed
     as a constant.
 
@@ -363,8 +365,8 @@ Arrow
 .....
 
 Next we consider the paper "A new notation for arrows" :cite:`paterson2001new`, whilst a number of the concepts
-previously discussed are already derived from this paper, there a few few concepts that are worth expanding on.
-This paper presents an extension to the Haskell to better support monadic computation and expression of the computation.
+previously discussed are already derived from this paper, there are a few concepts that are worth expanding on.
+This paper presents an extension to Haskell to better support monadic computation and expression of the computation.
 Whilst HGraph itself does not enforce monadic computation, there are a number of scenarios where the approach could
 provide more readable code.
 
@@ -375,7 +377,7 @@ For example:
 
 ::
 
-    class Arrow(Generic[A, B]):  # Where A, C, C, D are TypeVar's
+    class Arrow(Generic[A, B]):  # Where A, B, C, D are TypeVar's
         def __init__(self, func: Callable[[A], B]):
             self.func = func
 
@@ -429,32 +431,31 @@ With these primitives defined, a small set of utilities are described to build o
 
     def fanout(f: Arrow[A, B], g: Arrow[A, C]) -> Arrow[A, Tuple[B, C]]:
         # Uses &&& in the paper allowing for syntax such as f &&& g
-        return arr(lambda b: (b, b)) >> cross(f, g)
+        return arr(lambda b: (b, b)) >> cross_over(f, g)
 
-    def apply(pair):
-        return arr(lambda pair: pair[0](pair[1]))
+    apply = arr(lambda pair: pair[0](pair[1]))
 
 
-This approach provides a interesting way to describe the flow of information.
+This approach provides an interesting way to describe the flow of information.
 
-HGraph supports this model with with the hgraph.arrow module.
+HGraph supports this model with the ``hgraph.arrow`` module.
 
 A few small differences exist, namely ``first`` and ``second`` are selectors to select the first and second tuple elements
 from a pair.
-The ``//`` operator is use to implement the ``cross_over`` function and ``/`` is used to implement the ``fanout``
+The ``//`` operator is used to implement the ``cross_over`` function and ``/`` is used to implement the ``fanout``
 operator.
 Finally, since HGraph is strongly typed, and there is already an ``apply`` function, ``apply_`` is provided, it takes
 the output type of the function as a parameter.
 
 As can be seen HGraph lends itself well to the ideas expressed in the current body of work describing FRP and can be
-adapted for follow alternative composition strategies.
+adapted to follow alternative composition strategies.
 
 Flow Control
 ............
 
 For programmers with an imperative programming background, the lack of flow control keywords and structures in FP can
 be a bit daunting, this can be even more interesting when dealing with reactive flow control. There are a number of
-strategies for different froms of flow control, these include:
+strategies for different forms of flow control, these include:
 
 Recursion
     Instead of using loops, recursive functions can be used to implement looping. There are many strategies
@@ -462,19 +463,19 @@ Recursion
     directly. This avoids the requirement of tracking the call-stack to support unwinding. In FRP, recursion is not
     generally the approach taken, however, the use of the ``feedback`` operator allows for the simulation
     of general recursion. There are a number of other related operators to support processing in a similar manor, for
-    example there is the ``emit`` operator, which takes a collection and emits that values one element per evaluation
+    example there is the ``emit`` operator, which takes a collection and emits the values one element per evaluation
     cycle. These strategies spread the recursive operations over multiple engine cycles.
 
 Higher Order Functions
     These functions take other functions as arguments and provide the ability to implement common control flow patterns.
-    In the paper "Monoids for functional programming" :cite:`wadler1995monads` there in an interesting introduction
-    to some of these ideas, albeit in a monoid form. Whist HGraph can support monoid operations, it is a hybrid
-    langauge and as such generally uses a more conventional calling approach, however, the concepts discussed are
-    found in HGraph as well. The include: ``map_``, ``reduce``, ``filter_``, as well as a number of other
+    In the paper "Monads for functional programming" :cite:`wadler1995monads` there is an interesting introduction
+    to some of these ideas, albeit in a monadic form. Whilst HGraph can support monadic operations, it is a hybrid
+    language and as such generally uses a more conventional calling approach, however, the concepts discussed are
+    found in HGraph as well. These include: ``map_``, ``reduce``, ``filter_``, as well as a number of other
     constructs.
 
 Pattern Matching
-    Matches the structure or content of the data. HGraph supports two key concepts to support this behaviour, namely:
+    Matches the structure or content of the data. HGraph supports three key concepts to support this behaviour, namely:
     ``switch_``, ``operator``, and ``dispatch``. The ``switch_`` is a higher order function that performs a similar function to the
     ``switch`` keyword found in many C like languages. The function takes a match time-series that contains a value
     that will match a key in a dictionary. A dictionary of matches and associated FRP functions to apply when the
@@ -485,13 +486,13 @@ Pattern Matching
     the type of the input data to the closest sub-class of the defined input type. This is similar to traits in Rust
     or virtual dispatch in C++.
 
-Continuation-Parsing Style (CPS)
+Continuation-Passing Style (CPS)
     This is discussed in "Representing Control" :cite:`danvy1991representing`. In simple terms, this deals with
     asynchronous or complex control flow (such as exception handling) by using a function to apply when the condition
     occurs. In FRP asynchronous behaviour is handled as base functionality of the system, however, exception handling
-    is an interesting challenge. HGraph provide an approach more consistent with that described by Wadler
+    is an interesting challenge. HGraph provides an approach more consistent with that described by Wadler
     :cite:year:`wadler1995monads`. Where the exception is provided as a separate time-series stream, normally not
-    visible, but accessible using the ``exception_time_series`` function. This allows for logic to be bound the the
+    visible, but accessible using the ``exception_time_series`` function. This allows for logic to be bound to the
     time-series as standard logic. It is also possible to bound a sub-graph of behaviour using the ``try_except``
     higher order function. This effectively wraps the nodes with a large try-catch block and the error result is provided
     on the ``exception`` output key and the non-exception result on ``out``.

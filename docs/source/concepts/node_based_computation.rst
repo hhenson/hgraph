@@ -3,7 +3,7 @@ Node Based Computation
 
 At the core of the HGraph framework is the concept of node based computation. Nodes, from the graph perspective,
 are the labeled entities that start or terminate a directed edge. In the computation model, nodes are the things that
-do work (or computations), edges describe a information flow or dependency between a nodes result and the code that
+do work (or computations), edges describe an information flow or dependency between a nodes result and the code that
 depend on the results for their computation.
 
 A node can represent a large complex computation (for example an optimisation), or a very small one (for example an
@@ -19,7 +19,7 @@ For example:
    }
 
 This very simplistic graph gains very little using HGraph and could be implemented imperatively or using a simple
-observer pattern without and significant consequence. That said, very few graphs are simple linear lists of operations.
+observer pattern without any significant consequence. That said, very few graphs are simple linear lists of operations.
 
 If we continue with this example we could expand the logic a bit and the graph may look a little more as below:
 
@@ -43,7 +43,7 @@ When we have complex dependencies processing ticking data HGraph becomes very us
 You may be wondering what a node is (from a code perspective). In HGraph a node is synonymous with a Python function.
 
 Under the covers a node is actually a class that contains as it's attributes the inputs to the function and the output
-(if present). The class then has a method called ``eval`` the gets called when the node scheduled by the evaluation
+(if present). The class then has a method called ``eval`` that gets called when the node is scheduled by the evaluation
 engine. This function will perform basic checks to ensure the function's pre-conditions are met, if they are it will
 call the function and take the result and apply it to the output (if present).
 
@@ -138,7 +138,7 @@ Compute nodes, as with sink nodes, take in one or more time-series inputs. They 
 unlike sink nodes, define an output time-series type. The output type holds the result
 of the nodes computation.
 
-Unlike ``graph`` functions, the ``compute_node`` and ``sink_node`` function is called each time
+Unlike ``graph`` functions, the ``compute_node`` and ``sink_node`` functions are called each time
 an active input is modified. It is possible to constrain, using the decorator,
 which inputs are to be marked as active, it is also possible to mark which of the
 inputs must be deemed valid for the node to be called.
@@ -190,8 +190,8 @@ dependencies, but this could be said of empirical code as well (that there is a 
 these dependencies are tracked to attempt to write out more efficient code by re-ordering operations or perform things
 such as escape analysis for variables inside of a loop.
 
-In HGraph, the dependencies are used to for a flow graph of information, this is used to determine when code needs
-to be called and when it does not. If a node is not evaluated, then it's results can not have been modified, thus
+In HGraph, the dependencies are used to form a flow graph of information, this is used to determine when code needs
+to be called and when it does not. If a node is not evaluated, then its results can not have been modified, thus
 all code dependent on the node may not need to be evaluated, this structuring allows for more efficient computation
 of results. The DAG produced during wiring is topologically sorted and a rank is allocated to each node, the nodes
 are then fully ordered. This allows the scheduler to ensure that if it processes nodes from top to bottom, that if
@@ -199,7 +199,7 @@ a dependency is scheduled for evaluation (for example due to a change in a paren
 get missed.
 
 The most common mode of scheduling is when an output is modified, this causes any nodes registered as observers of the
-output not be marked as scheduled for the current engine time. We discuss the common forms in which the setting of
+output to be marked as scheduled for the current engine time. We discuss the common forms in which the setting of
 outputs can occur. This is broken down into four key types:
 
 1. Push nodes can update their state as requiring to be scheduled, this includes updating a conditional variable to
@@ -211,7 +211,7 @@ outputs can occur. This is broken down into four key types:
    to the evaluation engine for this types of node.
 
 2. Pull nodes are scheduled based on the next event time, this is set during the start life-cycle or during the
-   course of evaluating the graph. At the end of the cycle the next scheduled time for pull nodes is know and the
+   course of evaluating the graph. At the end of the cycle the next scheduled time for pull nodes is known and the
    graph will wait until that time is considered as now (in real-time mode) or the engine time is advanced to the
    smallest next scheduled time and the graph is evaluated.
 
@@ -230,7 +230,7 @@ an active wait until it is ready to be scheduled and ``SIMULATION`` moving the t
 Node Activation
 ---------------
 
-A node may be scheduled for evaluation, but that does not mean in will be evaluated. The compute and sink nodes are
+A node may be scheduled for evaluation, but that does not mean it will be evaluated. The compute and sink nodes are
 able to describe pre-conditions for evaluation, these pre-conditions include:
 
 active
@@ -240,7 +240,7 @@ active
 
 valid
     The tuple of input names that are to be checked to ensure that are marked as being valid. If set to None, all inputs
-    are required to be marked as valid. If one of the identified inputs are not valid, the function will not be called
+    are required to be marked as valid. If one of the identified inputs is not valid, the function will not be called
     even if other inputs are valid and have been modified. Once all inputs identified become valid the function is
     eligible to be evaluated, this will only occur when an active input is modified. So for example, if you have two
     inputs, say ``a`` and ``b``, and ``a`` is marked as active, but ``b`` is marked as valid. Then it is possible for
@@ -250,8 +250,15 @@ valid
 all_valid
     The tuple of inputs names that are to be checked to ensure that they are marked as being all_valid. If set to None,
     no inputs are considered. This is similar to the valid, but the check is stronger. All valid requires that each
-    element of the input is valid and not just any element. This is a more expensive check, ensure that it is necissary
-    before using this constraint.
+    element of the input is valid and not just any element.
+
+    This is only a stronger check for the types built out of independently ticking elements, namely ``TSL`` and ``TSB``
+    (and ``TSW``, where it also requires the buffer to have reached its ``min_size``). For ``TS``, ``TSD`` and ``TSS``,
+    ``all_valid`` is defined as ``valid``, so naming such an input here costs something and constrains nothing.
+
+    The check is also more expensive than it looks: it is not cached, and it is re-run on every evaluation of the node
+    for the life of the graph, scanning the collection's elements each time, long after the condition can no longer
+    become false. Ensure it is necessary before using this constraint. See :doc:`time_series_types` for the details.
 
 It is also possible for the user to programmatically update the active / passive state of an input, by calling the
 ``make_active`` / ``make_passive`` methods on the input.
@@ -278,7 +285,8 @@ called if the ``trade_request`` ticks, all other inputs are used as data to help
 to make a decision if a new trade request is received. Thus we only mark the ``trade_request`` as active.
 
 We also need to ensure we reject a trade that can't be accepted due to missing information, so we set valid to be
-the empty tuple, this means that we don't restrict calling this function if any of the inputs are not valid.
+the empty tuple, this means that we don't prevent this function from being called when some of the inputs are not
+valid.
 Note that we don't need to set ``trade_request`` as valid, since by definition it must be valid if the function
 is called (since it is also the only active input).
 
@@ -293,7 +301,7 @@ The logic of the function may look something along the lines of below:
     else:
         return False
 
-Notice the check for validity now performed as part of the body logic.
+Notice the check for validity is now performed as part of the body logic.
 
 It is important in node based graphs to try and stop evaluation as soon as possible to reduce unnecessary computations
 to be performed.
@@ -322,13 +330,14 @@ For example:
 
 In this example we implement a simple version of the ``de_dup`` command. This checks the output to see if it have a
 value, then if it does it does a simple equality check to see if this value has already been emitted. If not it will
-return the value it received, otherwise it is returning a None value. For the ``_output`` injectable the type does
-not care what the type is, but it is nice to use the ``_OUT`` as it provides more context support in the IDE.
+return the value it received, otherwise it is returning a None value. For the ``_output`` injectable the framework does
+not care what the declared type is, but it is nice to use the ``_OUT`` form as it provides more context support in
+the IDE.
 
 Using REF to reduce activations
 -------------------------------
 
-Another tool to reduce necessary activations of nodes is the make use of ``REF`` time-series types. The reference
+Another tool to reduce unnecessary activations of nodes is to make use of ``REF`` time-series types. The reference
 type ticks references to an output rather than the values of an output. This can be used when the value of the input
 is not required, for example:
 
@@ -337,19 +346,19 @@ is not required, for example:
     @compute_node
     def select(condition: TS[bool], on_true: OUT, on_false: OUT) -> OUT:
         if condition.value:
-            if on_true.ticked or condition.ticked:
+            if on_true.modified or condition.modified:
                 return on_true.value
         else:
-            if on_false.ticked or condition.ticked:
+            if on_false.modified or condition.modified:
                 return on_false.value
 
 This is the base case where we use normal inputs, in this case the ``select`` function will be evaluated if any
-of the inputs tick and will produce a result based on a combination of the value of the condition and if the
-input associated to the condition ticked or the condition ticked.
+of the inputs tick and will produce a result based on a combination of the value of the condition and whether the
+input selected by the condition was modified or the condition itself was modified.
 
 The current version of the function will be evaluated as often as the inputs tick, this is wasted when the ticked value
 is not going to be processed, but also, there is no need for the function to know the value of the ``on_true`` and
-``on_false`` inputs. In this case the function is prime to benefit from using the ``REF`` type, this is the refactored
+``on_false`` inputs. In this case the function is primed to benefit from using the ``REF`` type, this is the refactored
 version:
 
 ::
@@ -357,18 +366,23 @@ version:
     @compute_node
     def select(condition: TS[bool], on_true: REF[OUT], on_false: REF[OUT]) -> REF[OUT]:
         if condition.value:
-            if on_true.ticked or condition.ticked:
+            if on_true.modified or condition.modified:
                 return on_true.value
         else:
-            if on_false.ticked or condition.ticked:
+            if on_false.modified or condition.modified:
                 return on_false.value
 
-On first pass there seems to be very little different, the logic looks the same, the only difference is the change
-to the ``on_true``, ``on_false`` and output types. The difference is in the activation of the code, the code will
-now activate when the ``condition`` ticks, but will be additionally activated if the output associated to the ``on_true``
-or the ``on_false`` inputs change, that is not when the value of the outputs change, just when the output pointed to
-by the ``REF`` changes. This typically does not happen often, especially if the source passed to this code is the
-output.
+On first pass there seems to be very little difference, the logic looks the same, the only change is to the
+``on_true``, ``on_false`` and output types. The difference is in the activation of the code, the code will
+now activate when the ``condition`` ticks, but will be additionally activated only if the output associated to the
+``on_true`` or the ``on_false`` inputs change, that is not when the value of the outputs change, just when the output
+pointed to by the ``REF`` changes. This typically does not happen often, especially if the source passed to this code
+is the output.
+
+To put numbers on it, consider a ``condition`` that ticks twice over the run while ``on_true`` and ``on_false`` each
+tick a thousand times. The first version is evaluated 2002 times; the ``REF`` version is evaluated twice, once per
+change of the condition. The values still flow to whoever consumes the result, they simply flow directly from the
+selected output rather than being copied through this node.
 
 This can make a significant change in how often this node is activated.
 
@@ -382,7 +396,7 @@ the actual value. Operations that benefit include:
 References do add complexity to debugging as the ultimate consumer (dereferenced input) becomes connected to a part
 of the graph that may not be immediately obvious from the code.
 
-References are used extensively in library code so being aware of them and how the work is important to debugging
+References are used extensively in library code so being aware of them and how they work is important to debugging
 graphs.
 
 Tracing issues
@@ -414,7 +428,7 @@ break-point to see what is going on, in this case using the ``trace`` options in
 helpful. This will dump out the evaluation trace of the graph as it gets evaluated. It will display information such
 as which functions are evaluated, what the input values were, which inputs were ticked, etc.
 
-The output from this tool can be very large as it is very details, so this is recommended mostly for small apps,
+The output from this tool can be very large as it is very detailed, so this is recommended mostly for small apps,
 or by filtering to hit specific paths through the graph. This is suitable for debugging test cases where the
 code can be limited to a reproducible test case as well.
 
@@ -425,8 +439,8 @@ If you are working with a large real-time graph, then you will want to use the i
 inspection of the live running graph, this tool allows you to see all of the nodes, their current state, as well
 as chart performance and latency of the graph.
 
-The tool allows for live inspection of the graph, this is helpful tracing down issues such as; "Why did my not not
-tick", "What is the state of nodes around the node of interest", as well as performance related issues.
+The tool allows for live inspection of the graph, this is helpful for tracking down issues such as: "Why did my node not
+tick?", "What is the state of nodes around the node of interest", as well as performance related issues.
 
 This is more intrusive and requires you to wire the component into your graph in order for this functionality to
 be available.

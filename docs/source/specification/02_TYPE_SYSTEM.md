@@ -118,7 +118,7 @@ is_scalar = True
 | Homogeneous | `tuple[int, ...]` | Variable-length, same type |
 | Fixed | `tuple[int, str, float]` | Fixed-length, mixed types |
 
-```python
+```text
 # Parsing
 tuple[int, ...]  → HgTupleCollectionScalarType(HgAtomicType(int))
 tuple[int, str]  → HgTupleFixedScalarType([HgAtomicType(int), HgAtomicType(str)])
@@ -126,19 +126,19 @@ tuple[int, str]  → HgTupleFixedScalarType([HgAtomicType(int), HgAtomicType(str
 
 #### 2.2.2 Set Type
 
-```python
+```text
 set[T] → HgSetScalarType(element_type)
 ```
 
 #### 2.2.3 Dict Type
 
-```python
+```text
 dict[K, V] → HgDictScalarType(key_type, value_type)
 ```
 
 #### 2.2.4 Array Type (NumPy)
 
-```python
+```text
 ndarray[T] → HgArrayScalarTypeMetaData(element_type, shape)
 ```
 

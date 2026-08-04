@@ -36,11 +36,11 @@ The ``eval_node`` function takes as the first parameter the ``graph`` or ``compu
 a sequence of arguments that are passed to the function to evaluate. Time-series inputs are defined using a list of
 values, each value produces a "tick" to the function. The output is the collected results converted to a list.
 
-The ``eval_node`` function runs in SIMULATION mode and by default will start and ``MIN_ST`` (the constant defining the first
+The ``eval_node`` function runs in SIMULATION mode and by default will start at ``MIN_ST`` (the constant defining the first
 possible start time, which is currently 1970-01-01 00:00:00.000001). Each entry in the list will be introduced to the
-graph in ``MIN_TD`` increments (in Python this is 1 microsecond intervals). In no tick is expected to be produced, use None
-to indicate this. Also, by default, the results are collected into an array of ``MIN_TD`` increments. When nothing changed
-a ``None`` will be placed in the output list.
+graph in ``MIN_TD`` increments (in Python this is 1 microsecond intervals). If no tick is expected to be
+produced, use ``None`` to indicate this. Also, by default, the results are collected into a list at ``MIN_TD``
+increments. When nothing changed a ``None`` will be placed in the output list.
 
 For example:
 
@@ -58,13 +58,13 @@ For example:
         # Will output: [None, 6] - first tick: no output due to None, second tick: 2+4=6
         assert eval_node(my_add, [None, 2], [3, 4]) == [None, 6]
 
-In this case we have included a None if the ``lhs`` input, since the node (using the defaults) requires both inputs to
+In this case we have included a ``None`` in the ``lhs`` input, since the node (using the defaults) requires both inputs to
 be valid before computing a result, thus the first engine cycle will produce no output. Thus we get ``None`` as a
 response for the first tick.
 
 At times this behaviour is not desirable, and it is more convenient to only observe when a value is in fact modified.
 Examples of this include when dealing with non-deterministic events or those where the timing between events is large.
-Where say we are testing a delay component with a second delay, this would result in an array with 999,999 ``None`` s between
+Say we are testing a delay component with a one second delay; this would result in a list with 999,999 ``None`` s between
 meaningful events. For these scenarios we support the ``__elide__`` option.
 
 .. testcode::
@@ -87,12 +87,12 @@ possible to just put a break-point in the code and debug, but when testing more 
 to determine what is going on. There are two extreme options that can be used to trace exactly what is going on in
 the graph. These are: ``__trace__`` and ``__trace_wiring__``. These both log detailed tracing messages that can be
 helpful to debug the code. The ``__trace_wiring__`` is useful to determine which override an operator is selecting and
-why. The ``__trace__`` parameter will create a trace of each step the graph takes during evaluation, including which
-includes life-cycle's such as grah and nodes being started, evaluated, and stopped.
+why. The ``__trace__`` parameter will create a trace of each step the graph takes during evaluation, including
+life-cycle events such as graphs and nodes being started, evaluated, and stopped.
 
 During evaluation it is possible to see which nodes are evaluated, what inputs are marked as modified along with the
-input value and the result produced (if any result is produced). This can help to identify why a particular issue is
-created. However, this is very detailed and can be a bit overwhelming in complicated scenarios.
+input value and the result produced (if any result is produced). This can help to identify why a particular
+issue arises, though the output is very detailed and can be a bit overwhelming in complicated scenarios.
 
 Using these options just requires setting the attributes to True.
 
@@ -172,7 +172,7 @@ of this:
         assert eval_node(my_add, [None, 2], [3, 4], __elide__=True) == [6]
 
 What will occur is that each time ``out`` ticks the code will break inside the ``breakpoint_`` operator.
-This will give access to the time-series input value. From that the rest of the graph and it's values are reachable
+This will give access to the time-series input value. From there the rest of the graph and its values are reachable
 via the debugger.
 
 The general usage pattern is to use the operator as a pass-through (as in the example). This ensures the break-point

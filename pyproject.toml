@@ -71,7 +71,11 @@ notebook = [
 docs = [
     "sphinx>=7.4",
     "sphinx_rtd_theme>=2.0.0",
-    "sphinx-autodoc-typehints>=2.3.0",
+    # 3.13 appends an ":Overloads:" field to the doc-string of every @overload-ed function without a
+    # preceding blank line. That breaks the reStructuredText structure: the field renders as literal
+    # text and the example literal-block that follows is dropped. Affects graph, sink_node, adaptor,
+    # service_adaptor, subscription_service and request_reply_service in hgraph/_wiring/_decorators.py.
+    "sphinx-autodoc-typehints>=2.3.0,<3.13",
     "sphinxcontrib-plantuml>=0.30",
     "sphinxcontrib-bibtex",
     "pybtex-apa-style>=1.3",

@@ -38,7 +38,7 @@ For more details on pull source nodes see: :doc:`../concepts/node_based_computat
 
 To handle asynchronous sources, there is the concept of a PUSH source node. These nodes
 are used to process events that occur at times that are not pre-determined. The best
-method in Python is to use the ``push_queue`` decorator. This is depicted below:
+method in Python is to use the ``push_queue`` decorator. This is shown below:
 
 .. code-block:: Python
 
@@ -65,8 +65,8 @@ the asynchronous behaviour.
 
 It is then possible to call the sender each time a new event is to be dispatched. The
 event will be queued and delivered within the graph's event loop. Push events are
-delivered as soon as is practical, the event time will be the time the event loop is
-started (or the next engine time when running behind). For more information refer to
+delivered as soon as is practical, the event time being assigned by the engine when it picks the event up
+(or the next engine time when running behind). For more information refer to
 :doc:`../concepts/node_based_computation`.
 
 compute_node
@@ -87,7 +87,7 @@ An example is below:
 
 In this example we have a compute node that takes two time-series inputs and returns a
 single time-series response. Time-series inputs are time-series types. The time-series
-type have properties, in this case one of the properties is the value, representing last
+type has properties, in this case one of the properties is ``value``, representing the last
 value that was placed in the time-series.
 
 See :doc:`../concepts/node_based_computation` for more details on compute nodes.
@@ -97,7 +97,7 @@ sink_node
 
 The sink node is the last key node type. The sink node is very similar to the compute node,
 with the exception that it does not have an output. The sink node is responsible for
-consuming nodes in a graph and forms the leaves in the DAG.
+consuming ticks in a graph and forms the leaves in the DAG.
 
 .. code-block:: Python
 
@@ -108,7 +108,7 @@ consuming nodes in a graph and forms the leaves in the DAG.
         print(a.value)
 
 Here the sink node takes the value and prints it out. In all cases, no further ticks
-are produced. Once all the sink nodes are processed, the graph evaluation is marked as complete
+are produced. Once all the scheduled nodes have been processed, the graph evaluation cycle is marked as complete
 and the next cycle is started (or we will wait until we are ready to start the next cycle).
 
 

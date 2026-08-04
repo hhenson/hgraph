@@ -3,7 +3,7 @@ Dynamic Graphs
 
 .. autofunction:: hgraph.map_
 
-See also: :doc:`../concepts/tsd_map_node`
+See also: :doc:`../concepts/dynamic_graphs`
 
 .. autofunction:: hgraph.reduce
 

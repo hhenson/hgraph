@@ -31,11 +31,11 @@ These modes are set on the ``GraphConfiguration`` object. For example:
 The real-time loop can process events prepared on separate threads, such as events from
 web servers, messaging systems, etc.
 
-The simulation mode is used to run backtest, this mode simulates the time
+The simulation mode is used to run back-tests, this mode simulates the time
 and uses event sources that are deterministic, such as databases, data-frames, etc.
 
 The start and stop times can also be set. When running in real-time mode, time moves
-based on the system clock (unless the graphs engine time is set to a point in the past, in which case it will
+based on the system clock (unless the graph's engine time is set to a point in the past, in which case it will
 run the same as simulation mode until it catches up with the current time).
 
 In simulation mode, time flows as fast as is possible and the graph stops evaluation once
