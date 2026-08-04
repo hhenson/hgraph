@@ -3,6 +3,8 @@
 #include <hgraph/runtime/node.h>
 #include <hgraph/runtime/registry_snapshot.h>
 #include <hgraph/types/frame.h>
+#include <hgraph/types/service_wiring.h>
+#include <hgraph/types/static_node.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_record.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -23,6 +25,7 @@
 #include <arrow/api.h>
 
 #include <cstddef>
+#include <concepts>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
@@ -33,6 +36,38 @@ namespace
     struct ConsumerExtensionScalar
     {
         std::int32_t value{0};
+    };
+
+    struct ConsumerReplylessService
+    {
+        static constexpr std::string_view name{"consumer_replyless"};
+        using request_schema = hgraph::TS<hgraph::Int>;
+    };
+
+    struct ConsumerReplylessSink
+    {
+        static constexpr auto name = "consumer_replyless_sink";
+
+        static void eval(
+            hgraph::In<"requests", hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>,
+                       hgraph::InputValidity::Unchecked>)
+        {
+        }
+    };
+
+    struct ConsumerReplylessGraph
+    {
+        static hgraph::Port<hgraph::TS<hgraph::Int>> compose(
+            hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Int>> request)
+        {
+            hgraph::service::register_request_reply_service<
+                ConsumerReplylessService, ConsumerReplylessSink>(w);
+            static_assert(std::same_as<
+                          decltype(hgraph::wire<ConsumerReplylessService>(w, request)),
+                          void>);
+            hgraph::wire<ConsumerReplylessService>(w, request);
+            return request;
+        }
     };
 }
 

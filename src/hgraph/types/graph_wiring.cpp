@@ -1263,10 +1263,6 @@ Wiring Wiring::child_wiring() const {
   return Wiring{WiringKind::SubGraph, impl_->observers, impl_->wiring_path};
 }
 
-bool Wiring::is_sub_graph() const noexcept {
-  return impl_->kind == WiringKind::SubGraph;
-}
-
 std::vector<std::string> Wiring::current_wiring_path() const {
   return impl_->wiring_path;
 }

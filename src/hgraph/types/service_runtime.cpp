@@ -561,8 +561,8 @@ namespace hgraph
         std::array<WiringInputRef, 3> inputs{{
             WiringInputRef{.source = sources[0]},
             // Never a rank dependency: the capture must not wait on the source
-            // it feeds. Ordering comes from add_same_cycle_pair below (reply-less)
-            // or from the response feedback edge (reply-full).
+            // it feeds. Ordering comes from the reply-less service-client rank
+            // below or from the response feedback edge (reply-full).
             WiringInputRef{.source = sources[1], .rank_dependency = false},
             WiringInputRef{.source = sources[2]},
         }};
@@ -577,21 +577,12 @@ namespace hgraph
 
         if (reply_less)
         {
-            // Rank-correct and same-cycle: Wiring::finish validates the order,
-            // so the capture schedules the source for the CURRENT evaluation
-            // time with no hot-path check.
-            //
-            // NOT inside a sub-graph: there the transport source is hoisted
-            // into the parent as an external service input, so a pair declared
-            // against it names a node this wiring no longer owns at finish.
-            // The runtime already forwards on the next cycle for a nested
-            // graph (the outer rank may have passed), which is what the client
-            // gets - so a reply-less service wires anywhere, and only its
-            // timing follows its location.
-            if (!w.is_sub_graph())
-            {
-                w.add_same_cycle_pair(capture.peered_node(), requests.peered_node());
-            }
+            // A reply-less client is a sending boundary, like a sink-only
+            // adaptor. At the root the capture ranks before the request source.
+            // A dynamically-started nested capture retains the runtime's
+            // next-cycle outer hand-off, matching released hgraph.
+            w.register_service_client_rank(
+                request_path, "request/reply service", capture.peered_node(), false);
             return {};
         }
 

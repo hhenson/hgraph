@@ -1,3 +1,4 @@
+#include <catch2/matchers/catch_matchers_string.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <hgraph/lib/std/std_operators.h>
@@ -9,6 +10,9 @@
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/value/value_builder.h>
 
+#include <algorithm>
+#include <cstddef>
+#include <concepts>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -90,6 +94,12 @@ namespace
         static constexpr std::string_view name{"add_ten"};
         using request_schema  = TS<Int>;
         using response_schema = TS<Int>;
+    };
+
+    struct ReplylessPublishService
+    {
+        static constexpr std::string_view name{"replyless_publish"};
+        using request_schema = TS<Int>;
     };
 
     using PairRequest = TSB<"PairRequest",
@@ -453,6 +463,42 @@ namespace
                 Value response{request.value() + Int{1}};
                 mutation.set(request_id, response.view());
             }
+        }
+    };
+
+    inline std::vector<std::pair<std::size_t, Int>> observed_replyless_requests;
+
+    struct ObserveReplylessRequestsNode
+    {
+        static constexpr auto name = "observe_replyless_requests_node";
+
+        static void eval(
+            DateTime evaluation_time,
+            In<"requests", TSD<Int, TS<Int>>, InputValidity::Unchecked> requests)
+        {
+            if (!requests.modified()) { return; }
+            const auto cycle = static_cast<std::size_t>(
+                (evaluation_time - MIN_ST) / MIN_TD);
+            for (const auto &[request_id, request] : requests.modified_items())
+            {
+                (void)request_id;
+                if (request.valid())
+                {
+                    observed_replyless_requests.emplace_back(cycle, request.value());
+                }
+            }
+        }
+    };
+
+    struct ReplylessPublishImplGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "replyless_publish_impl_graph";
+
+        static void compose(
+            Wiring &w, Port<TSD<Int, TS<Int>>> requests)
+        {
+            static_cast<void>(wire<ObserveReplylessRequestsNode>(w, requests));
         }
     };
 
@@ -1223,6 +1269,115 @@ namespace
         {
             service::register_request_reply_service<AddOneService, AddOneImplNode>(w);
             return wire<AddOneService>(w, request);
+        }
+    };
+
+    struct ReplylessPublishTwoClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "replyless_publish_two_client_graph";
+
+        static Port<TS<Int>> compose(
+            Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            const auto custom = service::path("events");
+            service::register_request_reply_service<
+                ReplylessPublishService, ReplylessPublishImplGraph>(w, custom);
+            static_assert(std::same_as<
+                          decltype(wire<ReplylessPublishService>(w, custom, lhs)),
+                          void>);
+            wire<ReplylessPublishService>(w, custom, lhs);
+            wire<ReplylessPublishService>(w, custom, rhs);
+            return lhs;
+        }
+    };
+
+    struct ReplylessPublishMappedFunction
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "replyless_publish_mapped_function";
+
+        static void compose(Wiring &w, Port<TS<Int>> request)
+        {
+            wire<ReplylessPublishService>(
+                w, service::path("mapped_events"), request);
+        }
+    };
+
+    struct ReplylessPublishMappedClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "replyless_publish_mapped_client_graph";
+
+        static Port<TSD<Int, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Int, TS<Int>>> requests)
+        {
+            service::register_request_reply_service<
+                ReplylessPublishService, ReplylessPublishImplGraph>(
+                    w, service::path("mapped_events"));
+            wire<stdlib::map_sink_>(
+                w, fn<ReplylessPublishMappedFunction>(), requests);
+            return requests;
+        }
+    };
+
+    struct ReplylessPublishStubImplGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "replyless_publish_stub_impl_graph";
+
+        static void compose(Wiring &w, Scalar<"path", Str> path)
+        {
+            auto requests = service::impl_input<ReplylessPublishService>(
+                w, service::path(path.value()));
+            static_cast<void>(wire<ObserveReplylessRequestsNode>(w, requests));
+        }
+    };
+
+    struct ReplylessPublishStubClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "replyless_publish_stub_client_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> request)
+        {
+            const auto custom = service::path("replyless_stub");
+            service::register_services<
+                ReplylessPublishStubImplGraph, ReplylessPublishService>(w, custom);
+            wire<ReplylessPublishService>(w, custom, request);
+            return request;
+        }
+    };
+
+    struct RecursiveReplylessPublishImplGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "recursive_replyless_publish_impl_graph";
+
+        static void compose(
+            Wiring &w, Port<TSD<Int, TS<Int>>> requests)
+        {
+            auto total = wire<stdlib::reduce_>(
+                             w, fn<stdlib::add_>(), requests, Int{0})
+                             .as<TS<Int>>();
+            wire<ReplylessPublishService>(
+                w, service::path("replyless_cycle"), total);
+        }
+    };
+
+    struct RecursiveReplylessPublishClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "recursive_replyless_publish_client_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> request)
+        {
+            const auto custom = service::path("replyless_cycle");
+            service::register_request_reply_service<
+                ReplylessPublishService, RecursiveReplylessPublishImplGraph>(
+                    w, custom);
+            wire<ReplylessPublishService>(w, custom, request);
+            return request;
         }
     };
 
@@ -2190,6 +2345,56 @@ TEST_CASE("service wiring: request/reply client receives keyed implementation re
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<AddOneClientGraph>(values<Int>(1)), values<Int>(none, none, 2));
+}
+
+TEST_CASE("service wiring: reply-less clients use the typed same-cycle sink path")
+{
+    hgraph::stdlib::register_standard_operators();
+    observed_replyless_requests.clear();
+
+    CHECK_OUTPUT(
+        eval_node<ReplylessPublishTwoClientGraph>(
+            values<Int>(1, none, 2), values<Int>(101, none, 102)),
+        values<Int>(1, none, 2));
+
+    std::ranges::sort(observed_replyless_requests);
+    CHECK(observed_replyless_requests ==
+          std::vector<std::pair<std::size_t, Int>>{
+              {0, 1}, {0, 101}, {2, 2}, {2, 102}});
+}
+
+TEST_CASE("service wiring: a mapped reply-less client defers its outer hand-off")
+{
+    hgraph::stdlib::register_standard_operators();
+    observed_replyless_requests.clear();
+
+    const auto requests = values<Value>(
+        dict_delta<Int, TS<Int>>({{1, 10}}),
+        dict_delta<Int, TS<Int>>({}, {1}),
+        dict_delta<Int, TS<Int>>({{2, 20}}));
+    CHECK_OUTPUT(eval_node<ReplylessPublishMappedClientGraph>(requests), requests);
+    CHECK(observed_replyless_requests ==
+          std::vector<std::pair<std::size_t, Int>>{{1, 10}, {3, 20}});
+}
+
+TEST_CASE("service wiring: reply-less supports the typed implementation-stub API")
+{
+    hgraph::stdlib::register_standard_operators();
+    observed_replyless_requests.clear();
+
+    CHECK_OUTPUT(
+        eval_node<ReplylessPublishStubClientGraph>(values<Int>(7)),
+        values<Int>(7));
+    CHECK(observed_replyless_requests ==
+          std::vector<std::pair<std::size_t, Int>>{{0, 7}});
+}
+
+TEST_CASE("service wiring: a root reply-less dependency cycle is rejected")
+{
+    hgraph::stdlib::register_standard_operators();
+    CHECK_THROWS_WITH(
+        (void)eval_node<RecursiveReplylessPublishClientGraph>(values<Int>(1)),
+        Catch::Matchers::ContainsSubstring("cycle"));
 }
 
 TEST_CASE("service wiring: request/reply service supports explicit paths")

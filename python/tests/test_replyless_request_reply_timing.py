@@ -1,4 +1,4 @@
-"""A reply-less request/reply service delivers in the client's own cycle.
+"""A root reply-less request/reply service delivers in the client's own cycle.
 
 RFC 0012. A request/reply service declaring no response is a sink: clients
 send, the implementation consumes, nothing comes back. It used to be wired on
@@ -6,8 +6,9 @@ the rank-free request transport, which forwards on the NEXT cycle - rank-freedom
 that exists to permit request/reply *cycles* via the response feedback edge. A
 reply-less service builds no feedback, so it paid the latency for nothing.
 
-The same shape as a sink-only adaptor always delivered in the same cycle; these
-tests pin that the two now agree.
+The same root shape as a sink-only adaptor always delivered in the same cycle;
+these tests pin that the two now agree while dynamically-started nested clients
+retain released hgraph's one-cycle outer hand-off.
 """
 
 import hgraph as hg
@@ -118,6 +119,40 @@ def test_replyless_service_keys_multiple_clients_by_request_id():
     # Two clients, two distinct request ids, one cumulative delta.
     assert seen and len(seen[0]) == 2, seen
     assert sorted(seen[0].values()) == [1, 101], seen
+
+
+def test_replyless_service_in_dynamic_map_defers_the_outer_handoff():
+    """A late-starting child cannot publish after the outer source has run."""
+    seen = []
+
+    @hg.request_reply_service
+    def publish(path: str, value: TS[int]): ...
+
+    @hg.service_impl(interfaces=publish)
+    def publish_impl(values: TSD[int, TS[int]]):
+        @hg.sink_node
+        def observe(ts: TSD[int, TS[int]], _clock: hg.CLOCK = None):
+            for _, value in ts.modified_items():
+                seen.append((_cycle(_clock), value.value))
+
+        observe(values)
+
+    @graph
+    def per_key(value: TS[int]) -> None:
+        publish("events", value)
+
+    @graph
+    def client(values: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        hg.register_service("events", publish_impl)
+        assert hg.map_(per_key, values) is None
+        return values
+
+    inputs = [{"a": 1}, {"a": hg.REMOVE}, {"b": 2}]
+    assert eval_node(
+        client, inputs, __end_time__=hg.MIN_ST + 6 * hg.MIN_TD) == inputs
+    # Released hgraph also hands a dynamically-started child's request to the
+    # outer graph on the next cycle. Root clients remain same-cycle.
+    assert seen == [(1, 1), (3, 2)], seen
 
 
 def test_reply_full_request_reply_timing_is_unchanged():
