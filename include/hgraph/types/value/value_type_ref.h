@@ -79,7 +79,7 @@ namespace hgraph
       private:
         friend ValueTypeRef intern_value_type(const ValueTypeMetaData &, const MemoryUtils::StoragePlan &,
                                               const ValueOps &, const DebugDescriptor *);
-        friend ValueTypeRef value_owning_type(ValueTypeRef);
+        friend HGRAPH_EXPORT ValueTypeRef value_owning_type(ValueTypeRef);
         friend class Value;
         friend class ValueView;
 
