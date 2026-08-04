@@ -14,9 +14,121 @@ becomes transiently invalid, hg_cpp removes its element until the child
 validates again instead of retaining a stale value behind an empty delta.
 """
 
+import pytest
+
 import hgraph as hg
 from hgraph import TS, TSD, TSS, graph
 from hgraph.test import eval_node
+
+
+_MIXED_SERVICE_INTERFACE_ORDERS = (
+    "rR", "Rr", "sS", "Ss", "qQ", "Qq",
+    "rs", "sr", "rq", "qr", "sq", "qs",
+    "rsq", "rqs", "srq", "sqr", "qrs", "qsr",
+)
+
+
+@pytest.mark.parametrize("order", _MIXED_SERVICE_INTERFACE_ORDERS)
+def test_multi_interface_service_flavours_are_order_independent(order):
+    """Every mixed service pack shares one implementation in either order.
+
+    Lowercase codes are reference, subscription, and request/reply; uppercase
+    codes are a second interface of the same flavour. Wiring the implementation
+    stubs and clients in the declared order catches order-sensitive endpoint
+    discovery and transport-planner finalization.
+    """
+    @hg.reference_service
+    def current(path: str = "mixed") -> TS[int]: ...
+
+    @hg.reference_service
+    def previous(path: str = "mixed") -> TS[int]: ...
+
+    @hg.subscription_service
+    def price(key: TS[int], path: str = "mixed") -> TS[int]: ...
+
+    @hg.subscription_service
+    def premium_price(key: TS[int], path: str = "mixed") -> TS[int]: ...
+
+    @hg.request_reply_service
+    def adjust(value: TS[int], path: str = "mixed") -> TS[int]: ...
+
+    @hg.request_reply_service
+    def adjust_ten(value: TS[int], path: str = "mixed") -> TS[int]: ...
+
+    by_flavour = {
+        "r": current, "R": previous,
+        "s": price, "S": premium_price,
+        "q": adjust, "Q": adjust_ten,
+    }
+    compositions = []
+
+    @hg.service_impl(interfaces=tuple(by_flavour[item] for item in order))
+    def impl(path: str):
+        compositions.append(tuple(order))
+        for flavour in order:
+            if flavour == "r":
+                current.wire_impl_out_stub(path, hg.const(10))
+            elif flavour == "R":
+                previous.wire_impl_out_stub(path, hg.const(11))
+            elif flavour == "s":
+                keys = price.wire_impl_inputs_stub(path).key
+                price.wire_impl_out_stub(
+                    path,
+                    hg.map_(lambda key: hg.const(20), __keys__=keys),
+                )
+            elif flavour == "S":
+                keys = premium_price.wire_impl_inputs_stub(path).key
+                premium_price.wire_impl_out_stub(
+                    path,
+                    hg.map_(lambda key: hg.const(21), __keys__=keys),
+                )
+            elif flavour == "q":
+                requests = adjust.wire_impl_inputs_stub(path).value
+                adjust.wire_impl_out_stub(
+                    path,
+                    hg.map_(lambda value: value + 1, requests),
+                )
+            else:
+                requests = adjust_ten.wire_impl_inputs_stub(path).value
+                adjust_ten.wire_impl_out_stub(
+                    path,
+                    hg.map_(lambda value: value + 10, requests),
+                )
+
+    @graph
+    def app(key: TS[int], request: TS[int]) -> TS[int]:
+        hg.register_service("mixed", impl)
+        clients = []
+        for flavour in order:
+            if flavour == "r":
+                clients.append(current(path="mixed"))
+            elif flavour == "R":
+                clients.append(previous(path="mixed"))
+            elif flavour == "s":
+                clients.append(price(key, path="mixed"))
+            elif flavour == "S":
+                clients.append(premium_price(key, path="mixed"))
+            elif flavour == "q":
+                clients.append(adjust(request, path="mixed"))
+            else:
+                clients.append(adjust_ten(request, path="mixed"))
+        result = clients[0]
+        for client in clients[1:]:
+            result = result + client
+        return result
+
+    expected = sum(
+        {"r": 10, "R": 11, "s": 20, "S": 21, "q": 8, "Q": 17}[item]
+        for item in order
+    )
+    expected_trace = (
+        [None, expected] if any(item in "sSqQ" for item in order)
+        else [expected]
+    )
+    assert eval_node(
+        app, [2], [7], __end_time__=hg.MIN_ST + 6 * hg.MIN_TD,
+    ) == expected_trace
+    assert compositions == [tuple(order)]
 
 
 def test_service_adaptor_roundtrip_is_same_cycle():
