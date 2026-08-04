@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <concepts>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -2150,9 +2151,11 @@ namespace
             else if constexpr (std::same_as<Interface, DerivedPricesService>)
             {
                 auto keys = service::impl_input<DerivedPricesService>(w, custom);
+                auto offset = wire<stdlib::const_>(w, Int{1}).as<TS<Int>>();
                 service::impl_output<DerivedPricesService>(
                     w, custom,
-                    wire<PricesImplNode>(w, keys).as<TSD<Int, TS<Int>>>());
+                    wire<OffsetPricesImplNode>(w, keys, offset)
+                        .as<TSD<Int, TS<Int>>>());
             }
             else if constexpr (std::same_as<Interface, AddOneService>)
             {
@@ -2189,12 +2192,11 @@ namespace
             "mixed_service_permutation_client_graph";
 
         template <typename Interface>
-        static Port<TS<Int>> add_client(
+        static Port<TS<Int>> client(
             Wiring &w, const service::ServicePath &custom,
-            Port<TS<Int>> key, Port<TS<Int>> request,
-            Port<TS<Int>> total)
+            Port<TS<Int>> key, Port<TS<Int>> request)
         {
-            Port<TS<Int>> value = [&]() {
+            return [&]() {
                 if constexpr (std::same_as<Interface, BaseValueService>)
                 {
                     return wire<BaseValueService>(w, custom);
@@ -2221,10 +2223,9 @@ namespace
                     return wire<AddTenService>(w, custom, request);
                 }
             }();
-            return wire<stdlib::add_>(w, total, value).as<TS<Int>>();
         }
 
-        static Port<TS<Int>> compose(
+        static Port<TSL<TS<Int>, sizeof...(Interfaces)>> compose(
             Wiring &w, Port<TS<Int>> key, Port<TS<Int>> request)
         {
             const auto custom = service::path("mixed_permutation");
@@ -2232,15 +2233,58 @@ namespace
                 MixedServicePermutationImpl<Interfaces...>, Interfaces...>(
                     w, custom);
 
-            auto total = wire<stdlib::const_>(w, Int{0}).as<TS<Int>>();
-            ((total = add_client<Interfaces>(
-                  w, custom, key, request, std::move(total))), ...);
-            return total;
+            // Tuple list-initialization evaluates left-to-right, preserving the
+            // declared client order before the structural list is assembled.
+            auto clients = std::tuple{
+                client<Interfaces>(w, custom, key, request)...};
+            return std::apply(
+                [&](const auto &...ports) {
+                    return stdlib::to_tsl<
+                        TSL<TS<Int>, sizeof...(Interfaces)>>(w, ports...);
+                },
+                clients);
         }
     };
 
+    template <typename Interface>
+    constexpr Int mixed_service_expected_value()
+    {
+        if constexpr (std::same_as<Interface, BaseValueService>) { return 10; }
+        else if constexpr (std::same_as<Interface, DerivedValueService>) { return 11; }
+        else if constexpr (std::same_as<Interface, PricesService>) { return 20; }
+        else if constexpr (std::same_as<Interface, DerivedPricesService>) { return 21; }
+        else if constexpr (std::same_as<Interface, AddOneService>) { return 8; }
+        else
+        {
+            static_assert(std::same_as<Interface, AddTenService>);
+            return 17;
+        }
+    }
+
+    template <typename Interface>
+    constexpr bool mixed_service_is_reference =
+        std::same_as<Interface, BaseValueService>
+        || std::same_as<Interface, DerivedValueService>;
+
+    template <typename Interface>
+    std::optional<Int> mixed_service_reference_value()
+    {
+        if constexpr (mixed_service_is_reference<Interface>)
+        {
+            return mixed_service_expected_value<Interface>();
+        }
+        else { return std::nullopt; }
+    }
+
+    template <typename Interface>
+    std::optional<Int> mixed_service_keyed_value()
+    {
+        if constexpr (mixed_service_is_reference<Interface>) { return std::nullopt; }
+        else { return mixed_service_expected_value<Interface>(); }
+    }
+
     template <typename... Interfaces>
-    void check_mixed_service_permutation(Int expected)
+    void check_mixed_service_permutation()
     {
         using Implementation = MixedServicePermutationImpl<Interfaces...>;
         Implementation::compositions = 0;
@@ -2252,13 +2296,25 @@ namespace
               || std::same_as<Interfaces, DerivedPricesService>
               || std::same_as<Interfaces, AddOneService>
               || std::same_as<Interfaces, AddTenService>) || ...);
-        if constexpr (has_keyed_interface)
+        constexpr bool has_reference_interface =
+            (mixed_service_is_reference<Interfaces> || ...);
+        auto reference_delta = list_delta<TS<Int>>(
+            std::vector<std::optional<Int>>{
+                mixed_service_reference_value<Interfaces>()...});
+        auto keyed_delta = list_delta<TS<Int>>(
+            std::vector<std::optional<Int>>{
+                mixed_service_keyed_value<Interfaces>()...});
+        if constexpr (has_reference_interface && has_keyed_interface)
         {
-            CHECK_OUTPUT(actual, values<Int>(none, expected));
+            CHECK_OUTPUT(actual, values<Value>(reference_delta, keyed_delta));
+        }
+        else if constexpr (has_keyed_interface)
+        {
+            CHECK_OUTPUT(actual, values<Value>(none, keyed_delta));
         }
         else
         {
-            CHECK_OUTPUT(actual, values<Int>(expected));
+            CHECK_OUTPUT(actual, values<Value>(reference_delta));
         }
         CHECK(Implementation::compositions == 1);
     }
@@ -3042,33 +3098,33 @@ TEST_CASE("service wiring: every service-interface flavour permutation shares on
 
     // Exercise both orders of same-flavour and mixed-flavour pairs, followed
     // by every ordering of a reference/subscription/request-reply pack.
-    check_mixed_service_permutation<BaseValueService, DerivedValueService>(21);
-    check_mixed_service_permutation<DerivedValueService, BaseValueService>(21);
-    check_mixed_service_permutation<PricesService, DerivedPricesService>(40);
-    check_mixed_service_permutation<DerivedPricesService, PricesService>(40);
-    check_mixed_service_permutation<AddOneService, AddTenService>(25);
-    check_mixed_service_permutation<AddTenService, AddOneService>(25);
+    check_mixed_service_permutation<BaseValueService, DerivedValueService>();
+    check_mixed_service_permutation<DerivedValueService, BaseValueService>();
+    check_mixed_service_permutation<PricesService, DerivedPricesService>();
+    check_mixed_service_permutation<DerivedPricesService, PricesService>();
+    check_mixed_service_permutation<AddOneService, AddTenService>();
+    check_mixed_service_permutation<AddTenService, AddOneService>();
 
     // Reference=10, subscription(key=2)=20, request/reply(7)=8.
-    check_mixed_service_permutation<BaseValueService, PricesService>(30);
-    check_mixed_service_permutation<PricesService, BaseValueService>(30);
-    check_mixed_service_permutation<BaseValueService, AddOneService>(18);
-    check_mixed_service_permutation<AddOneService, BaseValueService>(18);
-    check_mixed_service_permutation<PricesService, AddOneService>(28);
-    check_mixed_service_permutation<AddOneService, PricesService>(28);
+    check_mixed_service_permutation<BaseValueService, PricesService>();
+    check_mixed_service_permutation<PricesService, BaseValueService>();
+    check_mixed_service_permutation<BaseValueService, AddOneService>();
+    check_mixed_service_permutation<AddOneService, BaseValueService>();
+    check_mixed_service_permutation<PricesService, AddOneService>();
+    check_mixed_service_permutation<AddOneService, PricesService>();
 
     check_mixed_service_permutation<
-        BaseValueService, PricesService, AddOneService>(38);
+        BaseValueService, PricesService, AddOneService>();
     check_mixed_service_permutation<
-        BaseValueService, AddOneService, PricesService>(38);
+        BaseValueService, AddOneService, PricesService>();
     check_mixed_service_permutation<
-        PricesService, BaseValueService, AddOneService>(38);
+        PricesService, BaseValueService, AddOneService>();
     check_mixed_service_permutation<
-        PricesService, AddOneService, BaseValueService>(38);
+        PricesService, AddOneService, BaseValueService>();
     check_mixed_service_permutation<
-        AddOneService, BaseValueService, PricesService>(38);
+        AddOneService, BaseValueService, PricesService>();
     check_mixed_service_permutation<
-        AddOneService, PricesService, BaseValueService>(38);
+        AddOneService, PricesService, BaseValueService>();
 }
 
 TEST_CASE("service wiring: a source-only adaptor is unambiguous alongside services")
