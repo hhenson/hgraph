@@ -3,8 +3,8 @@
 RFC 0012. A request/reply service declaring no response is a sink: clients
 send, the implementation consumes, nothing comes back. It used to be wired on
 the rank-free request transport, which forwards on the NEXT cycle - rank-freedom
-that exists to permit request/reply *cycles* via the response feedback edge. A
-reply-less service builds no feedback, so it paid the latency for nothing.
+that exists to permit request/reply *cycles*. A reply-less service has no
+response path, so it paid the latency for nothing.
 
 The same root shape as a sink-only adaptor always delivered in the same cycle;
 these tests pin that the two now agree while dynamically-started nested clients
@@ -155,8 +155,8 @@ def test_replyless_service_in_dynamic_map_defers_the_outer_handoff():
     assert seen == [(1, 1), (3, 2)], seen
 
 
-def test_reply_full_request_reply_timing_is_unchanged():
-    """The rank-free path is load-bearing when a response exists."""
+def test_self_coupled_reply_full_request_reply_keeps_one_boundary():
+    """A direct input-to-output implementation defers its request once."""
     @hg.request_reply_service
     def double(value: TS[int], path: str = "d") -> TS[int]: ...
 
@@ -169,6 +169,6 @@ def test_reply_full_request_reply_timing_is_unchanged():
         hg.register_service("d", double_impl)
         return double(value, path="d")
 
-    # Request and response each cross their own transport boundary.
+    # The request breaks the cycle; the response publishes directly.
     out = eval_node(app, [5], __end_time__=hg.MIN_ST + 6 * hg.MIN_TD)
-    assert out == [None, None, 10], out
+    assert out == [None, 10], out

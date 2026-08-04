@@ -1272,6 +1272,41 @@ namespace
         }
     };
 
+    struct DecoupledRequestReplyImplGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "decoupled_request_reply_impl_graph";
+
+        static void compose(
+            Wiring &w,
+            Port<TSD<Int, TS<Int>>> responses,
+            Scalar<"path", Str> path)
+        {
+            const auto custom = service::path(path.value());
+            auto requests = service::from_graph<AddOneService>(w, custom);
+            static_cast<void>(wire<ObserveReplylessRequestsNode>(w, requests));
+            service::to_graph<AddOneService>(w, custom, responses);
+        }
+    };
+
+    struct DecoupledRequestReplyClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "decoupled_request_reply_client_graph";
+
+        static Port<TS<Int>> compose(
+            Wiring &w,
+            Port<TS<Int>> request,
+            Port<TSD<Int, TS<Int>>> responses)
+        {
+            const auto custom = service::path("decoupled");
+            service::register_services<
+                DecoupledRequestReplyImplGraph, AddOneService>(
+                    w, custom, responses);
+            return wire<AddOneService>(w, custom, request);
+        }
+    };
+
     struct ReplylessPublishTwoClientGraph
     {
         [[maybe_unused]] static constexpr auto name =
@@ -2344,7 +2379,22 @@ TEST_CASE("service wiring: request/reply client receives keyed implementation re
 {
     hgraph::stdlib::register_standard_operators();
 
-    CHECK_OUTPUT(eval_node<AddOneClientGraph>(values<Int>(1)), values<Int>(none, none, 2));
+    CHECK_OUTPUT(eval_node<AddOneClientGraph>(values<Int>(1)), values<Int>(none, 2));
+}
+
+TEST_CASE("service wiring: decoupled request/reply transport is direct")
+{
+    hgraph::stdlib::register_standard_operators();
+    observed_replyless_requests.clear();
+    const Int response_key = next_request_id() + Int{1};
+
+    CHECK_OUTPUT(
+        eval_node<DecoupledRequestReplyClientGraph>(
+            values<Int>(7),
+            values<Value>(dict_delta<Int, TS<Int>>({{response_key, 107}}))),
+        values<Int>(107));
+    CHECK(observed_replyless_requests ==
+          std::vector<std::pair<std::size_t, Int>>{{0, 7}});
 }
 
 TEST_CASE("service wiring: reply-less clients use the typed same-cycle sink path")
@@ -2401,7 +2451,7 @@ TEST_CASE("service wiring: request/reply service supports explicit paths")
 {
     hgraph::stdlib::register_standard_operators();
 
-    CHECK_OUTPUT(eval_node<AddOnePathClientGraph>(values<Int>(7)), values<Int>(none, none, 107));
+    CHECK_OUTPUT(eval_node<AddOnePathClientGraph>(values<Int>(7)), values<Int>(none, 107));
 }
 
 TEST_CASE("service wiring: request/reply source emits cumulative client requests")
@@ -2409,22 +2459,21 @@ TEST_CASE("service wiring: request/reply source emits cumulative client requests
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<AddOneTwoClientGraph>(values<Int>(1), values<Int>(10)),
-                 values<Int>(none, none, 13));
+                 values<Int>(none, 13));
 }
 
-TEST_CASE("service wiring: response feedback preserves requests from successive cycles")
+TEST_CASE("service wiring: request relay preserves requests from successive cycles")
 {
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(
         eval_node<AddOneClientGraph>(values<Int>(1, 2)),
-        values<Int>(none, none, 2, 3));
+        values<Int>(none, 2, 3));
 
     CHECK_OUTPUT(
         eval_node<AddOneStagedClientGraph>(
             values<Int>(1, none), values<Int>(none, 10)),
         values<Value>(
-            none,
             none,
             list_delta<TS<Int>>({2, none}),
             list_delta<TS<Int>>({none, 11})));
@@ -2436,10 +2485,10 @@ TEST_CASE("service wiring: request/reply transports recursive bundle deltas")
 
     CHECK_OUTPUT(eval_node<SumPairClientGraph>(values<Int>(1, none, 2),
                                                values<Int>(10, none, none)),
-                 values<Int>(none, none, 11, none, 12));
+                 values<Int>(none, 11, none, 12));
 }
 
-TEST_CASE("service wiring: request/reply feedback belongs to the owning graph")
+TEST_CASE("service wiring: self-contained request/reply omits response feedback")
 {
     hgraph::stdlib::register_standard_operators();
 
@@ -2447,6 +2496,31 @@ TEST_CASE("service wiring: request/reply feedback belongs to the owning graph")
     auto requests = ts_harness<TSD<Int, TS<Int>>>::wire_replay(
         wiring, "request_reply_feedback_owner");
     static_cast<void>(MappedServiceClientGraph::compose(wiring, requests));
+    const GraphBuilder first_snapshot = wiring.snapshot();
+    const GraphBuilder graph = wiring.snapshot();
+    CHECK(graph.nodes().size() == first_snapshot.nodes().size());
+    std::size_t feedback_sources = 0;
+    std::size_t feedback_sinks = 0;
+    for (const NodeBuilder &node : graph.nodes())
+    {
+        const NodeTypeMetaData *meta = node.type().schema();
+        if (meta == nullptr || meta->display_name == nullptr) { continue; }
+        const std::string_view name{meta->display_name};
+        feedback_sources += name == "feedback_source" ? 1 : 0;
+        feedback_sinks += name == "feedback_sink" ? 1 : 0;
+    }
+    CHECK(feedback_sources == 0);
+    CHECK(feedback_sinks == 0);
+}
+
+TEST_CASE("service wiring: a service-dependent request/reply retains full feedback")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    Wiring wiring;
+    auto request = ts_harness<TS<Int>>::wire_replay(
+        wiring, "request_reply_recursive_feedback_owner");
+    static_cast<void>(RecursiveAddOneClientGraph::compose(wiring, request));
     const GraphBuilder graph = std::move(wiring).finish();
     std::size_t feedback_sources = 0;
     std::size_t feedback_sinks = 0;
@@ -2469,7 +2543,6 @@ TEST_CASE("service wiring: map and mesh children call an outer request/reply ser
     const auto requests = values<Value>(dict_delta<Int, TS<Int>>({{1, 10}, {2, 20}}));
     const auto expected = values<Value>(
         dict_delta<Int, TS<Int>>({}),
-        none,
         dict_delta<Int, TS<Int>>({{1, 12}, {2, 22}}));
     CHECK_OUTPUT(eval_node<MappedServiceClientGraph>(requests), expected);
     CHECK_OUTPUT(eval_node<MeshedServiceClientGraph>(requests), expected);
@@ -2489,7 +2562,7 @@ TEST_CASE("service wiring: request/reply under map switch retains late keys")
                 none,
                 dict_delta<Int, TS<Int>>({}, {1})),
             values<Str>(Str{"alpha"}, none, Str{"beta"}, none)),
-        values<Int>(0, none, 10, 6));
+        values<Int>(0, 4, 10, 6));
 }
 
 TEST_CASE("service wiring: request/reply switch flip removes an invalid map output")
@@ -2506,7 +2579,6 @@ TEST_CASE("service wiring: request/reply switch flip removes an invalid map outp
         values<Value>(
             dict_delta<Int, TS<Int>>({{1, 6}}),
             dict_delta<Int, TS<Int>>({}, {1}),
-            none,
             dict_delta<Int, TS<Int>>({{1, 5}})));
 }
 
@@ -2528,10 +2600,10 @@ TEST_CASE("service wiring: a mapped response survives a new key in its delivery 
                           none),
             values<Str>(Str{"alpha"}, none, none, none, none)),
         values<Value>(dict_delta<Int, TS<Int>>({}),
-                      none,
                       dict_delta<Int, TS<Int>>({{1, 5}}),
-                      none,
-                      dict_delta<Int, TS<Int>>({{2, 11}})));
+                      dict_delta<Int, TS<Int>>({}),
+                      dict_delta<Int, TS<Int>>({{2, 11}}),
+                      none));
 }
 
 TEST_CASE("service wiring: a meshed response survives a new key in its delivery cycle")
@@ -2549,10 +2621,10 @@ TEST_CASE("service wiring: a meshed response survives a new key in its delivery 
                           none),
             values<Str>(Str{"alpha"}, none, none, none, none)),
         values<Value>(dict_delta<Int, TS<Int>>({}),
-                      none,
                       dict_delta<Int, TS<Int>>({{1, 5}}),
-                      none,
-                      dict_delta<Int, TS<Int>>({{2, 11}})));
+                      dict_delta<Int, TS<Int>>({}),
+                      dict_delta<Int, TS<Int>>({{2, 11}}),
+                      none));
 }
 
 TEST_CASE("service wiring: subscription under map switch retains late keys")
@@ -2612,7 +2684,7 @@ TEST_CASE("service wiring: multi-interface implementation graph wires explicit s
 {
     hgraph::stdlib::register_standard_operators();
 
-    CHECK_OUTPUT(eval_node<MultiServiceClientGraph>(values<Int>(1)), values<Int>(none, none, 13));
+    CHECK_OUTPUT(eval_node<MultiServiceClientGraph>(values<Int>(1)), values<Int>(none, 13));
 }
 
 TEST_CASE("service wiring: a source-only adaptor is unambiguous alongside services")
@@ -2655,7 +2727,7 @@ TEST_CASE("service wiring: a single-interface implementation may publish by stub
     // from_graph/to_graph rather than by returning a port.
     single_interface_stub_compositions = 0;
     CHECK_OUTPUT(eval_node<SingleInterfaceStubClientGraph>(values<Int>(1)),
-                 values<Int>(none, none, 2));
+                 values<Int>(none, 2));
     CHECK(single_interface_stub_compositions == 1);
 }
 
@@ -2679,7 +2751,7 @@ TEST_CASE("service wiring: service from_graph/to_graph spell the same wiring as 
     // verbs - they are aliases onto impl_input/impl_output, not a second
     // mechanism, so the observable result must match exactly.
     CHECK_OUTPUT(eval_node<MultiServiceFromToGraphClientGraph>(values<Int>(1)),
-                 values<Int>(none, none, 13));
+                 values<Int>(none, 13));
 }
 
 TEST_CASE("service wiring: shared replay service hands clients to the live reference")
@@ -2786,16 +2858,16 @@ TEST_CASE("service wiring: templated service descriptors bind as concrete interf
 {
     hgraph::stdlib::register_standard_operators();
 
-    CHECK_OUTPUT(eval_node<TemplateServiceClientGraph>(values<Int>(3)), values<Int>(none, none, 4));
+    CHECK_OUTPUT(eval_node<TemplateServiceClientGraph>(values<Int>(3)), values<Int>(none, 4));
 }
 
 TEST_CASE("service wiring: generic service descriptors resolve from client inputs")
 {
     hgraph::stdlib::register_standard_operators();
 
-    CHECK_OUTPUT(eval_node<GenericServiceClientGraph>(values<Int>(3)), values<Int>(none, none, 4));
+    CHECK_OUTPUT(eval_node<GenericServiceClientGraph>(values<Int>(3)), values<Int>(none, 4));
     CHECK_OUTPUT(eval_node<GenericFloatServiceClientGraph>(values<Float>(1.5)),
-                 values<Float>(none, none, 2.0));
+                 values<Float>(none, 2.0));
     CHECK_OUTPUT(eval_node<GenericServiceAdaptorClientGraph>(values<Int>(3)), values<Int>(23));
     CHECK_THROWS_AS((void)eval_node<GenericStringServiceClientGraph>(values<Str>("not numeric")),
                     std::invalid_argument);

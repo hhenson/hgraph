@@ -1114,6 +1114,7 @@ struct Wiring::Impl {
     std::unordered_set<std::string> required_endpoints{};
     std::unordered_map<std::string, ResolutionMap> endpoint_resolutions{};
     std::unordered_set<std::string> used_endpoints{};
+    std::shared_ptr<bool> boundary_dependency{std::make_shared<bool>(false)};
     bool require_all{true};
   };
 
@@ -1173,6 +1174,8 @@ struct Wiring::Impl {
   GlobalState global_state{};  // stateless-wiring fallback (no live context)
   bool live_seeded{false};
   std::vector<std::shared_ptr<void>> extension_state{};
+  std::unordered_map<std::type_index, std::shared_ptr<void>> keyed_extension_state{};
+  std::vector<std::function<void(Wiring &)>> pre_rank_finalizers{};
   std::shared_ptr<WiringObserverRegistry> observers{};
   std::vector<std::string> wiring_path{};
   WiringKind kind{WiringKind::TopLevel};
@@ -1348,6 +1351,33 @@ void Wiring::retain_extension_state(std::shared_ptr<void> state) {
   }
   impl_->extension_state.push_back(std::move(state));
 }
+
+std::shared_ptr<void> Wiring::acquire_extension_state(
+    std::type_index key, std::function<std::shared_ptr<void>()> create) {
+  if (const auto found = impl_->keyed_extension_state.find(key);
+      found != impl_->keyed_extension_state.end()) {
+    return found->second;
+  }
+  if (!create) {
+    throw std::invalid_argument("Wiring extension state requires a factory");
+  }
+  std::shared_ptr<void> state = create();
+  if (state == nullptr) {
+    throw std::invalid_argument("Wiring extension state factory returned null");
+  }
+  impl_->keyed_extension_state.emplace(key, state);
+  return state;
+}
+
+void Wiring::register_pre_rank_finalizer(
+    std::function<void(Wiring &)> finalizer) {
+  if (!finalizer) {
+    throw std::invalid_argument("Wiring pre-rank finalizer must be callable");
+  }
+  impl_->pre_rank_finalizers.push_back(std::move(finalizer));
+}
+
+WiringKind Wiring::kind() const noexcept { return impl_->kind; }
 
 ErasedDelayedBindingWiringPort::ErasedDelayedBindingWiringPort(
     Wiring &wiring, const TSValueTypeMetaData *schema) {
@@ -1730,6 +1760,9 @@ void Wiring::register_service_client_path(std::string path,
     throw std::invalid_argument(
         "service/adaptor client path must not be empty");
   }
+  for (auto &scope : impl_->implementation_scopes) {
+    *scope.boundary_dependency = true;
+  }
   auto [it, inserted] = impl_->client_service_paths.try_emplace(
       std::move(path), Impl::ServiceClientIdentity{
           .kind = std::string{kind},
@@ -2073,6 +2106,14 @@ std::string_view Wiring::service_materialization_path() const noexcept {
   return impl_->service_materialization_path;
 }
 
+std::shared_ptr<const bool>
+Wiring::service_implementation_boundary_dependency() const {
+  if (impl_->implementation_scopes.empty()) {
+    return {};
+  }
+  return impl_->implementation_scopes.back().boundary_dependency;
+}
+
 Wiring::ServiceImplementationScope::ServiceImplementationScope(
     Wiring &wiring, std::string description,
     std::vector<WiringServiceImplementationEndpoint> required_endpoints,
@@ -2402,6 +2443,15 @@ void Wiring::apply_service_rank_dependencies() {
   }
 }
 
+void Wiring::finalize_extensions() {
+  // Finalizers are required to be idempotent because snapshot() may be called
+  // repeatedly. Use an index so an extension registered by another finalizer
+  // in this pass is also given a chance to complete before ranking.
+  for (std::size_t index = 0; index < impl_->pre_rank_finalizers.size(); ++index) {
+    impl_->pre_rank_finalizers[index](*this);
+  }
+}
+
 GraphBuilder Wiring::finish_top_level(bool consume_state) {
   if (!impl_->implementation_scopes.empty()) {
     throw std::logic_error("Wiring::finish encountered an unterminated "
@@ -2415,6 +2465,7 @@ GraphBuilder Wiring::finish_top_level(bool consume_state) {
     }
   }
 
+  finalize_extensions();
   apply_service_rank_dependencies(); // add_rank_dependency de-dupes: idempotent
   GlobalState *live = impl_->kind == WiringKind::TopLevel && impl_->live_seeded
                           ? GlobalContext::active_state()
@@ -2462,6 +2513,7 @@ CompiledSubGraph Wiring::finish_subgraph(
     throw std::logic_error("Wiring::finish_subgraph encountered an "
                            "unterminated service/adaptor implementation scope");
   }
+  finalize_extensions();
   apply_service_rank_dependencies();
   const TypeRealizationSnapshot *active_realization =
       active_type_realization();

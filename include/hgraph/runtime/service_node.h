@@ -78,12 +78,12 @@ namespace hgraph
      * Input field ``request`` is ``request_schema`` and field ``requests`` is
      * the paired source node's ``TSD<int, request_schema>`` output. Only
      * ``request`` is active; ``requests`` is a passive binding used to locate
-     * the source node. Deferred request/reply captures schedule the next engine
-     * tick during normal evaluation. Rank-correct service-adaptor captures set
-     * ``same_cycle`` and schedule the paired source for the current engine time
-     * when both live in the owning graph. Dynamically started child graphs hand
-     * work to the enclosing source on the following engine cycle because its
-     * outer rank may already have passed.
+     * the source node. Captures with ``same_cycle == false`` schedule the next
+     * engine tick during normal evaluation. The request/reply transport planner,
+     * reply-less services, and service adaptors set ``same_cycle`` when they can
+     * prove the paired source ranks later in the owning graph. Dynamically
+     * started child graphs hand work to the enclosing source on the following
+     * engine cycle because its outer rank may already have passed.
      */
     [[nodiscard]] HGRAPH_EXPORT NodeBuilder make_request_input_capture_node(
         std::string path,

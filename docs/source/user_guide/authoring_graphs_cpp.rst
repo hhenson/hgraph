@@ -1045,10 +1045,12 @@ so its reply is erased:
 
 Two clients of the same service are two independent request-dictionary
 entries; the implementation sees both requests in one cumulative delta and
-each client receives only its own reply. Request capture advances one engine
-cycle and response publication crosses a second, outer-graph feedback edge;
-the observable sequence for one request is therefore
-``[None, None, response]``, matching Python.
+each client receives only its own reply. The runtime selects transport after
+the implementation is wired. This request-driven implementation defers the
+request by one engine cycle and publishes its response directly, so one
+request produces ``[None, response]``. A decoupled external sink/push-source
+implementation needs no engine-imposed delay; an implementation that calls a
+service or adaptor retains the full feedback form required for recursion.
 
 Paths and other service mechanics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

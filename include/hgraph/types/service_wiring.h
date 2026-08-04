@@ -3,12 +3,12 @@
 
 #include <hgraph/lib/std/operators/collection.h>
 #include <hgraph/lib/std/operators/container.h>
-#include <hgraph/runtime/feedback_node.h>
 #include <hgraph/runtime/service_node.h>
 #include <hgraph/runtime/shared_output_node.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/operator_dispatch.h>
+#include <hgraph/types/request_reply_transport.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/type_pattern.h>
 
@@ -82,7 +82,7 @@ namespace hgraph::service
      * selected service value by reference; no service value is copied by the
      * wiring layer.
      *
-     * Request/reply services collect client requests through a feedback-style
+     * Request/reply services collect client requests through a keyed
      * source/capture pair:
      *
      * .. code-block:: cpp
@@ -109,11 +109,13 @@ namespace hgraph::service
      *    wire<Publish>(w, event);  // returns void
      *
      * The request source owns ``TSD<Int, request_schema>`` plus a mutable
-     * request-delta state. Reply-full captures forward on the next cycle and
-     * responses pass through one outer-graph feedback edge before publication;
-     * that temporal boundary permits recursive request/reply implementations.
-     * A reply-less root client instead uses the ranked same-cycle sink relay.
-     * A dynamically-started nested client defers its outer hand-off one cycle,
+     * request-delta state. Reply-full transport is selected automatically once
+     * wiring has materialized the implementation: a decoupled implementation
+     * uses direct request and response relays, a response causally driven by
+     * its own request defers only the request, and an implementation that calls
+     * another service/adaptor retains request and response feedback boundaries.
+     * A reply-less root client uses the ranked same-cycle sink relay. A
+     * dynamically-started nested client defers its outer hand-off one cycle,
      * matching released hgraph's lifecycle ordering.
      */
 
@@ -713,41 +715,6 @@ namespace hgraph::service
         {
         };
 
-        struct request_reply_feedback_source_marker
-        {
-        };
-
-        struct request_reply_feedback_sink_marker
-        {
-        };
-
-        [[nodiscard]] inline WiringPortRef request_reply_response_feedback(
-            Wiring &w,
-            WiringPortRef response,
-            const TSValueTypeMetaData &schema)
-        {
-            WiringPortRef feedback = w.add_unique_node(
-                std::type_index(typeid(request_reply_feedback_source_marker)),
-                make_feedback_source_node(schema), std::span<const WiringPortRef>{}, Value{});
-
-            std::array<WiringPortRef, 2> sources{
-                graph_wiring_detail::adapt_source_for_input(w, &schema, std::move(response)),
-                feedback,
-            };
-            std::array<WiringInputRef, 2> inputs{{
-                WiringInputRef{.source = sources[0]},
-                WiringInputRef{.source = sources[1], .rank_dependency = false},
-            }};
-            NodeBuilder sink = make_feedback_sink_node(schema);
-            sink.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
-                sink.type().schema()->input_schema,
-                std::span<const WiringPortRef>{sources.data(), sources.size()}));
-            static_cast<void>(w.add_unique_node(
-                std::type_index(typeid(request_reply_feedback_sink_marker)), std::move(sink),
-                std::span<const WiringInputRef>{inputs.data(), inputs.size()}, Value{}));
-            return feedback;
-        }
-
         template <typename Service>
         [[nodiscard]] Port<REF<reference_output_schema_t<Service>>> reference_shared_output_source(
             Wiring &w,
@@ -922,7 +889,7 @@ namespace hgraph::service
                 user_path.resolution, "request/reply service request");
             NodeBuilder builder = make_request_input_capture_node(
                 request_input_path<Service>(user_path), *request_meta,
-                replyless_request_reply_service_interface<Service>);
+                true);
             builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
                 builder.type().schema()->input_schema,
                 std::span<const WiringPortRef>{sources.data(), sources.size()}));
@@ -931,9 +898,8 @@ namespace hgraph::service
                                                std::move(builder),
                                                std::span<const WiringInputRef>{inputs.data(), inputs.size()},
                                                Value{});
-            // Reply-full request/reply forwards on the next cycle; the
-            // temporal break permits recursive implementations. Reply-less
-            // services are sinks and use the ranked same-cycle relay.
+            // This helper is the reply-less keyed sink path. Reply-full
+            // clients are deferred to the transport planner instead.
             return capture.peered_node();
         }
 
@@ -989,39 +955,6 @@ namespace hgraph::service
                                                std::move(builder),
                                                std::span<const WiringInputRef>{inputs.data(), inputs.size()},
                                                Value{});
-            w.add_same_cycle_pair(capture.peered_node(), shared_output.node());
-            return capture.peered_node();
-        }
-
-        template <typename Service, typename Impl>
-        const WiringInstance *capture_request_reply_service_output(
-            Wiring &w,
-            Port<request_output_schema_t<Service>> output,
-            Port<REF<request_output_schema_t<Service>>> shared_output,
-            const ServicePath &user_path)
-        {
-            const auto *response_meta = resolved_schema_meta<response_schema_t<Service>>(
-                user_path.resolution, "request/reply service response");
-            const auto *output_meta = TypeRegistry::instance().tsd(
-                scalar_descriptor<Int>::value_meta(), response_meta);
-            WiringPortRef feedback = request_reply_response_feedback(
-                w, output.erased(), *output_meta);
-            std::array<WiringPortRef, 2> sources{std::move(feedback), shared_output.erased()};
-            std::array<WiringInputRef, 2> inputs{{
-                WiringInputRef{.source = sources[0]},
-                WiringInputRef{.source = sources[1], .rank_dependency = false},
-            }};
-            NodeBuilder builder = make_shared_output_capture_node(
-                request_reply_output_path<Service>(user_path), *output_meta);
-            builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
-                builder.type().schema()->input_schema,
-                std::span<const WiringPortRef>{sources.data(), sources.size()}));
-
-            WiringPortRef capture = w.add_node(
-                std::type_index(typeid(request_reply_output_capture_marker)),
-                std::move(builder),
-                std::span<const WiringInputRef>{inputs.data(), inputs.size()},
-                Value{});
             w.add_same_cycle_pair(capture.peered_node(), shared_output.node());
             return capture.peered_node();
         }
@@ -1137,6 +1070,11 @@ namespace hgraph::service
         w.register_service_implementation_stub(endpoint, "request/reply service");
         auto source = detail::request_input_source<Service>(w, user_path);
         w.register_service_rank_anchor(detail::request_input_path<Service>(user_path), source.node());
+        if constexpr (detail::replying_request_reply_service_interface<Service>)
+        {
+            request_reply_transport::register_implementation_input(
+                w, detail::request_reply_base_path<Service>(user_path), source.node());
+        }
         return source;
     }
 
@@ -1208,10 +1146,18 @@ namespace hgraph::service
             user_path.resolution, w.service_implementation_stub_resolution(endpoint));
         w.register_service_implementation_stub(endpoint, "request/reply service");
         auto shared_output = detail::request_reply_output_source<Service>(w, user_path);
-        const WiringInstance *capture =
-            detail::capture_request_reply_service_output<Service, explicit_impl_output_marker>(
-            w, std::move(output), shared_output, user_path);
-        w.register_service_rank_anchor(detail::request_reply_output_path<Service>(user_path), capture);
+        const auto *response_meta = detail::resolved_schema_meta<detail::response_schema_t<Service>>(
+            user_path.resolution, "request/reply service response");
+        const auto *output_meta = TypeRegistry::instance().tsd(
+            scalar_descriptor<Int>::value_meta(), response_meta);
+        request_reply_transport::defer_implementation_output(
+            w,
+            detail::request_reply_base_path<Service>(user_path),
+            detail::request_reply_output_path<Service>(user_path),
+            *output_meta,
+            output.erased(),
+            shared_output.erased(),
+            std::type_index(typeid(detail::request_reply_output_capture_marker)));
     }
 
     template <typename Service>
@@ -1486,11 +1432,19 @@ namespace hgraph::service
         auto replies         = detail::request_reply_output_source<Service>(w, user_path);
 
         w.register_service_rank_anchor(detail::request_input_path<Service>(user_path), requests.node());
-        static_cast<void>(
-            detail::capture_request_input<Service>(w, std::move(request), requests, user_path, request_id));
-        // Request/reply responses cross an explicit feedback edge. Unlike the
-        // other service flavours, clients therefore do not participate in
-        // indirect service ranking; this also permits request/reply cycles.
+        const auto *request_meta = detail::resolved_schema_meta<detail::request_schema_t<Service>>(
+            user_path.resolution, "request/reply service request");
+        request_reply_transport::defer_client(
+            w,
+            detail::request_reply_base_path<Service>(user_path),
+            detail::request_input_path<Service>(user_path),
+            detail::request_reply_output_path<Service>(user_path),
+            *request_meta,
+            request.erased(),
+            requests.erased(),
+            request_id.erased(),
+            replies.erased(),
+            std::type_index(typeid(detail::request_input_capture_marker)));
         if constexpr (schema_descriptor<output_schema>::is_concrete())
         {
             auto reply = wire<stdlib::getitem_>(w, replies.template as<output_schema>(), request_id);
@@ -1577,6 +1531,11 @@ namespace hgraph::service
                 }
                 else
                 {
+                    auto scope = target.service_implementation_scope(
+                        "request/reply service " + base_path,
+                        std::vector<WiringServiceImplementationEndpoint>{}, false);
+                    request_reply_transport::register_implementation_input(
+                        target, base_path, requests.node());
                     using output_schema = detail::request_output_schema_t<Service>;
                     auto replies = detail::request_reply_output_source<Service>(target, user_path);
                     auto output = std::apply(
@@ -1585,11 +1544,20 @@ namespace hgraph::service
                                 target, user_path,
                                 detail::service_input_arg<Impl>(requests), stored...);
                         }, stored_args);
-                    const WiringInstance *capture =
-                        detail::capture_request_reply_service_output<Service, Impl>(
-                            target, output, replies, user_path);
-                    target.register_service_rank_anchor(
-                        detail::request_reply_output_path<Service>(user_path), capture);
+                    const auto *response_meta =
+                        detail::resolved_schema_meta<detail::response_schema_t<Service>>(
+                            user_path.resolution, "request/reply service response");
+                    const auto *dict_meta = TypeRegistry::instance().tsd(
+                        scalar_descriptor<Int>::value_meta(), response_meta);
+                    request_reply_transport::defer_implementation_output(
+                        target,
+                        base_path,
+                        detail::request_reply_output_path<Service>(user_path),
+                        *dict_meta,
+                        output.erased(),
+                        replies.erased(),
+                        std::type_index(typeid(detail::request_reply_output_capture_marker)));
+                    scope.complete();
                 }
             });
     }
@@ -1956,8 +1924,8 @@ namespace hgraph::service_adaptor
             // Service-adaptor sends are rank-correct and same-cycle in their
             // owning graph. A dynamically-started child hands off to its outer
             // source on the following cycle because that outer rank may already
-            // have passed. Only reply-full request/reply is unconditionally
-            // deferred to permit recursion.
+            // have passed. Reply-full service transport is planned separately
+            // after its implementation materializes.
             return capture.peered_node();
         }
 

@@ -955,9 +955,10 @@ def test_services_from_python():
         hg.register_service("dbl", doubler_impl)
         return doubler(x, path="dbl")
 
-    # Requests and responses each cross their next-cycle transport boundary.
+    # This self-coupled implementation defers the request and publishes the
+    # response directly.
     out = eval_node(rr_graph, [5, 7], __end_time__=hg.MIN_ST + 4 * hg.MIN_TD)
-    check(out == [None, None, 10, 14], f"request/reply service: {out}")
+    check(out == [None, 10, 14], f"request/reply service: {out}")
 
     # @service_impl validates the shape for the flavour. A reference impl
     # takes no interface input, so a surplus time-series parameter is now
@@ -1724,7 +1725,7 @@ def test_multi_interface_service_impl():
         return boost(x, path="svc") + hg.passive(rate(path="svc"))
 
     out = eval_node(g, [5, 7], __end_time__=hg.MIN_ST + 4 * hg.MIN_TD)
-    check(out == [None, None, 205, 207], f"multi-interface: {out}")
+    check(out == [None, 205, 207], f"multi-interface: {out}")
 
     # The stub-method spellings work too (hgraph parity).
     check(hasattr(boost, "wire_impl_inputs_stub") and hasattr(rate, "wire_impl_out_stub"),

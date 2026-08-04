@@ -2,7 +2,8 @@
 
 The scheduling matrix in ``docs/source/developer_guide/services.rst`` is the
 design record: adaptors are rank-correct and same-cycle, subscription changes
-are delivered in order, and request/reply alone retains its temporal break.
+are delivered in order, and self-coupled request/reply retains one temporal
+break while publishing its response directly.
 
 Issue #95 is a separate reduce boundary: released hgraph waits when a keyed
 mapped slot is live but not yet valid, whereas hg_cpp reduces the currently
@@ -113,7 +114,7 @@ def test_request_reply_inside_a_mapped_switch_keeps_late_keys():
         [{"k1": 3}, {"k2": 4}, None, {"k1": hg.REMOVE}],
         ["alpha", None, "beta", None],
         __end_time__=hg.MIN_ST + 10 * hg.MIN_TD,
-    ) == [0, None, 10, 6]
+    ) == [0, 5, 10, 6]
 
 
 def test_request_reply_switch_flip_removes_transiently_invalid_map_output():
@@ -147,13 +148,41 @@ def test_request_reply_switch_flip_removes_transiently_invalid_map_output():
     # Issues #105/#117/#119/#133/#145: changing branches invalidates the
     # switch output while the request/reply response is in flight. A TSD
     # contains only valid child outputs, so the old beta value is explicitly
-    # removed and the alpha response later adds the key again.
+    # removed and the alpha response adds the key on the following tick.
     assert eval_node(
         app,
         [{"k1": 3}, None],
         ["beta", "alpha"],
         __end_time__=hg.MIN_ST + 6 * hg.MIN_TD,
-    ) == [{"k1": 4}, {"k1": hg.REMOVE}, None, {"k1": 5}]
+    ) == [{"k1": 4}, {"k1": hg.REMOVE}, {"k1": 5}]
+
+
+def test_service_dependent_request_reply_retains_full_feedback():
+    @hg.reference_service
+    def offset(path: str = "dependency") -> TS[int]: ...
+
+    @hg.service_impl(interfaces=offset)
+    def offset_impl(path: str = "dependency") -> TS[int]:
+        return hg.const(1)
+
+    @hg.request_reply_service
+    def adjust(value: TS[int], path: str = "dependent") -> TS[int]: ...
+
+    @hg.service_impl(interfaces=adjust)
+    def adjust_impl(values: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        increment = offset(path="dependency")
+        return hg.map_(lambda value, amount: value + amount,
+                       values, amount=increment)
+
+    @graph
+    def app(value: TS[int]) -> TS[int]:
+        hg.register_service("dependency", offset_impl)
+        hg.register_service("dependent", adjust_impl)
+        return adjust(value, path="dependent")
+
+    assert eval_node(
+        app, [5], __end_time__=hg.MIN_ST + 5 * hg.MIN_TD,
+    ) == [None, None, 6]
 
 
 def test_subscription_inside_a_mapped_switch_keeps_late_keys():

@@ -771,7 +771,7 @@ def test_request_reply_service_path_and_scalar_configuration():
         return adjust(value, path="rr")
 
     out = eval_node(app, [5], __end_time__=hg.MIN_ST + 4 * hg.MIN_TD)
-    check(out == [None, None, 10], f"configured request/reply: {out}")
+    check(out == [None, 10], f"configured request/reply: {out}")
 
 
 def test_subscription_service_can_use_a_python_compute_node():

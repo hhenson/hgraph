@@ -307,8 +307,8 @@ def test_service_resolvers_and_registration_resolution_dict():
             value, path="registered-adaptor")
 
     end_time = hg.MIN_ST + 4 * hg.MIN_TD
-    assert hg.eval_node(resolved_app, [1], __end_time__=end_time) == [None, None, 1]
-    assert hg.eval_node(registered_app, [2], __end_time__=end_time) == [None, None, 2]
+    assert hg.eval_node(resolved_app, [1], __end_time__=end_time) == [None, 1]
+    assert hg.eval_node(registered_app, [2], __end_time__=end_time) == [None, 2]
     assert hg.eval_node(
         registered_adaptor_app, [3], __end_time__=end_time) == [3]
 

@@ -310,13 +310,15 @@ model.
        request/reply services, and late subscription to an existing value all
        execute through the erased C++ service runtime. Matching public C++
        tests cover constrained generics, erased specialization identity,
-       reply-less requests, and sampled late subscriptions. Request/reply uses
-       the Python timing model: request capture advances one cycle and reply
-       publication crosses an outer-graph feedback edge before the client sees
-       it. Compiled ``map_`` and ``mesh_`` children import their outer service
-       transport inputs through the nested boundary; request/reply feedback is
-       owned by the outer implementation, not by the child consumer. Private
-       Python service-builder layouts are not compatibility targets.
+       reply-less requests, and sampled late subscriptions. Reply-full
+       request/reply transport is selected by native wiring: decoupled
+       sink/source implementations are direct, self-coupled implementations
+       defer only the request, and service/adaptor-dependent implementations
+       retain full feedback. Compiled ``map_`` and ``mesh_`` children import
+       their outer service transport inputs through the nested boundary; any
+       response feedback is owned by the outer implementation, not by the child
+       consumer. Private Python service-builder layouts are not compatibility
+       targets.
 
 The 215 upstream ``ts_tests`` tests were also copied mechanically to a
 temporary directory and run against the current bridge under Python 3.12.8.
