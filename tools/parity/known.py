@@ -31,6 +31,7 @@ NO_CHANGE_ELISION = "no-change-elision"
 VALID_SUBSET_REDUCE = "valid-subset-reduce"
 SWITCH_FLIP_MAP_REMOVAL = "switch-flip-map-removal"
 REQUEST_REPLY_ONE_CYCLE_EARLIER = "request-reply-one-cycle-earlier"
+NESTED_REQUEST_REPLY_ONE_CYCLE_EARLIER = "nested-request-reply-one-cycle-earlier"
 
 
 def load_known_divergences(
@@ -327,12 +328,38 @@ def _request_reply_one_cycle_earlier_relation(
     _family: dict[str, Any],
 ) -> bool:
     """RFC 0014 self-coupled request/reply transport removes exactly the
-    released implementation's response-feedback cycle immediately before the
-    first response which differs between the traces.
+    released implementation's leading response-feedback cycle.
 
-    Preserve any structural prefix, every payload, and every remaining silent
-    cycle.  This is a sequence relation, not a general tolerance for shifted
-    or missing ticks.
+    Preserve every payload and silent cycle after that boundary.  This is a
+    sequence relation, not a general tolerance for shifted or missing ticks.
+    """
+    if difference.get("classification") != "length":
+        return False
+    reference_trace = reference.get("trace")
+    candidate_trace = candidate.get("trace")
+    return (
+        isinstance(reference_trace, list)
+        and isinstance(candidate_trace, list)
+        and len(reference_trace) == len(candidate_trace) + 1
+        and reference_trace[0] is None
+        and any(tick is not None for tick in candidate_trace)
+        and reference_trace[1:] == candidate_trace
+    )
+
+
+def _nested_request_reply_one_cycle_earlier_relation(
+    recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """RFC 0014 response timing under an unreduced nested map.
+
+    A stable structural-map prefix may precede the removed feedback cycle, but
+    the request/reply-backed alpha branch must be active at that cycle and the
+    advanced candidate tick must contain a response value. Everything after
+    that single removal remains exact.
     """
     if difference.get("classification") != "length":
         return False
@@ -345,18 +372,47 @@ def _request_reply_one_cycle_earlier_relation(
     ):
         return False
 
+    removed_index = None
     for index, (ref, cand) in enumerate(
         zip(reference_trace, candidate_trace)
     ):
         if ref == cand:
             continue
-        return (
+        if (
             ref is None
             and cand is not None
             and reference_trace[index + 1 :] == candidate_trace[index:]
-        )
-    # Removing an unrelated trailing silence exposes no earlier response.
-    return False
+        ):
+            removed_index = index
+        break
+    if removed_index is None:
+        # Removing a trailing silence exposes no earlier response.
+        return False
+    if any(
+        tick is not None and _canonical_map_entries(tick) != []
+        for tick in candidate_trace[:removed_index]
+    ):
+        # The prefix may establish the map, but an agreeing response before
+        # the removed cycle proves this is not the first response advance.
+        return False
+
+    active_selector = None
+    selector_ticks = (recipe.get("inputs") or {}).get("selector") or ()
+    for selector in selector_ticks[: removed_index + 1]:
+        if selector is not None:
+            active_selector = selector
+    if active_selector != "alpha":
+        return False
+
+    response_entries = _canonical_map_entries(
+        candidate_trace[removed_index]
+    )
+    return bool(response_entries) and any(
+        isinstance(entry, list)
+        and len(entry) == 2
+        and entry[1] != {"$remove": True}
+        for entry in response_entries
+    )
 
 
 def _switch_flip_map_removal_relation(
@@ -473,6 +529,9 @@ RELATIONS = {
     SWITCH_FLIP_MAP_REMOVAL: _switch_flip_map_removal_relation,
     REQUEST_REPLY_ONE_CYCLE_EARLIER: (
         _request_reply_one_cycle_earlier_relation
+    ),
+    NESTED_REQUEST_REPLY_ONE_CYCLE_EARLIER: (
+        _nested_request_reply_one_cycle_earlier_relation
     ),
     KEY_SET_SIZE_NO_RETICK: _key_set_size_no_retick_relation,
 }

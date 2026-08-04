@@ -1340,6 +1340,10 @@ def test_request_reply_one_cycle_earlier_relation_is_exact():
     assert not classify(reference, [None, 8, 11, None, 5])
     assert not classify(reference, [None, 8, 10, 5, None])
     assert not classify(reference, [8, 10, None, 5])
+    assert not classify(
+        [None, None, 8, None, 10, None, 5],
+        [None, None, 8, 10, None, 5],
+    )
     # A trace without a response is not accepted merely because it is shorter.
     assert not classify([None, None], [None])
 
@@ -1394,11 +1398,11 @@ def test_nested_request_reply_one_cycle_earlier_preserves_structural_prefix():
     second = mapped([["k2", -2]])
     ok = lambda trace: {"status": "ok", "trace": trace}
 
-    def classify(reference, candidate):
+    def classify(reference, candidate, *, with_recipe=recipe):
         difference = compare_outcomes(ok(reference), ok(candidate))
         assert difference is not None
         return is_known_family_failure(
-            recipe,
+            with_recipe,
             difference.to_dict(),
             ok(reference),
             ok(candidate),
@@ -1417,6 +1421,30 @@ def test_nested_request_reply_one_cycle_earlier_preserves_structural_prefix():
     assert not classify([empty, None, first], [first])
     assert not classify([empty, None, None, first], [empty, first])
     assert not classify([empty, first, None], [empty, first])
+    assert not classify(
+        [empty, first, None, second],
+        [empty, first, second],
+    )
+    assert not classify([empty, None, empty], [empty, empty])
+    beta_only = {
+        **recipe,
+        "inputs": {**recipe["inputs"], "selector": ["beta"]},
+    }
+    assert matches_known_family(beta_only, timing_families)
+    assert not classify(
+        [empty, None, first],
+        [empty, first],
+        with_recipe=beta_only,
+    )
+    beta_at_removal = {
+        **recipe,
+        "inputs": {**recipe["inputs"], "selector": ["alpha", "beta"]},
+    }
+    assert not classify(
+        [empty, None, first],
+        [empty, first],
+        with_recipe=beta_at_removal,
+    )
     # The complete issue-175 collision also changes the map delta at the next
     # outer-key event, so its existing exact fingerprint remains necessary.
     assert not classify(

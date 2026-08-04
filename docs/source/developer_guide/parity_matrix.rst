@@ -575,10 +575,12 @@ Wiring and node-authoring surface
        family. RFC 0014 additionally makes a self-coupled response observable
        one cycle earlier than released hgraph 0.5.34 by removing its redundant
        response-feedback boundary. Standalone service recipes and the reduced
-       nested-map shape from issue #274 are bounded by
-       ``request-reply-one-cycle-earlier``; the relation permits an unchanged
-       structural prefix but otherwise removes exactly the silence immediately
-       before the first divergent response. The switch/map family admits the
+       nested-map shape from issue #274 are bounded independently by
+       ``request-reply-one-cycle-earlier`` and
+       ``nested-request-reply-one-cycle-earlier``. Only the nested relation
+       permits an unchanged structural prefix, and it additionally proves the
+       request/reply-backed alpha branch is active at the removed cycle. The
+       switch/map family admits the
        same single-cycle advance only when composed with its exact flip, and
        the complete issue-175 outer-input collision remains fingerprint-pinned.
    * - ``dispatch_``
