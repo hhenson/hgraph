@@ -7,6 +7,28 @@ option(HGRAPH_WITH_BACKWARD "Enable backward-cpp stack traces" ON)
 option(HGRAPH_ENABLE_ASAN "Enable AddressSanitizer (address + leaks)" OFF)
 option(HGRAPH_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(HGRAPH_ENABLE_TSAN "Enable ThreadSanitizer (mutually exclusive with ASAN/UBSAN)" OFF)
+option(HGRAPH_ENABLE_COMPILER_CACHE "Use sccache or ccache when available" ON)
+
+# Route compilation through a compiler cache when one is installed. In CI this turns a cold
+# rebuild into a mostly-cached one; locally it does the same across build directories and branch
+# switches. sccache is preferred because it is what CI provisions (and it can share a cache across
+# runners); ccache is the common local fallback.
+#
+# An explicitly supplied CMAKE_CXX_COMPILER_LAUNCHER always wins, so this cannot override a
+# deliberate choice, and setting HGRAPH_ENABLE_COMPILER_CACHE=OFF disables the search entirely.
+if (HGRAPH_ENABLE_COMPILER_CACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+    find_program(HGRAPH_COMPILER_CACHE_PROGRAM sccache)
+    if (NOT HGRAPH_COMPILER_CACHE_PROGRAM)
+        find_program(HGRAPH_COMPILER_CACHE_PROGRAM ccache)
+    endif ()
+    if (HGRAPH_COMPILER_CACHE_PROGRAM)
+        set(CMAKE_C_COMPILER_LAUNCHER "${HGRAPH_COMPILER_CACHE_PROGRAM}" CACHE STRING "C compiler launcher" FORCE)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${HGRAPH_COMPILER_CACHE_PROGRAM}" CACHE STRING "C++ compiler launcher" FORCE)
+        message(STATUS "hgraph compiler cache: ${HGRAPH_COMPILER_CACHE_PROGRAM}")
+    else ()
+        message(STATUS "hgraph compiler cache: none found (looked for sccache, ccache)")
+    endif ()
+endif ()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

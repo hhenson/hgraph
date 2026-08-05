@@ -6,9 +6,79 @@ on:
       - 'v*'
       - 'v_*.*.*'
 
+permissions:
+  actions: read
+  contents: read
+
+env:
+  SCCACHE_GHA_ENABLED: "true"
+
 jobs:
+  # Building and smoke-testing the release wheels takes the better part of an hour across three
+  # runners. If this exact commit and tag has already been through that successfully, there is
+  # nothing to learn from doing it again, so the artifacts from that run are reused instead.
+  #
+  # This covers re-running a release: a publish that failed at the PyPI step, a cancelled run, or a
+  # workflow re-dispatch. It deliberately does NOT reuse across different tags on the same commit,
+  # because the version is written into pyproject.toml before the build, so wheels from another tag
+  # carry the wrong version. Lifting that restriction means restamping the version into the built
+  # distributions as a metadata-only rewrite, which is worth doing if cross-tag reuse is wanted.
+  reuse-build:
+    name: Find already-built distributions for this tag
+    runs-on: ubuntu-latest
+    outputs:
+      run-id: ${{ steps.find.outputs.run-id }}
+    steps:
+      - name: Find a successful run for this commit and tag
+        id: find
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const required = new Set([
+              "release-wheels-Linux",
+              "release-wheels-macOS",
+              "release-wheels-Windows",
+              "release-sdist",
+            ]);
+
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "release-wheels.yml",
+              head_sha: context.sha,
+              status: "success",
+              per_page: 100,
+            });
+
+            for (const run of runs) {
+              // Same commit is not enough: the version is baked in from the tag at build time,
+              // so the artifacts are only valid for the tag they were built for.
+              if (run.id === context.runId || run.head_sha !== context.sha) continue;
+              if (run.head_branch !== context.ref.replace("refs/tags/", "")) continue;
+
+              const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: run.id,
+                per_page: 100,
+              });
+              const available = new Set(
+                artifacts.filter((a) => !a.expired).map((a) => a.name),
+              );
+              if ([...required].every((name) => available.has(name))) {
+                core.notice(`Reusing distributions already built and tested by run ${run.id}`);
+                core.setOutput("run-id", String(run.id));
+                return;
+              }
+            }
+
+            core.notice(`No reusable distributions for ${context.sha}; building from source.`);
+            core.setOutput("run-id", "");
+
   build-wheels:
     name: Build wheels (${{ matrix.os }})
+    needs: reuse-build
+    if: needs.reuse-build.outputs.run-id == ''
     runs-on: ${{ matrix.os }}
     env:
       HGRAPH_SMOKE_PYTHONS: "3.12 3.13 3.14"
@@ -208,22 +278,42 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    needs: [build-wheels]
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [ reuse-build, build-wheels ]
+    # Publish when the build succeeded, or when it was skipped because a previous run for this
+    # exact commit and tag had already produced and tested the distributions.
+    if: >-
+      always() &&
+      startsWith(github.ref, 'refs/tags/') &&
+      needs.reuse-build.result == 'success' &&
+      (
+        needs.reuse-build.outputs.run-id != '' ||
+        needs.build-wheels.result == 'success'
+      )
     runs-on: ubuntu-latest
     environment:
       name: release
     permissions:
+      actions: read
       id-token: write
       contents: write
       pull-requests: write
     steps:
+      - name: Report distribution source
+        run: |
+          if [ -n "${{ needs.reuse-build.outputs.run-id }}" ]; then
+            echo "Reusing distributions from run ${{ needs.reuse-build.outputs.run-id }}"
+          else
+            echo "Using distributions built by this run (${{ github.run_id }})"
+          fi
+
       - name: Download release artifacts (wheels + sdist)
         uses: actions/download-artifact@v8.0.1
         with:
           path: dist_all
           pattern: release-*
           merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.reuse-build.outputs.run-id || github.run_id }}
 
       - name: Collect distributions into a single folder
         shell: bash
