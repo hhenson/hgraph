@@ -128,6 +128,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cibw-uvpip-
 
+      # cpp/CMakeLists.txt picks this up as the compiler launcher. Without it the runners fall back
+      # to whatever ccache happens to be installed, which is per-runner and so never warm.
+      - name: Enable shared compiler cache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696  # v0.0.10
+        with:
+          version: v0.15.0
+
       # Deliberately no version stamping here. The build stays version-agnostic so that the
       # artifacts a main push produces are reusable by whatever tag is cut from that commit later;
       # the publish job writes the tag version into the distribution metadata instead.
@@ -214,6 +221,14 @@ jobs:
           CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
           CMAKE_GENERATOR: Ninja
         run: uv build -v --wheel --out-dir wheelhouse
+
+      # The hit rate is worth watching rather than assuming: see the note in the pull request,
+      # measured at around 1% locally because uv resolves the build backend into a fresh temporary
+      # directory each time, moving nanobind's include path and so the compile command hash.
+      - name: Report compiler cache effectiveness
+        if: always()
+        shell: bash
+        run: sccache --show-stats || true
 
       - name: Build sdist (source distribution)
         run: |
