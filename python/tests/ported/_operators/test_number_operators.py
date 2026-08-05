@@ -95,7 +95,11 @@ def test_divmod_int_float():
     ],
 )
 def test_pow_numbers(lhs, rhs, expected):
-    assert eval_node(pow_, lhs, rhs) == expected
+    actual = eval_node(pow_, lhs, rhs)
+    assert actual == expected
+    assert [type(value) if value is not None else None for value in actual] == [
+        type(value) if value is not None else None for value in expected
+    ]
 
 
 @pytest.mark.parametrize(
