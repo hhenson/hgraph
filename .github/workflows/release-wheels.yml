@@ -25,10 +25,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ startsWith(github.ref, 'refs/tags/') && github.run_id || github.ref }}
   cancel-in-progress: true
 
-permissions:
-  actions: read
-  contents: read
-
 env:
   SCCACHE_GHA_ENABLED: "true"
 
@@ -41,6 +37,8 @@ jobs:
   # in at build time; the publish job restamps it from the tag.
   reuse-build:
     name: Find already-built distributions for this commit
+    permissions:
+      actions: read          # lists previous runs and their artifacts
     runs-on: ubuntu-latest
     outputs:
       run-id: ${{ steps.find.outputs.run-id }}
@@ -95,6 +93,8 @@ jobs:
 
   build-wheels:
     name: Build wheels (${{ matrix.os }})
+    permissions:
+      contents: read
     needs: reuse-build
     if: needs.reuse-build.outputs.run-id == ''
     runs-on: ${{ matrix.os }}
@@ -180,15 +180,24 @@ jobs:
       # against this exactly as it runs against the publish-grade wheel, so coverage is identical;
       # what a pull request does not prove is that the wheel is *publishable*, and that is proven
       # on main before any tag can reuse it.
-      - name: Build wheel (fast path, pull requests)
-        if: github.event_name == 'pull_request'
-        shell: bash
+      # Split by OS for the generator, exactly as the cibuildwheel configuration above is. On
+      # Windows the generator has to be Visual Studio: with Ninja and no MSVC environment set up,
+      # CMake finds MinGW on the runner's PATH and builds with the wrong toolchain, which then
+      # fails at link time under LTO with duplicate symbols.
+      - name: Build wheel (fast path, pull requests) [Windows MSVC]
+        if: github.event_name == 'pull_request' && runner.os == 'Windows'
+        env:
+          CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
+          CMAKE_GENERATOR: "Visual Studio 18 2026"
+          CMAKE_GENERATOR_PLATFORM: x64
+        run: uv build -v --wheel --out-dir wheelhouse
+
+      - name: Build wheel (fast path, pull requests) [Unix Ninja]
+        if: github.event_name == 'pull_request' && runner.os != 'Windows'
         env:
           CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
           CMAKE_GENERATOR: Ninja
-        run: |
-          set -euo pipefail
-          uv build -v --wheel --out-dir wheelhouse
+        run: uv build -v --wheel --out-dir wheelhouse
 
       - name: Build sdist (source distribution)
         run: |
@@ -289,6 +298,8 @@ jobs:
   # Skipped in its entirety on a tag whose commit has already been through it.
   test-matrix:
     name: Test suite (py${{ matrix.python-version }}, ${{ matrix.runtime }} runtime)
+    permissions:
+      contents: read
     needs: [ reuse-build, build-wheels ]
     if: needs.reuse-build.outputs.run-id == ''
     runs-on: ubuntu-latest
@@ -617,6 +628,38 @@ jobs:
                   path.unlink()
               print(f"{path.name} -> {new_path.name}")
 
+          # A wheel whose RECORD no longer agrees with its contents installs and then misbehaves
+          # in confusing ways, so the rewrite is verified rather than trusted. Checking RECORD
+          # directly is both stricter than a metadata linter and free of any added dependency.
+          def verify_wheel(path: Path) -> None:
+              with zipfile.ZipFile(path) as archive:
+                  names = set(archive.namelist())
+                  record_name = next(n for n in names if n.endswith(".dist-info/RECORD"))
+                  listed = set()
+                  for row in csv.reader(io.StringIO(archive.read(record_name).decode())):
+                      if not row:
+                          continue
+                      entry, expected_hash, expected_size = row[0], row[1], row[2]
+                      listed.add(entry)
+                      assert entry in names, f"{path.name}: RECORD lists missing file {entry}"
+                      if not expected_hash:
+                          continue          # RECORD cannot hash itself
+                      data = archive.read(entry)
+                      assert record_hash(data) == expected_hash, f"{path.name}: hash mismatch for {entry}"
+                      assert str(len(data)) == expected_size, f"{path.name}: size mismatch for {entry}"
+                  assert listed == names, f"{path.name}: RECORD and archive disagree: {listed ^ names}"
+                  metadata = archive.read(record_name.replace("RECORD", "METADATA")).decode()
+                  assert f"Version: {version}" in metadata, f"{path.name}: METADATA not at {version}"
+              print(f"{path.name}: RECORD and METADATA verified")
+
+          def verify_sdist(path: Path) -> None:
+              with tarfile.open(path, "r:gz") as archive:
+                  pkg_info = f"{path.name.removesuffix('.tar.gz')}/PKG-INFO"
+                  member = archive.extractfile(pkg_info)
+                  assert member is not None, f"{path.name}: {pkg_info} missing"
+                  assert f"Version: {version}" in member.read().decode(), f"{path.name}: PKG-INFO not at {version}"
+              print(f"{path.name}: PKG-INFO verified")
+
           wheels = sorted(Path("to_upload").glob("*.whl"))
           sdists = sorted(Path("to_upload").glob("*.tar.gz"))
           assert wheels, "no wheels to publish"
@@ -624,17 +667,10 @@ jobs:
               restamp_wheel(wheel)
           for sdist in sdists:
               restamp_sdist(sdist)
-
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
-        with:
-          python-version: '3.12'
-
-      # A restamped wheel whose RECORD no longer matches its contents installs and then fails in
-      # confusing ways, so the rewrite is checked before anything reaches PyPI.
-      - name: Verify restamped distributions
-        run: |
-          uvx --from twine==6.2.0 twine check to_upload/*
-          ls -la to_upload
+          for wheel in sorted(Path("to_upload").glob("*.whl")):
+              verify_wheel(wheel)
+          for sdist in sorted(Path("to_upload").glob("*.tar.gz")):
+              verify_sdist(sdist)
 
       - name: Publish to PyPI (trusted publishing)
         uses: pypa/gh-action-pypi-publish@v1.14.1
