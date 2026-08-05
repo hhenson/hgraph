@@ -478,7 +478,10 @@ jobs:
             # Compute version string for the commit subject from REF (supports v_#.#.# and v#.#.#)
             VER_COMMIT="$REF"
             if [[ "$VER_COMMIT" == v_* ]]; then VER_COMMIT="${VER_COMMIT#v_}"; elif [[ "$VER_COMMIT" == v* ]]; then VER_COMMIT="${VER_COMMIT#v}"; fi
-            git commit -m "Update version to ${VER_COMMIT} based on tag"
+            # [skip ci]: this lands on main, which now builds release-grade wheels on every push.
+            # A version-bump commit changes no source, so rebuilding and re-testing it would cost
+            # a full matrix run to produce artifacts identical to the ones just published.
+            git commit -m "Update version to ${VER_COMMIT} based on tag [skip ci]"
             git push origin HEAD:"$DEFAULT_BRANCH"
           else
             echo "No changes detected in pyproject.toml. Skipping commit and push."
