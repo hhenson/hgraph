@@ -101,12 +101,13 @@ operator pipelines, and mesh lifecycle driven by a TSD key set.  TSD key-set
 recipes include value-only updates,
 same-cycle replacement, removal, repopulation, and empty transitions.
 
-Twelve of the thirteen generated families pass their inputs through a fixed
-structural ``TSL`` projection before use.  This intentionally combines a
+Most generated framework families pass their inputs through a fixed structural
+``TSL`` projection before use.  This intentionally combines a
 non-peered container with a ``REF``-producing child projection, so ordinary
 operators and framework boundaries must consume REF-transparent sources.
-The remaining scalar-expression family retains direct inputs to preserve an
-independent baseline.
+The scalar-expression and scalar-operator-argument families retain direct
+inputs to preserve an independent baseline and isolate public overload
+selection from reference projection behavior.
 
 The pull-request profile generates 48 cases of 8--32 ticks in addition to the
 curated corpus.  The nightly profile generates 5,000 cases of 8--64 ticks and
@@ -119,15 +120,18 @@ cardinality, remain corpus-only.
 Generated discovery targets the agreed compatibility contract, not accepted
 deviations.  The fixed corpus permanently retains the latter, but unrestricted
 generation works around them: every reduction supplies its explicit identity
-zero; collection and nested scalar outputs use ``dedup`` to normalize equal
-re-ticks; subscription keys include replacements and re-subscriptions while
-using a non-zero multiplier; nested service-backed invalid windows remain
-fixed-corpus cases while standalone service and service-adaptor generators
-cover their agreed behavior; reference-unsupported temporal method-call
-spellings and cyclic adaptor/outer-switch composition remain ordinary
-compatibility or fixed coverage.  This keeps churn, branch lifecycle, service,
-and reduction coverage while reserving random examples for previously unruled
-behavior.
+zero; scalar operator recipes constrain zero divisors, powers, and
+``DivideByZero`` policies to combinations which complete on released hgraph;
+collection generation excludes operator/shape pairs absent from the released
+public overload set; collection and nested scalar outputs use ``dedup`` to
+normalize equal re-ticks; subscription keys include replacements and
+re-subscriptions while using a non-zero multiplier; nested service-backed
+invalid windows remain fixed-corpus cases while standalone service and
+service-adaptor generators cover their agreed behavior; reference-unsupported
+temporal method-call spellings and cyclic adaptor/outer-switch composition
+remain ordinary compatibility or fixed coverage.  This keeps overload, churn,
+branch lifecycle, service, and reduction coverage while reserving random
+examples for previously unruled behavior.
 
 Coverage is semantic rather than only line-based.  Reports count templates,
 time-series shapes, scalar types, operator families, topology, lifecycle
@@ -140,12 +144,17 @@ production triage has actually produced (the 2026-07 batch, issues #74-#92):
 
 - ``scalar_expression`` const arguments exercise scalar auto-const overload
   selection (the #74/#78 exact-matching class);
+- ``scalar_operator_arguments`` calls numeric arithmetic and comparison
+  operators with a raw scalar on either side.  Division, floor division,
+  modulo, and power additionally vary the wiring-time ``DivideByZero`` enum,
+  including reference-valid zero-handling paths;
 - ``temporal_expression`` drives date/datetime arithmetic into the upstream
   ``getattr_`` accessor tables — properties and method-call spellings, the
   ``(date - date).days`` shape included (the #82 class);
-- ``collection_size`` covers ``len_``/``is_empty``/``contains_`` over every
-  upstream-supported sized shape (the #81 class); its no-change re-tick
-  elision is the ruled deviation, bounded by the ``no-change-elision``
+- ``collection_size`` covers the valid ``len_``/``is_empty``/``contains_``
+  pairs over every upstream-supported sized shape (the #81 class); its
+  no-change re-tick elision is the ruled deviation, bounded by the
+  ``no-change-elision``
   relation in ``known_divergences.json``;
 - ``lifecycle_state`` generates start/stop lifecycle functions across the
   accepted signature spellings — strict, bare-injectable, and unannotated

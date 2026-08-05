@@ -14,6 +14,9 @@ from .catalog import CATALOG, validate_recipe
 from .model import Recipe, SCHEMA_VERSION
 
 
+_DIVIDE_POLICIES = ("ERROR", "NAN", "INF", "NONE", "ZERO", "ONE")
+
+
 def _recipe_from_payload(payload: dict[str, Any], seed: int) -> Recipe:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     suffix = hashlib.sha256(encoded.encode()).hexdigest()[:12]
@@ -110,6 +113,151 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
                 f"ticks:{'long' if count > 16 else 'medium'}",
                 *(f"operator:{operation}" for operation in sorted(operations)),
                 *(("mode:postponed-annotations",) if postponed else ()),
+            ],
+        }
+
+    @st.composite
+    def scalar_operator_arguments(draw):
+        operation = draw(st.sampled_from((
+            "add", "sub", "mul", "div", "floordiv", "mod", "pow",
+            "eq", "ne", "lt", "le", "gt", "ge",
+        )))
+        scalar_side = draw(st.sampled_from(("lhs", "rhs")))
+        input_type = draw(st.sampled_from(("int", "float")))
+        scalar_type = (
+            input_type
+            if operation in {"eq", "ne", "lt", "le", "gt", "ge"}
+            else draw(st.sampled_from(("int", "float")))
+        )
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+
+        def numeric(type_name, minimum=-8, maximum=8):
+            values = st.integers(min_value=minimum, max_value=maximum)
+            return values if type_name == "int" else values.map(float)
+
+        def nonzero(type_name):
+            values = st.one_of(
+                st.integers(min_value=-8, max_value=-1),
+                st.integers(min_value=1, max_value=8),
+            )
+            return values if type_name == "int" else values.map(float)
+
+        def sparse_series(values, first=None):
+            initial = draw(values if first is None else st.just(first))
+            return [initial] + [
+                draw(st.one_of(st.none(), values)) for _ in range(count - 1)
+            ]
+
+        divide_by_zero = None
+        output_type = (
+            "bool"
+            if operation in {"eq", "ne", "lt", "le", "gt", "ge"}
+            else "float"
+            if operation == "div" or "float" in (input_type, scalar_type)
+            else "int"
+        )
+
+        if operation in {"div", "floordiv", "mod"}:
+            if operation == "div":
+                zero_policies = ("NAN", "INF", "NONE", "ZERO", "ONE")
+            elif operation == "floordiv" and output_type == "int":
+                zero_policies = ("NONE", "ZERO")
+            elif operation == "floordiv":
+                zero_policies = ("NAN", "INF", "NONE", "ZERO", "ONE")
+            elif output_type == "int":
+                zero_policies = ("NONE",)
+            else:
+                zero_policies = ("NAN", "INF", "NONE")
+            exercise_zero = draw(st.booleans())
+            divide_by_zero = draw(st.sampled_from(
+                zero_policies if exercise_zero else _DIVIDE_POLICIES
+            ))
+            if scalar_side == "rhs":
+                scalar_value = (
+                    0 if scalar_type == "int" else 0.0
+                ) if exercise_zero else draw(nonzero(scalar_type))
+                ticks = sparse_series(numeric(input_type))
+            else:
+                scalar_value = draw(numeric(scalar_type))
+                denominator = numeric(input_type)
+                if exercise_zero:
+                    ticks = sparse_series(
+                        st.one_of(denominator, st.just(
+                            0 if input_type == "int" else 0.0
+                        )),
+                        first=0 if input_type == "int" else 0.0,
+                    )
+                else:
+                    ticks = sparse_series(nonzero(input_type))
+        elif operation == "pow":
+            divide_by_zero = draw(st.sampled_from(_DIVIDE_POLICIES))
+            integer_output = output_type == "int"
+            exercise_zero = not integer_output and draw(st.booleans())
+            if scalar_side == "rhs":
+                if exercise_zero:
+                    scalar_value = -1 if scalar_type == "int" else -1.0
+                    zero = 0 if input_type == "int" else 0.0
+                    ticks = sparse_series(
+                        numeric(input_type, minimum=0, maximum=5), first=zero
+                    )
+                    divide_by_zero = draw(st.sampled_from(
+                        ("NAN", "INF", "NONE", "ZERO", "ONE")
+                    ))
+                else:
+                    scalar_value = draw(numeric(
+                        scalar_type, minimum=0, maximum=4
+                    ))
+                    ticks = sparse_series(numeric(
+                        input_type,
+                        minimum=-5 if integer_output else 0,
+                        maximum=5,
+                    ))
+            else:
+                if exercise_zero:
+                    scalar_value = 0 if scalar_type == "int" else 0.0
+                    negative_one = -1 if input_type == "int" else -1.0
+                    ticks = sparse_series(
+                        numeric(input_type, minimum=-1, maximum=4),
+                        first=negative_one,
+                    )
+                    divide_by_zero = draw(st.sampled_from(
+                        ("NAN", "INF", "NONE", "ZERO", "ONE")
+                    ))
+                else:
+                    scalar_value = draw(numeric(
+                        scalar_type, minimum=0, maximum=5
+                    ))
+                    ticks = sparse_series(numeric(
+                        input_type, minimum=0, maximum=4
+                    ))
+        else:
+            scalar_value = draw(numeric(scalar_type))
+            ticks = sparse_series(numeric(input_type))
+
+        parameters = {
+            "operation": operation,
+            "input_type": input_type,
+            "scalar_type": scalar_type,
+            "scalar_side": scalar_side,
+            "scalar_value": scalar_value,
+        }
+        if divide_by_zero is not None:
+            parameters["divide_by_zero"] = divide_by_zero
+        return {
+            "template": "scalar_operator_arguments",
+            "inputs": {"value": ticks},
+            "parameters": parameters,
+            "features": [
+                *CATALOG["scalar_operator_arguments"].features,
+                f"operator:{operation}",
+                f"argument:scalar-{scalar_side}",
+                f"type:input-{input_type}",
+                f"type:scalar-{scalar_type}",
+                f"type:output-{output_type}",
+                *(
+                    (f"policy:divide-by-zero-{divide_by_zero.lower()}",)
+                    if divide_by_zero is not None else ()
+                ),
             ],
         }
 
@@ -487,8 +635,15 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
     @st.composite
     def collection_size(draw):
         shape = draw(st.sampled_from(("str", "tss", "tsd", "tsl")))
-        operation = ("len" if shape == "tsl"
-                     else draw(st.sampled_from(("len", "is_empty", "contains"))))
+        operation = (
+            "len"
+            if shape == "tsl"
+            else draw(st.sampled_from(
+                ("len", "contains")
+                if shape == "str"
+                else ("len", "is_empty", "contains")
+            ))
+        )
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
         parameters = {
             "shape": shape,
@@ -679,6 +834,7 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
     # constrained within their individual generators.
     discovery_weighted = (
         ("scalar_expression", scalar_expression),
+        ("scalar_operator_arguments", scalar_operator_arguments),
         ("feedback_accumulate", feedback_accumulate),
         ("switch_arithmetic", switch_arithmetic),
         ("tsd_map_reduce", tsd_map_reduce),

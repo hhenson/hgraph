@@ -45,6 +45,7 @@ CAMPAIGN_PROFILES = {
         "max_ticks": 32,
         "templates": (
             "scalar_expression",
+            "scalar_operator_arguments",
             "feedback_accumulate",
             "switch_arithmetic",
         ),
