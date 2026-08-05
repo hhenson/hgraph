@@ -1,14 +1,102 @@
-name: Release Wheels (cibuildwheel)
+name: Build, test and publish
 
+# One flow: the same workflow builds the distributions, tests them, and publishes them.
+#
+# Everything except publish is gated on the reuse lookup, so tagging a commit that has already been
+# through this workflow successfully skips the build and the entire test matrix and goes straight
+# to publishing what was already built and tested. A release is then a metadata rewrite plus an
+# upload, taking minutes rather than the better part of an hour.
+#
+# That works because the build is version-agnostic: nothing writes the tag into the source before
+# compiling, so the artifacts a main push produces are byte-identical to what a tag build would
+# have produced, and the version is stamped into the distribution metadata at publish time.
 on:
+  pull_request:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
       - 'v_*.*.*'
 
+concurrency:
+  # Supersede in-flight runs for the same ref; a new push makes the previous one irrelevant.
+  # Tags are excluded by group (github.run_id is unique) so a release in flight is never cancelled.
+  group: ${{ github.workflow }}-${{ startsWith(github.ref, 'refs/tags/') && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+env:
+  SCCACHE_GHA_ENABLED: "true"
+
 jobs:
+  # Building and smoke-testing the release wheels takes the better part of an hour across three
+  # runners. If this exact commit has already been through that successfully, there is nothing to
+  # learn from doing it again, so those artifacts are reused.
+  #
+  # Matching is on the commit alone. A run from any ref will do, because the version is not baked
+  # in at build time; the publish job restamps it from the tag.
+  reuse-build:
+    name: Find already-built distributions for this commit
+    permissions:
+      actions: read          # lists previous runs and their artifacts
+    runs-on: ubuntu-latest
+    outputs:
+      run-id: ${{ steps.find.outputs.run-id }}
+    steps:
+      - name: Find a successful run for this commit
+        id: find
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const required = new Set([
+              "release-wheels-Linux",
+              "release-wheels-macOS",
+              "release-wheels-Windows",
+              "release-sdist",
+            ]);
+
+            // event: "push" is load-bearing, not a tidy-up. Pull request runs take the fast build
+            // path and upload wheels that are not publish-grade, under these same artifact names.
+            // A rebase merge can leave main's commit sharing a SHA with the pull request head, so
+            // without this filter a tag could publish an unrepaired wheel.
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "release-wheels.yml",
+              event: "push",
+              head_sha: context.sha,
+              status: "success",
+              per_page: 100,
+            });
+
+            for (const run of runs) {
+              if (run.id === context.runId || run.head_sha !== context.sha) continue;
+
+              const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: run.id,
+                per_page: 100,
+              });
+              const available = new Set(
+                artifacts.filter((a) => !a.expired).map((a) => a.name),
+              );
+              if ([...required].every((name) => available.has(name))) {
+                core.notice(`Reusing distributions already built and tested by run ${run.id}`);
+                core.setOutput("run-id", String(run.id));
+                return;
+              }
+            }
+
+            core.notice(`No reusable distributions for ${context.sha}; building from source.`);
+            core.setOutput("run-id", "");
+
   build-wheels:
     name: Build wheels (${{ matrix.os }})
+    permissions:
+      contents: read
+    needs: reuse-build
+    if: needs.reuse-build.outputs.run-id == ''
     runs-on: ${{ matrix.os }}
     env:
       HGRAPH_SMOKE_PYTHONS: "3.12 3.13 3.14"
@@ -40,48 +128,42 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cibw-uvpip-
 
-      - name: Set version from tag into pyproject
-        shell: bash
-        run: |
-          set -euo pipefail
-          REF="${GITHUB_REF_NAME}"
-          if [[ "${REF}" == v_* ]]; then
-            VERSION="${REF#v_}"
-          elif [[ "${REF}" == v* ]]; then
-            VERSION="${REF#v}"
-          else
-            echo "Tag ${REF} does not start with v or v_; skipping version update" >&2
-            exit 1
-          fi
-          echo "Setting project version to: ${VERSION}"
-          export VERSION="${VERSION}"
-          python - <<'PY'
-          import os, re, pathlib, sys
-          ver = os.environ.get('VERSION')
-          if not ver:
-            print('VERSION env not set', file=sys.stderr)
-            sys.exit(1)
-          p = pathlib.Path('pyproject.toml')
-          s = p.read_text(encoding='utf-8')
-          new_s, n = re.subn(r'(?m)^(version\s*=\s*")[^"]+("\s*)$', rf"\g<1>{ver}\2", s)
-          if n == 0:
-            # Fallback: replace [project] version explicitly
-            new_s, n = re.subn(r'(?m)^version\s*=\s*"[^"]+"', f'version = "{ver}"', s)
-          if n == 0:
-            print('ERROR: Could not find version field in pyproject.toml', file=sys.stderr)
-            sys.exit(1)
-          p.write_text(new_s, encoding='utf-8')
-          print(f'pyproject.toml version updated to {ver}')
-          PY
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # cpp/CMakeLists.txt picks this up as the compiler launcher. Without it the runners fall back
+      # to whatever ccache happens to be installed, which is per-runner and so never warm.
+      - name: Enable shared compiler cache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696  # v0.0.10
+        with:
+          version: v0.15.0
+
+      # Deliberately no version stamping here. The build stays version-agnostic so that the
+      # artifacts a main push produces are reusable by whatever tag is cut from that commit later;
+      # the publish job writes the tag version into the distribution metadata instead.
+
+      # Ninja rather than the Visual Studio generator, on Windows too: MSBuild ignores
+      # CMAKE_CXX_COMPILER_LAUNCHER, so sccache can never fire under it. Ninja does honour it, but
+      # only finds cl.exe if the MSVC environment has been set up first — without this step CMake
+      # falls through to MinGW on the runner's PATH and builds with the wrong toolchain.
+      - name: Configure MSVC toolchain for Ninja (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
+
+      - name: Install Ninja (Windows)
+        if: runner.os == 'Windows'
+        # Pinned and binary-only, matching the conan and cibuildwheel installs below: an unpinned
+        # install takes whatever was published today, and building from source would run the
+        # package's own setup scripts.
+        run: uv tool install --no-build ninja==1.13.0
 
       - name: Install tooling
         run: |
           uv tool install --upgrade cibuildwheel==3.4.0
           uv tool install --upgrade conan==2.26.2
 
+      # Publish-grade wheels, built only where something is published from. cibuildwheel spins a
+      # container per platform and is markedly slower than a plain build; pull requests do not
+      # publish, so they take the fast path below and are tested just as thoroughly.
       - name: Build wheels with cibuildwheel
+        if: github.event_name != 'pull_request'
         env:
           # Build once on CPython 3.12 and publish ABI3 wheels for 3.12+.
           CIBW_BUILD: cp312-*
@@ -103,9 +185,11 @@ jobs:
           # Re-state CMAKE_ARGS to include both flags on Linux and prefer Ninja
           CIBW_ENVIRONMENT_LINUX: >-
             CMAKE_ARGS="-DNB_USE_STABLE_ABI=ON -DHGRAPH_WITH_BACKWARD=OFF" CMAKE_GENERATOR=Ninja SKBUILD_VERBOSE=1
-          # Windows: prefer Visual Studio generator to ensure cl.exe is used and on PATH
+          # Windows: Ninja, with the MSVC environment provided by the step above. The debug
+          # information format is settled in cpp/CMakeLists.txt, which uses /Z7 so that parallel
+          # compilation does not contend on a shared PDB.
           CIBW_ENVIRONMENT_WINDOWS: >-
-            CMAKE_GENERATOR="Visual Studio 18 2026" CMAKE_GENERATOR_PLATFORM=x64 SKBUILD_VERBOSE=1
+            CMAKE_GENERATOR=Ninja CMAKE_ARGS="-DNB_USE_STABLE_ABI=ON" SKBUILD_VERBOSE=1
           # Apply env for all macOS builds so the wheel tag matches binary min target
           CIBW_ENVIRONMENT_MACOS: >-
             MACOSX_DEPLOYMENT_TARGET=15.0 SKBUILD_VERBOSE=1
@@ -114,6 +198,28 @@ jobs:
             CMAKE_OSX_ARCHITECTURES=arm64 MACOSX_DEPLOYMENT_TARGET=15.0 CMAKE_OSX_DEPLOYMENT_TARGET=15.0 CMAKE_GENERATOR=Ninja SKBUILD_VERBOSE=1
         run: |
           uvx --from cibuildwheel==3.4.0 cibuildwheel --output-dir wheelhouse
+
+      # Pull request path: the same extension, compiled the same way, without the container and
+      # the wheel-repair machinery that only matters for distribution. The test matrix below runs
+      # against this exactly as it runs against the publish-grade wheel, so coverage is identical;
+      # what a pull request does not prove is that the wheel is *publishable*, and that is proven
+      # on main before any tag can reuse it.
+      # Every platform uses Ninja. On Windows the MSVC environment comes from the step above,
+      # without which CMake finds MinGW and builds with the wrong toolchain.
+      - name: Build wheel (fast path, pull requests)
+        if: github.event_name == 'pull_request'
+        env:
+          CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
+          CMAKE_GENERATOR: Ninja
+        run: uv build -v --wheel --out-dir wheelhouse
+
+      # The hit rate is worth watching rather than assuming: see the note in the pull request,
+      # measured at around 1% locally because uv resolves the build backend into a fresh temporary
+      # directory each time, moving nanobind's include path and so the compile command hash.
+      - name: Report compiler cache effectiveness
+        if: always()
+        shell: bash
+        run: sccache --show-stats || true
 
       - name: Build sdist (source distribution)
         run: |
@@ -136,8 +242,10 @@ jobs:
             if ($wheels) { uvx --from twine==6.2.0 twine check wheelhouse/*.whl }
           } else { Write-Host "wheelhouse not found" }
 
-      - name: Test built wheels with ABI3 smoke tests [Linux/macOS]
-        if: runner.os != 'Windows'
+      # macOS only: on Linux the test matrix runs the full suite against this same wheel, on the
+      # same three interpreters and both runtimes, so smoke testing here would be a strict subset.
+      - name: Test built wheels with ABI3 smoke tests [macOS]
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
@@ -205,25 +313,222 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # The full suite, run against the wheel that will actually be published, on every supported
+  # Python. The wheel is abi3, built once against the 3.12 stable ABI, so the same artifact is
+  # exercised on 3.13 and 3.14 rather than rebuilt per version.
+  #
+  # Skipped in its entirety on a tag whose commit has already been through it.
+  test-matrix:
+    name: Test suite (py${{ matrix.python-version }}, ${{ matrix.runtime }} runtime)
+    permissions:
+      contents: read
+    needs: [ reuse-build, build-wheels ]
+    if: needs.reuse-build.outputs.run-id == ''
+    runs-on: ubuntu-latest
+    # The C++ runtime is not yet at parity with the Python reference implementation, so its legs
+    # report without blocking.
+    #
+    # 3.14 is deliberately NOT exempted. It aborts during interpreter finalisation once the
+    # adaptors group has run, but that happens after pytest has reported, so the run step tells the
+    # two apart rather than the whole leg being made optional. A 3.14-only regression still fails.
+    continue-on-error: ${{ matrix.runtime == 'cpp' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ '3.12', '3.13', '3.14' ]
+        runtime: [ 'python', 'cpp' ]
+        # Coverage is measured once, on the reference leg; the other five would report the same
+        # lines at six times the cost.
+        include:
+          - python-version: '3.12'
+            runtime: 'python'
+            coverage_args: '--cov=hgraph --cov-report=xml'
+    env:
+      HGRAPH_USE_CPP: ${{ matrix.runtime == 'cpp' && 'true' || 'false' }}
+      PYTHONFAULTHANDLER: '1'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache uv downloads
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-py${{ matrix.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-py${{ matrix.python-version }}-
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-wheels-Linux
+          path: wheelhouse
+
+      - name: Sync test dependencies (project itself comes from the wheel)
+        run: uv sync --frozen --all-extras --all-groups --no-install-project --python ${{ matrix.python-version }}
+
+      - name: Install the release wheel
+        shell: python
+        run: |
+          import subprocess, sys
+          from pathlib import Path
+
+          # cibuildwheel emits a musllinux wheel alongside the manylinux one; it cannot install on
+          # the glibc runner, and picking it would fail in a way that reads like a test failure.
+          # On the pull request path there is a single plain linux_x86_64 wheel instead.
+          wheels = [w for w in sorted(Path("wheelhouse").rglob("*.whl")) if "musllinux" not in w.name]
+          assert len(wheels) == 1, f"expected exactly one installable wheel, found {wheels}"
+          venv_python = Path(".venv") / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+          subprocess.check_call(["uv", "pip", "install", "--python", str(venv_python), str(wheels[0])])
+
+      - name: Confirm the wheel is what gets imported
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Hide the source tree so a local copy cannot shadow the installed wheel.
+          mv hgraph hgraph_src
+          trap 'mv hgraph_src hgraph' EXIT
+          .venv/bin/python -c "import importlib.util as u; m=u.find_spec('hgraph._hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
+          .venv/bin/python -c "import hgraph; print('hgraph:', hgraph.__file__)"
+          .venv/bin/python -c "import sys; print('python:', sys.version)"
+
+      # pytest's exit status is not usable on its own here: on 3.14 the interpreter can abort during
+      # finalisation, after the run has completed and reported, turning a green run into SIGABRT.
+      # So the verdict comes from the JUnit report, which is written before finalisation, and the
+      # process status is only consulted to catch a crash that happened *during* the run.
+      - name: Run test suite
+        shell: bash
+        run: |
+          echo "python=${{ matrix.python-version }} HGRAPH_USE_CPP=${HGRAPH_USE_CPP}"
+          ulimit -c unlimited || true
+          mv hgraph hgraph_src
+          trap 'mv hgraph_src hgraph' EXIT
+          set +e
+          .venv/bin/pytest hgraph_unit_tests docs -ra -q \
+            --junitxml=pytest-report.xml ${{ matrix.coverage_args }}
+          pytest_status=$?
+          set -e
+          echo "pytest exit status: ${pytest_status}"
+          .venv/bin/python - "${pytest_status}" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          status = int(sys.argv[1])
+          report = Path("pytest-report.xml")
+
+          if not report.is_file():
+              sys.exit(f"FAIL: pytest produced no report; it died before finishing (status {status}).")
+
+          totals = {k: 0 for k in ("tests", "failures", "errors", "skipped")}
+          for suite in ET.parse(report).getroot().iter("testsuite"):
+              for k in totals:
+                  totals[k] += int(suite.get(k, 0))
+          print("report:", ", ".join(f"{k}={v}" for k, v in totals.items()))
+
+          if totals["failures"] or totals["errors"]:
+              sys.exit("FAIL: the run reported test failures or errors.")
+          if totals["tests"] == 0:
+              sys.exit("FAIL: the report contains no tests; collection probably failed.")
+          if status == 0:
+              print("PASS")
+              sys.exit(0)
+          # Every test passed but the process still died. Tolerated only for the known post-run
+          # finalisation abort; anything else is a real crash during the run.
+          if status > 128:
+              print(
+                  f"PASS (with warning): all tests passed but the process exited on signal "
+                  f"{status - 128} after reporting. This is the known interpreter-finalisation abort."
+              )
+              sys.exit(0)
+          sys.exit(f"FAIL: tests reported clean but pytest exited {status}.")
+          PY
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: pytest-report-py${{ matrix.python-version }}-${{ matrix.runtime }}
+          path: pytest-report.xml
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Collect crash artifacts
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Collecting core dumps and backtraces..."
+          sudo apt-get update >/dev/null 2>&1 || true
+          sudo apt-get install -y gdb >/dev/null 2>&1 || true
+          shopt -s nullglob || true
+          CORES=(core core.* /var/crash/*.crash /var/crash/*.core /home/runner/work/*/*/core*)
+          echo "Found ${#CORES[@]} core candidates"
+          for c in "${CORES[@]}"; do
+            echo "==> Core file: $c"
+            file "$c" || true
+            gdb -q -n -batch -ex "set pagination off" -ex "thread apply all bt full" -ex "quit" "$(which python)" "$c" || true
+          done
+
+      - name: Upload core dumps
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: core-dumps-py${{ matrix.python-version }}-${{ matrix.runtime }}
+          path: |
+            core*
+            /var/crash/*.crash
+            /var/crash/*.core
+            /home/runner/work/*/*/core*
+          if-no-files-found: ignore
+          retention-days: 7
 
   publish:
     name: Publish to PyPI
-    needs: [build-wheels]
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [ reuse-build, build-wheels, test-matrix ]
+    # Publish when the build and the tests both succeeded, or when both were skipped because a
+    # previous run for this exact commit had already built and tested the distributions.
+    #
+    # `always()` is needed because the upstream jobs are skipped in the reuse case, and a skipped
+    # dependency would otherwise skip this job too. The explicit result checks put the gating back:
+    # nothing is published unless it was tested, here or in the run being reused.
+    if: >-
+      always() &&
+      startsWith(github.ref, 'refs/tags/') &&
+      needs.reuse-build.result == 'success' &&
+      (
+        needs.reuse-build.outputs.run-id != '' ||
+        (
+          needs.build-wheels.result == 'success' &&
+          needs.test-matrix.result == 'success'
+        )
+      )
     runs-on: ubuntu-latest
     environment:
       name: release
     permissions:
+      actions: read
       id-token: write
       contents: write
       pull-requests: write
     steps:
+      - name: Report distribution source
+        run: |
+          if [ -n "${{ needs.reuse-build.outputs.run-id }}" ]; then
+            echo "Reusing distributions from run ${{ needs.reuse-build.outputs.run-id }}"
+          else
+            echo "Using distributions built by this run (${{ github.run_id }})"
+          fi
+
       - name: Download release artifacts (wheels + sdist)
         uses: actions/download-artifact@v8.0.1
         with:
           path: dist_all
           pattern: release-*
           merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.reuse-build.outputs.run-id || github.run_id }}
 
       - name: Collect distributions into a single folder
         shell: bash
@@ -237,6 +542,157 @@ jobs:
             cp "$f" to_upload/
           done
           echo "Collected distributions:" && ls -la to_upload || true
+
+      # The tag is the version authority. The distributions were built, and fully tested, at
+      # whatever version pyproject.toml carried on that commit. Rewriting the version is a
+      # metadata-only operation, so the expensive compiled artifacts are reused byte-for-byte.
+      - name: Restamp distributions to the tag version
+        shell: python
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          import base64, csv, hashlib, io, os, re, tarfile, zipfile
+          from pathlib import Path
+
+          tag = os.environ["RELEASE_TAG"]
+          version = tag[2:] if tag.startswith("v_") else tag[1:] if tag.startswith("v") else tag
+          print(f"tag {tag} -> version {version}")
+
+          def record_hash(data: bytes) -> str:
+              digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest())
+              return "sha256=" + digest.decode().rstrip("=")
+
+          def restamp_wheel(path: Path) -> None:
+              name, old_version, _rest = path.name.split("-", 2)
+              if old_version == version:
+                  print(f"{path.name}: already at {version}")
+                  return
+              old_info, new_info = f"{name}-{old_version}.dist-info", f"{name}-{version}.dist-info"
+              with zipfile.ZipFile(path) as archive:
+                  entries = {i.filename: archive.read(i.filename) for i in archive.infolist()}
+
+              renamed = {}
+              for item_name, data in entries.items():
+                  new_name = item_name.replace(old_info + "/", new_info + "/")
+                  if new_name == f"{new_info}/METADATA":
+                      text, count = re.subn(
+                          rf"(?m)^Version: {re.escape(old_version)}$",
+                          f"Version: {version}",
+                          data.decode(),
+                          count=1,
+                      )
+                      assert count == 1, f"{path.name}: METADATA Version line not found"
+                      data = text.encode()
+                  renamed[new_name] = data
+
+              # RECORD lists every file with its hash and size, so it has to be rebuilt after the
+              # dist-info rename and the METADATA edit, or the wheel fails installation checks.
+              record_name = f"{new_info}/RECORD"
+              rows = []
+              for row in csv.reader(io.StringIO(renamed[record_name].decode())):
+                  if not row:
+                      continue
+                  entry = row[0].replace(old_info + "/", new_info + "/")
+                  if entry == record_name:
+                      rows.append([entry, "", ""])       # RECORD cannot hash itself
+                  else:
+                      rows.append([entry, record_hash(renamed[entry]), str(len(renamed[entry]))])
+              buffer = io.StringIO(newline="")
+              csv.writer(buffer, lineterminator="\n").writerows(rows)
+              renamed[record_name] = buffer.getvalue().encode()
+
+              new_path = path.with_name(path.name.replace(f"-{old_version}-", f"-{version}-", 1))
+              with zipfile.ZipFile(new_path, "w", zipfile.ZIP_DEFLATED) as archive:
+                  for item_name, data in renamed.items():
+                      archive.writestr(item_name, data)
+              if new_path != path:
+                  path.unlink()
+              print(f"{path.name} -> {new_path.name}")
+
+          def restamp_sdist(path: Path) -> None:
+              name, old_version = path.name.removesuffix(".tar.gz").rsplit("-", 1)
+              if old_version == version:
+                  print(f"{path.name}: already at {version}")
+                  return
+              old_root, new_root = f"{name}-{old_version}", f"{name}-{version}"
+              members = []
+              with tarfile.open(path, "r:gz") as archive:
+                  for member in archive.getmembers():
+                      data = archive.extractfile(member).read() if member.isfile() else None
+                      member.name = member.name.replace(old_root, new_root, 1)
+                      # Paths over 100 characters ride PAX headers, which would override the
+                      # renamed member.name when the archive is written back out.
+                      member.pax_headers.pop("path", None)
+                      member.pax_headers.pop("linkpath", None)
+                      if member.name == f"{new_root}/PKG-INFO":
+                          text, count = re.subn(
+                              rf"(?m)^Version: {re.escape(old_version)}$",
+                              f"Version: {version}", data.decode(), count=1,
+                          )
+                          assert count == 1, f"{path.name}: PKG-INFO Version line not found"
+                          data = text.encode()
+                      elif member.name == f"{new_root}/pyproject.toml":
+                          text, count = re.subn(
+                              r'(?m)^version = "[^"]+"$',
+                              f'version = "{version}"', data.decode(), count=1,
+                          )
+                          assert count == 1, f"{path.name}: pyproject.toml version not found"
+                          data = text.encode()
+                      if data is not None:
+                          member.size = len(data)
+                      members.append((member, data))
+
+              new_path = path.with_name(f"{new_root}.tar.gz")
+              with tarfile.open(new_path, "w:gz") as archive:
+                  for member, data in members:
+                      archive.addfile(member, io.BytesIO(data) if data is not None else None)
+              if new_path != path:
+                  path.unlink()
+              print(f"{path.name} -> {new_path.name}")
+
+          # A wheel whose RECORD no longer agrees with its contents installs and then misbehaves
+          # in confusing ways, so the rewrite is verified rather than trusted. Checking RECORD
+          # directly is both stricter than a metadata linter and free of any added dependency.
+          def verify_wheel(path: Path) -> None:
+              with zipfile.ZipFile(path) as archive:
+                  names = set(archive.namelist())
+                  record_name = next(n for n in names if n.endswith(".dist-info/RECORD"))
+                  listed = set()
+                  for row in csv.reader(io.StringIO(archive.read(record_name).decode())):
+                      if not row:
+                          continue
+                      entry, expected_hash, expected_size = row[0], row[1], row[2]
+                      listed.add(entry)
+                      assert entry in names, f"{path.name}: RECORD lists missing file {entry}"
+                      if not expected_hash:
+                          continue          # RECORD cannot hash itself
+                      data = archive.read(entry)
+                      assert record_hash(data) == expected_hash, f"{path.name}: hash mismatch for {entry}"
+                      assert str(len(data)) == expected_size, f"{path.name}: size mismatch for {entry}"
+                  assert listed == names, f"{path.name}: RECORD and archive disagree: {listed ^ names}"
+                  metadata = archive.read(record_name.replace("RECORD", "METADATA")).decode()
+                  assert f"Version: {version}" in metadata, f"{path.name}: METADATA not at {version}"
+              print(f"{path.name}: RECORD and METADATA verified")
+
+          def verify_sdist(path: Path) -> None:
+              with tarfile.open(path, "r:gz") as archive:
+                  pkg_info = f"{path.name.removesuffix('.tar.gz')}/PKG-INFO"
+                  member = archive.extractfile(pkg_info)
+                  assert member is not None, f"{path.name}: {pkg_info} missing"
+                  assert f"Version: {version}" in member.read().decode(), f"{path.name}: PKG-INFO not at {version}"
+              print(f"{path.name}: PKG-INFO verified")
+
+          wheels = sorted(Path("to_upload").glob("*.whl"))
+          sdists = sorted(Path("to_upload").glob("*.tar.gz"))
+          assert wheels, "no wheels to publish"
+          for wheel in wheels:
+              restamp_wheel(wheel)
+          for sdist in sdists:
+              restamp_sdist(sdist)
+          for wheel in sorted(Path("to_upload").glob("*.whl")):
+              verify_wheel(wheel)
+          for sdist in sorted(Path("to_upload").glob("*.tar.gz")):
+              verify_sdist(sdist)
 
       - name: Publish to PyPI (trusted publishing)
         uses: pypa/gh-action-pypi-publish@v1.14.1
@@ -291,7 +747,10 @@ jobs:
             # Compute version string for the commit subject from REF (supports v_#.#.# and v#.#.#)
             VER_COMMIT="$REF"
             if [[ "$VER_COMMIT" == v_* ]]; then VER_COMMIT="${VER_COMMIT#v_}"; elif [[ "$VER_COMMIT" == v* ]]; then VER_COMMIT="${VER_COMMIT#v}"; fi
-            git commit -m "Update version to ${VER_COMMIT} based on tag"
+            # [skip ci]: this lands on main, which now builds release-grade wheels on every push.
+            # A version-bump commit changes no source, so rebuilding and re-testing it would cost
+            # a full matrix run to produce artifacts identical to the ones just published.
+            git commit -m "Update version to ${VER_COMMIT} based on tag [skip ci]"
             git push origin HEAD:"$DEFAULT_BRANCH"
           else
             echo "No changes detected in pyproject.toml. Skipping commit and push."

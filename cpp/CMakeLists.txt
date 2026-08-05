@@ -7,6 +7,44 @@ option(HGRAPH_WITH_BACKWARD "Enable backward-cpp stack traces" ON)
 option(HGRAPH_ENABLE_ASAN "Enable AddressSanitizer (address + leaks)" OFF)
 option(HGRAPH_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(HGRAPH_ENABLE_TSAN "Enable ThreadSanitizer (mutually exclusive with ASAN/UBSAN)" OFF)
+option(HGRAPH_ENABLE_COMPILER_CACHE "Use sccache or ccache when available" ON)
+
+# Route compilation through a compiler cache when one is installed. In CI this turns a cold
+# rebuild into a mostly-cached one; locally it does the same across build directories and branch
+# switches. sccache is preferred because it is what CI provisions (and it can share a cache across
+# runners); ccache is the common local fallback.
+#
+# An explicitly supplied CMAKE_CXX_COMPILER_LAUNCHER always wins, so this cannot override a
+# deliberate choice, and setting HGRAPH_ENABLE_COMPILER_CACHE=OFF disables the search entirely.
+if (HGRAPH_ENABLE_COMPILER_CACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+    find_program(HGRAPH_COMPILER_CACHE_PROGRAM sccache)
+    if (NOT HGRAPH_COMPILER_CACHE_PROGRAM)
+        find_program(HGRAPH_COMPILER_CACHE_PROGRAM ccache)
+    endif ()
+    if (HGRAPH_COMPILER_CACHE_PROGRAM)
+        set(CMAKE_C_COMPILER_LAUNCHER "${HGRAPH_COMPILER_CACHE_PROGRAM}" CACHE STRING "C compiler launcher" FORCE)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${HGRAPH_COMPILER_CACHE_PROGRAM}" CACHE STRING "C++ compiler launcher" FORCE)
+        message(STATUS "hgraph compiler cache: ${HGRAPH_COMPILER_CACHE_PROGRAM}")
+    else ()
+        message(STATUS "hgraph compiler cache: none found (looked for sccache, ccache)")
+    endif ()
+endif ()
+
+option(HGRAPH_REQUIRE_MSVC "On Windows, refuse to configure with a compiler other than MSVC" ON)
+
+# Windows builds must use MSVC. With the Ninja generator and no MSVC environment set up, CMake
+# happily finds MinGW on PATH and configures against it; the build then gets all the way to the
+# link before failing on duplicate symbols under LTO, and a build that did succeed would produce a
+# wheel built with the wrong toolchain. Failing here makes the cause obvious instead.
+if (WIN32 AND HGRAPH_REQUIRE_MSVC AND NOT MSVC)
+    message(FATAL_ERROR
+            "hgraph must be built with MSVC on Windows, but CMake selected "
+            "${CMAKE_CXX_COMPILER_ID} at ${CMAKE_CXX_COMPILER}.\n"
+            "This usually means the Ninja generator was used without the MSVC environment, "
+            "leaving MinGW as the first compiler on PATH. Configure from a Developer Command "
+            "Prompt, or set the environment up first (ilammy/msvc-dev-cmd in CI).\n"
+            "Pass -DHGRAPH_REQUIRE_MSVC=OFF to build with a different toolchain deliberately.")
+endif ()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,9 +90,15 @@ if (UNIX)
         endif ()
     endif ()
 elseif (MSVC)
-    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /Zi /DNDEBUG")
-    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "/O2 /Zi /DNDEBUG")
-    set(CMAKE_CXX_FLAGS_DEBUG "/Zi /Od")
+    # /Z7 rather than /Zi. Both carry full debug information, the same intent as -g above, but /Zi
+    # writes it to a single shared program database while /Z7 embeds it in each object file.
+    # A shared PDB is a bottleneck and, under a parallel generator such as Ninja, an outright
+    # failure: concurrent cl.exe processes writing one PDB abort with C1041. It also cannot be
+    # cached, because a compiler cache replays a compilation from its object file alone and there
+    # is no PDB side effect to replay. The cost of /Z7 is larger object files.
+    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /Z7 /DNDEBUG")
+    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "/O2 /Z7 /DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "/Z7 /Od")
     set(CMAKE_CXX_FLAGS "/W3 /EHsc")
 endif ()
 
