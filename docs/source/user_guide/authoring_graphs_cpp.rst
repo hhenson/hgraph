@@ -332,9 +332,9 @@ Arithmetic
      - Uses Python-style modulo semantics. Optional ``DivideByZero`` policy.
    * - ``pow_`` / ``pow(lhs, rhs)``
      - ``Int ** Int``; ``Float ** Float``; ``Int ** Float``; ``Float ** Int``
-     - ``Float``
-     - Numeric power is explicitly float-valued in C++. Optional ``DivideByZero``
-       policy for ``0 ** negative``.
+     - ``Int`` for ``Int ** Int``; otherwise ``Float``
+     - Integer power requires a non-negative exponent. Optional ``DivideByZero``
+       policy for ``0 ** negative``; ``NoTick`` remains valid for integer power.
    * - ``neg_`` / unary ``-``
      - ``Int``; ``Float``; ``TimeDelta``
      - same type

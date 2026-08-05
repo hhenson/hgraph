@@ -1716,6 +1716,7 @@ def test_coverage_corpus_recipes_execute_on_the_candidate():
 
     for name in (
         "coverage-scalar-operator-arguments",
+        "regression-integer-pow-result-type",
         "coverage-temporal-accessors",
         "coverage-collection-sizes",
         "coverage-lifecycle-spellings",

@@ -178,7 +178,13 @@ TEST_CASE("lift: standard arithmetic kernels expose scalar operator semantics")
 
     CHECK(value_as_int(eval_binary<stdlib::scalar_floordiv<Int>>(Int{-3}, Int{2})) == Int{-2});
     CHECK(value_as_int(eval_binary<stdlib::scalar_mod<Int>>(Int{-3}, Int{2})) == Int{1});
-    CHECK(value_as_float(eval_binary<stdlib::scalar_pow<Int>>(Int{2}, Int{3})) == Float{8.0});
+    CHECK(value_as_int(eval_binary<stdlib::scalar_pow<Int>>(Int{2}, Int{3})) == Int{8});
+    CHECK(value_as_int(eval_binary<stdlib::scalar_pow<Int>>(Int{-2}, Int{3})) == Int{-8});
+    CHECK(value_as_int(eval_binary<stdlib::scalar_pow<Int>>(Int{0}, Int{0})) == Int{1});
+    CHECK(value_as_float(eval_binary<stdlib::scalar_pow<Int, Float>>(Int{4}, Float{0.5})) == Float{2.0});
+    CHECK_THROWS_AS((eval_binary<stdlib::scalar_pow<Int>>(Int{2}, Int{-1})), std::domain_error);
+    CHECK_THROWS_AS((eval_binary<stdlib::scalar_pow<Int>>(std::numeric_limits<Int>::max(), Int{2})),
+                    std::overflow_error);
     CHECK(value_as_int(eval_unary<stdlib::scalar_neg<Int>>(Int{5})) == Int{-5});
     CHECK(value_as_int(eval_unary<stdlib::scalar_abs<Int>>(Int{-5})) == Int{5});
     CHECK(value_as_int(eval_unary<stdlib::scalar_sign<Int>>(Int{-5})) == Int{-1});

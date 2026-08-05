@@ -55,6 +55,10 @@ namespace hgraph::stdlib
         using modulo_result_t = floor_div_result_t<L, R>;
 
         template <typename L, typename R>
+        using pow_result_t = std::conditional_t<
+            std::is_same_v<L, Int> && std::is_same_v<R, Int>, Int, Float>;
+
+        template <typename L, typename R>
         struct ordered_result
         {
             using type = std::conditional_t<std::is_same_v<L, R>, L, Float>;
@@ -91,6 +95,37 @@ namespace hgraph::stdlib
         [[nodiscard]] inline Int modulo_int(Int lhs, Int rhs)
         {
             return lhs - floor_divide_int(lhs, rhs) * rhs;
+        }
+
+        [[nodiscard]] inline Int checked_multiply_int(Int lhs, Int rhs)
+        {
+            constexpr Int min = std::numeric_limits<Int>::min();
+            constexpr Int max = std::numeric_limits<Int>::max();
+            if (lhs == 0 || rhs == 0) { return 0; }
+            if ((lhs > 0 && rhs > 0 && lhs > max / rhs) ||
+                (lhs > 0 && rhs < 0 && rhs < min / lhs) ||
+                (lhs < 0 && rhs > 0 && lhs < min / rhs) ||
+                (lhs < 0 && rhs < 0 && lhs < max / rhs))
+            {
+                throw std::overflow_error("pow_: integer result overflow");
+            }
+            return lhs * rhs;
+        }
+
+        [[nodiscard]] inline Int integer_power(Int base, Int exponent)
+        {
+            if (exponent < 0)
+            {
+                throw std::domain_error("pow_: negative exponent cannot produce an integer result");
+            }
+            Int result = 1;
+            while (exponent != 0)
+            {
+                if ((exponent & 1) != 0) { result = checked_multiply_int(result, base); }
+                exponent /= 2;
+                if (exponent != 0) { base = checked_multiply_int(base, base); }
+            }
+            return result;
         }
 
         [[nodiscard]] inline Float floor_divide_float(Float lhs, Float rhs)
@@ -225,16 +260,26 @@ namespace hgraph::stdlib
     template <typename L, typename R = L>
     struct scalar_pow
     {
+        using result_type = lifted_kernel_detail::pow_result_t<L, R>;
+
         static constexpr const char *name = "scalar_pow";
         static constexpr std::array<std::string_view, 2> parameter_names{"lhs", "rhs"};
 
-        [[nodiscard]] static Float apply(const L &lhs, const R &rhs)
+        [[nodiscard]] static result_type apply(const L &lhs, const R &rhs)
         {
-            if (static_cast<Float>(lhs) == Float{0} && static_cast<Float>(rhs) < Float{0})
+            if constexpr (std::is_same_v<result_type, Int>)
             {
-                throw std::domain_error("pow_: zero cannot be raised to a negative power");
+                static_assert(std::is_same_v<L, Int> && std::is_same_v<R, Int>);
+                return lifted_kernel_detail::integer_power(lhs, rhs);
             }
-            return std::pow(static_cast<Float>(lhs), static_cast<Float>(rhs));
+            else
+            {
+                if (static_cast<Float>(lhs) == Float{0} && static_cast<Float>(rhs) < Float{0})
+                {
+                    throw std::domain_error("pow_: zero cannot be raised to a negative power");
+                }
+                return std::pow(static_cast<Float>(lhs), static_cast<Float>(rhs));
+            }
         }
     };
 

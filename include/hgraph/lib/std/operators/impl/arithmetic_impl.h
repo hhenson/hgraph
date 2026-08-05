@@ -317,12 +317,30 @@ namespace hgraph::stdlib
     template <typename L, typename R>
     struct pow_numbers
     {
+        using result_type = lifted_kernel_detail::pow_result_t<L, R>;
+
         static void eval(In<"lhs", TS<L>> lhs, In<"rhs", TS<R>> rhs,
-                         Scalar<"divide_by_zero", DivideByZero> on_zero, Out<TS<Float>> out)
+                         Scalar<"divide_by_zero", DivideByZero> on_zero, Out<TS<result_type>> out)
         {
-            if (const std::optional<Float> result = pow_with_policy(static_cast<Float>(lhs.value()),
-                                                                    static_cast<Float>(rhs.value()),
-                                                                    on_zero.value()))
+            if constexpr (std::is_same_v<result_type, Int>)
+            {
+                const Int base     = lhs.value();
+                const Int exponent = rhs.value();
+                if (exponent < 0)
+                {
+                    if (base == 0 && on_zero.value() == DivideByZero::NoTick) { return; }
+                    if (base == 0)
+                    {
+                        throw std::domain_error("pow_: zero cannot be raised to a negative power");
+                    }
+                    throw std::domain_error("pow_: negative exponent cannot produce an integer result");
+                }
+                out.set(lifted_kernel_detail::integer_power(base, exponent));
+            }
+            else if (const std::optional<Float> result =
+                         pow_with_policy(static_cast<Float>(lhs.value()),
+                                         static_cast<Float>(rhs.value()),
+                                         on_zero.value()))
             {
                 out.set(*result);
             }

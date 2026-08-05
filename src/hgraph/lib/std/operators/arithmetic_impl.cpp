@@ -181,7 +181,7 @@ namespace hgraph::stdlib
         register_overload<divmod_, divmod_numbers<Int, Float>>();
         register_overload<divmod_, divmod_numbers<Float, Int>>();
 
-        // pow_ — numeric power is explicitly Float-valued in C++.
+        // pow_ — homogeneous integer power remains Int; mixed/float power is Float.
         register_overload<pow_, lift<scalar_pow<Int>>>();
         register_overload<pow_, lift<scalar_pow<Float>>>();
         register_overload<pow_, lift<scalar_pow<Int, Float>>>();

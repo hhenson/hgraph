@@ -1519,11 +1519,14 @@ TEST_CASE("std operators: divmod_ returns quotient and remainder as a two-elemen
                  values<Value>(list_delta<TS<Float>>({{0, 2.0}, {1, 1.0}})));
 }
 
-TEST_CASE("std operators: pow_ is Float-valued for numeric operands")
+TEST_CASE("std operators: pow_ preserves homogeneous integer results")
 {
     stdlib::register_standard_operators();
-    CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Int>(2, 9), values<Int>(3, 2)), values<Float>(8.0, 81.0));
+    CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Int>(2, 9), values<Int>(3, 2)), values<Int>(8, 81));
+    CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Int>(2, 3), Int{3}), values<Int>(8, 27));
+    CHECK_OUTPUT(eval_node<stdlib::pow_>(Int{2}, values<Int>(3, 4)), values<Int>(8, 16));
     CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Float>(4.0, 9.0), values<Float>(0.5, 0.5)), values<Float>(2.0, 3.0));
+    CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Int>(4), values<Float>(0.5)), values<Float>(2.0));
 }
 
 TEST_CASE("std operators: pow_ takes divide-by-zero policy for zero raised to a negative power")
@@ -1531,13 +1534,15 @@ TEST_CASE("std operators: pow_ takes divide-by-zero policy for zero raised to a 
     using DBZ = stdlib::DivideByZero;
     stdlib::register_standard_operators();
 
-    CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Int>(0, 2), values<Int>(-1, 3), DBZ::Inf),
+    CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Float>(0.0, 2.0), values<Int>(-1, 3), DBZ::Inf),
                  values<Float>(std::numeric_limits<Float>::infinity(), 8.0));
-    CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Int>(0, 2), values<Int>(-1, 3), DBZ::NoTick),
+    CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Float>(0.0, 2.0), values<Int>(-1, 3), DBZ::NoTick),
                  values<Float>(none, 8.0));
-    CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Int>(0), values<Int>(-1), DBZ::Zero), values<Float>(0.0));
-    CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Int>(0), values<Int>(-1), DBZ::One), values<Float>(1.0));
-    REQUIRE_THROWS(eval_node<stdlib::pow_>(values<Int>(0), values<Int>(-1)));
+    CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Float>(0.0), values<Int>(-1), DBZ::Zero), values<Float>(0.0));
+    CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Float>(0.0), values<Int>(-1), DBZ::One), values<Float>(1.0));
+    CHECK_OUTPUT(eval_node<stdlib::pow_>(values<Int>(0), values<Int>(-1), DBZ::NoTick), values<Int>(none));
+    REQUIRE_THROWS(eval_node<stdlib::pow_>(values<Float>(0.0), values<Int>(-1)));
+    REQUIRE_THROWS(eval_node<stdlib::pow_>(values<Int>(2), values<Int>(-1)));
 }
 
 TEST_CASE("std operators: unary numeric operators support neg pos abs sign and ln")
@@ -1582,7 +1587,7 @@ TEST_CASE("std operators: fixed TSL arithmetic maps elementwise")
     CHECK_OUTPUT((eval_node<stdlib::pow_, TSL<TS<Int>, 3>, TSL<TS<Int>, 3>>(
                      values<Value>(list_delta<TS<Int>>({{0, 3}, {1, 4}, {2, 5}})),
                      values<Value>(list_delta<TS<Int>>({{0, 3}, {1, 0}, {2, 1}})))),
-                 values<Value>(list_delta<TS<Float>>({{0, 27.0}, {1, 1.0}, {2, 5.0}})));
+                 values<Value>(list_delta<TS<Int>>({{0, 27}, {1, 1}, {2, 5}})));
 }
 
 TEST_CASE("std operators: fixed TSL arithmetic broadcasts scalar time-series")
@@ -1612,7 +1617,7 @@ TEST_CASE("std operators: fixed TSL arithmetic broadcasts scalar time-series")
                  values<Value>(list_delta<TS<Int>>({{0, 1}, {1, 0}})));
     CHECK_OUTPUT((eval_node<stdlib::pow_, TSL<TS<Int>, 2>>(
                      values<Value>(list_delta<TS<Int>>({{0, 3}, {1, 2}})), values<Int>(2))),
-                 values<Value>(list_delta<TS<Float>>({{0, 9.0}, {1, 4.0}})));
+                 values<Value>(list_delta<TS<Int>>({{0, 9}, {1, 4}})));
     CHECK_OUTPUT((eval_node<stdlib::div_, TSL<TS<Int>, 2>>(
                      values<Int>(12), values<Value>(list_delta<TS<Int>>({{0, 3}, {1, 4}})))),
                  values<Value>(list_delta<TS<Float>>({{0, 4.0}, {1, 3.0}})));
