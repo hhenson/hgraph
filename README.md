@@ -131,15 +131,16 @@ Prerequisites:
 
 Steps:
 ```bash
-# Push the commit you want to release to main first; that build is what gets published.
-# Once it is green, tag it:
+# Push the commit you want to release to main; that build is what gets published.
+# You can tag it straight away - the release waits for that build rather than racing it.
 
 git tag -a v_0.4.112 -m "release 0.4.112"
 git push origin v_0.4.112
 ```
 
 For a commit already built and tested on main, the workflow will:
-- Find that run and skip the build and the test matrix entirely
+- Find that run and skip the build and the test matrix entirely. If that build is still running,
+  it waits for it rather than starting a second one
 - Rewrite the version in the distribution metadata to match the tag, leaving the compiled
   extension byte-for-byte as it was built and tested
 - Validate with `twine check` and publish to PyPI (skipping files that already exist)

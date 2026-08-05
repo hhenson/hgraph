@@ -40,6 +40,9 @@ jobs:
     permissions:
       actions: read          # lists previous runs and their artifacts
     runs-on: ubuntu-latest
+    # Slightly above the 45 minute wait inside the step, so the step gives up and reports rather
+    # than the job being killed mid-wait.
+    timeout-minutes: 50
     outputs:
       run-id: ${{ steps.find.outputs.run-id }}
     steps:
@@ -55,36 +58,90 @@ jobs:
               "release-sdist",
             ]);
 
+            // Tagging usually follows a push to main by seconds, long before that build has
+            // finished. Only looking at completed runs would therefore almost never find anything
+            // and every release would rebuild, which is the thing this job exists to avoid. So a
+            // run already building this commit is waited for rather than raced.
+            const WAIT_LIMIT_MS = 45 * 60 * 1000;
+            const POLL_MS = 30 * 1000;
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
             // event: "push" is load-bearing, not a tidy-up. Pull request runs take the fast build
             // path and upload wheels that are not publish-grade, under these same artifact names.
             // A rebase merge can leave main's commit sharing a SHA with the pull request head, so
             // without this filter a tag could publish an unrepaired wheel.
-            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: "release-wheels.yml",
-              event: "push",
-              head_sha: context.sha,
-              status: "success",
-              per_page: 100,
-            });
+            async function runsWithStatus(status) {
+              const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: "release-wheels.yml",
+                event: "push",
+                head_sha: context.sha,
+                status,
+                per_page: 100,
+              });
+              return runs.filter((r) => r.id !== context.runId && r.head_sha === context.sha);
+            }
 
-            for (const run of runs) {
-              if (run.id === context.runId || run.head_sha !== context.sha) continue;
-
+            async function hasAllArtifacts(runId) {
               const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                run_id: run.id,
+                run_id: runId,
                 per_page: 100,
               });
               const available = new Set(
                 artifacts.filter((a) => !a.expired).map((a) => a.name),
               );
-              if ([...required].every((name) => available.has(name))) {
-                core.notice(`Reusing distributions already built and tested by run ${run.id}`);
-                core.setOutput("run-id", String(run.id));
-                return;
+              return [...required].every((name) => available.has(name));
+            }
+
+            async function reuseIfComplete() {
+              for (const run of await runsWithStatus("success")) {
+                if (await hasAllArtifacts(run.id)) {
+                  core.notice(`Reusing distributions already built and tested by run ${run.id}`);
+                  core.setOutput("run-id", String(run.id));
+                  return true;
+                }
+              }
+              return false;
+            }
+
+            if (await reuseIfComplete()) return;
+
+            const inFlight = [...(await runsWithStatus("in_progress")), ...(await runsWithStatus("queued"))];
+            if (inFlight.length) {
+              const run = inFlight[0];
+              core.notice(
+                `Run ${run.id} is already building this commit; waiting for it rather than ` +
+                `rebuilding. Waiting up to ${WAIT_LIMIT_MS / 60000} minutes.`,
+              );
+              const deadline = Date.now() + WAIT_LIMIT_MS;
+              while (Date.now() < deadline) {
+                await sleep(POLL_MS);
+                let current;
+                try {
+                  current = await github.rest.actions.getWorkflowRun({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    run_id: run.id,
+                  });
+                } catch (error) {
+                  core.warning(`Could not read run ${run.id}: ${error.message}`);
+                  continue;
+                }
+                if (current.data.status !== "completed") continue;
+                if (current.data.conclusion === "success") {
+                  // Artifacts are uploaded by the jobs, so re-check rather than assume.
+                  if (await reuseIfComplete()) return;
+                  core.notice(`Run ${run.id} succeeded but is missing artifacts; building instead.`);
+                } else {
+                  core.notice(`Run ${run.id} finished as ${current.data.conclusion}; building instead.`);
+                }
+                break;
+              }
+              if (Date.now() >= deadline) {
+                core.notice(`Gave up waiting for run ${run.id}; building instead.`);
               }
             }
 
@@ -655,7 +712,9 @@ jobs:
           # directly is both stricter than a metadata linter and free of any added dependency.
           def verify_wheel(path: Path) -> None:
               with zipfile.ZipFile(path) as archive:
-                  names = set(archive.namelist())
+                  # RECORD lists files only. Wheels repaired by auditwheel or delocate also carry
+                  # explicit directory entries, which must not be counted against it.
+                  names = {n for n in archive.namelist() if not n.endswith("/")}
                   record_name = next(n for n in names if n.endswith(".dist-info/RECORD"))
                   listed = set()
                   for row in csv.reader(io.StringIO(archive.read(record_name).decode())):
