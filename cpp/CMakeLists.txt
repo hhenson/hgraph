@@ -90,9 +90,15 @@ if (UNIX)
         endif ()
     endif ()
 elseif (MSVC)
-    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /Zi /DNDEBUG")
-    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "/O2 /Zi /DNDEBUG")
-    set(CMAKE_CXX_FLAGS_DEBUG "/Zi /Od")
+    # /Z7 rather than /Zi. Both carry full debug information, the same intent as -g above, but /Zi
+    # writes it to a single shared program database while /Z7 embeds it in each object file.
+    # A shared PDB is a bottleneck and, under a parallel generator such as Ninja, an outright
+    # failure: concurrent cl.exe processes writing one PDB abort with C1041. It also cannot be
+    # cached, because a compiler cache replays a compilation from its object file alone and there
+    # is no PDB side effect to replay. The cost of /Z7 is larger object files.
+    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /Z7 /DNDEBUG")
+    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "/O2 /Z7 /DNDEBUG")
+    set(CMAKE_CXX_FLAGS_DEBUG "/Z7 /Od")
     set(CMAKE_CXX_FLAGS "/W3 /EHsc")
 endif ()
 
