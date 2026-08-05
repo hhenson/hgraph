@@ -30,6 +30,22 @@ if (HGRAPH_ENABLE_COMPILER_CACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
     endif ()
 endif ()
 
+option(HGRAPH_REQUIRE_MSVC "On Windows, refuse to configure with a compiler other than MSVC" ON)
+
+# Windows builds must use MSVC. With the Ninja generator and no MSVC environment set up, CMake
+# happily finds MinGW on PATH and configures against it; the build then gets all the way to the
+# link before failing on duplicate symbols under LTO, and a build that did succeed would produce a
+# wheel built with the wrong toolchain. Failing here makes the cause obvious instead.
+if (WIN32 AND HGRAPH_REQUIRE_MSVC AND NOT MSVC)
+    message(FATAL_ERROR
+            "hgraph must be built with MSVC on Windows, but CMake selected "
+            "${CMAKE_CXX_COMPILER_ID} at ${CMAKE_CXX_COMPILER}.\n"
+            "This usually means the Ninja generator was used without the MSVC environment, "
+            "leaving MinGW as the first compiler on PATH. Configure from a Developer Command "
+            "Prompt, or set the environment up first (ilammy/msvc-dev-cmd in CI).\n"
+            "Pass -DHGRAPH_REQUIRE_MSVC=OFF to build with a different toolchain deliberately.")
+endif ()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

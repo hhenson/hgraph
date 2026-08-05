@@ -132,6 +132,18 @@ jobs:
       # artifacts a main push produces are reusable by whatever tag is cut from that commit later;
       # the publish job writes the tag version into the distribution metadata instead.
 
+      # Ninja rather than the Visual Studio generator, on Windows too: MSBuild ignores
+      # CMAKE_CXX_COMPILER_LAUNCHER, so sccache can never fire under it. Ninja does honour it, but
+      # only finds cl.exe if the MSVC environment has been set up first — without this step CMake
+      # falls through to MinGW on the runner's PATH and builds with the wrong toolchain.
+      - name: Configure MSVC toolchain for Ninja (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
+
+      - name: Install Ninja (Windows)
+        if: runner.os == 'Windows'
+        run: uv tool install --upgrade ninja
+
       - name: Install tooling
         run: |
           uv tool install --upgrade cibuildwheel==3.4.0
@@ -163,9 +175,13 @@ jobs:
           # Re-state CMAKE_ARGS to include both flags on Linux and prefer Ninja
           CIBW_ENVIRONMENT_LINUX: >-
             CMAKE_ARGS="-DNB_USE_STABLE_ABI=ON -DHGRAPH_WITH_BACKWARD=OFF" CMAKE_GENERATOR=Ninja SKBUILD_VERBOSE=1
-          # Windows: prefer Visual Studio generator to ensure cl.exe is used and on PATH
+          # Windows: Ninja, with the MSVC environment provided by the step above. Embedded debug
+          # info (/Z7) rather than /Zi, because sccache cannot cache compilations that write to a
+          # shared PDB and would otherwise miss on every debug-carrying configuration.
           CIBW_ENVIRONMENT_WINDOWS: >-
-            CMAKE_GENERATOR="Visual Studio 18 2026" CMAKE_GENERATOR_PLATFORM=x64 SKBUILD_VERBOSE=1
+            CMAKE_GENERATOR=Ninja
+            CMAKE_ARGS="-DNB_USE_STABLE_ABI=ON -DCMAKE_POLICY_DEFAULT_CMP0141=NEW -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>"
+            SKBUILD_VERBOSE=1
           # Apply env for all macOS builds so the wheel tag matches binary min target
           CIBW_ENVIRONMENT_MACOS: >-
             MACOSX_DEPLOYMENT_TARGET=15.0 SKBUILD_VERBOSE=1
@@ -180,16 +196,16 @@ jobs:
       # against this exactly as it runs against the publish-grade wheel, so coverage is identical;
       # what a pull request does not prove is that the wheel is *publishable*, and that is proven
       # on main before any tag can reuse it.
-      # Split by OS for the generator, exactly as the cibuildwheel configuration above is. On
-      # Windows the generator has to be Visual Studio: with Ninja and no MSVC environment set up,
-      # CMake finds MinGW on the runner's PATH and builds with the wrong toolchain, which then
-      # fails at link time under LTO with duplicate symbols.
-      - name: Build wheel (fast path, pull requests) [Windows MSVC]
+      # Split by OS only for the MSVC-specific flags; both use Ninja. The MSVC environment comes
+      # from the step above, without which CMake finds MinGW and builds with the wrong toolchain.
+      - name: Build wheel (fast path, pull requests) [Windows Ninja/MSVC]
         if: github.event_name == 'pull_request' && runner.os == 'Windows'
         env:
-          CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
-          CMAKE_GENERATOR: "Visual Studio 18 2026"
-          CMAKE_GENERATOR_PLATFORM: x64
+          CMAKE_ARGS: >-
+            -DNB_USE_STABLE_ABI=ON
+            -DCMAKE_POLICY_DEFAULT_CMP0141=NEW
+            "-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>"
+          CMAKE_GENERATOR: Ninja
         run: uv build -v --wheel --out-dir wheelhouse
 
       - name: Build wheel (fast path, pull requests) [Unix Ninja]
