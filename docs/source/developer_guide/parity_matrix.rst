@@ -210,8 +210,8 @@ authoring gaps, both fixed without changing native execution: anonymous
 ``compound_scalar(...)`` schemas once again allow omitted fields and retain
 ``to_dict``/``from_dict``, and ``with_columns[RowSchema](...)`` lowers that
 released shorthand to the native ``TS[Frame[RowSchema]]`` output constraint.
-Against released hgraph 0.5.35, the resulting 1,856-test audit records 1,088
-exact matches, 640 evidence-backed conversions, 128 reference-unverified
+Against released hgraph 0.5.36, the resulting 1,870-test audit records 1,092
+exact matches, 757 evidence-backed conversions, 21 reference-unverified
 tests, and no review-required, confirmed-gap, or ambiguous outcomes.
 
 The remaining broad-suite differences are conversions of already recorded
@@ -228,6 +228,9 @@ design decisions, not unimplemented user behaviour:
   not stored in an unrelated process global;
 - private ``wire_graph``/``WiringNodeInstance`` builder layouts remain outside
   the compatibility contract while public graph wiring is covered directly;
+  the private Python ``InputsKey`` cache is likewise replaced by the native
+  structural interning key, which compares producer identity, paths, input
+  shape, and native scalar values without invoking overloaded port equality;
 - Kafka tests inject consumers through the public ``consumer_factory`` option,
   and websocket behavior is covered without the upstream module's broad
   optional-import guard;

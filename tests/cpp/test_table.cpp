@@ -13,6 +13,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdint>
+#include <limits>
+
 // Step 3 of the record/replay/table design record: the Arrow-backed Frame
 // value kind + the interned per-schema TableConverter (bitemporal
 // [date, as_of, *columns] rows written directly into Arrow builders) and the
@@ -182,6 +185,33 @@ TEST_CASE("table codec: Arrow utf8_view arrays decode as native strings")
     const Value decoded =
         array_cell(*values, scalar_descriptor<Str>::value_meta(), 0);
     CHECK(decoded.view().checked_as<Str>() == expected);
+}
+
+TEST_CASE("table codec: Arrow numeric widths widen to Python-compatible native scalars")
+{
+    arrow::Int32Builder int_builder;
+    REQUIRE(int_builder.Append(42).ok());
+    std::shared_ptr<arrow::Array> integers;
+    REQUIRE(int_builder.Finish(&integers).ok());
+    CHECK(array_cell(*integers, scalar_descriptor<Int>::value_meta(), 0)
+              .view()
+              .checked_as<Int>() == Int{42});
+
+    arrow::FloatBuilder float_builder;
+    REQUIRE(float_builder.Append(1.25F).ok());
+    std::shared_ptr<arrow::Array> floats;
+    REQUIRE(float_builder.Finish(&floats).ok());
+    CHECK(array_cell(*floats, scalar_descriptor<Float>::value_meta(), 0)
+              .view()
+              .checked_as<Float>() == Float{1.25});
+
+    arrow::UInt64Builder overflow_builder;
+    REQUIRE(overflow_builder.Append(std::numeric_limits<std::uint64_t>::max()).ok());
+    std::shared_ptr<arrow::Array> overflow;
+    REQUIRE(overflow_builder.Finish(&overflow).ok());
+    CHECK_THROWS_AS(
+        array_cell(*overflow, scalar_descriptor<Int>::value_meta(), 0),
+        std::out_of_range);
 }
 
 TEST_CASE("table codec: bytes and variadic tuples are Arrow leaf values")

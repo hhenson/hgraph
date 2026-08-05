@@ -42,6 +42,7 @@ CONFORMANCE_DEPENDENCIES = (
 _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[A-Za-z0-9.+-]*)?$")
 _ACCEPTED_CLASSIFICATIONS = {"expected-change", "converted"}
 _CLASSIFICATIONS = _ACCEPTED_CLASSIFICATIONS | {"confirmed-gap"}
+_PASS_LIKE_OUTCOMES = {"passed", "xpassed"}
 
 
 @dataclass(frozen=True)
@@ -411,6 +412,32 @@ def load_conformance_manifest(path: Path) -> dict[str, Any]:
         outcomes = rule.get("candidate_outcomes")
         if not isinstance(outcomes, list) or not outcomes:
             raise ValueError(f"rule {rule_id} requires candidate_outcomes")
+        reference_outcomes = rule.get(
+            "reference_outcomes", sorted(_PASS_LIKE_OUTCOMES)
+        )
+        if not isinstance(reference_outcomes, list) or not reference_outcomes:
+            raise ValueError(f"rule {rule_id} requires reference_outcomes")
+        non_passing_reference = set(reference_outcomes) - _PASS_LIKE_OUTCOMES
+        if non_passing_reference:
+            if (
+                rule["classification"] != "converted"
+                or non_passing_reference != {"skipped"}
+            ):
+                raise ValueError(
+                    f"rule {rule_id} may only convert a skipped reference outcome"
+                )
+            reference_pattern = rule.get("reference_diagnostic_regex")
+            if not reference_pattern:
+                raise ValueError(
+                    f"skipped-reference rule {rule_id} requires "
+                    "reference_diagnostic_regex"
+                )
+            try:
+                re.compile(reference_pattern)
+            except re.error as error:
+                raise ValueError(
+                    f"invalid reference_diagnostic_regex for {rule_id}: {error}"
+                ) from error
         if rule["classification"] in _ACCEPTED_CLASSIFICATIONS:
             if not rule.get("diagnostic_regex"):
                 raise ValueError(f"accepted rule {rule_id} requires diagnostic_regex")
@@ -493,14 +520,20 @@ def _rule_matches(
         return False
     if candidate.get("outcome") not in rule["candidate_outcomes"]:
         return False
-    reference_outcomes = rule.get("reference_outcomes", ["passed"])
+    reference_outcomes = rule.get(
+        "reference_outcomes", sorted(_PASS_LIKE_OUTCOMES)
+    )
     if reference.get("outcome") not in reference_outcomes:
         return False
     pattern = rule.get("diagnostic_regex")
-    return (
-        not pattern
-        or re.search(pattern, candidate.get("diagnostic", ""), re.DOTALL) is not None
-    )
+    if pattern and re.search(
+        pattern, candidate.get("diagnostic", ""), re.DOTALL
+    ) is None:
+        return False
+    reference_pattern = rule.get("reference_diagnostic_regex")
+    return not reference_pattern or re.search(
+        reference_pattern, reference.get("diagnostic", ""), re.DOTALL
+    ) is not None
 
 
 def compare_upstream_results(
@@ -541,10 +574,11 @@ def compare_upstream_results(
                 "duration": 0.0,
             }
         entry = {"nodeid": nodeid, "reference": ref, "candidate": cand}
-        if ref.get("outcome") != "passed":
-            report["reference_unverified"].append(entry)
-            continue
-        if cand.get("outcome") == "passed":
+        reference_outcome = ref.get("outcome")
+        if (
+            reference_outcome in _PASS_LIKE_OUTCOMES
+            and cand.get("outcome") in _PASS_LIKE_OUTCOMES
+        ):
             report["matched"].append(entry)
             continue
         matching_rules = [
@@ -560,6 +594,9 @@ def compare_upstream_results(
         if len(matching_rules) > 1:
             entry["rules"] = [rule["id"] for rule in matching_rules]
             report["ambiguous_rules"].append(entry)
+            continue
+        if reference_outcome not in _PASS_LIKE_OUTCOMES and not matching_rules:
+            report["reference_unverified"].append(entry)
             continue
         if not matching_rules:
             report["review_required"].append(entry)

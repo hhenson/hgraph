@@ -37,6 +37,19 @@ def test_compute_nodes_mix_with_cpp_and_bind_keywords():
     check(eval_node(app, [2.5, 4.0], [10, 3]) == [51.0, 25.0], "mixed compute pipeline")
 
 
+def test_public_wiring_cache_keeps_distinct_input_ports_separate():
+    @graph
+    def app(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        lhs_shifted = lhs + 1
+        rhs_shifted = rhs + 1
+        return lhs_shifted * 10 + rhs_shifted
+
+    check(
+        eval_node(app, [1, 2], [3, 4]) == [24, 35],
+        "structurally similar nodes retain their input-port identity",
+    )
+
+
 def test_repeated_python_native_boundary_runs_preserve_type_and_state_lifetimes():
     @hg.compute_node
     def add_bias(value: TS[int], bias: int) -> TS[int]:

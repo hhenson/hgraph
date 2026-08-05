@@ -1077,6 +1077,29 @@ TEST_CASE("graph wiring: identical nodes are interned to one")
     CHECK(graph.graph().node_count() == 1);   // deduped to a single runtime node
 }
 
+TEST_CASE("graph wiring: node interning keeps distinct input ports separate")
+{
+    using namespace hgraph;
+
+    Wiring w;
+    auto   first  = wire<ScaledSource>(w, Int{7});
+    auto   second = wire<ScaledSource>(w, Int{8});
+
+    auto first_pair       = wire<Sum>(w, first, second);
+    auto repeated_pair    = wire<Sum>(w, first, second);
+    auto reversed_pair    = wire<Sum>(w, second, first);
+    auto repeated_source  = wire<Sum>(w, first, first);
+
+    CHECK(first_pair.node() == repeated_pair.node());
+    CHECK(first_pair.node() != reversed_pair.node());
+    CHECK(first_pair.node() != repeated_source.node());
+    CHECK(reversed_pair.node() != repeated_source.node());
+
+    GraphBuilder           graph_builder = std::move(w).finish();
+    testing::MockRootGraph graph{graph_builder};
+    CHECK(graph.graph().node_count() == 5);   // two sources + three distinct sums
+}
+
 TEST_CASE("graph wiring: push sources form the runtime prefix across implementations")
 {
     using namespace hgraph;
