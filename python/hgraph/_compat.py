@@ -198,13 +198,13 @@ class CompoundScalar:
         return result
 
     @classmethod
-    def from_dict(cls, values: dict):
+    def from_dict(cls, d: dict):
         """Construct from known fields, recursively adapting nested scalars."""
         from ._types import _compound_python_field_types
 
         field_types = _compound_python_field_types(cls)
         converted = {}
-        for name, value in values.items():
+        for name, value in d.items():
             annotation = field_types.get(name)
             if annotation is None:
                 continue

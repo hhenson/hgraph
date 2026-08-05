@@ -866,13 +866,6 @@
     },
     {
       "module": "hgraph",
-      "name": "NodeError.from_dict",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "error capture/serialization is native (error_output/exception_time_series records); dict round-trip helpers are upstream implementation"
-    },
-    {
-      "module": "hgraph",
       "name": "NodeError.to_dict",
       "kind": "method-missing",
       "side": "candidate",
@@ -1962,9 +1955,16 @@
     {
       "module": "hgraph",
       "name": "TimeSeries.is_reference",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "name": "self",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": null
+        }
+      ],
+      "candidate": null,
+      "reason": "the runtime method is a nanobind builtin, so inspect.signature cannot recover its implicit self parameter; reference and value views are behaviorally pinned by test_time_series_runtime_api and the native base-view tests"
     },
     {
       "module": "hgraph",
@@ -2730,6 +2730,99 @@
       "reason": "nanobind builtin: inspect.signature unavailable; keyword calling via nb::arg('fn') and behaviour pinned by test_eval_notifications"
     },
     {
+      "module": "hgraph.adaptors.executor.executor",
+      "name": "adaptor_executor",
+      "kind": "signature-mismatch",
+      "reference": [
+        {
+          "name": "pool_size",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": "50"
+        },
+        {
+          "name": "_state",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": "None"
+        }
+      ],
+      "candidate": [
+        {
+          "name": "pool_size",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": "50"
+        }
+      ],
+      "reason": "the retained user argument is pool_size; upstream's _state parameter is a hidden generator injectable, while hg_cpp owns the same executor lifecycle in the inner compute node (pinned by test_adaptor_executor_runs_work_inside_eval_node)"
+    },
+    {
+      "module": "hgraph.adaptors.run_graph_on_thread*",
+      "name": "run_graph_on_thread",
+      "kind": "signature-mismatch",
+      "reference": [
+        {
+          "name": "fn",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": null
+        },
+        {
+          "name": "global_state",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": null
+        },
+        {
+          "name": "params",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": null
+        },
+        {
+          "name": "out_",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": "<hgraph._types._scalar_types.Default object>"
+        },
+        {
+          "name": "path",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": "'thread_graph_runner'"
+        }
+      ],
+      "candidate": [
+        {
+          "name": "fn",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": null
+        },
+        {
+          "name": "global_state",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": "None"
+        },
+        {
+          "name": "params",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": "None"
+        },
+        {
+          "name": "out_",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": "None"
+        },
+        {
+          "name": "path",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "default": "'thread_graph_runner'"
+        }
+      ],
+      "reason": "hg_cpp accepts every upstream call shape and additionally allows global_state and params to be omitted; None is the native authoring representation of upstream's default output sentinel, with bracket, out_=, and positional path forms pinned by the threaded-graph adaptor tests"
+    },
+    {
+      "module": "hgraph.adaptors.run_graph_on_thread*",
+      "name": "run_graph_on_thread_impl",
+      "kind": "kind-mismatch",
+      "reference": "callable",
+      "candidate": "_ServiceImpl",
+      "reason": "the implementation is a passive C++-first registration token rather than a directly invoked Python service graph; register_adaptor behavior, per-client publication order, and independent native engine concurrency are pinned by the threaded-graph Python and C++ tests"
+    },
+    {
       "module": "hgraph.adaptors.tornado",
       "kind": "name-missing",
       "side": "candidate",
@@ -2740,13 +2833,6 @@
       "kind": "name-missing",
       "side": "candidate",
       "reason": "issue #215 makes each Tornado module's __all__ authoritative; upstream import leaks and internal managers/handlers/markers are excluded while retained names are pinned by test_public_api"
-    },
-    {
-      "module": "hgraph.adaptors.tornado*",
-      "name": "*.from_dict",
-      "kind": "method-missing",
-      "side": "candidate",
-      "reason": "Tornado CompoundScalar values use the native typed value-conversion contract; upstream inherited dict serialization helpers are a Python representation detail outside issue #215's curated API"
     },
     {
       "module": "hgraph.adaptors.tornado*",

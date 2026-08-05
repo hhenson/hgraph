@@ -1,3 +1,4 @@
+import inspect
 from dataclasses import InitVar, dataclass, field
 from datetime import timedelta
 from enum import Enum
@@ -79,12 +80,18 @@ def test_compound_scalar_dictionary_conversion_and_sparse_anonymous_values():
 
     value = Outer(amount=2.0, inner=Inner(value=1))
     assert value.to_dict() == {"amount": 2.0, "inner": {"value": 1}}
-    assert Outer.from_dict({
-        "amount": 2.0,
-        "inner": {"value": 1},
-        "internal": "ignored because it is not part of the logical schema",
-        "ignored": "unknown fields retain upstream's filtering behavior",
-    }) == value
+    assert tuple(inspect.signature(CompoundScalar.from_dict).parameters) == ("d",)
+    assert (
+        Outer.from_dict(
+            d={
+                "amount": 2.0,
+                "inner": {"value": 1},
+                "internal": "ignored because it is not part of the logical schema",
+                "ignored": "unknown fields retain upstream's filtering behavior",
+            }
+        )
+        == value
+    )
 
     predicate = compound_scalar(a=int, b=int)
     sparse = predicate(a=1)

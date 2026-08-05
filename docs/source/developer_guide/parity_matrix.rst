@@ -211,8 +211,23 @@ authoring gaps, both fixed without changing native execution: anonymous
 ``to_dict``/``from_dict``, and ``with_columns[RowSchema](...)`` lowers that
 released shorthand to the native ``TS[Frame[RowSchema]]`` output constraint.
 Against released hgraph 0.5.36, the resulting 1,870-test audit records 1,092
-exact matches, 757 evidence-backed conversions, 21 reference-unverified
+exact matches, 762 evidence-backed conversions, 16 reference-unverified
 tests, and no review-required, confirmed-gap, or ambiguous outcomes.
+
+The 2026-08-05 evidence-frontier refresh installs Pydantic in both audit
+environments, where the unchanged public compound-scalar case passes on both
+engines.  Four upstream logging tests that are explicitly XFAIL because of
+full-suite capture pollution XPASS in isolated reference processes; their
+candidate module imports a retired private TSL implementation, so the report
+retains the suite and isolated outcomes and accepts the existing public Python
+and native logger coverage.  The exact real-time scheduler test's 90--110 ms
+upper window was also observed to fail intermittently in the reference engine.
+Its converted counterpart retains ordered values, tagged rescheduling,
+not-before bounds, and the graph end-time while allowing wall-clock jitter.
+The remaining 16 cases have no executable reference oracle: optional C++
+memory/debug tests, timezone cases, the upstream multi-client adaptor XFAIL,
+and skipped nested-graph, Kafka, and inspector cases.  They remain unverified
+rather than being classified as candidate gaps or accepted conversions.
 
 The remaining broad-suite differences are conversions of already recorded
 design decisions, not unimplemented user behaviour:
@@ -239,6 +254,27 @@ design decisions, not unimplemented user behaviour:
 - Arrow stop-hook errors cross the native exception boundary, explicit nodes
   are never pruned merely because their output is unconsumed, and runtime
   graph state is accessed through the ``GlobalState`` injectable.
+
+Public surface refresh (2026-08-05)
+-----------------------------------
+
+The public API probe against released hgraph 0.5.36 compares 54 package and
+adaptor modules, including callable defaults, parameter names, class methods,
+and optional-module importability.  The refresh has no unclassified findings.
+It restored the upstream ``CompoundScalar.from_dict(d=...)`` keyword across
+the root and Tornado schemas, the standard ``TimeSeriesSchema`` reflection
+surface on unspecialised ``RunGraphOutput``, and the ``_global_state``
+injectable spelling on ``publish_output``.
+
+The remaining threaded-graph signature differences are compatible widenings
+or representation boundaries: ``global_state`` and ``params`` may additionally
+be omitted, ``None`` represents the upstream default-output sentinel, and
+service implementations are passive registration tokens in the C++-first
+model.  The upstream-only ``_state`` parameter on ``adaptor_executor`` is a
+hidden generator injectable; executor ownership remains inside the adaptor's
+lifecycle node.  These call paths are pinned by public Python adaptor tests,
+while independent-engine concurrency and runtime reference identification are
+also covered natively.
 
 Compatibility audit: wiring and time-series tiers
 -------------------------------------------------

@@ -26,12 +26,14 @@ from .surface import (
 from .catalog import catalogue_json, validate_recipe
 from .compare import compare_outcomes
 from .conformance import (
+    apply_reference_isolation,
     compare_upstream_results,
     ensure_upstream_source,
     install_conformance_dependencies,
     load_conformance_manifest,
     prepare_test_workspace,
     profile_selectors,
+    reference_isolation_selectors,
     require_aligned_conformance_environments,
     render_conformance_markdown,
     run_upstream_suite,
@@ -312,6 +314,23 @@ def command_conformance(args) -> int:
         result_path=output_dir / "reference-result.json",
         timeout_seconds=args.timeout,
     )
+    reference_isolation = []
+    for index, nodeid in enumerate(
+        reference_isolation_selectors(reference, manifest)
+    ):
+        isolated = run_upstream_suite(
+            environments.reference_python,
+            workspace,
+            [nodeid],
+            result_path=output_dir / f"reference-isolated-{index:03d}.json",
+            timeout_seconds=args.timeout,
+        )
+        record = apply_reference_isolation(reference, nodeid, isolated)
+        record["session"] = _session_report(isolated)
+        reference_isolation.append(record)
+        (output_dir / f"reference-isolated-{index:03d}-pytest.txt").write_text(
+            isolated.get("stdout", "") + isolated.get("stderr", "")
+        )
     candidate = run_upstream_suite(
         environments.candidate_python,
         workspace,
@@ -337,6 +356,10 @@ def command_conformance(args) -> int:
         },
         reference_session=_session_report(reference),
         candidate_session=_session_report(candidate),
+        reference_isolation=reference_isolation,
+    )
+    report["summary"]["reference_isolated"] = sum(
+        record["applied"] for record in reference_isolation
     )
     (output_dir / "reference-pytest.txt").write_text(
         reference.get("stdout", "") + reference.get("stderr", "")
