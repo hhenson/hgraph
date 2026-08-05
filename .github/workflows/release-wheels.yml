@@ -1,7 +1,16 @@
 name: Release Wheels (cibuildwheel)
 
+# Release-grade distributions are built and smoke-tested when a commit lands on main, not when it
+# is tagged. Tagging then publishes what has already been built and tested for that exact commit,
+# rewriting only the version. A release becomes a metadata operation plus an upload.
+#
+# This works because the build is version-agnostic: nothing writes the tag into the source before
+# compiling, so the artifacts a main push produces are byte-identical to what a tag build would
+# have produced, and the version is stamped into the distribution metadata at publish time.
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
       - 'v_*.*.*'
@@ -15,21 +24,18 @@ env:
 
 jobs:
   # Building and smoke-testing the release wheels takes the better part of an hour across three
-  # runners. If this exact commit and tag has already been through that successfully, there is
-  # nothing to learn from doing it again, so the artifacts from that run are reused instead.
+  # runners. If this exact commit has already been through that successfully, there is nothing to
+  # learn from doing it again, so those artifacts are reused.
   #
-  # This covers re-running a release: a publish that failed at the PyPI step, a cancelled run, or a
-  # workflow re-dispatch. It deliberately does NOT reuse across different tags on the same commit,
-  # because the version is written into pyproject.toml before the build, so wheels from another tag
-  # carry the wrong version. Lifting that restriction means restamping the version into the built
-  # distributions as a metadata-only rewrite, which is worth doing if cross-tag reuse is wanted.
+  # Matching is on the commit alone. A run from any ref will do, because the version is not baked
+  # in at build time; the publish job restamps it from the tag.
   reuse-build:
-    name: Find already-built distributions for this tag
+    name: Find already-built distributions for this commit
     runs-on: ubuntu-latest
     outputs:
       run-id: ${{ steps.find.outputs.run-id }}
     steps:
-      - name: Find a successful run for this commit and tag
+      - name: Find a successful run for this commit
         id: find
         uses: actions/github-script@v8
         with:
@@ -51,10 +57,7 @@ jobs:
             });
 
             for (const run of runs) {
-              // Same commit is not enough: the version is baked in from the tag at build time,
-              // so the artifacts are only valid for the tag they were built for.
               if (run.id === context.runId || run.head_sha !== context.sha) continue;
-              if (run.head_branch !== context.ref.replace("refs/tags/", "")) continue;
 
               const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
                 owner: context.repo.owner,
@@ -110,41 +113,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cibw-uvpip-
 
-      - name: Set version from tag into pyproject
-        shell: bash
-        run: |
-          set -euo pipefail
-          REF="${GITHUB_REF_NAME}"
-          if [[ "${REF}" == v_* ]]; then
-            VERSION="${REF#v_}"
-          elif [[ "${REF}" == v* ]]; then
-            VERSION="${REF#v}"
-          else
-            echo "Tag ${REF} does not start with v or v_; skipping version update" >&2
-            exit 1
-          fi
-          echo "Setting project version to: ${VERSION}"
-          export VERSION="${VERSION}"
-          python - <<'PY'
-          import os, re, pathlib, sys
-          ver = os.environ.get('VERSION')
-          if not ver:
-            print('VERSION env not set', file=sys.stderr)
-            sys.exit(1)
-          p = pathlib.Path('pyproject.toml')
-          s = p.read_text(encoding='utf-8')
-          new_s, n = re.subn(r'(?m)^(version\s*=\s*")[^"]+("\s*)$', rf"\g<1>{ver}\2", s)
-          if n == 0:
-            # Fallback: replace [project] version explicitly
-            new_s, n = re.subn(r'(?m)^version\s*=\s*"[^"]+"', f'version = "{ver}"', s)
-          if n == 0:
-            print('ERROR: Could not find version field in pyproject.toml', file=sys.stderr)
-            sys.exit(1)
-          p.write_text(new_s, encoding='utf-8')
-          print(f'pyproject.toml version updated to {ver}')
-          PY
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Deliberately no version stamping here. The build stays version-agnostic so that the
+      # artifacts a main push produces are reusable by whatever tag is cut from that commit later;
+      # the publish job writes the tag version into the distribution metadata instead.
 
       - name: Install tooling
         run: |
@@ -280,7 +251,7 @@ jobs:
     name: Publish to PyPI
     needs: [ reuse-build, build-wheels ]
     # Publish when the build succeeded, or when it was skipped because a previous run for this
-    # exact commit and tag had already produced and tested the distributions.
+    # exact commit had already produced and tested the distributions.
     if: >-
       always() &&
       startsWith(github.ref, 'refs/tags/') &&
@@ -327,6 +298,132 @@ jobs:
             cp "$f" to_upload/
           done
           echo "Collected distributions:" && ls -la to_upload || true
+
+      # The tag is the version authority. The distributions were built, and fully tested, at
+      # whatever version pyproject.toml carried on that commit. Rewriting the version is a
+      # metadata-only operation, so the expensive compiled artifacts are reused byte-for-byte.
+      - name: Restamp distributions to the tag version
+        shell: python
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          import base64, csv, hashlib, io, os, re, tarfile, zipfile
+          from pathlib import Path
+
+          tag = os.environ["RELEASE_TAG"]
+          version = tag[2:] if tag.startswith("v_") else tag[1:] if tag.startswith("v") else tag
+          print(f"tag {tag} -> version {version}")
+
+          def record_hash(data: bytes) -> str:
+              digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest())
+              return "sha256=" + digest.decode().rstrip("=")
+
+          def restamp_wheel(path: Path) -> None:
+              name, old_version, _rest = path.name.split("-", 2)
+              if old_version == version:
+                  print(f"{path.name}: already at {version}")
+                  return
+              old_info, new_info = f"{name}-{old_version}.dist-info", f"{name}-{version}.dist-info"
+              with zipfile.ZipFile(path) as archive:
+                  entries = {i.filename: archive.read(i.filename) for i in archive.infolist()}
+
+              renamed = {}
+              for item_name, data in entries.items():
+                  new_name = item_name.replace(old_info + "/", new_info + "/")
+                  if new_name == f"{new_info}/METADATA":
+                      text, count = re.subn(
+                          rf"(?m)^Version: {re.escape(old_version)}$",
+                          f"Version: {version}",
+                          data.decode(),
+                          count=1,
+                      )
+                      assert count == 1, f"{path.name}: METADATA Version line not found"
+                      data = text.encode()
+                  renamed[new_name] = data
+
+              # RECORD lists every file with its hash and size, so it has to be rebuilt after the
+              # dist-info rename and the METADATA edit, or the wheel fails installation checks.
+              record_name = f"{new_info}/RECORD"
+              rows = []
+              for row in csv.reader(io.StringIO(renamed[record_name].decode())):
+                  if not row:
+                      continue
+                  entry = row[0].replace(old_info + "/", new_info + "/")
+                  if entry == record_name:
+                      rows.append([entry, "", ""])       # RECORD cannot hash itself
+                  else:
+                      rows.append([entry, record_hash(renamed[entry]), str(len(renamed[entry]))])
+              buffer = io.StringIO(newline="")
+              csv.writer(buffer, lineterminator="\n").writerows(rows)
+              renamed[record_name] = buffer.getvalue().encode()
+
+              new_path = path.with_name(path.name.replace(f"-{old_version}-", f"-{version}-", 1))
+              with zipfile.ZipFile(new_path, "w", zipfile.ZIP_DEFLATED) as archive:
+                  for item_name, data in renamed.items():
+                      archive.writestr(item_name, data)
+              if new_path != path:
+                  path.unlink()
+              print(f"{path.name} -> {new_path.name}")
+
+          def restamp_sdist(path: Path) -> None:
+              name, old_version = path.name.removesuffix(".tar.gz").rsplit("-", 1)
+              if old_version == version:
+                  print(f"{path.name}: already at {version}")
+                  return
+              old_root, new_root = f"{name}-{old_version}", f"{name}-{version}"
+              members = []
+              with tarfile.open(path, "r:gz") as archive:
+                  for member in archive.getmembers():
+                      data = archive.extractfile(member).read() if member.isfile() else None
+                      member.name = member.name.replace(old_root, new_root, 1)
+                      # Paths over 100 characters ride PAX headers, which would override the
+                      # renamed member.name when the archive is written back out.
+                      member.pax_headers.pop("path", None)
+                      member.pax_headers.pop("linkpath", None)
+                      if member.name == f"{new_root}/PKG-INFO":
+                          text, count = re.subn(
+                              rf"(?m)^Version: {re.escape(old_version)}$",
+                              f"Version: {version}", data.decode(), count=1,
+                          )
+                          assert count == 1, f"{path.name}: PKG-INFO Version line not found"
+                          data = text.encode()
+                      elif member.name == f"{new_root}/pyproject.toml":
+                          text, count = re.subn(
+                              r'(?m)^version = "[^"]+"$',
+                              f'version = "{version}"', data.decode(), count=1,
+                          )
+                          assert count == 1, f"{path.name}: pyproject.toml version not found"
+                          data = text.encode()
+                      if data is not None:
+                          member.size = len(data)
+                      members.append((member, data))
+
+              new_path = path.with_name(f"{new_root}.tar.gz")
+              with tarfile.open(new_path, "w:gz") as archive:
+                  for member, data in members:
+                      archive.addfile(member, io.BytesIO(data) if data is not None else None)
+              if new_path != path:
+                  path.unlink()
+              print(f"{path.name} -> {new_path.name}")
+
+          wheels = sorted(Path("to_upload").glob("*.whl"))
+          sdists = sorted(Path("to_upload").glob("*.tar.gz"))
+          assert wheels, "no wheels to publish"
+          for wheel in wheels:
+              restamp_wheel(wheel)
+          for sdist in sdists:
+              restamp_sdist(sdist)
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          python-version: '3.12'
+
+      # A restamped wheel whose RECORD no longer matches its contents installs and then fails in
+      # confusing ways, so the rewrite is checked before anything reaches PyPI.
+      - name: Verify restamped distributions
+        run: |
+          uvx --from twine==6.2.0 twine check to_upload/*
+          ls -la to_upload
 
       - name: Publish to PyPI (trusted publishing)
         uses: pypa/gh-action-pypi-publish@v1.14.1
