@@ -19,6 +19,12 @@ on:
       - 'v*'
       - 'v_*.*.*'
 
+concurrency:
+  # Supersede in-flight runs for the same ref; a new push makes the previous one irrelevant.
+  # Tags are excluded by group (github.run_id is unique) so a release in flight is never cancelled.
+  group: ${{ github.workflow }}-${{ startsWith(github.ref, 'refs/tags/') && github.run_id || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   actions: read
   contents: read
@@ -51,10 +57,15 @@ jobs:
               "release-sdist",
             ]);
 
+            // event: "push" is load-bearing, not a tidy-up. Pull request runs take the fast build
+            // path and upload wheels that are not publish-grade, under these same artifact names.
+            // A rebase merge can leave main's commit sharing a SHA with the pull request head, so
+            // without this filter a tag could publish an unrepaired wheel.
             const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: "release-wheels.yml",
+              event: "push",
               head_sha: context.sha,
               status: "success",
               per_page: 100,
@@ -126,7 +137,11 @@ jobs:
           uv tool install --upgrade cibuildwheel==3.4.0
           uv tool install --upgrade conan==2.26.2
 
+      # Publish-grade wheels, built only where something is published from. cibuildwheel spins a
+      # container per platform and is markedly slower than a plain build; pull requests do not
+      # publish, so they take the fast path below and are tested just as thoroughly.
       - name: Build wheels with cibuildwheel
+        if: github.event_name != 'pull_request'
         env:
           # Build once on CPython 3.12 and publish ABI3 wheels for 3.12+.
           CIBW_BUILD: cp312-*
@@ -160,6 +175,21 @@ jobs:
         run: |
           uvx --from cibuildwheel==3.4.0 cibuildwheel --output-dir wheelhouse
 
+      # Pull request path: the same extension, compiled the same way, without the container and
+      # the wheel-repair machinery that only matters for distribution. The test matrix below runs
+      # against this exactly as it runs against the publish-grade wheel, so coverage is identical;
+      # what a pull request does not prove is that the wheel is *publishable*, and that is proven
+      # on main before any tag can reuse it.
+      - name: Build wheel (fast path, pull requests)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
+          CMAKE_GENERATOR: Ninja
+        run: |
+          set -euo pipefail
+          uv build -v --wheel --out-dir wheelhouse
+
       - name: Build sdist (source distribution)
         run: |
           uv build -v --sdist
@@ -181,8 +211,10 @@ jobs:
             if ($wheels) { uvx --from twine==6.2.0 twine check wheelhouse/*.whl }
           } else { Write-Host "wheelhouse not found" }
 
-      - name: Test built wheels with ABI3 smoke tests [Linux/macOS]
-        if: runner.os != 'Windows'
+      # macOS only: on Linux the test matrix runs the full suite against this same wheel, on the
+      # same three interpreters and both runtimes, so smoke testing here would be a strict subset.
+      - name: Test built wheels with ABI3 smoke tests [macOS]
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
@@ -288,6 +320,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Cache uv downloads
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-py${{ matrix.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-py${{ matrix.python-version }}-
+
       - uses: actions/download-artifact@v7
         with:
           name: release-wheels-Linux
@@ -302,10 +342,11 @@ jobs:
           import subprocess, sys
           from pathlib import Path
 
-          # cibuildwheel emits both manylinux and musllinux wheels; only the former installs on the
-          # glibc runner, and picking blindly would fail in a way that looks like a test failure.
-          wheels = sorted(Path("wheelhouse").rglob("*manylinux*.whl"))
-          assert len(wheels) == 1, f"expected exactly one manylinux wheel, found {wheels}"
+          # cibuildwheel emits a musllinux wheel alongside the manylinux one; it cannot install on
+          # the glibc runner, and picking it would fail in a way that reads like a test failure.
+          # On the pull request path there is a single plain linux_x86_64 wheel instead.
+          wheels = [w for w in sorted(Path("wheelhouse").rglob("*.whl")) if "musllinux" not in w.name]
+          assert len(wheels) == 1, f"expected exactly one installable wheel, found {wheels}"
           venv_python = Path(".venv") / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
           subprocess.check_call(["uv", "pip", "install", "--python", str(venv_python), str(wheels[0])])
 
