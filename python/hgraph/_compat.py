@@ -184,6 +184,36 @@ class CompoundScalar:
         cls.__compound_options__ = dict(options)
         _COMPOUND_SCALAR_CLASSES.append(cls)
 
+    def to_dict(self):
+        """Return populated schema fields using hgraph's public value shape."""
+        from ._types import _compound_python_field_types
+
+        result = {}
+        for name in _compound_python_field_types(type(self)):
+            value = getattr(self, name, None)
+            if isinstance(value, CompoundScalar):
+                value = value.to_dict()
+            if value is not None:
+                result[name] = value
+        return result
+
+    @classmethod
+    def from_dict(cls, values: dict):
+        """Construct from known fields, recursively adapting nested scalars."""
+        from ._types import _compound_python_field_types
+
+        field_types = _compound_python_field_types(cls)
+        converted = {}
+        for name, value in values.items():
+            annotation = field_types.get(name)
+            if annotation is None:
+                continue
+            if (isinstance(value, dict) and isinstance(annotation, type)
+                    and issubclass(annotation, CompoundScalar)):
+                value = annotation.from_dict(value)
+            converted[name] = value
+        return cls(**converted)
+
 @dataclass(frozen=True)
 class NodeError(CompoundScalar, namespace=""):
     """Structured error value emitted by native node and child-graph capture."""

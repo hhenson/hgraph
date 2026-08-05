@@ -139,6 +139,31 @@ namespace
         }
     };
 
+    inline std::int32_t retained_unconsumed_evaluations{};
+
+    struct RetainedUnconsumedNode
+    {
+        static constexpr auto name = "retained_unconsumed_node";
+
+        static void eval(In<"in", TS<Int>> in, Out<TS<Int>> out)
+        {
+            ++retained_unconsumed_evaluations;
+            out.set(in.value());
+        }
+    };
+
+    struct RetainedUnconsumedGraph
+    {
+        static constexpr auto name = "retained_unconsumed_graph";
+
+        static Port<TS<Int>> compose(Wiring &w)
+        {
+            auto value = wire<stdlib::const_>(w, 1_i).as<TS<Int>>();
+            static_cast<void>(wire<RetainedUnconsumedNode>(w, value));
+            return value;
+        }
+    };
+
     struct PolymorphicTsdConstGraph
     {
         static constexpr auto name = "polymorphic_tsd_const_graph";
@@ -773,6 +798,17 @@ TEST_CASE("stdlib::debug_print runs over a tick")
 
     GraphExecutorValue executor = testing::run_graph(build_graph<DebugPrintGraph>());
     CHECK(executor.view().graph().node_count() == 2);
+}
+
+TEST_CASE("explicitly wired nodes are retained when their output is unconsumed")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+
+    retained_unconsumed_evaluations = 0;
+    CHECK_OUTPUT(eval_node<RetainedUnconsumedGraph>(), values<Int>(1));
+    CHECK(retained_unconsumed_evaluations == 1);
 }
 
 namespace

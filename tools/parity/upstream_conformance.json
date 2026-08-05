@@ -955,6 +955,220 @@
         "python/tests/ported/_operators/test_stream_operators.py",
         "tests/cpp/test_map.cpp"
       ]
+    },
+    {
+      "id": "impl-graph-builder-private-wire-graph-converted",
+      "match": "hgraph_unit_tests/_impl/_builder/test_graph_builder.py::test_build_graph",
+      "classification": "converted",
+      "candidate_outcomes": ["collection-error"],
+      "diagnostic_regex": "cannot import name 'wire_graph'",
+      "reason": "wire_graph exposes the retired Python GraphBuilder implementation. Public graph construction is owned by native Wiring and is exercised through both authoring surfaces.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/test_hgraph_api.py",
+        "tests/cpp/test_graph_wiring.cpp"
+      ]
+    },
+    {
+      "id": "impl-runtime-deferred-cleanup-expected-change",
+      "match": "hgraph_unit_tests/_impl/_runtime/test_graph_runner.py::test_run_no_cleanup",
+      "classification": "expected-change",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "assert True == False",
+      "reason": "cleanup_on_error=False retains the failed executor only for the lifetime of the raised exception. Releasing that exception performs mandatory final graph teardown instead of leaking a started executor.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/test_lifecycle_configuration.py",
+        "tests/cpp/test_lifecycle_observers.cpp"
+      ]
+    },
+    {
+      "id": "adaptors-data-frame-operators-arrow-boundary",
+      "match": "hgraph_unit_tests/adaptors/data_frame/test_data_frame_operators.py::*",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "expected pyarrow[.]lib[.]Table, got DataFrame|object has no attribute 'sort'|unexpected input types",
+      "reason": "The public operator signatures, including sparse compound predicates and with_columns[RowSchema], are retained; results use the approved canonical PyArrow Frame boundary rather than Polars-native values.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/adaptors/data_frame/test_python_data_frame_operators.py",
+        "python/tests/adaptors/data_frame/test_upstream_surface_parity.py",
+        "tests/cpp/test_data_frame_operators.cpp"
+      ]
+    },
+    {
+      "id": "adaptors-data-frame-record-replay-arrow-boundary",
+      "match": "hgraph_unit_tests/adaptors/data_frame/test_data_frame_record_replay.py::*",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "pyarrow[.](Int64Scalar|Field)",
+      "reason": "DATA_FRAME record/replay is native Arrow storage; converted assertions observe Arrow scalars and schema fields while retaining record IDs, overrides, and replay behavior.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/adaptors/data_frame/test_data_frame_record_replay.py",
+        "tests/cpp/test_record_replay_frame.cpp"
+      ]
+    },
+    {
+      "id": "adaptors-data-frame-source-arrow-boundary",
+      "match": "hgraph_unit_tests/adaptors/data_frame/test_data_source_generators.py::*",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "pyarrow[.](Int64Scalar|TimestampScalar)",
+      "reason": "DataFrameSource preserves the upstream constructor and batching behavior but exposes canonical Arrow scalar values at the frame boundary.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/adaptors/data_frame/test_data_frame_source.py",
+        "tests/cpp/test_data_frame_operators.cpp"
+      ]
+    },
+    {
+      "id": "adaptors-data-frame-converters-arrow-boundary",
+      "match": "hgraph_unit_tests/adaptors/data_frame/test_to_data_frame_converters.py::*",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "pyarrow[.](Int64Scalar|Date32Scalar|TimestampScalar)",
+      "reason": "to-frame conversion retains scalar, date, datetime, TSB, inferred-schema, and mapping behavior while returning canonical Arrow scalars rather than Polars/Python scalar projections.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/adaptors/data_frame/test_python_data_frame_operators.py",
+        "python/tests/adaptors/data_frame/test_upstream_surface_parity.py",
+        "tests/cpp/test_data_frame_operators.cpp"
+      ]
+    },
+    {
+      "id": "adaptors-kafka-private-consumer-injection-converted",
+      "match": "hgraph_unit_tests/adaptors/kafka/test_kafka_api.py::test_realtime_subscriber",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "has no attribute 'KafkaConsumer'",
+      "reason": "The upstream test monkeypatches a private module import. hg_cpp exposes deterministic consumer injection through register_kafka_adaptor's consumer_factory while preserving the public real-time subscriber behavior.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/adaptors/kafka/test_kafka_api.py",
+        "tests/cpp/test_service_wiring.cpp"
+      ]
+    },
+    {
+      "id": "adaptors-run-graph-on-thread-cycle-converted",
+      "match": "hgraph_unit_tests/adaptors/run_graph_on_thread/test_run_graph_on_thread.py::test_run_graph_on_thread_*_mode",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "KeyError: 'out'",
+      "reason": "Independent worker engines preserve started/output/finished order but do not promise same-tick or wall-clock alignment. Converted tests assert the ordered payload sequence instead of upstream's incidental coalescing into one tick.",
+      "decision": "docs/source/user_guide/python_compatibility.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/adaptors/run_graph_on_thread/test_run_graph_on_thread.py",
+        "tests/cpp/test_service_push_sources.cpp"
+      ]
+    },
+    {
+      "id": "adaptors-websocket-import-guard-converted",
+      "match": "hgraph_unit_tests/adaptors/websocket_adaptor/test_websocket_adaptor.py::test_single_request_graph_client",
+      "classification": "converted",
+      "candidate_outcomes": ["not-run"],
+      "diagnostic_regex": "candidate did not report this reference test",
+      "reason": "The upstream module's broad optional-import guard skips collection against the C++-first package layout. The public client specialization and request/reply flow are covered without that infrastructure guard.",
+      "decision": "docs/source/developer_guide/tornado_parity.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/adaptors/tornado/test_websocket_adaptor.py",
+        "tests/cpp/test_adaptor_wiring.cpp",
+        "tests/cpp/test_service_wiring.cpp"
+      ]
+    },
+    {
+      "id": "arrow-stop-hook-native-exception-converted",
+      "match": "hgraph_unit_tests/arrow/test_arrow.py::test_assert_too_many_args",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "RuntimeError: node.*'_assert'.*stop failed:.*AssertionError: Expected 2 values but got 1 results",
+      "reason": "The assertion behavior is retained, but a Python stop-hook exception crossing the native node boundary is surfaced as NodeException/RuntimeError with the original AssertionError preserved in its diagnostic.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/ported/arrow/test_arrow.py",
+        "tests/cpp/test_error_handling.cpp"
+      ]
+    },
+    {
+      "id": "arrow-explicit-node-retention-converted",
+      "match": "hgraph_unit_tests/arrow/test_arrow.py::test_side_effects",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "GlobalState[.]instance[(][)] is wiring-only during graph execution",
+      "reason": "Explicitly wired nodes are retained even when their output is unconsumed, and runtime state is borrowed through the GlobalState injectable rather than a process lookup. Converted tests pin both C++-first contracts.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/ported/arrow/test_arrow.py",
+        "tests/cpp/test_std_nodes.cpp"
+      ]
+    },
+    {
+      "id": "debug-inspector-native-snapshot-converted",
+      "match": "hgraph_unit_tests/debug/test_inspector.py::*",
+      "classification": "converted",
+      "candidate_outcomes": ["collection-error"],
+      "diagnostic_regex": "cannot import name 'inspector' from 'hgraph[.]debug'",
+      "reason": "The Python runtime-object walker is replaced by the native Inspector lifecycle observer and owned data-only snapshots, including nested references and keyed graphs.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/test_inspector.py",
+        "tests/cpp/test_inspector.cpp"
+      ]
+    },
+    {
+      "id": "examples-legacy-replay-source-converted",
+      "match": "hgraph_unit_tests/test_examples.py::test_examples",
+      "classification": "converted",
+      "candidate_outcomes": ["collection-error"],
+      "diagnostic_regex": "cannot import name 'SimpleArrayReplaySource'",
+      "reason": "The collected example uses retired in-memory test helpers. Formal record/replay configuration, Wiring replay seeds, component modes, and native replay scheduling replace those spellings.",
+      "decision": "docs/source/user_guide/python_compatibility.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/ported/_wiring/test_component.py",
+        "python/tests/test_hgraph_api.py",
+        "tests/cpp/test_record_replay.cpp"
+      ]
+    },
+    {
+      "id": "global-keys-process-builder-converted",
+      "match": "hgraph_unit_tests/test_global_keys.py::*",
+      "classification": "converted",
+      "candidate_outcomes": ["collection-error"],
+      "diagnostic_regex": "cannot import name 'set_output_key_builder'",
+      "reason": "The private process-global output-key builder is not restored. Native record/replay and component keys are fixed contracts, while graph-specific configuration remains in GlobalState.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/ported/_wiring/test_component.py",
+        "tests/cpp/test_record_replay_config.cpp"
+      ]
+    },
+    {
+      "id": "root-wiring-private-instance-converted",
+      "match": "hgraph_unit_tests/test_wiring.py::*",
+      "classification": "converted",
+      "candidate_outcomes": ["collection-error"],
+      "diagnostic_regex": "cannot import name 'WiringNodeInstance'",
+      "reason": "WiringNodeInstance is the retired Python builder representation. Native Wiring owns resolution and topology while the public graph authoring behavior remains covered in both languages.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/test_hgraph_api.py",
+        "tests/cpp/test_graph_wiring.cpp"
+      ]
     }
   ]
 }

@@ -185,6 +185,12 @@ uncaught run error; ``capture_values=True`` includes current input values.
 alive. Once the exception is released, executor destruction performs the
 mandatory final teardown.
 
+``run_graph_on_thread`` preserves publication order within each child.  A
+worker's ``started``, output, and ``finished`` deltas may occupy separate outer
+graph cycles: independently scheduled graph engines have no portable tick or
+wall-clock alignment.  Consumers should observe the ordered fields rather than
+require the released Python implementation's incidental same-tick coalescing.
+
 Runtime callables
 -----------------
 

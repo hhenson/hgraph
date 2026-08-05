@@ -186,6 +186,16 @@ class _OperatorFunction:
         # inputs). A plain type subscript is the requested output type.
         from .._types import OUT, _type_var_name
 
+        # ``with_columns[RowSchema](...)`` is the released hgraph spelling:
+        # its plain subscript selects the Frame row schema, not a bare Bundle
+        # output.  Keep this as Python syntax adaptation; native dispatch still
+        # receives the complete TS[Frame[RowSchema]] output constraint once.
+        if (self.__name__ == "with_columns" and isinstance(item, type)):
+            from .._compat import CompoundScalar
+            if issubclass(item, CompoundScalar):
+                from .._types import Frame, TS
+                item = TS[Frame[item]]
+
         output_type = None
         sizes = []
         ts_hints = []

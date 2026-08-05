@@ -59,7 +59,15 @@ def test_join_semi_and_anti():
 def test_filter_variants():
     table = pa.table({"a": [1, 2, 3], "b": [10, 20, 30]})
 
-    assert eval_node(filter_cs, [table], AB(a=2, b=None), resolution_dict={"ts": TS[Frame[AB]]})[0].equals(
+    predicate = compound_scalar(a=int, b=int)
+    sparse_condition = predicate(a=2)
+    assert sparse_condition.b is None
+    assert eval_node(
+        filter_cs,
+        [table],
+        sparse_condition,
+        resolution_dict={"ts": TS[Frame[predicate]]},
+    )[0].equals(
         table.slice(1, 1)
     )
     assert eval_node(filter_exp, [table], pc.field("a") > 1, resolution_dict={"ts": TS[Frame[AB]]})[0].equals(
@@ -157,7 +165,7 @@ def test_with_columns_replace_and_project():
 
     @graph
     def project(ts: TS[Frame[AB]], c: TS[int]) -> TS[Frame[projected]]:
-        return with_columns(ts, _tp_out=projected, c=c)
+        return with_columns[projected](ts, c=c)
 
     assert eval_node(replace, [table], [99])[0].equals(pa.table({"a": [1, 2], "b": [99, 99]}))
     assert eval_node(project, [table], [7])[0].equals(pa.table({"a": [1, 2], "c": [7, 7]}))
