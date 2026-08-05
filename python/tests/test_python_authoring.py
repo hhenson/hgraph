@@ -647,6 +647,20 @@ def test_generator_injects_engine_api_for_its_full_lifetime():
     ]
 
 
+def test_generator_evaluation_clock_advances_with_each_resume():
+    @hg.generator
+    def sequence(_clock: hg.EvaluationClock = None) -> hg.TS[datetime.datetime]:
+        for _ in range(3):
+            yield _clock.next_cycle_evaluation_time, _clock.evaluation_time
+
+    assert eval_node(sequence) == [
+        None,
+        hg.MIN_ST,
+        hg.MIN_ST + hg.MIN_TD,
+        hg.MIN_ST + 2 * hg.MIN_TD,
+    ]
+
+
 def test_generator_rejects_duplicate_or_retrograde_times():
     @hg.generator
     def duplicate() -> TS[int]:

@@ -275,6 +275,14 @@ model.
        inspect the old private ``_build_map_wiring`` structures and are not
        portable. Keyed-map error capture is covered by the error-handling
        runtime and public ``eval_node`` tests.
+       **Accepted filter correction:** when a keyed input reopens after being
+       filtered, hg_cpp reconciles the complete currently valid state. It
+       removes every formerly published key that is now absent or invalid and
+       does not republish unchanged values. Released hgraph 0.5.34 instead
+       republishes unchanged values and omits an invalidated key; its own test
+       marks that omission as a feature needing reconsideration. The corrected
+       behavior is pinned by ``test_filter_str_tsd`` in the ported Python and
+       native map suites.
    * - ``test_mesh.py``
      - 7
      - Named and anonymous meshes, dependency ordering/cycles, on-demand

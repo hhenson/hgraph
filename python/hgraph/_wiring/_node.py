@@ -651,22 +651,30 @@ class _PyNode:
                 scalar_values[param.name] = logger
                 continue
             if isinstance(param.annotation, _ContextExpr):
-                # Context-injected: resolved from the published stack by
-                # type (and name); never supplied positionally.
-                requirement = bound.arguments.get(param.name, param.default)
-                name = None
-                required = False
-                if isinstance(requirement, _Required):
-                    required, name = True, requirement.name
-                elif isinstance(requirement, str):
-                    name = requirement
-                resolved = _resolve_context(param.annotation, name, scope)
-                if resolved is None:
-                    where = f" with name {name}" if name else ""
-                    if required:
-                        raise WiringError(
-                            f"no context published for '{param.name}'{where} of '{self.__name__}'")
-                    continue   # optional and absent: the fn sees its None default
+                # A caller-supplied port overrides ambient context, matching
+                # the native Context input contract. Requirement/name marker
+                # values still select from the published context stack.
+                supplied = bound.arguments.get(param.name, _MISSING)
+                if isinstance(supplied, WiringPort):
+                    context_param = param.replace(annotation=param.annotation.ts)
+                    self._check_binding(scope, context_param, supplied)
+                    resolved = supplied
+                else:
+                    requirement = (
+                        supplied if supplied is not _MISSING else param.default)
+                    name = None
+                    required = False
+                    if isinstance(requirement, _Required):
+                        required, name = True, requirement.name
+                    elif isinstance(requirement, str):
+                        name = requirement
+                    resolved = _resolve_context(param.annotation, name, scope)
+                    if resolved is None:
+                        where = f" with name {name}" if name else ""
+                        if required:
+                            raise WiringError(
+                                f"no context published for '{param.name}'{where} of '{self.__name__}'")
+                        continue   # optional and absent: the fn sees its None default
                 is_active = active_policy is None or param.name in active_policy
                 layout.append("C" if is_active else "P")
                 _note(param.name)

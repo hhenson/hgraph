@@ -622,7 +622,7 @@ struct PyFastComputeStateRef {
       break;
     }
     case 'c':
-      call_args.append(nb::cast(PyEvalClock{engine.evaluation_clock()}));
+      call_args.append(nb::cast(PyEvalClock{engine.evaluation_clock(), lease}));
       break;
     case 'd':
       call_args.append(nb::cast(PyScheduler{scheduler}));
@@ -778,7 +778,7 @@ void py_assemble_lifecycle_args(std::string_view layout,
           recordable_state->handle(), now, lease}));
       break;
     case 'c':
-      call_args.append(nb::cast(PyEvalClock{engine.evaluation_clock()}));
+      call_args.append(nb::cast(PyEvalClock{engine.evaluation_clock(), lease}));
       break;
     case 'd':
       call_args.append(nb::cast(PyScheduler{scheduler}));

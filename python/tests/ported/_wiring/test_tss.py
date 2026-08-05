@@ -89,3 +89,11 @@ def test_tss_delta_value_preserves_set_delta_type():
         return isinstance(delta, _SetDelta) and delta.added == frozenset({1}) and not delta.removed
 
     assert eval_node(is_set_delta, [{1}]) == [True]
+
+
+def test_tss_bare_tuple_annotation_accepts_tuple_keys():
+    @compute_node
+    def count_tuples(tss: TSS[tuple]) -> TS[int]:
+        return len(tss.value)
+
+    assert eval_node(count_tuples, [{(1, 2), (3, 4)}]) == [2]

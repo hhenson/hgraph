@@ -25,6 +25,18 @@ from .surface import (
 )
 from .catalog import catalogue_json, validate_recipe
 from .compare import compare_outcomes
+from .conformance import (
+    compare_upstream_results,
+    ensure_upstream_source,
+    install_conformance_dependencies,
+    load_conformance_manifest,
+    prepare_test_workspace,
+    profile_selectors,
+    require_aligned_conformance_environments,
+    render_conformance_markdown,
+    run_upstream_suite,
+    validate_selectors,
+)
 from .coverage import coverage_json, render_coverage_markdown
 from .environments import PARITY_ROOT, prepare_environments
 from .generate import generate_recipes
@@ -252,6 +264,104 @@ def command_surface(args) -> int:
     return 0 if not report["actionable"] or args.exit_zero else 1
 
 
+def _session_report(result: dict) -> dict:
+    return {
+        key: value
+        for key, value in result.items()
+        if key not in {"tests", "collected", "collection_errors", "stdout", "stderr"}
+    }
+
+
+def command_conformance(args) -> int:
+    environments = _prepare(args)
+    manifest_path = (
+        Path(args.manifest)
+        if args.manifest
+        else Path(__file__).with_name("upstream_conformance.json")
+    )
+    manifest = load_conformance_manifest(manifest_path)
+    selectors = validate_selectors(
+        args.paths or profile_selectors(manifest, args.profile)
+    )
+    extras = SURFACE_EXTRA_DEPENDENCIES if args.with_extras else ()
+    install_conformance_dependencies(
+        (environments.reference_python, environments.candidate_python),
+        extras=extras,
+    )
+    conformance_environment = require_aligned_conformance_environments(
+        environments.reference_python,
+        environments.candidate_python,
+        extras=extras,
+    )
+    source = ensure_upstream_source(
+        environments.reference_identity,
+        source_path=_path(args.upstream_source),
+    )
+    workspace = prepare_test_workspace(source)
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    output_dir = (
+        Path(args.output_dir).absolute()
+        if args.output_dir
+        else PARITY_ROOT / "results" / f"{stamp}-conformance-{args.profile}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    reference = run_upstream_suite(
+        environments.reference_python,
+        workspace,
+        selectors,
+        result_path=output_dir / "reference-result.json",
+        timeout_seconds=args.timeout,
+    )
+    candidate = run_upstream_suite(
+        environments.candidate_python,
+        workspace,
+        selectors,
+        result_path=output_dir / "candidate-result.json",
+        timeout_seconds=args.timeout,
+    )
+    report = compare_upstream_results(reference, candidate, manifest)
+    report.update(
+        profile=args.profile,
+        selectors=selectors,
+        reference_identity=environments.reference_identity,
+        candidate_identity=environments.candidate_identity,
+        candidate_fingerprint=environments.candidate_fingerprint,
+        conformance_environment=conformance_environment,
+        source={
+            "repository": source.repository,
+            "ref": source.ref,
+            "revision": source.revision,
+            "version": source.version,
+            "declared_version": source.declared_version,
+            "test_digest": source.test_digest,
+        },
+        reference_session=_session_report(reference),
+        candidate_session=_session_report(candidate),
+    )
+    (output_dir / "reference-pytest.txt").write_text(
+        reference.get("stdout", "") + reference.get("stderr", "")
+    )
+    (output_dir / "candidate-pytest.txt").write_text(
+        candidate.get("stdout", "") + candidate.get("stderr", "")
+    )
+    (output_dir / "report.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n"
+    )
+    markdown = render_conformance_markdown(report)
+    (output_dir / "report.md").write_text(markdown)
+    print(markdown)
+    print(f"report: {output_dir / 'report.json'}")
+    incomplete = bool(
+        report["review_required"]
+        or report["confirmed_gaps"]
+        or report["ambiguous_rules"]
+        or report["reference_unverified"]
+        or reference.get("status") != "complete"
+        or candidate.get("status") != "complete"
+    )
+    return 0 if args.exit_zero or not incomplete else 1
+
+
 def command_campaign(args) -> int:
     profile_defaults = CAMPAIGN_PROFILES[args.profile]
     examples = (
@@ -430,6 +540,18 @@ def build_parser() -> argparse.ArgumentParser:
     surface.add_argument("--known")
     _environment_arguments(surface)
     surface.set_defaults(func=command_surface)
+
+    conformance = subparsers.add_parser("conformance")
+    conformance.add_argument("paths", nargs="*")
+    conformance.add_argument("--profile", default="core")
+    conformance.add_argument("--manifest")
+    conformance.add_argument("--upstream-source")
+    conformance.add_argument("--timeout", type=float, default=3600.0)
+    conformance.add_argument("--output-dir")
+    conformance.add_argument("--with-extras", action="store_true")
+    conformance.add_argument("--exit-zero", action="store_true")
+    _environment_arguments(conformance)
+    conformance.set_defaults(func=command_conformance)
 
     publish = subparsers.add_parser("publish-issues")
     publish.add_argument("reports", nargs="+")

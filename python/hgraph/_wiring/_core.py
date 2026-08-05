@@ -441,14 +441,15 @@ class IncorrectTypeBinding(WiringError):
 class RequirementsNotMetWiringError(WiringError):
     """An overload's requires= predicate rejected the call."""
 
-_published_contexts = []   # [(port, ts_type_handle, frame)] most recent last
+_published_contexts = []   # [(port, ts_type_handle, frame, owning_wiring)] newest last
 
 
 def _port_enter(self):
     import sys
 
     frame = sys._getframe(1)
-    _published_contexts.append((self, self._port.ts_type, frame))
+    _published_contexts.append(
+        (self, self._port.ts_type, frame, _current_wiring()))
     return self
 
 
@@ -490,7 +491,7 @@ def _resolve_context(ctx_expr, name=None, resolution_scope=None):
     wanted = getattr(ctx_expr.ts, "handle", None)
     pattern = _pattern_of(ctx_expr.ts) if isinstance(
         ctx_expr.ts, (_GenericTsExpr, _TypeVarSentinel)) else None
-    for port, ts_type, frame in reversed(_published_contexts):
+    for port, ts_type, frame, owning_wiring in reversed(_published_contexts):
         if name is not None and _context_name_of(port, frame) != name:
             continue
         matches = wanted is not None and ts_type == wanted
@@ -518,5 +519,16 @@ def _resolve_context(ctx_expr, name=None, resolution_scope=None):
             )
         if not matches:
             continue
-        return port
+        current_wiring = _current_wiring()
+        # Nested graph/service callbacks receive borrowed Python wrappers for
+        # their native Wiring.  Wrapper identity therefore cannot establish a
+        # graph boundary: compare the underlying Wiring objects instead.
+        if _hgraph.same_wiring(current_wiring, owning_wiring):
+            return port
+        # A context can cross multiple nested compilation boundaries. Make
+        # each boundary explicit through the same C++ capture protocol used
+        # by native Context inputs; carrying the parent's boundary placeholder
+        # directly would leave the inner nested node with no material input.
+        return WiringPort(
+            _hgraph.capture_outer_source(current_wiring, _unwrap(port)))
     return None

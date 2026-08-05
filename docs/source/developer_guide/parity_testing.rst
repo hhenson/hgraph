@@ -51,6 +51,63 @@ Useful focused commands are:
    python -m tools.parity coverage --inventory
    python -m tools.parity catalogue
 
+Upstream conformance suite
+--------------------------
+
+Generated recipes cannot prove that existing applications will continue to
+wire: the generator exercises only its trusted catalogue.  The upstream
+conformance tier therefore checks out the tag matching the installed reference
+distribution and stages its exact ``hgraph_unit_tests`` and ``examples`` trees
+without the upstream ``hgraph`` package.  The same unmodified test sources then
+run in separate reference and candidate environments:
+
+.. code-block:: bash
+
+   python -m tools.parity conformance --profile operators
+   python -m tools.parity conformance --profile core --exit-zero
+   python -m tools.parity conformance --profile all --with-extras --exit-zero
+
+``operators`` is the focused public-operator tier.  ``core`` adds runtime,
+types, wiring, nodes, test helpers, and direct time-series tests.  ``all`` also
+collects the adaptor, Arrow, NumPy, debug, and example suites; use
+``--with-extras`` so optional-import results are meaningful.  An existing clean
+checkout of the exact release tag may be supplied with ``--upstream-source``.
+The report records the reference version, tag, commit, in-tree declared
+version, and digest of the staged test and example trees.  The declared version
+is evidence rather than the source selector: hgraph release automation may tag
+the release commit before its follow-up ``pyproject.toml`` version bump, so the
+exact release tag remains authoritative and any discrepancy stays visible.
+The controller installs one explicit conformance dependency set into both
+environments, verifies every version is identical, and records that package
+inventory in the report before it runs either suite.
+
+An upstream test failure is not automatically an ``hg_cpp`` defect.  The
+runner first requires the released reference to pass the test.  A candidate
+difference is then classified using ``tools/parity/upstream_conformance.json``:
+
+* an unmatched difference is **review required**, not a confirmed problem;
+* ``expected-change`` records an approved public semantic difference;
+* ``converted`` records an upstream internal test whose contract is exercised
+  through named public Python and native C++ replacement evidence;
+* ``confirmed-gap`` is used only after review has established a compatibility
+  defect.
+
+Accepted rules are deliberately narrow.  They name the upstream node-id shape,
+allowed candidate outcome, expected diagnostic, reason, decision record, and
+review date.  A converted rule additionally names existing replacement tests.
+A changed failure diagnostic falls out of the rule and returns to review.
+There is no blanket private-internal exclusion: a test coupled to a non-ported
+concept such as ``HgTypeMetaData`` must be converted to the public reflection
+and type-resolution surface with equivalent evidence, or the required concept
+must be ported.
+
+Reference collection failures and nondeterministic/platform-disabled tests are
+reported as unverified evidence, never candidate noncompliance.  Reports and
+raw pytest output are written below ``.parity/results``.  Use ``--exit-zero``
+for discovery while rules are being reviewed; the normal command fails while
+review-required, confirmed-gap, ambiguous-rule, or reference-unverified
+entries remain.
+
 ``--reference-python`` and ``--candidate-python`` select already-provisioned
 interpreters.  ``--candidate-wheel`` installs a pre-built stable-ABI wheel,
 which is how CI reuses the wheel already built by the distribution workflow.
