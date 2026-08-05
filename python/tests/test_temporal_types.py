@@ -1,4 +1,5 @@
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -40,6 +41,19 @@ def test_temporal_values_are_immutable_hashable_native_scalars():
         return value.value
 
     assert eval_node(identity, [civil]) == [civil]
+
+
+def test_timezone_bearing_time_is_rejected_at_graph_ingress():
+    @hg.graph
+    def combine(
+        day: hg.TS[dt.date],
+        wall_time: hg.TS[dt.time],
+    ) -> hg.TS[hg.CivilDateTime]:
+        return day + wall_time
+
+    source = dt.time(12, 30, tzinfo=ZoneInfo("Africa/Johannesburg"))
+    with pytest.raises(TypeError, match="timezone-aware time"):
+        eval_node(combine, [dt.date(2026, 8, 5)], [source])
 
 
 def test_temporal_value_arithmetic_matches_graph_operators_inside_compute_nodes():

@@ -578,6 +578,12 @@ namespace hgraph
 
         static Time from_python(nb::handle source)
         {
+            if (nb::hasattr(source, "tzinfo") &&
+                !source.attr("tzinfo").is_none())
+            {
+                throw nb::type_error(
+                    "timezone-aware time values require a zoned time scalar");
+            }
             if (nb::hasattr(source, "utcoffset"))
             {
                 nb::object offset = source.attr("utcoffset")();

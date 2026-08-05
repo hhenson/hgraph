@@ -112,13 +112,18 @@ def test_aware_datetime_is_normalized_to_naive_utc():
 
 def test_aware_time_is_rejected_without_a_zoned_time_scalar():
     import datetime
+    from zoneinfo import ZoneInfo
 
-    try:
-        hg._roundtrip_value(datetime.time(12, 30, tzinfo=datetime.timezone.utc))
-    except TypeError as error:
-        check("timezone-aware time" in str(error), f"unexpected error: {error}")
-    else:
-        raise AssertionError("timezone-aware time was accepted")
+    for source in (
+        datetime.time(12, 30, tzinfo=datetime.timezone.utc),
+        datetime.time(12, 30, tzinfo=ZoneInfo("Africa/Johannesburg")),
+    ):
+        try:
+            hg._roundtrip_value(source)
+        except TypeError as error:
+            check("timezone-aware time" in str(error), f"unexpected error: {error}")
+        else:
+            raise AssertionError(f"timezone-bearing time was accepted: {source!r}")
 
 
 def test_datetime_scalars_through_a_graph():

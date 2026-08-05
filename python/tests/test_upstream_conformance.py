@@ -12,6 +12,7 @@ from tools.parity.conformance import (
     UpstreamSource,
     apply_reference_isolation,
     compare_upstream_results,
+    conformance_exclusions,
     install_conformance_dependencies,
     load_conformance_manifest,
     prepare_test_workspace,
@@ -347,6 +348,29 @@ def test_manifest_profiles_reject_paths_outside_upstream_tests(tmp_path):
         load_conformance_manifest(path)
 
 
+def test_manifest_accepts_only_exact_experimental_module_exclusions(tmp_path):
+    path = tmp_path / "manifest.json"
+    manifest = _manifest()
+    manifest["exclusions"] = [
+        {
+            "path": "hgraph_unit_tests/_impl/_builder/test_memory_size.py",
+            "reason": "experimental implementation diagnostic",
+            "review_date": "2026-08-05",
+        }
+    ]
+    path.write_text(json.dumps(manifest))
+
+    loaded = load_conformance_manifest(path)
+    assert conformance_exclusions(loaded) == [
+        "hgraph_unit_tests/_impl/_builder/test_memory_size.py"
+    ]
+
+    manifest["exclusions"][0]["path"] = "hgraph_unit_tests/_impl/**/*.py"
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="one exact upstream test module"):
+        load_conformance_manifest(path)
+
+
 def test_profile_selectors_reports_available_profiles():
     with pytest.raises(ValueError, match="choose core"):
         profile_selectors(_manifest(), "missing")
@@ -444,3 +468,33 @@ def test_pytest_plugin_records_stable_node_outcomes(tmp_path):
         ]
         == "passed"
     )
+
+
+def test_upstream_suite_does_not_collect_excluded_experimental_modules(tmp_path):
+    workspace = tmp_path / "workspace"
+    tests = workspace / "hgraph_unit_tests"
+    tests.mkdir(parents=True)
+    (workspace / "pytest.ini").write_text(
+        "[pytest]\naddopts = --import-mode=importlib\n"
+    )
+    (tests / "test_supported.py").write_text(
+        "def test_supported():\n    assert True\n"
+    )
+    (tests / "test_experimental.py").write_text(
+        "def test_experimental():\n    assert False\n"
+    )
+
+    result = run_upstream_suite(
+        Path(sys.executable),
+        workspace,
+        ["hgraph_unit_tests"],
+        result_path=tmp_path / "result.json",
+        timeout_seconds=30.0,
+        excluded_paths=["hgraph_unit_tests/test_experimental.py"],
+    )
+
+    assert result["status"] == "complete"
+    assert result["process_returncode"] == 0
+    assert result["collected"] == [
+        "hgraph_unit_tests/test_supported.py::test_supported"
+    ]

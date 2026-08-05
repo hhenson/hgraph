@@ -28,6 +28,7 @@ from .compare import compare_outcomes
 from .conformance import (
     apply_reference_isolation,
     compare_upstream_results,
+    conformance_exclusions,
     ensure_upstream_source,
     install_conformance_dependencies,
     load_conformance_manifest,
@@ -285,6 +286,7 @@ def command_conformance(args) -> int:
     selectors = validate_selectors(
         args.paths or profile_selectors(manifest, args.profile)
     )
+    excluded_paths = conformance_exclusions(manifest)
     extras = SURFACE_EXTRA_DEPENDENCIES if args.with_extras else ()
     install_conformance_dependencies(
         (environments.reference_python, environments.candidate_python),
@@ -313,6 +315,7 @@ def command_conformance(args) -> int:
         selectors,
         result_path=output_dir / "reference-result.json",
         timeout_seconds=args.timeout,
+        excluded_paths=excluded_paths,
     )
     reference_isolation = []
     for index, nodeid in enumerate(
@@ -324,6 +327,7 @@ def command_conformance(args) -> int:
             [nodeid],
             result_path=output_dir / f"reference-isolated-{index:03d}.json",
             timeout_seconds=args.timeout,
+            excluded_paths=excluded_paths,
         )
         record = apply_reference_isolation(reference, nodeid, isolated)
         record["session"] = _session_report(isolated)
@@ -337,6 +341,7 @@ def command_conformance(args) -> int:
         selectors,
         result_path=output_dir / "candidate-result.json",
         timeout_seconds=args.timeout,
+        excluded_paths=excluded_paths,
     )
     report = compare_upstream_results(reference, candidate, manifest)
     report.update(
@@ -357,6 +362,7 @@ def command_conformance(args) -> int:
         reference_session=_session_report(reference),
         candidate_session=_session_report(candidate),
         reference_isolation=reference_isolation,
+        exclusions=manifest.get("exclusions", []),
     )
     report["summary"]["reference_isolated"] = sum(
         record["applied"] for record in reference_isolation
