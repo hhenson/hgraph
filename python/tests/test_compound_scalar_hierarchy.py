@@ -6,7 +6,25 @@ from typing import Callable, Generic, Optional, TypeVar
 import _hgraph
 import hgraph as hg
 import pytest
-from hgraph import CompoundScalar, TS, TSB, TSD, TSW, TimeSeriesSchema, WindowSize, combine, compute_node, const, default, from_json_builder, graph, mesh_, operator, to_json_builder
+from hgraph import (
+    CompoundScalar,
+    TS,
+    TSB,
+    TSD,
+    TSW,
+    TimeSeriesSchema,
+    WindowSize,
+    combine,
+    compound_scalar,
+    compute_node,
+    const,
+    default,
+    from_json_builder,
+    graph,
+    mesh_,
+    operator,
+    to_json_builder,
+)
 # White-box: these tests assert on the interned C++ value-type metadata
 # (qualified names, generic specialisation identity), which has no public
 # introspection surface — the module under test is imported directly.
@@ -42,6 +60,37 @@ def test_compound_scalar_default_namespace_includes_enclosing_scope():
     meta = _value_type(Local)
     assert meta.namespace == f"{__name__}.test_compound_scalar_default_namespace_includes_enclosing_scope.<locals>"
     assert meta.local_name == "Local"
+
+
+def test_compound_scalar_dictionary_conversion_and_sparse_anonymous_values():
+    @dataclass(frozen=True)
+    class Inner(CompoundScalar):
+        value: int
+
+    @dataclass(frozen=True)
+    class Outer(CompoundScalar):
+        amount: float
+        inner: Inner
+        label: Optional[str] = None
+        internal: str = field(
+            default="implementation detail", init=False,
+            metadata={"hidden": True},
+        )
+
+    value = Outer(amount=2.0, inner=Inner(value=1))
+    assert value.to_dict() == {"amount": 2.0, "inner": {"value": 1}}
+    assert Outer.from_dict({
+        "amount": 2.0,
+        "inner": {"value": 1},
+        "internal": "ignored because it is not part of the logical schema",
+        "ignored": "unknown fields retain upstream's filtering behavior",
+    }) == value
+
+    predicate = compound_scalar(a=int, b=int)
+    sparse = predicate(a=1)
+    assert sparse.b is None
+    assert sparse.to_dict() == {"a": 1}
+    assert predicate.from_dict({"a": 1, "ignored": 2}) == sparse
 
 
 def test_compound_scalar_generic_specializations_are_invariant():

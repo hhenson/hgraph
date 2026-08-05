@@ -201,6 +201,42 @@ Standing residue is limited to recorded deviations:
   through the public surface). Mapped children now publish the final validity
   of projected EMPTY-REF terminals and the corresponding test executes.
 
+Expanded upstream ``all``-suite audit (2026-08-05)
+--------------------------------------------------
+
+The exact upstream tier now includes adaptors, the Arrow combinator package,
+debug tooling, and examples.  Its first broad run exposed two genuine Python
+authoring gaps, both fixed without changing native execution: anonymous
+``compound_scalar(...)`` schemas once again allow omitted fields and retain
+``to_dict``/``from_dict``, and ``with_columns[RowSchema](...)`` lowers that
+released shorthand to the native ``TS[Frame[RowSchema]]`` output constraint.
+Against released hgraph 0.5.35, the resulting 1,856-test audit records 1,088
+exact matches, 640 evidence-backed conversions, 128 reference-unverified
+tests, and no review-required, confirmed-gap, or ambiguous outcomes.
+
+The remaining broad-suite differences are conversions of already recorded
+design decisions, not unimplemented user behaviour:
+
+- dataframe adaptors consume Polars at the boundary but publish canonical
+  PyArrow values; equivalent join, filter, group, column, source, and
+  record/replay assertions use Arrow values in the local Python and C++ suites;
+- the old Python runtime-object ``inspector`` function is replaced by the
+  native ``Inspector`` lifecycle observer and owned inspection snapshots;
+- the ``SimpleArrayReplaySource`` example and process-global output-key
+  builder exercise retired test/runtime infrastructure.  Formal replay APIs
+  and native fixed key construction replace them; graph-specific policy is
+  not stored in an unrelated process global;
+- private ``wire_graph``/``WiringNodeInstance`` builder layouts remain outside
+  the compatibility contract while public graph wiring is covered directly;
+- Kafka tests inject consumers through the public ``consumer_factory`` option,
+  and websocket behavior is covered without the upstream module's broad
+  optional-import guard;
+- ``cleanup_on_error=False`` defers stop only while the raised exception owns
+  the failed executor; releasing it performs mandatory final teardown; and
+- Arrow stop-hook errors cross the native exception boundary, explicit nodes
+  are never pruned merely because their output is unconsumed, and runtime
+  graph state is accessed through the ``GlobalState`` injectable.
+
 Compatibility audit: wiring and time-series tiers
 -------------------------------------------------
 

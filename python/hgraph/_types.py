@@ -2714,8 +2714,16 @@ def compound_scalar(**kwargs):
 
     label = "_".join(f"{name}_{tp!r}" for name, tp in kwargs.items())
     digest = hashlib.md5(label.encode()).hexdigest()[:12]
-    cls = type(f"UnNamedCompoundScalar_{digest}", (CompoundScalar,),
-               {"__annotations__": dict(kwargs), "__unnamed_compound__": True})
+    # Upstream's anonymous schemas are commonly used as sparse predicates,
+    # for example ``compound_scalar(a=int, b=int)(a=1)``.  A regular dataclass
+    # would make both fields required; default every anonymous field to None so
+    # an omitted field remains unset at the native Bundle boundary.
+    namespace = {
+        "__annotations__": dict(kwargs),
+        "__unnamed_compound__": True,
+        **{name: None for name in kwargs},
+    }
+    cls = type(f"UnNamedCompoundScalar_{digest}", (CompoundScalar,), namespace)
     return dataclasses.dataclass(frozen=True)(cls)
 
 

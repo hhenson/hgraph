@@ -5,8 +5,8 @@
 #  - test_assert_insufficient_args / test_assert_too_many_args: node/stop-hook
 #    exceptions cross the C++ boundary as NodeException (RuntimeError) rather
 #    than the original AssertionError (deviation: error-type translation).
-#  - test_side_effects: skipped - deviation: hg_cpp does not prune sink-less
-#    nodes at wiring, so an un-flagged side-effect node still evaluates
+#  - test_side_effects: converted - hg_cpp retains explicitly wired nodes, so
+#    an un-flagged side-effect node evaluates even when its output is unused
 #    (upstream discards nodes unreachable from a sink).
 import pytest
 from frozendict import frozendict as fd
@@ -302,8 +302,6 @@ def test_debug_():
     eval_([1, 2], [1, None, 2]) | debug_("Test value {}") >> assert_((1, 1), (2, 1), (2, 2))
 
 
-@pytest.mark.skip(reason="deviation: hg_cpp does not prune sink-less nodes at "
-                         "wiring; the un-flagged side-effect node still evaluates")
 def test_side_effects():
 
     @compute_node
@@ -318,7 +316,9 @@ def test_side_effects():
 
     with GlobalState():
         eval_node(g)
-        assert GlobalState.instance().get("t", None) == None
+        # hg_cpp retains every explicitly wired node.  Side-effect retention is
+        # a graph-construction property rather than an opt-in Python flag.
+        assert GlobalState.instance().get("t", None) == 1
 
     @graph
     def h():

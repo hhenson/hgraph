@@ -261,7 +261,12 @@ def with_columns_typed(ts, _tp_out=None, **columns):
 
 
 def _columns_output_type(mapping, _tp_out):
-    return mapping["ROW"] if _tp_out is AUTO_RESOLVE else _tp_out
+    if _tp_out is not AUTO_RESOLVE:
+        return _tp_out
+    # A bracket-specialized ``with_columns[RowSchema]`` has already bound
+    # ROW_1 from the requested output.  Preserve that authoritative public
+    # constraint; only the unspecialized spelling inherits the input row.
+    return mapping.get("ROW_1", mapping["ROW"])
 
 
 @graph(overloads=with_columns, resolvers={ROW_1: _columns_output_type})
