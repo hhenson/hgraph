@@ -36,13 +36,45 @@ class InputsKey:
             self._hash = hash(tuple((k, _safe_hash(v)) for k, v in self._inputs.items()))
 
     def __eq__(self, other: Any) -> bool:
-        return all(
-            v.__orig_eq__(other._inputs[k]) if hasattr(v, "__orig_eq__") else v == other._inputs[k]
-            for k, v in self._inputs.items()
-        )
+        if other is self:
+            return True
+        if not isinstance(other, InputsKey):
+            return NotImplemented
+        other_inputs = other._inputs
+        if self._inputs.keys() != other_inputs.keys():
+            return False
+        return all(_eq(v, other_inputs[k]) for k, v in self._inputs.items())
 
     def __hash__(self) -> int:
         return self._hash
+
+
+def _eq(lhs: Any, rhs: Any) -> bool:
+    """
+    Compare two wiring inputs.
+
+    ``WiringPort`` replaces ``__eq__`` so that ``a == b`` wires an ``eq_`` node rather than comparing,
+    stashing the real implementation on ``__orig_eq__``. We therefore have to call that directly, which
+    bypasses the interpreter's handling of ``NotImplemented``, so this reproduces it: try the reflected
+    operation, then fall back to identity.
+
+    Getting this wrong is not academic. ``WiringPort`` is declared ``eq=False``, so ``__orig_eq__`` is
+    ``object.__eq__``, which returns ``NotImplemented`` for any two distinct objects. Returning that from
+    here would make every non-identical pair of ports compare *equal* (``NotImplemented`` is truthy), and
+    from Python 3.14 using it in a boolean context raises ``TypeError``.
+    """
+    if lhs is rhs:
+        return True
+    orig_eq = getattr(type(lhs), "__orig_eq__", None)
+    if orig_eq is None:
+        return bool(lhs == rhs)
+    result = orig_eq(lhs, rhs)
+    if result is NotImplemented:
+        reflected_eq = getattr(type(rhs), "__orig_eq__", None)
+        result = reflected_eq(rhs, lhs) if reflected_eq is not None else NotImplemented
+        if result is NotImplemented:
+            return False  # lhs is rhs was already ruled out above
+    return bool(result)
 
 
 def _safe_hash(v):
