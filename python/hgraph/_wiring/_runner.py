@@ -315,16 +315,35 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
 
 
 def _resolve_generic_annotation(annotation, samples):
-    """Resolve a generic annotation whose only free variable is SIZE.
+    """Resolve a generic collection annotation from eval-node samples.
 
     ``TSL[X, SIZE]`` (nested children included) becomes the concrete TSL by
     inferring the outer size from the samples (int-keyed dict → max key + 1;
-    list/tuple → length). Any annotation the size binding cannot fully
-    resolve (free scalar/ts variables, SIGNAL, ...) returns None and the
-    caller falls back to sample-scalar inference."""
+    list/tuple → length). A bare ``TSS[tuple]`` is represented by a
+    homogeneous tuple of Python objects: the native set remains the owner of
+    delta and lifetime semantics while the eval harness supplies the concrete
+    scalar storage that a C++ graph requires. Any annotation that still cannot
+    resolve returns None and the caller falls back to sample-scalar inference."""
     pattern = getattr(annotation, "pattern", None)
     if pattern is None:
         return None
+
+    if pattern.ts_kind == _hgraph.TS_KIND_TSS:
+        from .._types import TSS
+        from ._sentinels import Removed
+
+        elements = (
+            item.item if isinstance(item, Removed) else item
+            for sample in samples
+            if isinstance(sample, (set, frozenset))
+            for item in sample
+        )
+        if any(isinstance(item, tuple) for item in elements):
+            concrete = TSS[tuple[object, ...]]
+            scope = _hgraph.ResolutionScope()
+            if scope.match(pattern, concrete.handle):
+                return concrete
+
     size = 0
     for sample in samples:
         if sample is None:

@@ -4,6 +4,7 @@ from frozendict import frozendict
 
 from hgraph import (
     DEFAULT,
+    EvaluationClock,
     MIN_TD,
     REMOVE,
     Removed,
@@ -118,10 +119,9 @@ def test_stop_start():
 
 
 @generator
-def _generator(key: str) -> TS[str]:
-    # The current bridge expresses generator schedules as relative timedeltas.
+def _generator(key: str, _clock: EvaluationClock = None) -> TS[str]:
     for i in range(5):
-        yield MIN_TD, f"{key}_{i}"
+        yield _clock.next_cycle_evaluation_time, f"{key}_{i}"
 
 
 @graph

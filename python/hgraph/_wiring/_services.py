@@ -331,7 +331,7 @@ class _GetContext:
         else:
             from ._core import _context_name_of, _published_contexts
 
-            for port, _, frame in reversed(_published_contexts):
+            for port, _, frame, _ in reversed(_published_contexts):
                 if _context_name_of(port, frame) == name:
                     published = port
                     break
@@ -1244,10 +1244,18 @@ class _ServiceImpl:
         self._bound_impl_cache = {}
         if interfaces is None:
             raise TypeError(f"@service_impl '{self.__name__}' requires interfaces=")
-        self.manual_adaptor = isinstance(interfaces, (tuple, list))
-        if not isinstance(interfaces, (tuple, list)):
+        interfaces_were_sequence = isinstance(interfaces, (tuple, list))
+        if not interfaces_were_sequence:
             interfaces = (interfaces,)
         self.interfaces = tuple(self._resolve(stub) for stub in interfaces)
+        # Sequence spelling is the legacy opt-in for manual ADAPTOR
+        # implementations only. Upstream also spells ordinary one-interface
+        # service implementations as ``interfaces=(service,)``; treating that
+        # request port as registration configuration drops the transport.
+        self.manual_adaptor = (
+            interfaces_were_sequence
+            and all(stub.flavour == "adaptor" for stub in self.interfaces)
+        )
         self.target = getattr(fn, "fn", fn)   # unwrap @graph/@compute_node wrappers
         self.signature = inspect.signature(self.target, eval_str=True)
         self.ts_parameters = tuple(
@@ -1520,7 +1528,7 @@ def _bind_registered_impl(implementation, path, config):
                         frame = SimpleNamespace(
                             f_locals={context_name: context} if context_name else {})
                         _published_contexts.append(
-                            (context, _unwrap(context).ts_type, frame))
+                            (context, _unwrap(context).ts_type, frame, wiring))
                     else:
                         stack.enter_context(context)
                 return impl_fn(**arguments)

@@ -113,6 +113,37 @@ namespace
         return Series{std::move(array)};
     }
 
+    [[nodiscard]] Series float_series(std::initializer_list<std::optional<Float>> values)
+    {
+        arrow::DoubleBuilder builder;
+        for (const auto value : values)
+        {
+            const arrow::Status status = value.has_value() ? builder.Append(*value) : builder.AppendNull();
+            if (!status.ok()) { throw std::runtime_error(status.ToString()); }
+        }
+        std::shared_ptr<arrow::Array> array;
+        const auto status = builder.Finish(&array);
+        if (!status.ok()) { throw std::runtime_error(status.ToString()); }
+        return Series{std::move(array)};
+    }
+
+    void check_series_output(const std::vector<std::optional<Series>> &actual,
+                             const std::vector<std::optional<Series>> &expected)
+    {
+        REQUIRE(actual.size() == expected.size());
+        for (std::size_t index = 0; index < actual.size(); ++index)
+        {
+            INFO("series output index " << index);
+            REQUIRE(actual[index].has_value() == expected[index].has_value());
+            if (actual[index].has_value())
+            {
+                REQUIRE(actual[index]->array != nullptr);
+                REQUIRE(expected[index]->array != nullptr);
+                CHECK(actual[index]->array->Equals(expected[index]->array));
+            }
+        }
+    }
+
     [[nodiscard]] WiringArg scalar_arg(Value value)
     {
         WiringArg arg;
@@ -157,6 +188,56 @@ namespace
         static Port<TS<HomogeneousTuple<Int>>> compose(Wiring &w, Port<TS<SeriesOf<Int>>> ts)
         {
             return wire<stdlib::convert, TS<HomogeneousTuple<Int>>>(w, ts);
+        }
+    };
+
+    struct SeriesAddGraph
+    {
+        static constexpr auto name = "series_add_graph";
+        static Port<TS<SeriesOf<Int>>> compose(Wiring &w, Port<TS<SeriesOf<Int>>> lhs,
+                                               Port<TS<SeriesOf<Int>>> rhs)
+        {
+            return wire<stdlib::add_>(w, lhs, rhs).as<TS<SeriesOf<Int>>>();
+        }
+    };
+
+    struct SeriesMixedAddGraph
+    {
+        static constexpr auto name = "series_mixed_add_graph";
+        static Port<TS<SeriesOf<Float>>> compose(Wiring &w, Port<TS<SeriesOf<Int>>> lhs,
+                                                 Port<TS<Float>> rhs)
+        {
+            return wire<stdlib::add_>(w, lhs, rhs).as<TS<SeriesOf<Float>>>();
+        }
+    };
+
+    struct SeriesDivGraph
+    {
+        static constexpr auto name = "series_div_graph";
+        static Port<TS<SeriesOf<Float>>> compose(Wiring &w, Port<TS<SeriesOf<Int>>> lhs,
+                                                 Port<TS<SeriesOf<Int>>> rhs)
+        {
+            return wire<stdlib::div_>(w, lhs, rhs).as<TS<SeriesOf<Float>>>();
+        }
+    };
+
+    struct SeriesGetItemGraph
+    {
+        static constexpr auto name = "series_get_item_graph";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<SeriesOf<Int>>> ts,
+                                     Port<TS<Int>> index)
+        {
+            return wire<stdlib::getitem_>(w, ts, index).as<TS<Int>>();
+        }
+    };
+
+    struct SeriesContainsGraph
+    {
+        static constexpr auto name = "series_contains_graph";
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<SeriesOf<Int>>> ts,
+                                      Port<TS<Int>> item)
+        {
+            return wire<stdlib::contains_>(w, ts, item).as<TS<Bool>>();
         }
     };
 
@@ -2116,6 +2197,31 @@ TEST_CASE("std operators: convert copies an Arrow Series into a native variadic 
                                nullable_int_tuple({Int{2}, std::nullopt, Int{3}})));
 }
 
+TEST_CASE("std operators: Arrow Series arithmetic and access use public typed wiring")
+{
+    stdlib::register_standard_operators();
+
+    check_series_output(
+        eval_node<SeriesAddGraph>(values<Series>(int_series({1, 2, 3})),
+                                  values<Series>(int_series({4, 5, 6}))),
+        values<Series>(int_series({5, 7, 9})));
+    check_series_output(
+        eval_node<SeriesMixedAddGraph>(values<Series>(int_series({1, 2, 3})),
+                                       values<Float>(0.5)),
+        values<Series>(float_series({1.5, 2.5, 3.5})));
+    check_series_output(
+        eval_node<SeriesDivGraph>(values<Series>(int_series({4, 6, 9})),
+                                  values<Series>(int_series({2, 4, 3}))),
+        values<Series>(float_series({2.0, 1.5, 3.0})));
+    CHECK_OUTPUT(eval_node<SeriesGetItemGraph>(values<Series>(int_series({1, 2, 3})),
+                                               values<Int>(2)),
+                 values<Int>(3));
+    CHECK_OUTPUT(eval_node<SeriesContainsGraph>(values<Series>(int_series({1, 2, 3}),
+                                                                int_series({1, 2, 3})),
+                                                values<Int>(2, 4)),
+                 values<Bool>(true, false));
+}
+
 TEST_CASE("std operators: str_ converts scalar time-series values to strings")
 {
     stdlib::register_standard_operators();
@@ -2245,6 +2351,23 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
     CHECK_OUTPUT(eval_node<stdlib::to_window>(values<Int>(1, 2, 3, 4, 5), MIN_TD * 2),
                  values<Value>(Value{Int{1}}, Value{Int{2}}, Value{Int{3}},
                                Value{Int{4}}, Value{Int{5}}));
+    // rolling_average is a public graph operator in both C++ and Python.  Keep
+    // native coverage for both scalar-policy overloads so the ported upstream
+    // tests do not merely prove the Python facade.
+    CHECK_OUTPUT(eval_node<stdlib::rolling_average>(values<Int>(1, 2, 3, 4, 5),
+                                                     Int{3}),
+                 values<Float>(none, none, none, 3.0, 4.0));
+    CHECK_OUTPUT(eval_node<stdlib::rolling_average>(values<Int>(1, 2, 3, 4, 5),
+                                                     Int{3}, Int{2}),
+                 values<Float>(none, 1.5, 2.0, 3.0, 4.0));
+    auto duration_average =
+        eval_node<stdlib::rolling_average>(values<Int>(1, 2, 3, 4, 5), MIN_TD * 3);
+    REQUIRE(duration_average.size() == 8);
+    REQUIRE(duration_average.back().has_value());
+    CHECK(std::isnan(duration_average.back()->view().checked_as<Float>()));
+    duration_average.pop_back();
+    CHECK_OUTPUT(duration_average,
+                 values<Float>(none, none, none, 3.0, 4.0, 4.5, 5.0));
     CHECK_OUTPUT(eval_node<ResettableTickWindowGraph>(
                      values<Int>(1, 2, none, 3, 4),
                      values<Bool>(none, none, true, none, none)),

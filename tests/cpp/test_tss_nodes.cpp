@@ -3,6 +3,7 @@
 // size is read back through a TSS<Int> input.
 
 #include <hgraph/lib/testing/check_output.h>
+#include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
@@ -43,6 +44,55 @@ namespace
             out.set(static_cast<Int>(s.added().size()));
         }
     };
+
+    struct TupleSetSize
+    {
+        static constexpr auto name = "tuple_set_size";
+
+        static void eval(In<"s", TSS<HomogeneousTuple<Int>>> s, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(s.size()));
+        }
+    };
+
+    [[nodiscard]] Value int_tuple(std::initializer_list<Int> elements)
+    {
+        const auto element_binding =
+            ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta());
+        const auto *tuple_schema =
+            scalar_descriptor<HomogeneousTuple<Int>>::value_meta();
+        ListBuilder builder{element_binding};
+        for (const Int element : elements) { builder.push_back(element); }
+        ListStorage storage = builder.build_storage();
+        return Value{compact_list_type(element_binding, *tuple_schema), &storage};
+    }
+
+    [[nodiscard]] Value tuple_set_delta(
+        std::initializer_list<std::initializer_list<Int>> added_values)
+    {
+        auto &registry = TypeRegistry::instance();
+        const auto *tuple_schema =
+            scalar_descriptor<HomogeneousTuple<Int>>::value_meta();
+        const auto tuple_binding =
+            ValuePlanFactory::instance().type_for(tuple_schema);
+        const auto *set_schema = registry.set(tuple_schema);
+        const auto *delta_schema = registry.un_named_bundle(
+            {{"added", set_schema}, {"removed", set_schema}});
+        const auto delta_binding =
+            ValuePlanFactory::instance().type_for(delta_schema);
+
+        SetBuilder added{tuple_binding};
+        for (const auto elements : added_values)
+        {
+            const Value tuple = int_tuple(elements);
+            static_cast<void>(added.insert_copy(tuple.view().data()));
+        }
+        SetBuilder removed{tuple_binding};
+        BundleBuilder delta{delta_binding};
+        delta.set("added", added.build());
+        delta.set("removed", removed.build());
+        return delta.build();
+    }
 
     struct TssGraph
     {
@@ -137,4 +187,11 @@ TEST_CASE("tss: In<TSS> typed added() exposes this cycle's added elements")
     ex.view().run();
 
     CHECK_OUTPUT(testing::get_recorded_values<Int>(ex.view().graph().global_state(), "out"), {2, 1, 0});
+}
+
+TEST_CASE("tss: tuple keys execute through the public concrete C++ schema")
+{
+    CHECK_OUTPUT(
+        eval_node<TupleSetSize>(values<Value>(tuple_set_delta({{1, 2}, {3, 4}}))),
+        values<Int>(2));
 }

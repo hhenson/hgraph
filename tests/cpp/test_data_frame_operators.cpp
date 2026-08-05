@@ -710,6 +710,18 @@ TEST_CASE("data frame operators: frame batches stream through one native source"
                  values<Int>(1, 2, 3));
 }
 
+TEST_CASE("data frame operators: throttle forwards Arrow frame values unchanged")
+{
+    stdlib::register_standard_operators();
+    const auto first  = frame({1}, {10});
+    const auto second = frame({2}, {20});
+    const auto third  = frame({3}, {30});
+
+    CHECK_OUTPUT(eval_node<stdlib::throttle>(values<Frame>(first, second, third),
+                                             MIN_TD * 2),
+                 values<Frame>(first, none, third));
+}
+
 TEST_CASE("data frame operators: from_data_frame skips rows before evaluation start")
 {
     stdlib::register_standard_operators();

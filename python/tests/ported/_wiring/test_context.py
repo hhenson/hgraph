@@ -101,6 +101,44 @@ def test_two_generic_contexts_resolve_by_name():
     ]
 
 
+def test_context_input_accepts_an_explicit_port_override():
+    @hg.compute_node
+    def read_context(
+        value: hg.CONTEXT[hg.TIME_SERIES_TYPE] = hg.REQUIRED["value"],
+    ) -> hg.TS[str]:
+        return f"{value.value}"
+
+    @hg.graph
+    def app(value: hg.TS[str]) -> hg.TS[str]:
+        return read_context(value)
+
+    assert eval_node(app, ["Hello", None]) == ["Hello", None]
+
+
+def test_context_crosses_stacked_try_except_boundaries():
+    @hg.compute_node
+    def read_context(
+        value: hg.CONTEXT[hg.TIME_SERIES_TYPE] = hg.REQUIRED["value"],
+    ) -> hg.TS[str]:
+        return f"{value.value}"
+
+    @hg.graph
+    def inner() -> hg.TS[str]:
+        return read_context()
+
+    @hg.graph
+    def middle(outer: hg.TS[str], inner_value: hg.TS[str]) -> hg.TS[str]:
+        with inner_value as value:
+            return hg.try_except(inner).out
+
+    @hg.graph
+    def app(outer: hg.TS[str], inner_value: hg.TS[str]) -> hg.TS[str]:
+        with outer as value:
+            return hg.try_except(middle, outer, inner_value).out
+
+    assert eval_node(app, ["Hello", None], [None, "World"]) == [None, "World"]
+
+
 def test_graph_context_parameters_resolve_before_composition():
     @hg.graph
     def join_contexts(
@@ -287,3 +325,44 @@ def test_parameterized_dataclass_context_from_service_crosses_switch_boundary():
         "context",
         "context false",
     ]
+
+
+def test_tuple_spelled_subscription_impl_retains_nested_context_transport():
+    @hg.reference_service
+    def inner_service(path: str = "inner") -> hg.TS[str]: ...
+
+    @hg.service_impl(interfaces=(inner_service,))
+    def inner_impl(path: str = "inner") -> hg.TS[str]:
+        selected = hg.get_context[hg.TS[str]]("selected")
+        return hg.switch_(
+            selected,
+            {
+                "selected": lambda value: value,
+                "other": lambda value: hg.nothing[hg.TS[str]](),
+            },
+            selected,
+        )
+
+    @hg.subscription_service
+    def outer_service(request: hg.TS[str], path: str = "outer") -> hg.TS[str]: ...
+
+    @hg.service_impl(interfaces=(outer_service,))
+    def outer_impl(
+        request: hg.TSS[str], path: str = "outer",
+    ) -> hg.TSD[str, hg.TS[str]]:
+        return hg.map_(
+            lambda request: inner_service(),
+            __keys__=request,
+            __key_arg__="request",
+        )
+
+    @hg.graph
+    def app() -> hg.TS[str]:
+        with hg.const("selected") as selected:
+            out = outer_service("x")
+            hg.register_service(None, outer_impl)
+            hg.register_service(None, inner_impl)
+            hg.WiringGraphContext.instance().build_services()
+            return out
+
+    assert eval_node(app, __elide__=True) == ["selected"]

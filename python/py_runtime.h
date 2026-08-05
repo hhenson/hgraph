@@ -99,20 +99,6 @@ namespace hgraph::python_bridge
         friend bool operator==(const PyStateRef &, const PyStateRef &) noexcept = default;
     };
 
-    struct PyEvalClock
-    {
-        DateTime evaluation_time{};
-        DateTime now{};
-        TimeDelta cycle_time{};
-        DateTime next_cycle_evaluation_time{};
-
-        explicit PyEvalClock(EvaluationClockView clock) noexcept
-            : evaluation_time(clock.evaluation_time()), now(clock.now()), cycle_time(clock.cycle_time()),
-              next_cycle_evaluation_time(clock.next_cycle_evaluation_time())
-        {
-        }
-    };
-
     struct PyScheduler
     {
         NodeScheduler scheduler;
@@ -208,6 +194,53 @@ namespace hgraph::python_bridge
             {
                 guard->alive = false;
             }
+        }
+    };
+
+    /** Python projection over the native live evaluation clock.
+
+        Generator arguments retain their lease for the generator lifetime, so
+        each resumed access observes the current graph cycle. For compatibility
+        with the formerly value-like wrapper, a retained clock falls back to
+        the snapshot captured when it was injected after its lease expires. */
+    struct PyEvalClock
+    {
+        EvaluationClockView clock{};
+        PyTsLease           lease{};
+        DateTime            evaluation_time_snapshot{};
+        DateTime            now_snapshot{};
+        TimeDelta           cycle_time_snapshot{};
+        DateTime            next_cycle_evaluation_time_snapshot{};
+
+        PyEvalClock(EvaluationClockView clock_, PyTsLease lease_) noexcept
+            : clock(clock_)
+            , lease(std::move(lease_))
+            , evaluation_time_snapshot(clock_.evaluation_time())
+            , now_snapshot(clock_.now())
+            , cycle_time_snapshot(clock_.cycle_time())
+            , next_cycle_evaluation_time_snapshot(clock_.next_cycle_evaluation_time())
+        {
+        }
+
+        [[nodiscard]] DateTime evaluation_time() const noexcept
+        {
+            return lease.alive() ? clock.evaluation_time() : evaluation_time_snapshot;
+        }
+
+        [[nodiscard]] DateTime now() const noexcept
+        {
+            return lease.alive() ? clock.now() : now_snapshot;
+        }
+
+        [[nodiscard]] TimeDelta cycle_time() const noexcept
+        {
+            return lease.alive() ? clock.cycle_time() : cycle_time_snapshot;
+        }
+
+        [[nodiscard]] DateTime next_cycle_evaluation_time() const noexcept
+        {
+            return lease.alive() ? clock.next_cycle_evaluation_time()
+                                 : next_cycle_evaluation_time_snapshot;
         }
     };
 
