@@ -1,13 +1,17 @@
-name: Release Wheels (cibuildwheel)
+name: Build, test and publish
 
-# Release-grade distributions are built and smoke-tested when a commit lands on main, not when it
-# is tagged. Tagging then publishes what has already been built and tested for that exact commit,
-# rewriting only the version. A release becomes a metadata operation plus an upload.
+# One flow: the same workflow builds the distributions, tests them, and publishes them.
 #
-# This works because the build is version-agnostic: nothing writes the tag into the source before
+# Everything except publish is gated on the reuse lookup, so tagging a commit that has already been
+# through this workflow successfully skips the build and the entire test matrix and goes straight
+# to publishing what was already built and tested. A release is then a metadata rewrite plus an
+# upload, taking minutes rather than the better part of an hour.
+#
+# That works because the build is version-agnostic: nothing writes the tag into the source before
 # compiling, so the artifacts a main push produces are byte-identical to what a tag build would
 # have produced, and the version is stamped into the distribution metadata at publish time.
 on:
+  pull_request:
   push:
     branches:
       - main
@@ -246,19 +250,185 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # The full suite, run against the wheel that will actually be published, on every supported
+  # Python. The wheel is abi3, built once against the 3.12 stable ABI, so the same artifact is
+  # exercised on 3.13 and 3.14 rather than rebuilt per version.
+  #
+  # Skipped in its entirety on a tag whose commit has already been through it.
+  test-matrix:
+    name: Test suite (py${{ matrix.python-version }}, ${{ matrix.runtime }} runtime)
+    needs: [ reuse-build, build-wheels ]
+    if: needs.reuse-build.outputs.run-id == ''
+    runs-on: ubuntu-latest
+    # The C++ runtime is not yet at parity with the Python reference implementation, so its legs
+    # report without blocking.
+    #
+    # 3.14 is deliberately NOT exempted. It aborts during interpreter finalisation once the
+    # adaptors group has run, but that happens after pytest has reported, so the run step tells the
+    # two apart rather than the whole leg being made optional. A 3.14-only regression still fails.
+    continue-on-error: ${{ matrix.runtime == 'cpp' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ '3.12', '3.13', '3.14' ]
+        runtime: [ 'python', 'cpp' ]
+        # Coverage is measured once, on the reference leg; the other five would report the same
+        # lines at six times the cost.
+        include:
+          - python-version: '3.12'
+            runtime: 'python'
+            coverage_args: '--cov=hgraph --cov-report=xml'
+    env:
+      HGRAPH_USE_CPP: ${{ matrix.runtime == 'cpp' && 'true' || 'false' }}
+      PYTHONFAULTHANDLER: '1'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-wheels-Linux
+          path: wheelhouse
+
+      - name: Sync test dependencies (project itself comes from the wheel)
+        run: uv sync --frozen --all-extras --all-groups --no-install-project --python ${{ matrix.python-version }}
+
+      - name: Install the release wheel
+        shell: python
+        run: |
+          import subprocess, sys
+          from pathlib import Path
+
+          # cibuildwheel emits both manylinux and musllinux wheels; only the former installs on the
+          # glibc runner, and picking blindly would fail in a way that looks like a test failure.
+          wheels = sorted(Path("wheelhouse").rglob("*manylinux*.whl"))
+          assert len(wheels) == 1, f"expected exactly one manylinux wheel, found {wheels}"
+          venv_python = Path(".venv") / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+          subprocess.check_call(["uv", "pip", "install", "--python", str(venv_python), str(wheels[0])])
+
+      - name: Confirm the wheel is what gets imported
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Hide the source tree so a local copy cannot shadow the installed wheel.
+          mv hgraph hgraph_src
+          trap 'mv hgraph_src hgraph' EXIT
+          .venv/bin/python -c "import importlib.util as u; m=u.find_spec('hgraph._hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
+          .venv/bin/python -c "import hgraph; print('hgraph:', hgraph.__file__)"
+          .venv/bin/python -c "import sys; print('python:', sys.version)"
+
+      # pytest's exit status is not usable on its own here: on 3.14 the interpreter can abort during
+      # finalisation, after the run has completed and reported, turning a green run into SIGABRT.
+      # So the verdict comes from the JUnit report, which is written before finalisation, and the
+      # process status is only consulted to catch a crash that happened *during* the run.
+      - name: Run test suite
+        shell: bash
+        run: |
+          echo "python=${{ matrix.python-version }} HGRAPH_USE_CPP=${HGRAPH_USE_CPP}"
+          ulimit -c unlimited || true
+          mv hgraph hgraph_src
+          trap 'mv hgraph_src hgraph' EXIT
+          set +e
+          .venv/bin/pytest hgraph_unit_tests docs -ra -q \
+            --junitxml=pytest-report.xml ${{ matrix.coverage_args }}
+          pytest_status=$?
+          set -e
+          echo "pytest exit status: ${pytest_status}"
+          .venv/bin/python - "${pytest_status}" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          status = int(sys.argv[1])
+          report = Path("pytest-report.xml")
+
+          if not report.is_file():
+              sys.exit(f"FAIL: pytest produced no report; it died before finishing (status {status}).")
+
+          totals = {k: 0 for k in ("tests", "failures", "errors", "skipped")}
+          for suite in ET.parse(report).getroot().iter("testsuite"):
+              for k in totals:
+                  totals[k] += int(suite.get(k, 0))
+          print("report:", ", ".join(f"{k}={v}" for k, v in totals.items()))
+
+          if totals["failures"] or totals["errors"]:
+              sys.exit("FAIL: the run reported test failures or errors.")
+          if totals["tests"] == 0:
+              sys.exit("FAIL: the report contains no tests; collection probably failed.")
+          if status == 0:
+              print("PASS")
+              sys.exit(0)
+          # Every test passed but the process still died. Tolerated only for the known post-run
+          # finalisation abort; anything else is a real crash during the run.
+          if status > 128:
+              print(
+                  f"PASS (with warning): all tests passed but the process exited on signal "
+                  f"{status - 128} after reporting. This is the known interpreter-finalisation abort."
+              )
+              sys.exit(0)
+          sys.exit(f"FAIL: tests reported clean but pytest exited {status}.")
+          PY
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: pytest-report-py${{ matrix.python-version }}-${{ matrix.runtime }}
+          path: pytest-report.xml
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Collect crash artifacts
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Collecting core dumps and backtraces..."
+          sudo apt-get update >/dev/null 2>&1 || true
+          sudo apt-get install -y gdb >/dev/null 2>&1 || true
+          shopt -s nullglob || true
+          CORES=(core core.* /var/crash/*.crash /var/crash/*.core /home/runner/work/*/*/core*)
+          echo "Found ${#CORES[@]} core candidates"
+          for c in "${CORES[@]}"; do
+            echo "==> Core file: $c"
+            file "$c" || true
+            gdb -q -n -batch -ex "set pagination off" -ex "thread apply all bt full" -ex "quit" "$(which python)" "$c" || true
+          done
+
+      - name: Upload core dumps
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: core-dumps-py${{ matrix.python-version }}-${{ matrix.runtime }}
+          path: |
+            core*
+            /var/crash/*.crash
+            /var/crash/*.core
+            /home/runner/work/*/*/core*
+          if-no-files-found: ignore
+          retention-days: 7
 
   publish:
     name: Publish to PyPI
-    needs: [ reuse-build, build-wheels ]
-    # Publish when the build succeeded, or when it was skipped because a previous run for this
-    # exact commit had already produced and tested the distributions.
+    needs: [ reuse-build, build-wheels, test-matrix ]
+    # Publish when the build and the tests both succeeded, or when both were skipped because a
+    # previous run for this exact commit had already built and tested the distributions.
+    #
+    # `always()` is needed because the upstream jobs are skipped in the reuse case, and a skipped
+    # dependency would otherwise skip this job too. The explicit result checks put the gating back:
+    # nothing is published unless it was tested, here or in the run being reused.
     if: >-
       always() &&
       startsWith(github.ref, 'refs/tags/') &&
       needs.reuse-build.result == 'success' &&
       (
         needs.reuse-build.outputs.run-id != '' ||
-        needs.build-wheels.result == 'success'
+        (
+          needs.build-wheels.result == 'success' &&
+          needs.test-matrix.result == 'success'
+        )
       )
     runs-on: ubuntu-latest
     environment:

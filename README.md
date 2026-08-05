@@ -110,30 +110,42 @@ This project uses scikit-build-core and cibuildwheel to build and publish cross-
   - Release wheels are built inside manylinux containers; optional `backward-cpp` integrations are disabled there for portability.
 
 ### CI summary
-- `.github/workflows/ci.yml` builds wheels on Linux/macOS/Windows for smoke validation, runs tests on Linux only (fast path), and repairs Linux wheels with auditwheel.
-- `.github/workflows/release-wheels.yml` builds publish-grade wheels with cibuildwheel (Linux manylinux, macOS arm64, Windows AMD64), builds an sdist, validates with twine, and publishes to PyPI via Trusted Publishing.
+`.github/workflows/release-wheels.yml` is the single flow: it builds, tests, and publishes.
+
+- **Build** — publish-grade wheels with cibuildwheel (Linux manylinux, macOS arm64, Windows AMD64) plus an sdist, validated with `twine check` and smoke-tested against Python 3.12, 3.13 and 3.14 on each OS.
+- **Test** — the full suite against the wheel that will actually be published, across Python 3.12, 3.13 and 3.14, under both the Python and C++ runtimes.
+- **Publish** — to PyPI via Trusted Publishing, on a tag.
+
+The build and test jobs are skipped when the commit being tagged has already been through them
+successfully, so a release publishes what was already built and tested rather than repeating it.
 
 ### Releasing (tag-driven)
 Releases are automated via GitHub Actions with PyPI Trusted Publishing.
 
 Prerequisites:
 - Enable Trusted Publishing for this GitHub repository in the PyPI project settings (Project → Settings → Trusted Publishers). No API token is needed once OIDC is configured.
-- Ensure `pyproject.toml` `[project].version` matches the tag you plan to push (e.g., `0.4.112`).
+- The tag is the version authority; `pyproject.toml` does not need to match it. The version is
+  stamped into the distribution metadata at publish time, which is what lets a release reuse
+  artifacts built before the tag existed. The workflow commits the version back to the default
+  branch afterwards.
 
 Steps:
 ```bash
-# Update version in pyproject.toml to match your release
-# Then tag and push the tag to trigger the release workflow
+# Push the commit you want to release to main first; that build is what gets published.
+# Once it is green, tag it:
 
 git tag -a v_0.4.112 -m "release 0.4.112"
 git push origin v_0.4.112
 ```
 
-The workflow will:
-- Build wheels for Linux (manylinux), macOS (arm64, macOS 15.0 target), and Windows (AMD64, MSVC)
-- Build an sdist
-- Validate with `twine check`
-- Publish all distributions to PyPI (skips existing files)
+For a commit already built and tested on main, the workflow will:
+- Find that run and skip the build and the test matrix entirely
+- Rewrite the version in the distribution metadata to match the tag, leaving the compiled
+  extension byte-for-byte as it was built and tested
+- Validate with `twine check` and publish to PyPI (skipping files that already exist)
+
+If no such run exists — the commit was never pushed to main, or its artifacts have passed the
+14-day retention window — the workflow builds and tests from source first, then publishes.
 
 Artifacts are uploaded for inspection as part of the workflow run.
 
