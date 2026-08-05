@@ -19,6 +19,74 @@
   },
   "rules": [
     {
+      "id": "wiring-inputs-key-native-interning-converted",
+      "match": "hgraph_unit_tests/_wiring/test_inputs_key.py::*",
+      "classification": "converted",
+      "candidate_outcomes": ["collection-error"],
+      "diagnostic_regex": "No module named 'hgraph[.]_wiring[.]_wiring_node_instance'",
+      "reason": "InputsKey is a private Python implementation detail. hg_cpp interns nodes in the native Wiring core with an explicit structural key: time-series sources use producer identity and paths, scalar inputs use native value equality, and input shape is fixed by the public node signature. Public Python and C++ wiring tests cover both reuse and separation without invoking overloaded port equality.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/test_python_authoring.py",
+        "tests/cpp/test_graph_wiring.cpp"
+      ]
+    },
+    {
+      "id": "types-cpp-integration-native-contract-converted",
+      "match": "hgraph_unit_tests/_types/test_cpp_type_integration.py::*",
+      "classification": "converted",
+      "reference_outcomes": ["skipped"],
+      "reference_diagnostic_regex": "Skipped: C\\+\\+ not enabled",
+      "candidate_outcomes": ["collection-error"],
+      "diagnostic_regex": "No module named 'hgraph[.]_types[.]_scalar_type_meta_data'",
+      "reason": "The released test is disabled without upstream's optional Python-to-C++ bridge and imports its private metadata hierarchy. hg_cpp resolves every scalar and time-series kind natively and exposes public type expressions and reflection instead of that second runtime representation.",
+      "decision": "docs/source/developer_guide/type_reflection.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/test_bridge.py",
+        "python/tests/test_reflection.py",
+        "tests/cpp/test_schema_examples.cpp",
+        "tests/cpp/test_type_registry.cpp"
+      ]
+    },
+    {
+      "id": "types-ts-cpp-bridge-native-contract-converted",
+      "match": "hgraph_unit_tests/_types/test_ts_cpp_type.py::*",
+      "classification": "converted",
+      "reference_outcomes": ["skipped"],
+      "reference_diagnostic_regex": "Skipped: C\\+\\+ not enabled",
+      "candidate_outcomes": ["collection-error"],
+      "diagnostic_regex": "No module named 'hgraph[.]_types[.]_type_meta_data'",
+      "reason": "The released test is disabled without upstream's optional Python-to-C++ bridge and asserts its private metadata-to-storage mapping. Native type construction, identity, predicates, and value round trips replace that bridge contract.",
+      "decision": "docs/source/developer_guide/type_reflection.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/test_bridge.py",
+        "python/tests/test_reflection.py",
+        "tests/cpp/test_schema_examples.cpp",
+        "tests/cpp/test_value_types.cpp"
+      ]
+    },
+    {
+      "id": "types-cpp-native-compound-storage-converted",
+      "match": "hgraph_unit_tests/_types/test_cpp_native_compound_scalar.py::*",
+      "classification": "converted",
+      "reference_outcomes": ["skipped"],
+      "reference_diagnostic_regex": "Skipped: C\\+\\+ not enabled",
+      "candidate_outcomes": ["collection-error"],
+      "diagnostic_regex": "No module named 'hgraph[.]_types[.]_scalar_types'",
+      "reason": "The released test is disabled without upstream's optional bridge and selects opaque versus expanded storage through cpp_native flags. hg_cpp compound scalars are always native, with hierarchy and value layout tested through the public bridge and C++ value contract.",
+      "decision": "docs/source/developer_guide/type_reflection.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/test_bridge.py",
+        "python/tests/test_compound_scalar_hierarchy.py",
+        "tests/cpp/test_schema_examples.cpp",
+        "tests/cpp/test_value_types.cpp"
+      ]
+    },
+    {
       "id": "operators-const-private-wiring-converted",
       "match": "hgraph_unit_tests/_operators/test_const.py::*",
       "classification": "converted",
@@ -1072,7 +1140,7 @@
     },
     {
       "id": "adaptors-websocket-import-guard-converted",
-      "match": "hgraph_unit_tests/adaptors/websocket_adaptor/test_websocket_adaptor.py::test_single_request_graph_client",
+      "match": "hgraph_unit_tests/adaptors/websocket_adaptor/test_websocket_adaptor.py::test_*",
       "classification": "converted",
       "candidate_outcomes": ["not-run"],
       "diagnostic_regex": "candidate did not report this reference test",

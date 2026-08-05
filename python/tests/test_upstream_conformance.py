@@ -113,6 +113,56 @@ def test_conformance_reports_reference_failures_as_unverified_not_candidate_gaps
     assert report["summary"]["confirmed_gaps"] == 0
 
 
+def test_conformance_treats_xpass_as_executed_reference_evidence():
+    nodeid = "hgraph_unit_tests/test_reference.py::test_xpass"
+    reference = _result({nodeid: _outcome("xpassed")})
+
+    report = compare_upstream_results(
+        reference, _result({nodeid: _outcome("xpassed")}), _manifest()
+    )
+    assert report["summary"]["matched"] == 1
+    assert report["summary"]["reference_unverified"] == 0
+
+    report = compare_upstream_results(
+        reference,
+        _result({nodeid: _outcome("failed", "AssertionError: candidate defect")}),
+        _manifest(),
+    )
+    assert report["summary"]["review_required"] == 1
+    assert report["summary"]["reference_unverified"] == 0
+
+
+def test_conformance_converts_only_an_exact_skipped_reference_reason():
+    nodeid = "hgraph_unit_tests/_types/test_cpp_bridge.py::test_type"
+    rule = {
+        "id": "retired-cpp-bridge",
+        "match": "hgraph_unit_tests/_types/test_cpp_bridge.py::*",
+        "classification": "converted",
+        "reference_outcomes": ["skipped"],
+        "reference_diagnostic_regex": "Skipped: C\\+\\+ not enabled",
+        "candidate_outcomes": ["collection-error"],
+        "diagnostic_regex": "HgTypeMetaData",
+        "reason": "the upstream bridge internals are replaced by native type tests",
+        "decision": "docs/source/developer_guide/type_reflection.rst",
+        "review_date": "2026-08-05",
+        "evidence": ["tests/cpp/test_schema_examples.cpp"],
+    }
+    candidate = _result(
+        {nodeid: _outcome("collection-error", "ImportError: HgTypeMetaData")}
+    )
+
+    reference = _result(
+        {nodeid: _outcome("skipped", "Skipped: C++ not enabled")}
+    )
+    report = compare_upstream_results(reference, candidate, _manifest([rule]))
+    assert report["summary"]["known_expected"] == 1
+
+    reference["tests"][nodeid]["diagnostic"] = "Skipped: missing database"
+    report = compare_upstream_results(reference, candidate, _manifest([rule]))
+    assert report["summary"]["known_expected"] == 0
+    assert report["summary"]["reference_unverified"] == 1
+
+
 def test_conformance_requires_identical_dependency_versions(monkeypatch):
     import tools.parity.conformance as conformance
 
@@ -178,6 +228,30 @@ def test_manifest_requires_evidence_for_internal_conversions(tmp_path):
     path.write_text(json.dumps(manifest))
 
     with pytest.raises(ValueError, match="requires evidence"):
+        load_conformance_manifest(path)
+
+
+def test_manifest_requires_reference_diagnostic_for_skipped_conversion(tmp_path):
+    path = tmp_path / "manifest.json"
+    manifest = _manifest(
+        [
+            {
+                "id": "unsafe-skipped-conversion",
+                "match": "hgraph_unit_tests/_types/*",
+                "classification": "converted",
+                "reference_outcomes": ["skipped"],
+                "candidate_outcomes": ["collection-error"],
+                "diagnostic_regex": "HgTypeMetaData",
+                "reason": "converted",
+                "decision": "docs/source/developer_guide/type_reflection.rst",
+                "review_date": "2026-08-05",
+                "evidence": ["python/tests/test_reflection.py"],
+            }
+        ]
+    )
+    path.write_text(json.dumps(manifest))
+
+    with pytest.raises(ValueError, match="requires reference_diagnostic_regex"):
         load_conformance_manifest(path)
 
 

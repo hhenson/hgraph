@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
@@ -329,12 +330,47 @@ namespace hgraph
 
         Value read_int(const Column &, const arrow::Array &array, std::int64_t row)
         {
-            return Value{Int{static_cast<const arrow::Int64Array &>(array).Value(row)}};
+            switch (array.type_id())
+            {
+                case arrow::Type::INT8:
+                    return Value{Int{static_cast<const arrow::Int8Array &>(array).Value(row)}};
+                case arrow::Type::INT16:
+                    return Value{Int{static_cast<const arrow::Int16Array &>(array).Value(row)}};
+                case arrow::Type::INT32:
+                    return Value{Int{static_cast<const arrow::Int32Array &>(array).Value(row)}};
+                case arrow::Type::INT64:
+                    return Value{Int{static_cast<const arrow::Int64Array &>(array).Value(row)}};
+                case arrow::Type::UINT8:
+                    return Value{Int{static_cast<const arrow::UInt8Array &>(array).Value(row)}};
+                case arrow::Type::UINT16:
+                    return Value{Int{static_cast<const arrow::UInt16Array &>(array).Value(row)}};
+                case arrow::Type::UINT32:
+                    return Value{Int{static_cast<const arrow::UInt32Array &>(array).Value(row)}};
+                case arrow::Type::UINT64: {
+                    const auto value = static_cast<const arrow::UInt64Array &>(array).Value(row);
+                    if (value > static_cast<std::uint64_t>(std::numeric_limits<Int>::max()))
+                    {
+                        throw std::out_of_range(
+                            "table codec: unsigned integer does not fit native scalar 'int'");
+                    }
+                    return Value{Int{static_cast<Int>(value)}};
+                }
+                default:
+                    throw std::logic_error("table codec: non-integer array reached integer reader");
+            }
         }
 
         Value read_float(const Column &, const arrow::Array &array, std::int64_t row)
         {
-            return Value{Float{static_cast<const arrow::DoubleArray &>(array).Value(row)}};
+            switch (array.type_id())
+            {
+                case arrow::Type::FLOAT:
+                    return Value{Float{static_cast<const arrow::FloatArray &>(array).Value(row)}};
+                case arrow::Type::DOUBLE:
+                    return Value{Float{static_cast<const arrow::DoubleArray &>(array).Value(row)}};
+                default:
+                    throw std::logic_error("table codec: non-floating array reached float reader");
+            }
         }
 
         Value read_str(const Column &, const arrow::Array &array, std::int64_t row)
@@ -671,7 +707,27 @@ namespace hgraph
         {
             const LeafOps ops = leaf_ops_for(leaf);
             const auto actual = array.type();
+            const auto integer_compatible = [&] {
+                if (leaf != scalar_descriptor<Int>::value_meta()) { return false; }
+                switch (actual->id())
+                {
+                    case arrow::Type::INT8:
+                    case arrow::Type::INT16:
+                    case arrow::Type::INT32:
+                    case arrow::Type::INT64:
+                    case arrow::Type::UINT8:
+                    case arrow::Type::UINT16:
+                    case arrow::Type::UINT32:
+                    case arrow::Type::UINT64: return true;
+                    default: return false;
+                }
+            }();
+            const bool floating_compatible =
+                leaf == scalar_descriptor<Float>::value_meta() &&
+                (actual->id() == arrow::Type::FLOAT ||
+                 actual->id() == arrow::Type::DOUBLE);
             const bool compatible = actual->Equals(ops.type) ||
+                                    integer_compatible || floating_compatible ||
                                     (leaf ==
                                          scalar_descriptor<DateTime>::value_meta() &&
                                      actual->Equals(arrow::timestamp(

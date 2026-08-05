@@ -30,6 +30,10 @@ def _as_arrow_table(value) -> pa.Table:
 class DataFrameSource(ABC):
     """A wiring-time provider of Arrow tables or record batches."""
 
+    def _prepare_for_graph(self) -> "DataFrameSource":
+        """Bind wiring-time dependencies needed by runtime iteration."""
+        return self
+
     @abstractmethod
     def data_frame(
         self, start_time: datetime = None, end_time: datetime = None
@@ -169,9 +173,18 @@ class SqlDataFrameSource(DataFrameSource):
         self._batch_size = batch_size
         self._kwargs = kwargs
         self._frame = None
+        self._bound_connection = None
+
+    def _prepare_for_graph(self) -> "SqlDataFrameSource":
+        self._bound_connection = DataConnectionStore.instance().get_connection(
+            self._connection
+        )
+        return self
 
     @property
     def connection(self):
+        if self._bound_connection is not None:
+            return self._bound_connection
         return DataConnectionStore.instance().get_connection(self._connection)
 
     def _execute(self, query: str = None):

@@ -43,6 +43,7 @@ namespace
     using ScalarRefFrameRow =
         UnNamedBundle<Field<"date", DateTime>, Field<"key", Str>, Field<"value", Float>>;
     using RefBundle = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Str>>>;
+    using SqlRow = UnNamedTSB<Field<"name", TS<Str>>, Field<"age", TS<Int>>>;
     using BundleRefFrameRow =
         UnNamedBundle<Field<"date", DateTime>, Field<"key", Str>, Field<"a", Int>,
                       Field<"b", Str>>;
@@ -186,6 +187,31 @@ namespace
                 arrow::field("date", arrow::timestamp(arrow::TimeUnit::MICRO)),
                 arrow::field("value", arrow::list(arrow::int64()))}),
             {std::move(date_array), std::move(list_array)})};
+    }
+
+    [[nodiscard]] Frame sql_integer_frame()
+    {
+        arrow::TimestampBuilder date_builder{
+            arrow::timestamp(arrow::TimeUnit::MICRO),
+            arrow::default_memory_pool()};
+        arrow::StringBuilder name_builder;
+        arrow::Int32Builder age_builder;
+        require_arrow(date_builder.Append(MIN_ST.time_since_epoch().count()));
+        require_arrow(name_builder.Append("Alice"));
+        require_arrow(age_builder.Append(25));
+        std::shared_ptr<arrow::Array> date_array;
+        std::shared_ptr<arrow::Array> name_array;
+        std::shared_ptr<arrow::Array> age_array;
+        require_arrow(date_builder.Finish(&date_array));
+        require_arrow(name_builder.Finish(&name_array));
+        require_arrow(age_builder.Finish(&age_array));
+        return Frame{arrow::Table::Make(
+            arrow::schema({
+                arrow::field("date", arrow::timestamp(arrow::TimeUnit::MICRO)),
+                arrow::field("name", arrow::utf8()),
+                arrow::field("age", arrow::int32())}),
+            {std::move(date_array), std::move(name_array),
+             std::move(age_array)})};
     }
 
     [[nodiscard]] Frame matrix_frame(DateTime when)
@@ -698,6 +724,16 @@ TEST_CASE("data frame operators: from_data_frame preserves shaped array bindings
     REQUIRE(matrix[0]->as_list().size() == 2);
     CHECK(matrix[0]->as_list().at(0).as_list().at(0).checked_as<Int>() == Int{1});
     CHECK(matrix[0]->as_list().at(1).as_list().at(1).checked_as<Int>() == Int{4});
+}
+
+TEST_CASE("data frame operators: SQL-width integers feed native bundle outputs")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(
+        (eval_node<stdlib::from_data_frame, SqlRow>(
+            sql_integer_frame(), Str{"date"}, Str{"key"}, Str{"value"},
+            TimeDelta{})),
+        values<Value>(tsb_delta<SqlRow>(Str{"Alice"}, Int{25})));
 }
 
 TEST_CASE("data frame operators: frame batches stream through one native source")

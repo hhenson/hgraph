@@ -76,7 +76,7 @@ def schema_from_frame(frame) -> type:
 
 
 def _source(source_type: type[DATA_FRAME_SOURCE]):
-    return DataStore.instance().get_data_source(source_type)
+    return DataStore.instance().get_data_source(source_type)._prepare_for_graph()
 
 
 def _schema_table(source_type: type[DATA_FRAME_SOURCE]) -> pa.Table:

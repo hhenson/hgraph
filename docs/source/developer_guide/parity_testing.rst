@@ -82,8 +82,9 @@ environments, verifies every version is identical, and records that package
 inventory in the report before it runs either suite.
 
 An upstream test failure is not automatically an ``hg_cpp`` defect.  The
-runner first requires the released reference to pass the test.  A candidate
-difference is then classified using ``tools/parity/upstream_conformance.json``:
+runner first requires the released reference assertion to execute successfully
+(``PASS`` or ``XPASS``).  A candidate difference is then classified using
+``tools/parity/upstream_conformance.json``:
 
 * an unmatched difference is **review required**, not a confirmed problem;
 * ``expected-change`` records an approved public semantic difference;
@@ -100,6 +101,12 @@ There is no blanket private-internal exclusion: a test coupled to a non-ported
 concept such as ``HgTypeMetaData`` must be converted to the public reflection
 and type-resolution surface with equivalent evidence, or the required concept
 must be ported.
+
+A test skipped by the released reference can only be converted when a rule
+names ``skipped`` explicitly and matches the reference's exact skip diagnostic
+as well as the candidate diagnostic.  This is reserved for upstream internal
+contracts whose public Python and native C++ replacement tests are named as
+evidence; other skips remain reference-unverified.
 
 Reference collection failures and nondeterministic/platform-disabled tests are
 reported as unverified evidence, never candidate noncompliance.  Reports and

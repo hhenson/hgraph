@@ -389,3 +389,50 @@ def test_sql_source_schema_probe_preserves_batched_streaming():
     assert [row for frame in frames for row in frame.to_pylist()] == [
         {"date": when, "value": value} for when, value in rows
     ]
+
+
+def test_sql_source_binds_connection_before_runtime_iteration():
+    rows = [
+        (date(2026, 1, 1), "Alice", 25),
+        (date(2026, 1, 2), "Bob", 42),
+    ]
+
+    class _Result:
+        description = (("date",), ("name",), ("age",))
+
+        def __init__(self, values):
+            self._values = values
+
+        def fetchall(self):
+            return self._values
+
+    class _Connection:
+        def __init__(self):
+            self.queries = []
+
+        def execute(self, query):
+            self.queries.append(query)
+            return _Result(rows[:1] if query.endswith(" LIMIT 1") else rows)
+
+    class _People(SqlDataFrameSource):
+        def __init__(self):
+            super().__init__("select date, name, age from people", "test")
+
+    connection = _Connection()
+    with DataConnectionStore() as connections, DataStore():
+        connections.set_connection("test", connection)
+        assert eval_node(
+            tsb_from_data_source,
+            _People,
+            "date",
+            __start_time__=datetime(2026, 1, 1),
+            __elide__=True,
+        ) == [
+            frozendict(name="Alice", age=25),
+            frozendict(name="Bob", age=42),
+        ]
+
+    assert connection.queries == [
+        "select date, name, age from people LIMIT 1",
+        "select date, name, age from people",
+    ]
