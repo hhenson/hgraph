@@ -49,29 +49,39 @@ class InputsKey:
         return self._hash
 
 
+def _real_eq(obj: Any):
+    """
+    The comparison to use for ``obj``: the stashed original where ``__eq__`` has been replaced.
+
+    ``WiringPort`` replaces ``__eq__`` so that ``a == b`` wires an ``eq_`` node rather than comparing,
+    keeping the real implementation on ``__orig_eq__``. Reaching that replacement from here would build
+    graph nodes as a side effect of a dictionary lookup, so it must never be called.
+    """
+    tp = type(obj)
+    return getattr(tp, "__orig_eq__", None) or tp.__eq__
+
+
 def _eq(lhs: Any, rhs: Any) -> bool:
     """
     Compare two wiring inputs.
 
-    ``WiringPort`` replaces ``__eq__`` so that ``a == b`` wires an ``eq_`` node rather than comparing,
-    stashing the real implementation on ``__orig_eq__``. We therefore have to call that directly, which
-    bypasses the interpreter's handling of ``NotImplemented``, so this reproduces it: try the reflected
-    operation, then fall back to identity.
+    Because the comparison has to be invoked directly rather than through ``==``, the interpreter's
+    handling of ``NotImplemented`` is bypassed, so this reproduces it: try the left operand, then the
+    reflected operation, then fall back to identity.
 
     Getting this wrong is not academic. ``WiringPort`` is declared ``eq=False``, so ``__orig_eq__`` is
     ``object.__eq__``, which returns ``NotImplemented`` for any two distinct objects. Returning that from
     here would make every non-identical pair of ports compare *equal* (``NotImplemented`` is truthy), and
     from Python 3.14 using it in a boolean context raises ``TypeError``.
+
+    Both operands are resolved through :func:`_real_eq`, so a plain value on one side and a port on the
+    other cannot reflect into the ``eq_``-wiring ``__eq__`` and quietly add a node to the graph.
     """
     if lhs is rhs:
         return True
-    orig_eq = getattr(type(lhs), "__orig_eq__", None)
-    if orig_eq is None:
-        return bool(lhs == rhs)
-    result = orig_eq(lhs, rhs)
+    result = _real_eq(lhs)(lhs, rhs)
     if result is NotImplemented:
-        reflected_eq = getattr(type(rhs), "__orig_eq__", None)
-        result = reflected_eq(rhs, lhs) if reflected_eq is not None else NotImplemented
+        result = _real_eq(rhs)(rhs, lhs)
         if result is NotImplemented:
             return False  # lhs is rhs was already ruled out above
     return bool(result)

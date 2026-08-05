@@ -95,6 +95,18 @@ def test_unhashable_input_degrades_to_best_effort_hash():
     assert key == InputsKey(frozendict(a=value))
 
 
+def test_mixed_scalar_and_port_does_not_wire_a_node():
+    """
+    A plain value on one side and a port on the other must not reach the ``eq_``-wiring ``__eq__``.
+
+    ``==`` would reflect into it when the left operand returns NotImplemented, which would build a
+    graph node as a side effect of a dictionary lookup, and outside a wiring context that raises.
+    """
+    port = _port()
+    assert InputsKey(frozendict(a=1)) != InputsKey(frozendict(a=port))
+    assert InputsKey(frozendict(a=port)) != InputsKey(frozendict(a=1))
+
+
 def test_wiring_port_orig_eq_is_identity_based():
     """Documents the premise: __orig_eq__ is object.__eq__, so it yields NotImplemented for distinct objects."""
     assert WiringPort.__orig_eq__ is object.__eq__
