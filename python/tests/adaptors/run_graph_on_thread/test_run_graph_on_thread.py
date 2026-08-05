@@ -1,3 +1,4 @@
+import inspect
 from datetime import datetime, timedelta, timezone
 
 import hgraph as hg
@@ -34,6 +35,8 @@ def test_typed_output_schema_can_be_used_by_eval_node():
 def test_typed_output_schema_supports_standard_scalar_schema_operations():
     schema = RunGraphOutput[hg.TS[int]]
 
+    assert issubclass(RunGraphOutput, hg.TimeSeriesSchema)
+    assert RunGraphOutput.scalar_type() is None
     assert schema.scalar_type() is None
     scalar_schema = schema.to_scalar_schema()
     assert scalar_schema.__annotations__ == {
@@ -46,6 +49,11 @@ def test_typed_output_schema_supports_standard_scalar_schema_operations():
 
 
 def test_publish_output_can_publish_full_values_instead_of_deltas():
+    assert tuple(inspect.signature(publish_output).parameters) == (
+        "ts",
+        "delta",
+        "_global_state",
+    )
     captured = []
 
     @hg.graph

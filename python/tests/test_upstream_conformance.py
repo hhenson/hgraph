@@ -10,11 +10,13 @@ import pytest
 
 from tools.parity.conformance import (
     UpstreamSource,
+    apply_reference_isolation,
     compare_upstream_results,
     install_conformance_dependencies,
     load_conformance_manifest,
     prepare_test_workspace,
     profile_selectors,
+    reference_isolation_selectors,
     require_aligned_conformance_environments,
     run_upstream_suite,
     validate_selectors,
@@ -123,13 +125,58 @@ def test_conformance_treats_xpass_as_executed_reference_evidence():
     assert report["summary"]["matched"] == 1
     assert report["summary"]["reference_unverified"] == 0
 
+
+def test_conformance_isolates_only_declared_suite_context_xfails():
+    isolated = "hgraph_unit_tests/_operators/test_print.py::test_log_args"
+    failed = "hgraph_unit_tests/_operators/test_print.py::test_log_sample"
+    reference = _result(
+        {
+            isolated: _outcome("xfailed", "suite capture pollution"),
+            failed: _outcome("failed", "reference defect"),
+        }
+    )
+    rule = {
+        "id": "isolated-print",
+        "match": "hgraph_unit_tests/_operators/test_print.py::*",
+        "classification": "converted",
+        "isolate_reference_outcomes": ["xfailed"],
+        "candidate_outcomes": ["collection-error"],
+        "diagnostic_regex": "private import",
+        "reason": "public logging is covered independently",
+        "decision": "docs/source/developer_guide/parity_matrix.rst",
+        "review_date": "2026-08-05",
+        "evidence": ["python/tests/ported/_operators/test_print.py"],
+    }
+
+    assert reference_isolation_selectors(reference, _manifest([rule])) == [
+        isolated
+    ]
+    probe = _result({isolated: _outcome("xpassed")})
+    record = apply_reference_isolation(reference, isolated, probe)
+    assert record["applied"] is True
+    assert reference["tests"][isolated]["outcome"] == "xpassed"
+    assert reference["tests"][isolated]["suite_result"]["outcome"] == "xfailed"
+
+
+def test_conformance_keeps_a_failed_isolated_reference_unverified():
+    nodeid = "hgraph_unit_tests/_operators/test_print.py::test_log_args"
+    reference = _result({nodeid: _outcome("xfailed")})
+    record = apply_reference_isolation(
+        reference,
+        nodeid,
+        _result({nodeid: _outcome("xfailed", "still fails alone")}),
+    )
+
+    assert record["applied"] is False
+    assert reference["tests"][nodeid]["outcome"] == "xfailed"
+
     report = compare_upstream_results(
         reference,
         _result({nodeid: _outcome("failed", "AssertionError: candidate defect")}),
         _manifest(),
     )
-    assert report["summary"]["review_required"] == 1
-    assert report["summary"]["reference_unverified"] == 0
+    assert report["summary"]["review_required"] == 0
+    assert report["summary"]["reference_unverified"] == 1
 
 
 def test_conformance_converts_only_an_exact_skipped_reference_reason():
@@ -252,6 +299,36 @@ def test_manifest_requires_reference_diagnostic_for_skipped_conversion(tmp_path)
     path.write_text(json.dumps(manifest))
 
     with pytest.raises(ValueError, match="requires reference_diagnostic_regex"):
+        load_conformance_manifest(path)
+
+
+@pytest.mark.parametrize(
+    ("classification", "isolated_outcomes"),
+    [("expected-change", ["xfailed"]), ("converted", ["failed"])],
+)
+def test_manifest_limits_isolated_replay_to_converted_xfails(
+    tmp_path, classification, isolated_outcomes
+):
+    path = tmp_path / "manifest.json"
+    manifest = _manifest(
+        [
+            {
+                "id": "unsafe-isolated-replay",
+                "match": "hgraph_unit_tests/_operators/test_print.py::*",
+                "classification": classification,
+                "isolate_reference_outcomes": isolated_outcomes,
+                "candidate_outcomes": ["collection-error"],
+                "diagnostic_regex": "private import",
+                "reason": "public logging is covered independently",
+                "decision": "docs/source/developer_guide/parity_matrix.rst",
+                "review_date": "2026-08-05",
+                "evidence": ["python/tests/ported/_operators/test_print.py"],
+            }
+        ]
+    )
+    path.write_text(json.dumps(manifest))
+
+    with pytest.raises(ValueError, match="only isolate an xfailed converted test"):
         load_conformance_manifest(path)
 
 

@@ -438,6 +438,15 @@ def load_conformance_manifest(path: Path) -> dict[str, Any]:
                 raise ValueError(
                     f"invalid reference_diagnostic_regex for {rule_id}: {error}"
                 ) from error
+        isolation_outcomes = rule.get("isolate_reference_outcomes")
+        if isolation_outcomes is not None:
+            if (
+                rule["classification"] != "converted"
+                or isolation_outcomes != ["xfailed"]
+            ):
+                raise ValueError(
+                    f"rule {rule_id} may only isolate an xfailed converted test"
+                )
         if rule["classification"] in _ACCEPTED_CLASSIFICATIONS:
             if not rule.get("diagnostic_regex"):
                 raise ValueError(f"accepted rule {rule_id} requires diagnostic_regex")
@@ -485,6 +494,73 @@ def validate_selectors(selectors: list[str]) -> list[str]:
     if not validated:
         raise ValueError("at least one upstream test selector is required")
     return validated
+
+
+def reference_isolation_selectors(
+    reference: dict[str, Any], manifest: dict[str, Any]
+) -> list[str]:
+    """Return suite-context XFAILs explicitly approved for isolated replay."""
+
+    selectors: list[str] = []
+    for raw_nodeid, result in reference.get("tests", {}).items():
+        nodeid = _normalize_nodeid(raw_nodeid)
+        outcome = result.get("outcome")
+        if any(
+            outcome in rule.get("isolate_reference_outcomes", ())
+            and fnmatch.fnmatchcase(nodeid, rule["match"])
+            for rule in manifest.get("rules", ())
+        ):
+            selectors.append(nodeid)
+    return sorted(selectors)
+
+
+def apply_reference_isolation(
+    reference: dict[str, Any], nodeid: str, isolated: dict[str, Any]
+) -> dict[str, Any]:
+    """Use a pass-like isolated result while retaining the suite result."""
+
+    normalized = _normalize_nodeid(nodeid)
+    reference_key = next(
+        (
+            key
+            for key in reference.get("tests", {})
+            if _normalize_nodeid(key) == normalized
+        ),
+        None,
+    )
+    isolated_key = next(
+        (
+            key
+            for key in isolated.get("tests", {})
+            if _normalize_nodeid(key) == normalized
+        ),
+        None,
+    )
+    suite_result = (
+        reference.get("tests", {}).get(reference_key) if reference_key else None
+    )
+    isolated_result = (
+        isolated.get("tests", {}).get(isolated_key) if isolated_key else None
+    )
+    applied = bool(
+        reference_key
+        and suite_result
+        and suite_result.get("outcome") == "xfailed"
+        and isolated_result
+        and isolated_result.get("outcome") in _PASS_LIKE_OUTCOMES
+    )
+    if applied:
+        reference["tests"][reference_key] = {
+            **isolated_result,
+            "isolated_reference": True,
+            "suite_result": suite_result,
+        }
+    return {
+        "nodeid": normalized,
+        "applied": applied,
+        "suite_result": suite_result,
+        "isolated_result": isolated_result,
+    }
 
 
 def _normalize_nodeid(nodeid: str) -> str:
@@ -676,6 +752,8 @@ def render_conformance_markdown(report: dict[str, Any]) -> str:
             f"- reference tests collected: {summary['reference_collected']}",
             f"- exact candidate matches: {summary['matched']}",
             f"- known expected/converted outcomes: {summary['known_expected']}",
+            "- reference XFAILs verified by isolated replay: "
+            f"{summary.get('reference_isolated', 0)}",
             f"- review required (not yet classified as defects): {summary['review_required']}",
             f"- confirmed compatibility gaps: {summary['confirmed_gaps']}",
             f"- reference-unverified tests: {summary['reference_unverified']}",

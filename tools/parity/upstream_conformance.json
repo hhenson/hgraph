@@ -118,6 +118,7 @@
       "id": "operators-print-private-tsl-converted",
       "match": "hgraph_unit_tests/_operators/test_print.py::*",
       "classification": "converted",
+      "isolate_reference_outcomes": ["xfailed"],
       "candidate_outcomes": ["collection-error"],
       "diagnostic_regex": "No module named 'hgraph[.]nodes[.]_tsl_operators'",
       "reason": "The private Python TSL formatting implementation is not a runtime contract; public print and logger behavior is retained.",
@@ -1050,6 +1051,20 @@
       "evidence": [
         "python/tests/test_lifecycle_configuration.py",
         "tests/cpp/test_lifecycle_observers.cpp"
+      ]
+    },
+    {
+      "id": "runtime-wall-clock-reschedule-jitter-converted",
+      "match": "hgraph_unit_tests/_runtime/test_scheduler.py::test_wall_clock_scheduler_reschedule",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "test_scheduler[.]py:140: AssertionError",
+      "reason": "The released test's 90-110 ms wall-clock interval is narrower than scheduler jitter and is unstable in the reference engine itself. The converted test retains payload order, tagged rescheduling, the not-before lower bound, and the graph end-time while allowing non-semantic wall-clock delay.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/ported/_runtime/test_scheduler.py",
+        "tests/cpp/test_node_scheduler.cpp"
       ]
     },
     {

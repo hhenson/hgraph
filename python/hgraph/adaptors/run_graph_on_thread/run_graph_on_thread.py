@@ -43,7 +43,7 @@ _OUTPUT_CALLBACK = ":adaptors:run_graph_on_thread:output"
 _RUN_OUTPUT_SCHEMAS = {}
 
 
-class RunGraphOutput:
+class RunGraphOutput(TimeSeriesSchema):
     """The typed result bundle returned by ``run_graph_on_thread[OUT]``."""
 
     def __class_getitem__(cls, output_type):
@@ -84,10 +84,10 @@ _RAW_OUTPUT = TSB[_RawRunGraphOutput]
 def publish_output(
     ts: TIME_SERIES_TYPE,
     delta: bool = True,
-    global_state: GlobalState = None,
+    _global_state: GlobalState = None,
 ):
     """Publish a child graph value to its ``run_graph_on_thread`` client."""
-    callback = global_state.get(_OUTPUT_CALLBACK)
+    callback = _global_state.get(_OUTPUT_CALLBACK)
     if callback is None:
         raise RuntimeError("publish_output must run inside run_graph_on_thread")
     callback(ts.delta_value if delta else ts.value)

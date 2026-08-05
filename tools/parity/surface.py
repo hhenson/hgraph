@@ -29,6 +29,7 @@ SURFACE_EXTRA_DEPENDENCIES: tuple[str, ...] = (
     "perspective-python<5.0.0",
     "requests",
     "pandas>=2.0",
+    "pydantic>=2,<3",
     "kafka-python>=2.1.5",
     "boto3>=1.34",
     "deltalake>=1.0",
@@ -259,6 +260,14 @@ def classify_findings(
             return False
         if "side" in rule and rule["side"] != _finding_side(finding):
             return False
+        for field in (
+            "reference",
+            "candidate",
+            "reference_error",
+            "candidate_error",
+        ):
+            if field in rule and rule[field] != finding.get(field):
+                return False
         return True
 
     actionable: list[dict[str, Any]] = []

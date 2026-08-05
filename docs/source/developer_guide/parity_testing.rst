@@ -115,6 +115,14 @@ for discovery while rules are being reviewed; the normal command fails while
 review-required, confirmed-gap, ambiguous-rule, or reference-unverified
 entries remain.
 
+An upstream test explicitly marked XFAIL because it is polluted by suite
+context may opt into isolated reference replay through a converted rule.  The
+controller reruns only that exact node id in a fresh reference process, accepts
+only PASS or XPASS, and retains both the suite and isolated results in the
+report.  A failed isolated replay remains reference-unverified.  This mechanism
+does not retry ordinary failures or skips and does not run candidate code in
+the reference process.
+
 ``--reference-python`` and ``--candidate-python`` select already-provisioned
 interpreters.  ``--candidate-wheel`` installs a pre-built stable-ABI wheel,
 which is how CI reuses the wheel already built by the distribution workflow.
