@@ -26,6 +26,25 @@ _BINARY_OPS = {
 }
 _UNARY_OPS = {"neg", "pos", "abs", "dedup"}
 
+_SCALAR_ARGUMENT_OPERATIONS = {
+    "add": "add_",
+    "sub": "sub_",
+    "mul": "mul_",
+    "div": "div_",
+    "floordiv": "floordiv_",
+    "mod": "mod_",
+    "pow": "pow_",
+    "eq": "eq_",
+    "ne": "ne_",
+    "lt": "lt_",
+    "le": "le_",
+    "gt": "gt_",
+    "ge": "ge_",
+}
+_COMPARISON_OPERATIONS = {"eq", "ne", "lt", "le", "gt", "ge"}
+_DIVIDE_POLICY_OPERATIONS = {"div", "floordiv", "mod", "pow"}
+_DIVIDE_BY_ZERO_POLICIES = {"ERROR", "NAN", "INF", "NONE", "ZERO", "ONE"}
+
 
 @dataclass(frozen=True)
 class TemplateSpec:
@@ -225,6 +244,165 @@ def _scalar_expression(hg, recipe):
     )
 
 
+def _scalar_argument_output_type(operation, input_type, scalar_type):
+    if operation in _COMPARISON_OPERATIONS:
+        return "bool"
+    if operation == "div":
+        return "float"
+    return "float" if "float" in (input_type, scalar_type) else "int"
+
+
+def _validate_scalar_operator_arguments(recipe):
+    parameters = recipe.parameters
+    operation = parameters.get("operation")
+    if operation not in _SCALAR_ARGUMENT_OPERATIONS:
+        raise RecipeError(
+            "scalar_operator_arguments operation must name a supported "
+            "numeric binary operator"
+        )
+    input_type = parameters.get("input_type")
+    scalar_type = parameters.get("scalar_type")
+    if input_type not in _NUMERIC_TYPES or scalar_type not in _NUMERIC_TYPES:
+        raise RecipeError(
+            "scalar_operator_arguments input_type and scalar_type must be int or float"
+        )
+    if operation in _COMPARISON_OPERATIONS and input_type != scalar_type:
+        raise RecipeError(
+            "scalar_operator_arguments comparison operands must have matching types"
+        )
+    scalar_side = parameters.get("scalar_side")
+    if scalar_side not in {"lhs", "rhs"}:
+        raise RecipeError(
+            "scalar_operator_arguments scalar_side must be lhs or rhs"
+        )
+
+    expected_input = _SCALAR_TYPES[input_type]
+    for tick in recipe.inputs["value"]:
+        if tick is not None and type(tick) is not expected_input:
+            raise RecipeError(
+                f"scalar_operator_arguments {input_type} input contains "
+                f"{type(tick).__name__}"
+            )
+    if not any(tick is not None for tick in recipe.inputs["value"]):
+        raise RecipeError("scalar_operator_arguments requires a valid input tick")
+
+    scalar_value = parameters.get("scalar_value")
+    if type(scalar_value) is not _SCALAR_TYPES[scalar_type]:
+        raise RecipeError(
+            f"scalar_operator_arguments scalar_value must be {scalar_type}"
+        )
+
+    has_policy = "divide_by_zero" in parameters
+    policy = parameters.get("divide_by_zero")
+    if operation in _DIVIDE_POLICY_OPERATIONS:
+        if has_policy and policy not in _DIVIDE_BY_ZERO_POLICIES:
+            raise RecipeError(
+                "scalar_operator_arguments divide_by_zero must name a "
+                "DivideByZero value"
+            )
+    elif has_policy:
+        raise RecipeError(
+            f"scalar_operator_arguments {operation} does not accept divide_by_zero"
+        )
+
+    if operation in {"div", "floordiv", "mod"}:
+        denominators = (
+            [scalar_value]
+            if scalar_side == "rhs"
+            else [tick for tick in recipe.inputs["value"] if tick is not None]
+        )
+        if any(value == 0 for value in denominators):
+            output_type = _scalar_argument_output_type(
+                operation, input_type, scalar_type
+            )
+            allowed = (
+                {"NAN", "INF", "NONE", "ZERO", "ONE"}
+                if operation == "div"
+                else {"NONE", "ZERO"}
+                if operation == "floordiv" and output_type == "int"
+                else {"NAN", "INF", "NONE", "ZERO", "ONE"}
+                if operation == "floordiv"
+                else {"NONE"}
+                if output_type == "int"
+                else {"NAN", "INF", "NONE"}
+            )
+            if policy not in allowed:
+                raise RecipeError(
+                    f"scalar_operator_arguments {operation} zero divisor "
+                    f"requires one of {sorted(allowed)}"
+                )
+
+    if operation == "pow":
+        bases = (
+            [scalar_value]
+            if scalar_side == "lhs"
+            else [tick for tick in recipe.inputs["value"] if tick is not None]
+        )
+        exponents = (
+            [scalar_value]
+            if scalar_side == "rhs"
+            else [tick for tick in recipe.inputs["value"] if tick is not None]
+        )
+        output_type = _scalar_argument_output_type(
+            operation, input_type, scalar_type
+        )
+        if output_type == "int" and any(value < 0 for value in exponents):
+            raise RecipeError(
+                "scalar_operator_arguments integer pow requires non-negative exponents"
+            )
+        if any(base == 0 for base in bases) and any(
+            exponent < 0 for exponent in exponents
+        ):
+            allowed = (
+                {"NONE"}
+                if output_type == "int"
+                else {"NAN", "INF", "NONE", "ZERO", "ONE"}
+            )
+            if policy not in allowed:
+                raise RecipeError(
+                    "scalar_operator_arguments zero to a negative power "
+                    f"requires one of {sorted(allowed)}"
+                )
+        if any(base < 0 for base in bases) and any(
+            isinstance(exponent, float) and not exponent.is_integer()
+            for exponent in exponents
+        ):
+            raise RecipeError(
+                "scalar_operator_arguments fractional powers require non-negative bases"
+            )
+
+
+def _scalar_operator_arguments(hg, recipe):
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    operation = parameters["operation"]
+    input_type = parameters["input_type"]
+    scalar_type = parameters["scalar_type"]
+    scalar_side = parameters["scalar_side"]
+    scalar_value = parameters["scalar_value"]
+    output_type = _scalar_argument_output_type(
+        operation, input_type, scalar_type
+    )
+    value = "value"
+    scalar = repr(scalar_value)
+    lhs, rhs = (scalar, value) if scalar_side == "lhs" else (value, scalar)
+    policy = parameters.get("divide_by_zero")
+    policy_argument = (
+        f", divide_by_zero=hg.DivideByZero.{policy}" if policy else ""
+    )
+    source = (
+        "@hg.graph\n"
+        f"def parity_graph(value: hg.TS[{input_type}]) -> hg.TS[{output_type}]:\n"
+        f"    return hg.{_SCALAR_ARGUMENT_OPERATIONS[operation]}("
+        f"{lhs}, {rhs}{policy_argument})\n"
+    )
+    namespace = {"hg": hg}
+    exec(compile(source, f"<parity:{recipe.id}>", "exec"), namespace)
+    inputs = decoded_inputs(hg, recipe)
+    return eval_node(namespace["parity_graph"], inputs["value"])
+
+
 # --------------------------------------------------------------------------
 # Temporal accessor expressions (issue #82 class): date/datetime arithmetic
 # feeding the upstream getattr_ property/method tables.
@@ -377,6 +555,10 @@ def _validate_collection_size(recipe):
     if operation not in _COLLECTION_OPERATIONS:
         raise RecipeError(
             f"collection_size operation must be one of {_COLLECTION_OPERATIONS}")
+    if shape == "str" and operation == "is_empty":
+        raise RecipeError(
+            "collection_size is_empty is not supported for TS[str] by released hgraph"
+        )
     if shape == "tsl":
         if operation != "len":
             raise RecipeError("collection_size tsl covers len only")
@@ -1386,6 +1568,17 @@ CATALOG = {
         ),
         execute=_scalar_expression,
     ),
+    "scalar_operator_arguments": TemplateSpec(
+        name="scalar_operator_arguments",
+        required_inputs=("value",),
+        features=(
+            "shape:TS",
+            "topology:operator-overload",
+            "argument:scalar",
+        ),
+        operators=tuple(sorted(_SCALAR_ARGUMENT_OPERATIONS.values())),
+        execute=_scalar_operator_arguments,
+    ),
     "feedback_accumulate": TemplateSpec(
         name="feedback_accumulate",
         required_inputs=("value",),
@@ -1789,6 +1982,8 @@ def validate_recipe(recipe):
         )
     if recipe.template == "scalar_expression":
         _validate_scalar_expression(recipe)
+    elif recipe.template == "scalar_operator_arguments":
+        _validate_scalar_operator_arguments(recipe)
     elif recipe.template == "temporal_expression":
         _validate_temporal_expression(recipe)
     elif recipe.template == "collection_size":

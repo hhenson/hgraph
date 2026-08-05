@@ -45,6 +45,31 @@ def _scalar_recipe(ticks=None):
     )
 
 
+def _scalar_operator_recipe(**parameter_updates):
+    parameters = {
+        "operation": "div",
+        "input_type": "int",
+        "scalar_type": "int",
+        "scalar_side": "rhs",
+        "scalar_value": 0,
+        "divide_by_zero": "ZERO",
+    }
+    parameters.update(parameter_updates)
+    if parameters.get("divide_by_zero") is None:
+        parameters.pop("divide_by_zero", None)
+    return Recipe.from_dict(
+        {
+            "schema_version": 1,
+            "id": "test-scalar-operator-recipe",
+            "description": "test",
+            "template": "scalar_operator_arguments",
+            "inputs": {"value": [1, None, -2, 3]},
+            "parameters": parameters,
+            "features": ["argument:scalar", "shape:TS"],
+        }
+    )
+
+
 def test_committed_parity_corpus_is_valid_and_unique():
     recipes = load_corpus(CORPUS)
     assert len(recipes) >= 19
@@ -71,6 +96,58 @@ def test_recipe_rejects_unbounded_or_unsafe_shapes():
     }
     with pytest.raises(RecipeError, match="unsupported expression"):
         validate_recipe(Recipe.from_dict(raw))
+
+
+def test_scalar_operator_arguments_validate_reference_safe_public_overloads():
+    validate_recipe(_scalar_operator_recipe())
+    validate_recipe(_scalar_operator_recipe(
+        operation="pow",
+        scalar_value=3,
+        divide_by_zero="ERROR",
+    ))
+
+    with pytest.raises(RecipeError, match="does not accept divide_by_zero"):
+        validate_recipe(_scalar_operator_recipe(
+            operation="add",
+            divide_by_zero="ZERO",
+        ))
+    with pytest.raises(RecipeError, match="zero divisor requires"):
+        validate_recipe(_scalar_operator_recipe(
+            operation="floordiv",
+            divide_by_zero="ONE",
+        ))
+    with pytest.raises(RecipeError, match="integer pow requires non-negative"):
+        validate_recipe(_scalar_operator_recipe(
+            operation="pow",
+            scalar_value=-1,
+            divide_by_zero="NONE",
+        ))
+    with pytest.raises(RecipeError, match="comparison operands must have matching"):
+        validate_recipe(_scalar_operator_recipe(
+            operation="ge",
+            scalar_type="float",
+            scalar_value=1.0,
+            divide_by_zero=None,
+        ))
+
+
+def test_collection_size_rejects_reference_unsupported_string_is_empty():
+    recipe = Recipe.from_dict(
+        {
+            "schema_version": 1,
+            "id": "test-invalid-string-is-empty",
+            "template": "collection_size",
+            "inputs": {"ts": ["", "value"]},
+            "parameters": {
+                "shape": "str",
+                "operation": "is_empty",
+                "normalize_output": True,
+            },
+            "features": ["shape:TS"],
+        }
+    )
+    with pytest.raises(RecipeError, match=r"is_empty.*TS\[str\]"):
+        validate_recipe(recipe)
 
 
 def test_recipe_fingerprint_is_independent_of_json_key_order():
@@ -208,8 +285,60 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
     )
 
 
+def test_generator_covers_scalar_operator_arguments_and_valid_reference_space():
+    pytest.importorskip("hypothesis")
+    from tools.parity.generate import generate_recipes
+
+    scalar_arguments = generate_recipes(
+        256,
+        seed=41,
+        templates=("scalar_operator_arguments",),
+    )
+    assert {
+        "add", "sub", "mul", "div", "floordiv", "mod", "pow",
+        "eq", "ne", "lt", "le", "gt", "ge",
+    } == {recipe.parameters["operation"] for recipe in scalar_arguments}
+    assert {"lhs", "rhs"} == {
+        recipe.parameters["scalar_side"] for recipe in scalar_arguments
+    }
+    assert {"ERROR", "NAN", "INF", "NONE", "ZERO", "ONE"} == {
+        policy
+        for recipe in scalar_arguments
+        if (policy := recipe.parameters.get("divide_by_zero")) is not None
+    }
+    assert any(
+        recipe.parameters["operation"] in {"div", "floordiv", "mod"}
+        and recipe.parameters["scalar_value"] == 0
+        and recipe.parameters["scalar_side"] == "rhs"
+        for recipe in scalar_arguments
+    )
+    assert all(
+        "argument:scalar" in recipe.features
+        for recipe in scalar_arguments
+    )
+    assert all(
+        recipe.parameters["input_type"] == recipe.parameters["scalar_type"]
+        for recipe in scalar_arguments
+        if recipe.parameters["operation"] in {
+            "eq", "ne", "lt", "le", "gt", "ge",
+        }
+    )
+
+    collection_sizes = generate_recipes(
+        256,
+        seed=43,
+        templates=("collection_size",),
+    )
+    assert not any(
+        recipe.parameters["shape"] == "str"
+        and recipe.parameters["operation"] == "is_empty"
+        for recipe in collection_sizes
+    )
+
+
 def test_campaign_profiles_scale_nightly_breadth_and_tick_depth():
     assert CAMPAIGN_PROFILES["pr"]["examples"] == 48
+    assert "scalar_operator_arguments" in CAMPAIGN_PROFILES["pr"]["templates"]
     assert CAMPAIGN_PROFILES["nightly"]["examples"] == 5000
     assert CAMPAIGN_PROFILES["nightly"]["max_ticks"] == 64
     assert CAMPAIGN_PROFILES["nightly"]["time_budget"] == 3600.0
@@ -1503,9 +1632,11 @@ def test_generated_subscription_recipes_include_resubscriptions():
     pytest.importorskip("hypothesis")
     from tools.parity.generate import generate_recipes
 
-    recipes = generate_recipes(240, seed=29)
-    subs = [r for r in recipes if r.template == "service_subscription"]
-    assert subs, "expected generated service_subscription recipes"
+    subs = generate_recipes(
+        240,
+        seed=29,
+        templates=("service_subscription",),
+    )
     assert any(
         len(symbols := [s for s in recipe.inputs["symbol"] if s is not None])
         != len(set(symbols))
@@ -1584,6 +1715,7 @@ def test_coverage_corpus_recipes_execute_on_the_candidate():
     from tools.parity.runner import run_recipe
 
     for name in (
+        "coverage-scalar-operator-arguments",
         "coverage-temporal-accessors",
         "coverage-collection-sizes",
         "coverage-lifecycle-spellings",

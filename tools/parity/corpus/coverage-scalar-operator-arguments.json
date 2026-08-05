@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "id": "coverage-scalar-operator-arguments",
+  "description": "A raw scalar divisor and wiring-time DivideByZero policy exercise the public div_ overload across sparse ticks.",
+  "template": "scalar_operator_arguments",
+  "inputs": {
+    "value": [
+      6,
+      null,
+      -4,
+      0,
+      9,
+      null,
+      2,
+      -7
+    ]
+  },
+  "parameters": {
+    "operation": "div",
+    "input_type": "int",
+    "scalar_type": "int",
+    "scalar_side": "rhs",
+    "scalar_value": 0,
+    "divide_by_zero": "ZERO"
+  },
+  "features": [
+    "argument:scalar",
+    "argument:scalar-rhs",
+    "operator:div",
+    "policy:divide-by-zero-zero",
+    "shape:TS",
+    "topology:operator-overload",
+    "type:input-int",
+    "type:output-float",
+    "type:scalar-int"
+  ]
+}
