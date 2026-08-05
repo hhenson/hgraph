@@ -466,17 +466,7 @@ namespace hgraph::python_bridge
         }
         if (nb::isinstance(object, date_time_types.time))
         {
-            nb::object offset = object.attr("utcoffset")();
-            if (!offset.is_none())
-            {
-                throw nb::type_error(
-                    "timezone-aware time values require a zoned time scalar");
-            }
-            const std::int64_t micros = nb::cast<std::int64_t>(object.attr("hour")) * 3'600'000'000LL +
-                                        nb::cast<std::int64_t>(object.attr("minute")) * 60'000'000LL +
-                                        nb::cast<std::int64_t>(object.attr("second")) * 1'000'000LL +
-                                        nb::cast<std::int64_t>(object.attr("microsecond"));
-            return Value{Time{micros}};
+            return Value{python_conversion_traits<Time>::from_python(object)};
         }
         if (nb::isinstance(object, date_time_types.timedelta))
         {

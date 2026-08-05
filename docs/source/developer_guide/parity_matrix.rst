@@ -210,8 +210,8 @@ authoring gaps, both fixed without changing native execution: anonymous
 ``compound_scalar(...)`` schemas once again allow omitted fields and retain
 ``to_dict``/``from_dict``, and ``with_columns[RowSchema](...)`` lowers that
 released shorthand to the native ``TS[Frame[RowSchema]]`` output constraint.
-Against released hgraph 0.5.36, the resulting 1,870-test audit records 1,092
-exact matches, 762 evidence-backed conversions, 16 reference-unverified
+Against released hgraph 0.5.36, the resulting 1,862-test audit records 1,092
+exact matches, 765 evidence-backed conversions, 5 reference-unverified
 tests, and no review-required, confirmed-gap, or ambiguous outcomes.
 
 The 2026-08-05 evidence-frontier refresh installs Pydantic in both audit
@@ -224,10 +224,22 @@ and native logger coverage.  The exact real-time scheduler test's 90--110 ms
 upper window was also observed to fail intermittently in the reference engine.
 Its converted counterpart retains ordered values, tagged rescheduling,
 not-before bounds, and the graph end-time while allowing wall-clock jitter.
-The remaining 16 cases have no executable reference oracle: optional C++
-memory/debug tests, timezone cases, the upstream multi-client adaptor XFAIL,
-and skipped nested-graph, Kafka, and inspector cases.  They remain unverified
-rather than being classified as candidate gaps or accepted conversions.
+The upstream ``GraphBuilder.memory_size`` and arena-canary module is excluded
+from the audit: those diagnostics were experimental and were never part of the
+supported user API or behavior contract.  The four skipped timezone bodies
+are also not a released oracle: two call an
+undefined, non-public helper, ``TS[datetime].tzname`` does not wire in released
+hgraph, and the remaining expected normalization fails when its body is run on
+0.5.36.  RFC 0002 supplies the supported replacement through distinct civil,
+instant, zone, and resolved-zoned types.  The bridge now rejects every
+timezone-bearing standalone ``time`` at both inferred and typed graph ingress
+instead of silently losing a ``ZoneInfo`` whose offset needs a date.
+
+Four stable cases remain without executable reference evidence: the upstream
+multi-client adaptor XFAIL and skipped nested-graph, Kafka, and inspector
+cases.  The latest audit reports five because the already-documented
+real-time scheduler test failed in the reference engine during that run;
+the controller deliberately does not retry ordinary reference failures.
 
 The remaining broad-suite differences are conversions of already recorded
 design decisions, not unimplemented user behaviour:

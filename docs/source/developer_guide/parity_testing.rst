@@ -100,13 +100,18 @@ A changed failure diagnostic falls out of the rule and returns to review.
 There is no blanket private-internal exclusion: a test coupled to a non-ported
 concept such as ``HgTypeMetaData`` must be converted to the public reflection
 and type-resolution surface with equivalent evidence, or the required concept
-must be ported.
+must be ported.  A manifest exclusion is reserved for a whole upstream module
+whose subject has been explicitly ruled experimental and outside the supported
+user contract.  Each exclusion names one exact test file, its reason, and its
+review date; the file is not collected and does not contribute to audit totals.
 
 A test skipped by the released reference can only be converted when a rule
 names ``skipped`` explicitly and matches the reference's exact skip diagnostic
-as well as the candidate diagnostic.  This is reserved for upstream internal
-contracts whose public Python and native C++ replacement tests are named as
-evidence; other skips remain reference-unverified.
+as well as the candidate diagnostic.  This is reserved for a source test whose
+supported contract is established independently and whose public Python and
+native C++ replacement tests are named as evidence; other skips remain
+reference-unverified.  Executing a skipped body may establish that it is not a
+released oracle, but does not by itself supply reference behavior.
 
 Reference collection failures and nondeterministic/platform-disabled tests are
 reported as unverified evidence, never candidate noncompliance.  Reports and

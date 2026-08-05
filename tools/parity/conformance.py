@@ -300,6 +300,7 @@ def run_upstream_suite(
     *,
     result_path: Path,
     timeout_seconds: float,
+    excluded_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     result_path = result_path.absolute()
     result_path.unlink(missing_ok=True)
@@ -317,8 +318,10 @@ def run_upstream_suite(
         str(workspace),
         "--continue-on-collection-errors",
         "-q",
-        *selectors,
     ]
+    for excluded_path in excluded_paths or ():
+        command.extend(("--ignore", excluded_path))
+    command.extend(selectors)
     try:
         completed = subprocess.run(
             command,
@@ -390,6 +393,40 @@ def load_conformance_manifest(path: Path) -> dict[str, Any]:
             value = _safe_relative(selector, field=f"profile {profile}")
             if not value.startswith("hgraph_unit_tests"):
                 raise ValueError(f"profile selector is outside upstream tests: {value}")
+    exclusions = manifest.get("exclusions", [])
+    if not isinstance(exclusions, list):
+        raise ValueError("conformance manifest exclusions must be a list")
+    excluded_paths: set[str] = set()
+    for exclusion in exclusions:
+        if not isinstance(exclusion, dict):
+            raise ValueError("conformance exclusions must be objects")
+        raw_path = exclusion.get("path")
+        if not isinstance(raw_path, str) or not raw_path:
+            raise ValueError("conformance exclusion requires a path")
+        excluded_path = _safe_relative(raw_path, field="conformance exclusion")
+        if (
+            not excluded_path.startswith("hgraph_unit_tests/")
+            or not excluded_path.endswith(".py")
+            or "::" in excluded_path
+            or any(character in excluded_path for character in "*?[]")
+        ):
+            raise ValueError(
+                "conformance exclusion must name one exact upstream test module: "
+                f"{excluded_path}"
+            )
+        if excluded_path in excluded_paths:
+            raise ValueError(f"duplicate conformance exclusion: {excluded_path}")
+        excluded_paths.add(excluded_path)
+        if not isinstance(exclusion.get("reason"), str) or not exclusion["reason"]:
+            raise ValueError(
+                f"conformance exclusion {excluded_path} requires a reason"
+            )
+        try:
+            date.fromisoformat(exclusion["review_date"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(
+                f"conformance exclusion {excluded_path} requires an ISO review_date"
+            ) from error
     rules = manifest.get("rules", [])
     if not isinstance(rules, list):
         raise ValueError("conformance manifest rules must be a list")
@@ -481,6 +518,10 @@ def profile_selectors(manifest: dict[str, Any], profile: str) -> list[str]:
         raise ValueError(
             f"unknown conformance profile {profile!r}; choose {choices}"
         ) from error
+
+
+def conformance_exclusions(manifest: dict[str, Any]) -> list[str]:
+    return [exclusion["path"] for exclusion in manifest.get("exclusions", [])]
 
 
 def validate_selectors(selectors: list[str]) -> list[str]:
@@ -761,6 +802,12 @@ def render_conformance_markdown(report: dict[str, Any]) -> str:
             "",
         ]
     )
+    exclusions = report.get("exclusions", [])
+    if exclusions:
+        lines.extend(["## Excluded experimental modules", ""])
+        for exclusion in exclusions:
+            lines.append(f"- `{exclusion['path']}`: {exclusion['reason']}")
+        lines.append("")
     for heading, key in (
         ("Review required", "review_required"),
         ("Confirmed compatibility gaps", "confirmed_gaps"),

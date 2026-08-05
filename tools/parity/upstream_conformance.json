@@ -17,6 +17,13 @@
       "hgraph_unit_tests"
     ]
   },
+  "exclusions": [
+    {
+      "path": "hgraph_unit_tests/_impl/_builder/test_memory_size.py",
+      "reason": "The module exercises the experimental upstream GraphBuilder memory-size and arena-canary diagnostics, which were never part of the supported user API or behavior contract.",
+      "review_date": "2026-08-05"
+    }
+  ],
   "rules": [
     {
       "id": "wiring-inputs-key-native-interning-converted",
@@ -357,6 +364,40 @@
       "evidence": [
         "python/tests/ported/_operators/test_to_json.py",
         "tests/cpp/test_std_operators.cpp"
+      ]
+    },
+    {
+      "id": "operators-temporal-explicit-zone-combination-converted",
+      "match": "hgraph_unit_tests/_operators/test_date_operators.py::test_add_date_time*",
+      "classification": "converted",
+      "reference_outcomes": ["skipped"],
+      "reference_diagnostic_regex": "Skipped: Skip as the C\\+\\+ engine only deals with naive datetime objects",
+      "candidate_outcomes": ["skipped"],
+      "diagnostic_regex": "Skipped: Skip as the C\\+\\+ engine only deals with naive datetime objects",
+      "reason": "The skipped bodies do not define released behavior: their timezone-preserving helper is neither imported nor public, and their UTC-normalizing date-plus-time expectation fails when executed on hgraph 0.5.36. RFC 0002 replaces implicit zone retention with CivilDate + CivilTime -> CivilDateTime and explicit ZoneId resolution; timezone-bearing Python time values are rejected rather than silently losing zone identity.",
+      "decision": "docs/source/rfc/rfc_0002_temporal_types.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/test_bridge.py",
+        "python/tests/test_temporal_types.py",
+        "tests/cpp/test_temporal_operators.cpp"
+      ]
+    },
+    {
+      "id": "operators-temporal-explicit-zone-name-converted",
+      "match": "hgraph_unit_tests/_operators/test_date_operators.py::test_datetime_tzname",
+      "classification": "converted",
+      "reference_outcomes": ["skipped"],
+      "reference_diagnostic_regex": "Skipped: Skip as the C\\+\\+ engine only deals with naive datetime objects",
+      "candidate_outcomes": ["skipped"],
+      "diagnostic_regex": "Skipped: Skip as the C\\+\\+ engine only deals with naive datetime objects",
+      "reason": "The skipped body is not released behavior: TS[datetime].tzname does not wire when executed on hgraph 0.5.36. RFC 0002 makes zone identity explicit through ZonedDateTime and treats provider-dependent abbreviations as an explicit provider query rather than an Instant field.",
+      "decision": "docs/source/rfc/rfc_0002_temporal_types.rst",
+      "review_date": "2026-08-05",
+      "evidence": [
+        "python/tests/test_temporal_types.py",
+        "tests/cpp/test_temporal.cpp",
+        "tests/cpp/test_temporal_operators.cpp"
       ]
     },
     {
