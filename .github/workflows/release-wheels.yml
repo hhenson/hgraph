@@ -149,7 +149,10 @@ jobs:
 
       - name: Install Ninja (Windows)
         if: runner.os == 'Windows'
-        run: uv tool install --upgrade ninja
+        # Pinned and binary-only, matching the conan and cibuildwheel installs below: an unpinned
+        # install takes whatever was published today, and building from source would run the
+        # package's own setup scripts.
+        run: uv tool install --no-build ninja==1.13.0
 
       - name: Install tooling
         run: |
