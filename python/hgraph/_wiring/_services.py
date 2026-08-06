@@ -2124,7 +2124,7 @@ def get_service_inputs(path, stub):
     stub = _registered_stub_for_path(stub, path, wiring)
     descriptor = stub._require_descriptor() if hasattr(stub, "_require_descriptor") else stub.descriptor
     packed = WiringPort(_hgraph.service_impl_input(
-        wiring, descriptor, _resolved_service_path(stub, path)))
+        wiring, descriptor, _resolved_implementation_path(stub, path)))
     values = _split_service_requests(stub, packed)
     fields = {
         parameter.name: value
@@ -2139,7 +2139,7 @@ def set_service_output(path, stub, out):
     stub = _registered_stub_for_path(stub, path, wiring)
     descriptor = stub._require_descriptor() if hasattr(stub, "_require_descriptor") else stub.descriptor
     _hgraph.service_impl_output(
-        wiring, descriptor, _resolved_service_path(stub, path),
+        wiring, descriptor, _resolved_implementation_path(stub, path),
         out=_unwrap(out))
 
 

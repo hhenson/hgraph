@@ -1588,6 +1588,52 @@ def test_parameterized_multi_interface_service_adaptor_shares_one_path():
           f"parameterized multi-interface implementation: {observed}")
 
 
+def test_parameterized_multi_interface_legacy_helpers_use_selected_path():
+    observed = []
+
+    @hg.service_adaptor
+    def left(path: str, passthrough: bool, value: TS[int]) -> TS[int]: ...
+
+    @hg.service_adaptor
+    def right(path: str, passthrough: bool, value: TS[int]) -> TS[int]: ...
+
+    @hg.service_adaptor_impl(interfaces=(left, right))
+    def routed_impl(path: str, passthrough: bool):
+        observed.append((path, passthrough))
+        left_values = hg.get_service_inputs(path, left).ts
+        right_values = hg.get_service_inputs(path, right).ts
+        hg.set_service_output(
+            path,
+            left,
+            hg.map_(
+                lambda item: item if passthrough else item + 1,
+                left_values,
+            ),
+        )
+        hg.set_service_output(
+            path,
+            right,
+            hg.map_(
+                lambda item: item if passthrough else item + 1,
+                right_values,
+            ),
+        )
+
+    @graph
+    def clients(value: TS[int]) -> TS[int]:
+        hg.register_adaptor("legacy", routed_impl)
+        return (
+            left("legacy", False, value)
+            + right("legacy", False, value)
+        )
+
+    out = eval_node(clients, [3, None, 4])
+    check(out == [8, None, 10],
+          f"parameterized legacy-helper clients: {out}")
+    check(observed == [("legacy", False)],
+          f"parameterized legacy-helper implementation: {observed}")
+
+
 def test_service_adaptor_explicit_request_id_client_split():
     @hg.service_adaptor
     def echo(request: TS[int]) -> TS[int]: ...
