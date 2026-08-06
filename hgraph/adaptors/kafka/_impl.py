@@ -120,8 +120,10 @@ class KafkaMessageState(MessageState):
     def set_subscriber_sender(self, topic: str, sender: Callable[[SCALAR], None]):
         self._kafka_sender[topic] = sender
 
-    def start_subscriber(self, topic: str, consumer: KafkaConsumer):
-        self._kafka_consumer[topic] = (thread := KafkaConsumerThread(topic, consumer, self._kafka_sender[topic]))
+    def start_subscriber(self, topic: str, consumer: KafkaConsumer, on_error: Callable = None):
+        self._kafka_consumer[topic] = (
+            thread := KafkaConsumerThread(topic, consumer, self._kafka_sender[topic], on_error)
+        )
         thread.start()
 
     def stop_subscriber(self, topic: str):
@@ -249,8 +251,11 @@ def _message_subscriber_history_aggregator(
     offsets = {k: v for k, v in consumer.offsets_for_times(timestamps).items() if v is not None}
     for tp, offset in offsets.items():
         consumer.seek(tp, offset.offset)
-    first = True
-    last_time = _timestamp_to_datetime(timestamp_ms)
+    # Seeded from start_time, which is what the first yield below uses. Seeding it from
+    # timestamp_ms instead is wrong: that value is start_time truncated to whole milliseconds, so
+    # it can be up to a millisecond earlier, and the next message is then offset to a time before
+    # the one already emitted. The generator rejects that as a duplicate or out-of-order time.
+    last_time = start_time
     yield start_time, dict(recovered=False)
     while last_time < end_time:
         records = consumer.poll(timeout_ms=500, max_records=1000)
@@ -273,7 +278,18 @@ def _message_subscriber_history_aggregator(
 
 
 def _timestamp_to_datetime(t: int) -> datetime:
-    return datetime.utcfromtimestamp(t / 1000) + timedelta(milliseconds=t % 1000)
+    """
+    Kafka timestamps are epoch milliseconds. The engine works in naive UTC, so that is what is
+    returned.
+
+    This used to be utcfromtimestamp(t / 1000) plus timedelta(milliseconds=t % 1000), which counted
+    the sub-second part twice: a message at .999 was replayed a whole second late, shifting replay
+    timings and, where two messages straddled a second boundary, their order.
+    """
+    return _EPOCH + timedelta(milliseconds=t)
+
+
+_EPOCH = datetime(1970, 1, 1)
 
 @adaptor_impl(interfaces=message_subscriber_service)
 def _real_time_message_subscriber_service_impl(
@@ -308,10 +324,17 @@ def _start_realtime_message_subscriber(
     start_real_time_service: TS[bool],
     consumer: KafkaConsumer,
     _global_state: GlobalState = None,
+    _api: EvaluationEngineApi = None,
 ):
     if start_real_time_service.value:
         start_real_time_service.make_passive()
-        KafkaMessageState.instance(_global_state).start_subscriber(topic, consumer)
+
+        def _on_error(_e: BaseException, _api=_api):
+            # Called from the consumer thread. Stopping the engine is the honest outcome: the
+            # topic will not deliver again, so continuing would silently produce wrong results.
+            _api.request_engine_stop()
+
+        KafkaMessageState.instance(_global_state).start_subscriber(topic, consumer, _on_error)
 
 
 @_start_realtime_message_subscriber.stop
@@ -321,15 +344,21 @@ def _start_realtime_message_subscriber_stop(topic: str, _global_state: GlobalSta
 
 class KafkaConsumerThread(Thread):
 
-    def __init__(self, topic, consumer: KafkaConsumer, sender: Callable[[KafkaMessage], None]):
+    def __init__(
+        self,
+        topic,
+        consumer: KafkaConsumer,
+        sender: Callable[[KafkaMessage], None],
+        on_error: Callable[[BaseException], None] = None,
+    ):
         super().__init__()
         self.topic = topic
         self.consumer = consumer
         self.sender = sender
+        self.on_error = on_error
         self._stop_event = Event()
 
     def run(self):
-        # TODO: How to communicate failures to the graph if this blows up?
         try:
             while not self._stop_event.is_set():
                 records = self.consumer.poll(timeout_ms=1000, max_records=1000)
@@ -338,8 +367,16 @@ class KafkaConsumerThread(Thread):
                     all_messages = sorted(all_messages, key=lambda m: (m.timestamp, m.topic, m.offset))
                 for msg in all_messages:
                     self.sender(_record_to_kafka_message(msg))
-        except:
+        except BaseException as e:
+            # Reaching here means delivery for this topic has stopped. Logging alone leaves the
+            # graph running against a feed that will never tick again, which looks like a quiet
+            # market rather than a broken one, so the failure is reported to the graph as well.
             error(f"Failure occurred whilst reading from Kafka on topic: {self.topic}", exc_info=True)
+            if self.on_error is not None:
+                try:
+                    self.on_error(e)
+                except BaseException:
+                    error("Failed to report the Kafka failure to the graph", exc_info=True)
         finally:
             self.consumer.close()
 

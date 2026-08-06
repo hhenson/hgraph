@@ -304,3 +304,38 @@ def test_subscriber_without_recovery_sharing_a_topic_with_a_recovering_publisher
         publisher()
 
     _run(g)
+
+
+def test_kafka_timestamps_are_not_double_counted():
+    """
+    Kafka timestamps are epoch milliseconds. The conversion used to add the sub-second part twice,
+    so a message at .999 replayed a whole second late.
+    """
+    from datetime import datetime
+    from hgraph.adaptors.kafka._impl import _timestamp_to_datetime
+
+    assert _timestamp_to_datetime(0) == datetime(1970, 1, 1)
+    assert _timestamp_to_datetime(1) == datetime(1970, 1, 1, 0, 0, 0, 1000)
+    assert _timestamp_to_datetime(999) == datetime(1970, 1, 1, 0, 0, 0, 999000)
+    assert _timestamp_to_datetime(1_700_000_000_123) == datetime(2023, 11, 14, 22, 13, 20, 123000)
+
+
+def test_consumer_failure_is_reported_rather_than_swallowed():
+    """A broker failure used to be logged and the thread left to exit, so the graph carried on
+    against a feed that would never tick again."""
+    from hgraph.adaptors.kafka._impl import KafkaConsumerThread
+
+    reported = []
+
+    class Failing:
+        def poll(self, **kwargs):
+            raise RuntimeError("broker gone")
+
+        def close(self):
+            reported.append("closed")
+
+    thread = KafkaConsumerThread("t", Failing(), lambda m: None, on_error=reported.append)
+    thread.run()
+
+    assert any(isinstance(r, RuntimeError) for r in reported), f"failure was not reported: {reported}"
+    assert "closed" in reported, "the consumer was not closed"

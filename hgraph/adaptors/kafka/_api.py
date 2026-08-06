@@ -244,10 +244,16 @@ def message_subscriber(fn: Callable = None, *, topic: str = None):
         topic_ = kwargs.pop("topic", None)
         if topic_ is None:
             raise ValueError(f"topic must be provided to {fn.signature.name}")
-        get_message_state().add_subscriber(topic_, replay=has_recovered)
-        msg_input = message_subscriber_service(path=topic_)
+        # Both registrations happen before either service is referenced. The implementations read
+        # these registries to decide what to wire, and referencing a service can expand its
+        # implementation, so an implementation expanded between the two calls would see a topic
+        # that has history as though it had none.
         if has_recovered:
             get_message_state().add_historical_subscriber(topic_)
+        get_message_state().add_subscriber(topic_, replay=has_recovered)
+
+        msg_input = message_subscriber_service(path=topic_)
+        if has_recovered:
             msg_history = message_history_subscriber_service(path=topic_)
             kwargs["recovered"] = (recovered := msg_history["recovered"])  # Connect recovered signal
             msg_input = if_then_else(default(recovered, False), msg_input, msg_history["msg"])
