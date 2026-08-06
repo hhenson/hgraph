@@ -148,7 +148,7 @@ hgraph_add_test_objects(hgraph_runtime_test_objects
     test_feedback.cpp
     test_global_state.cpp
     test_graph_introspection.cpp
-    test_inspector.cpp
+    test_graph_diagnostics.cpp
     test_logger.cpp
     test_node_scheduler.cpp
     test_realtime_execution.cpp

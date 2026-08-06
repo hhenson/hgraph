@@ -15,7 +15,7 @@ campaign in ``benchmarks/memory_orchestrate.py`` produces:
   client count;
 * hg_cpp process-lifetime runtime-registry cardinalities for identical and
   intentionally novel graph wiring;
-* an independent native ``Inspector`` snapshot for planned and dynamic graph
+* an independent native ``GraphDiagnostics`` snapshot for planned and dynamic graph
   storage; and
 * raw JSON containing every sample and the largest native dynamic owners.
 
@@ -41,12 +41,12 @@ They must not be combined into one apparent total.
   platform expose them. USS is helpful when shared-library pages dominate RSS;
   neither metric replaces an ownership profile.
 
-``Inspector planned bytes``
+``GraphDiagnostics planned bytes``
   The root graph's checked runtime storage-plan size. Graph, node, input,
   output, and fixed structured time-series storage placed within that plan are
   deterministic native bytes.
 
-``Inspector dynamic bytes``
+``GraphDiagnostics dynamic bytes``
   Live/reserved nested-graph slot-store bytes reported by map, mesh, switch,
   TSL map, and reducer implementations, plus built-in value and TSData storage
   attributed through their common erased ops surfaces. This includes node
@@ -58,18 +58,18 @@ They must not be combined into one apparent total.
 ``runtime registry growth``
   Final-minus-pre-run counts for retained node runtime types, graph programs,
   graph runtime types, executor runtime types, and all common type records.
-  These cold-path counts are captured without Inspector through
+  These cold-path counts are captured without GraphDiagnostics through
   ``runtime_registry_snapshot()``. They describe process-lifetime structural
   ownership, not live graph instances or allocated bytes.
 
-The process pass never attaches Inspector. Inspector retains an owned record
+The process pass never attaches GraphDiagnostics. GraphDiagnostics retains an owned record
 and strings for every graph/node it observes, so using it during RSS sampling
 would change the quantity being measured. Each profile and each sample runs in
 a fresh process so process-global state from one graph cannot contaminate the
-next graph's delta. For repeated-lifecycle profiles, the Inspector pass runs
+next graph's delta. For repeated-lifecycle profiles, the GraphDiagnostics pass runs
 one execution and reports the per-graph structural footprint; only the
 uninstrumented process pass is used to infer cross-execution retention because
-Inspector would retain its own records across those executions.
+GraphDiagnostics would retain its own records across those executions.
 The identical repeated-wiring profiles reuse one graph callable. The novel
 control rebuilds ``construct_std`` with a different graph shape on each run,
 so legitimate growth for new programs is visible separately from avoidable
@@ -119,14 +119,14 @@ source areas were:
      - Inline state is planned; spill/transitions are not fully attributed
    * - Canonical registries
      - type/plan/ops registries, ``InternTable``, and policy context stores
-     - Process-lifetime ownership; excluded from per-graph Inspector totals
+     - Process-lifetime ownership; excluded from per-graph GraphDiagnostics totals
    * - Python bridge
      - ``py_nodes.cpp``, ``py_ports.cpp``, ``py_wiring.cpp``, and
        ``value_conversion.cpp``
      - Included in process metrics only
 
 The audit did not infer heap size from container ``sizeof`` or add allocator
-estimates to Inspector totals. Such estimates look precise but miss capacity,
+estimates to GraphDiagnostics totals. Such estimates look precise but miss capacity,
 load factor, alignment, small-string optimisation, shared ownership, and
 allocator metadata. The growth profiles provide the empirical bound until
 each owner exposes a cold-path metric.
@@ -141,7 +141,7 @@ allocator operations; ``GraphValue``, ``NodeValue``, ``ExecutorValue``, and
 ``Value`` own erased storage through ``ErasedOwner``. The default owner has a
 one-pointer inline budget and allocates larger plans once. The graph plan
 therefore removes a large class of per-node heap allocations and gives
-Inspector a deterministic static byte count.
+GraphDiagnostics a deterministic static byte count.
 
 Fixed structured time-series data is synthesised as a composite plan rather
 than assembled from independently owned children. The public handle sizes are
@@ -202,7 +202,7 @@ include allocations owned by constructed key values. The child's fixed storage
 is already part of the parent value-slot stride and is therefore not counted
 again.
 
-The hook is sampled by Inspector only. It adds no work to graph evaluation and
+The hook is sampled by GraphDiagnostics only. It adds no work to graph evaluation and
 does not include allocator headers or fragmentation. A projected TSD key-set
 reports its key-set allocation surface; the owning TSD root reports the full
 dictionary and descendants. Node attribution samples only owned output roots,
@@ -245,7 +245,7 @@ bytes, allocator headers, or fragmentation.
 Unaccounted dynamic ownership
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Inspector currently reports native dynamic storage only where a node's
+GraphDiagnostics currently reports native dynamic storage only where a node's
 ``storage_metrics`` implementation exposes it. The following material memory
 categories are visible to process metrics but are not fully attributed in an
 inspection snapshot:
@@ -383,10 +383,10 @@ Monotonic key growth scales intentionally: native reported storage rises from
 819 KiB to 6,560 KiB, while process peak rises from 3.6 MiB to 23.2 MiB.
 
 The sparse-capacity profile also quantifies the attribution gap. At the large
-point, Inspector attributes 33.2 MiB of nested graph slots while process peak
+point, GraphDiagnostics attributes 33.2 MiB of nested graph slots while process peak
 is 106.1 MiB. Approximately 72.9 MiB remains in key/value/index payloads,
 wiring/Python state, or allocator overhead. TSS cardinality produces a visible
-RSS slope while Inspector reports zero dynamic bytes. These are stronger
+RSS slope while GraphDiagnostics reports zero dynamic bytes. These are stronger
 reasons to extend structural accounting than to tune the already-accounted
 slot block in isolation.
 
@@ -516,7 +516,7 @@ audit suggests this order:
 1. Extend structural attribution before optimising opaque RSS. Add cold-path
    metrics for TSData observer spill storage, input target-link trees, and the
    selectively retained Python bridge state. Keep evaluation fast paths
-   unchanged when no Inspector is attached.
+   unchanged when no GraphDiagnostics is attached.
 2. Use the cardinality and monotonic-growth profiles to calculate bytes per
    live/reserved key for map, reduce, mesh, and dynamic TSL. Investigate the
    pointer-table plus block overhead and bank/generation multiplicity where it
@@ -542,7 +542,7 @@ Baseline and comparison procedure
 Run the complete profile pack on an otherwise idle host from a clean main
 revision. Use the same build type, Python version, sample count, sampling
 interval, and CPU for comparisons. The default report compares current Python
-hgraph, hgraph C++, and hg_cpp and adds hg_cpp Inspector data. It reports both
+hgraph, hgraph C++, and hg_cpp and adds hg_cpp GraphDiagnostics data. It reports both
 ``hg_cpp/Python`` and ``hg_cpp/hgraph-C++`` peak-memory ratios; values below one
 mean hg_cpp used less incremental resident memory. Preserve the raw JSON; the
 markdown matrix is a presentation view and intentionally rounds values.

@@ -4,7 +4,7 @@
 #include <hgraph/runtime/evaluation_clock.h>
 #include <hgraph/runtime/evaluation_profiler.h>
 #include <hgraph/runtime/evaluation_trace.h>
-#include <hgraph/runtime/inspector.h>
+#include <hgraph/runtime/graph_diagnostics.h>
 #include <hgraph/runtime/lifecycle_observer.h>
 #include <hgraph/runtime/node.h>
 #include <hgraph/runtime/graph.h>

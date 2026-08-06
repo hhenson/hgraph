@@ -1,8 +1,10 @@
 """Fresh-process memory runner for one stable memory profile.
 
-Process measurements intentionally run without Inspector: an Inspector owns a
-record for every graph/node it sees and would contaminate RSS.  The separate
-``inspector`` pass reports native planned and dynamic storage for hg_cpp.
+Process measurements intentionally run without GraphDiagnostics: the collector
+owns a record for every graph/node it sees and would contaminate RSS.  The
+separate ``inspector`` measurement mode reports native planned and dynamic
+storage for hg_cpp; its command-line spelling is retained for result-file
+compatibility.
 """
 import argparse
 import gc
@@ -60,7 +62,7 @@ def _full_memory(process: psutil.Process) -> dict[str, float | None]:
 
 
 def _runtime_registry_snapshot() -> dict[str, int] | None:
-    """Capture hg_cpp-only cold-path counts without requiring Inspector."""
+    """Capture hg_cpp-only cold-path counts without GraphDiagnostics."""
     try:
         from hgraph.debug import runtime_registry_snapshot
     except (ImportError, AttributeError):
@@ -236,9 +238,9 @@ def run_process(profile_id, profile, scenario, interval_ms: float,
 
 def run_inspector(profile_id, profile, scenario) -> dict:
     import hgraph as hg
-    from hgraph.debug import Inspector
+    from hgraph.debug import GraphDiagnostics
 
-    inspector = Inspector(recent_window=1)
+    diagnostics = GraphDiagnostics(recent_window=1)
     graph_fn, cycles = scenario.build(profile.cycle_scale, profile.size_scale)
     start = hg.MIN_ST
     end = start + (cycles + 2) * hg.MIN_TD
@@ -247,9 +249,9 @@ def run_inspector(profile_id, profile, scenario) -> dict:
         start_time=start,
         end_time=end,
         print_progress=False,
-        life_cycle_observers=[inspector],
+        life_cycle_observers=[diagnostics],
     )
-    snapshot = inspector.snapshot()
+    snapshot = diagnostics.snapshot()
     entries = sorted(
         snapshot.entries,
         key=lambda entry: entry.peak_storage.dynamic_reserved_bytes,

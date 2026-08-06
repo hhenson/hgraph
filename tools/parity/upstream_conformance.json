@@ -1238,17 +1238,78 @@
       ]
     },
     {
-      "id": "debug-inspector-native-snapshot-converted",
-      "match": "hgraph_unit_tests/debug/test_inspector.py::*",
+      "id": "debug-inspector-parent-topology-converted",
+      "match": "hgraph_unit_tests/debug/test_inspector.py::test_inspector_graph_api_key_from_value*",
       "classification": "converted",
-      "candidate_outcomes": ["collection-error"],
-      "diagnostic_regex": "cannot import name 'inspector' from 'hgraph[.]debug'",
-      "reason": "The Python runtime-object walker is replaced by the native Inspector lifecycle observer and owned data-only snapshots, including nested references and keyed graphs.",
-      "decision": "docs/source/developer_guide/parity_matrix.rst",
-      "review_date": "2026-08-05",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "AttributeError: parent_input",
+      "reason": "These tests traverse the old engine's private parent-input topology solely for the Python runtime-object inspector. The public inspector now consumes owned native GraphDiagnostics records and does not require that mutable endpoint topology in Python.",
+      "decision": "docs/source/user_guide/python_compatibility.rst",
+      "review_date": "2026-08-06",
       "evidence": [
         "python/tests/test_inspector.py",
-        "tests/cpp/test_inspector.cpp"
+        "tests/cpp/test_graph_diagnostics.cpp"
+      ]
+    },
+    {
+      "id": "debug-inspector-nested-id-presentation-converted",
+      "match": "hgraph_unit_tests/debug/test_inspector.py::test_inspector_sort_key",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "001X02000000X01001.*001X02001001X01001",
+      "reason": "Native keyed graph identifiers are runtime slot coordinates, not the released Python engine's internal tuples. The Python inspector translates the owned native hierarchy to the released InspectorItemId spelling and ordering before publishing rows.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-06",
+      "evidence": [
+        "python/tests/test_inspector.py",
+        "tests/cpp/test_graph_diagnostics.cpp"
+      ]
+    },
+    {
+      "id": "debug-inspector-private-value-walker-converted",
+      "match": "hgraph_unit_tests/debug/test_inspector.py::test_inspector_*ref*",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "AttributeError: output",
+      "reason": "The released tests call the private inspector_read_value helper with retained runtime objects and the retired .output dereference path. GraphDiagnostics captures owned JSON and immutable Frame handles during valid native callbacks, including referenced target values, and the public inspector serves the owned result through the released Arrow value-view endpoint.",
+      "decision": "docs/source/user_guide/python_compatibility.rst",
+      "review_date": "2026-08-06",
+      "evidence": [
+        "python/tests/test_graph_diagnostics.py",
+        "python/tests/test_inspector.py",
+        "tests/cpp/test_graph_diagnostics.cpp"
+      ]
+    },
+    {
+      "id": "debug-inspector-runtime-state-injection-converted",
+      "match": "hgraph_unit_tests/debug/test_inspector.py::test_run_inspector",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "GlobalState[.]instance[(][)] is wiring-only during graph execution",
+      "reason": "The released integration test performs a process lookup from its own push-source callback. hg_cpp retains the inspector(port, publish_interval) authoring API, table/category interactions, and real-time web presentation while runtime code receives graph-scoped GlobalState by injection.",
+      "decision": "docs/source/user_guide/python_compatibility.rst",
+      "review_date": "2026-08-06",
+      "evidence": [
+        "python/tests/test_inspector.py",
+        "python/tests/adaptors/perspective/test_perspective_adaptor.py",
+        "python/tests/adaptors/tornado/test_public_api.py",
+        "tests/cpp/test_graph_diagnostics.cpp"
+      ]
+    },
+    {
+      "id": "debug-inspector-cpp-nested-graph-nonrequirement",
+      "match": "hgraph_unit_tests/debug/test_inspector.py::test_cpp_reduce_nested_graphs_are_exposed",
+      "classification": "converted",
+      "reference_outcomes": ["skipped"],
+      "reference_diagnostic_regex": "Skipped: Current engine is not C\\+\\+",
+      "candidate_outcomes": ["skipped"],
+      "diagnostic_regex": "Skipped: Current engine is not C\\+\\+",
+      "reason": "The released test is guarded by an upstream C++-engine feature flag and has no released behavioral oracle. Generic Python nested_graph exposure is an accepted non-requirement; the supported Python inspector hierarchy for native keyed nested graphs is covered through map_ instead.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-06",
+      "evidence": [
+        "python/tests/test_inspector.py",
+        "tests/cpp/test_graph_diagnostics.cpp"
       ]
     },
     {

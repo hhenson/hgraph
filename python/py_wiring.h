@@ -89,6 +89,7 @@ namespace hgraph::python_bridge
         // aliases without ownership and cannot be run/finished.
         std::unique_ptr<GlobalContext> seed_context{};
         std::vector<nb::object>        borrowed_wiring_observers{};
+        std::vector<nb::object>        lifecycle_observers{};
         std::unique_ptr<WiringTracer> wiring_tracer{};
         std::unique_ptr<Wiring>        owned{};
         Wiring                        *raw{nullptr};
@@ -146,6 +147,16 @@ namespace hgraph::python_bridge
             configure_python_wiring_observers(
                 wiring_ref(), borrowed_wiring_observers, wiring_tracer,
                 std::move(trace_wiring), std::move(observers));
+        }
+
+        void add_lifecycle_observer(nb::object observer)
+        {
+            ensure_open();
+            if (observer.is_none())
+            {
+                throw nb::type_error("lifecycle observer cannot be None");
+            }
+            lifecycle_observers.push_back(std::move(observer));
         }
 
         [[nodiscard]] nb::list wiring_trace_lines() const
@@ -302,7 +313,8 @@ namespace hgraph::python_bridge
                                        ? owned->snapshot()
                                        : (finished = true, std::move(*owned).finish());
             const bool requires_phase_runner =
-                builder.requires_phase_runner() || nb::len(observers) != 0;
+                builder.requires_phase_runner() || nb::len(observers) != 0 ||
+                !lifecycle_observers.empty();
 
             GraphExecutorBuilder eb;
             eb.graph_builder(std::move(builder))
@@ -322,6 +334,11 @@ namespace hgraph::python_bridge
             }
             auto run = std::make_unique<PyRun>();
             add_python_lifecycle_observers(eb, run->observers, observers);
+            for (const nb::object &observer : lifecycle_observers)
+            {
+                add_python_lifecycle_observers(
+                    eb, run->observers, nb::make_tuple(observer));
+            }
             run->trace = trace != nullptr
                              ? std::make_unique<EvaluationTrace>(*trace)
                              : nullptr;

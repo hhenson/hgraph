@@ -157,28 +157,29 @@ evidence but not a release performance baseline.
 Runtime inspection
 ------------------
 
-``hgraph/runtime/inspector.h`` provides the native ``Inspector`` lifecycle
+``hgraph/runtime/graph_diagnostics.h`` provides the native ``GraphDiagnostics`` lifecycle
 observer. Register it on ``GraphExecutorBuilder`` and retain the caller handle;
 observer copies share their C++ collector state:
 
 .. code-block:: cpp
 
-   Inspector inspector;
+   GraphDiagnostics diagnostics;
    GraphExecutorBuilder builder;
    builder.graph_builder(std::move(graph))
-          .add_lifecycle_observer(&inspector);
+          .add_lifecycle_observer(&diagnostics);
    auto executor = builder.make_executor();
    executor.view().run();
 
-   InspectionSnapshot snapshot = inspector.snapshot();
+   GraphDiagnosticsSnapshot snapshot = diagnostics.snapshot();
 
-Snapshots own their strings, hierarchy, timings, and storage counters. They
-remain valid after nested slot erase and executor destruction. ``reset`` is a
-between-runs operation and throws ``std::logic_error`` while an executor is
-active.
+Snapshots own their strings, hierarchy, timings, and storage counters. With
+``capture_values`` enabled they also own JSON renderings and immutable Arrow
+``Frame`` handles used by the Python tabular value view. They remain valid
+after nested slot erase and executor destruction. ``reset`` is a between-runs
+operation and throws ``std::logic_error`` while an executor is active.
 
 Storage inspection is a cold path through ``NodeView::storage_metrics`` and is
-never called when no inspector is registered.
+never called when no diagnostics collector is registered.
 
 Python Compatibility Tests
 --------------------------

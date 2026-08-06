@@ -155,28 +155,57 @@ Python-authored wiring observers are deliberately unsupported. The observer
 interface and its event records are C++ diagnostics APIs; Python configuration
 currently accepts only the bound native ``WiringTracer``.
 
-The runtime inspector follows the same native-observer rule. Register an
-``Inspector`` before execution and retain that handle to read an owned snapshot
-after the graph has stopped:
+The Python ``inspector()`` authoring API is retained. Wire it inside an
+application graph as before:
+
+.. code-block:: python
+
+   from socket import gethostname
+
+   from hgraph.adaptors.perspective import (
+       perspective_web,
+       register_perspective_adaptors,
+   )
+   from hgraph.debug import inspector
+
+   @graph
+   def app(...):
+       register_perspective_adaptors()
+       inspector(port=8080, publish_interval=2.5)
+       perspective_web(gethostname(), port=8080)
+       ...
+
+This retains the released Perspective workspace and HTTP interactions while
+native ``GraphDiagnostics`` copies hierarchy, values, schedules, and timings.
+Expand/collapse, reference navigation, scoped regular-expression search, and
+the double-click Perspective value view retain their released interactions.
+Frame values keep their immutable Arrow table handle in the owned snapshot;
+other captured values are converted from owned JSON to an Arrow stream for the
+value view. Publishing runs on the web loop: wiring the inspector does not add
+recurring graph ticks or extend a simulation's lifetime.
+
+For programmatic native diagnostics, register ``GraphDiagnostics`` before
+execution and retain that handle to read an owned snapshot after the graph has
+stopped:
 
 .. code-block:: python
 
    from hgraph import GraphConfiguration, evaluate_graph
-   from hgraph.debug import Inspector, inspection_rows
+   from hgraph.debug import GraphDiagnostics, graph_diagnostics_rows
 
-   runtime_inspector = Inspector(recent_window=50)
+   diagnostics = GraphDiagnostics(recent_window=50)
    evaluate_graph(
        app,
-       GraphConfiguration(life_cycle_observers=(runtime_inspector,)),
+       GraphConfiguration(life_cycle_observers=(diagnostics,)),
    )
-   rows = inspection_rows(runtime_inspector.snapshot())
+   rows = graph_diagnostics_rows(diagnostics.snapshot())
 
 The rows contain graph/node hierarchy, schemas, schedules, evaluation counts
-and timings, and current/peak static and nested-slot storage. This replaces the
-upstream Python runtime-object walker. It is safe for pure native, mixed, and
-keyed nested graphs; an optional table, notebook, or HTTP UI is a presentation
-consumer of these rows rather than part of runtime inspection.
-``Inspector.reset()`` raises ``RuntimeError`` while an executor is active and
+and timings, and current/peak static and nested-slot storage. This lower-level
+facility is distinct from the Python inspector UI. Both are safe for pure
+native, mixed, and keyed nested graphs because presentation code consumes
+owned data rather than retained graph or node pointers.
+``GraphDiagnostics.reset()`` raises ``RuntimeError`` while an executor is active and
 otherwise clears the owned history.
 
 ``trace_back_depth`` bounds the native activation trace attached to an

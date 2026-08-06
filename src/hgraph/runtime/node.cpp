@@ -1588,7 +1588,7 @@ namespace hgraph
         }
         catch (...)
         {
-            // Inspector is a cold-path diagnostic and must not affect graph execution.
+            // Graph diagnostics are cold-path and must not affect graph execution.
         }
         return result;
     }

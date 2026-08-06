@@ -1,10 +1,11 @@
-#ifndef HGRAPH_RUNTIME_INSPECTOR_H
-#define HGRAPH_RUNTIME_INSPECTOR_H
+#ifndef HGRAPH_RUNTIME_GRAPH_DIAGNOSTICS_H
+#define HGRAPH_RUNTIME_GRAPH_DIAGNOSTICS_H
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/runtime/evaluation_profiler.h>
 #include <hgraph/runtime/lifecycle_observer.h>
 #include <hgraph/runtime/node.h>
+#include <hgraph/types/frame.h>
 #include <hgraph/util/date_time.h>
 
 #include <cstddef>
@@ -15,14 +16,32 @@
 
 namespace hgraph
 {
-    enum class InspectionEntityKind : std::uint8_t
+    enum class GraphDiagnosticEntityKind : std::uint8_t
     {
         Graph,
         Node,
     };
 
-    /** One owned graph/node record in an inspection snapshot. */
-    struct HGRAPH_EXPORT InspectionEntry
+    /** Owned rendering of one scalar or time-series endpoint. */
+    struct HGRAPH_EXPORT GraphDiagnosticValue
+    {
+        bool available{false};
+        bool valid{false};
+        DateTime last_modified{MIN_DT};
+        std::string schema_label{};
+        std::string json{};
+        std::string error{};
+        /** Immutable Arrow table retained for the inspector's tabular value
+            view.  This is an owned external-resource handle, never a runtime
+            graph, node, or time-series pointer. */
+        Frame frame{};
+        /** Owning diagnostic node ids for unambiguous source/reference
+            navigation. Empty or multiple ids are presented without a link. */
+        std::vector<std::uint64_t> target_node_ids{};
+    };
+
+    /** One owned graph/node record in a diagnostics snapshot. */
+    struct HGRAPH_EXPORT GraphDiagnosticEntry
     {
         std::uint64_t id{0};
         std::uint64_t parent_id{0};
@@ -31,21 +50,25 @@ namespace hgraph
         std::string label{};
         std::string schema_label{};
         std::string implementation_label{};
-        InspectionEntityKind kind{InspectionEntityKind::Node};
+        GraphDiagnosticEntityKind kind{GraphDiagnosticEntityKind::Node};
         NodeKind node_kind{NodeKind::Compute};
+        std::size_t node_index{0};
         bool started{false};
         bool stopped{false};
         DateTime evaluation_time{MIN_DT};
         DateTime scheduled_time{MIN_DT};
         NodeStorageMetrics storage{};
         NodeStorageMetrics peak_storage{};
+        GraphDiagnosticValue input{};
+        GraphDiagnosticValue output{};
+        GraphDiagnosticValue scalars{};
         EvaluationProfilePhase start{};
         EvaluationProfilePhase evaluation{};
         EvaluationProfilePhase stop{};
     };
 
-    /** Self-contained runtime inspection result. */
-    struct HGRAPH_EXPORT InspectionSnapshot
+    /** Self-contained graph diagnostics result. */
+    struct HGRAPH_EXPORT GraphDiagnosticsSnapshot
     {
         std::uint64_t graph_cycles{0};
         TimeDelta wall_time{0};
@@ -59,31 +82,34 @@ namespace hgraph
         std::size_t dynamic_reserved_bytes{0};
         std::size_t peak_dynamic_live_bytes{0};
         std::size_t peak_dynamic_reserved_bytes{0};
-        std::vector<InspectionEntry> entries{};
+        std::vector<GraphDiagnosticEntry> entries{};
     };
 
-    struct HGRAPH_EXPORT InspectorOptions
+    struct HGRAPH_EXPORT GraphDiagnosticsOptions
     {
         std::size_t recent_window{100};
+        /** Copy endpoint/scalar values as JSON. Off by default because this is
+            materially more expensive than structural diagnostics. */
+        bool capture_values{false};
     };
 
     /**
-     * Native graph inspector.
+     * Native graph diagnostics collector.
      *
      * Lifecycle callbacks copy runtime state into owned records. ``snapshot``
      * therefore remains valid after nested graph stop/delete/erase and never
      * walks borrowed graph or node pointers. Copies share one collector state
      * so a caller-owned handle can observe an executor-owned observer copy.
      */
-    class HGRAPH_EXPORT Inspector final : public LifecycleObserver
+    class HGRAPH_EXPORT GraphDiagnostics final : public LifecycleObserver
     {
       public:
         struct State;
 
-        explicit Inspector(InspectorOptions options = {});
-        explicit Inspector(std::size_t recent_window);
+        explicit GraphDiagnostics(GraphDiagnosticsOptions options = {});
+        explicit GraphDiagnostics(std::size_t recent_window);
 
-        [[nodiscard]] InspectionSnapshot snapshot() const;
+        [[nodiscard]] GraphDiagnosticsSnapshot snapshot() const;
         void reset();
 
         void on_before_start_graph(const GraphView &graph) override;
@@ -105,9 +131,9 @@ namespace hgraph
         void on_stop_graph_failed(const GraphView &graph) override;
 
       private:
-        InspectorOptions options_{};
+        GraphDiagnosticsOptions options_{};
         std::shared_ptr<State> state_{};
     };
 }  // namespace hgraph
 
-#endif  // HGRAPH_RUNTIME_INSPECTOR_H
+#endif  // HGRAPH_RUNTIME_GRAPH_DIAGNOSTICS_H

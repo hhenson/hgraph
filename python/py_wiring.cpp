@@ -632,10 +632,10 @@ namespace hgraph::python_bridge
                 owned.push_back(std::make_unique<EvaluationProfiler>(
                     nb::cast<const EvaluationProfiler &>(observer)));
             }
-            else if (nb::isinstance<Inspector>(observer))
+            else if (nb::isinstance<GraphDiagnostics>(observer))
             {
-                owned.push_back(std::make_unique<Inspector>(
-                    nb::cast<const Inspector &>(observer)));
+                owned.push_back(std::make_unique<GraphDiagnostics>(
+                    nb::cast<const GraphDiagnostics &>(observer)));
             }
             else
             {
@@ -829,9 +829,9 @@ namespace hgraph::python_bridge
         .def("snapshot", &EvaluationProfiler::snapshot)
         .def("reset", &EvaluationProfiler::reset);
 
-    nb::enum_<InspectionEntityKind>(m, "InspectionEntityKind")
-        .value("GRAPH", InspectionEntityKind::Graph)
-        .value("NODE", InspectionEntityKind::Node);
+    nb::enum_<GraphDiagnosticEntityKind>(m, "GraphDiagnosticEntityKind")
+        .value("GRAPH", GraphDiagnosticEntityKind::Graph)
+        .value("NODE", GraphDiagnosticEntityKind::Node);
     nb::class_<NodeStorageMetrics>(m, "NodeStorageMetrics")
         .def_ro("static_bytes", &NodeStorageMetrics::static_bytes)
         .def_ro("nested_graph_count", &NodeStorageMetrics::nested_graph_count)
@@ -839,43 +839,72 @@ namespace hgraph::python_bridge
         .def_ro("nested_graph_blocks", &NodeStorageMetrics::nested_graph_blocks)
         .def_ro("dynamic_live_bytes", &NodeStorageMetrics::dynamic_live_bytes)
         .def_ro("dynamic_reserved_bytes", &NodeStorageMetrics::dynamic_reserved_bytes);
-    nb::class_<InspectionEntry>(m, "InspectionEntry")
-        .def_ro("id", &InspectionEntry::id)
-        .def_ro("parent_id", &InspectionEntry::parent_id)
-        .def_ro("children", &InspectionEntry::children)
-        .def_ro("path", &InspectionEntry::path)
-        .def_ro("label", &InspectionEntry::label)
-        .def_ro("schema_label", &InspectionEntry::schema_label)
-        .def_ro("implementation_label", &InspectionEntry::implementation_label)
-        .def_ro("kind", &InspectionEntry::kind)
-        .def_ro("node_kind", &InspectionEntry::node_kind)
-        .def_ro("started", &InspectionEntry::started)
-        .def_ro("stopped", &InspectionEntry::stopped)
-        .def_ro("evaluation_time", &InspectionEntry::evaluation_time)
-        .def_ro("scheduled_time", &InspectionEntry::scheduled_time)
-        .def_ro("storage", &InspectionEntry::storage)
-        .def_ro("peak_storage", &InspectionEntry::peak_storage)
-        .def_ro("start", &InspectionEntry::start)
-        .def_ro("evaluation", &InspectionEntry::evaluation)
-        .def_ro("stop", &InspectionEntry::stop);
-    nb::class_<InspectionSnapshot>(m, "InspectionSnapshot")
-        .def_ro("graph_cycles", &InspectionSnapshot::graph_cycles)
-        .def_ro("wall_time", &InspectionSnapshot::wall_time)
-        .def_ro("root_evaluation_time", &InspectionSnapshot::root_evaluation_time)
-        .def_ro("scheduling_lag_total", &InspectionSnapshot::scheduling_lag_total)
-        .def_ro("scheduling_lag_max", &InspectionSnapshot::scheduling_lag_max)
-        .def_ro("scheduling_lag_samples", &InspectionSnapshot::scheduling_lag_samples)
-        .def_ro("runtime_load", &InspectionSnapshot::runtime_load)
-        .def_ro("planned_bytes", &InspectionSnapshot::planned_bytes)
-        .def_ro("dynamic_live_bytes", &InspectionSnapshot::dynamic_live_bytes)
-        .def_ro("dynamic_reserved_bytes", &InspectionSnapshot::dynamic_reserved_bytes)
-        .def_ro("peak_dynamic_live_bytes", &InspectionSnapshot::peak_dynamic_live_bytes)
-        .def_ro("peak_dynamic_reserved_bytes", &InspectionSnapshot::peak_dynamic_reserved_bytes)
-        .def_ro("entries", &InspectionSnapshot::entries);
-    nb::class_<Inspector>(m, "Inspector")
-        .def(nb::init<std::size_t>(), nb::arg("recent_window") = 100)
-        .def("snapshot", &Inspector::snapshot)
-        .def("reset", &Inspector::reset);
+    nb::class_<GraphDiagnosticValue>(m, "GraphDiagnosticValue")
+        .def_ro("available", &GraphDiagnosticValue::available)
+        .def_ro("valid", &GraphDiagnosticValue::valid)
+        .def_ro("last_modified", &GraphDiagnosticValue::last_modified)
+        .def_ro("schema_label", &GraphDiagnosticValue::schema_label)
+        .def_ro("json", &GraphDiagnosticValue::json)
+        .def_ro("error", &GraphDiagnosticValue::error)
+        .def_prop_ro("has_frame", [](const GraphDiagnosticValue &value) {
+            return value.frame.has_value();
+        })
+        .def_prop_ro("frame", [](const GraphDiagnosticValue &value) {
+            return value.frame.has_value()
+                       ? frame_to_py(value.frame)
+                       : nb::none();
+        })
+        .def_ro("target_node_ids", &GraphDiagnosticValue::target_node_ids);
+    nb::class_<GraphDiagnosticEntry>(m, "GraphDiagnosticEntry")
+        .def_ro("id", &GraphDiagnosticEntry::id)
+        .def_ro("parent_id", &GraphDiagnosticEntry::parent_id)
+        .def_ro("children", &GraphDiagnosticEntry::children)
+        .def_ro("path", &GraphDiagnosticEntry::path)
+        .def_ro("label", &GraphDiagnosticEntry::label)
+        .def_ro("schema_label", &GraphDiagnosticEntry::schema_label)
+        .def_ro("implementation_label", &GraphDiagnosticEntry::implementation_label)
+        .def_ro("kind", &GraphDiagnosticEntry::kind)
+        .def_ro("node_kind", &GraphDiagnosticEntry::node_kind)
+        .def_ro("node_index", &GraphDiagnosticEntry::node_index)
+        .def_ro("started", &GraphDiagnosticEntry::started)
+        .def_ro("stopped", &GraphDiagnosticEntry::stopped)
+        .def_ro("evaluation_time", &GraphDiagnosticEntry::evaluation_time)
+        .def_ro("scheduled_time", &GraphDiagnosticEntry::scheduled_time)
+        .def_ro("storage", &GraphDiagnosticEntry::storage)
+        .def_ro("peak_storage", &GraphDiagnosticEntry::peak_storage)
+        .def_ro("input", &GraphDiagnosticEntry::input)
+        .def_ro("output", &GraphDiagnosticEntry::output)
+        .def_ro("scalars", &GraphDiagnosticEntry::scalars)
+        .def_ro("start", &GraphDiagnosticEntry::start)
+        .def_ro("evaluation", &GraphDiagnosticEntry::evaluation)
+        .def_ro("stop", &GraphDiagnosticEntry::stop);
+    nb::class_<GraphDiagnosticsSnapshot>(m, "GraphDiagnosticsSnapshot")
+        .def_ro("graph_cycles", &GraphDiagnosticsSnapshot::graph_cycles)
+        .def_ro("wall_time", &GraphDiagnosticsSnapshot::wall_time)
+        .def_ro("root_evaluation_time", &GraphDiagnosticsSnapshot::root_evaluation_time)
+        .def_ro("scheduling_lag_total", &GraphDiagnosticsSnapshot::scheduling_lag_total)
+        .def_ro("scheduling_lag_max", &GraphDiagnosticsSnapshot::scheduling_lag_max)
+        .def_ro("scheduling_lag_samples", &GraphDiagnosticsSnapshot::scheduling_lag_samples)
+        .def_ro("runtime_load", &GraphDiagnosticsSnapshot::runtime_load)
+        .def_ro("planned_bytes", &GraphDiagnosticsSnapshot::planned_bytes)
+        .def_ro("dynamic_live_bytes", &GraphDiagnosticsSnapshot::dynamic_live_bytes)
+        .def_ro("dynamic_reserved_bytes", &GraphDiagnosticsSnapshot::dynamic_reserved_bytes)
+        .def_ro("peak_dynamic_live_bytes", &GraphDiagnosticsSnapshot::peak_dynamic_live_bytes)
+        .def_ro("peak_dynamic_reserved_bytes", &GraphDiagnosticsSnapshot::peak_dynamic_reserved_bytes)
+        .def_ro("entries", &GraphDiagnosticsSnapshot::entries);
+    nb::class_<GraphDiagnostics>(m, "GraphDiagnostics")
+        .def("__init__",
+             [](nb::pointer_and_handle<GraphDiagnostics> self,
+                std::size_t recent_window, bool capture_values) {
+                 new (self.p) GraphDiagnostics{GraphDiagnosticsOptions{
+                     .recent_window = recent_window,
+                     .capture_values = capture_values,
+                 }};
+             },
+             nb::arg("recent_window") = 100,
+             nb::arg("capture_values") = false)
+        .def("snapshot", &GraphDiagnostics::snapshot)
+        .def("reset", &GraphDiagnostics::reset);
     nb::class_<RuntimeRegistrySnapshot>(m, "RuntimeRegistrySnapshot")
         .def_ro("node_runtime_types", &RuntimeRegistrySnapshot::node_runtime_types)
         .def_ro("graph_programs", &RuntimeRegistrySnapshot::graph_programs)
@@ -1110,6 +1139,8 @@ namespace hgraph::python_bridge
              &PyWiring::configure_wiring_observers,
              nb::arg("trace_wiring") = false,
              nb::arg("observers") = nb::tuple())
+        .def("add_lifecycle_observer", &PyWiring::add_lifecycle_observer,
+             nb::arg("observer"))
         .def("wiring_trace_lines", &PyWiring::wiring_trace_lines)
         .def("build_services", [](PyWiring &wiring) { wiring.raw->build_services(); })
         .def("service_client_paths", [](PyWiring &wiring) {
