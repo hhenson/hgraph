@@ -1218,6 +1218,62 @@ def _service_adaptor_roundtrip(hg, recipe):
     )
 
 
+def _service_adaptor_parameterized_clients(hg, recipe):
+    from hgraph.test import eval_node
+
+    implementations = []
+
+    @hg.service_adaptor
+    def routed(
+        path: str, passthrough: bool, value: hg.TS[int],
+    ) -> hg.TS[int]: ...
+
+    @hg.service_adaptor_impl(interfaces=routed)
+    def routed_impl(
+        path: str,
+        passthrough: bool,
+        value: hg.TSD[int, hg.TS[int]],
+    ) -> hg.TSD[int, hg.TS[int]]:
+        implementations.append((path, passthrough))
+        delayed = hg.feedback(hg.TSD[int, hg.TS[int]])
+        delayed(value)
+        return hg.map_(
+            lambda item: item if passthrough else item + 1,
+            delayed(),
+        )
+
+    @hg.graph
+    def parity_graph(
+        values: hg.TSD[int, hg.TS[int]],
+        direct: hg.TS[int],
+        trigger: hg.TS[int],
+    ) -> hg.TSL[hg.TS[int], hg.Size[3]]:
+        hg.register_adaptor("shared", routed_impl)
+        mapped = hg.map_(
+            lambda item: routed("shared", False, item),
+            values,
+        )
+        separate = routed("shared", True, direct)
+        return hg.sample(
+            trigger, hg.combine(mapped[0], mapped[1], separate))
+
+    inputs = decoded_inputs(hg, recipe)
+    trace = eval_node(
+        parity_graph,
+        inputs["values"],
+        inputs["direct"],
+        inputs["trigger"],
+        __end_time__=hg.MIN_ST + (recipe.tick_count + 4) * hg.MIN_TD,
+    )
+    return {
+        "trace": trace,
+        "implementations": [
+            {"path": path, "passthrough": passthrough}
+            for path, passthrough in sorted(implementations)
+        ],
+    }
+
+
 def _context_switch(hg, recipe):
     from hgraph.test import eval_node
 
@@ -1705,6 +1761,25 @@ CATALOG = {
         operators=("add_", "getitem_", "map_"),
         execute=_service_adaptor_roundtrip,
     ),
+    "service_adaptor_parameterized_clients": TemplateSpec(
+        name="service_adaptor_parameterized_clients",
+        required_inputs=("values", "direct", "trigger"),
+        features=(
+            "shape:TS",
+            "shape:TSD",
+            "shape:TSL",
+            "framework:adaptor",
+            "adaptor:service",
+            "adaptor:multi-client",
+            "configuration:scalar",
+            "implementation:path-injection",
+            "topology:map",
+            "topology:feedback",
+            "lifecycle:multi-cycle",
+        ),
+        operators=("add_", "combine", "feedback", "map_", "sample"),
+        execute=_service_adaptor_parameterized_clients,
+    ),
     "context_switch": TemplateSpec(
         name="context_switch",
         required_inputs=("selector", "value", "offset"),
@@ -2029,6 +2104,10 @@ def validate_recipe(recipe):
         _validate_bounded_int_parameter(
             recipe, "increment", 1, minimum=-20, maximum=20
         )
+    elif recipe.template == "service_adaptor_parameterized_clients":
+        if recipe.parameters:
+            raise RecipeError(
+                "service_adaptor_parameterized_clients takes no parameters")
     elif recipe.template == "operator_pipeline":
         if not isinstance(
             recipe.parameters.get("format_ref", False), bool

@@ -241,6 +241,18 @@ cases.  The latest audit reports five because the already-documented
 real-time scheduler test failed in the reference engine during that run;
 the controller deliberately does not retry ordinary reference failures.
 
+The upstream multi-client service-adaptor XFAIL remains in that direct-audit
+residue: its real-time assertion still fails in isolated released-hgraph runs
+after the graph's stop counter has observed all 15 input modifications, so the
+async output ordering is not a usable oracle.  A deterministic companion
+recipe nevertheless pins the supported user contract on both engines: mapped
+clients with equal scalar options share one implementation, a direct client
+with a different option at the same logical path materializes a second
+implementation, and a constructed sampling tick observes the same routed
+values.  The Python bridge implements this by expanding configurations to
+native qualified C++ paths; native tests exercise the equivalent explicit path
+spellings.
+
 The remaining broad-suite differences are conversions of already recorded
 design decisions, not unimplemented user behaviour:
 

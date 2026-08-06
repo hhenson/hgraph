@@ -457,9 +457,13 @@ are two spellings over one. Per :doc:`../rfc/rfc_0011_source_only_adaptor_collap
 * **``from_graph`` / ``to_graph`` work for services**, as the adaptor spelling
   of ``impl_input`` / ``impl_output``. A reference service has no client input
   and therefore no ``from_graph``.
-* **Clients of either family may pass wiring-time scalar options**, with the
-  same cross-client agreement check, and **either may take time-series inputs
-  supplied at registration**.
+* **Clients of either family may pass wiring-time scalar options**. Services
+  and plain adaptors enforce cross-client agreement at one concrete path. A
+  multi-client service adaptor follows released hgraph's more expressive rule:
+  scalar options qualify the native path, so equal configurations share one
+  implementation and differing configurations at the same logical path
+  materialize separate implementations. **Either family may take time-series
+  inputs supplied at registration**.
 * **``register_services`` is lazy** and, with one interface, is the by-stub
   single-interface registration. Its interface pack **may mix services and
   adaptors**, so "a sink-only interface in, a source-only interface out" is one
@@ -629,6 +633,17 @@ Single-interface implementations are registered automatically through
 ``to_graph`` inside the implementation body, matching the C++ explicit-stub
 shape.  Both Python forms delegate to the erased C++ runtime functions; they
 do not implement a second request/reply engine in Python.
+
+Scalar interface arguments are wiring-time configuration. Python lowers each
+distinct configuration to a concrete qualified C++ path while retaining the
+logical path injected into the implementation. Two mapped clients calling
+``stub("route", False, value)`` therefore share one keyed implementation; a
+direct client calling ``stub("route", True, value)`` materializes a second
+implementation under the same logical ``"route"`` path. Native C++ code uses
+the equivalent explicit spellings
+``service_adaptor::path("route", arg<"mode">(Bool{false}))`` and
+``service_adaptor::path("route", arg<"mode">(Bool{true}))``. This is a
+wiring-only expansion onto native paths, not a Python transport runtime.
 
 **Paths.** Services are addressed by ``ServicePath`` (``service::path("…")``;
 the default when omitted, overridable per descriptor via a
