@@ -55,7 +55,7 @@ packages = ["hgraph"]
 
 [project.optional-dependencies]
 web = [
-    "perspective-python<5.0.0",
+    "perspective-python<6.0.0",
     "tornado",
     "requests",
     "pandas",

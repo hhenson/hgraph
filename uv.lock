@@ -515,7 +515,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.23" },
     { name = "ordered-set", specifier = ">=4.1.0" },
     { name = "pandas", marker = "extra == 'web'" },
-    { name = "perspective-python", marker = "extra == 'web'", specifier = "<5.0.0" },
+    { name = "perspective-python", marker = "extra == 'web'", specifier = "<6.0.0" },
     { name = "polars", specifier = ">=1.0" },
     { name = "psutil" },
     { name = "pyarrow", specifier = ">=16.1.0" },
@@ -1111,15 +1111,15 @@ wheels = [
 
 [[package]]
 name = "perspective-python"
-version = "4.5.2"
+version = "5.0.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/bc/a8/2b3e14d83ae3dc815fe4247a609671fbc4288b59c39df34d759f78d95865/perspective_python-4.5.2.tar.gz", hash = "sha256:d209cff1bc746f44fd811a80e039d1a79d30841f3f6c20c73e648e633f82dca8", size = 3766410, upload-time = "2026-07-09T16:11:56.882Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d4/2d/5c6b77142f8a4e82f0ddf145f5706721c234efbf86038eac7a3bdc3b4abb/perspective_python-5.0.0.tar.gz", hash = "sha256:7d233162752efc4a858da2a9626af90538340a559952545fb3a4e416d7b48f3e", size = 7807297, upload-time = "2026-07-28T02:57:04.515Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e4/fe/6a45f09002e69e9637e1fcea6e0e017c284a6beda854371b844cd007856d/perspective_python-4.5.2-cp311-abi3-macosx_14_0_arm64.whl", hash = "sha256:b5f3d91437f2586b85d87d45801d57ba769b3c4df65d94e0097335831d19b626", size = 8514220, upload-time = "2026-07-09T16:11:46.484Z" },
-    { url = "https://files.pythonhosted.org/packages/08/e6/fe8bfcb4839319a4779fe539844ef649ee615e6853702b5a9940c9b20e7e/perspective_python-4.5.2-cp311-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:de0df01715c2859db76ec61884689a93076f0653dffaf85250d269c397145e39", size = 6373214, upload-time = "2026-07-09T16:11:49.184Z" },
-    { url = "https://files.pythonhosted.org/packages/89/94/94c06faff7430c8b5c48bed41da759e1e4894528b2e2373617adf9d5f1e4/perspective_python-4.5.2-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:3811e22e57ddb21f5d6626b184c357a7c87ea91a54d06f999271dbe0741c0c64", size = 10016282, upload-time = "2026-07-09T16:11:51.877Z" },
-    { url = "https://files.pythonhosted.org/packages/a2/b3/dcc9bc83876ff4509de199d1d1d8c687314760a841465058b957e72d8561/perspective_python-4.5.2-cp311-abi3-pyemscripten_2025_0_wasm32.whl", hash = "sha256:00c2822ae83c9513a4ade8377a12e540140fd579beb2066390892ccab1947447", size = 3429407, upload-time = "2026-07-09T16:12:42.802Z" },
-    { url = "https://files.pythonhosted.org/packages/89/61/9622123a68f8588aad69a45203f6251a85ac3f6ecd8fb457f8731e98080b/perspective_python-4.5.2-cp311-abi3-win_amd64.whl", hash = "sha256:a8316040638146d78a50a470d0b9dbc680e88ff8ef0323a338a6f0296aad68b2", size = 8727838, upload-time = "2026-07-09T16:11:54.483Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/cf/8e6553ca5f28bb1e996ac129907f42eae2f8dfbdfc07abca9415c48c2af9/perspective_python-5.0.0-cp311-abi3-macosx_14_0_arm64.whl", hash = "sha256:948b72ab86757d42708bf9327f77fc23f6886621999806119c9b00447836b1e0", size = 12577633, upload-time = "2026-07-28T02:56:42.171Z" },
+    { url = "https://files.pythonhosted.org/packages/0b/dc/44fb22b19413e738eb47716c652b3ca736a26100452f7ea19d27171e562c/perspective_python-5.0.0-cp311-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:0dbdefbff4fca53b6986b993b042c27fce94e165913a9bf4cd4edfca6459185d", size = 6368536, upload-time = "2026-07-28T02:56:46.258Z" },
+    { url = "https://files.pythonhosted.org/packages/32/29/a4e7ea57e2beedd8db404b1b1a1c2991b3aabcad95012c9ea722c7045f7a/perspective_python-5.0.0-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:096867e6dec8d6cd9d06d2f463ed5ba824a48b0544ff661f670377199c9f01cc", size = 14086299, upload-time = "2026-07-28T02:56:52.536Z" },
+    { url = "https://files.pythonhosted.org/packages/49/f4/0d1d36e629b4104b8340fcaa80458569d810e440bafd74dadddb35835e6a/perspective_python-5.0.0-cp311-abi3-pyemscripten_2025_0_wasm32.whl", hash = "sha256:d10c8028015d1647b0ca459e775e1d04a7c985d542ed81195073cf912827878f", size = 7276054, upload-time = "2026-07-28T02:56:56.872Z" },
+    { url = "https://files.pythonhosted.org/packages/71/95/f892c7d420d80b57af37c8cfd692bd35297c625f4ea401e1e4d4088212e9/perspective_python-5.0.0-cp311-abi3-win_amd64.whl", hash = "sha256:7ca5f8332bebf175e14fdf9b6c7b638abb67c8203a9e367106f35b3d11d0e776", size = 12785807, upload-time = "2026-07-28T02:57:01.837Z" },
 ]
 
 [[package]]
