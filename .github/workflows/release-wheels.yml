@@ -383,11 +383,7 @@ jobs:
     if: needs.reuse-build.outputs.run-id == ''
     runs-on: ubuntu-latest
     # The C++ runtime is not yet at parity with the Python reference implementation, so its legs
-    # report without blocking.
-    #
-    # 3.14 is deliberately NOT exempted. It aborts during interpreter finalisation once the
-    # adaptors group has run, but that happens after pytest has reported, so the run step tells the
-    # two apart rather than the whole leg being made optional. A 3.14-only regression still fails.
+    # report without blocking. Every Python version blocks, 3.14 included.
     continue-on-error: ${{ matrix.runtime == 'cpp' }}
     strategy:
       fail-fast: false
@@ -451,10 +447,10 @@ jobs:
           .venv/bin/python -c "import hgraph; print('hgraph:', hgraph.__file__)"
           .venv/bin/python -c "import sys; print('python:', sys.version)"
 
-      # pytest's exit status is not usable on its own here: on 3.14 the interpreter can abort during
-      # finalisation, after the run has completed and reported, turning a green run into SIGABRT.
-      # So the verdict comes from the JUnit report, which is written before finalisation, and the
-      # process status is only consulted to catch a crash that happened *during* the run.
+      # The verdict comes from the JUnit report rather than from pytest's exit status alone. The
+      # report is written as the run finishes, so it still describes what happened even when the
+      # process dies afterwards, which a native library can cause during interpreter finalisation.
+      # The exit status is then checked as well, so a crash is never mistaken for a pass.
       - name: Run test suite
         shell: bash
         run: |
