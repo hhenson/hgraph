@@ -643,7 +643,11 @@ implementation under the same logical ``"route"`` path. Native C++ code uses
 the equivalent explicit spellings
 ``service_adaptor::path("route", arg<"mode">(Bool{false}))`` and
 ``service_adaptor::path("route", arg<"mode">(Bool{true}))``. This is a
-wiring-only expansion onto native paths, not a Python transport runtime.
+wiring-only expansion onto native paths, not a Python transport runtime. The
+split client form retains the selected concrete path from ``from_graph`` for
+the matching ``to_graph`` request id. A multi-interface implementation is
+materialized as one complete interface pack per configuration, so equal
+configurations share an instance independently of interface wiring order.
 
 **Paths.** Services are addressed by ``ServicePath`` (``service::path("…")``;
 the default when omitted, overridable per descriptor via a

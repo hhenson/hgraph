@@ -1505,6 +1505,135 @@ def test_service_adaptor_scalar_options_materialize_native_path_variants():
           f"parameterized service adaptor implementations: {observed}")
 
 
+def test_parameterized_service_adaptor_split_client_reuses_selected_path():
+    observed = []
+
+    @hg.service_adaptor
+    def routed(
+        path: str, passthrough: bool, value: TS[int],
+    ) -> TS[int]: ...
+
+    @hg.service_adaptor_impl(interfaces=routed)
+    def routed_impl(
+        path: str,
+        passthrough: bool,
+        value: TSD[int, TS[int]],
+    ) -> TSD[int, TS[int]]:
+        observed.append((path, passthrough))
+        return value
+
+    @graph
+    def split_client(value: TS[int]) -> TS[int]:
+        hg.register_adaptor("split", routed_impl)
+        request_id = hg.request_id(1)
+        routed.from_graph(
+            "split", False, value, __request_id__=request_id)
+        return routed.to_graph(
+            path="split", __request_id__=request_id,
+            __no_ts_inputs__=True)
+
+    out = eval_node(split_client, [1, None, 2])
+    check(out == [1, None, 2], f"parameterized split client: {out}")
+    check(observed == [("split", False)],
+          f"parameterized split implementation: {observed}")
+
+
+def test_parameterized_multi_interface_service_adaptor_shares_one_path():
+    observed = []
+
+    @hg.service_adaptor
+    def left(path: str, passthrough: bool, value: TS[int]) -> TS[int]: ...
+
+    @hg.service_adaptor
+    def right(path: str, passthrough: bool, value: TS[int]) -> TS[int]: ...
+
+    @hg.service_adaptor_impl(interfaces=(left, right))
+    def routed_impl(path: str, passthrough: bool):
+        observed.append((path, passthrough))
+        left_values = hg.impl_input(left, path)
+        right_values = hg.impl_input(right, path)
+        hg.impl_output(
+            left,
+            hg.map_(
+                lambda item: item if passthrough else item + 1,
+                left_values,
+            ),
+            path,
+        )
+        hg.impl_output(
+            right,
+            hg.map_(
+                lambda item: item if passthrough else item + 1,
+                right_values,
+            ),
+            path,
+        )
+
+    @graph
+    def clients(value: TS[int]) -> TS[int]:
+        hg.register_adaptor("shared", routed_impl)
+        # Wire the interfaces in opposite configuration order. Variant
+        # identity must follow scalar values, not per-interface call order.
+        return (
+            left("shared", False, value)
+            + left("shared", True, value)
+            + right("shared", True, value)
+            + right("shared", False, value)
+        )
+
+    out = eval_node(clients, [3, None, 4])
+    check(out == [14, None, 18],
+          f"parameterized multi-interface clients: {out}")
+    check(sorted(observed) == [("shared", False), ("shared", True)],
+          f"parameterized multi-interface implementation: {observed}")
+
+
+def test_parameterized_multi_interface_legacy_helpers_use_selected_path():
+    observed = []
+
+    @hg.service_adaptor
+    def left(path: str, passthrough: bool, value: TS[int]) -> TS[int]: ...
+
+    @hg.service_adaptor
+    def right(path: str, passthrough: bool, value: TS[int]) -> TS[int]: ...
+
+    @hg.service_adaptor_impl(interfaces=(left, right))
+    def routed_impl(path: str, passthrough: bool):
+        observed.append((path, passthrough))
+        left_values = hg.get_service_inputs(path, left).ts
+        right_values = hg.get_service_inputs(path, right).ts
+        hg.set_service_output(
+            path,
+            left,
+            hg.map_(
+                lambda item: item if passthrough else item + 1,
+                left_values,
+            ),
+        )
+        hg.set_service_output(
+            path,
+            right,
+            hg.map_(
+                lambda item: item if passthrough else item + 1,
+                right_values,
+            ),
+        )
+
+    @graph
+    def clients(value: TS[int]) -> TS[int]:
+        hg.register_adaptor("legacy", routed_impl)
+        return (
+            left("legacy", False, value)
+            + right("legacy", False, value)
+        )
+
+    out = eval_node(clients, [3, None, 4])
+    check(out == [8, None, 10],
+          f"parameterized legacy-helper clients: {out}")
+    check(observed == [("legacy", False)],
+          f"parameterized legacy-helper implementation: {observed}")
+
+
 def test_service_adaptor_explicit_request_id_client_split():
     @hg.service_adaptor
     def echo(request: TS[int]) -> TS[int]: ...

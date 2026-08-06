@@ -2477,6 +2477,25 @@ namespace
         }
     };
 
+    struct MultiServiceAdaptorQualifiedClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "multi_service_adaptor_qualified_client_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> request)
+        {
+            const auto custom = service_adaptor::path(
+                "qualified_multi", arg<"passthrough">(Bool{false}));
+            service_adaptor::register_service_adaptors<
+                MultiServiceAdaptorImpl,
+                AddTwentyServiceAdaptor,
+                AddThirtyServiceAdaptor>(w, custom);
+            auto add_twenty = wire<AddTwentyServiceAdaptor>(w, custom, request);
+            auto add_thirty = wire<AddThirtyServiceAdaptor>(w, custom, request);
+            return wire<stdlib::add_>(w, add_twenty, add_thirty).as<TS<Int>>();
+        }
+    };
+
     struct GenericServiceAdaptorClientGraph
     {
         [[maybe_unused]] static constexpr auto name = "generic_service_adaptor_client_graph";
@@ -3328,6 +3347,15 @@ TEST_CASE("service wiring: multi-interface service adaptors wire explicit stubs"
     hgraph::stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<MultiServiceAdaptorClientGraph>(values<Int>(1)), values<Int>(52));
+}
+
+TEST_CASE("service wiring: qualified paths preserve multi-service-adaptor identity")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<MultiServiceAdaptorQualifiedClientGraph>(values<Int>(1)),
+        values<Int>(52));
 }
 
 TEST_CASE("service wiring: service adaptors validate requested implementations and ignore unused candidates")
