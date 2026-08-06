@@ -1457,6 +1457,54 @@ def test_service_adaptor_from_python():
         check("missing implementation" in str(e), f"unexpected missing implementation error: {e}")
 
 
+def test_service_adaptor_scalar_options_materialize_native_path_variants():
+    observed = []
+
+    @hg.service_adaptor
+    def routed(
+        path: str, passthrough: bool, value: TS[int],
+    ) -> TS[int]: ...
+
+    @hg.service_adaptor_impl(interfaces=routed)
+    def routed_impl(
+        path: str,
+        passthrough: bool,
+        value: TSD[int, TS[int]],
+    ) -> TSD[int, TS[int]]:
+        observed.append((path, passthrough))
+        delayed = hg.feedback(TSD[int, TS[int]])
+        delayed(value)
+        return hg.map_(
+            lambda item: item if passthrough else item + 1,
+            delayed(),
+        )
+
+    @graph
+    def clients(
+        values: TSD[int, TS[int]], direct: TS[int], trigger: TS[int],
+    ) -> TSL[TS[int], Size[3]]:
+        hg.register_adaptor("shared", routed_impl)
+        mapped = hg.map_(
+            lambda item: routed("shared", False, item),
+            values,
+        )
+        separate = routed("shared", True, direct)
+        return hg.sample(
+            trigger, hg.combine(mapped[0], mapped[1], separate))
+
+    out = eval_node(
+        clients,
+        [{0: 1, 1: 10}, {0: 2, 1: 20}],
+        [100, 200],
+        [None, None, None, 1],
+        __end_time__=hg.MIN_ST + 8 * hg.MIN_TD,
+    )
+    check(out == [None, None, None, {0: 3, 1: 21, 2: 200}],
+          f"parameterized service adaptor clients: {out}")
+    check(sorted(observed) == [("shared", False), ("shared", True)],
+          f"parameterized service adaptor implementations: {observed}")
+
+
 def test_service_adaptor_explicit_request_id_client_split():
     @hg.service_adaptor
     def echo(request: TS[int]) -> TS[int]: ...

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "service-adaptor-parameterized-clients",
+  "description": "Two mapped clients share one scalar-qualified service-adaptor implementation while a different scalar configuration materializes a separate implementation at the same logical path.",
+  "template": "service_adaptor_parameterized_clients",
+  "inputs": {
+    "values": [
+      {"$map": [[0, 1], [1, 10]]},
+      {"$map": [[0, 2], [1, 20]]},
+      null,
+      null
+    ],
+    "direct": [100, 200, null, null],
+    "trigger": [null, null, null, 1]
+  },
+  "parameters": {},
+  "features": [
+    "adaptor:multi-client",
+    "adaptor:service",
+    "configuration:scalar",
+    "framework:adaptor",
+    "implementation:path-injection",
+    "lifecycle:multi-cycle",
+    "shape:TS",
+    "shape:TSD",
+    "shape:TSL",
+    "topology:feedback",
+    "topology:map"
+  ]
+}

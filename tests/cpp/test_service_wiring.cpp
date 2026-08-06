@@ -2334,6 +2334,41 @@ namespace
         }
     };
 
+    struct ServiceAdaptorParameterizedClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "service_adaptor_parameterized_client_graph";
+
+        static Port<TS<Int>> compose(
+            Wiring &w,
+            Port<TS<Int>> lhs_request,
+            Port<TS<Int>> rhs_request,
+            Port<TS<Int>> direct_request)
+        {
+            const auto transformed = service_adaptor::path(
+                "parameterized", arg<"passthrough">(Bool{false}));
+            const auto passthrough = service_adaptor::path(
+                "parameterized", arg<"passthrough">(Bool{true}));
+            service_adaptor::register_service_adaptor_impl<
+                AddTwentyServiceAdaptor, AddTwentyServiceAdaptorImplNode>(
+                    w, transformed);
+            service_adaptor::register_service_adaptor_impl<
+                AddTwentyServiceAdaptor, AddThirtyServiceAdaptorImplNode>(
+                    w, passthrough);
+
+            auto lhs_reply = wire<AddTwentyServiceAdaptor>(
+                w, transformed, lhs_request);
+            auto rhs_reply = wire<AddTwentyServiceAdaptor>(
+                w, transformed, rhs_request);
+            auto direct_reply = wire<AddTwentyServiceAdaptor>(
+                w, passthrough, direct_request);
+            return wire<stdlib::add_>(
+                w,
+                wire<stdlib::add_>(w, lhs_reply, rhs_reply).as<TS<Int>>(),
+                direct_reply).as<TS<Int>>();
+        }
+    };
+
     struct ServiceAdaptorSingleClientGraph
     {
         [[maybe_unused]] static constexpr auto name = "service_adaptor_single_client_graph";
@@ -3211,6 +3246,16 @@ TEST_CASE("service wiring: service adaptors collect multiple client requests")
 
     CHECK_OUTPUT(eval_node<ServiceAdaptorTwoClientGraph>(values<Int>(1), values<Int>(10)),
                  values<Int>(51));
+}
+
+TEST_CASE("service wiring: qualified adaptor paths separate scalar configurations")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<ServiceAdaptorParameterizedClientGraph>(
+            values<Int>(1), values<Int>(10), values<Int>(100)),
+        values<Int>(181));
 }
 
 TEST_CASE("service wiring: a dynamically started adaptor branch hands off on the next cycle")

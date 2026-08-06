@@ -26,6 +26,19 @@ _TS_ANNOTATIONS = (_TsExpr, _GenericTsExpr)
 _SERVICE_ADAPTOR_CLIENT_TOKENS = itertools.count()
 _CLIENT_CONFIGS = {}
 _CLIENT_CONFIG_CLEANUPS = set()
+_PARAMETERIZED_SERVICE_ADAPTOR_REGISTRATIONS = {}
+
+
+class _ClientConfigRecord(typing.NamedTuple):
+    values: dict
+    logical_path: str
+    variant_path: str
+
+
+class _ParameterizedServiceAdaptorRegistration(typing.NamedTuple):
+    implementation: object
+    config: dict
+    paths: set
 
 
 def _is_ts_annotation(annotation):
@@ -68,10 +81,8 @@ def _flavour_label(flavour):
     return _FLAVOUR_LABELS.get(flavour, flavour.replace("_", " "))
 
 
-def _record_client_config(stub, path, bound):
-    """Record the wiring-time scalar options shared by one service or
-    adaptor path. Flavour-neutral: the key carries ``stub.flavour``."""
-    config = {
+def _client_config_values(stub, bound):
+    return {
         parameter.name: bound.arguments[parameter.name]
         for parameter in stub._signature.parameters.values()
         if parameter.name != "path"
@@ -79,31 +90,92 @@ def _record_client_config(stub, path, bound):
         and not _is_resolution_annotation(parameter.annotation)
         and parameter.annotation not in _INJECTABLE_MARKERS
     }
-    wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
-    identity = wiring.identity()
-    if identity not in _CLIENT_CONFIG_CLEANUPS:
-        def clear_configs():
-            # The C++ Wiring may outlive this module: at interpreter shutdown
-            # module globals are cleared to None, and the cleanup still fires.
-            # Nothing is left to release at that point, so bail out quietly
-            # rather than raising out of a destructor.
-            if _CLIENT_CONFIGS is None or _CLIENT_CONFIG_CLEANUPS is None:
-                return
-            for existing in tuple(_CLIENT_CONFIGS):
-                if existing[0] == identity:
-                    del _CLIENT_CONFIGS[existing]
-            _CLIENT_CONFIG_CLEANUPS.discard(identity)
 
-        # The C++ Wiring owns this callback. A temporary borrowed PyWiring can
-        # disappear before build_services(), but its underlying Wiring retains
-        # both the config and cleanup for its actual lifetime.
-        wiring._retain_cleanup(clear_configs)
-        _CLIENT_CONFIG_CLEANUPS.add(identity)
-    key = (
+
+def _has_client_config(stub):
+    return any(
+        parameter.name != "path"
+        and not _is_ts_annotation(parameter.annotation)
+        and not _is_resolution_annotation(parameter.annotation)
+        and parameter.annotation not in _INJECTABLE_MARKERS
+        for parameter in stub._signature.parameters.values()
+    )
+
+
+def _client_state_key(identity, stub, path):
+    return (
         identity, stub.flavour, stub.__name__,
         stub._specialization, path,
     )
-    previous = _CLIENT_CONFIGS.setdefault(key, config)
+
+
+def _retain_client_state_cleanup(wiring, identity):
+    if identity in _CLIENT_CONFIG_CLEANUPS:
+        return
+
+    def clear_configs():
+        # The C++ Wiring may outlive this module: at interpreter shutdown
+        # module globals are cleared to None, and the cleanup still fires.
+        # Nothing is left to release at that point, so bail out quietly
+        # rather than raising out of a destructor.
+        if _CLIENT_CONFIGS is None or _CLIENT_CONFIG_CLEANUPS is None:
+            return
+        for existing in tuple(_CLIENT_CONFIGS):
+            if existing[0] == identity:
+                del _CLIENT_CONFIGS[existing]
+        if _PARAMETERIZED_SERVICE_ADAPTOR_REGISTRATIONS is not None:
+            for existing in tuple(_PARAMETERIZED_SERVICE_ADAPTOR_REGISTRATIONS):
+                if existing[0] == identity:
+                    del _PARAMETERIZED_SERVICE_ADAPTOR_REGISTRATIONS[existing]
+        _CLIENT_CONFIG_CLEANUPS.discard(identity)
+
+    # The C++ Wiring owns this callback. A temporary borrowed PyWiring can
+    # disappear before build_services(), but its underlying Wiring retains
+    # both the config and cleanup for its actual lifetime.
+    wiring._retain_cleanup(clear_configs)
+    _CLIENT_CONFIG_CLEANUPS.add(identity)
+
+
+def _record_client_config(stub, path, bound, *, variant_path=None):
+    """Record the wiring-time scalar options shared by one service or
+    adaptor path. Flavour-neutral unless ``variant_path`` is supplied for a
+    service adaptor: released hgraph materializes one native adaptor instance
+    per distinct scalar configuration at the same logical path."""
+    config = _client_config_values(stub, bound)
+    wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
+    identity = wiring.identity()
+    _retain_client_state_cleanup(wiring, identity)
+
+    if variant_path is not None and config:
+        logical_path = path
+        prefix = (identity, stub.flavour, stub.__name__, stub._specialization)
+        variants = [
+            (existing, record)
+            for existing, record in _CLIENT_CONFIGS.items()
+            if existing[:4] == prefix and record.logical_path == logical_path
+            and record.variant_path == variant_path
+        ]
+        for existing, record in variants:
+            if record.values == config:
+                _materialize_parameterized_service_adaptor(
+                    stub, variant_path, existing[4], wiring)
+                return existing[4]
+
+        # The qualifier is an internal native path identity. Values stay in
+        # the Python-owned wiring record, so arbitrary valid scalar options do
+        # not need a lossy string serialization. Equal configurations reuse
+        # the same concrete C++ path and therefore the same implementation.
+        concrete_path = f"{variant_path}[__config__={len(variants)}]"
+        key = _client_state_key(identity, stub, concrete_path)
+        _CLIENT_CONFIGS[key] = _ClientConfigRecord(
+            config, logical_path, variant_path)
+        _materialize_parameterized_service_adaptor(
+            stub, variant_path, concrete_path, wiring)
+        return concrete_path
+
+    key = _client_state_key(identity, stub, path)
+    previous = _CLIENT_CONFIGS.setdefault(
+        key, _ClientConfigRecord(config, path, path)).values
     if previous != config:
         differences = sorted(
             name for name in previous.keys() | config.keys()
@@ -112,15 +184,21 @@ def _record_client_config(stub, path, bound):
         raise WiringError(
             f"{_flavour_label(stub.flavour)} '{stub.__name__}' clients at "
             f"path {path!r} disagree on wiring-time option(s) {differences!r}")
+    # A generic service adaptor's native path carries its type-specialization
+    # suffix even when it has no scalar configuration. ``path`` is the
+    # suffix-free lookup key used by the implementation binding.
+    return variant_path if variant_path is not None else path
+
+
+def _client_config_record(stub, path):
+    wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
+    return _CLIENT_CONFIGS.get(
+        _client_state_key(wiring.identity(), stub, path))
 
 
 def _client_config(stub, path):
-    wiring = _wiring_stack[0] if _wiring_stack else _current_wiring()
-    key = (
-        wiring.identity(), stub.flavour, stub.__name__,
-        stub._specialization, path,
-    )
-    return _CLIENT_CONFIGS.get(key, {})
+    record = _client_config_record(stub, path)
+    return record.values if record is not None else {}
 
 
 def _resolved_client_path(stub, path):
@@ -680,7 +758,14 @@ class _AdaptorClientStub:
             stub = self._specialized_stub(resolution, specialization)
         self._materialize_client_registration(stub)
         config_path, path = _resolved_client_path(stub, path)
-        _record_client_config(stub, config_path, bound)
+        configured_path = _record_client_config(
+            stub,
+            config_path,
+            bound,
+            variant_path=path if stub.flavour == "service_adaptor" else None,
+        )
+        if stub.flavour == "service_adaptor":
+            path = configured_path
         request = (
             None if not requests else requests[0]
             if len(requests) == 1 else WiringPort(_hgraph.tsb_port(
@@ -1082,9 +1167,72 @@ def register_adaptor(path, implementation, resolution_dict=None, **kwargs):
     _register_resolved_adaptor(path, implementation, kwargs)
 
 
-def _register_resolved_adaptor(path, implementation, kwargs, wiring=None):
+def _parameterized_service_adaptor_key(wiring, stub, path):
+    return _client_state_key(wiring.identity(), stub, path)
+
+
+def _materialize_parameterized_service_adaptor(
+    stub, base_path, concrete_path, wiring,
+):
+    registration = _PARAMETERIZED_SERVICE_ADAPTOR_REGISTRATIONS.get(
+        _parameterized_service_adaptor_key(wiring, stub, base_path))
+    if registration is None or concrete_path in registration.paths:
+        return
+    registration.paths.add(concrete_path)
+    try:
+        _register_resolved_adaptor(
+            concrete_path,
+            registration.implementation,
+            registration.config,
+            wiring=wiring,
+            _parameterize=False,
+        )
+    except Exception:
+        registration.paths.remove(concrete_path)
+        raise
+
+
+def _register_parameterized_service_adaptor(
+    path, implementation, config, stub, wiring,
+):
+    identity = wiring.identity()
+    _retain_client_state_cleanup(wiring, identity)
+    key = _parameterized_service_adaptor_key(wiring, stub, path)
+    if key in _PARAMETERIZED_SERVICE_ADAPTOR_REGISTRATIONS:
+        raise WiringError(
+            f"duplicate service adaptor implementation at path {path!r}")
+    registration = _ParameterizedServiceAdaptorRegistration(
+        implementation, dict(config), set())
+    _PARAMETERIZED_SERVICE_ADAPTOR_REGISTRATIONS[key] = registration
+
+    prefix = key[:4]
+    for existing, record in tuple(_CLIENT_CONFIGS.items()):
+        if existing[:4] == prefix and record.variant_path == path:
+            _materialize_parameterized_service_adaptor(
+                stub, path, existing[4], wiring)
+
+
+def _register_resolved_adaptor(
+    path, implementation, kwargs, wiring=None, *, _parameterize=True,
+):
     wiring = wiring or _current_wiring()
     default_fallback = path is None
+    if (
+        _parameterize
+        and not default_fallback
+        and len(implementation.interfaces) == 1
+        and implementation.interfaces[0].flavour == "service_adaptor"
+        and _has_client_config(implementation.interfaces[0])
+    ):
+        stub = implementation.interfaces[0]
+        _register_parameterized_service_adaptor(
+            _resolved_service_path(stub, path),
+            implementation,
+            kwargs,
+            stub,
+            wiring,
+        )
+        return
     implementation_inputs, scalar_kwargs = _registration_inputs(
         implementation, kwargs)
     if not implementation.interfaces:
@@ -1464,14 +1612,21 @@ def _bind_registered_impl(implementation, path, config):
             if matched_stub is not None:
                 suffix = f"/{matched_stub.__name__}"
                 effective_path = qualified[:-len(suffix)]
-                specialization = getattr(matched_stub, "_specialization", "")
-                typed_suffix = f"[{specialization}]" if specialization else ""
-                if typed_suffix and effective_path.endswith(typed_suffix):
-                    effective_path = effective_path[:-len(typed_suffix)]
-        if any(param.name == "path" for param in parameters):
-            arguments["path"] = effective_path
         if matched_stub is not None:
-            client_config = _client_config(matched_stub, effective_path)
+            specialization = getattr(matched_stub, "_specialization", "")
+            typed_suffix = f"[{specialization}]" if specialization else ""
+            record = _client_config_record(matched_stub, effective_path)
+            if record is None and typed_suffix \
+                    and effective_path.endswith(typed_suffix):
+                effective_path = effective_path[:-len(typed_suffix)]
+                record = _client_config_record(matched_stub, effective_path)
+            if record is None:
+                client_config = {}
+            else:
+                client_config = record.values
+                effective_path = record.logical_path
+            if typed_suffix and effective_path.endswith(typed_suffix):
+                effective_path = effective_path[:-len(typed_suffix)]
         else:
             # A MULTI-interface implementation has no single stub, and
             # service_materialization_path() is only exposed while
@@ -1494,6 +1649,8 @@ def _bind_registered_impl(implementation, path, config):
                             f"'{candidate.__name__}' says {value!r}")
                     client_config[name] = value
                     sources[name] = candidate
+        if any(param.name == "path" for param in parameters):
+            arguments["path"] = effective_path
         for param in scalar_parameters:
             configured = resolved_config.get(param.name, inspect.Parameter.empty)
             client_value = client_config.get(param.name, inspect.Parameter.empty)
