@@ -25,7 +25,6 @@ from hgraph import (
     push_queue,
     SCALAR,
     set_service_output,
-    adaptor,
     adaptor_impl,
     register_adaptor,
     debug_print,
@@ -86,11 +85,7 @@ class KafkaMessageState(MessageState):
     def add_subscriber(self, topic: str, replay: bool = False):
         self._register(topic)
         if topic not in self.subscribers:
-            if replay:
-                self._register(topic)
-                register_adaptor(topic, _real_time_message_subscriber_impl, topic=topic)
-            else:
-                register_adaptor(topic, _real_time_message_subscriber_service_impl, topic=topic)
+            register_adaptor(topic, _real_time_message_subscriber_service_impl, topic=topic)
         self.subscribers.add(topic)
 
     def add_historical_subscriber(self, topic: str):
@@ -230,7 +225,6 @@ def _message_subscriber_impl(path: str, topic: str, _global_state: GlobalState =
         start_real_time_service = const(True)
 
     if topic in ks.subscribers:
-        set_service_output(path, message_subscriber_service, _real_time_message_subscriber(path=topic))
         _start_realtime_message_subscriber(topic, start_real_time_service, consumer)
 
 
@@ -285,23 +279,20 @@ def _timestamp_to_datetime(t: int) -> datetime:
 def _real_time_message_subscriber_service_impl(
         path: str, topic: str, _global_state: GlobalState = None
 ) -> TS[KafkaMessage]:
-    consumer = KafkaConsumer(**KafkaMessageState.instance(_global_state).config)
-    partitions = consumer.partitions_for_topic(topic)
-    if not partitions:
-        raise ValueError(f"Topic {topic} has no partitions")
-    consumer.assign(tuple(TopicPartition(topic, p) for p in partitions))
+    ks = KafkaMessageState.instance(_global_state)
     out = _message_subscriber_queue(topic=topic)
-    _start_realtime_message_subscriber(topic, True, consumer)
+    if topic not in ks.history_subscribers:
+        # Nothing gates this topic, so the consumer starts immediately. Where the topic does have
+        # history, _message_subscriber_impl owns the consumer and starts it once recovery has
+        # completed, so none is opened here; doing so would connect to the broker for nothing and
+        # never be closed.
+        consumer = KafkaConsumer(**ks.config)
+        partitions = consumer.partitions_for_topic(topic)
+        if not partitions:
+            raise ValueError(f"Topic {topic} has no partitions")
+        consumer.assign(tuple(TopicPartition(topic, p) for p in partitions))
+        _start_realtime_message_subscriber(topic, True, consumer)
     return out
-
-@adaptor
-def _real_time_message_subscriber(path: str) -> TS[KafkaMessage]:
-    """Expose the real-time message subscriber as an adaptor"""
-
-
-@adaptor_impl(interfaces=_real_time_message_subscriber)
-def _real_time_message_subscriber_impl(path: str, topic: str) -> TS[KafkaMessage]:
-    return _message_subscriber_queue(topic=topic)
 
 
 @push_queue(TS[KafkaMessage])
