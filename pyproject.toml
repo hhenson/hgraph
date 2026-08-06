@@ -31,7 +31,6 @@ dependencies = [
     "numpy>=1.23",
     "polars>=1.0",
     "sqlalchemy",
-    "duckdb",
     "pyarrow>=16.1.0",
     # <2.1: multimethod 2.1 (2026-07-29) raises "metaclass conflict" when a
     # Union[...] overload is registered against the C++-engine's bound types

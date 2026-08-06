@@ -75,9 +75,17 @@ INSERT_TEST_DATA = [
 
 @pytest.fixture(scope="function")
 def connection():
-    import duckdb
+    # sqlite3 rather than a third-party engine: this exercises SqlDataFrameSource, which only
+    # needs something polars.read_database accepts, and the standard library provides that
+    # without adding a native dependency to every install.
+    #
+    # PARSE_DECLTYPES is what makes the DATE column arrive as a date rather than a string, so the
+    # frame carries the same polars schema a richer engine would produce.
+    import sqlite3
 
-    return duckdb.connect(":memory:")
+    conn = sqlite3.connect(":memory:", detect_types=sqlite3.PARSE_DECLTYPES)
+    yield conn
+    conn.close()
 
 
 @pytest.fixture(scope="function")
@@ -96,18 +104,17 @@ def age_data(connection):
 @pytest.fixture(scope="function")
 def data_store_connection(connection):
     dsc = DataConnectionStore()
-    dsc.set_connection("duckdb", connection)
+    dsc.set_connection("sqlite", connection)
     print("Connection stored")
     return dsc
 
 
-@pytest.mark.xfail(reason="Duck db does not always work correctly")
 def test_db_source(age_data, data_store_connection):
 
     class AgeDataSource(SqlDataFrameSource):
 
         def __init__(self):
-            super().__init__("SELECT date, name, age FROM my_table", "duckdb")
+            super().__init__("SELECT date, name, age FROM my_table", "sqlite")
 
     @graph
     def main() -> TSB[ts_schema(name=TS[str], age=TS[int])]:
