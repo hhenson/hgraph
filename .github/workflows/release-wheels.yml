@@ -109,7 +109,14 @@ jobs:
 
             if (await reuseIfComplete()) return;
 
-            const inFlight = [...(await runsWithStatus("in_progress")), ...(await runsWithStatus("queued"))];
+            // Waiting can only ever pay off for a tag: that is the one case where a build is about
+            // to be published and reusing one saves the work. A pull request or a push to main has
+            // nothing to publish, so waiting there buys nothing and costs a great deal - this job
+            // gates the build and the test matrix, so anything it waits for, they wait for too.
+            const isTag = context.ref.startsWith("refs/tags/");
+            const inFlight = isTag
+              ? [...(await runsWithStatus("in_progress")), ...(await runsWithStatus("queued"))]
+              : [];
             if (inFlight.length) {
               const run = inFlight[0];
               core.notice(

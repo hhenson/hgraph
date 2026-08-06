@@ -188,3 +188,154 @@ def test_realtime_subscriber(monkeypatch):
     with GlobalState():
         evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1)))
         assert [value for _, value in get_recorded_value()] == [b"ready"]
+
+class _RecordingConsumer(KafkaConsumer):
+    """Enough of a KafkaConsumer for the wiring and the historical replay to run."""
+
+    def __init__(self, *args, **kwargs):
+        self._polls = 0
+
+    def partitions_for_topic(self, topic: str):
+        return {0}
+
+    def assign(self, partitions): ...
+
+    def close(self): ...
+
+    def offsets_for_times(self, timestamps):
+        return {tp: None for tp in timestamps}
+
+    def seek(self, tp, offset): ...
+
+    def poll(self, **kwargs):
+        self._polls += 1
+        if self._polls == 1:
+            return {
+                "tp": [
+                    SimpleNamespace(value=b"history", key=None, headers=(), timestamp=1, topic="t", offset=0)
+                ]
+            }
+        return {}
+
+
+@pytest.fixture
+def fake_kafka(monkeypatch):
+    from hgraph.adaptors.kafka import _impl as kafka_impl
+
+    monkeypatch.setattr(kafka_impl, "KafkaConsumer", _RecordingConsumer)
+    monkeypatch.setattr(kafka_impl, "KafkaProducer", MagicMock)
+
+
+def _run(g):
+    with GlobalState():
+        evaluate_graph(
+            g,
+            GraphConfiguration(
+                run_mode=EvaluationMode.REAL_TIME,
+                start_time=(st := utc_now()) - timedelta(minutes=1),
+                end_time=st + timedelta(milliseconds=200),
+            ),
+        )
+
+
+# The four combinations of publisher and subscriber recovery. Three of these used to fail at
+# wiring: a subscriber declaring 'recovered' produced a cycle between the subscriber service impl
+# and the adaptor supplying its real-time output, and a subscriber without 'recovered' sharing a
+# topic with a recovering publisher left the real-time adaptor with no implementation.
+
+
+def test_subscriber_with_recovery(fake_kafka):
+    @message_subscriber(topic="r1")
+    def subscriber(msg: TS[bytes], recovered: TS[bool]):
+        debug_print("msg", msg)
+
+    @graph
+    def g():
+        register_kafka_adaptor({})
+        subscriber()
+
+    _run(g)
+
+
+def test_publisher_with_recovery(fake_kafka):
+    @message_publisher(topic="r2")
+    def publisher(msg: TS[bytes], recovered: TS[bool]) -> TS[bytes]:
+        return sample(if_true(recovered), const(b"recovered"))
+
+    @graph
+    def g():
+        register_kafka_adaptor({})
+        publisher()
+
+    _run(g)
+
+
+def test_publisher_and_subscriber_both_with_recovery(fake_kafka):
+    @message_subscriber(topic="r3")
+    def subscriber(msg: TS[bytes], recovered: TS[bool]):
+        debug_print("msg", msg)
+
+    @message_publisher(topic="r3")
+    def publisher(msg: TS[bytes], recovered: TS[bool]) -> TS[bytes]:
+        return sample(if_true(recovered), const(b"recovered"))
+
+    @graph
+    def g():
+        register_kafka_adaptor({})
+        subscriber()
+        publisher()
+
+    _run(g)
+
+
+def test_subscriber_without_recovery_sharing_a_topic_with_a_recovering_publisher(fake_kafka):
+    @message_subscriber(topic="r4")
+    def subscriber(msg: TS[bytes]):
+        debug_print("msg", msg)
+
+    @message_publisher(topic="r4")
+    def publisher(msg: TS[bytes], recovered: TS[bool]) -> TS[bytes]:
+        return sample(if_true(recovered), const(b"recovered"))
+
+    @graph
+    def g():
+        register_kafka_adaptor({})
+        subscriber()
+        publisher()
+
+    _run(g)
+
+
+def test_kafka_timestamps_are_not_double_counted():
+    """
+    Kafka timestamps are epoch milliseconds. The conversion used to add the sub-second part twice,
+    so a message at .999 replayed a whole second late.
+    """
+    from datetime import datetime
+    from hgraph.adaptors.kafka._impl import _timestamp_to_datetime
+
+    assert _timestamp_to_datetime(0) == datetime(1970, 1, 1)
+    assert _timestamp_to_datetime(1) == datetime(1970, 1, 1, 0, 0, 0, 1000)
+    assert _timestamp_to_datetime(999) == datetime(1970, 1, 1, 0, 0, 0, 999000)
+    assert _timestamp_to_datetime(1_700_000_000_123) == datetime(2023, 11, 14, 22, 13, 20, 123000)
+
+
+def test_consumer_failure_is_reported_rather_than_swallowed():
+    """A broker failure used to be logged and the thread left to exit, so the graph carried on
+    against a feed that would never tick again."""
+    from hgraph.adaptors.kafka._impl import KafkaConsumerThread
+
+    reported = []
+
+    class Failing:
+        def poll(self, **kwargs):
+            raise RuntimeError("broker gone")
+
+        def close(self):
+            reported.append("closed")
+
+    thread = KafkaConsumerThread("t", Failing(), lambda m: None, on_error=reported.append)
+    thread.run()
+
+    assert any(isinstance(r, RuntimeError) for r in reported), f"failure was not reported: {reported}"
+    assert "closed" in reported, "the consumer was not closed"
