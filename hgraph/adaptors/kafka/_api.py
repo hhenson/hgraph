@@ -15,7 +15,8 @@ from hgraph import (
     reference_service,
     debug_print,
     default,
-    if_then_else,
+    filter_,
+    not_,
     operator,
     HgAtomicType,
     CompoundScalar,
@@ -155,10 +156,14 @@ def message_publisher(fn: Callable = None, *, topic: str = None):
         get_message_state().add_publisher(topic_)
         if replay_history:
             get_message_state().add_historical_subscriber(topic_)
-            msg_history = message_history_subscriber_service(path=topic_)
-            replay_msg = msg_history["msg"]
+            subscription = message_subscriber_service(path=topic_)
+            recovered = subscription["recovered"]
+            # A publisher replays to rebuild its own state, so it must see history and nothing
+            # after it. Where the same topic also has a live subscriber the stream continues
+            # ticking past recovery, and feeding a publisher its own output would be a loop.
+            replay_msg = filter_(not_(default(recovered, False)), subscription["msg"])
             kwargs["msg"] = replay_msg.payload if replay_msg_is_bytes else replay_msg  # Connect replay
-            kwargs["recovered"] = msg_history["recovered"]  # Connect replay
+            kwargs["recovered"] = recovered  # Connect replay
 
         out = fn(**kwargs)
         out_msg = out["msg"] if is_tsb else out
@@ -244,19 +249,23 @@ def message_subscriber(fn: Callable = None, *, topic: str = None):
         topic_ = kwargs.pop("topic", None)
         if topic_ is None:
             raise ValueError(f"topic must be provided to {fn.signature.name}")
-        # Both registrations happen before either service is referenced. The implementations read
-        # these registries to decide what to wire, and referencing a service can expand its
-        # implementation, so an implementation expanded between the two calls would see a topic
-        # that has history as though it had none.
+        # Both registrations happen before the service is referenced. The implementation reads
+        # these registries to decide what to wire, and referencing the service can expand that
+        # implementation, so an expansion between the two calls would see a topic that has
+        # history as though it had none.
         if has_recovered:
             get_message_state().add_historical_subscriber(topic_)
         get_message_state().add_subscriber(topic_, replay=has_recovered)
 
-        msg_input = message_subscriber_service(path=topic_)
+        subscription = message_subscriber_service(path=topic_)
+        msg_input = subscription["msg"]
         if has_recovered:
-            msg_history = message_history_subscriber_service(path=topic_)
-            kwargs["recovered"] = (recovered := msg_history["recovered"])  # Connect recovered signal
-            msg_input = if_then_else(default(recovered, False), msg_input, msg_history["msg"])
+            kwargs["recovered"] = subscription["recovered"]  # Connect recovered signal
+        else:
+            # Whether the topic replays at all depends on what other graphs asked for, and a
+            # subscriber with no 'recovered' input cannot tell a replayed message from a live one.
+            # It therefore sees only live messages, as it would if nothing on the topic replayed.
+            msg_input = filter_(default(subscription["recovered"], False), msg_input)
         kwargs["msg"] = msg_input.payload if msg_is_bytes else msg_input
         out = fn(**kwargs)
         return out
@@ -290,13 +299,22 @@ def message_publisher_operator(msg: TIME_SERIES_TYPE, topic: str):
     """Publishes the msg (``TS[bytes]`` or ``TS[KafkaMessage]``) to the topic provided."""
 
 
-@reference_service
-def message_history_subscriber_service(path: str) -> TSB["msg" : TS[KafkaMessage], "recovered" : TS[bool]]:
-    """Only retrieve history, after which the topic can be unsubscribed."""
+MessageSubscription = TSB["msg" : TS[KafkaMessage], "recovered" : TS[bool]]
+"""
+What a topic delivers: a single message stream, and the flag marking the end of history.
+
+``msg`` is continuous across the handover. Replayed history arrives first, then ``recovered``
+ticks True, then live messages arrive on the same time-series. Consumers that only want one
+side of the handover select it with ``recovered`` rather than by binding a second stream.
+"""
 
 
 @reference_service
-def message_subscriber_service(path: str) -> TS[KafkaMessage]:
+def message_subscriber_service(path: str) -> MessageSubscription:
     """
-    Subscriber for kafka, output contains the msg and a recovered flag.
+    Everything a graph can receive for one topic, on one service instance per topic.
+
+    Replay and live delivery were once two services gated against each other, which is what
+    let a recovering publisher and subscriber on one topic close a wiring cycle. Splicing them
+    inside the implementation keeps the ordering guarantee without the cross-service edge.
     """

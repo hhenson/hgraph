@@ -10,12 +10,12 @@ from kafka import KafkaConsumer, KafkaProducer, TopicPartition
 
 from hgraph import (
     GlobalState,
-    register_service,
     TS,
+    combine,
     const,
-    service_impl,
+    default,
+    if_then_else,
     MIN_TD,
-    TSB,
     sink_node,
     STATE,
     EvaluationEngineApi,
@@ -24,16 +24,14 @@ from hgraph import (
     EvaluationMode,
     push_queue,
     SCALAR,
-    set_service_output,
     adaptor_impl,
     register_adaptor,
-    debug_print,
 )
 from hgraph.adaptors.kafka._api import (
     message_publisher_operator,
     message_subscriber_service,
-    message_history_subscriber_service,
     MessageState,
+    MessageSubscription,
     KafkaMessage,
 )
 
@@ -69,6 +67,9 @@ class KafkaMessageState(MessageState):
     subscribers: set[str] = field(default_factory=set)
     history_subscribers: set[str] = field(default_factory=set)
     publishers: set[str] = field(default_factory=set)
+    # Topics whose implementation has been registered. Kept apart from the two sets above because
+    # a topic can be added to either of them, in either order, and must register exactly once.
+    _registered: set[str] = field(default_factory=set)
     _kafka_producer: KafkaProducer = None
     _kafka_producer_count: int = 0
     _kafka_sender: dict[str, Callable[[KafkaMessage], None]] = field(default_factory=dict)
@@ -84,8 +85,6 @@ class KafkaMessageState(MessageState):
 
     def add_subscriber(self, topic: str, replay: bool = False):
         self._register(topic)
-        if topic not in self.subscribers:
-            register_adaptor(topic, _real_time_message_subscriber_service_impl, topic=topic)
         self.subscribers.add(topic)
 
     def add_historical_subscriber(self, topic: str):
@@ -93,8 +92,12 @@ class KafkaMessageState(MessageState):
         self.history_subscribers.add(topic)
 
     def _register(self, topic: str):
-        if topic not in self.subscribers and topic not in self.history_subscribers:
-            register_service(topic, _message_subscriber_impl, topic=topic)
+        # One implementation serves the topic however it is used. It reads `subscribers` and
+        # `history_subscribers` when it is expanded, which is after all callers have registered,
+        # so no registration argument has to predict what a later caller will ask for.
+        if topic not in self._registered:
+            self._registered.add(topic)
+            register_adaptor(topic, _kafka_subscriber_impl, topic=topic)
 
     def add_publisher(self, topic: str):
         if topic in self.publishers:
@@ -206,35 +209,64 @@ def _kafka_full_message_publisher_stop(_state: STATE, _global_state: GlobalState
     KafkaMessageState.instance(_global_state).close_producer()
 
 
-@service_impl(interfaces=(message_history_subscriber_service, message_subscriber_service))
-def _message_subscriber_impl(path: str, topic: str, _global_state: GlobalState = None):
-    consumer = KafkaConsumer(**(ks := KafkaMessageState.instance(_global_state)).config)
-    # First, get partition information by calling 'partitions_for_topic'.
+@adaptor_impl(interfaces=message_subscriber_service)
+def _kafka_subscriber_impl(path: str, topic: str, _global_state: GlobalState = None) -> MessageSubscription:
+    """
+    Serves a topic to every graph that uses it, whatever mix of replay and live delivery they asked
+    for. Splicing history to live here rather than in the caller is what keeps this acyclic: the
+    handover is one node's business, so no client has to depend on a second service to perform it.
+
+    Being an ``adaptor_impl`` rather than a ``service_impl`` is what makes that possible at all —
+    the push source below cannot be wired inside a service implementation's nested graph.
+    """
+    ks = KafkaMessageState.instance(_global_state)
+    wants_history = topic in ks.history_subscribers
+    wants_live = topic in ks.subscribers
+
+    consumer = KafkaConsumer(**ks.config)
+    # Partitions have to be resolved and assigned before either the replay seek or the live poll.
     partitions = consumer.partitions_for_topic(topic)
     if not partitions:
         raise ValueError(f"No partitions found for topic '{topic}'")
-
-    # Create TopicPartition objects for each partition.
     topic_partitions = tuple(TopicPartition(topic, p) for p in partitions)
-    # Assign these partitions to the consumer.
     consumer.assign(topic_partitions)
 
-    if topic in ks.history_subscribers:
-        historical_out = _message_subscriber_history_aggregator(path, consumer, topic_partitions)
-        set_service_output(path, message_history_subscriber_service, historical_out)
-        start_real_time_service = historical_out.recovered
+    if wants_history:
+        # The consumer is handed on to the live thread when replay finishes, so it is only closed
+        # by the aggregator when nothing is going to take it over.
+        history = _message_subscriber_history_aggregator(
+            path, consumer, topic_partitions, close_when_done=not wants_live
+        )
+        recovered = history.recovered
     else:
-        start_real_time_service = const(True)
+        recovered = const(True)
 
-    if topic in ks.subscribers:
-        _start_realtime_message_subscriber(topic, start_real_time_service, consumer)
+    if wants_live:
+        live = _message_subscriber_queue(topic=topic)
+        # `recovered` is const(True) without history, so the thread starts on the first cycle.
+        _start_realtime_message_subscriber(topic, recovered, consumer)
+        msg = if_then_else(default(recovered, False), live, history.msg) if wants_history else live
+    else:
+        msg = history.msg
+
+    return combine[MessageSubscription](msg=msg, recovered=recovered)
 
 
 @generator
 def _message_subscriber_history_aggregator(
-    path: str, consumer: KafkaConsumer, topic_partitions: tuple[tuple[str, int], ...], _api: EvaluationEngineApi = None
-) -> TSB["msg" : TS[KafkaMessage], "recovered" : TS[bool]]:
-    """Recovered must tick after the last message has been delivered."""
+    path: str,
+    consumer: KafkaConsumer,
+    topic_partitions: tuple[tuple[str, int], ...],
+    close_when_done: bool = False,
+    _api: EvaluationEngineApi = None,
+) -> MessageSubscription:
+    """
+    Recovered must tick after the last message has been delivered.
+
+    ``close_when_done`` closes the consumer once replay ends. Set it when no live subscriber will
+    inherit this consumer, otherwise the connection stays open for the life of the graph with
+    nothing reading it.
+    """
     start_time = _api.start_time
     if _api.evaluation_mode == EvaluationMode.SIMULATION:
         end_time = _api.end_time
@@ -272,6 +304,8 @@ def _message_subscriber_history_aggregator(
                 tm = last_time + MIN_TD
             last_time = tm
             yield tm, dict(msg=_record_to_kafka_message(msg))
+    if close_when_done:
+        consumer.close()
     tm = last_time
     tm = max(tm, start_time - MIN_TD)
     yield tm + MIN_TD, dict(recovered=True)
@@ -290,25 +324,6 @@ def _timestamp_to_datetime(t: int) -> datetime:
 
 
 _EPOCH = datetime(1970, 1, 1)
-
-@adaptor_impl(interfaces=message_subscriber_service)
-def _real_time_message_subscriber_service_impl(
-        path: str, topic: str, _global_state: GlobalState = None
-) -> TS[KafkaMessage]:
-    ks = KafkaMessageState.instance(_global_state)
-    out = _message_subscriber_queue(topic=topic)
-    if topic not in ks.history_subscribers:
-        # Nothing gates this topic, so the consumer starts immediately. Where the topic does have
-        # history, _message_subscriber_impl owns the consumer and starts it once recovery has
-        # completed, so none is opened here; doing so would connect to the broker for nothing and
-        # never be closed.
-        consumer = KafkaConsumer(**ks.config)
-        partitions = consumer.partitions_for_topic(topic)
-        if not partitions:
-            raise ValueError(f"Topic {topic} has no partitions")
-        consumer.assign(tuple(TopicPartition(topic, p) for p in partitions))
-        _start_realtime_message_subscriber(topic, True, consumer)
-    return out
 
 
 @push_queue(TS[KafkaMessage])
