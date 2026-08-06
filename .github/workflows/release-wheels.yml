@@ -491,14 +491,16 @@ jobs:
           if status == 0:
               print("PASS")
               sys.exit(0)
-          # Every test passed but the process still died. Tolerated only for the known post-run
-          # finalisation abort; anything else is a real crash during the run.
+          # Every test passed but the process still died. This used to be tolerated for a known
+          # interpreter-finalisation abort on 3.14; that cause has been removed at source, so a
+          # signal death now fails and gets investigated rather than passing with a warning
+          # nobody reads.
           if status > 128:
-              print(
-                  f"PASS (with warning): all tests passed but the process exited on signal "
-                  f"{status - 128} after reporting. This is the known interpreter-finalisation abort."
+              sys.exit(
+                  f"FAIL: every test passed but the process was killed by signal {status - 128} "
+                  f"after reporting. Look for a native library reaching into the interpreter "
+                  f"during finalisation."
               )
-              sys.exit(0)
           sys.exit(f"FAIL: tests reported clean but pytest exited {status}.")
           PY
 

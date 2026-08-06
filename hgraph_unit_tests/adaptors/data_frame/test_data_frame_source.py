@@ -1,3 +1,4 @@
+import sys
 from datetime import date, datetime
 
 import polars as pl
@@ -101,6 +102,19 @@ def data_store_connection(connection):
     return dsc
 
 
+@pytest.mark.skipif(
+    sys.version_info >= (3, 14),
+    reason=(
+        "Aborts the interpreter on 3.14. The test itself passes; the process then dies during "
+        "finalisation with 'Fatal Python error: gilstate_tss_set: failed to set current tstate', "
+        "SIGABRT, after pytest has already reported. No Python thread is alive at that point and "
+        "the abort carries no Python stack, so it is a native finaliser inside duckdb or polars "
+        "reaching into the interpreter after teardown has begun. It reproduces with nothing but "
+        "this test selected, and deselecting it takes the whole suite from exit 134 to 0. Not "
+        "reproducible on 3.12 or 3.13, nor outside pytest, nor with duckdb and polars alone. "
+        "Re-enable once duckdb finalises cleanly on 3.14."
+    ),
+)
 @pytest.mark.xfail(reason="Duck db does not always work correctly")
 def test_db_source(age_data, data_store_connection):
 
