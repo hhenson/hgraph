@@ -14,6 +14,7 @@
 #include <chrono>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -904,6 +905,7 @@ namespace hgraph
             }
         };
 
+        std::mutex g_converters_mutex;
         std::unordered_map<ConverterKey, std::unique_ptr<TableConverter>, ConverterKeyHash> g_converters;
 
         [[nodiscard]] const TableConverter *build_converter(const ValueTypeMetaData *meta,
@@ -1089,12 +1091,17 @@ namespace hgraph
         // Composed + interned once per schema. Per-tick operator paths do NOT
         // call this: nodes resolve their converter in ``start`` and carry it
         // in node State (the lifecycle "compose once" contract).
+        std::scoped_lock lock{g_converters_mutex};
         ConverterKey key{meta, std::string{date_key}, std::string{as_of_key}};
         if (const auto it = g_converters.find(key); it != g_converters.end()) { return *it->second; }
         return *build_converter(meta, date_key, as_of_key);
     }
 
-    void clear_table_converters() noexcept { g_converters.clear(); }
+    void clear_table_converters() noexcept
+    {
+        std::scoped_lock lock{g_converters_mutex};
+        g_converters.clear();
+    }
 
     Frame single_row_frame(const TableConverter &converter, DateTime value_time, DateTime as_of,
                            const ValueView &value)

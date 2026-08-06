@@ -42,6 +42,7 @@ class NodeValueType(Enum):
 class InspectorItemId:
     item_type: InspectorItemType
     graph: tuple[int, ...] = ()
+    node_path: tuple[str, ...] = ()
     node: int | None = None
     value_type: NodeValueType | None = None
     value_path: tuple[object, ...] = ()
@@ -124,6 +125,8 @@ class InspectorItemId:
 
     @classmethod
     def from_object(cls, value):
+        if isinstance(value, cls):
+            return value
         graph_id = getattr(value, "graph_id", None)
         node_index = getattr(value, "node_ndx", None)
         if graph_id is not None and node_index is None:
@@ -136,10 +139,86 @@ class InspectorItemId:
         if owner_graph is None or owner_node is None:
             return None
         is_input = "Input" in type(value).__name__
+        path = []
+        current = value
+        parent_name = "parent_input" if is_input else "parent_output"
+        while (parent := getattr(current, parent_name, None)) is not None:
+            key_from_value = getattr(parent, "key_from_value", None)
+            key = key_from_value(current) if callable(key_from_value) else None
+            if key is None:
+                path.clear()
+            else:
+                path.append(key)
+            current = parent
+        node_index = getattr(owner_node, "node_ndx", None)
+        if node_index is None:
+            node_index = owner_node.node_id[-1]
         return cls(
             graph=tuple(owner_graph.graph_id),
-            node=int(getattr(owner_node, "node_ndx", owner_node.node_id[-1])),
+            node=int(node_index),
             value_type=NodeValueType.Inputs if is_input else NodeValueType.Output,
+            value_path=tuple(reversed(path)),
+        )
+
+    def indent(self, graph=None):
+        del graph  # retained for the released helper signature
+        tab = "\u00a0\u00a0"
+        indent = ""
+        index = 0
+        while index < len(self.graph):
+            indent += tab
+            index += 1
+            if index < len(self.graph):
+                indent += tab
+                if self.graph[index] < 0:
+                    index += 1
+                    indent += tab
+                else:
+                    indent += tab
+            else:
+                indent += tab + tab
+        if self.node is None:
+            return indent
+        if self.value_type is None:
+            return indent + tab
+        return indent + tab * (2 + len(self.value_path))
+
+    def sub_item(self, key, value):
+        resolved = self.from_object(value)
+        if resolved is not None:
+            if resolved.item_type in {
+                InspectorItemType.Graph,
+                InspectorItemType.Node,
+            }:
+                return resolved
+            if self.value_type is None:
+                parent_name = (
+                    "parent_input"
+                    if resolved.value_type is NodeValueType.Inputs
+                    else "parent_output"
+                )
+                if getattr(value, parent_name, None) is not None:
+                    raise ValueError(
+                        "only a node's root input or output can be a direct child"
+                    )
+                return InspectorItemId(
+                    graph=self.graph,
+                    node=self.node,
+                    value_type=resolved.value_type,
+                )
+        if isinstance(value, NodeValueType):
+            return InspectorItemId(
+                graph=self.graph,
+                node=self.node,
+                value_type=value,
+            )
+        if self.value_type is None:
+            raise ValueError("a graph or node item requires a NodeValueType child")
+        return InspectorItemId(
+            graph=self.graph,
+            node=self.node,
+            value_type=self.value_type,
+            value_path=self.value_path + (key,),
         )
 
     def sort_key(self) -> str:

@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
 from socket import gethostname
 
@@ -47,6 +48,18 @@ _INSPECTOR_SCHEMA = {
     "ord": str,
 }
 
+_ENTRY_MODIFIED = object()
+_MAX_DISPLAY_LENGTH = 256
+
+
+def _synchronized(method):
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return guarded
+
 
 def _seconds(value) -> float:
     total_seconds = getattr(value, "total_seconds", None)
@@ -74,6 +87,15 @@ def _node_type(entry) -> str:
     return "NESTED"
 
 
+def _entry_name(entry) -> str:
+    if entry.kind == GraphDiagnosticEntityKind.NODE and ":" in entry.label:
+        # Native diagnostic labels retain ``schema:user-label`` so C++ traces
+        # remain self-describing.  The released Python inspector displays the
+        # user/wiring label itself.
+        return entry.label.split(":", 1)[1]
+    return entry.label
+
+
 def _display_json(value: str, error: str) -> str:
     if error:
         return f"<unavailable: {error}>"
@@ -84,8 +106,31 @@ def _display_json(value: str, error: str) -> str:
     except (TypeError, ValueError):
         return value
     if isinstance(parsed, str):
-        return parsed
-    return json.dumps(parsed, ensure_ascii=False, separators=(", ", ": "))
+        rendered = parsed
+    elif isinstance(parsed, (dict, list)):
+        return f"{len(parsed)} items"
+    elif parsed is None:
+        return "INVALID"
+    else:
+        rendered = repr(parsed)
+    return (
+        rendered
+        if len(rendered) <= _MAX_DISPLAY_LENGTH
+        else rendered[: _MAX_DISPLAY_LENGTH - 3] + "..."
+    )
+
+
+def _display_value(value) -> str:
+    if isinstance(value, (dict, list)):
+        return f"{len(value)} items"
+    if value is None:
+        return "INVALID"
+    rendered = value if isinstance(value, str) else repr(value)
+    return (
+        rendered
+        if len(rendered) <= _MAX_DISPLAY_LENGTH
+        else rendered[: _MAX_DISPLAY_LENGTH - 3] + "..."
+    )
 
 
 class _InspectorHttpHandler(BaseHandler):
@@ -96,7 +141,7 @@ class _InspectorHttpHandler(BaseHandler):
         try:
             body, content_type = self.session.command(command, item, self.request.query_arguments)
         except ValueError as error:
-            self.set_status(400)
+            self.set_status(500)
             await self.finish(str(error))
             return
         except KeyError as error:
@@ -136,6 +181,7 @@ class _InspectorSession:
         if publish_interval <= 0:
             raise ValueError("inspector publish_interval must be positive")
         self.diagnostics = diagnostics
+        self._lock = threading.RLock()
         self.port = port
         self.publish_interval = float(publish_interval)
         self.manager = PerspectiveTablesManager.current(global_state)
@@ -145,6 +191,7 @@ class _InspectorSession:
         self.values = {}
         self.frames = {}
         self._navigation = {}
+        self._output_navigation = {}
         self._known_ids = set()
         self._entry_item_ids = {}
         self._recent_counters = {}
@@ -153,12 +200,20 @@ class _InspectorSession:
         self._search_rows = {}
         self._search_values = {}
         self._search_frames = {}
-        self._periodic = None
         self._last_cycle = None
         self._last_stats = 0.0
         self._last_stats_cycles = 0
         self._last_stats_graph_time = 0.0
+        self._last_process_time = time.process_time()
+        self._last_manager_stats = {}
+        try:
+            import psutil
 
+            self._process = psutil.Process()
+        except ImportError:  # pragma: no cover - optional outside perspective extra
+            self._process = None
+
+    @_synchronized
     def start(self):
         self.manager.start()
         if "inspector" not in self.manager.get_table_names():
@@ -197,8 +252,12 @@ class _InspectorSession:
                 name="graph_performance",
             )
 
-        layouts = os.path.join(tempfile.gettempdir(), "inspector_layouts")
-        os.makedirs(layouts, exist_ok=True)
+        self.manager.register_default_layout(
+            "view",
+            Path(__file__).with_name("inspector_layout.json").read_bytes(),
+        )
+        layouts = self.manager.configure_layouts_path(
+            os.path.join(tempfile.gettempdir(), "inspector_layouts"))
         template = str(Path(__file__).with_name("inspector_template.html"))
         self.web.add_handlers(
             [
@@ -219,44 +278,14 @@ class _InspectorSession:
         )
         self.web.start()
 
-        ready = threading.Event()
-        failures = []
+        print(
+            f"Inspector running on "
+            f"http://{gethostname()}:{self.port}/inspector/view"
+        )
+        self.publish(force=True)
 
-        def start_periodic():
-            import tornado.ioloop
-
-            try:
-                self._periodic = tornado.ioloop.PeriodicCallback(self.publish, 100)
-                self._periodic.start()
-                self.publish(force=True)
-            except BaseException as error:
-                failures.append(error)
-                if self._periodic is not None:
-                    self._periodic.stop()
-            finally:
-                ready.set()
-
-        TornadoWeb.get_loop().add_callback(start_periodic)
-        if not ready.wait(timeout=5.0):
-            self.web.stop()
-            raise RuntimeError("inspector publisher did not start")
-        if failures:
-            self._periodic = None
-            self.web.stop()
-            raise RuntimeError("inspector publisher failed to start") from failures[0]
-
+    @_synchronized
     def stop(self):
-        periodic = self._periodic
-        if periodic is not None:
-            stopped = threading.Event()
-
-            def stop_periodic():
-                periodic.stop()
-                stopped.set()
-
-            TornadoWeb.get_loop().add_callback(stop_periodic)
-            stopped.wait(timeout=5.0)
-            self._periodic = None
         self.web.stop()
 
     @staticmethod
@@ -299,35 +328,65 @@ class _InspectorSession:
         return by_id, graph_ids, node_ids
 
     @staticmethod
-    def _row(entry, item_id, *, name=None, type_name=None, value="", x="+"):
+    def _row(
+        entry,
+        item_id,
+        *,
+        name=None,
+        type_name=None,
+        value="",
+        modified=_ENTRY_MODIFIED,
+        x="+",
+        nodes=None,
+        subgraphs=None,
+        entity_metrics=True,
+    ):
         identifier = item_id.to_str()
         evaluation = entry.evaluation
+        if modified is _ENTRY_MODIFIED and entry.kind == GraphDiagnosticEntityKind.NODE:
+            candidates = [
+                endpoint.last_modified
+                for endpoint in (entry.input, entry.output)
+                if endpoint.available and endpoint.valid
+            ]
+            modified = max(candidates, default=None)
+        elif modified is _ENTRY_MODIFIED:
+            modified = None
+        display_name = name if name is not None else _entry_name(entry)
         return {
             "id": identifier,
             "ord": item_id.sort_key(),
             "X": x,
-            "name": name if name is not None else entry.label,
+            "name": item_id.indent() + display_name,
             "type": type_name or (
                 "GRAPH"
                 if entry.kind == GraphDiagnosticEntityKind.GRAPH
                 else _node_type(entry)
             ),
             "value": value,
-            "modified": _perspective_time(entry.evaluation_time),
-            "scheduled": _perspective_time(entry.scheduled_time),
-            "evals": evaluation.count,
-            "time": _seconds(evaluation.total_time),
+            "modified": _perspective_time(modified),
+            "scheduled": (
+                _perspective_time(entry.scheduled_time)
+                if entity_metrics else None
+            ),
+            "evals": evaluation.count if entity_metrics else None,
+            "time": _seconds(evaluation.total_time) if entity_metrics else None,
             "of_graph": None,
             "of_total": None,
             "value_size": None,
-            "size": entry.storage.dynamic_live_bytes,
+            "size": (
+                entry.storage.dynamic_live_bytes if entity_metrics else None
+            ),
             "total_value_size": None,
-            "total_size": entry.storage.static_bytes + entry.storage.dynamic_live_bytes,
-            "subgraphs": entry.storage.nested_graph_count,
-            "nodes": len(entry.children),
+            "total_size": (
+                entry.storage.static_bytes + entry.storage.dynamic_live_bytes
+                if entity_metrics else None
+            ),
+            "subgraphs": subgraphs if entity_metrics else None,
+            "nodes": nodes if entity_metrics else None,
         }
 
-    def _value_rows(self, entry, item_id, value, navigation_target=None):
+    def _value_rows(self, entry, item_id, value, navigation_targets=None):
         rows = []
         values = {}
         if isinstance(value, dict):
@@ -349,17 +408,20 @@ class _InspectorSession:
                 entry,
                 child_id,
                 name=str(key),
-                type_name=type(child).__name__.upper(),
-                value=json.dumps(child, ensure_ascii=False),
+                type_name=type(child).__name__,
+                value=_display_value(child),
                 x="+" if has_children else "º",
+                entity_metrics=False,
             )
             values[child_text] = json.dumps(child, ensure_ascii=False)
-            if navigation_target is not None:
-                self._navigation[child_text] = navigation_target
+            if navigation_targets is not None:
+                target = navigation_targets.get(child_id.value_path)
+                if target is not None:
+                    self._navigation[child_text] = target
             if has_children and child_text in self.expanded:
                 row["X"] = "-"
                 child_rows, child_values = self._value_rows(
-                    entry, child_id, child, navigation_target)
+                    entry, child_id, child, navigation_targets)
                 rows.extend(child_rows)
                 values.update(child_values)
             rows.append(row)
@@ -369,6 +431,7 @@ class _InspectorSession:
         entries = tuple(snapshot.entries)
         by_id, graph_ids, node_ids = self._graph_layout(entries)
         self._navigation = {}
+        self._output_navigation = {}
         self._entry_item_ids = {
             **{
                 entry_id: InspectorItemId(graph=graph_id).to_str()
@@ -380,29 +443,137 @@ class _InspectorSession:
             },
         }
 
-        def navigation_target(diagnostic_value):
+        def path_component(component):
+            try:
+                value = json.loads(component)
+            except (TypeError, ValueError):
+                return component
+            if isinstance(value, (dict, list)):
+                return json.dumps(
+                    value, ensure_ascii=False, separators=(",", ":"),
+                    sort_keys=True)
+            return value
+
+        def output_target(node_id, path):
+            target = node_ids.get(node_id)
+            if target is None:
+                return None
+            return InspectorItemId(
+                graph=target.graph,
+                node=target.node,
+                value_type=NodeValueType.Output,
+                value_path=tuple(path_component(item) for item in path),
+            ).to_str()
+
+        def navigation_targets(diagnostic_value, attribute="targets"):
+            exact = {}
+            ambiguous = set()
+            for target in getattr(diagnostic_value, attribute, ()):
+                source_path = tuple(
+                    path_component(item) for item in target.source_path)
+                destination = output_target(
+                    target.node_id, target.target_path)
+                if destination is None:
+                    continue
+                if source_path in exact and exact[source_path] != destination:
+                    ambiguous.add(source_path)
+                else:
+                    exact[source_path] = destination
+            for path in ambiguous:
+                exact.pop(path, None)
+            if exact:
+                return exact
+
+            # Compatibility with snapshots created by an older native module.
+            # Only REF navigation had a legacy id-only representation; direct
+            # producer bindings were not exposed before bound_targets.
+            if attribute != "targets":
+                return {}
             targets = [
                 node_ids[target]
                 for target in diagnostic_value.target_node_ids
                 if target in node_ids
             ]
             if len(targets) != 1:
-                return None
+                return {}
             target = targets[0]
-            return InspectorItemId(
-                graph=target.graph,
-                node=target.node,
-                value_type=NodeValueType.Output,
-            ).to_str()
+            return {(): InspectorItemId(
+                    graph=target.graph,
+                    node=target.node,
+                    value_type=NodeValueType.Output,
+                ).to_str()}
+
+        def register_navigation(item_id, targets, destination):
+            for path, target in targets.items():
+                source = InspectorItemId(
+                    graph=item_id.graph,
+                    node=item_id.node,
+                    value_type=item_id.value_type,
+                    value_path=item_id.value_path + path,
+                ).to_str()
+                destination[source] = target
 
         graph_entry_for_id = {graph_id: by_id[entry_id] for entry_id, graph_id in graph_ids.items()}
+        root_entry = next(
+            (
+                entry
+                for entry in entries
+                if entry.kind == GraphDiagnosticEntityKind.GRAPH
+                and entry.parent_id == 0
+            ),
+            None,
+        )
+        # Native diagnostics deliberately retain stopped entries so an owned
+        # post-run snapshot remains inspectable.  A live released inspector,
+        # however, enumerates the nested node's current graphs and removes a
+        # stopped keyed child immediately.  Keep retained entries only for an
+        # already-completed graph snapshot.
+        retain_stopped = root_entry is None or root_entry.stopped
+        if not retain_stopped:
+            graph_entry_for_id = {
+                graph_id: entry
+                for graph_id, entry in graph_entry_for_id.items()
+                if not entry.stopped
+            }
         nodes_by_graph = {}
         child_graphs_by_node = {}
         for entry in entries:
-            if entry.kind == GraphDiagnosticEntityKind.NODE and entry.id in node_ids:
+            if (entry.kind == GraphDiagnosticEntityKind.NODE
+                    and entry.id in node_ids
+                    and node_ids[entry.id].graph in graph_entry_for_id):
                 nodes_by_graph.setdefault(node_ids[entry.id].graph, []).append(entry)
-            elif entry.kind == GraphDiagnosticEntityKind.GRAPH and entry.parent_id:
+            elif (entry.kind == GraphDiagnosticEntityKind.GRAPH
+                  and entry.parent_id
+                  and (retain_stopped or not entry.stopped)):
                 child_graphs_by_node.setdefault(entry.parent_id, []).append(entry)
+
+        subtree_counts = {}
+
+        def subtree_count(entry_id):
+            if entry_id in subtree_counts:
+                return subtree_counts[entry_id]
+            entry = by_id[entry_id]
+            nodes = int(entry.kind == GraphDiagnosticEntityKind.NODE)
+            graphs = int(entry.kind == GraphDiagnosticEntityKind.GRAPH)
+            for child_id in entry.children:
+                child = by_id[child_id]
+                if (not retain_stopped
+                        and child.kind == GraphDiagnosticEntityKind.GRAPH
+                        and child.stopped):
+                    continue
+                child_nodes, child_graphs = subtree_count(child_id)
+                nodes += child_nodes
+                graphs += child_graphs
+            subtree_counts[entry_id] = (nodes, graphs)
+            return nodes, graphs
+
+        def descendant_counts(entry):
+            nodes, graphs = subtree_count(entry.id)
+            if entry.kind == GraphDiagnosticEntityKind.NODE:
+                nodes -= 1
+            else:
+                graphs -= 1
+            return nodes, graphs
 
         rows = {}
         values = {}
@@ -420,7 +591,11 @@ class _InspectorSession:
             )
             cached = frame_cache.get(identifier)
             if cached is None or cached[0] != version:
-                cached = (version, diagnostic_value.frame)
+                # Keep the owned native snapshot value. Converting every
+                # captured Frame through the Arrow C stream on the Tornado
+                # thread can contend with an evaluating Python graph and is
+                # unnecessary until the value endpoint is requested.
+                cached = (version, diagnostic_value)
                 frame_cache[identifier] = cached
             frames[identifier] = cached[1]
 
@@ -433,16 +608,31 @@ class _InspectorSession:
         for graph_id in visible_graphs:
             for entry in sorted(nodes_by_graph.get(graph_id, ()), key=lambda item: item.node_index):
                 item_id = node_ids[entry.id]
-                row = self._row(entry, item_id)
+                row = self._row(
+                    entry,
+                    item_id,
+                    value=(
+                        f"{entry.inspection.pending_items} items in the queue"
+                        if entry.inspection.pending_items is not None
+                        else (
+                            _display_json(entry.output.json, entry.output.error)
+                            if entry.output.available
+                            else "-"
+                        )
+                    ),
+                    nodes=descendant_counts(entry)[0],
+                    subgraphs=descendant_counts(entry)[1],
+                )
                 if item_id.to_str() in self.expanded:
                     row["X"] = "-"
                 rows[row["id"]] = row
                 values[row["id"]] = entry.output.json if entry.output.available else ""
                 if entry.output.available:
                     retain_frame(row["id"], entry.output)
-                if entry.output.available and (
-                    target := navigation_target(entry.output)
-                ) is not None:
+                output_navigation = (
+                    navigation_targets(entry.output)
+                    if entry.output.available else {})
+                if target := output_navigation.get(()):
                     self._navigation[row["id"]] = target
 
                 if item_id.to_str() not in self.expanded:
@@ -478,22 +668,43 @@ class _InspectorSession:
                         category_id,
                         name=value_type.value,
                         type_name=(
-                            "GRAPHS"
+                            "dict"
                             if diagnostic_value is None
                             else diagnostic_value.schema_label or "VALUE"
                         ),
                         value=(
-                            ""
+                            f"{len(child_graphs_by_node.get(entry.id, ()))} items"
                             if diagnostic_value is None
                             else _display_json(diagnostic_value.json, diagnostic_value.error)
                         ),
+                        modified=(
+                            diagnostic_value.last_modified
+                            if diagnostic_value is not None
+                            and diagnostic_value.valid
+                            else None
+                        ),
                         x="+" if has_children else "º",
+                        entity_metrics=False,
                     )
                     if category_text in self.expanded:
                         category_row["X"] = "-" if has_children else "º"
                     rows[category_text] = category_row
                     if diagnostic_value is not None:
-                        target = navigation_target(diagnostic_value)
+                        category_navigation = navigation_targets(
+                            diagnostic_value)
+                        register_navigation(
+                            category_id,
+                            category_navigation,
+                            self._navigation,
+                        )
+                        if value_type is NodeValueType.Inputs:
+                            register_navigation(
+                                category_id,
+                                navigation_targets(
+                                    diagnostic_value, "bound_targets"),
+                                self._output_navigation,
+                            )
+                        target = category_navigation.get(())
                         if target is not None:
                             self._navigation[category_text] = target
                         values[category_text] = diagnostic_value.json
@@ -502,7 +713,8 @@ class _InspectorSession:
                             decoded, (dict, list)
                         ):
                             child_rows, child_values = self._value_rows(
-                                entry, category_id, decoded, target)
+                                entry, category_id, decoded,
+                                category_navigation)
                             for child_row in child_rows:
                                 rows[child_row["id"]] = child_row
                             values.update(child_values)
@@ -516,11 +728,43 @@ class _InspectorSession:
                     for graph_entry in child_graphs_by_node.get(entry.id, ()):
                         child_graph_id = graph_ids[graph_entry.id]
                         child_item = InspectorItemId(graph=child_graph_id)
-                        child_row = self._row(graph_entry, child_item)
+                        child_row = self._row(
+                            graph_entry,
+                            child_item,
+                            value=graph_entry.label,
+                            nodes=descendant_counts(graph_entry)[0],
+                            subgraphs=descendant_counts(graph_entry)[1],
+                        )
                         child_row["ord"] = graphs_id.sort_key() + "0" + child_item.sort_key()
                         if child_item.to_str() in self.expanded:
                             child_row["X"] = "-"
                         rows[child_row["id"]] = child_row
+
+        root_time = (
+            _seconds(root_entry.evaluation.total_time)
+            if root_entry is not None
+            else 0.0
+        )
+        for entry in entries:
+            identifier = self._entry_item_ids.get(entry.id)
+            row = rows.get(identifier)
+            if row is None:
+                continue
+            parent_graph = None
+            if entry.kind == GraphDiagnosticEntityKind.NODE:
+                parent_graph = by_id.get(entry.parent_id)
+            elif entry.parent_id:
+                parent_node = by_id.get(entry.parent_id)
+                if parent_node is not None:
+                    parent_graph = by_id.get(parent_node.parent_id)
+            parent_time = (
+                _seconds(parent_graph.evaluation.total_time)
+                if parent_graph is not None
+                else 0.0
+            )
+            entry_time = _seconds(entry.evaluation.total_time)
+            row["of_graph"] = entry_time / parent_time if parent_time else None
+            row["of_total"] = entry_time / root_time if root_time else None
         self._built_frames = frames
         return rows, values
 
@@ -674,7 +918,9 @@ class _InspectorSession:
         self._search_frames.clear()
         self.publish(force=True)
 
+    @_synchronized
     def publish(self, force=False):
+        publish_started = time.perf_counter()
         snapshot = self.diagnostics.snapshot()
         rows, values = self._build_rows(snapshot)
         frames = self._built_frames
@@ -729,6 +975,15 @@ class _InspectorSession:
                 None,
             )
             manager_stats = self.manager.get_stats()
+            process_time = time.process_time()
+            process_delta = max(0.0, process_time - self._last_process_time)
+            memory = self._process.memory_info() if self._process is not None else None
+
+            def manager_rate(name):
+                current = manager_stats.get(name, 0)
+                previous = self._last_manager_stats.get(name, 0)
+                return max(0, current - previous) / elapsed if elapsed else 0.0
+
             self.manager.update_table(
                 "graph_performance",
                 [
@@ -745,36 +1000,53 @@ class _InspectorSession:
                             if cycle_delta
                             else 0.0
                         ),
-                        "avg_os_cycle": None,
+                        "avg_os_cycle": (
+                            process_delta / cycle_delta if cycle_delta else 0.0
+                        ),
                         "max_cycle": (
                             _seconds(root.evaluation.max_time)
                             if root is not None
                             else 0.0
                         ),
                         "graph_time": graph_delta,
-                        "os_graph_time": None,
+                        "os_graph_time": process_delta,
                         "graph_load": graph_delta / elapsed if elapsed else 0.0,
                         "avg_lag": (
                             _seconds(snapshot.scheduling_lag_total) / samples if samples else 0.0
                         ),
                         "max_lag": _seconds(snapshot.scheduling_lag_max),
-                        "inspection_time": None,
-                        "memory": None,
-                        "virt_memory": None,
+                        "inspection_time": (
+                            (time.perf_counter() - publish_started) / graph_delta
+                            if graph_delta
+                            else 0.0
+                        ),
+                        "memory": (
+                            int(memory.rss / (1024 * 1024))
+                            if memory is not None
+                            else None
+                        ),
+                        "virt_memory": (
+                            int(memory.vms / (1024 * 1024))
+                            if memory is not None
+                            else None
+                        ),
                         "graph_memory": (
                             snapshot.planned_bytes + snapshot.dynamic_live_bytes
                         ) // (1024 * 1024),
-                        "psp_polls": manager_stats.get("polling", 0),
-                        "psp_updates": manager_stats.get("updates", 0),
-                        "psp_batches": manager_stats.get("batches", 0),
-                        "psp_rows": manager_stats.get("rows", 0),
+                        "psp_polls": manager_rate("polling"),
+                        "psp_updates": manager_rate("updates"),
+                        "psp_batches": manager_rate("batches"),
+                        "psp_rows": manager_rate("rows"),
                     }
                 ],
             )
             self._last_stats = now
             self._last_stats_cycles = snapshot.graph_cycles
             self._last_stats_graph_time = graph_total
+            self._last_process_time = process_time
+            self._last_manager_stats = dict(manager_stats)
 
+    @_synchronized
     def value_for(self, item):
         if item not in self.values:
             self.publish(force=True)
@@ -782,12 +1054,15 @@ class _InspectorSession:
             raise KeyError(f"unknown inspector item {item!r}")
         return self.values[item]
 
+    @_synchronized
     def value_ipc_for(self, item):
         raw = self.value_for(item)
         import pyarrow as pa
 
         if item in self.frames:
             value = self.frames[item]
+            if hasattr(value, "has_frame"):
+                value = value.frame
             if hasattr(value, "to_arrow"):
                 value = value.to_arrow()
             table = value if isinstance(value, pa.Table) else pa.table(value)
@@ -815,11 +1090,19 @@ class _InspectorSession:
             writer.write_table(table)
         return stream.getvalue().to_pybytes()
 
+    @_synchronized
     def command(self, command, item, query):
         command = command or "expand"
         if command in {"expand", "show"}:
-            InspectorItemId.from_str(item)
+            target = InspectorItemId.from_str(item)
             self.expanded.add(item)
+            expand_all = self._query_argument(query, "all", "false").lower()
+            if command == "expand" and expand_all in {"1", "true", "yes"}:
+                for candidate in self._expandable_ids(
+                        self.diagnostics.snapshot()):
+                    candidate_id = InspectorItemId.from_str(candidate)
+                    if candidate == item or target.is_parent_of(candidate_id):
+                        self.expanded.add(candidate)
             self.publish(force=True)
             return "", "text/plain"
         if command == "collapse":
@@ -834,7 +1117,7 @@ class _InspectorSession:
             self.publish(force=True)
             return "", "text/plain"
         if command in {"pin", "unpin"}:
-            return "OK", "text/plain"
+            return "", "text/plain"
         if command == "search":
             return self._search(item, query), "text/plain"
         if command == "applysearch":
@@ -852,7 +1135,12 @@ class _InspectorSession:
                 default=str,
             ), "application/json"
         if command in {"output", "ref", "refs"}:
-            target = self._navigation.get(item)
+            navigation = (
+                self._output_navigation
+                if command == "output"
+                else self._navigation
+            )
+            target = navigation.get(item)
             if target is None:
                 raise ValueError(f"inspector item {item!r} has no output target")
             visited = {item}
@@ -863,6 +1151,9 @@ class _InspectorSession:
                     break
                 target = next_target
             target_id = InspectorItemId.from_str(target)
+            self.expanded.update(
+                parent.to_str() for parent in target_id.parent_item_ids())
+            self.expanded.add(target)
             self.expanded.add(
                 InspectorItemId(
                     graph=target_id.graph,
@@ -873,26 +1164,50 @@ class _InspectorSession:
             self.publish(force=True)
             return target, "text/plain"
         if command == "pin_ref":
-            return "OK", "text/plain"
+            return "", "text/plain"
         raise KeyError(f"unknown inspector command {command!r}")
+
+
+class _InspectorPublisher:
+    """Publish from the root graph's lifecycle, as the released inspector does.
+
+    Keeping Perspective publication on the graph thread avoids a competing
+    Python publisher thread and preserves the executor's phase-scoped GIL
+    contract.  HTTP commands may still request an immediate owned snapshot.
+    """
+
+    def __init__(self, publish_interval: float):
+        self.publish_interval = float(publish_interval)
+        self.session = None
+        self.last_publish = 0.0
+
+    def on_after_graph_evaluation(self, graph):
+        if graph.graph_id or self.session is None:
+            return
+        now = time.monotonic()
+        if now - self.last_publish >= self.publish_interval:
+            self.session.publish()
+            self.last_publish = now
 
 
 @sink_node
 def _inspector_lifetime(
     signal: TS[bool],
     diagnostics: object,
+    publisher: object,
     port: int,
     publish_interval: float,
     state: STATE = None,
 ):
-    # The signal is deliberately one-shot. Publication is performed by the
-    # web loop and must not create graph ticks or extend graph lifetime.
+    # The signal is deliberately one-shot. Publication is driven by the root
+    # graph lifecycle observer and must not create ticks or extend graph life.
     pass
 
 
 @_inspector_lifetime.start
 def _start_inspector_lifetime(
     diagnostics: object,
+    publisher: object,
     port: int,
     publish_interval: float,
     state: STATE = None,
@@ -901,16 +1216,20 @@ def _start_inspector_lifetime(
     state.session = _InspectorSession(
         diagnostics, port, publish_interval, _global_state)
     state.session.start()
+    publisher.session = state.session
+    publisher.last_publish = time.monotonic()
 
 
 @_inspector_lifetime.stop
 def _stop_inspector_lifetime(
     diagnostics: object,
+    publisher: object,
     port: int,
     publish_interval: float,
     state: STATE = None,
 ):
     del diagnostics, port, publish_interval
+    publisher.session = None
     if getattr(state, "session", None) is not None:
         state.session.stop()
 
@@ -926,10 +1245,13 @@ def inspector(port: int = 8080, publish_interval: float = 2.5):
     if not _wiring_stack:
         raise RuntimeError("inspector() must be wired inside a graph")
     diagnostics = GraphDiagnostics(capture_values=True)
+    publisher = _InspectorPublisher(publish_interval)
     _wiring_stack[0].add_lifecycle_observer(diagnostics)
+    _wiring_stack[0].add_lifecycle_observer(publisher)
     _inspector_lifetime(
         const(True),
         diagnostics=diagnostics,
+        publisher=publisher,
         port=port,
         publish_interval=publish_interval,
     )

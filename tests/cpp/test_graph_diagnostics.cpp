@@ -105,6 +105,28 @@ namespace
         }
     };
 
+    struct DiagnosticsRefConsumer
+    {
+        static constexpr auto name = "diagnostics_ref_consumer";
+
+        static void eval(In<"value", REF<TS<Int>>> value)
+        {
+            static_cast<void>(value.value());
+        }
+    };
+
+    struct DiagnosticsRefNavigationGraph
+    {
+        static constexpr auto name = "diagnostics_ref_navigation_graph";
+
+        static void compose(Wiring &w)
+        {
+            auto value = wire<DiagnosticsRefSource>(w);
+            auto reference = wire<DiagnosticsRefPublisher>(w, value);
+            static_cast<void>(wire<DiagnosticsRefConsumer>(w, reference));
+        }
+    };
+
     struct DiagnosticsNestedRefPublisher
     {
         static constexpr auto name = "diagnostics_nested_ref_publisher";
@@ -161,6 +183,58 @@ namespace
         {
             auto value = wire<DiagnosticsPartialBundleSource>(w);
             static_cast<void>(wire<DiagnosticsBundleRefPublisher>(w, value));
+        }
+    };
+
+    struct DiagnosticsFieldRefGraph
+    {
+        static constexpr auto name = "diagnostics_field_ref_graph";
+
+        static void compose(Wiring &w)
+        {
+            auto value = wire<DiagnosticsPartialBundleSource>(w);
+            static_cast<void>(wire<DiagnosticsRefPublisher>(
+                w, Port<TS<Int>>{w, value.node(), {0}}));
+        }
+    };
+
+    using DiagnosticsNestedTableBundle =
+        TSB<"DiagnosticsNestedTableBundle",
+            Field<"data", TSD<Str, TS<Str>>>,
+            Field<"name", TS<Str>>>;
+
+    struct DiagnosticsNestedTableSource
+    {
+        static constexpr auto name = "diagnostics_nested_table_source";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<DiagnosticsNestedTableBundle> out)
+        {
+            out.field<"data">().set(Str{"k"}, Str{"z"});
+            out.field<"name">().set(Str{"z"});
+        }
+    };
+
+    struct DiagnosticsNestedTablePublisher
+    {
+        static constexpr auto name = "diagnostics_nested_table_publisher";
+
+        static void eval(
+            In<"value", REF<DiagnosticsNestedTableBundle>> value,
+            Out<TSD<Str, REF<DiagnosticsNestedTableBundle>>> out)
+        {
+            out.set(Str{"request"}, value.value());
+        }
+    };
+
+    struct DiagnosticsNestedTableGraph
+    {
+        static constexpr auto name = "diagnostics_nested_table_graph";
+
+        static void compose(Wiring &w)
+        {
+            auto value = wire<DiagnosticsNestedTableSource>(w);
+            static_cast<void>(wire<DiagnosticsNestedTablePublisher>(w, value));
         }
     };
 
@@ -416,10 +490,55 @@ TEST_CASE("diagnostics: reference values render the referenced output")
         snapshot, "diagnostics_ref_source");
     CHECK(publisher.output.available);
     CHECK(publisher.output.valid);
+    INFO(publisher.output.error);
     CHECK(publisher.output.error.empty());
     CHECK(publisher.output.json == "42");
     CHECK(publisher.output.target_node_ids ==
           std::vector<std::uint64_t>{source.id});
+    REQUIRE(publisher.output.targets.size() == 1);
+    CHECK(publisher.output.targets[0].source_path.empty());
+    CHECK(publisher.output.targets[0].node_id == source.id);
+    CHECK(publisher.output.targets[0].target_path.empty());
+    REQUIRE(publisher.output.frame.has_value());
+    CHECK(publisher.output.frame.table->ColumnNames() ==
+          std::vector<std::string>{"value"});
+    CHECK(static_cast<const arrow::Int64Array &>(
+              *publisher.output.frame.table->column(0)->chunk(0))
+              .Value(0) == 42);
+}
+
+TEST_CASE("diagnostics: REF inputs retain direct and dereferenced navigation")
+{
+    GraphDiagnostics diagnostics{GraphDiagnosticsOptions{
+        .recent_window = 4,
+        .capture_values = true,
+    }};
+
+    GraphExecutorBuilder builder;
+    builder.graph_builder(build_graph<DiagnosticsRefNavigationGraph>())
+        .add_lifecycle_observer(&diagnostics);
+    GraphExecutorValue executor = builder.make_executor();
+    executor.view().run();
+
+    const GraphDiagnosticsSnapshot snapshot = diagnostics.snapshot();
+    const GraphDiagnosticEntry &source = entry_containing(
+        snapshot, "diagnostics_ref_source");
+    const GraphDiagnosticEntry &publisher = entry_containing(
+        snapshot, "diagnostics_ref_publisher");
+    const GraphDiagnosticEntry &consumer = entry_containing(
+        snapshot, "diagnostics_ref_consumer");
+
+    REQUIRE(consumer.input.bound_targets.size() == 1);
+    CHECK(consumer.input.bound_targets[0].source_path ==
+          std::vector<std::string>{R"("value")"});
+    CHECK(consumer.input.bound_targets[0].node_id == publisher.id);
+    CHECK(consumer.input.bound_targets[0].target_path.empty());
+
+    REQUIRE(consumer.input.targets.size() == 1);
+    CHECK(consumer.input.targets[0].source_path ==
+          std::vector<std::string>{R"("value")"});
+    CHECK(consumer.input.targets[0].node_id == source.id);
+    CHECK(consumer.input.targets[0].target_path.empty());
 }
 
 TEST_CASE("diagnostics: reference values nested in containers render their targets")
@@ -446,6 +565,24 @@ TEST_CASE("diagnostics: reference values nested in containers render their targe
     CHECK(publisher.output.json == R"({"selected":42})");
     CHECK(publisher.output.target_node_ids ==
           std::vector<std::uint64_t>{source.id});
+    REQUIRE(publisher.output.targets.size() == 1);
+    CHECK(publisher.output.targets[0].source_path ==
+          std::vector<std::string>{R"("selected")"});
+    CHECK(publisher.output.targets[0].node_id == source.id);
+    CHECK(publisher.output.targets[0].target_path.empty());
+    REQUIRE(publisher.output.frame.has_value());
+    CHECK(publisher.output.frame.table->ColumnNames() ==
+          std::vector<std::string>{"__key_1_removed__", "__key_1__",
+                                   "value"});
+    CHECK_FALSE(static_cast<const arrow::BooleanArray &>(
+                    *publisher.output.frame.table->column(0)->chunk(0))
+                    .Value(0));
+    CHECK(static_cast<const arrow::StringArray &>(
+              *publisher.output.frame.table->column(1)->chunk(0))
+              .GetString(0) == "selected");
+    CHECK(static_cast<const arrow::Int64Array &>(
+              *publisher.output.frame.table->column(2)->chunk(0))
+              .Value(0) == 42);
 }
 
 TEST_CASE("diagnostics: partial composite references preserve invalid fields")
@@ -468,6 +605,45 @@ TEST_CASE("diagnostics: partial composite references preserve invalid fields")
     CHECK(publisher.output.valid);
     CHECK(publisher.output.error.empty());
     CHECK(publisher.output.json == R"({"a":42,"b":null})");
+    const auto a_target = std::ranges::find_if(
+        publisher.output.targets,
+        [](const GraphDiagnosticTarget &target) {
+            return target.source_path ==
+                   std::vector<std::string>{R"("a")"};
+        });
+    REQUIRE(a_target != publisher.output.targets.end());
+    REQUIRE(publisher.output.frame.has_value());
+    CHECK(publisher.output.frame.table->ColumnNames() ==
+          std::vector<std::string>{"a", "b"});
+    CHECK(static_cast<const arrow::Int64Array &>(
+              *publisher.output.frame.table->column(0)->chunk(0))
+              .Value(0) == 42);
+    CHECK(publisher.output.frame.table->column(1)->chunk(0)->IsNull(0));
+}
+
+TEST_CASE("diagnostics: navigation retains the referenced output child path")
+{
+    GraphDiagnostics diagnostics{GraphDiagnosticsOptions{
+        .recent_window = 4,
+        .capture_values = true,
+    }};
+
+    GraphExecutorBuilder builder;
+    builder.graph_builder(build_graph<DiagnosticsFieldRefGraph>())
+        .add_lifecycle_observer(&diagnostics);
+    GraphExecutorValue executor = builder.make_executor();
+    executor.view().run();
+
+    const GraphDiagnosticsSnapshot snapshot = diagnostics.snapshot();
+    const GraphDiagnosticEntry &publisher = entry_containing(
+        snapshot, "diagnostics_ref_publisher");
+    const GraphDiagnosticEntry &source = entry_containing(
+        snapshot, "diagnostics_partial_bundle_source");
+    REQUIRE(publisher.output.targets.size() == 1);
+    CHECK(publisher.output.targets[0].source_path.empty());
+    CHECK(publisher.output.targets[0].node_id == source.id);
+    CHECK(publisher.output.targets[0].target_path ==
+          std::vector<std::string>{R"("a")"});
 }
 
 TEST_CASE("diagnostics: frame capture retains an owned immutable table handle")
@@ -493,4 +669,50 @@ TEST_CASE("diagnostics: frame capture retains an owned immutable table handle")
     REQUIRE(source.output.frame.has_value());
     CHECK(source.output.frame.table->num_rows() == 2);
     CHECK(source.output.frame.table->num_columns() == 1);
+}
+
+TEST_CASE("diagnostics: table capture flattens nested TSDs through references")
+{
+    GraphDiagnostics diagnostics{GraphDiagnosticsOptions{
+        .recent_window = 4,
+        .capture_values = true,
+    }};
+
+    GraphExecutorBuilder builder;
+    builder.graph_builder(build_graph<DiagnosticsNestedTableGraph>())
+        .add_lifecycle_observer(&diagnostics);
+    GraphExecutorValue executor = builder.make_executor();
+    executor.view().run();
+
+    const GraphDiagnosticsSnapshot snapshot = diagnostics.snapshot();
+    const GraphDiagnosticEntry &publisher = entry_containing(
+        snapshot, "diagnostics_nested_table_publisher");
+    INFO(publisher.output.table_error);
+    REQUIRE(publisher.output.error.empty());
+    REQUIRE(publisher.output.table_error.empty());
+    REQUIRE(publisher.output.frame.has_value());
+    CHECK(publisher.output.frame.table->ColumnNames() ==
+          std::vector<std::string>{
+              "__key_1_removed__", "__key_1__",
+              "data.__key_2_removed__", "data.__key_2__", "data.value",
+              "name"});
+    REQUIRE(publisher.output.frame.table->num_rows() == 1);
+    CHECK_FALSE(static_cast<const arrow::BooleanArray &>(
+                    *publisher.output.frame.table->column(0)->chunk(0))
+                    .Value(0));
+    CHECK(static_cast<const arrow::StringArray &>(
+              *publisher.output.frame.table->column(1)->chunk(0))
+              .GetString(0) == "request");
+    CHECK_FALSE(static_cast<const arrow::BooleanArray &>(
+                    *publisher.output.frame.table->column(2)->chunk(0))
+                    .Value(0));
+    CHECK(static_cast<const arrow::StringArray &>(
+              *publisher.output.frame.table->column(3)->chunk(0))
+              .GetString(0) == "k");
+    CHECK(static_cast<const arrow::StringArray &>(
+              *publisher.output.frame.table->column(4)->chunk(0))
+              .GetString(0) == "z");
+    CHECK(static_cast<const arrow::StringArray &>(
+              *publisher.output.frame.table->column(5)->chunk(0))
+              .GetString(0) == "z");
 }

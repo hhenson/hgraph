@@ -1178,6 +1178,7 @@ struct Wiring::Impl {
   std::vector<std::function<void(Wiring &)>> pre_rank_finalizers{};
   std::shared_ptr<WiringObserverRegistry> observers{};
   std::vector<std::string> wiring_path{};
+  std::string graph_label{};
   WiringKind kind{WiringKind::TopLevel};
 };
 
@@ -1190,9 +1191,6 @@ Wiring::Wiring(WiringKind kind,
 
 WiringObservationScope::WiringObservationScope(Wiring &wiring,
                                                WiringScopeEvent event) {
-  if (!wiring.has_wiring_observers()) {
-    return;
-  }
   wiring_ = &wiring;
   event_ = wiring.begin_observation(std::move(event));
   active_ = true;
@@ -1274,7 +1272,9 @@ WiringScopeEvent Wiring::begin_observation(WiringScopeEvent event) {
   impl_->wiring_path.push_back(event.label.empty() ? "<unnamed>" : event.label);
   event.path = impl_->wiring_path;
   auto rollback_path = make_scope_exit([&] { impl_->wiring_path.pop_back(); });
-  const auto observers = impl_->observers->observers;
+  const auto observers = impl_->observers != nullptr
+                             ? impl_->observers->observers
+                             : std::vector<WiringObserver *>{};
   for (WiringObserver *observer : observers) {
     if (observer == nullptr) {
       continue;
@@ -1302,7 +1302,9 @@ void Wiring::end_observation(const WiringScopeEvent &event,
       impl_->wiring_path.pop_back();
     }
   });
-  const auto observers = impl_->observers->observers;
+  const auto observers = impl_->observers != nullptr
+                             ? impl_->observers->observers
+                             : std::vector<WiringObserver *>{};
   for (WiringObserver *observer : observers) {
     if (observer == nullptr) {
       continue;
@@ -1378,6 +1380,13 @@ void Wiring::register_pre_rank_finalizer(
 }
 
 WiringKind Wiring::kind() const noexcept { return impl_->kind; }
+
+Wiring &Wiring::label(std::string label) {
+  impl_->graph_label = std::move(label);
+  return *this;
+}
+
+std::string_view Wiring::label() const noexcept { return impl_->graph_label; }
 
 ErasedDelayedBindingWiringPort::ErasedDelayedBindingWiringPort(
     Wiring &wiring, const TSValueTypeMetaData *schema) {
@@ -1538,6 +1547,16 @@ void Wiring::set_pending_node_label(std::string expected_operator, std::string l
   impl_->pending_label = std::move(label);
 }
 
+void Wiring::apply_pending_node_label(std::string_view operator_alias,
+                                      NodeBuilder &builder) {
+  if (!impl_->pending_label.empty() &&
+      operator_alias == impl_->expected_label_operator) {
+    builder.label(impl_->pending_label);
+    impl_->pending_label.clear();
+    impl_->expected_label_operator.clear();
+  }
+}
+
 void Wiring::clear_pending_node_label() noexcept {
   impl_->pending_label.clear();
   impl_->expected_label_operator.clear();
@@ -1550,11 +1569,10 @@ WiringPortRef Wiring::add_node(std::type_index def, NodeBuilder builder,
   // event so wiring-trace sees the label too.
   if (!impl_->pending_label.empty()) {
     const auto *node_type = builder.type().schema();
-    if (node_type != nullptr &&
-        node_type->name() == impl_->expected_label_operator) {
-      if (builder.label().empty()) {
-        builder.label(impl_->pending_label);
-      }
+    if ((node_type != nullptr &&
+         node_type->name() == impl_->expected_label_operator) ||
+        builder.label() == impl_->expected_label_operator) {
+      builder.label(impl_->pending_label);
       impl_->pending_label.clear();
       impl_->expected_label_operator.clear();
     }
@@ -2308,6 +2326,20 @@ WiringPortRef Wiring::add_node(std::type_index def,
 
     NodeBuilder builder = make_builder(); // intern miss: only now pay for (and
                                           // register) the builder
+    // Deferred builders must consume the same one-shot diagnostic label as
+    // ordinary builders.  Keyed nested nodes (map_/mesh_) use this overload,
+    // so omitting it loses the enclosing user graph path even though the
+    // erased operator call supplied the correct label.
+    if (!impl_->pending_label.empty()) {
+      const auto *node_type = builder.type().schema();
+      if ((node_type != nullptr &&
+           node_type->name() == impl_->expected_label_operator) ||
+          builder.label() == impl_->expected_label_operator) {
+        builder.label(impl_->pending_label);
+        impl_->pending_label.clear();
+        impl_->expected_label_operator.clear();
+      }
+    }
     // The supplied scalar participates in wiring interning. A specialised
     // builder may carry a different runtime-only value (for example a nested
     // graph context); preserve that explicit per-instance configuration.
@@ -2494,6 +2526,9 @@ GraphBuilder Wiring::finish_top_level(bool consume_state) {
       : consume_state    ? std::move(impl_->global_state)
                          : GlobalState{impl_->global_state});
   build.graph_builder.type_realization(realization);
+  if (!impl_->graph_label.empty()) {
+    build.graph_builder.label(impl_->graph_label);
+  }
   const ValueView traits_value = impl_->traits.as_value().view();
   const auto traits_map = traits_value.as_map();
   for (const auto [key, boxed] : traits_map) {

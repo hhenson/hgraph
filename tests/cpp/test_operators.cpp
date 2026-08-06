@@ -1470,6 +1470,32 @@ TEST_CASE("wiring: a pending node label attaches to the matching operator only")
     CHECK(again_ref.peered_node()->builder.label().empty());
 }
 
+TEST_CASE("wiring: a pending node label attaches to a deferred builder")
+{
+    using namespace hgraph;
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+
+    Wiring w;
+    w.set_pending_node_label("label_probe", "app.map_");
+
+    NodeBuilder schema_builder;
+    schema_builder.implementation<label_probe_>();
+    const WiringNodeSchema schema{
+        .input = schema_builder.type().schema()->input_schema,
+        .output = schema_builder.type().schema()->output_schema,
+    };
+    struct deferred_tag {};
+    const WiringPortRef ref = w.add_node(
+        std::type_index(typeid(deferred_tag)), schema,
+        std::span<const WiringPortRef>{}, Value{}, [] {
+            NodeBuilder builder;
+            builder.implementation<label_probe_>();
+            return builder;
+        });
+
+    CHECK(ref.peered_node()->builder.label() == "app.map_");
+}
+
 TEST_CASE("operators: a typed **kwargs collector gates candidates on its pack pattern")
 {
     using namespace hgraph;

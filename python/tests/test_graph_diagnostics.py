@@ -189,7 +189,7 @@ def test_native_diagnostics_preserves_partial_composite_reference_fields():
     entry = next(
         item
         for item in diagnostics.snapshot().entries
-        if item.label.endswith(":forward")
+        if item.label.endswith((".forward", ":forward"))
     )
     assert entry.output.valid
     assert entry.output.error == ""

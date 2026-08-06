@@ -1593,6 +1593,16 @@ namespace hgraph
         return result;
     }
 
+    NodeInspectionMetrics NodeView::inspection_metrics() const noexcept
+    {
+        if (!valid()) { return {}; }
+        const NodeOps &node_ops = ops();
+        return node_ops.inspection_metrics_impl != nullptr
+                   ? node_ops.inspection_metrics_impl(
+                         node_ops.extended_view_context, data())
+                   : NodeInspectionMetrics{};
+    }
+
     void NodeView::start(DateTime evaluation_time) const { ops().start_impl(ops().context, *this, evaluation_time); }
     void NodeView::stop(DateTime evaluation_time) const { ops().stop_impl(ops().context, *this, evaluation_time); }
     bool NodeView::evaluate(DateTime evaluation_time) const

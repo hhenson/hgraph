@@ -181,8 +181,9 @@ Expand/collapse, reference navigation, scoped regular-expression search, and
 the double-click Perspective value view retain their released interactions.
 Frame values keep their immutable Arrow table handle in the owned snapshot;
 other captured values are converted from owned JSON to an Arrow stream for the
-value view. Publishing runs on the web loop: wiring the inspector does not add
-recurring graph ticks or extend a simulation's lifetime.
+value view. Publishing runs after root-graph evaluations, matching the released
+inspector's lifecycle integration: wiring the inspector does not add recurring
+graph ticks or extend a simulation's lifetime.
 
 For programmatic native diagnostics, register ``GraphDiagnostics`` before
 execution and retain that handle to read an owned snapshot after the graph has

@@ -1,0 +1,55 @@
+{
+  "sizes": [1],
+  "detail": {
+    "main": {
+      "type": "tab-area",
+      "widgets": ["PERSPECTIVE_GENERATED_ID_0"],
+      "currentIndex": 0
+    }
+  },
+  "mode": "globalFilters",
+  "viewers": {
+    "PERSPECTIVE_GENERATED_ID_0": {
+      "version": "3.8.0",
+      "plugin": "Datagrid",
+      "plugin_config": {
+        "columns": {},
+        "editable": false,
+        "scroll_lock": false
+      },
+      "columns_config": {},
+      "settings": false,
+      "theme": "Pro Dark",
+      "title": "Graph Inspector",
+      "group_by": [],
+      "split_by": [],
+      "columns": [
+        "X",
+        "name",
+        "type",
+        "value",
+        "modified",
+        "scheduled",
+        "evals",
+        "time",
+        "of_graph",
+        "of_total",
+        "value_size",
+        "size",
+        "total_value_size",
+        "total_size",
+        "subgraphs",
+        "nodes",
+        "id",
+        "ord"
+      ],
+      "filter": [],
+      "sort": [["ord", "asc"]],
+      "expressions": {},
+      "aggregates": {},
+      "master": false,
+      "table": "inspector",
+      "linked": false
+    }
+  }
+}

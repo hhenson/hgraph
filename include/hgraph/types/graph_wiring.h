@@ -870,6 +870,10 @@ namespace hgraph
         /** Whether this wiring is a root graph or an isolated child graph. */
         [[nodiscard]] WiringKind kind() const noexcept;
 
+        /** User-facing label copied to the produced graph. */
+        Wiring &label(std::string label);
+        [[nodiscard]] std::string_view label() const noexcept;
+
         /**
          * Intern a node with its input edges + scalar configuration and return its
          * output port. ``def`` is the node *definition's* stable identity
@@ -880,13 +884,22 @@ namespace hgraph
          */
         /**
          * Diagnostic label hint (issue #247): the next ``add_node`` whose
-         * builder schema is named ``expected_operator`` labels its node
-         * (unless already labeled), then the hint clears. Lets erased wire
+         * builder schema or default label names ``expected_operator`` labels
+         * its node, then the hint clears. Lets erased wire
          * paths attach user-facing identity (a python function name) without
          * threading a label through every candidate wire signature; the
          * operator-name guard keeps auxiliary nodes (const lifts) unlabeled.
          */
         void set_pending_node_label(std::string expected_operator, std::string label);
+        /** Consume a pending label using an explicit operator alias.
+         *
+         * Erased language bridges call operators by their public name while
+         * the selected native node schema names the concrete implementation.
+         * This hook labels only that bridge-directed call; ordinary native
+         * operator wiring keeps the implementation label used by observers.
+         */
+        void apply_pending_node_label(std::string_view operator_alias,
+                                      NodeBuilder &builder);
         void clear_pending_node_label() noexcept;
 
         WiringPortRef add_node(std::type_index def, NodeBuilder builder, std::span<const WiringInputRef> inputs,

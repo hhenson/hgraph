@@ -22,6 +22,16 @@ namespace hgraph
         Node,
     };
 
+    /** One owned source-to-output navigation edge captured for the inspector.
+        Path components are JSON fragments so scalar dictionary keys retain
+        their type without retaining runtime objects. */
+    struct HGRAPH_EXPORT GraphDiagnosticTarget
+    {
+        std::vector<std::string> source_path{};
+        std::uint64_t node_id{0};
+        std::vector<std::string> target_path{};
+    };
+
     /** Owned rendering of one scalar or time-series endpoint. */
     struct HGRAPH_EXPORT GraphDiagnosticValue
     {
@@ -31,6 +41,9 @@ namespace hgraph
         std::string schema_label{};
         std::string json{};
         std::string error{};
+        /** Optional failure of the tabular projection. The owned JSON value
+            remains usable when a schema has no released table form. */
+        std::string table_error{};
         /** Immutable Arrow table retained for the inspector's tabular value
             view.  This is an owned external-resource handle, never a runtime
             graph, node, or time-series pointer. */
@@ -38,6 +51,15 @@ namespace hgraph
         /** Owning diagnostic node ids for unambiguous source/reference
             navigation. Empty or multiple ids are presented without a link. */
         std::vector<std::uint64_t> target_node_ids{};
+        /** Exact source and destination paths for REF navigation, including
+            independently targeted composite fields. */
+        std::vector<GraphDiagnosticTarget> targets{};
+        /** Exact direct producer bindings for input ``output`` navigation.
+            A REF input deliberately has both a direct bound target (the REF
+            producer) and a dereferenced target above; retaining both is what
+            lets the Python inspector preserve the released distinction
+            between its ``output`` and ``ref`` commands. */
+        std::vector<GraphDiagnosticTarget> bound_targets{};
     };
 
     /** One owned graph/node record in a diagnostics snapshot. */
@@ -59,6 +81,7 @@ namespace hgraph
         DateTime scheduled_time{MIN_DT};
         NodeStorageMetrics storage{};
         NodeStorageMetrics peak_storage{};
+        NodeInspectionMetrics inspection{};
         GraphDiagnosticValue input{};
         GraphDiagnosticValue output{};
         GraphDiagnosticValue scalars{};

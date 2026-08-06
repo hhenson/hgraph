@@ -77,6 +77,8 @@ namespace hgraph
             static bool emit_next(const PushSourcePolicy &policy,
                                   void *storage,
                                   const TSOutputView &output);
+            [[nodiscard]] static std::size_t pending_items(
+                const PushSourcePolicy &policy, const void *storage) noexcept;
         };
     }
 

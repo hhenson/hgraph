@@ -23,13 +23,19 @@ def test_inspector_item_id_matches_released_spelling_and_sort_order():
     )
 
     parsed = InspectorItemId.from_str("1.2.3:4/INPUTS/5/6/7")
+    assert InspectorItemId.from_object(parsed) is parsed
     assert parsed.item_type is InspectorItemType.Value
     assert parsed.graph == (1, 2, 3)
+    assert parsed.node_path == ()
     assert parsed.node == 4
     assert parsed.value_type is NodeValueType.Inputs
     assert parsed.value_path == (5, 6, 7)
 
     InspectorItemId.__reset__()
+
+    assert hash(InspectorItemId(graph=(1,), node=2)) == hash(
+        InspectorItemId.from_str("1:2")
+    )
     string_key = InspectorItemId(
         graph=(1, 2, 3),
         node=4,
@@ -122,7 +128,7 @@ def test_inspector_retains_the_released_perspective_workspace_interactions():
     assert 'frame("/inspect/value/{{table_name}}")' in frame_template
 
 
-def test_inspector_starts_publishes_and_serves_the_released_workspace():
+def test_inspector_starts_publishes_and_serves_the_released_workspace(capsys):
     pytest.importorskip("perspective")
     import json
     import socket
@@ -153,6 +159,10 @@ def test_inspector_starts_publishes_and_serves_the_released_workspace():
     )
     session.start()
     try:
+        assert capsys.readouterr().out == (
+            f"Inspector running on "
+            f"http://{implementation.gethostname()}:{port}/inspector/view\n"
+        )
         html = urlopen(
             f"http://127.0.0.1:{port}/inspector/view", timeout=5
         ).read().decode()
@@ -209,6 +219,260 @@ def test_inspector_starts_publishes_and_serves_the_released_workspace():
         session.manager.close()
 
 
+def test_inspector_serves_packaged_workspace_assets_and_default_layout(
+        monkeypatch, tmp_path):
+    pytest.importorskip("perspective")
+    import json
+    import socket
+    from urllib.request import urlopen
+
+    import hgraph.adaptors.perspective._perspective as perspective_impl
+    import hgraph.debug._inspector as implementation
+
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+
+    node_modules = tmp_path / "node_modules"
+    for asset_name in perspective_impl._PERSPECTIVE_WEB_ASSETS:
+        asset = node_modules / asset_name
+        asset.parent.mkdir(parents=True, exist_ok=True)
+        asset.write_text(asset_name, encoding="utf-8")
+    monkeypatch.setattr(
+        perspective_impl, "_node_modules_root", lambda: node_modules)
+    monkeypatch.setattr(implementation.tempfile, "tempdir", str(tmp_path))
+
+    diagnostics = GraphDiagnostics(capture_values=True)
+    assert hg.eval_node(hg.pass_through, [1], __observers__=[diagnostics]) == [1]
+    session = implementation._InspectorSession(
+        diagnostics, port, 0.1, hg.GlobalState())
+    session.start()
+    try:
+        session.manager.start_web("127.0.0.1", port)
+        assert "connectWorkspaceTables" in urlopen(
+            f"http://127.0.0.1:{port}/workspace_code/workspace_tables.js",
+            timeout=5,
+        ).read().decode()
+        assert "installTableWorkarounds" in urlopen(
+            f"http://127.0.0.1:{port}/workspace_code/table_workarounds.js",
+            timeout=5,
+        ).read().decode()
+        for asset_name in perspective_impl._PERSPECTIVE_WEB_ASSETS:
+            assert urlopen(
+                f"http://127.0.0.1:{port}/node_modules/{asset_name}",
+                timeout=5,
+            ).read().decode() == asset_name
+        layout = json.loads(urlopen(
+            f"http://127.0.0.1:{port}/layout/view", timeout=5
+        ).read())
+        assert next(iter(layout["viewers"].values()))["table"] == "inspector"
+    finally:
+        session.manager.stop_web()
+        session.stop()
+        session.manager.close()
+
+
+def test_inspector_reuses_a_port_without_serving_the_stopped_session():
+    pytest.importorskip("perspective")
+    import json
+    import socket
+    from urllib.request import urlopen
+
+    import hgraph.debug._inspector as implementation
+
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+
+    def diagnostics_for(value):
+        diagnostics = GraphDiagnostics(capture_values=True)
+        assert hg.eval_node(
+            hg.pass_through, [value], __observers__=[diagnostics]
+        ) == [value]
+        return diagnostics
+
+    def served_values():
+        rows = json.loads(urlopen(
+            f"http://127.0.0.1:{port}/inspect/rows/", timeout=5
+        ).read())
+        return {row["value"] for row in rows}
+
+    first = implementation._InspectorSession(
+        diagnostics_for(11), port, 0.1, hg.GlobalState())
+    first.start()
+    try:
+        assert "11" in served_values()
+    finally:
+        first.stop()
+        first.manager.close()
+
+    second = implementation._InspectorSession(
+        diagnostics_for(29), port, 0.1, hg.GlobalState())
+    second.start()
+    try:
+        values = served_values()
+        assert "29" in values
+        assert "11" not in values
+    finally:
+        second.stop()
+        second.manager.close()
+
+
+def test_inspector_serves_and_expands_the_graph_while_it_is_running():
+    pytest.importorskip("perspective")
+    import json
+    import socket
+    import threading
+    import time
+    from datetime import timedelta
+    from urllib.error import URLError
+    from urllib.parse import quote
+    from urllib.request import urlopen
+
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+
+    stop_requested = threading.Event()
+    feeders = []
+
+    @hg.push_queue(hg.TS[int])
+    def live_values(sender):
+        def feed():
+            sender(1)
+
+        feeder = threading.Thread(target=feed, daemon=True)
+        feeders.append(feeder)
+        feeder.start()
+
+    @hg.push_queue(hg.TS[bool])
+    def stop_signal(sender):
+        def feed():
+            if stop_requested.wait(timeout=10.0):
+                sender(True)
+
+        feeder = threading.Thread(target=feed, daemon=True)
+        feeders.append(feeder)
+        feeder.start()
+
+    @hg.sink_node
+    def capture(value: hg.TS[int], label: str):
+        del value, label
+
+    @hg.graph
+    def app():
+        inspector(port=port, publish_interval=0.05)
+        ticks = hg.count(live_values())
+        values = hg.convert[hg.TSD[int, hg.TS[int]]](
+            key=ticks, ts=ticks)
+        hg.map_(lambda value: value * 2, values)
+        capture(ticks, label="live")
+        hg.stop_engine(stop_signal())
+
+    failures = []
+
+    def run():
+        try:
+            hg.run_graph(
+                app,
+                run_mode=hg.EvaluationMode.REAL_TIME,
+                end_time=timedelta(seconds=10),
+            )
+        except BaseException as error:
+            failures.append(error)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    rows = None
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline and thread.is_alive():
+        try:
+            rows = json.loads(urlopen(
+                f"http://127.0.0.1:{port}/inspect/rows/", timeout=1
+            ).read())
+            if rows:
+                break
+        except (URLError, TimeoutError, json.JSONDecodeError):
+            time.sleep(0.02)
+
+    try:
+        assert rows, failures
+        def expand(identifier):
+            assert urlopen(
+                f"http://127.0.0.1:{port}/inspect/expand/"
+                f"{quote(identifier, safe=':.-')}",
+                timeout=2,
+            ).status == 200
+            return json.loads(urlopen(
+                f"http://127.0.0.1:{port}/inspect/rows/", timeout=2
+            ).read())
+
+        def children_of(all_rows, identifier):
+            return {
+                row["name"].strip("\u00a0 ")
+                for row in all_rows
+                if row["id"].startswith(identifier + "/")
+                and row["id"].count("/") == 1
+            }
+
+        map_id = next(row["id"] for row in rows if row["type"] == "MAP")
+        map_row = next(row for row in rows if row["id"] == map_id)
+        assert map_row["name"].strip("\u00a0 ") == "app.map_"
+        expanded = expand(map_id)
+        assert children_of(expanded, map_id) == {"INPUTS", "OUTPUT", "GRAPHS"}
+        assert all(
+            row["evals"] is None and row["nodes"] is None
+            for row in expanded
+            if row["id"].startswith(map_id + "/")
+            and row["id"].count("/") == 1
+        )
+
+        graphs_id = map_id + "/GRAPHS"
+        graphs_row = next(row for row in expanded if row["id"] == graphs_id)
+        assert graphs_row["type"] == "dict"
+        assert graphs_row["value"] == "1 items"
+        nested = expand(graphs_id)
+        nested_graph = next(
+            row
+            for row in nested
+            if row["type"] == "GRAPH"
+            and row["ord"].startswith(
+                next(item["ord"] for item in expanded if item["id"] == graphs_id) + "0")
+        )
+        assert nested_graph["nodes"] > 0
+        assert map_row["nodes"] == nested_graph["nodes"]
+        assert map_row["subgraphs"] == 1
+
+        push_id = next(
+            row["id"] for row in rows if row["type"] == "PUSH_SOURCE")
+        assert next(
+            row for row in rows if row["id"] == push_id
+        )["name"].strip("\u00a0 ") == "app.live_values"
+        assert next(
+            row for row in rows if row["id"] == push_id
+        )["value"].endswith(" items in the queue")
+        assert children_of(expand(push_id), push_id) == {"OUTPUT"}
+
+        sink_id = next(
+            row["id"]
+            for row in rows
+            if row["type"] == "SINK" and "capture" in row["name"])
+        assert next(
+            row for row in rows if row["id"] == sink_id
+        )["name"].strip("\u00a0 ") == "app.capture"
+        assert children_of(expand(sink_id), sink_id) == {"INPUTS", "SCALARS"}
+    finally:
+        stop_requested.set()
+        for feeder in feeders:
+            feeder.join(timeout=2.0)
+        thread.join(timeout=5.0)
+    assert not thread.is_alive()
+    assert not failures
+
+
 def test_inspector_value_endpoint_preserves_native_frame_columns_and_rows():
     pa = pytest.importorskip("pyarrow")
     import hgraph.debug._inspector as implementation
@@ -223,6 +487,7 @@ def test_inspector_value_endpoint_preserves_native_frame_columns_and_rows():
     )[0].equals(table)
 
     session = object.__new__(implementation._InspectorSession)
+    session._lock = implementation.threading.RLock()
     session.expanded = {""}
     session._navigation = {}
     session._entry_item_ids = {}
@@ -237,6 +502,66 @@ def test_inspector_value_endpoint_preserves_native_frame_columns_and_rows():
         session.value_ipc_for(item)
     ).read_all()
     assert restored.equals(table)
+
+
+def test_inspector_value_endpoint_preserves_released_tsd_table_shape():
+    pytest.importorskip("pyarrow")
+
+    diagnostics = GraphDiagnostics(capture_values=True)
+
+    @hg.graph
+    def app(values: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
+        return values
+
+    assert hg.eval_node(
+        app,
+        [{"a": 1}],
+        __observers__=[diagnostics],
+    ) == [{"a": 1}]
+
+    entry = next(
+        item
+        for item in diagnostics.snapshot().entries
+        if item.output.has_frame
+        and item.output.frame.column_names
+        == ["__key_1_removed__", "__key_1__", "value"]
+    )
+    assert entry.output.table_error == ""
+    assert entry.output.frame.to_pylist() == [
+        {"__key_1_removed__": False, "__key_1__": "a", "value": 1}
+    ]
+
+
+def test_inspector_value_endpoint_preserves_released_partial_ref_bundle_shape():
+    pytest.importorskip("pyarrow")
+
+    class AB(hg.TimeSeriesSchema):
+        a: hg.TS[int]
+        b: hg.TS[str]
+
+    @hg.compute_node
+    def pass_ref(value: hg.REF[hg.TSB[AB]]) -> hg.REF[hg.TSB[AB]]:
+        return value.value
+
+    @hg.graph
+    def partial_ref_bundle(value: hg.TS[int]) -> hg.REF[hg.TSB[AB]]:
+        return pass_ref(hg.combine[hg.TSB[AB]](a=value))
+
+    diagnostics = GraphDiagnostics(capture_values=True)
+    assert hg.eval_node(
+        partial_ref_bundle,
+        [1],
+        __observers__=[diagnostics],
+    ) == [{"a": 1}]
+
+    entry = next(
+        item
+        for item in diagnostics.snapshot().entries
+        if item.label.endswith((".pass_ref", ":pass_ref"))
+    )
+    assert entry.output.table_error == ""
+    assert entry.output.frame.column_names == ["a", "b"]
+    assert entry.output.frame.to_pylist() == [{"a": 1, "b": None}]
 
 
 def test_inspector_uses_released_dynamic_nested_graph_id_shape():
@@ -340,6 +665,111 @@ def test_inspector_maps_owned_reference_metadata_to_output_navigation():
     assert session._navigation[node_ids[forward_entry.id].to_str()] == expected
 
 
+def test_inspector_distinguishes_direct_output_from_reference_navigation():
+    import hgraph.debug._inspector as implementation
+
+    @hg.compute_node
+    def forward(value: hg.REF[hg.TS[int]]) -> hg.REF[hg.TS[int]]:
+        return value.value
+
+    @hg.graph
+    def twice(value: hg.TS[int]) -> hg.REF[hg.TS[int]]:
+        return forward(forward(value))
+
+    diagnostics = GraphDiagnostics(capture_values=True)
+    assert hg.eval_node(twice, [42], __observers__=[diagnostics]) == [42]
+
+    snapshot = diagnostics.snapshot()
+    _, _, node_ids = implementation._InspectorSession._graph_layout(
+        snapshot.entries)
+    forwards = sorted(
+        (
+            entry for entry in snapshot.entries
+            if entry.label.endswith(".forward")
+            or entry.label.endswith(":forward")
+        ),
+        key=lambda entry: entry.node_index,
+    )
+    assert len(forwards) == 2
+    first, second = forwards
+    assert second.input.json == '{"value":42}'
+    assert len(second.input.targets) == 1
+    assert tuple(second.input.bound_targets[0].source_path) == ('"value"',)
+    assert tuple(second.input.targets[0].source_path) == ('"value"',)
+    assert second.input.table_error == ""
+    assert second.input.frame.column_names == ["value"]
+    assert second.input.bound_targets[0].node_id == first.id
+    assert second.input.targets[0].node_id != first.id
+
+    second_id = node_ids[second.id]
+    input_id = InspectorItemId(
+        graph=second_id.graph,
+        node=second_id.node,
+        value_type=NodeValueType.Inputs,
+        value_path=("value",),
+    ).to_str()
+    session = object.__new__(implementation._InspectorSession)
+    session.expanded = {"", second_id.to_str()}
+    session._frame_cache = {}
+    session._build_rows(snapshot)
+
+    assert input_id in session._output_navigation
+    direct = session._output_navigation[input_id]
+    assert input_id in session._navigation, session._navigation
+    referenced = session._navigation[input_id]
+    assert direct == InspectorItemId(
+        graph=node_ids[first.id].graph,
+        node=node_ids[first.id].node,
+        value_type=NodeValueType.Output,
+    ).to_str()
+    assert referenced != direct
+
+
+def test_inspector_maps_reference_fields_to_their_exact_output_paths():
+    import hgraph.debug._inspector as implementation
+
+    class AB(hg.TimeSeriesSchema):
+        a: hg.TS[int]
+        b: hg.TS[int]
+
+    @hg.compute_node
+    def pass_ref(value: hg.REF[hg.TS[int]]) -> hg.REF[hg.TS[int]]:
+        return value.value
+
+    @hg.graph
+    def select_a(value: hg.TSB[AB]) -> hg.REF[hg.TS[int]]:
+        return pass_ref(value.a)
+
+    diagnostics = GraphDiagnostics(capture_values=True)
+    assert hg.eval_node(
+        select_a,
+        [{"a": 1, "b": 2}],
+        __observers__=[diagnostics],
+    ) == [1]
+
+    snapshot = diagnostics.snapshot()
+    _, _, node_ids = implementation._InspectorSession._graph_layout(
+        snapshot.entries)
+    entry = next(
+        item for item in snapshot.entries
+        if item.label.endswith((".pass_ref", ":pass_ref"))
+    )
+    assert len(entry.output.targets) == 1
+    target = entry.output.targets[0]
+    source = node_ids[target.node_id]
+    expected = InspectorItemId(
+        graph=source.graph,
+        node=source.node,
+        value_type=NodeValueType.Output,
+        value_path=("a",),
+    ).to_str()
+
+    session = object.__new__(implementation._InspectorSession)
+    session.expanded = {""}
+    session._build_rows(snapshot)
+    assert session._navigation[node_ids[entry.id].to_str()] == expected
+
+
 def test_inspector_publishes_released_node_categories_from_owned_snapshot():
     import hgraph.debug._inspector as implementation
 
@@ -371,10 +801,48 @@ def test_inspector_publishes_released_node_categories_from_owned_snapshot():
     rows, _ = session._build_rows(snapshot)
 
     children = {
-        row["name"]
+        row["name"].strip("\u00a0 ")
         for identifier, row in rows.items()
         if identifier.startswith(map_id.to_str() + "/")
         and identifier.count("/") == 1
     }
     assert children == {"INPUTS", "OUTPUT", "GRAPHS"}
     assert any(row["type"] == "GRAPH" for row in rows.values())
+
+
+def test_inspector_recursive_expand_opens_all_descendants():
+    import threading
+    import hgraph.debug._inspector as implementation
+
+    diagnostics = GraphDiagnostics(capture_values=True)
+
+    @hg.graph
+    def app(values: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
+        return hg.map_("add_", values, hg.const(1, tp=hg.TS[int]))
+
+    assert hg.eval_node(
+        app, [{"a": 1}], __observers__=[diagnostics]
+    ) == [{"a": 2}]
+
+    snapshot = diagnostics.snapshot()
+    _, _, node_ids = implementation._InspectorSession._graph_layout(
+        snapshot.entries)
+    map_entry = next(entry for entry in snapshot.entries if "map" in entry.label)
+    map_id = node_ids[map_entry.id]
+
+    session = object.__new__(implementation._InspectorSession)
+    session._lock = threading.RLock()
+    session.diagnostics = diagnostics
+    session.expanded = {""}
+    session.publish = lambda force=False: None
+    assert session.command(
+        "expand", map_id.to_str(), {"all": ["true"]}
+    ) == ("", "text/plain")
+
+    descendants = {
+        identifier
+        for identifier in implementation._InspectorSession._expandable_ids(snapshot)
+        if map_id.is_parent_of(InspectorItemId.from_str(identifier))
+    }
+    assert descendants
+    assert descendants <= session.expanded

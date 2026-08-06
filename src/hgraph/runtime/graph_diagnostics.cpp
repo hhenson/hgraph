@@ -4,10 +4,15 @@
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node.h>
+#include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/series.h>
 #include <hgraph/types/time_series_reference.h>
 #include <hgraph/types/value/json_codec.h>
+#include <hgraph/types/value/table_codec.h>
 #include <hgraph/types/value/visitor.h>
+
+#include <arrow/api.h>
 
 #include <algorithm>
 #include <array>
@@ -66,7 +71,491 @@ namespace hgraph
             return schema == nullptr ? std::string{} : std::string{schema->name()};
         }
 
+        /**
+         * Inspector table snapshots deliberately live in the native
+         * diagnostics layer.  The released Python inspector's value endpoint
+         * flattens compound scalars, TSBs, TSD partition keys and references
+         * into an Arrow table.  Recreating that shape from JSON in the Python
+         * presentation loses type information (notably TSD removal/key
+         * columns), so GraphDiagnostics owns the typed conversion while the
+         * endpoint is still live and retains only the immutable Frame.
+         */
+        struct DiagnosticTableColumn
+        {
+            std::string name{};
+            const ValueTypeMetaData *meta{nullptr};
+        };
+
+        using DiagnosticTableRow = std::vector<Value>;
+
+        [[nodiscard]] ValueView reborrow(const ValueView &value)
+        {
+            return value.valid() ? ValueView{value.binding(), value.data()}
+                                 : ValueView{};
+        }
+
+        struct DiagnosticValueTablePlan
+        {
+            enum class Kind : std::uint8_t
+            {
+                Leaf,
+                Bundle,
+                Tuple,
+            };
+
+            Kind kind{Kind::Leaf};
+            bool stringify{false};
+            std::vector<DiagnosticTableColumn> columns{};
+            std::vector<DiagnosticValueTablePlan> children{};
+
+            void append(const ValueView &value, DiagnosticTableRow &row) const
+            {
+                if (kind == Kind::Leaf)
+                {
+                    if (!value.has_value()) { row.emplace_back(); }
+                    else if (stringify)
+                    {
+                        row.emplace_back(Str{value.to_string()});
+                    }
+                    else { row.emplace_back(value); }
+                    return;
+                }
+
+                for (std::size_t index = 0; index < children.size(); ++index)
+                {
+                    ValueView child;
+                    if (value.has_value())
+                    {
+                        const ValueView &field = kind == Kind::Bundle
+                                                     ? value.as_bundle().at(index)
+                                                     : value.as_tuple().at(index);
+                        child = reborrow(field);
+                    }
+                    children[index].append(child, row);
+                }
+            }
+        };
+
+        [[nodiscard]] DiagnosticValueTablePlan diagnostic_value_table_plan(
+            const ValueTypeMetaData *meta, std::string prefix = {})
+        {
+            if (meta == nullptr)
+            {
+                throw std::invalid_argument(
+                    "diagnostic table: value schema is null");
+            }
+
+            const bool bundle = meta->value_kind() == ValueTypeKind::Bundle;
+            const bool tuple = meta->value_kind() == ValueTypeKind::Tuple &&
+                               meta->field_count != 0;
+            if (!bundle && !tuple)
+            {
+                const bool released_arrow_type =
+                    meta == TypeRegistry::instance().value_type("bool") ||
+                    meta == TypeRegistry::instance().value_type("int") ||
+                    meta == TypeRegistry::instance().value_type("float") ||
+                    meta == TypeRegistry::instance().value_type("str") ||
+                    meta == TypeRegistry::instance().value_type("date") ||
+                    meta == TypeRegistry::instance().value_type("datetime") ||
+                    meta == TypeRegistry::instance().value_type("timedelta") ||
+                    meta == TypeRegistry::instance().value_type("time");
+                return DiagnosticValueTablePlan{
+                    .kind = DiagnosticValueTablePlan::Kind::Leaf,
+                    .stringify = !released_arrow_type,
+                    .columns = {{prefix.empty() ? "value" : std::move(prefix),
+                                 released_arrow_type
+                                     ? meta
+                                     : TypeRegistry::instance().value_type("str")}},
+                };
+            }
+
+            DiagnosticValueTablePlan result{
+                .kind = bundle ? DiagnosticValueTablePlan::Kind::Bundle
+                               : DiagnosticValueTablePlan::Kind::Tuple,
+            };
+            result.children.reserve(meta->field_count);
+            for (std::size_t index = 0; index < meta->field_count; ++index)
+            {
+                const auto &field = meta->fields[index];
+                const std::string component =
+                    bundle && field.name != nullptr ? std::string{field.name}
+                                                    : std::to_string(index);
+                auto child = diagnostic_value_table_plan(
+                    field.type, prefix.empty() ? component
+                                               : prefix + "." + component);
+                result.columns.insert(result.columns.end(),
+                                      child.columns.begin(),
+                                      child.columns.end());
+                result.children.push_back(std::move(child));
+            }
+            return result;
+        }
+
+        struct DiagnosticTsTablePlan
+        {
+            enum class Kind : std::uint8_t
+            {
+                Value,
+                Bundle,
+                Dict,
+                Frame,
+            };
+
+            struct Field
+            {
+                std::string name{};
+                std::shared_ptr<const DiagnosticTsTablePlan> plan{};
+            };
+
+            Kind kind{Kind::Value};
+            const TSValueTypeMetaData *schema{nullptr};
+            DiagnosticValueTablePlan value_plan{};
+            DiagnosticValueTablePlan key_plan{};
+            std::shared_ptr<const DiagnosticTsTablePlan> element{};
+            std::vector<Field> fields{};
+            std::vector<DiagnosticTableColumn> columns{};
+            std::optional<std::size_t> dynamic_field{};
+
+            [[nodiscard]] bool multi_row() const noexcept
+            {
+                return kind == Kind::Dict || kind == Kind::Frame ||
+                       dynamic_field.has_value();
+            }
+
+            [[nodiscard]] std::vector<DiagnosticTableRow> render(
+                const ValueView &value) const
+            {
+                switch (kind)
+                {
+                    case Kind::Value:
+                    {
+                        DiagnosticTableRow row;
+                        row.reserve(columns.size());
+                        value_plan.append(value, row);
+                        return {std::move(row)};
+                    }
+                    case Kind::Frame:
+                    {
+                        if (!value.has_value()) { return {}; }
+                        const Frame &frame = value.checked_as<Frame>();
+                        if (!frame.has_value()) { return {}; }
+                        std::vector<DiagnosticTableRow> rows;
+                        rows.reserve(static_cast<std::size_t>(frame_rows(frame)));
+                        for (std::int64_t row_index = 0;
+                             row_index < frame_rows(frame); ++row_index)
+                        {
+                            DiagnosticTableRow row;
+                            row.reserve(columns.size());
+                            for (const auto &column : columns)
+                            {
+                                row.push_back(frame_cell(
+                                    frame, column.name, column.meta, row_index));
+                            }
+                            rows.push_back(std::move(row));
+                        }
+                        return rows;
+                    }
+                    case Kind::Bundle:
+                    {
+                        std::vector<std::vector<DiagnosticTableRow>> field_rows;
+                        field_rows.reserve(fields.size());
+                        for (std::size_t index = 0; index < fields.size(); ++index)
+                        {
+                            ValueView child;
+                            if (value.has_value())
+                            {
+                                child = reborrow(value.as_bundle().at(index));
+                            }
+                            auto rows = fields[index].plan->render(child);
+                            if (rows.empty()) { return {}; }
+                            field_rows.push_back(std::move(rows));
+                        }
+
+                        const std::size_t row_count = dynamic_field.has_value()
+                                                          ? field_rows[*dynamic_field].size()
+                                                          : 1;
+                        std::vector<DiagnosticTableRow> rows;
+                        rows.reserve(row_count);
+                        for (std::size_t row_index = 0; row_index < row_count;
+                             ++row_index)
+                        {
+                            DiagnosticTableRow row;
+                            row.reserve(columns.size());
+                            for (std::size_t field_index = 0;
+                                 field_index < field_rows.size(); ++field_index)
+                            {
+                                const auto &source =
+                                    field_rows[field_index][
+                                        dynamic_field == field_index ? row_index : 0];
+                                for (const Value &cell : source)
+                                {
+                                    row.push_back(cell.has_value()
+                                                      ? Value{cell.view()}
+                                                      : Value{});
+                                }
+                            }
+                            rows.push_back(std::move(row));
+                        }
+                        return rows;
+                    }
+                    case Kind::Dict:
+                    {
+                        if (!value.has_value()) { return {}; }
+                        std::vector<DiagnosticTableRow> rows;
+                        for (const auto [key, child] : value.as_map())
+                        {
+                            auto child_rows = element->render(child);
+                            for (auto &child_row : child_rows)
+                            {
+                                DiagnosticTableRow row;
+                                row.reserve(columns.size());
+                                row.emplace_back(Bool{false});
+                                key_plan.append(key, row);
+                                for (Value &cell : child_row)
+                                {
+                                    row.push_back(cell.has_value()
+                                                      ? Value{cell.view()}
+                                                      : Value{});
+                                }
+                                rows.push_back(std::move(row));
+                            }
+                        }
+                        return rows;
+                    }
+                }
+                std::terminate();
+            }
+        };
+
+        struct DiagnosticTableProjection
+        {
+            std::shared_ptr<const DiagnosticTsTablePlan> plan{};
+            ValueTypeRef row_binding{nullptr};
+            const JsonConverter *json_converter{nullptr};
+            const TableConverter *table_converter{nullptr};
+        };
+
+        struct DiagnosticTableProjectionResult
+        {
+            std::shared_ptr<const DiagnosticTableProjection> projection{};
+            std::string error{};
+        };
+
+        using DiagnosticTableProjectionCache =
+            std::unordered_map<const TSValueTypeMetaData *,
+                               DiagnosticTableProjectionResult>;
+
+        [[nodiscard]] std::shared_ptr<const DiagnosticTsTablePlan>
+        diagnostic_ts_table_plan(const TSValueTypeMetaData *schema,
+                                 std::size_t partition_depth = 0)
+        {
+            if (schema == nullptr)
+            {
+                throw std::invalid_argument(
+                    "diagnostic table: time-series schema is null");
+            }
+            schema = TypeRegistry::instance().dereference(schema);
+
+            if (schema->kind == TSTypeKind::TSD)
+            {
+                const std::size_t level = partition_depth + 1;
+                auto key_plan = diagnostic_value_table_plan(schema->key_type());
+                auto element = diagnostic_ts_table_plan(schema->element_ts(), level);
+                auto result = std::make_shared<DiagnosticTsTablePlan>();
+                result->kind = DiagnosticTsTablePlan::Kind::Dict;
+                result->schema = schema;
+                result->key_plan = std::move(key_plan);
+                result->element = std::move(element);
+                result->columns.push_back({
+                    "__key_" + std::to_string(level) + "_removed__",
+                    TypeRegistry::instance().value_type("bool"),
+                });
+                for (std::size_t index = 0;
+                     index < result->key_plan.columns.size(); ++index)
+                {
+                    auto column = result->key_plan.columns[index];
+                    column.name = result->key_plan.columns.size() == 1 &&
+                                          column.name == "value"
+                                      ? "__key_" + std::to_string(level) + "__"
+                                      : "__key_" + std::to_string(level) + "_" +
+                                            column.name + "__";
+                    result->columns.push_back(std::move(column));
+                }
+                result->columns.insert(result->columns.end(),
+                                       result->element->columns.begin(),
+                                       result->element->columns.end());
+                return result;
+            }
+
+            if (schema->kind == TSTypeKind::TSB)
+            {
+                auto result = std::make_shared<DiagnosticTsTablePlan>();
+                result->kind = DiagnosticTsTablePlan::Kind::Bundle;
+                result->schema = schema;
+                result->fields.reserve(schema->field_count());
+                for (std::size_t index = 0; index < schema->field_count(); ++index)
+                {
+                    const char *raw_name = schema->fields()[index].name;
+                    const std::string name = raw_name == nullptr
+                                                 ? std::to_string(index)
+                                                 : std::string{raw_name};
+                    auto child = diagnostic_ts_table_plan(
+                        schema->fields()[index].type, partition_depth);
+                    if (child->multi_row())
+                    {
+                        if (result->dynamic_field.has_value())
+                        {
+                            throw std::invalid_argument(
+                                "diagnostic table: cannot flatten a TSB with "
+                                "multiple partitioned or multi-row fields");
+                        }
+                        result->dynamic_field = index;
+                    }
+                    for (auto column : child->columns)
+                    {
+                        column.name = child->columns.size() == 1
+                                          ? name
+                                          : name + "." + column.name;
+                        result->columns.push_back(std::move(column));
+                    }
+                    result->fields.push_back({name, std::move(child)});
+                }
+                return result;
+            }
+
+            if (schema->kind == TSTypeKind::TS &&
+                TypeRegistry::instance().is_frame(schema->value_schema))
+            {
+                auto result = std::make_shared<DiagnosticTsTablePlan>();
+                result->kind = DiagnosticTsTablePlan::Kind::Frame;
+                result->schema = schema;
+                const auto *row_meta = schema->value_schema->element_type;
+                if (row_meta == nullptr)
+                {
+                    throw std::invalid_argument(
+                        "diagnostic table: an untyped nested Frame has no "
+                        "declared columns");
+                }
+                for (const auto &column : table_converter(row_meta).columns)
+                {
+                    result->columns.push_back(
+                        {column.name, column.leaf_meta});
+                }
+                return result;
+            }
+
+            auto result = std::make_shared<DiagnosticTsTablePlan>();
+            result->kind = DiagnosticTsTablePlan::Kind::Value;
+            result->schema = schema;
+            result->value_plan =
+                diagnostic_value_table_plan(schema->value_schema);
+            result->columns = result->value_plan.columns;
+            return result;
+        }
+
+        [[nodiscard]] std::shared_ptr<const DiagnosticTableProjection>
+        diagnostic_table_projection(const TSValueTypeMetaData *schema)
+        {
+            schema = TypeRegistry::instance().dereference(schema);
+            auto projection = std::make_shared<DiagnosticTableProjection>();
+            projection->plan = diagnostic_ts_table_plan(schema);
+            projection->json_converter =
+                &hgraph::json_converter(schema->value_schema);
+
+            if (projection->plan->kind == DiagnosticTsTablePlan::Kind::Frame)
+            {
+                return projection;
+            }
+
+            std::vector<std::pair<std::string, const ValueTypeMetaData *>>
+                row_fields;
+            row_fields.reserve(projection->plan->columns.size());
+            for (const auto &column : projection->plan->columns)
+            {
+                row_fields.emplace_back(column.name, column.meta);
+            }
+            const auto *row_meta =
+                TypeRegistry::instance().un_named_bundle(row_fields);
+            projection->row_binding =
+                ValuePlanFactory::instance().type_for(row_meta);
+            if (projection->row_binding == nullptr)
+            {
+                throw std::logic_error(
+                    "diagnostic table: row schema has no value binding");
+            }
+            projection->table_converter = &hgraph::table_converter(row_meta);
+            return projection;
+        }
+
+        [[nodiscard]] const DiagnosticTableProjectionResult &
+        cached_diagnostic_table_projection(
+            DiagnosticTableProjectionCache &cache,
+            const TSValueTypeMetaData *schema)
+        {
+            schema = TypeRegistry::instance().dereference(schema);
+            if (const auto found = cache.find(schema); found != cache.end())
+            {
+                return found->second;
+            }
+
+            DiagnosticTableProjectionResult result;
+            try
+            {
+                result.projection = diagnostic_table_projection(schema);
+            }
+            catch (const std::exception &error)
+            {
+                result.error = error.what();
+            }
+            catch (...)
+            {
+                result.error = "unknown conversion-plan failure";
+            }
+            return cache.emplace(schema, std::move(result)).first->second;
+        }
+
+        [[nodiscard]] Frame diagnostic_table_frame(
+            const DiagnosticTableProjection &projection,
+            const ValueView &value)
+        {
+            const DiagnosticTsTablePlan &plan = *projection.plan;
+            if (plan.kind == DiagnosticTsTablePlan::Kind::Frame &&
+                value.has_value())
+            {
+                return value.checked_as<Frame>();
+            }
+
+            const auto rows = plan.render(value);
+            if (projection.row_binding == nullptr ||
+                projection.table_converter == nullptr)
+            {
+                throw std::logic_error(
+                    "diagnostic table: projection is incomplete");
+            }
+
+            std::vector<Value> row_values;
+            row_values.reserve(rows.size());
+            for (const auto &cells : rows)
+            {
+                Value row{projection.row_binding};
+                auto root = row.view();
+                auto mutation = root.as_bundle().begin_mutation();
+                for (std::size_t index = 0; index < cells.size(); ++index)
+                {
+                    if (cells[index].has_value())
+                    {
+                        mutation.at(index).copy_from(cells[index].view());
+                    }
+                }
+                row_values.push_back(std::move(row));
+            }
+
+            return frame_from_values(*projection.table_converter, row_values);
+        }
+
         using TargetResolver = std::uint64_t (*)(void *, const TSOutputView &);
+
+        void append_json_string(std::string &target, std::string_view value);
 
         [[nodiscard]] std::uint64_t resolve_target_node(
             void *context, const TSOutputView &output)
@@ -79,17 +568,239 @@ namespace hgraph
             return found == entities.end() ? 0 : found->second;
         }
 
+        [[nodiscard]] std::vector<std::string> diagnostic_output_path(
+            const TSOutputView &output)
+        {
+            std::vector<std::string> result;
+            const NodeView owner = output.owner_node();
+            if (!owner.valid()) { return result; }
+
+            const std::vector<std::size_t> path =
+                output.data_view().path_from_root();
+            TSOutputView current = owner.output(output.evaluation_time());
+            result.reserve(path.size());
+            for (const std::size_t child_id : path)
+            {
+                const auto *schema =
+                    TypeRegistry::instance().dereference(current.schema());
+                if (schema == nullptr)
+                {
+                    result.push_back(std::to_string(child_id));
+                    break;
+                }
+                if (schema->kind == TSTypeKind::TSB)
+                {
+                    if (child_id >= schema->field_count()) { break; }
+                    std::string component;
+                    const char *name = schema->fields()[child_id].name;
+                    append_json_string(component, name == nullptr ? "" : name);
+                    result.push_back(std::move(component));
+                    auto bundle = current.as_bundle();
+                    current = bundle.at(child_id);
+                }
+                else if (schema->kind == TSTypeKind::TSL)
+                {
+                    result.push_back(std::to_string(child_id));
+                    auto list = current.as_list();
+                    current = list.at(child_id);
+                }
+                else if (schema->kind == TSTypeKind::TSD)
+                {
+                    auto dictionary = current.as_dict();
+                    if (child_id >= dictionary.slot_capacity() ||
+                        !dictionary.slot_occupied(child_id))
+                    {
+                        break;
+                    }
+                    result.push_back(
+                        to_json_string(dictionary.key_at_slot(child_id)));
+                    current = dictionary.at_slot(child_id);
+                }
+                else
+                {
+                    // Preserve a resolvable best-effort path for fixed indexed
+                    // endpoint shapes not represented by TSB/TSL/TSD.
+                    result.push_back(std::to_string(child_id));
+                    current = current.indexed_child_at(child_id);
+                }
+            }
+            return result;
+        }
+
         void record_target(GraphDiagnosticValue *capture,
                            TargetResolver resolver, void *resolver_context,
-                           const TSOutputView &output)
+                           const TSOutputView &output,
+                           const std::vector<std::string> &source_path)
         {
             if (capture == nullptr || resolver == nullptr) { return; }
             const std::uint64_t id = resolver(resolver_context, output);
-            if (id != 0 &&
-                std::ranges::find(capture->target_node_ids, id) ==
-                    capture->target_node_ids.end())
+            if (id == 0) { return; }
+            if (std::ranges::find(capture->target_node_ids, id) ==
+                capture->target_node_ids.end())
             {
                 capture->target_node_ids.push_back(id);
+            }
+            GraphDiagnosticTarget target{
+                .source_path = source_path,
+                .node_id = id,
+                .target_path = diagnostic_output_path(output),
+            };
+            const auto duplicate = std::ranges::find_if(
+                capture->targets,
+                [&](const GraphDiagnosticTarget &candidate) {
+                    return candidate.source_path == target.source_path &&
+                           candidate.node_id == target.node_id &&
+                           candidate.target_path == target.target_path;
+                });
+            if (duplicate == capture->targets.end())
+            {
+                capture->targets.push_back(std::move(target));
+            }
+        }
+
+        void record_target_tree(GraphDiagnosticValue *capture,
+                                TargetResolver resolver,
+                                void *resolver_context,
+                                const TSOutputView &output,
+                                const std::vector<std::string> &source_path,
+                                std::size_t depth = 0)
+        {
+            record_target(capture, resolver, resolver_context, output,
+                          source_path);
+            if (depth >= 32) { return; }
+            const auto *schema =
+                TypeRegistry::instance().dereference(output.schema());
+            if (schema == nullptr) { return; }
+
+            if (schema->kind == TSTypeKind::TSB)
+            {
+                auto bundle = output.as_bundle();
+                for (std::size_t index = 0; index < schema->field_count(); ++index)
+                {
+                    auto child_path = source_path;
+                    std::string component;
+                    const char *name = schema->fields()[index].name;
+                    append_json_string(component, name == nullptr ? "" : name);
+                    child_path.push_back(std::move(component));
+                    record_target_tree(capture, resolver, resolver_context,
+                                       bundle.at(index), child_path,
+                                       depth + 1);
+                }
+            }
+            else if (schema->kind == TSTypeKind::TSL)
+            {
+                auto list = output.as_list();
+                for (std::size_t index = 0; index < list.size(); ++index)
+                {
+                    auto child_path = source_path;
+                    child_path.push_back(std::to_string(index));
+                    record_target_tree(capture, resolver, resolver_context,
+                                       list.at(index), child_path,
+                                       depth + 1);
+                }
+            }
+            else if (schema->kind == TSTypeKind::TSD)
+            {
+                auto dictionary = output.as_dict();
+                for (std::size_t slot = 0; slot < dictionary.slot_capacity();
+                     ++slot)
+                {
+                    if (!dictionary.slot_occupied(slot)) { continue; }
+                    const std::string key_text =
+                        to_json_string(dictionary.key_at_slot(slot));
+                    auto child_path = source_path;
+                    if (!key_text.empty() && key_text.front() == '"')
+                    {
+                        child_path.push_back(key_text);
+                    }
+                    else
+                    {
+                        std::string component;
+                        append_json_string(component, key_text);
+                        child_path.push_back(std::move(component));
+                    }
+                    record_target_tree(capture, resolver, resolver_context,
+                                       dictionary.at_slot(slot), child_path,
+                                       depth + 1);
+                }
+            }
+        }
+
+        void capture_bound_targets(
+            std::vector<GraphDiagnosticTarget> &targets,
+            TargetResolver resolver,
+            void *resolver_context,
+            const TSInputView &input,
+            const std::vector<std::string> &source_path = {},
+            std::size_t depth = 0)
+        {
+            if (resolver == nullptr || depth >= 32) { return; }
+            if (input.is_bindable())
+            {
+                const TSOutputView output = input.bound_output();
+                if (!output.bound()) { return; }
+                GraphDiagnosticValue capture;
+                capture.targets = std::move(targets);
+                record_target_tree(&capture, resolver, resolver_context,
+                                   output, source_path);
+                targets = std::move(capture.targets);
+                return;
+            }
+
+            const auto *schema =
+                TypeRegistry::instance().dereference(input.schema());
+            if (schema == nullptr) { return; }
+            if (schema->kind == TSTypeKind::TSB)
+            {
+                auto bundle = input.as_bundle();
+                for (std::size_t index = 0; index < bundle.size(); ++index)
+                {
+                    auto child_path = source_path;
+                    std::string component;
+                    const char *name = schema->fields()[index].name;
+                    append_json_string(component, name == nullptr ? "" : name);
+                    child_path.push_back(std::move(component));
+                    capture_bound_targets(
+                        targets, resolver, resolver_context, bundle.at(index),
+                        child_path, depth + 1);
+                }
+            }
+            else if (schema->kind == TSTypeKind::TSL)
+            {
+                auto list = input.as_list();
+                for (std::size_t index = 0; index < list.size(); ++index)
+                {
+                    auto child_path = source_path;
+                    child_path.push_back(std::to_string(index));
+                    capture_bound_targets(
+                        targets, resolver, resolver_context, list.at(index),
+                        child_path, depth + 1);
+                }
+            }
+            else if (schema->kind == TSTypeKind::TSD)
+            {
+                auto dictionary = input.as_dict();
+                for (std::size_t slot = 0; slot < dictionary.slot_capacity();
+                     ++slot)
+                {
+                    if (!dictionary.slot_occupied(slot)) { continue; }
+                    auto child_path = source_path;
+                    const std::string key_text =
+                        to_json_string(dictionary.key_at_slot(slot));
+                    if (!key_text.empty() && key_text.front() == '"')
+                    {
+                        child_path.push_back(key_text);
+                    }
+                    else
+                    {
+                        std::string component;
+                        append_json_string(component, key_text);
+                        child_path.push_back(std::move(component));
+                    }
+                    capture_bound_targets(
+                        targets, resolver, resolver_context,
+                        dictionary.at_slot(slot), child_path, depth + 1);
+                }
             }
         }
 
@@ -125,6 +836,7 @@ namespace hgraph
                                     const ValueView &value,
                                     DateTime evaluation_time,
                                     std::size_t depth,
+                                    const std::vector<std::string> &source_path,
                                     GraphDiagnosticValue *capture,
                                     TargetResolver resolver,
                                     void *resolver_context);
@@ -133,6 +845,7 @@ namespace hgraph
                                    const TimeSeriesReference &reference,
                                    DateTime evaluation_time,
                                    std::size_t depth,
+                                   const std::vector<std::string> &source_path,
                                    GraphDiagnosticValue *capture,
                                    TargetResolver resolver,
                                    void *resolver_context)
@@ -149,12 +862,13 @@ namespace hgraph
             if (reference.is_peered())
             {
                 TSOutputView output = reference.target_output().view(evaluation_time);
-                record_target(capture, resolver, resolver_context, output);
+                record_target_tree(capture, resolver, resolver_context, output,
+                                   source_path);
                 if (output.valid())
                 {
                     const ValueView value = output.value();
                     append_diagnostic_json(target, value, evaluation_time,
-                                           depth + 1, capture, resolver,
+                                           depth + 1, source_path, capture, resolver,
                                            resolver_context);
                 }
                 else { target += "null"; }
@@ -176,8 +890,17 @@ namespace hgraph
                     append_json_string(target, name == nullptr ? "" : name);
                     target.push_back(':');
                 }
+                auto child_path = source_path;
+                if (named)
+                {
+                    const char *name = schema->data.tsb.fields[index].name;
+                    std::string component;
+                    append_json_string(component, name == nullptr ? "" : name);
+                    child_path.push_back(std::move(component));
+                }
+                else { child_path.push_back(std::to_string(index)); }
                 append_reference_json(target, items[index], evaluation_time,
-                                      depth + 1, capture, resolver,
+                                      depth + 1, child_path, capture, resolver,
                                       resolver_context);
             }
             target.push_back(named ? '}' : ']');
@@ -188,6 +911,7 @@ namespace hgraph
                                   const IndexedView &view,
                                   DateTime evaluation_time,
                                   std::size_t depth,
+                                  const std::vector<std::string> &source_path,
                                   GraphDiagnosticValue *capture,
                                   TargetResolver resolver,
                                   void *resolver_context)
@@ -197,8 +921,10 @@ namespace hgraph
             {
                 if (index != 0) { target.push_back(','); }
                 const ValueView child = view.at(index);
+                auto child_path = source_path;
+                child_path.push_back(std::to_string(index));
                 append_diagnostic_json(target, child, evaluation_time,
-                                       depth + 1, capture, resolver,
+                                       depth + 1, child_path, capture, resolver,
                                        resolver_context);
             }
             target.push_back(']');
@@ -208,6 +934,7 @@ namespace hgraph
                                     const ValueView &value,
                                     DateTime evaluation_time,
                                     std::size_t depth,
+                                    const std::vector<std::string> &source_path,
                                     GraphDiagnosticValue *capture,
                                     TargetResolver resolver,
                                     void *resolver_context)
@@ -236,7 +963,7 @@ namespace hgraph
                         append_reference_json(
                             target,
                             atomic.checked_as<TimeSeriesReference>(),
-                            evaluation_time, depth + 1, capture, resolver,
+                            evaluation_time, depth + 1, source_path, capture, resolver,
                             resolver_context);
                     }
                     else if (atomic.holds_alternative<Frame>())
@@ -255,7 +982,7 @@ namespace hgraph
                 },
                 [&](TupleView tuple) {
                     append_sequence_json(target, tuple, evaluation_time,
-                                         depth, capture, resolver,
+                                         depth, source_path, capture, resolver,
                                          resolver_context);
                 },
                 [&](BundleView bundle) {
@@ -272,15 +999,25 @@ namespace hgraph
                             append_json_string(target, name == nullptr ? "" : name);
                             target.push_back(':');
                         }
+                        auto child_path = source_path;
+                        if (named)
+                        {
+                            const char *name = bundle.schema()->fields[index].name;
+                            std::string component;
+                            append_json_string(component,
+                                               name == nullptr ? "" : name);
+                            child_path.push_back(std::move(component));
+                        }
+                        else { child_path.push_back(std::to_string(index)); }
                         append_diagnostic_json(target, child, evaluation_time,
-                                               depth + 1, capture, resolver,
+                                               depth + 1, child_path, capture, resolver,
                                                resolver_context);
                     }
                     target.push_back(named ? '}' : ']');
                 },
                 [&](ListView list) {
                     append_sequence_json(target, list, evaluation_time,
-                                         depth, capture, resolver,
+                                         depth, source_path, capture, resolver,
                                          resolver_context);
                 },
                 [&](SetView set) {
@@ -289,9 +1026,11 @@ namespace hgraph
                     for (const ValueView element : set)
                     {
                         if (!std::exchange(first, false)) { target.push_back(','); }
+                        auto child_path = source_path;
+                        child_path.push_back(to_json_string(element));
                         append_diagnostic_json(target, element,
                                                evaluation_time, depth + 1,
-                                               capture, resolver,
+                                               child_path, capture, resolver,
                                                resolver_context);
                     }
                     target.push_back(']');
@@ -309,21 +1048,32 @@ namespace hgraph
                         }
                         else { append_json_string(target, key_text); }
                         target.push_back(':');
+                        auto child_path = source_path;
+                        if (!key_text.empty() && key_text.front() == '"')
+                        {
+                            child_path.push_back(key_text);
+                        }
+                        else
+                        {
+                            std::string component;
+                            append_json_string(component, key_text);
+                            child_path.push_back(std::move(component));
+                        }
                         append_diagnostic_json(target, child,
                                                evaluation_time, depth + 1,
-                                               capture, resolver,
+                                               child_path, capture, resolver,
                                                resolver_context);
                     }
                     target.push_back('}');
                 },
                 [&](CyclicBufferView buffer) {
                     append_sequence_json(target, buffer, evaluation_time,
-                                         depth, capture, resolver,
+                                         depth, source_path, capture, resolver,
                                          resolver_context);
                 },
                 [&](QueueView queue) {
                     append_sequence_json(target, queue, evaluation_time,
-                                         depth, capture, resolver,
+                                         depth, source_path, capture, resolver,
                                          resolver_context);
                 });
         }
@@ -335,8 +1085,10 @@ namespace hgraph
                                                    void *resolver_context)
         {
             std::string target;
+            const std::vector<std::string> source_path;
             append_diagnostic_json(target, value, evaluation_time, 0,
-                                   capture, resolver, resolver_context);
+                                   source_path, capture, resolver,
+                                   resolver_context);
             return target;
         }
 
@@ -345,32 +1097,51 @@ namespace hgraph
                                        DateTime evaluation_time,
                                        TargetResolver resolver,
                                        void *resolver_context,
-                                       std::size_t depth = 0)
+                                       std::size_t depth = 0,
+                                       const std::vector<std::string> &source_path = {})
         {
             if (depth >= 32 || reference.is_empty()) { return; }
             if (reference.is_peered())
             {
                 TSOutputView output = reference.target_output().view(evaluation_time);
-                record_target(&target, resolver, resolver_context, output);
+                record_target_tree(&target, resolver, resolver_context, output,
+                                   source_path);
                 return;
             }
-            for (const TimeSeriesReference &child : reference.items())
+            const auto &items = reference.items();
+            const TSValueTypeMetaData *schema = reference.target_schema();
+            const bool named = schema != nullptr &&
+                               schema->kind == TSTypeKind::TSB &&
+                               schema->data.tsb.field_count == items.size();
+            for (std::size_t index = 0; index < items.size(); ++index)
             {
-                capture_reference_targets(target, child, evaluation_time,
+                auto child_path = source_path;
+                if (named)
+                {
+                    const char *name = schema->data.tsb.fields[index].name;
+                    std::string component;
+                    append_json_string(component, name == nullptr ? "" : name);
+                    child_path.push_back(std::move(component));
+                }
+                else { child_path.push_back(std::to_string(index)); }
+                capture_reference_targets(target, items[index], evaluation_time,
                                           resolver, resolver_context,
-                                          depth + 1);
+                                          depth + 1, child_path);
             }
         }
 
         void capture_value(GraphDiagnosticValue &target, ValueView value,
                            bool valid, DateTime last_modified,
                            DateTime evaluation_time,
+                           const TSValueTypeMetaData *ts_schema,
+                           DiagnosticTableProjectionCache &table_projections,
                            TargetResolver resolver,
                            void *resolver_context)
         {
             target.valid = valid;
             target.last_modified = last_modified;
             target.error.clear();
+            target.table_error.clear();
             target.frame = {};
             if (const std::string label = value_schema_label(value); !label.empty())
             {
@@ -385,6 +1156,42 @@ namespace hgraph
                 }
                 target.json = diagnostic_json(value, evaluation_time, &target,
                                               resolver, resolver_context);
+                if (!target.frame.has_value() && ts_schema != nullptr)
+                {
+                    try
+                    {
+                        const auto &projection_result =
+                            cached_diagnostic_table_projection(
+                                table_projections, ts_schema);
+                        if (projection_result.projection == nullptr)
+                        {
+                            throw std::logic_error(projection_result.error);
+                        }
+                        const auto &projection = *projection_result.projection;
+                        Value materialized;
+                        if (!target.json.empty() && target.json != "null")
+                        {
+                            materialized = from_json_string(
+                                *projection.json_converter, target.json);
+                        }
+                        target.frame = diagnostic_table_frame(
+                            projection, materialized.view());
+                    }
+                    catch (const std::exception &error)
+                    {
+                        // JSON remains the universally available owned view.
+                        // A schema that has no released tabular form simply
+                        // omits the optional Frame instead of making the row
+                        // itself unavailable.
+                        target.frame = {};
+                        target.table_error = error.what();
+                    }
+                    catch (...)
+                    {
+                        target.frame = {};
+                        target.table_error = "unknown conversion failure";
+                    }
+                }
             }
             catch (const std::exception &error)
             {
@@ -398,8 +1205,165 @@ namespace hgraph
             }
         }
 
+        [[nodiscard]] std::vector<std::string> python_input_names(
+            const NodeView &node)
+        {
+            std::vector<std::string> result;
+            auto scalars = node.scalars().try_as_bundle();
+            if (!scalars.has_value() || !scalars->has_field("config"))
+            {
+                return result;
+            }
+            const auto *config = scalars->at("config").try_as<Str>();
+            if (config == nullptr) { return result; }
+            const auto separator = config->find(';');
+            if (separator == std::string::npos) { return result; }
+            std::string_view names{*config};
+            names.remove_prefix(separator + 1);
+            while (!names.empty())
+            {
+                const auto comma = names.find(',');
+                result.emplace_back(names.substr(0, comma));
+                if (comma == std::string_view::npos) { break; }
+                names.remove_prefix(comma + 1);
+            }
+            return result;
+        }
+
+        [[nodiscard]] bool capture_python_input(
+            GraphDiagnosticValue &target,
+            const TSInputView &input,
+            const std::vector<std::string> &names,
+            DateTime evaluation_time,
+            DiagnosticTableProjectionCache &table_projections,
+            TargetResolver resolver,
+            void *resolver_context)
+        {
+            auto root = input.as_bundle();
+            if (!root.has_field("args")) { return false; }
+            TSInputView packed = root.at("args");
+            auto args = packed.as_bundle();
+            if (args.empty() && names.empty())
+            {
+                target.available = false;
+                target.valid = false;
+                target.json.clear();
+                target.error.clear();
+                target.table_error.clear();
+                target.frame = {};
+                return true;
+            }
+            if (names.empty()) { return false; }
+            if (args.size() != names.size()) { return false; }
+
+            target.valid = packed.valid();
+            target.last_modified = packed.last_modified_time();
+            target.error.clear();
+            target.table_error.clear();
+            target.frame = {};
+            target.schema_label = std::string{packed.schema()->name()};
+            target.json.clear();
+            target.json.push_back('{');
+            std::string internal_json{"{"};
+            for (std::size_t index = 0; index < names.size(); ++index)
+            {
+                if (index != 0)
+                {
+                    target.json.push_back(',');
+                    internal_json.push_back(',');
+                }
+                append_json_string(target.json, names[index]);
+                target.json.push_back(':');
+                const char *internal_name =
+                    packed.schema()->fields()[index].name;
+                append_json_string(
+                    internal_json,
+                    internal_name == nullptr ? "" : internal_name);
+                internal_json.push_back(':');
+                TSInputView child = args.at(index);
+                std::vector<std::string> source_path;
+                std::string path_component;
+                append_json_string(path_component, names[index]);
+                source_path.push_back(std::move(path_component));
+                capture_bound_targets(
+                    target.bound_targets, resolver, resolver_context, child,
+                    source_path);
+                capture_reference_targets(
+                    target, child.reference(), evaluation_time, resolver,
+                    resolver_context, 0, source_path);
+                std::string child_json;
+                append_diagnostic_json(
+                    child_json, child.value(), evaluation_time, 0,
+                    source_path, nullptr, nullptr, nullptr);
+                target.json += child_json;
+                internal_json += child_json;
+            }
+            target.json.push_back('}');
+            internal_json.push_back('}');
+
+            try
+            {
+                const auto &projection_result =
+                    cached_diagnostic_table_projection(
+                        table_projections, packed.schema());
+                if (projection_result.projection == nullptr)
+                {
+                    throw std::logic_error(projection_result.error);
+                }
+                const auto &projection = *projection_result.projection;
+                Value materialized = from_json_string(
+                    *projection.json_converter, internal_json);
+                target.frame = diagnostic_table_frame(
+                    projection, materialized.view());
+            }
+            catch (const std::exception &error)
+            {
+                target.frame = {};
+                target.table_error = error.what();
+            }
+            catch (...)
+            {
+                target.frame = {};
+                target.table_error = "unknown conversion failure";
+            }
+            if (!target.frame.has_value()) { return true; }
+
+            std::vector<std::string> columns =
+                target.frame.table->ColumnNames();
+            for (std::string &column : columns)
+            {
+                for (std::size_t index = 0; index < names.size(); ++index)
+                {
+                    const std::string internal = "_" + std::to_string(index);
+                    if (column == internal)
+                    {
+                        column = names[index];
+                        break;
+                    }
+                    const std::string prefix = internal + ".";
+                    if (column.starts_with(prefix))
+                    {
+                        column = names[index] + column.substr(internal.size());
+                        break;
+                    }
+                }
+            }
+            auto renamed = target.frame.table->RenameColumns(columns);
+            if (renamed.ok())
+            {
+                target.frame = Frame{*renamed};
+            }
+            else
+            {
+                target.frame = {};
+                target.table_error = renamed.status().ToString();
+            }
+            return true;
+        }
+
         void capture_node_values(GraphDiagnosticEntry &entry,
                                  const NodeView &node,
+                                 DiagnosticTableProjectionCache &table_projections,
                                  TargetResolver resolver,
                                  void *resolver_context)
         {
@@ -410,12 +1374,27 @@ namespace hgraph
                 {
                     TSInputView input = node.input(evaluation_time);
                     entry.input.target_node_ids.clear();
-                    capture_reference_targets(
-                        entry.input, input.reference(), evaluation_time,
-                        resolver, resolver_context);
-                    capture_value(entry.input, input.value(), input.valid(),
-                                  input.last_modified_time(), evaluation_time,
-                                  resolver, resolver_context);
+                    entry.input.targets.clear();
+                    entry.input.bound_targets.clear();
+                    const bool projected =
+                        entry.implementation_label.starts_with("hgraph.python.") &&
+                        capture_python_input(
+                            entry.input, input, python_input_names(node),
+                            evaluation_time, table_projections, resolver,
+                            resolver_context);
+                    if (!projected)
+                    {
+                        capture_bound_targets(
+                            entry.input.bound_targets, resolver,
+                            resolver_context, input);
+                        capture_reference_targets(
+                            entry.input, input.reference(), evaluation_time,
+                            resolver, resolver_context);
+                        capture_value(
+                            entry.input, input.value(), input.valid(),
+                            input.last_modified_time(), evaluation_time,
+                            input.schema(), table_projections, nullptr, nullptr);
+                    }
                 }
                 catch (const std::exception &error)
                 {
@@ -432,8 +1411,12 @@ namespace hgraph
                 {
                     TSOutputView output = node.output(evaluation_time);
                     entry.output.target_node_ids.clear();
+                    entry.output.targets.clear();
+                    entry.output.bound_targets.clear();
                     capture_value(entry.output, output.value(), output.valid(),
                                   output.last_modified_time(), evaluation_time,
+                                  output.schema(),
+                                  table_projections,
                                   resolver, resolver_context);
                 }
                 catch (const std::exception &error)
@@ -450,11 +1433,52 @@ namespace hgraph
                 try
                 {
                     ValueView scalars = node.scalars();
-                    const bool valid = scalars.valid();
                     entry.scalars.target_node_ids.clear();
-                    capture_value(entry.scalars, std::move(scalars), valid,
-                                  MIN_DT, evaluation_time, resolver,
-                                  resolver_context);
+                    entry.scalars.targets.clear();
+                    entry.scalars.bound_targets.clear();
+                    // Python node representations carry bridge callables and
+                    // lifecycle configuration alongside the user-authored
+                    // scalar arguments.  Released inspector SCALARS exposes
+                    // only that nested user scalar bundle; bridge machinery
+                    // is neither user API nor JSON-renderable graph data.
+                    if (entry.implementation_label.starts_with("hgraph.python."))
+                    {
+                        auto bundle = scalars.try_as_bundle();
+                        if (bundle.has_value() && bundle->has_field("scalars"))
+                        {
+                            ValueView user_scalars = bundle->at("scalars");
+                            if (auto user_bundle = user_scalars.try_as_bundle();
+                                user_bundle.has_value() && user_bundle->size() == 0)
+                            {
+                                entry.scalars.available = false;
+                                entry.scalars.valid = false;
+                                entry.scalars.json.clear();
+                                entry.scalars.error.clear();
+                                entry.scalars.table_error.clear();
+                                entry.scalars.frame = {};
+                                return;
+                            }
+                            const auto *scalar_schema = user_scalars.schema();
+                            capture_value(
+                                entry.scalars, std::move(user_scalars),
+                                scalar_schema != nullptr, MIN_DT, evaluation_time,
+                                scalar_schema != nullptr
+                                    ? TypeRegistry::instance().ts(scalar_schema)
+                                    : nullptr,
+                                table_projections, resolver, resolver_context);
+                            return;
+                        }
+                    }
+
+                    const bool valid = scalars.valid();
+                    const auto *scalar_schema = scalars.schema();
+                    capture_value(
+                        entry.scalars, std::move(scalars), valid, MIN_DT,
+                        evaluation_time,
+                        scalar_schema != nullptr
+                            ? TypeRegistry::instance().ts(scalar_schema)
+                            : nullptr,
+                        table_projections, resolver, resolver_context);
                 }
                 catch (const std::exception &error)
                 {
@@ -500,6 +1524,7 @@ namespace hgraph
         std::map<std::uint64_t, EntryState> entries{};
         std::unordered_map<const void *, std::uint64_t> graph_entities{};
         std::unordered_map<const void *, std::uint64_t> node_entities{};
+        DiagnosticTableProjectionCache table_projections{};
         std::uint64_t next_id{1};
         std::optional<DiagnosticsTime> wall_started{};
         std::optional<DiagnosticsTime> root_evaluation_started{};
@@ -752,6 +1777,7 @@ namespace hgraph
         state_->entries.clear();
         state_->graph_entities.clear();
         state_->node_entities.clear();
+        state_->table_projections.clear();
         state_->next_id = 1;
         state_->wall_started.reset();
         state_->root_evaluation_started.reset();
@@ -854,6 +1880,7 @@ namespace hgraph
             .started = node.started(),
             .evaluation_time = node.graph().evaluation_time(),
             .scheduled_time = node.graph().node_scheduled_time(node.node_index()),
+            .inspection = node.inspection_metrics(),
             .input = GraphDiagnosticValue{
                 .available = node.has_input(),
                 .schema_label = node.has_input()
@@ -889,10 +1916,12 @@ namespace hgraph
         {
             end_phase(*entry, DiagnosticsPhase::Start, false, options_.recent_window);
             entry->snapshot.started = true;
+            entry->snapshot.inspection = node.inspection_metrics();
             update_totals(*state_, *entry, node.storage_metrics());
             if (options_.capture_values)
             {
                 capture_node_values(entry->snapshot, node,
+                                    state_->table_projections,
                                     resolve_target_node,
                                     &state_->node_entities);
             }
@@ -974,10 +2003,12 @@ namespace hgraph
             entry->snapshot.evaluation_time = node.graph().evaluation_time();
             entry->snapshot.scheduled_time =
                 node.graph().node_scheduled_time(node.node_index());
+            entry->snapshot.inspection = node.inspection_metrics();
             update_totals(*state_, *entry, node.storage_metrics());
             if (options_.capture_values)
             {
                 capture_node_values(entry->snapshot, node,
+                                    state_->table_projections,
                                     resolve_target_node,
                                     &state_->node_entities);
             }
@@ -995,10 +2026,12 @@ namespace hgraph
         std::scoped_lock lock{state_->mutex};
         if (auto *entry = find_entry(*state_, state_->node_entities, node.data()))
         {
+            entry->snapshot.inspection = node.inspection_metrics();
             update_totals(*state_, *entry, node.storage_metrics());
             if (options_.capture_values)
             {
                 capture_node_values(entry->snapshot, node,
+                                    state_->table_projections,
                                     resolve_target_node,
                                     &state_->node_entities);
             }
@@ -1015,6 +2048,7 @@ namespace hgraph
             entry->snapshot.started = false;
             entry->snapshot.stopped = true;
             entry->snapshot.scheduled_time = MIN_DT;
+            entry->snapshot.inspection = node.inspection_metrics();
             clear_dynamic_totals(*state_, *entry);
         }
         state_->node_entities.erase(node.data());

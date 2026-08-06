@@ -839,6 +839,12 @@ namespace hgraph::python_bridge
         .def_ro("nested_graph_blocks", &NodeStorageMetrics::nested_graph_blocks)
         .def_ro("dynamic_live_bytes", &NodeStorageMetrics::dynamic_live_bytes)
         .def_ro("dynamic_reserved_bytes", &NodeStorageMetrics::dynamic_reserved_bytes);
+    nb::class_<NodeInspectionMetrics>(m, "NodeInspectionMetrics")
+        .def_ro("pending_items", &NodeInspectionMetrics::pending_items);
+    nb::class_<GraphDiagnosticTarget>(m, "GraphDiagnosticTarget")
+        .def_ro("source_path", &GraphDiagnosticTarget::source_path)
+        .def_ro("node_id", &GraphDiagnosticTarget::node_id)
+        .def_ro("target_path", &GraphDiagnosticTarget::target_path);
     nb::class_<GraphDiagnosticValue>(m, "GraphDiagnosticValue")
         .def_ro("available", &GraphDiagnosticValue::available)
         .def_ro("valid", &GraphDiagnosticValue::valid)
@@ -846,6 +852,7 @@ namespace hgraph::python_bridge
         .def_ro("schema_label", &GraphDiagnosticValue::schema_label)
         .def_ro("json", &GraphDiagnosticValue::json)
         .def_ro("error", &GraphDiagnosticValue::error)
+        .def_ro("table_error", &GraphDiagnosticValue::table_error)
         .def_prop_ro("has_frame", [](const GraphDiagnosticValue &value) {
             return value.frame.has_value();
         })
@@ -854,7 +861,9 @@ namespace hgraph::python_bridge
                        ? frame_to_py(value.frame)
                        : nb::none();
         })
-        .def_ro("target_node_ids", &GraphDiagnosticValue::target_node_ids);
+        .def_ro("target_node_ids", &GraphDiagnosticValue::target_node_ids)
+        .def_ro("targets", &GraphDiagnosticValue::targets)
+        .def_ro("bound_targets", &GraphDiagnosticValue::bound_targets);
     nb::class_<GraphDiagnosticEntry>(m, "GraphDiagnosticEntry")
         .def_ro("id", &GraphDiagnosticEntry::id)
         .def_ro("parent_id", &GraphDiagnosticEntry::parent_id)
@@ -872,6 +881,7 @@ namespace hgraph::python_bridge
         .def_ro("scheduled_time", &GraphDiagnosticEntry::scheduled_time)
         .def_ro("storage", &GraphDiagnosticEntry::storage)
         .def_ro("peak_storage", &GraphDiagnosticEntry::peak_storage)
+        .def_ro("inspection", &GraphDiagnosticEntry::inspection)
         .def_ro("input", &GraphDiagnosticEntry::input)
         .def_ro("output", &GraphDiagnosticEntry::output)
         .def_ro("scalars", &GraphDiagnosticEntry::scalars)
@@ -1177,7 +1187,7 @@ namespace hgraph::python_bridge
              nb::arg("snapshot") = false,
              nb::arg("_on_prepared") = nb::none())
         .def("push_source", &PyWiring::push_source, nb::arg("ts_type"), nb::arg("conflate") = false,
-             nb::arg("on_start") = nb::none());
+             nb::arg("on_start") = nb::none(), nb::arg("node_label") = nb::none());
 
     m.def(
         "component",

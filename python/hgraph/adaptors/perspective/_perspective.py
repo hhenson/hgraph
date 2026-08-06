@@ -12,6 +12,7 @@ import inspect
 import json
 import logging
 import os
+import subprocess
 import tempfile
 import threading
 from collections import defaultdict
@@ -35,6 +36,55 @@ __all__ = (
 )
 
 logger = logging.getLogger(__name__)
+
+
+_PERSPECTIVE_WEB_ASSETS = (
+    "@finos/perspective/dist/cdn/perspective.js",
+    "@finos/perspective-viewer/dist/cdn/perspective-viewer.js",
+    "@finos/perspective-viewer/dist/css/themes.css",
+    "@finos/perspective-workspace/dist/cdn/perspective-workspace.js",
+    "@finos/perspective-workspace/dist/css/pro-dark.css",
+    "@finos/perspective-viewer-datagrid/dist/cdn/perspective-viewer-datagrid.js",
+    "@finos/perspective-viewer-d3fc/dist/cdn/perspective-viewer-d3fc.js",
+    "perspective-viewer-datagrid-norollups/dist/cdn/perspective-viewer-datagrid-norollups.js",
+    "perspective-viewer-summary/dist/cdn/perspective-viewer-summary.js",
+)
+
+
+def _node_modules_root():
+    """Locate the released Perspective web-component installation."""
+    candidates = []
+    configured = os.environ.get("HGRAPH_NODE_MODULES")
+    if configured:
+        candidates.append(Path(configured))
+    candidates.append(Path.cwd() / "node_modules")
+    try:
+        result = subprocess.run(
+            ["npm", "root", "-g"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        if result.stdout.strip():
+            candidates.append(Path(result.stdout.strip()))
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+
+    for candidate in candidates:
+        if all((candidate / asset).is_file() for asset in _PERSPECTIVE_WEB_ASSETS):
+            return candidate.resolve()
+    raise RuntimeError(
+        "Perspective web assets were not found; install the @finos/perspective, "
+        "@finos/perspective-viewer, @finos/perspective-workspace, and "
+        "the viewer plugin npm packages used by hgraph, or set "
+        "HGRAPH_NODE_MODULES to their node_modules directory"
+    )
+
+
+class _NoCacheStaticFileHandler(tornado.web.StaticFileHandler):
+    def set_extra_headers(self, path):
+        del path
+        self.set_header("Cache-Control", "no-cache")
 
 
 def _sequence(value):
@@ -101,6 +151,8 @@ class PerspectiveTablesManager:
         self._system_tables_started = False
         self._web = None
         self._web_configured = False
+        self._layouts_path = None
+        self._default_layouts = {}
         self._lock = threading.RLock()
 
         self._load_view_configs()
@@ -423,6 +475,33 @@ class PerspectiveTablesManager:
     def get_stats(self):
         return self._stats
 
+    def register_default_layout(self, name, contents):
+        """Install a packaged layout only when the user has no saved copy."""
+        if not name or Path(name).name != name:
+            raise ValueError("Perspective layout name must be one path component")
+        payload = contents.encode() if isinstance(contents, str) else bytes(contents)
+        with self._lock:
+            self._default_layouts[name] = payload
+            if self._layouts_path is not None:
+                target = self._layouts_path / f"{name}.json"
+                if not target.exists():
+                    target.write_bytes(payload)
+
+    def configure_layouts_path(self, layouts_path=None):
+        with self._lock:
+            if (layouts_path is not None
+                    and (self._layouts_path is None or not self._web_configured)):
+                self._layouts_path = Path(layouts_path).resolve()
+            elif self._layouts_path is None:
+                self._layouts_path = Path(
+                    tempfile.gettempdir(), "psp_layouts").resolve()
+            self._layouts_path.mkdir(parents=True, exist_ok=True)
+            for name, payload in self._default_layouts.items():
+                target = self._layouts_path / f"{name}.json"
+                if not target.exists():
+                    target.write_bytes(payload)
+            return str(self._layouts_path)
+
     def cleanup_temporary_tables(self):
         for name, previous_views in tuple(self._temporary_tables.items()):
             table = self._tables.get(name)
@@ -464,9 +543,7 @@ class PerspectiveTablesManager:
         self.start()
         web = TornadoWeb.instance(port)
         if not self._web_configured:
-            layouts = layouts_path or os.path.join(
-                tempfile.gettempdir(), "psp_layouts")
-            os.makedirs(layouts, exist_ok=True)
+            layouts = self.configure_layouts_path(layouts_path)
             handlers = [
                 (r"/table/(.*)", TablePageHandler, {
                     "mgr": self, "template": table_template,
@@ -492,6 +569,16 @@ class PerspectiveTablesManager:
                     "host": host, "port": port,
                 }),
             ]
+            if not any(pattern == r"/node_modules/(.*)"
+                       for pattern in (static or {})):
+                handlers.append(
+                    (r"/node_modules/(.*)", tornado.web.StaticFileHandler,
+                     {"path": str(_node_modules_root())})
+                )
+            handlers.append(
+                (r"/workspace_code/(.*)", _NoCacheStaticFileHandler,
+                 {"path": str(Path(__file__).parent)})
+            )
             handlers.extend(self.tornado_config())
             handlers.extend(
                 (pattern, tornado.web.StaticFileHandler, options)
@@ -506,6 +593,7 @@ class PerspectiveTablesManager:
         web, self._web = self._web, None
         if web is not None:
             web.stop()
+        self._web_configured = False
 
     def close(self):
         self.stop_web()

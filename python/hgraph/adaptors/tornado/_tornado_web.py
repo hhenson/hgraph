@@ -31,10 +31,14 @@ class TornadoWeb:
 
     def __init__(self, port: int):
         self._port = port
-        self._app = tornado.web.Application(websocket_ping_interval=1)
+        self._app = self._make_application()
         self._server = None
         self._users = 0
         self._lock = threading.Lock()
+
+    @staticmethod
+    def _make_application():
+        return tornado.web.Application(websocket_ping_interval=1)
 
     @classmethod
     def start_loop(cls) -> tornado.ioloop.IOLoop:
@@ -136,6 +140,10 @@ class TornadoWeb:
             if self._users != 0:
                 return
             server, self._server = self._server, None
+            # The listening server retains the old Application until it has
+            # stopped.  New users can immediately register against a fresh
+            # routing table without inheriting graph-scoped handler state.
+            self._app = self._make_application()
 
         if server is not None:
             stopped = threading.Event()
@@ -154,6 +162,7 @@ class TornadoWeb:
                 self.stop_loop()
         else:
             self.stop_loop()
+
 
     def add_handler(self, path, handler, options=None) -> None:
         self.add_handlers([(path, handler, options or {})])
