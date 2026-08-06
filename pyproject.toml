@@ -27,7 +27,6 @@ requires-python = ">=3.12, <3.15"
 dependencies = [
     "frozendict>=2.3.10",
     "sortedcontainers>=2.4.0",
-    "ordered-set>=4.1.0",
     "numpy>=1.23",
     "polars>=1.0",
     "sqlalchemy",
@@ -39,7 +38,6 @@ dependencies = [
     "psutil",
     "typing-extensions",
     "pycurl",
-    "black>=25.1.0",
     "pytz"
 ]
 

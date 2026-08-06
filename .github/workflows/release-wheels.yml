@@ -318,7 +318,7 @@ jobs:
             for pyver in ${HGRAPH_SMOKE_PYTHONS}; do
               uv venv --clear ".venv-test-${pyver}" --python "${pyver}"
               uv pip install --python ".venv-test-${pyver}/bin/python" --upgrade pip
-              uv pip install --python ".venv-test-${pyver}/bin/python" --reinstall pytest tornado requests pandas "perspective-python<4.0.0" kafka-python matplotlib "${wheel}"
+              uv pip install --python ".venv-test-${pyver}/bin/python" --reinstall pytest tornado requests pandas "perspective-python<5.0.0" kafka-python matplotlib "${wheel}"
               for use_cpp in false true; do
                 echo "Smoke test: wheel=${wheel} python=${pyver} HGRAPH_USE_CPP=${use_cpp}"
                 HGRAPH_USE_CPP="${use_cpp}" ".venv-test-${pyver}/bin/pytest" hgraph_unit_tests -q -m smoke
@@ -340,7 +340,7 @@ jobs:
                 $venvPython = Join-Path $PWD ".venv-test-$pyver\Scripts\python.exe"
                 uv venv --clear ".venv-test-$pyver" --python $pyver
                 uv pip install --python $venvPython --upgrade pip
-                uv pip install --python $venvPython --reinstall pytest tornado requests pandas "perspective-python<4.0.0" kafka-python matplotlib $wheel.FullName
+                uv pip install --python $venvPython --reinstall pytest tornado requests pandas "perspective-python<5.0.0" kafka-python matplotlib $wheel.FullName
                 foreach ($useCpp in @('false', 'true')) {
                   Write-Host "Smoke test: wheel=$($wheel.Name) python=$pyver HGRAPH_USE_CPP=$useCpp"
                   $env:HGRAPH_USE_CPP = $useCpp
