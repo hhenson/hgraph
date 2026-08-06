@@ -137,7 +137,7 @@ The implementation uses the following names consistently:
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
     ``TS_DATA_OPS_ABI_VERSION`` is 5. ABI 5 adds the cold-path dynamic-storage
-    attribution hook used by Inspector. ABI 4 represented destructive value
+    attribution hook used by GraphDiagnostics. ABI 4 represented destructive value
     assignment sources as writable ``ValueView`` pointers rather than owning
     ``Value&&`` objects.
 

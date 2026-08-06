@@ -16,6 +16,7 @@
 #include <chrono>
 #include <locale>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -1312,9 +1313,11 @@ namespace hgraph
         // Synthesis + interning (cleared on registry reset)
         // ---------------------------------------------------------------
 
-        // NO locks: wiring and evaluation are single-threaded (the
-        // OperatorRegistry precedent) — push senders, the only cross-thread
-        // entry, never touch converters.
+        // Converter synthesis normally happens during wiring/start. Multiple
+        // independent graph engines may start concurrently, so protect the
+        // process-wide interning table. A recursive mutex is required because
+        // compound converter synthesis recursively interns child schemas.
+        std::recursive_mutex g_converters_mutex;
         std::unordered_map<const ValueTypeMetaData *, std::unique_ptr<JsonConverter>> g_converters;
 
         [[nodiscard]] AtomicTag atomic_tag_for(const ValueTypeMetaData *meta)
@@ -1462,10 +1465,15 @@ namespace hgraph
         // call this: nodes resolve their converter in ``start`` and carry it
         // in node State (the lifecycle "compose once" contract); this lookup
         // serves wiring/start-time resolution and ad-hoc utility use.
+        std::scoped_lock lock{g_converters_mutex};
         return *converter_for_locked(meta);
     }
 
-    void clear_json_converters() noexcept { g_converters.clear(); }
+    void clear_json_converters() noexcept
+    {
+        std::scoped_lock lock{g_converters_mutex};
+        g_converters.clear();
+    }
 
     std::string to_json_string(const ValueView &view)
     {

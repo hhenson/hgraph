@@ -1,7 +1,7 @@
 """hgraph.test - the test utilities (hgraph-compatible import path)."""
 from contextlib import contextmanager
 
-from _hgraph import EvaluationProfiler, EvaluationProfileEntry, EvaluationProfilePhase, EvaluationProfileSnapshot, EvaluationTrace, Inspector, WiringTracer
+from _hgraph import EvaluationProfiler, EvaluationProfileEntry, EvaluationProfilePhase, EvaluationProfileSnapshot, EvaluationTrace, GraphDiagnostics, WiringTracer
 
 from .._wiring import eval_node
 from ._breakpoint import breakpoint_
@@ -26,6 +26,6 @@ __all__ = [
     "breakpoint_",
     "eval_node", "EvaluationProfiler", "EvaluationProfileEntry",
     "EvaluationProfilePhase", "EvaluationProfileSnapshot", "EvaluationTrace", "WiringTracer",
-    "Inspector",
+    "GraphDiagnostics",
     "use_wiring",
 ]

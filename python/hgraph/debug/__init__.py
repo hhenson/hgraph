@@ -6,17 +6,30 @@ rows suitable for a table or notebook.
 """
 
 from _hgraph import (
-    InspectionEntityKind,
-    InspectionEntry,
-    InspectionSnapshot,
-    Inspector,
+    GraphDiagnosticEntityKind,
+    GraphDiagnosticEntry,
+    GraphDiagnosticValue,
+    GraphDiagnosticsSnapshot,
+    GraphDiagnostics,
     NodeStorageMetrics,
     RuntimeRegistrySnapshot,
     runtime_registry_snapshot,
 )
 
 
-def inspection_rows(snapshot: InspectionSnapshot) -> list[dict]:
+def inspector(port: int = 8080, publish_interval: float = 2.5):
+    """Wire the optional interactive inspector presentation."""
+    try:
+        from ._inspector import inspector as implementation
+    except ModuleNotFoundError as error:
+        if error.name in {"tornado", "perspective"}:
+            raise RuntimeError(
+                "inspector() requires the 'perspective' extra") from error
+        raise
+    return implementation(port=port, publish_interval=publish_interval)
+
+
+def graph_diagnostics_rows(snapshot: GraphDiagnosticsSnapshot) -> list[dict]:
     """Return flat, owned presentation rows for an inspection snapshot."""
     rows = []
     for entry in snapshot.entries:
@@ -28,7 +41,7 @@ def inspection_rows(snapshot: InspectionSnapshot) -> list[dict]:
             "kind": entry.kind.name.lower(),
             "node_kind": (
                 entry.node_kind.name.lower()
-                if entry.kind == InspectionEntityKind.NODE
+                if entry.kind == GraphDiagnosticEntityKind.NODE
                 else None
             ),
             "schema": entry.schema_label,
@@ -44,17 +57,22 @@ def inspection_rows(snapshot: InspectionSnapshot) -> list[dict]:
             "dynamic_live_bytes": entry.storage.dynamic_live_bytes,
             "dynamic_reserved_bytes": entry.storage.dynamic_reserved_bytes,
             "peak_dynamic_reserved_bytes": entry.peak_storage.dynamic_reserved_bytes,
+            "input": entry.input.json if entry.input.available else None,
+            "output": entry.output.json if entry.output.available else None,
+            "scalars": entry.scalars.json if entry.scalars.available else None,
         })
     return rows
 
 
 __all__ = [
-    "InspectionEntityKind",
-    "InspectionEntry",
-    "InspectionSnapshot",
-    "Inspector",
+    "GraphDiagnosticEntityKind",
+    "GraphDiagnosticEntry",
+    "GraphDiagnosticValue",
+    "GraphDiagnosticsSnapshot",
+    "GraphDiagnostics",
     "NodeStorageMetrics",
     "RuntimeRegistrySnapshot",
-    "inspection_rows",
+    "graph_diagnostics_rows",
+    "inspector",
     "runtime_registry_snapshot",
 ]

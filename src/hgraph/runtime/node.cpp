@@ -1588,9 +1588,19 @@ namespace hgraph
         }
         catch (...)
         {
-            // Inspector is a cold-path diagnostic and must not affect graph execution.
+            // Graph diagnostics are cold-path and must not affect graph execution.
         }
         return result;
+    }
+
+    NodeInspectionMetrics NodeView::inspection_metrics() const noexcept
+    {
+        if (!valid()) { return {}; }
+        const NodeOps &node_ops = ops();
+        return node_ops.inspection_metrics_impl != nullptr
+                   ? node_ops.inspection_metrics_impl(
+                         node_ops.extended_view_context, data())
+                   : NodeInspectionMetrics{};
     }
 
     void NodeView::start(DateTime evaluation_time) const { ops().start_impl(ops().context, *this, evaluation_time); }

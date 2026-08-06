@@ -89,6 +89,7 @@ namespace hgraph::python_bridge
         // aliases without ownership and cannot be run/finished.
         std::unique_ptr<GlobalContext> seed_context{};
         std::vector<nb::object>        borrowed_wiring_observers{};
+        std::vector<nb::object>        lifecycle_observers{};
         std::unique_ptr<WiringTracer> wiring_tracer{};
         std::unique_ptr<Wiring>        owned{};
         Wiring                        *raw{nullptr};
@@ -148,6 +149,16 @@ namespace hgraph::python_bridge
                 std::move(trace_wiring), std::move(observers));
         }
 
+        void add_lifecycle_observer(nb::object observer)
+        {
+            ensure_open();
+            if (observer.is_none())
+            {
+                throw nb::type_error("lifecycle observer cannot be None");
+            }
+            lifecycle_observers.push_back(std::move(observer));
+        }
+
         [[nodiscard]] nb::list wiring_trace_lines() const
         {
             nb::list result;
@@ -165,8 +176,12 @@ namespace hgraph::python_bridge
             std::string label)
         {
             Wiring &wiring = wiring_ref();
-            if (!wiring.has_wiring_observers()) { return {}; }
-            const WiringScopeKind kind = wiring.current_wiring_path().empty()
+            const bool root_scope = wiring.current_wiring_path().empty();
+            if (root_scope && wiring.kind() == WiringKind::TopLevel)
+            {
+                wiring.label(label);
+            }
+            const WiringScopeKind kind = root_scope
                                              ? WiringScopeKind::Graph
                                              : WiringScopeKind::NestedGraph;
             WiringScopeEvent event{.kind = kind};
@@ -182,11 +197,21 @@ namespace hgraph::python_bridge
                                       std::optional<std::string> node_label = std::nullopt)
         {
             ensure_open();
-            // Diagnostic label (issue #247): hint the wiring so the operator's
-            // own node carries the user-facing identity.
-            if (node_label.has_value())
+            // Preserve the released inspector's user-facing wiring path.  The
+            // one-shot operator guard keeps scalar lifts and other auxiliary
+            // nodes from accidentally consuming this identity.
             {
-                wiring_ref().set_pending_node_label(name, *node_label);
+                const auto path = wiring_ref().current_wiring_path();
+                std::string diagnostic_label;
+                for (const auto &component : path)
+                {
+                    if (!diagnostic_label.empty()) { diagnostic_label += '.'; }
+                    diagnostic_label += component;
+                }
+                if (!diagnostic_label.empty()) { diagnostic_label += '.'; }
+                diagnostic_label += node_label.value_or(name);
+                wiring_ref().set_pending_node_label(
+                    name, std::move(diagnostic_label));
             }
             auto clear_label_hint = UnwindCleanupGuard([&] {
                 wiring_ref().clear_pending_node_label();
@@ -302,7 +327,8 @@ namespace hgraph::python_bridge
                                        ? owned->snapshot()
                                        : (finished = true, std::move(*owned).finish());
             const bool requires_phase_runner =
-                builder.requires_phase_runner() || nb::len(observers) != 0;
+                builder.requires_phase_runner() || nb::len(observers) != 0 ||
+                !lifecycle_observers.empty();
 
             GraphExecutorBuilder eb;
             eb.graph_builder(std::move(builder))
@@ -322,6 +348,11 @@ namespace hgraph::python_bridge
             }
             auto run = std::make_unique<PyRun>();
             add_python_lifecycle_observers(eb, run->observers, observers);
+            for (const nb::object &observer : lifecycle_observers)
+            {
+                add_python_lifecycle_observers(
+                    eb, run->observers, nb::make_tuple(observer));
+            }
             run->trace = trace != nullptr
                              ? std::make_unique<EvaluationTrace>(*trace)
                              : nullptr;
@@ -376,7 +407,9 @@ namespace hgraph::python_bridge
             return run;
         }
 
-        [[nodiscard]] nb::tuple push_source(PyTsType ts_type, bool conflate, nb::object on_start)
+        [[nodiscard]] nb::tuple push_source(PyTsType ts_type, bool conflate,
+                                            nb::object on_start,
+                                            std::optional<std::string> node_label)
         {
             ensure_open();
             auto slot     = std::make_shared<PySenderSlot>();
@@ -394,6 +427,15 @@ namespace hgraph::python_bridge
                         on_start(nb::cast(PySender{slot}));
                     }
                 }, true);
+            std::string diagnostic_label;
+            for (const auto &component : wiring_ref().current_wiring_path())
+            {
+                if (!diagnostic_label.empty()) { diagnostic_label += '.'; }
+                diagnostic_label += component;
+            }
+            if (!diagnostic_label.empty()) { diagnostic_label += '.'; }
+            diagnostic_label += node_label.value_or("push_source");
+            builder.label(std::move(diagnostic_label));
             struct py_push_source_tag
             {
             };

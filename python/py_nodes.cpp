@@ -238,10 +238,24 @@ template <typename Fn> decltype(auto) translate_python_error(Fn &&fn) {
 struct PyCallShape {
   std::string_view layout;
   std::vector<std::string_view> kw_names;
+  std::vector<std::string_view> input_names;
 };
 
 [[nodiscard]] PyCallShape parse_py_call_shape(std::string_view config) {
   PyCallShape shape;
+  const auto metadata_separator = config.find(';');
+  if (metadata_separator != std::string_view::npos) {
+    std::string_view names = config.substr(metadata_separator + 1);
+    config = config.substr(0, metadata_separator);
+    while (!names.empty()) {
+      const auto comma = names.find(',');
+      shape.input_names.push_back(names.substr(0, comma));
+      if (comma == std::string_view::npos) {
+        break;
+      }
+      names.remove_prefix(comma + 1);
+    }
+  }
   const auto separator = config.find('|');
   if (separator == std::string_view::npos) {
     shape.layout = config;

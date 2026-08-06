@@ -1444,10 +1444,12 @@ namespace hgraph
         impl.label = operator_dispatch_detail::render_label<Impl>(impl.params, impl);
         operator_dispatch_detail::apply_common_operator_hooks<Impl>(impl);
 
-        impl.wire = [](Wiring &w, const ResolutionMap &map, std::span<const WiringArg> args,
-                       std::span<const std::pair<std::string, WiringPortRef>>) -> OperatorWireResult {
+        const std::string operator_name = impl.name;
+        impl.wire = [operator_name](Wiring &w, const ResolutionMap &map, std::span<const WiringArg> args,
+                                    std::span<const std::pair<std::string, WiringPortRef>>) -> OperatorWireResult {
             NodeBuilder builder;
             builder.template implementation<Impl>(map);
+            w.apply_pending_node_label(operator_name, builder);
             Value scalars = operator_dispatch_detail::assemble_scalars<Impl>(map, args);
             std::vector<WiringPortRef> inputs = operator_dispatch_detail::collect_node_inputs<Impl>(w, map, args);
             builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(

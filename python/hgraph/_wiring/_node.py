@@ -752,6 +752,17 @@ class _PyNode:
             # them when a star group rewrote the fn to keyword-only params,
             # else the keyword-only tail).
             config += "|" + ",".join(kw_names)
+        # The suffix is cold-path bridge metadata for native diagnostics. It
+        # lets the inspector project the packed ``args._N`` storage back to
+        # the user-authored Python parameter names without retaining Python
+        # signature objects in the runtime.
+        input_names = [
+            name
+            for marker, name in zip(layout, layout_names)
+            if marker in "tuaCTUAP"
+        ]
+        if input_names:
+            config += ";" + ",".join(input_names)
         node_kwargs = {"fn": ref, "config": config, "scalars": _hgraph.any_list(scalars)}
         input_index_by_name = {}
         input_index = 0
@@ -1163,7 +1174,9 @@ class _PushQueue:
         def on_start(sender):
             fn(sender.send, *bound_call.args, **bound_call.kwargs)
 
-        port, _sender = w.push_source(_unwrap(out_tp), self.conflate, on_start)
+        port, _sender = w.push_source(
+            _unwrap(out_tp), self.conflate, on_start,
+            self._label or self.__name__)
         return WiringPort(port)
 
 

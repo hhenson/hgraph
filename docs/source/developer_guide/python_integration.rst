@@ -439,9 +439,10 @@ Recorded divergences / gaps (the morning-summary list):
   only that bound native tracer; Python-authored callback observers and the
   native event records are deliberately not exposed. No execution option is
   accepted and silently discarded.
-  ``hgraph.debug.Inspector`` is likewise a bound native lifecycle observer.
-  Python receives owned snapshots and may convert them to presentation rows;
-  it does not walk runtime graph objects or implement inspection callbacks.
+  ``hgraph.debug.GraphDiagnostics`` is likewise a bound native lifecycle
+  observer. Python receives owned snapshots and the established Python
+  ``inspector()`` consumes those snapshots for its Perspective/HTTP
+  presentation; it does not retain runtime graph objects.
 - The decorator ``node_impl=`` parameter is present for signature compatibility
   but deliberately rejects non-``None`` values. It selects an implementation
   class from the retired Python runtime; Python authors must provide the node

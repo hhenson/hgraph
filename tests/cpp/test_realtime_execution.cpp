@@ -673,6 +673,40 @@ TEST_CASE("real-time executor evaluates root push queues after pending update si
     CHECK(observed_value == Int{42});
 }
 
+TEST_CASE("push source exposes pending work through the data-only inspection contract")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<Int>("int");
+    const auto *ts_int   = registry.ts(int_meta);
+
+    PushSourceSender sender;
+    GraphBuilder graph_builder;
+    graph_builder.add_node(hgraph::testing::capturing_push_source(*ts_int, sender));
+
+    const DateTime start_time = hgraph::testing::wall_now();
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph_builder))
+        .mode(GraphExecutorMode::RealTime)
+        .start_time(start_time)
+        .end_time(start_time + TimeDelta{1'000'000});
+
+    GraphExecutorValue executor = executor_builder.make_executor();
+    GraphView graph = executor.view().graph();
+    graph.start(start_time);
+    REQUIRE(sender.valid());
+
+    sender.send(Int{41});
+    sender.send(Int{42});
+    REQUIRE(graph.node_at(0).inspection_metrics().pending_items.has_value());
+    CHECK(*graph.node_at(0).inspection_metrics().pending_items == 2);
+
+    graph.node_at(0).evaluate(start_time);
+    CHECK(*graph.node_at(0).inspection_metrics().pending_items == 1);
+    graph.stop(start_time);
+}
+
 TEST_CASE("real-time executor evaluates scheduled root push source nodes without a pending queue signal")
 {
     using namespace hgraph;

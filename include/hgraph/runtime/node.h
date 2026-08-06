@@ -69,6 +69,17 @@ namespace hgraph
         std::size_t dynamic_reserved_bytes{0};
     };
 
+    /** Optional data-only values exposed for cold-path runtime inspection.
+     *
+     * Semantic diagnostics consume this contract rather than inferring the
+     * private layout of a concrete node or its standard-library containers.
+     */
+    struct HGRAPH_EXPORT NodeInspectionMetrics
+    {
+        /** Work accepted by a source policy but not yet emitted. */
+        std::optional<std::size_t> pending_items{};
+    };
+
     /**
      * Interned node schema descriptor.
      *
@@ -182,6 +193,8 @@ namespace hgraph
          */
         NodeStorageMetrics (*storage_metrics_impl)(const void *context,
                                                    const void *memory) noexcept = nullptr;
+        NodeInspectionMetrics (*inspection_metrics_impl)(const void *context,
+                                                         const void *memory) noexcept = nullptr;
 
         const void *extended_view_type_id{nullptr};
         const void *extended_view_context{nullptr};
@@ -299,6 +312,8 @@ namespace hgraph
         [[nodiscard]] TSOutputView recordable_state(DateTime evaluation_time) const;
         /** Owned storage counters; the normal execution path never calls this. */
         [[nodiscard]] NodeStorageMetrics storage_metrics() const noexcept;
+        /** Data-only cold-path values; unsupported metrics remain disengaged. */
+        [[nodiscard]] NodeInspectionMetrics inspection_metrics() const noexcept;
 
         template <typename T>
         [[nodiscard]] T as() const

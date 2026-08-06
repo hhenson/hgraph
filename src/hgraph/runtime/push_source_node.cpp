@@ -36,6 +36,8 @@ namespace hgraph
             bool (*emit_next_impl)(const void *context,
                                                  void *storage,
                                                  const TSOutputView &output) = nullptr;
+            std::size_t (*pending_items_impl)(const void *context,
+                                             const void *storage) noexcept = nullptr;
         };
 
         struct PushSourceQueuePop
@@ -96,6 +98,12 @@ namespace hgraph
                 values.pop_front();
                 result.more_pending = !values.empty();
                 return result;
+            }
+
+            [[nodiscard]] std::size_t pending_items() const noexcept
+            {
+                std::lock_guard lock{mutex};
+                return values.size();
             }
 
             mutable std::mutex mutex{};
@@ -159,6 +167,12 @@ namespace hgraph
                 return result;
             }
 
+            [[nodiscard]] std::size_t pending_items() const noexcept
+            {
+                std::lock_guard lock{mutex};
+                return pending ? 1U : 0U;
+            }
+
             mutable std::mutex          mutex{};
             TSOutput                    accumulator{};
             const TSValueTypeMetaData  *output_schema{nullptr};
@@ -206,6 +220,12 @@ namespace hgraph
             throw_unconfigured_policy();
         }
 
+        [[nodiscard]] std::size_t default_policy_pending_items(
+            const void *, const void *) noexcept
+        {
+            return 0;
+        }
+
         [[nodiscard]] const detail::PushSourcePolicyOps &default_push_source_policy_ops()
         {
             static const detail::PushSourcePolicyOps ops{
@@ -216,6 +236,7 @@ namespace hgraph
                 .stop_impl = &default_policy_stop,
                 .send_impl = &default_policy_send,
                 .emit_next_impl = &default_policy_emit_next,
+                .pending_items_impl = &default_policy_pending_items,
             };
             return ops;
         }
@@ -280,6 +301,13 @@ namespace hgraph
             return item->more_pending;
         }
 
+        [[nodiscard]] std::size_t queue_policy_pending_items(
+            const void *, const void *storage) noexcept
+        {
+            return MemoryUtils::cast<const detail::QueuePolicyStorage>(storage)
+                ->pending_items();
+        }
+
         void conflating_policy_start(const void *, void *storage, const TSValueTypeMetaData &output_schema)
         {
             MemoryUtils::cast<detail::ConflatingPolicyStorage>(storage)->start(output_schema);
@@ -308,6 +336,13 @@ namespace hgraph
             return false;
         }
 
+        [[nodiscard]] std::size_t conflating_policy_pending_items(
+            const void *, const void *storage) noexcept
+        {
+            return MemoryUtils::cast<const detail::ConflatingPolicyStorage>(storage)
+                ->pending_items();
+        }
+
         [[nodiscard]] const detail::PushSourcePolicyOps &queue_policy_ops()
         {
             static const detail::PushSourcePolicyOps ops{
@@ -318,6 +353,7 @@ namespace hgraph
                 .stop_impl = &queue_policy_stop,
                 .send_impl = &queue_policy_send,
                 .emit_next_impl = &queue_policy_emit_next,
+                .pending_items_impl = &queue_policy_pending_items,
             };
             return ops;
         }
@@ -332,6 +368,7 @@ namespace hgraph
                 .stop_impl = &conflating_policy_stop,
                 .send_impl = &conflating_policy_send,
                 .emit_next_impl = &conflating_policy_emit_next,
+                .pending_items_impl = &conflating_policy_pending_items,
             };
             return ops;
         }
@@ -370,6 +407,22 @@ namespace hgraph
         [[nodiscard]] void *policy_storage(const PushSourceNodeContext &context, void *memory)
         {
             return MemoryUtils::advance(memory, context.policy_storage_offset);
+        }
+
+        [[nodiscard]] const void *policy_storage(
+            const PushSourceNodeContext &context, const void *memory)
+        {
+            return MemoryUtils::advance(memory, context.policy_storage_offset);
+        }
+
+        [[nodiscard]] NodeInspectionMetrics push_source_inspection_metrics(
+            const void *raw_context, const void *memory) noexcept
+        {
+            const auto &context = *static_cast<const PushSourceNodeContext *>(raw_context);
+            return NodeInspectionMetrics{
+                .pending_items = detail::PushSourcePolicyAccess::pending_items(
+                    context.policy, policy_storage(context, memory)),
+            };
         }
 
         void push_source_start(const PushSourceNodeContext &context, const NodeView &view)
@@ -505,6 +558,12 @@ namespace hgraph
         return policy.ops_->emit_next_impl(policy.context_, storage, output);
     }
 
+    std::size_t detail::PushSourcePolicyAccess::pending_items(
+        const PushSourcePolicy &policy, const void *storage) noexcept
+    {
+        return policy.ops_->pending_items_impl(policy.context_, storage);
+    }
+
     PushSourceSender::PushSourceSender(detail::PushSourcePolicyStorageRef policy_storage) noexcept
         : policy_storage_(policy_storage)
     {
@@ -592,6 +651,8 @@ namespace hgraph
         descriptor.schema = std::move(schema);
         descriptor.storage_plan = &plan;
         descriptor.callbacks = std::move(callbacks);
+        descriptor.ops.inspection_metrics_impl = &push_source_inspection_metrics;
+        descriptor.ops.extended_view_context = context;
         return NodeBuilder::from_descriptor(std::move(descriptor));
     }
 

@@ -224,10 +224,10 @@ Observer implementations and event records remain C++-only.
 use the native tracer; Python may retain a bound tracer to inspect its formatted
 lines but cannot implement an observer callback.
 
-Inspector
-~~~~~~~~~
+Graph diagnostics
+~~~~~~~~~~~~~~~~~
 
-**Completed.** ``Inspector`` is a native lifecycle observer. Its owned
+**Completed.** ``GraphDiagnostics`` is a native lifecycle observer. Its owned
 snapshots contain stable graph/node identities and hierarchy, schema and
 implementation labels, scheduling state, phase timings, root load, fixed graph
 plan bytes, and current/peak nested-slot storage. ``NodeOps`` supplies the
@@ -237,9 +237,13 @@ inspector-side type switch.
 
 The observer forgets runtime pointers at stop/failure boundaries. Historical
 records remain queryable after keyed graph delete/erase and executor teardown.
-The ``hgraph.debug`` module binds that native observer and provides only a flat
-snapshot-to-rows presentation helper. A later Perspective/HTTP view may consume
-those rows; it must not reintroduce the old Python runtime object walker.
+The ``hgraph.debug`` module binds that native observer and provides a flat
+snapshot-to-rows helper. The established Python ``inspector()`` API uses the
+same owned snapshots for its Perspective/HTTP presentation without
+reintroducing the old Python runtime-object walker. Its value-page Arrow
+stream is generated from owned JSON or an immutable captured ``Frame`` handle,
+and scoped search materialises matches from the owned hierarchy rather than
+walking live endpoints.
 
 Catalogue Gaps
 --------------
@@ -398,8 +402,8 @@ graph, node, and operator-resolution wiring. Public C++ tests inspect selected,
 rejected, and ambiguous overloads without debugger knowledge of erased
 implementation objects; Python tests cover only the configured native tracer.
 
-Milestone R5: native inspector
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Milestone R5: native graph diagnostics
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Completed 2026-07-20.** Inspection snapshots build on lifecycle and graph-view
 infrastructure, with native storage reporting through the erased node operation

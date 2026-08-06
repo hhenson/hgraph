@@ -149,10 +149,11 @@ identical repeated-wiring profiles.
 
 RSS includes Python, native libraries, allocator fragmentation, and runtime
 caches. It is the whole-process ground truth, but it cannot explain ownership.
-For hg_cpp, a second fresh process attaches the native `Inspector` and records
-planned graph bytes, peak dynamic live/reserved bytes, nested graph capacity,
-and the largest dynamic owners. This pass is kept separate because Inspector
-owns one record per observed graph/node and would otherwise inflate RSS.
+For hg_cpp, a second fresh process attaches native `GraphDiagnostics` and
+records planned graph bytes, peak dynamic live/reserved bytes, nested graph
+capacity, and the largest dynamic owners. This pass is kept separate because
+the collector owns one record per observed graph/node and would otherwise
+inflate RSS.
 
 The default matrix reports peak and retained memory for current Python,
 hgraph C++, and hg_cpp. It includes explicit ``hg_cpp/Python`` and

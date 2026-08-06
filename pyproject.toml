@@ -54,6 +54,8 @@ test = [
     "pandas>=2.0",
     "packaging>=24",
     "polars[rtcompat]>=1.32",
+    "perspective-python>=3.8",
+    "psutil>=5.9",
     "pytest>=8",
     "sqlalchemy>=2.0",
     "tornado>=6.5",
@@ -85,6 +87,7 @@ delta = [
 ]
 perspective = [
     "perspective-python>=3.8",
+    "psutil>=5.9",
     "tornado>=6.5",
 ]
 dataframe = [

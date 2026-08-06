@@ -2,8 +2,8 @@
 
 Each RSS sample is a fresh subprocess.  Current Python and hgraph C++ results
 are cached until the host, hgraph version, profile pack, psutil version, or
-sample policy changes.  The native Inspector pass is intentionally separate
-from RSS.
+sample policy changes.  The native GraphDiagnostics pass is intentionally
+separate from RSS.
 """
 import argparse
 import copy
@@ -262,7 +262,7 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
         "RSS values are medians in MiB; +/- is median absolute deviation. "
         "Peak delta is measured from the post-import/pre-run process state. "
         "Retained delta is measured after graph teardown and two Python GC passes.",
-        "Inspector columns are a separate hg_cpp run and are native-accounted "
+        "GraphDiagnostics columns are a separate hg_cpp run and are native-accounted "
         "bytes, not RSS; they are intentionally absent from reference modes.",
     ]
     lines += ["", "## Process floor", ""]

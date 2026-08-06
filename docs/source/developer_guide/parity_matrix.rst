@@ -259,8 +259,9 @@ design decisions, not unimplemented user behaviour:
 - dataframe adaptors consume Polars at the boundary but publish canonical
   PyArrow values; equivalent join, filter, group, column, source, and
   record/replay assertions use Arrow values in the local Python and C++ suites;
-- the old Python runtime-object ``inspector`` function is replaced by the
-  native ``Inspector`` lifecycle observer and owned inspection snapshots;
+- the Python ``inspector()`` authoring API is retained, while hierarchy,
+  values, and performance data come from native ``GraphDiagnostics`` owned
+  snapshots instead of a Python runtime-object walker;
 - the ``SimpleArrayReplaySource`` example and process-global output-key
   builder exercise retired test/runtime infrastructure.  Formal replay APIs
   and native fixed key construction replace them; graph-specific policy is
