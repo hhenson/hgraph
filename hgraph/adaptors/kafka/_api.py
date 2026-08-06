@@ -14,9 +14,7 @@ from hgraph import (
     null_sink,
     reference_service,
     debug_print,
-    default,
-    filter_,
-    not_,
+    compute_node,
     operator,
     HgAtomicType,
     CompoundScalar,
@@ -161,7 +159,7 @@ def message_publisher(fn: Callable = None, *, topic: str = None):
             # A publisher replays to rebuild its own state, so it must see history and nothing
             # after it. Where the same topic also has a live subscriber the stream continues
             # ticking past recovery, and feeding a publisher its own output would be a loop.
-            replay_msg = filter_(not_(default(recovered, False)), subscription["msg"])
+            replay_msg = _gate_by_recovery(subscription["msg"], recovered, live=False)
             kwargs["msg"] = replay_msg.payload if replay_msg_is_bytes else replay_msg  # Connect replay
             kwargs["recovered"] = recovered  # Connect replay
 
@@ -265,7 +263,7 @@ def message_subscriber(fn: Callable = None, *, topic: str = None):
             # Whether the topic replays at all depends on what other graphs asked for, and a
             # subscriber with no 'recovered' input cannot tell a replayed message from a live one.
             # It therefore sees only live messages, as it would if nothing on the topic replayed.
-            msg_input = filter_(default(subscription["recovered"], False), msg_input)
+            msg_input = _gate_by_recovery(msg_input, subscription["recovered"], live=True)
         kwargs["msg"] = msg_input.payload if msg_is_bytes else msg_input
         out = fn(**kwargs)
         return out
@@ -292,6 +290,23 @@ def get_message_state() -> MessageState:
     from hgraph.adaptors.kafka._impl import KafkaMessageState
 
     return KafkaMessageState.instance()
+
+
+@compute_node(active=("msg",), valid=("msg",))
+def _gate_by_recovery(msg: TS[KafkaMessage], recovered: TS[bool], live: bool) -> TS[KafkaMessage]:
+    """
+    Forward only the ``msg`` ticks falling on the requested side of the recovery handover:
+    ``live=False`` gives replayed history, ``live=True`` gives what arrives after it.
+
+    ``filter_`` is deliberately not used. When its condition turns True it copies the input's most
+    recent value, so opening the gate at recovery could hand the last replayed message to a
+    subscriber that opted out of replay. Today the merge upstream rebinds to the live stream at
+    that instant and there is no history value left to copy, but that is a property of how the
+    merge is built rather than of what is wanted here. Only genuine ticks pass through this node,
+    whatever the merge does with its value when it switches.
+    """
+    if bool(recovered.valid and recovered.value) == live:
+        return msg.delta_value
 
 
 @operator

@@ -413,6 +413,32 @@ def test_a_subscriber_without_recovery_sees_only_live_messages(handover_kafka):
     assert _run_recording(g, "sub")["sub"] == [b"live"]
 
 
+def test_a_subscriber_without_recovery_is_not_given_the_last_replayed_message(fake_kafka):
+    """
+    Opening the gate at recovery must not hand over the message that arrived before it.
+
+    `fake_kafka` replays one message and then goes quiet, so anything the subscriber receives here
+    can only have come from the recovery transition itself. This is the case a gate built on
+    `filter_` gets wrong: it copies its input's latest value when the condition turns True.
+    """
+
+    @message_subscriber(topic="h3")
+    def subscriber(msg: TS[bytes]):
+        record(msg, key="sub")
+
+    @message_publisher(topic="h3")
+    def publisher(msg: TS[bytes], recovered: TS[bool]) -> TS[bytes]:
+        return sample(if_true(recovered), const(b"done"))
+
+    @graph
+    def g():
+        register_kafka_adaptor({})
+        subscriber()
+        publisher()
+
+    assert _run_recording(g, "sub")["sub"] == []
+
+
 def test_kafka_timestamps_are_not_double_counted():
     """
     Kafka timestamps are epoch milliseconds. The conversion used to add the sub-second part twice,
