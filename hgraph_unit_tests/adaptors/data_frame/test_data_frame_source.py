@@ -103,10 +103,15 @@ def age_data(connection):
 
 @pytest.fixture(scope="function")
 def data_store_connection(connection):
+    # The store is a process-wide singleton whose register_instance() raises if one is already
+    # registered, so leaking it does not fail the test that leaked it, it fails whichever test
+    # runs next. The fixture therefore owns registration and release rather than leaving it to
+    # each test body to remember; release_instance() is idempotent, so this is safe even if a
+    # test enters the store as a context manager itself.
     dsc = DataConnectionStore()
     dsc.set_connection("sqlite", connection)
-    print("Connection stored")
-    return dsc
+    with dsc:
+        yield dsc
 
 
 def test_db_source(age_data, data_store_connection):
@@ -120,7 +125,7 @@ def test_db_source(age_data, data_store_connection):
     def main() -> TSB[ts_schema(name=TS[str], age=TS[int])]:
         return tsb_from_data_source(AgeDataSource, "date")
 
-    with data_store_connection, DataStore():
+    with DataStore():
         config = GraphConfiguration()
         result = evaluate_graph(main, config)
 
