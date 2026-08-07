@@ -52,6 +52,13 @@ namespace hgraph::stdlib
     struct is_empty : Operator<"is_empty", In<"ts", TsVar<"S">>, Out<TS<Bool>>>
     {
     };
+
+    /** ``dereference`` — materialize ``REF[TSB[...]]`` or ``REF[TSL[...]]``
+        as the same container shape whose children reference the corresponding
+        children of the referenced container. */
+    struct dereference : Operator<"dereference", In<"tsb", REF<TsVar<"S">>>, Out<TsVar<"O">>>
+    {
+    };
 }  // namespace hgraph::stdlib
 
 #endif  // HGRAPH_LIB_STD_OPERATORS_CONTAINER_H

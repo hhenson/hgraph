@@ -33,6 +33,7 @@
 #include <arrow/api.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <array>
 #include <chrono>
@@ -495,6 +496,8 @@ namespace
     };
 
     using ContainerAccessBundle = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Str>>>;
+    using ContainerAccessReferenceBundle =
+        UnNamedTSB<Field<"a", REF<TS<Int>>>, Field<"b", REF<TS<Str>>>>;
     using NamedContainerAccessBundle =
         TSB<"NamedContainerAccessBundle", Field<"a", TS<Int>>, Field<"b", TS<Str>>>;
     using HandlerOutputBundle =
@@ -507,6 +510,7 @@ namespace
                                          Field<"false", REF<TSD<Int, TS<Int>>>>>;
     using RoutedIntRefList      = TSL<REF<TS<Int>>, 3>;
     using IntTslPair            = TSL<TS<Int>, 2>;
+    using IntTslPairReferences  = TSL<REF<TS<Int>>, 2>;
     using IntTsd                = TSD<Int, TS<Int>>;
 
     struct ForwardReference
@@ -553,6 +557,56 @@ namespace
         }
     };
 
+    struct MalformedNonPeeredTsbReferenceSource
+    {
+        static constexpr auto name              = "malformed_non_peered_tsb_reference_source";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<REF<ContainerAccessBundle>> out)
+        {
+            out.set(TimeSeriesReference::non_peered(
+                ts_type<ContainerAccessBundle>(),
+                {TimeSeriesReference::empty(ts_type<TS<Float>>()),
+                 TimeSeriesReference::empty(ts_type<TS<Str>>())}));
+        }
+    };
+
+    struct MalformedNonPeeredTslReferenceSource
+    {
+        static constexpr auto name              = "malformed_non_peered_tsl_reference_source";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<REF<IntTslPair>> out)
+        {
+            out.set(TimeSeriesReference::non_peered(
+                ts_type<IntTslPair>(),
+                {TimeSeriesReference::empty(ts_type<TS<Str>>()),
+                 TimeSeriesReference::empty(ts_type<TS<Int>>())}));
+        }
+    };
+
+    struct DereferenceMalformedNonPeeredTsbReferenceGraph
+    {
+        static constexpr auto name = "dereference_malformed_non_peered_tsb_reference_graph";
+
+        static Port<ContainerAccessReferenceBundle> compose(Wiring &w)
+        {
+            return wire<stdlib::dereference>(w, wire<MalformedNonPeeredTsbReferenceSource>(w))
+                .as<ContainerAccessReferenceBundle>();
+        }
+    };
+
+    struct DereferenceMalformedNonPeeredTslReferenceGraph
+    {
+        static constexpr auto name = "dereference_malformed_non_peered_tsl_reference_graph";
+
+        static Port<IntTslPairReferences> compose(Wiring &w)
+        {
+            return wire<stdlib::dereference>(w, wire<MalformedNonPeeredTslReferenceSource>(w))
+                .as<IntTslPairReferences>();
+        }
+    };
+
     struct TslReferenceFlipGraph
     {
         static constexpr auto name = "tsl_reference_flip_graph";
@@ -578,6 +632,35 @@ namespace
         }
     };
 
+    struct DereferenceTslReferenceGraph
+    {
+        static constexpr auto name = "dereference_tsl_reference_graph";
+
+        static Port<IntTslPair> compose(Wiring &w,
+                                        Port<IntTslPair> first,
+                                        Port<IntTslPair> second,
+                                        Port<TS<Int>> index)
+        {
+            auto empty = wire<EmptyReferenceSource<IntTslPair>>(w);
+            auto choices = stdlib::to_tsl<TSL<IntTslPair, 3>>(w, first, second, empty);
+            auto selected = wire<stdlib::getitem_>(w, choices, index).as<REF<IntTslPair>>();
+            auto references = wire<stdlib::dereference>(w, selected);
+            if (references.erased().is_structural_source())
+            {
+                throw std::logic_error("dereference did not materialize a node output");
+            }
+            if (references.erased().schema != ts_type<IntTslPairReferences>())
+            {
+                throw std::logic_error("dereference did not resolve a TSL of element references");
+            }
+
+            auto materialized = references.as<IntTslPairReferences>();
+            return stdlib::to_tsl<IntTslPair>(w, tsl_element(materialized, 0),
+                                              tsl_element(materialized, 1))
+                .template as<IntTslPair>();
+        }
+    };
+
     struct TsbReferenceFlipGraph
     {
         static constexpr auto name = "tsb_reference_flip_graph";
@@ -590,6 +673,35 @@ namespace
             auto empty = wire<EmptyReferenceSource<ContainerAccessBundle>>(w);
             auto choices = stdlib::to_tsl<TSL<ContainerAccessBundle, 3>>(w, first, second, empty);
             return wire<stdlib::getitem_>(w, choices, index).as<ContainerAccessBundle>();
+        }
+    };
+
+    struct DereferenceTsbReferenceGraph
+    {
+        static constexpr auto name = "dereference_tsb_reference_graph";
+
+        static Port<ContainerAccessBundle> compose(Wiring &w,
+                                                   Port<ContainerAccessBundle> first,
+                                                   Port<ContainerAccessBundle> second,
+                                                   Port<TS<Int>> index)
+        {
+            auto empty = wire<EmptyReferenceSource<ContainerAccessBundle>>(w);
+            auto choices = stdlib::to_tsl<TSL<ContainerAccessBundle, 3>>(w, first, second, empty);
+            auto selected = wire<stdlib::getitem_>(w, choices, index).as<REF<ContainerAccessBundle>>();
+            auto references = wire<stdlib::dereference>(w, selected);
+            if (references.erased().is_structural_source())
+            {
+                throw std::logic_error("dereference did not materialize a node output");
+            }
+            if (references.erased().schema != ts_type<ContainerAccessReferenceBundle>())
+            {
+                throw std::logic_error("dereference did not resolve a TSB of field references");
+            }
+
+            auto materialized = references.as<ContainerAccessReferenceBundle>();
+            auto a = wire<stdlib::getattr_>(w, materialized, Str{"a"}).as<REF<TS<Int>>>();
+            auto b = wire<stdlib::getattr_>(w, materialized, Str{"b"}).as<REF<TS<Str>>>();
+            return stdlib::to_tsb<ContainerAccessBundle>(w, a, b);
         }
     };
 
@@ -2624,6 +2736,58 @@ TEST_CASE("std operators: TSB REF composition flips through an empty reference")
                                none,
                                tsb_delta<ContainerAccessBundle>(Int{2}, Str{"b"}),
                                none));
+}
+
+TEST_CASE("std operators: dereference materializes REF TSB fields as references")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<DereferenceTsbReferenceGraph>(
+                     values<Value>(tsb_delta<ContainerAccessBundle>(Int{1}, std::nullopt),
+                                   tsb_delta<ContainerAccessBundle>(std::nullopt, Str{"a"}),
+                                   none, none, none),
+                     values<Value>(tsb_delta<ContainerAccessBundle>(Int{2}, std::nullopt),
+                                   tsb_delta<ContainerAccessBundle>(std::nullopt, Str{"b"}),
+                                   none, none, none),
+                     values<Int>(0, none, 2, 1, 2)),
+                 values<Value>(tsb_delta<ContainerAccessBundle>(Int{1}, std::nullopt),
+                               tsb_delta<ContainerAccessBundle>(std::nullopt, Str{"a"}),
+                               none,
+                               tsb_delta<ContainerAccessBundle>(Int{2}, Str{"b"}),
+                               none));
+}
+
+TEST_CASE("std operators: dereference materializes REF TSL elements as references")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<DereferenceTslReferenceGraph>(
+                     values<Value>(list_delta<TS<Int>>({{0, 1}}),
+                                   list_delta<TS<Int>>({{1, 10}}),
+                                   none, none, none),
+                     values<Value>(list_delta<TS<Int>>({{0, 2}}),
+                                   list_delta<TS<Int>>({{1, 20}}),
+                                   none, none, none),
+                     values<Int>(0, none, 2, 1, 2)),
+                 values<Value>(list_delta<TS<Int>>({{0, 1}}),
+                               list_delta<TS<Int>>({{1, 10}}),
+                               none,
+                               list_delta<TS<Int>>({{0, 2}, {1, 20}}),
+                               none));
+}
+
+TEST_CASE("std operators: dereference rejects incompatible non-peered child references")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_THROWS_WITH(
+        eval_node<DereferenceMalformedNonPeeredTsbReferenceGraph>(),
+        Catch::Matchers::ContainsSubstring(
+            "dereference: REF[TSB] field 'a' reference targets schema"));
+    CHECK_THROWS_WITH(
+        eval_node<DereferenceMalformedNonPeeredTslReferenceGraph>(),
+        Catch::Matchers::ContainsSubstring(
+            "dereference: REF[TSL] element '0' reference targets schema"));
 }
 
 TEST_CASE("std operators: date component operators extract day month year and explode")
