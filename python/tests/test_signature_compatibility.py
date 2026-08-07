@@ -237,6 +237,49 @@ def test_graph_generator_and_component_resolvers():
     assert hg.eval_node(resolved_component, [1, 2], width=3) == [4, 5]
 
 
+def test_resolvers_only_run_for_unresolved_targets_across_wiring_surfaces():
+    calls = []
+
+    def unexpected(surface):
+        def resolver(mapping):
+            calls.append(surface)
+            raise AssertionError(f"{surface} resolver must not run")
+        return resolver
+
+    @hg.compute_node(resolvers={hg.SCALAR: unexpected("node inference")})
+    def inferred_node(ts: hg.TS[hg.SCALAR]) -> hg.TS[hg.SCALAR]:
+        return ts.value
+
+    @hg.compute_node(resolvers={hg.SCALAR_1: unexpected("node pin")})
+    def pinned_node(ts: hg.TS[hg.SCALAR]) -> hg.TS[hg.SCALAR_1]:
+        return str(ts.value)
+
+    @hg.graph(resolvers={hg.SCALAR: unexpected("graph")})
+    def inferred_graph(ts: hg.TS[hg.SCALAR]) -> hg.TS[hg.SCALAR]:
+        return ts
+
+    @hg.operator
+    def inferred_operator(ts: hg.TS[hg.SCALAR]) -> hg.TS[hg.SCALAR]: ...
+
+    @hg.compute_node(
+        overloads=inferred_operator,
+        resolvers={hg.SCALAR: unexpected("operator")},
+    )
+    def inferred_operator_impl(ts: hg.TS[hg.SCALAR]) -> hg.TS[hg.SCALAR]:
+        return ts.value
+
+    @hg.graph
+    def operator_graph(ts: hg.TS[int]) -> hg.TS[int]:
+        return inferred_operator(ts)
+
+    assert hg.eval_node(inferred_node, [1, 2]) == [1, 2]
+    assert hg.eval_node(
+        pinned_node[hg.SCALAR:int, hg.SCALAR_1:str], [1, 2]) == ["1", "2"]
+    assert hg.eval_node(inferred_graph, [1, 2]) == [1, 2]
+    assert hg.eval_node(operator_graph, [1, 2]) == [1, 2]
+    assert calls == []
+
+
 def test_deprecated_node_warns_at_wiring_and_node_impl_is_explicitly_rejected():
     @hg.compute_node(deprecated="use replacement")
     def old_node(ts: hg.TS[int]) -> hg.TS[int]:

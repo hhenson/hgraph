@@ -12,6 +12,7 @@ from ._markers import _INJECTABLE_MARKERS
 from ._node import (_PyNode, _is_time_series_annotation,
                     _lift_time_series_argument, _warn_deprecated)
 from ._operator import _register_overload, _run_requires
+from ._resolution import _apply_resolvers
 from ._state import GlobalState
 
 def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None):
@@ -269,12 +270,7 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
         name: value for name, value in arguments.items()
         if not isinstance(value, WiringPort)
     }
-    if resolvers:
-        for sentinel, resolver in resolvers.items():
-            params = list(inspect.signature(resolver, eval_str=True).parameters)
-            call = {name: scalar_values.get(name) for name in params[1:]}
-            _PyNode._bind_resolved(
-                scope, _type_var_name(sentinel), resolver(scope.bindings, **call))
+    _apply_resolvers(scope, resolvers, scalar_values)
     if requires is not None:
         verdict = _run_requires(requires, scope.bindings, scalar_values)
         if verdict is not True:

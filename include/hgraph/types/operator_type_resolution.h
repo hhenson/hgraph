@@ -305,14 +305,15 @@ namespace hgraph::operator_type_resolution
     /** True when ``resolution`` already carries the erased graph-output binding. */
     [[nodiscard]] inline bool output_bound(const ResolutionMap &resolution) noexcept
     {
-        return output_schema(resolution) != nullptr;
+        return resolution.is_resolved<ResolutionKind::TimeSeries>("__out__");
     }
 
     /** True when a local output type variable such as ``O`` is already bound. */
     [[nodiscard]] inline bool local_output_bound(const ResolutionMap &resolution,
                                                  std::string_view     local_var) noexcept
     {
-        return !local_var.empty() && resolution.find_ts(local_var) != nullptr;
+        return !local_var.empty() &&
+               resolution.is_resolved<ResolutionKind::TimeSeries>(local_var);
     }
 
     /** Bind ``name`` only when ``schema`` is non-null and the name is still unbound. */
@@ -320,7 +321,11 @@ namespace hgraph::operator_type_resolution
                                 std::string_view name,
                                 const TSValueTypeMetaData *schema)
     {
-        if (schema != nullptr && resolution.find_ts(name) == nullptr) { resolution.bind_ts(name, schema); }
+        if (schema != nullptr &&
+            !resolution.is_resolved<ResolutionKind::TimeSeries>(name))
+        {
+            resolution.bind_ts(name, schema);
+        }
     }
 
     /**

@@ -20,6 +20,7 @@ from ._core import (
 from ._graph import _wrap_graph_fn
 from ._markers import _INJECTABLE_MARKERS
 from ._node import _PyNode, _warn_deprecated
+from ._resolution import _apply_resolvers
 
 
 _TS_ANNOTATIONS = (_TsExpr, _GenericTsExpr)
@@ -315,16 +316,7 @@ def _resolved_implementation_path(stub, path):
 def _apply_service_resolvers(resolution, resolvers):
     if resolution is None:
         resolution = _hgraph.ResolutionScope()
-    for sentinel, resolver in (resolvers or {}).items():
-        name = _type_var_name(sentinel)
-        if name in resolution.bindings:
-            continue
-        # A concrete Python type is itself callable, but in a resolver table
-        # it denotes that type. Only resolver functions consume the current
-        # bindings mapping.
-        resolved = resolver if isinstance(resolver, type) else resolver(resolution.bindings)
-        _PyNode._bind_resolved(resolution, name, resolved)
-    return resolution
+    return _apply_resolvers(resolution, resolvers)
 
 
 def _specialization_label(resolution):

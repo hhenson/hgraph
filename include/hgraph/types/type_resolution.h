@@ -19,6 +19,15 @@
 
 namespace hgraph
 {
+    /** The three disjoint binding stores carried by ``ResolutionMap``. */
+    enum class ResolutionKind
+    {
+        TimeSeries,
+        Scalar,
+        Size,
+        Any
+    };
+
     /**
      * Wiring-time resolution of type variables (``TsVar`` / ``ScalarVar``) to concrete
      * registry metadata. A generic node is authored once over deferred schemas; at the
@@ -36,6 +45,39 @@ namespace hgraph
         std::unordered_map<std::string, const TSValueTypeMetaData *> ts_vars;
         std::unordered_map<std::string, const ValueTypeMetaData *>   scalar_vars;
         std::unordered_map<std::string, std::size_t>                 size_vars;
+
+        /**
+         * Whether ``name`` already has a concrete wiring-time resolution.
+         *
+         * Keep the store-specific distinction here, rather than making each
+         * resolver front end repeat three subtly different lookups. Dynamic
+         * authoring bridges normally use ``Any`` because a resolver target's
+         * kind is determined by the value it returns; typed C++ wiring can ask
+         * for the exact store at compile time.
+         */
+        template <ResolutionKind Kind = ResolutionKind::Any>
+        [[nodiscard]] bool is_resolved(std::string_view name) const
+        {
+            if constexpr (Kind == ResolutionKind::TimeSeries)
+            {
+                return ts_vars.contains(std::string{name});
+            }
+            else if constexpr (Kind == ResolutionKind::Scalar)
+            {
+                return scalar_vars.contains(std::string{name});
+            }
+            else if constexpr (Kind == ResolutionKind::Size)
+            {
+                return size_vars.contains(std::string{name});
+            }
+            else
+            {
+                static_assert(Kind == ResolutionKind::Any);
+                return is_resolved<ResolutionKind::TimeSeries>(name) ||
+                       is_resolved<ResolutionKind::Scalar>(name) ||
+                       is_resolved<ResolutionKind::Size>(name);
+            }
+        }
 
         /** Bind time-series variable ``name``; re-binding to a different meta is an error. */
         void bind_ts(std::string_view name, const TSValueTypeMetaData *meta)

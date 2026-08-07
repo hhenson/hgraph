@@ -29,8 +29,11 @@ from ._core import (
     _port_getattr, _port_getitem, _port_iter, _port_keys, _port_len, _port_reduce,
     _published_contexts, _resolve_context, _unwrap, _wiring_stack, operator_function, wire
 )
+from ._resolution import (
+    _BindingsMap, _apply_resolvers, _bind_resolution, _invoke_resolution_callable
+)
 from ._operator import (
-    _BindingsMap, _DISPATCH_KEYS_NODE, _DISPATCH_KEY_NODE, _Dispatch, _Operator,
+    _DISPATCH_KEYS_NODE, _DISPATCH_KEY_NODE, _Dispatch, _Operator,
     _declared_dispatch_class, _declared_dispatch_classes, _dispatch_branch, _dispatch_key_node,
     _dispatch_keys_node, _dispatch_specificity, _overload_registry_name,
     _overload_wire_trampoline, _register_overload, _requires_bridge, _run_requires, dispatch,
@@ -76,7 +79,7 @@ __all__ = [
     "_RecordReplayModes", "_RecordableStateExpr", "_RecordableStateMarker", "_Removed",
     "_ResolvedSize", "_ServiceAdaptorStub", "_ServiceImpl", "_ServiceInputs", "_ServiceStub",
     "_SetDelta", "_TSW_KIND", "_TsExprFor", "_TsOutMarker", "_UNBOUNDED_TUPLE_KIND",
-    "_annotation_ts_kind", "_as_wired", "_bind_registered_impl", "_bind_switch_scalar_args",
+    "_annotation_ts_kind", "_apply_resolvers", "_as_wired", "_bind_registered_impl", "_bind_resolution", "_bind_switch_scalar_args",
     "_combine_compound_scalars", "_context_name_of", "_current_wiring",
     "_declared_dispatch_class", "_declared_dispatch_classes", "_dispatch_branch",
     "_dispatch_key_node", "_dispatch_keys_node", "_dispatch_specificity",
@@ -85,7 +88,7 @@ __all__ = [
     "_enter_runtime", "_exit_runtime", "_overload_wire_trampoline", "_port_enter", "_port_exit",
     "_port_getattr", "_port_getitem", "_port_iter", "_port_keys", "_port_len", "_port_reduce",
     "_published_contexts", "_register_overload",
-    "_requires_bridge", "_resolve_context", "_resolve_requested_target", "_run_requires",
+    "_invoke_resolution_callable", "_requires_bridge", "_resolve_context", "_resolve_requested_target", "_run_requires",
     "_simplify_delta", "_times_for", "_tsw_kind", "_type_pattern_for_target",
     "_unbounded_tuple_kind", "_unwrap", "_wiring_stack", "_wrap_graph_fn", "adaptor",
     "adaptor_impl", "cast_", "collect", "combine", "comparison_summary", "component",
