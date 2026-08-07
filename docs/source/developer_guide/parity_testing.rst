@@ -72,6 +72,12 @@ types, wiring, nodes, test helpers, and direct time-series tests.  ``all`` also
 collects the adaptor, Arrow, NumPy, debug, and example suites; use
 ``--with-extras`` so optional-import results are meaningful.  An existing clean
 checkout of the exact release tag may be supplied with ``--upstream-source``.
+The default candidate environment contains only the core wheel.  For a public
+module owned by a separately installed extension, create a candidate
+environment containing the matching core and extension wheels and pass its
+interpreter with ``--candidate-python``.  A core-only collection error records
+the approved package-ownership boundary; it is not evidence for the
+extension's behavior.
 The report records the reference version, tag, commit, in-tree declared
 version, and digest of the staged test and example trees.  The declared version
 is evidence rather than the source selector: hgraph release automation may tag

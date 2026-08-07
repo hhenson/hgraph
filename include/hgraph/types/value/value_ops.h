@@ -842,7 +842,7 @@ namespace hgraph
      * uses this helper to pair an atomic schema with its ops at registration.
      */
     template <typename T>
-    [[nodiscard]] inline const ValueOps &ops_for() noexcept
+    [[nodiscard]] HGRAPH_NOINLINE inline const ValueOps &ops_for() noexcept
     {
         static const ValueOps ops{
             .kind = ValueOpsKind::Base,

@@ -282,8 +282,8 @@ specialized node/builder rather than the ordinary static-node
 the normal node evaluation path when the real-time engine is woken by queued
 messages. Two delivery policies exist — **Queue** (FIFO; drains one value per
 engine cycle) and **Conflating** (a delta-merging accumulator; delivers the
-merged state) — and push sources require a **real-time root graph** (they are
-rejected in simulation mode and inside nested graphs):
+merged state). Ordinary asynchronous push sources require a **real-time root
+graph** (they are rejected in simulation mode and inside nested graphs):
 
 .. code-block:: cpp
 
@@ -295,6 +295,13 @@ rejected in simulation mode and inside nested graphs):
            // runs at start; hand `sender` to a producer thread.
            // sender.send(Int{42}) enqueues a value and wakes the executor.
        }));
+
+A pull-capable external replay source may instead use
+``make_simulation_capable_push_source_node``. It must enqueue all work needed
+to keep the simulation live before the root graph has finished starting;
+worker timing must never determine simulated graph timing. The explicit
+builder keeps this stronger contract separate from ordinary asynchronous push
+sources.
 
 .. code-block:: python
 

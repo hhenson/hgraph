@@ -137,6 +137,28 @@ exact version, per the compatibility policy in :doc:`release_readiness`. ``test_
 because Conan's Arrow defines all three target namespaces from the single
 ``Arrow`` config.
 
+First-party extension distributions
+-----------------------------------
+
+First-party extensions live under ``extensions/`` in the same repository but
+remain independently versioned CMake and Python distributions.  The root
+``uv`` workspace makes them selectable without adding an extension dependency
+to ``hg_cpp``.  With the matching installed hgraph SDK discoverable, Kafka can
+be built with::
+
+   CMAKE_PREFIX_PATH=/path/to/hgraph/sdk \
+     uv build --wheel --package hgraph-kafka --python 3.12
+
+The Kafka C++ targets can also be included in a repository build with
+``HGRAPH_BUILD_KAFKA_EXTENSION=ON``.  That option is off by default: a normal
+core configure neither resolves nor links librdkafka.  A standalone native
+consumer instead configures ``extensions/kafka`` against the installed
+``hgraph`` CMake package and links ``hgraph::kafka``.
+
+Each extension owns its nested ``pyproject.toml``, CMake package configuration,
+tests, and release version.  Cross-cutting changes are tested against core at
+the same commit, while the resulting wheels remain separately publishable.
+
 Open Design Items
 -----------------
 

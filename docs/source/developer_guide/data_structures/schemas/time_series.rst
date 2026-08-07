@@ -52,7 +52,12 @@ Time-Series Kinds
     *Python correspondence.* Python ``TimeSeriesSchema``
     (``hgraph._types._tsb_type.TimeSeriesSchema``) maps onto the
     C++ ``TSB`` kind. A subclass of ``TimeSeriesSchema`` is the
-    *named* TSB whose name is the Python class name;
+    *named* TSB whose name is the Python class name. An installed
+    native extension may declare
+    ``class Output(TimeSeriesSchema, namespace="example.extension")``;
+    its TSB name is then ``example.extension::Output``, allowing the
+    Python authoring schema and a public C++ named TSB to share exact
+    nominal identity without lifting a compound scalar as a proxy.
     ``UnNamedTimeSeriesSchema.create(**fields)`` (also exposed as
     the convenience ``ts_schema(**fields)``) is the *un-named*
     form. The runtime ``TimeSeriesBundle`` instance is the C++

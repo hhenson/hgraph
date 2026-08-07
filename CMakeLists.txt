@@ -70,6 +70,7 @@ option(HGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS "Use local .venv Python/nanobind he
 option(HGRAPH_ENABLE_COMPILER_CACHE "Use sccache or ccache when available" ON)
 option(HGRAPH_ENABLE_PCH "Use private precompiled headers for repository targets" ON)
 option(HGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS "Run debugger subprocess smoke tests when the platform debugger is available" OFF)
+option(HGRAPH_BUILD_KAFKA_EXTENSION "Build the first-party Kafka extension" OFF)
 
 if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_BUILD_SHARED)
     # Every static library linked into the extension must provide PIC on ELF
@@ -718,6 +719,10 @@ if(HGRAPH_BUILD_PYTHON_BINDINGS)
     else()
         message(STATUS "HGRAPH_BUILD_PYTHON_BINDINGS=ON but no Python binding CMake subtree exists yet")
     endif()
+endif()
+
+if(HGRAPH_BUILD_KAFKA_EXTENSION)
+    add_subdirectory(extensions/kafka)
 endif()
 
 if(BUILD_TESTING AND EXISTS "${PROJECT_SOURCE_DIR}/tests/CMakeLists.txt")

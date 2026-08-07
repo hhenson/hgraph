@@ -1212,34 +1212,14 @@
       ]
     },
     {
-      "id": "adaptors-kafka-private-consumer-injection-converted",
-      "match": "hgraph_unit_tests/adaptors/kafka/test_kafka_api.py::test_realtime_subscriber",
-      "classification": "converted",
-      "candidate_outcomes": ["failed"],
-      "diagnostic_regex": "has no attribute 'KafkaConsumer'",
-      "reason": "The upstream test monkeypatches a private module import. hg_cpp exposes deterministic consumer injection through register_kafka_adaptor's consumer_factory while preserving the public real-time subscriber behavior.",
+      "id": "adaptors-kafka-extension-owned-package",
+      "match": "hgraph_unit_tests/adaptors/kafka/test_kafka_api.py::*",
+      "classification": "expected-change",
+      "candidate_outcomes": ["collection-error"],
+      "diagnostic_regex": "No module named ['\"]hgraph[.]adaptors[.]kafka['\"]",
+      "reason": "Kafka is no longer distributed by the core wheel. The separately installed C++-first Kafka extension owns the released hgraph.adaptors.kafka path; behavior conformance must use a candidate environment containing both distributions.",
       "decision": "docs/source/developer_guide/parity_matrix.rst",
-      "review_date": "2026-08-05",
-      "evidence": [
-        "python/tests/adaptors/kafka/test_kafka_api.py",
-        "tests/cpp/test_service_wiring.cpp"
-      ]
-    },
-    {
-      "id": "adaptors-kafka-skipped-subscriber-converted",
-      "match": "hgraph_unit_tests/adaptors/kafka/test_kafka_api.py::test_subscriber",
-      "classification": "converted",
-      "reference_outcomes": ["skipped"],
-      "candidate_outcomes": ["skipped"],
-      "diagnostic_regex": "Skipped: Not patched yet",
-      "reference_diagnostic_regex": "Skipped: Not patched yet",
-      "reason": "The released test is an unexecuted wiring sketch rather than reference evidence. Deterministic public tests cover subscriber signatures, replay/live separation, shared-topic wiring order, recovery handover, consumer failure, and multi-interface native service composition.",
-      "decision": "docs/source/developer_guide/parity_matrix.rst",
-      "review_date": "2026-08-06",
-      "evidence": [
-        "python/tests/adaptors/kafka/test_kafka_api.py",
-        "tests/cpp/test_service_wiring.cpp"
-      ]
+      "review_date": "2026-08-07"
     },
     {
       "id": "adaptors-run-graph-on-thread-cycle-converted",

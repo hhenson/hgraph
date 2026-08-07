@@ -56,6 +56,39 @@ target_link_libraries(hgraph_abi_boundary_test
 
 add_test(NAME hgraph.abi_boundary COMMAND hgraph_abi_boundary_test)
 
+if(HGRAPH_BUILD_SHARED)
+    add_library(hgraph_standard_binding_boundary_producer SHARED
+        standard_binding_boundary/producer.cpp
+    )
+
+    target_link_libraries(hgraph_standard_binding_boundary_producer
+        PRIVATE
+            hgraph::core
+    )
+
+    target_compile_definitions(hgraph_standard_binding_boundary_producer
+        PRIVATE
+            HGRAPH_STANDARD_BINDING_FIXTURE_BUILD
+    )
+
+    set_target_properties(hgraph_standard_binding_boundary_producer PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN YES
+    )
+
+    add_executable(hgraph_standard_binding_boundary_test
+        standard_binding_boundary/consumer.cpp
+    )
+
+    target_link_libraries(hgraph_standard_binding_boundary_test
+        PRIVATE
+            hgraph_standard_binding_boundary_producer
+            hgraph::core
+    )
+
+    add_test(NAME hgraph.standard_binding_boundary COMMAND hgraph_standard_binding_boundary_test)
+endif()
+
 add_executable(hgraph_debugger_fixture
     ../debugger/debugger_fixture.cpp
 )

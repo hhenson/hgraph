@@ -223,6 +223,7 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
     previous_logger = state.get(_GRAPH_LOGGER_KEY, missing)
     previous_formatter = state.get(_GRAPH_LOGGER_FORMATTER_KEY, missing)
     previous_start_time = state.get("__start_time__", missing)
+    previous_evaluation_mode = state.get("__evaluation_mode__", missing)
     state[_GRAPH_LOGGER_KEY] = config.graph_logger
     if config.logger_formatter is None:
         state.pop(_GRAPH_LOGGER_FORMATTER_KEY, None)
@@ -260,6 +261,11 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
         # generator and the stream aborts empty.
         state["__start_time__"] = (
             config.start_time if config.start_time is not None else _hgraph.MIN_ST)
+        # Wiring-time adapters occasionally need to select a concrete native
+        # contract based on whether the graph will run in simulation or real
+        # time. Keep that run-scoped configuration in GlobalState alongside
+        # the existing start-time mirror rather than in a process global.
+        state["__evaluation_mode__"] = config.run_mode
         config.graph_logger.debug("Wiring graph: %s", getattr(graph_fn, "__name__", graph_fn))
         out = graph_fn(*args, **kwargs)
         if out is not None:
@@ -307,6 +313,10 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
             state.pop("__start_time__", None)
         else:
             state["__start_time__"] = previous_start_time
+        if previous_evaluation_mode is missing:
+            state.pop("__evaluation_mode__", None)
+        else:
+            state["__evaluation_mode__"] = previous_evaluation_mode
     if profiler is not None:
         _log_evaluation_profile(config.graph_logger, profiler.snapshot())
     if out is None:

@@ -2,6 +2,7 @@
 import datetime
 from dataclasses import dataclass
 
+import _hgraph
 import hgraph as hg
 import pytest
 from hgraph import (CompoundScalar, TS, TSS, TSD, TSL, TSB, Size,
@@ -1110,6 +1111,22 @@ def test_mesh_python_reference_surface():
     ]
     assert hg.get_mesh(has_previous) is None
     assert not hasattr(hg, "mesh_ref")
+
+
+def test_time_series_schema_namespace_binds_native_named_tsb():
+    class ExtensionOutput(hg.TimeSeriesSchema, namespace="example.extension"):
+        value: hg.TS[int]
+
+    expected = _hgraph.tsb(
+        "example.extension::ExtensionOutput", [("value", hg.TS[int].handle)]
+    )
+
+    assert hg.TSB[ExtensionOutput].handle == expected
+    assert ExtensionOutput.__name__ == "ExtensionOutput"
+
+    with pytest.raises(TypeError, match="non-empty string"):
+        class InvalidNamespace(hg.TimeSeriesSchema, namespace=""):
+            value: hg.TS[int]
 
 
 def test_service_implementations_materialize_only_when_requested():

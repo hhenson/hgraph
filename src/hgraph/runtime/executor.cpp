@@ -98,6 +98,7 @@ namespace hgraph
             std::vector<std::function<void()>> before_evaluation_notifications{};
             std::vector<std::function<void()>> after_evaluation_notifications{};
             std::atomic_bool stop_requested{false};
+            std::atomic_bool push_update_pending{false};
             bool                     cleanup_on_error{true};
             GraphExecutorPhaseRunner phase_runner{};
             bool                     run_logging_enabled{false};
@@ -197,11 +198,17 @@ namespace hgraph
             return *MemoryUtils::cast<RealTimeExecutorStorage>(memory);
         }
 
-        [[nodiscard]] bool graph_has_push_sources(const GraphBuilder &builder) noexcept
+        [[nodiscard]] bool graph_has_realtime_only_push_sources(
+            const GraphBuilder &builder) noexcept
         {
             for (const NodeBuilder &node : builder.nodes())
             {
-                if (node.type().schema()->node_kind == NodeKind::PushSource) { return true; }
+                const auto *schema = node.type().schema();
+                if (schema->node_kind == NodeKind::PushSource &&
+                    !schema->simulation_capable_push_source)
+                {
+                    return true;
+                }
             }
             return false;
         }
@@ -298,19 +305,25 @@ namespace hgraph
             return executor_context(context).clock_type.read_only(memory);
         }
 
-        void simulation_mark_push_update_pending_impl(const void *, void *)
+        void simulation_mark_push_update_pending_impl(const void *, void *memory)
         {
-            throw std::logic_error("Push queues require a real-time graph executor");
+            auto &state = simulation_storage(memory);
+            if (!state.stop_requested.load(std::memory_order_acquire))
+            {
+                state.push_update_pending.store(true, std::memory_order_release);
+            }
         }
 
-        bool simulation_is_push_update_pending_impl(const void *, void *) noexcept
+        bool simulation_is_push_update_pending_impl(const void *, void *memory) noexcept
         {
-            return false;
+            return simulation_storage(memory).push_update_pending.load(
+                std::memory_order_acquire);
         }
 
-        bool simulation_reset_push_update_pending_impl(const void *, void *) noexcept
+        bool simulation_reset_push_update_pending_impl(const void *, void *memory) noexcept
         {
-            return false;
+            return simulation_storage(memory).push_update_pending.exchange(
+                false, std::memory_order_acq_rel);
         }
 
         void realtime_mark_push_update_pending_impl(const void *, void *memory)
@@ -342,7 +355,11 @@ namespace hgraph
 
         [[nodiscard]] DateTime advance_simulation(SimulationExecutorStorage &state, DateTime next_scheduled_time)
         {
-            const DateTime next = std::min(next_scheduled_time, state.end_time);
+            const DateTime pending_time =
+                state.push_update_pending.load(std::memory_order_acquire)
+                    ? state.evaluation_time + MIN_TD
+                    : next_scheduled_time;
+            const DateTime next = std::min(pending_time, state.end_time);
             state.set_evaluation_time(next);
             return next;
         }
@@ -407,9 +424,11 @@ namespace hgraph
             }
         }
 
-        [[nodiscard]] bool waits_for_push_sources(const SimulationExecutorStorage &, const GraphView &) noexcept
+        [[nodiscard]] bool waits_for_push_sources(
+            const SimulationExecutorStorage &state,
+            const GraphView &) noexcept
         {
-            return false;
+            return state.push_update_pending.load(std::memory_order_acquire);
         }
 
         [[nodiscard]] bool waits_for_push_sources(const RealTimeExecutorStorage &, const GraphView &graph) noexcept
@@ -1247,7 +1266,8 @@ namespace hgraph
 
     GraphExecutorValue::GraphExecutorValue(const GraphExecutorBuilder &builder)
     {
-        if (builder.mode() != GraphExecutorMode::RealTime && graph_has_push_sources(builder.graph_builder()))
+        if (builder.mode() != GraphExecutorMode::RealTime &&
+            graph_has_realtime_only_push_sources(builder.graph_builder()))
         {
             throw std::invalid_argument("Push source nodes require a real-time graph executor");
         }

@@ -237,11 +237,14 @@ instant, zone, and resolved-zoned types.  The bridge now rejects every
 timezone-bearing standalone ``time`` at both inferred and typed graph ingress
 instead of silently losing a ``ZoneInfo`` whose offset needs a date.
 
-One stable case remains without executable reference evidence: the upstream
-multi-client adaptor XFAIL.  The skipped generic ``nested_graph`` body is an
-explicit non-requirement, while the skipped Kafka wiring sketch and former
-inspector skip now have deterministic public Python and native C++ evidence.
-The controller deliberately leaves the adaptor XFAIL unclassified because it
+The recorded audit has one stable case without executable reference evidence:
+the upstream multi-client adaptor XFAIL.  After Kafka ownership moves out of
+the core distribution, a default core-only run also leaves the skipped Kafka
+wiring sketch reference-unverified; its behavior evidence belongs to a
+candidate environment containing both core and the extension.  The skipped
+generic ``nested_graph`` body is an explicit non-requirement, while the former
+inspector skip has deterministic public Python and native C++ evidence.  The
+controller deliberately leaves the adaptor XFAIL unclassified because it
 still fails when replayed in isolation and therefore cannot serve as an
 expected-behaviour oracle.
 
@@ -275,11 +278,12 @@ design decisions, not unimplemented user behaviour:
   the private Python ``InputsKey`` cache is likewise replaced by the native
   structural interning key, which compares producer identity, paths, input
   shape, and native scalar values without invoking overloaded port equality;
-- Kafka tests inject consumers through the public ``consumer_factory`` option.
-  They cover replay/live isolation for both wiring orders, exact recovery
-  handover, and graph shutdown after consumer-thread failure through a native
-  push boundary; websocket behavior is covered without the upstream module's
-  broad optional-import guard;
+- Kafka is owned by a separately installed C++-first extension.  A core-only
+  conformance run records the absent ``hgraph.adaptors.kafka`` module as the
+  approved package boundary.  Extension tests cover replay/live isolation,
+  recovery handover, and graph shutdown after permanent consumer failure
+  through the native push boundary.  Websocket behavior is covered without
+  the upstream module's broad optional-import guard;
 - ``cleanup_on_error=False`` defers stop only while the raised exception owns
   the failed executor; releasing it performs mandatory final teardown; and
 - Arrow stop-hook errors cross the native exception boundary, explicit nodes
@@ -732,9 +736,10 @@ Wiring and node-authoring surface
        available from C++ and Python.  Python service-adaptor interfaces have
        one time-series request and one time-series response; bundles carry
        multi-field protocols. Tornado HTTP/WebSocket/REST, catalogue, JSON,
-       SQL, Delta Lake, Kafka, Perspective, dataframe, executor, and threaded
-       graph families use that boundary. See :doc:`roadmap` for the remaining
-       explicit advanced-feature restrictions.
+       SQL, Delta Lake, Perspective, dataframe, executor, and threaded graph
+       families use that boundary in core; the separately installed Kafka
+       extension uses the same native boundary. See :doc:`roadmap` for the
+       remaining explicit advanced-feature restrictions.
    * - Contexts
      - Full (wiring and compiled children)
      - Named/default/required compatibility plus native context capture across

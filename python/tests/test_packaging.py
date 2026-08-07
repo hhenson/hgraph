@@ -107,6 +107,7 @@ def test_source_distribution_excludes_private_release_evidence():
 
     assert "reports/**" in excluded
     assert "ext/**" in excluded
+    assert "extensions/**" in excluded
     assert "benchmarks/.venv*/**" in excluded
     assert "benchmarks/results/**" in excluded
 
@@ -204,9 +205,12 @@ def test_release_workflow_reuses_tested_commit_artifacts():
 def test_release_workflow_audits_distribution_contents():
     workflow = (ROOT / ".github/workflows/build.yml").read_text()
 
-    assert workflow.count("tools/audit_distribution.py") == 3
+    assert workflow.count(" tools/audit_distribution.py") == 3
+    assert workflow.count("extensions/kafka/tools/audit_distribution.py") == 3
     assert '"dist/*.whl"' in workflow
     assert '"dist/*.tar.gz"' in workflow
+    assert '"kafka-dist/*.whl"' in workflow
+    assert '"kafka-dist/*.tar.gz"' in workflow
 
 
 def main():
