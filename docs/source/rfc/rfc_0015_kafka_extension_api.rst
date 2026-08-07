@@ -58,8 +58,14 @@ the same native extension and preserve the released ``KafkaMessage``, replay,
 ``recovered``, flush, and legacy cross-partition ordering behavior.  New code
 does not depend on magic ``msg``/``recovered`` parameter names.
 
-The first implementation requires no new core runtime API.  In particular,
-bounded Kafka queues and pause/resume remain in the extension.  A conflating
+The first implementation requires one narrow core runtime facility: a root
+push source may be marked as simulation-capable when its producer queues all
+work needed to keep simulation live before the graph evaluation which starts
+that producer completes.  Kafka uses this only for preloaded, bounded
+record-time recovery.  Ordinary asynchronous push sources, unbounded Kafka
+input, and live continuation remain real-time-only.
+
+Bounded Kafka queues and pause/resume remain in the extension.  A conflating
 root push source wakes a graph-owned drain node, so the core push queue carries
 at most a wake-up signal rather than every broker payload.  A generic bounded
 cross-thread channel may be proposed for core only after a second downstream
@@ -215,15 +221,17 @@ hg_cpp owns only the already-public facilities the extension consumes:
 
 * native graph and node authoring;
 * subscription, request/reply, reference-service, and transport planning;
-* root push sources and graph-thread scheduling;
+* root push sources, their explicit simulation-capability marker, and
+  graph-thread scheduling;
 * native extension scalar and Python-class registration; and
 * installed-SDK extension boundaries.
 
-The core must not link to librdkafka or include Kafka headers.  A normal core
-CMake build remains independent of Python and Kafka.  The current
-``python/hgraph/adaptors/kafka`` package becomes a compatibility shim over the
-extension and is removed from the core distribution only in a separately
-approved compatibility release.
+The core must not link to librdkafka, include Kafka headers, import
+``hgraph_kafka``, or declare a package dependency on the extension.  A normal
+core CMake build remains independent of Python and Kafka.  The extension wheel
+owns the compatibility files installed at ``hgraph.adaptors.kafka``.  The
+coordinated core change removes its former Kafka implementation and
+``kafka-python`` extra; it does not replace them with a core-to-extension shim.
 
 This RFC lives in hg_cpp because it changes that existing public compatibility
 surface and fixes the public SDK boundary on which the new extension depends.
@@ -720,9 +728,12 @@ partitions.
 
 In simulation, record-time recovery behaves as a pull-capable source: the
 engine cannot advance past or complete ahead of the next known historical
-record.  The first implementation may preload the bounded snapshot during
-runtime start, but it must not turn broker-thread timing into simulated graph
-timing.  Live continuation remains a push source after the recovery boundary.
+record.  The implementation preloads the bounded snapshot during runtime start
+and queues its first wake before that start evaluation completes, satisfying
+the core simulation-capable push-source contract.  It must not turn
+broker-thread timing into simulated graph timing.  Publish, commit,
+``OnGraphDelivery``, unbounded input, and live continuation are rejected in
+simulation.
 
 Recovery hand-off
 -----------------
@@ -937,10 +948,11 @@ headers.
 The migration uses linked pull requests:
 
 1. create the extension with native C++ API, runtime, tests, and wheel;
-2. change the core Python Kafka package to delegate to that extension while
-   preserving compatibility tests; and
-3. remove Kafka implementation dependencies from the core package after the
-   coordinated release boundary.
+2. make the extension wheel own ``hgraph.adaptors.kafka`` and its compatibility
+   tests; and
+3. remove the Kafka implementation, package files, ``kafka-python`` extra, and
+   Kafka tests from core without adding a dependency or import in the opposite
+   direction.
 
 Performance and memory
 ----------------------
@@ -1023,6 +1035,9 @@ Public C++ and extension boundary
   duplicate registration at that path is rejected.
 * Its graph-to-Kafka edges are sink nodes over ``impl_input`` and its
   Kafka-to-graph edges are root push sources published with ``impl_output``.
+* Bounded record-time recovery works in simulation through the explicit
+  simulation-capable push-source contract; ordinary asynchronous Kafka work is
+  rejected there.
 * Structured scalar values use named ``Bundle`` schemas and collections of
   time-series fields use named ``TSB`` schemas in C++ and Python.
 * Two pure-C++ graph engines run concurrently on different threads with
@@ -1092,7 +1107,7 @@ Performance and release
   baseline before compatibility-shim removal.
 * The extension's native suite, Python 3.14 suite, real/mock broker integration
   tests, installed-SDK consumer, and Linux sanitizer gates pass.
-* The coordinated extension and core compatibility pull requests are linked
+* The coordinated extension and core migration pull requests are linked
   and document dependency and release ordering.
 
 Implementation plan
@@ -1107,11 +1122,13 @@ Implementation plan
 3. Add the librdkafka C RAII layer, consumer recovery/live state machine,
    producer callbacks, commits, rebalances, pause/resume, and typed events.
 4. Add native byte codecs and the Python bridge/new service wiring API.
-5. Move the existing decorators and ``KafkaMessage`` into the compatibility
-   shim and run differential behavior tests against released hgraph.
+5. Move the existing decorators and ``KafkaMessage`` into an extension-owned
+   ``hgraph.adaptors.kafka`` compatibility package and run differential
+   behavior tests against released hgraph.  Remove the former core package
+   without adding a core dependency on the extension.
 6. Add broker integration, failure injection, memory/performance evidence,
    ASan/TSan validation, and packaging on supported platforms.
-7. Coordinate the core delegation/removal PR and update this RFC to Accepted
+7. Coordinate the core ownership-removal PR and update this RFC to Accepted
    only when implementation and transition tests have merged.
 
 Implementation status
