@@ -289,9 +289,6 @@ def _(value: HgAtomicType, delta=False) -> Callable[[Any], Any]:
 # unambiguous ones are included, since a bare "01/02/2024" cannot be resolved without knowing the
 # producer's convention. Use ``register_json_datetime_format`` to add your own.
 _JSON_DATETIME_FORMATS: list[str] = [
-    "%Y%m%d%H%M%S%f",
-    "%Y%m%d%H%M%S",
-    "%Y%m%d",
     "%Y/%m/%d %H:%M:%S.%f",
     "%Y/%m/%d %H:%M:%S",
     "%Y/%m/%d",
@@ -302,10 +299,28 @@ _JSON_DATETIME_FORMATS: list[str] = [
     "%d %b %Y",
 ]
 
-_JSON_TIME_FORMATS: list[str] = [
-    "%H%M%S%f",
-    "%H%M%S",
-]
+_JSON_TIME_FORMATS: list[str] = []
+
+# Compact, unpunctuated values are chosen by length rather than by trying patterns in order.
+# Neither of the general mechanisms gets these right on its own:
+#
+#   * `strptime` lets a variable-width directive take fewer digits than intended, and two adjacent
+#     numeric directives have no boundary between them. "%Y%m%d%H%M%S%f" reads 20240613101530 as
+#     10:15:03 -- %S takes one digit and %f swallows the rest -- so a pattern list silently
+#     corrupts every fractionless value it reaches.
+#   * `fromisoformat` mis-reads the 20-digit form: 20240613101530123456 comes back as
+#     01:53:01.234560. It handles the 'T'-separated spelling correctly, but not this one.
+#
+# Length is unambiguous for these three shapes, so it decides, and it is applied before ISO so the
+# second case above cannot arise.
+_COMPACT_DATETIME_FORMATS: dict[int, str] = {8: "%Y%m%d", 14: "%Y%m%d%H%M%S", 20: "%Y%m%d%H%M%S%f"}
+_COMPACT_TIME_FORMATS: dict[int, str] = {6: "%H%M%S", 12: "%H%M%S%f"}
+
+
+def _parse_compact(v: str, formats: dict[int, str]) -> datetime:
+    if not (isinstance(v, str) and v.isdigit()) or (fmt := formats.get(len(v))) is None:
+        raise ValueError("not a compact date or time")
+    return datetime.strptime(v, fmt)
 
 
 def register_json_datetime_format(fmt: str, *, time_only: bool = False) -> None:
@@ -329,6 +344,14 @@ def _as_naive_utc(v: datetime) -> datetime:
     return v.astimezone(timezone.utc).replace(tzinfo=None) if v.tzinfo is not None else v
 
 
+def _compact_datetime(v: str) -> datetime:
+    return _parse_compact(v, _COMPACT_DATETIME_FORMATS)
+
+
+def _compact_time(v: str) -> datetime:
+    return _parse_compact(v, _COMPACT_TIME_FORMATS)
+
+
 def _parse(v: str, iso: tuple[Callable[[str], Any], ...], formats: list[str], what: str):
     for parse in (*iso, *(lambda s, f=f: datetime.strptime(s, f) for f in formats)):
         try:
@@ -342,7 +365,7 @@ def parse_json_datetime(v) -> datetime:
     """Parse a datetime from JSON, accepting ISO 8601 and any registered format."""
     if v is None or isinstance(v, datetime):
         return _as_naive_utc(v) if v is not None else None
-    return _as_naive_utc(_parse(v, (datetime.fromisoformat,), _JSON_DATETIME_FORMATS, "datetime"))
+    return _as_naive_utc(_parse(v, (_compact_datetime, datetime.fromisoformat), _JSON_DATETIME_FORMATS, "datetime"))
 
 
 def parse_json_date(v) -> date:
@@ -353,7 +376,7 @@ def parse_json_date(v) -> date:
         return v.date()
     if isinstance(v, date):
         return v
-    parsed = _parse(v, (date.fromisoformat, datetime.fromisoformat), _JSON_DATETIME_FORMATS, "date")
+    parsed = _parse(v, (_compact_datetime, date.fromisoformat, datetime.fromisoformat), _JSON_DATETIME_FORMATS, "date")
     return parsed.date() if isinstance(parsed, datetime) else parsed
 
 
@@ -365,7 +388,7 @@ def parse_json_time(v) -> time:
         return v.time()
     if isinstance(v, time):
         return v
-    parsed = _parse(v, (time.fromisoformat,), _JSON_TIME_FORMATS, "time")
+    parsed = _parse(v, (_compact_time, time.fromisoformat), _JSON_TIME_FORMATS, "time")
     return parsed.time() if isinstance(parsed, datetime) else parsed
 
 

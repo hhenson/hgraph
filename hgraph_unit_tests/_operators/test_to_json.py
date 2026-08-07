@@ -121,6 +121,11 @@ def test_to_json_delta(tp: TIME_SERIES_TYPE, value: Any, expected: str):
         ['"2024-06-13"', datetime(2024, 6, 13)],
         ['"2024-06-13T10:15:30.5"', datetime(2024, 6, 13, 10, 15, 30, 500000)],
         ['"20240613T101530"', datetime(2024, 6, 13, 10, 15, 30)],
+        # Compact and unpunctuated. Neither general mechanism reads these correctly on its own:
+        # a "%Y%m%d%H%M%S%f" pattern takes the first as 10:15:03, and fromisoformat takes the
+        # second as 01:53:01.234560. Length decides instead.
+        ['"20240613101530"', datetime(2024, 6, 13, 10, 15, 30)],
+        ['"20240613101530123456"', datetime(2024, 6, 13, 10, 15, 30, 123456)],
         # The format hgraph itself emitted before this became ISO: data already written out, and
         # any store holding it, has to keep reading back.
         ['"2024-06-13 10:15:30.000042"', datetime(2024, 6, 13, 10, 15, 30, 42)],
@@ -145,6 +150,7 @@ def test_from_json_accepts_many_datetime_formats(text: str, expected: datetime):
         ['"10:15:30"', time(10, 15, 30)],  # no fractional part: rejected before this change
         ['"10:15"', time(10, 15)],
         ['"101530"', time(10, 15, 30)],
+        ['"101530123456"', time(10, 15, 30, 123456)],  # "%H%M%S%f" would read this as 10:15:03
     ],
 )
 def test_from_json_accepts_many_time_formats(text: str, expected: time):
