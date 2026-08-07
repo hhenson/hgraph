@@ -331,6 +331,26 @@ def test_dereference_materializes_tsb_field_references():
     ]
 
 
+def test_dereference_rejects_incompatible_non_peered_tsb_child_references():
+    class WrongTsb(TimeSeriesSchema):
+        p1: TS[str]
+        p2: TS[str]
+
+    @compute_node
+    def misdeclare_reference(
+        tsb: REF[TSB[WrongTsb]],
+    ) -> REF[TSB[MyTsb]]:
+        return tsb.value
+
+    @graph
+    def g(p1: TS[str], p2: TS[str]) -> TS[int]:
+        tsb = TSB[WrongTsb].from_ts(p1=p1, p2=p2)
+        return dereference(misdeclare_reference(tsb)).p1
+
+    with pytest.raises(RuntimeError, match="reference targets schema"):
+        eval_node(g, ["wrong"], ["value"])
+
+
 def test_tsb_output_access():
     @compute_node
     def f(tsb: TSB[MyTsb], _output: TSB_OUT[MyTsb] = None) -> TSB[MyTsb]:

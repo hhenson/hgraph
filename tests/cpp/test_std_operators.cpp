@@ -33,6 +33,7 @@
 #include <arrow/api.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <array>
 #include <chrono>
@@ -553,6 +554,56 @@ namespace
         static void eval(Out<REF<Schema>> out)
         {
             out.set(TimeSeriesReference::empty(ts_type<Schema>()));
+        }
+    };
+
+    struct MalformedNonPeeredTsbReferenceSource
+    {
+        static constexpr auto name              = "malformed_non_peered_tsb_reference_source";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<REF<ContainerAccessBundle>> out)
+        {
+            out.set(TimeSeriesReference::non_peered(
+                ts_type<ContainerAccessBundle>(),
+                {TimeSeriesReference::empty(ts_type<TS<Float>>()),
+                 TimeSeriesReference::empty(ts_type<TS<Str>>())}));
+        }
+    };
+
+    struct MalformedNonPeeredTslReferenceSource
+    {
+        static constexpr auto name              = "malformed_non_peered_tsl_reference_source";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<REF<IntTslPair>> out)
+        {
+            out.set(TimeSeriesReference::non_peered(
+                ts_type<IntTslPair>(),
+                {TimeSeriesReference::empty(ts_type<TS<Str>>()),
+                 TimeSeriesReference::empty(ts_type<TS<Int>>())}));
+        }
+    };
+
+    struct DereferenceMalformedNonPeeredTsbReferenceGraph
+    {
+        static constexpr auto name = "dereference_malformed_non_peered_tsb_reference_graph";
+
+        static Port<ContainerAccessReferenceBundle> compose(Wiring &w)
+        {
+            return wire<stdlib::dereference>(w, wire<MalformedNonPeeredTsbReferenceSource>(w))
+                .as<ContainerAccessReferenceBundle>();
+        }
+    };
+
+    struct DereferenceMalformedNonPeeredTslReferenceGraph
+    {
+        static constexpr auto name = "dereference_malformed_non_peered_tsl_reference_graph";
+
+        static Port<IntTslPairReferences> compose(Wiring &w)
+        {
+            return wire<stdlib::dereference>(w, wire<MalformedNonPeeredTslReferenceSource>(w))
+                .as<IntTslPairReferences>();
         }
     };
 
@@ -2723,6 +2774,20 @@ TEST_CASE("std operators: dereference materializes REF TSL elements as reference
                                none,
                                list_delta<TS<Int>>({{0, 2}, {1, 20}}),
                                none));
+}
+
+TEST_CASE("std operators: dereference rejects incompatible non-peered child references")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_THROWS_WITH(
+        eval_node<DereferenceMalformedNonPeeredTsbReferenceGraph>(),
+        Catch::Matchers::ContainsSubstring(
+            "dereference: REF[TSB] field 'a' reference targets schema"));
+    CHECK_THROWS_WITH(
+        eval_node<DereferenceMalformedNonPeeredTslReferenceGraph>(),
+        Catch::Matchers::ContainsSubstring(
+            "dereference: REF[TSL] element '0' reference targets schema"));
 }
 
 TEST_CASE("std operators: date component operators extract day month year and explode")

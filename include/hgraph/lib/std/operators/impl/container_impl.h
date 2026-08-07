@@ -250,6 +250,27 @@ resolve_indexed_reference_target(
   } else if (reference.is_non_peered() && index < reference.items().size()) {
     result = reference[index];
   }
+
+  const auto *actual = result.target_schema();
+  if (actual == nullptr) {
+    if (result.is_empty()) {
+      return TimeSeriesReference::empty(element_type);
+    }
+    throw std::invalid_argument(
+        std::string{operation} + ": " + std::string{subject} + " " +
+        std::string{element_kind} + " '" + std::string{element_label} +
+        "' reference has no target schema");
+  }
+
+  auto &registry = TypeRegistry::instance();
+  if (!time_series_schema_equivalent(registry.dereference(actual),
+                                     registry.dereference(element_type))) {
+    throw std::invalid_argument(
+        std::string{operation} + ": " + std::string{subject} + " " +
+        std::string{element_kind} + " '" + std::string{element_label} +
+        "' reference targets schema '" + std::string{actual->name()} +
+        "' but expected '" + std::string{element_type->name()} + "'");
+  }
   return result;
 }
 
