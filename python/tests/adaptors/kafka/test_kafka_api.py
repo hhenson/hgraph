@@ -5,6 +5,7 @@ from datetime import UTC, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
 from frozendict import frozendict
 
 import hgraph as hg
@@ -521,6 +522,123 @@ def test_replay_aware_publisher_republishes_history_and_closes_history_consumer(
 
     producer.send.assert_called_once_with("test", b"history")
     assert consumer.close_count == 1
+
+
+@pytest.mark.parametrize("subscriber_replays", [False, True])
+@pytest.mark.parametrize("subscriber_first", [False, True])
+def test_recovering_publisher_shares_topic_without_crossing_recovery_boundary(
+        subscriber_replays, subscriber_first):
+    """The upstream Kafka refactor found two silent sharing failures.
+
+    A subscriber that did not request recovery could receive history requested
+    by another client, while a recovering publisher could receive its own live
+    continuation. Exercise both subscriber contracts in both wiring orders;
+    hg_cpp keeps the streams separate inside one multi-interface service, but
+    must preserve the same externally visible handover.
+    """
+    start_time = hg.utc_now() - timedelta(milliseconds=100)
+    start_ms = int(start_time.replace(tzinfo=UTC).timestamp() * 1000)
+    consumer = _Consumer(
+        [
+            {0: [_record(b"history", start_ms + 10, offset=0)]},
+            {0: [_record(b"live", start_ms + 120, offset=1)]},
+        ],
+        partitions=(0,),
+        start_offsets={0: 0},
+        end_offsets={0: 1},
+    )
+    producer = MagicMock()
+    subscriber_values = []
+
+    @hg.sink_node
+    def capture_and_stop(
+            msg: hg.TS[bytes], _engine: hg.EvaluationEngineApi = None):
+        subscriber_values.append(msg.value)
+        if msg.value == b"live":
+            _engine.request_engine_stop()
+
+    if subscriber_replays:
+        @message_subscriber(topic="test")
+        def subscriber(msg: hg.TS[bytes], recovered: hg.TS[bool]):
+            capture_and_stop(msg)
+    else:
+        @message_subscriber(topic="test")
+        def subscriber(msg: hg.TS[bytes]):
+            capture_and_stop(msg)
+
+    @message_publisher(topic="test")
+    def publisher(
+            msg: hg.TS[bytes], recovered: hg.TS[bool]) -> hg.TS[bytes]:
+        return msg
+
+    @hg.graph
+    def app():
+        register_kafka_adaptor({
+            "consumer_factory": lambda **opts: consumer,
+            "producer": producer,
+        })
+        if subscriber_first:
+            subscriber()
+            publisher()
+        else:
+            publisher()
+            subscriber()
+
+    with hg.GlobalContext(hg.GlobalState()):
+        hg.run_graph(
+            app,
+            run_mode=hg.EvaluationMode.REAL_TIME,
+            start_time=start_time,
+            end_time=hg.utc_now() + timedelta(seconds=5),
+        )
+
+    assert subscriber_values == (
+        [b"history", b"live"] if subscriber_replays else [b"live"])
+    producer.send.assert_called_once_with("test", b"history")
+    assert consumer.close_count == 1
+
+
+def test_consumer_failure_stops_the_graph_through_the_push_boundary(caplog):
+    """A broker failure must not leave a graph running on a dead feed.
+
+    The consumer thread reports through a push source; only the graph-thread
+    sink touches ``EvaluationEngineApi``. This keeps the runtime ownership
+    boundary explicit while matching upstream's stop-on-consumer-failure
+    behavior.
+    """
+
+    class FailingConsumer(_Consumer):
+        def __init__(self):
+            super().__init__([], partitions=(0,))
+
+        def poll(self, **kwargs):
+            del kwargs
+            raise RuntimeError("broker gone")
+
+    consumer = FailingConsumer()
+
+    @message_subscriber(topic="test")
+    def subscriber(msg: hg.TS[bytes]):
+        pass
+
+    @hg.graph
+    def app():
+        register_kafka_adaptor({
+            "consumer_factory": lambda **opts: consumer,
+        })
+        subscriber()
+
+    started = time.monotonic()
+    with hg.GlobalContext(hg.GlobalState()):
+        hg.run_graph(
+            app,
+            run_mode=hg.EvaluationMode.REAL_TIME,
+            end_time=hg.utc_now() + timedelta(seconds=5),
+        )
+
+    assert time.monotonic() - started < 2.0
+    assert consumer.close_count == 1
+    assert "RuntimeError: broker gone" in caplog.text
 
 
 def test_replay_parameters_are_required_together_and_typed():

@@ -815,6 +815,23 @@
       ]
     },
     {
+      "id": "wiring-generic-nested-graph-skipped-nonrequirement",
+      "match": "hgraph_unit_tests/_wiring/test_nested_graph.py::test_nested_graph",
+      "classification": "converted",
+      "reference_outcomes": ["skipped"],
+      "candidate_outcomes": ["collection-error"],
+      "diagnostic_regex": "cannot import name 'nested_graph'",
+      "reference_diagnostic_regex": "Skipped: A node with no inputs or outputs gets dropped",
+      "reason": "The released reference skips this body before exercising behavior, and generic Python nested_graph is explicitly outside the compatibility contract. Native nested_ and the registered higher-order operators retain the required internal child-graph construction paths.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-06",
+      "evidence": [
+        "tests/cpp/test_nested_wiring.cpp",
+        "tests/cpp/test_map.cpp",
+        "tests/cpp/test_mesh.cpp"
+      ]
+    },
+    {
       "id": "wiring-generic-nested-graph-expected-change",
       "match": "hgraph_unit_tests/_wiring/test_nested_graph.py::*",
       "classification": "expected-change",
@@ -1181,6 +1198,22 @@
       ]
     },
     {
+      "id": "adaptors-kafka-skipped-subscriber-converted",
+      "match": "hgraph_unit_tests/adaptors/kafka/test_kafka_api.py::test_subscriber",
+      "classification": "converted",
+      "reference_outcomes": ["skipped"],
+      "candidate_outcomes": ["skipped"],
+      "diagnostic_regex": "Skipped: Not patched yet",
+      "reference_diagnostic_regex": "Skipped: Not patched yet",
+      "reason": "The released test is an unexecuted wiring sketch rather than reference evidence. Deterministic public tests cover subscriber signatures, replay/live separation, shared-topic wiring order, recovery handover, consumer failure, and multi-interface native service composition.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-06",
+      "evidence": [
+        "python/tests/adaptors/kafka/test_kafka_api.py",
+        "tests/cpp/test_service_wiring.cpp"
+      ]
+    },
+    {
       "id": "adaptors-run-graph-on-thread-cycle-converted",
       "match": "hgraph_unit_tests/adaptors/run_graph_on_thread/test_run_graph_on_thread.py::test_run_graph_on_thread_*_mode",
       "classification": "converted",
@@ -1214,7 +1247,7 @@
       "match": "hgraph_unit_tests/arrow/test_arrow.py::test_assert_too_many_args",
       "classification": "converted",
       "candidate_outcomes": ["failed"],
-      "diagnostic_regex": "RuntimeError: node.*'_assert'.*stop failed:.*AssertionError: Expected 2 values but got 1 results",
+      "diagnostic_regex": "RuntimeError: node.*_assert.*stop failed:.*AssertionError: Expected 2 values but got 1 results",
       "reason": "The assertion behavior is retained, but a Python stop-hook exception crossing the native node boundary is surfaced as NodeException/RuntimeError with the original AssertionError preserved in its diagnostic.",
       "decision": "docs/source/developer_guide/parity_matrix.rst",
       "review_date": "2026-08-05",
