@@ -235,8 +235,10 @@ coordinated core change removes its former Kafka implementation and
 
 This RFC lives in hg_cpp because it changes that existing public compatibility
 surface and fixes the public SDK boundary on which the new extension depends.
-Once the extension repository exists, implementation-specific build and
-release details live there and link back to this migration contract.
+The first-party extension lives under ``extensions/kafka`` in the hg_cpp
+monorepo, with its own CMake package, ``pyproject.toml``, version, and release
+artifacts.  Repository co-location keeps cross-cutting core and extension
+changes atomic without changing the one-way package dependency.
 
 No generic messaging layer is introduced by this RFC.  One Kafka
 implementation is not sufficient promotion evidence for generic connector
@@ -945,7 +947,7 @@ librdkafka handles and callback types remain behind extension-owned runtime
 node and RAII implementation boundaries, so upgrades do not change consumer
 headers.
 
-The migration uses linked pull requests:
+The migration lands atomically in one monorepo implementation pull request:
 
 1. create the extension with native C++ API, runtime, tests, and wheel;
 2. make the extension wheel own ``hgraph.adaptors.kafka`` and its compatibility
@@ -1107,8 +1109,8 @@ Performance and release
   baseline before compatibility-shim removal.
 * The extension's native suite, Python 3.14 suite, real/mock broker integration
   tests, installed-SDK consumer, and Linux sanitizer gates pass.
-* The coordinated extension and core migration pull requests are linked
-  and document dependency and release ordering.
+* The monorepo migration pull request tests core and the extension at the same
+  commit and documents independent artifact release ordering.
 
 Implementation plan
 -------------------
@@ -1128,8 +1130,9 @@ Implementation plan
    without adding a core dependency on the extension.
 6. Add broker integration, failure injection, memory/performance evidence,
    ASan/TSan validation, and packaging on supported platforms.
-7. Coordinate the core ownership-removal PR and update this RFC to Accepted
-   only when implementation and transition tests have merged.
+7. Land extension addition and core ownership removal atomically, and update
+   this RFC to Accepted only when implementation and transition tests have
+   merged.
 
 Implementation status
 ---------------------
