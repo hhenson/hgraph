@@ -22,6 +22,7 @@ from hgraph import (
     REMOVE,
     to_json_builder,
     from_json_builder,
+    register_json_datetime_format,
 )
 from hgraph.test import eval_node
 
@@ -53,7 +54,7 @@ class MyNullableMappingCS(CompoundScalar):
         [TS[int], 1, "1"],
         [TS[float], 1.0, "1.0"],
         [TS[date], date(2024, 6, 13), '"2024-06-13"'],
-        [TS[datetime], datetime(2024, 6, 13, 10, 15, 30, 42), '"2024-06-13 10:15:30.000042"'],
+        [TS[datetime], datetime(2024, 6, 13, 10, 15, 30, 42), '"2024-06-13T10:15:30.000042"'],
         [TS[time], time(10, 15, 30, 42), '"10:15:30.000042"'],
         [TS[timedelta], timedelta(10, 15, microseconds=42), '"10:0:0:15.000042"'],
         [TS[ExpEnum], ExpEnum.E1, '"E1"'],
@@ -108,6 +109,88 @@ def test_to_json_delta(tp: TIME_SERIES_TYPE, value: Any, expected: str):
     out = eval_node(to_json[tp], value, delta=True)
     assert [json.loads(o) for o in out] == [json.loads(e) for e in expected]
     assert eval_node(from_json[tp], expected) == value
+
+
+@pytest.mark.parametrize(
+    ["text", "expected"],
+    [
+        # ISO 8601, in the shapes a producer might reasonably choose.
+        ['"2024-06-13T10:15:30.000042"', datetime(2024, 6, 13, 10, 15, 30, 42)],
+        ['"2024-06-13T10:15:30"', datetime(2024, 6, 13, 10, 15, 30)],
+        ['"2024-06-13T10:15"', datetime(2024, 6, 13, 10, 15)],
+        ['"2024-06-13"', datetime(2024, 6, 13)],
+        ['"2024-06-13T10:15:30.5"', datetime(2024, 6, 13, 10, 15, 30, 500000)],
+        ['"20240613T101530"', datetime(2024, 6, 13, 10, 15, 30)],
+        # The format hgraph itself emitted before this became ISO: data already written out, and
+        # any store holding it, has to keep reading back.
+        ['"2024-06-13 10:15:30.000042"', datetime(2024, 6, 13, 10, 15, 30, 42)],
+        # Offsets are applied and dropped, because the engine works in naive UTC.
+        ['"2024-06-13T10:15:30Z"', datetime(2024, 6, 13, 10, 15, 30)],
+        ['"2024-06-13T11:15:30+01:00"', datetime(2024, 6, 13, 10, 15, 30)],
+        ['"2024-06-13T05:15:30-05:00"', datetime(2024, 6, 13, 10, 15, 30)],
+        # Non-ISO renderings from the fallback list.
+        ['"2024/06/13 10:15:30"', datetime(2024, 6, 13, 10, 15, 30)],
+        ['"13-Jun-2024 10:15:30"', datetime(2024, 6, 13, 10, 15, 30)],
+        ['"13 Jun 2024"', datetime(2024, 6, 13)],
+    ],
+)
+def test_from_json_accepts_many_datetime_formats(text: str, expected: datetime):
+    assert eval_node(from_json[TS[datetime]], [text]) == [expected]
+
+
+@pytest.mark.parametrize(
+    ["text", "expected"],
+    [
+        ['"10:15:30.000042"', time(10, 15, 30, 42)],
+        ['"10:15:30"', time(10, 15, 30)],  # no fractional part: rejected before this change
+        ['"10:15"', time(10, 15)],
+        ['"101530"', time(10, 15, 30)],
+    ],
+)
+def test_from_json_accepts_many_time_formats(text: str, expected: time):
+    assert eval_node(from_json[TS[time]], [text]) == [expected]
+
+
+@pytest.mark.parametrize(
+    ["text", "expected"],
+    [
+        ['"2024-06-13"', date(2024, 6, 13)],
+        ['"20240613"', date(2024, 6, 13)],
+        ['"2024/06/13"', date(2024, 6, 13)],
+        ['"13-Jun-2024"', date(2024, 6, 13)],
+        ['"2024-06-13T10:15:30"', date(2024, 6, 13)],  # a datetime where a date is wanted
+    ],
+)
+def test_from_json_accepts_many_date_formats(text: str, expected: date):
+    assert eval_node(from_json[TS[date]], [text]) == [expected]
+
+
+def test_from_json_rejects_an_unparseable_datetime():
+    """Failing loudly matters more than leniency: a silent None would surface far from the cause."""
+    with pytest.raises(Exception) as e:
+        eval_node(from_json[TS[datetime]], ['"not a datetime"'])
+    assert "not a datetime" in str(e.value)
+
+
+def test_register_json_datetime_format_accepts_a_producers_own_format():
+    from hgraph._impl._operators._to_json import _JSON_DATETIME_FORMATS
+
+    original = list(_JSON_DATETIME_FORMATS)
+    try:
+        register_json_datetime_format("%d/%m/%Y %H:%M:%S")
+        assert eval_node(from_json[TS[datetime]], ['"13/06/2024 10:15:30"']) == [
+            datetime(2024, 6, 13, 10, 15, 30)
+        ]
+    finally:
+        _JSON_DATETIME_FORMATS[:] = original
+
+
+def test_to_json_omits_fractional_seconds_when_zero():
+    """Matches the C++ engine, which writes 1970-01-01T00:00:00 rather than ...00.000000."""
+    assert eval_node(to_json[TS[datetime]], [datetime(2024, 6, 13, 10, 15, 30)]) == [
+        '"2024-06-13T10:15:30"'
+    ]
+    assert eval_node(to_json[TS[time]], [time(10, 15, 30)]) == ['"10:15:30"']
 
 
 def test_to_json_builder_serializes_none_mapping_value_as_null():
