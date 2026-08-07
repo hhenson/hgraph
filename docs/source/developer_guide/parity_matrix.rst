@@ -210,9 +210,9 @@ authoring gaps, both fixed without changing native execution: anonymous
 ``compound_scalar(...)`` schemas once again allow omitted fields and retain
 ``to_dict``/``from_dict``, and ``with_columns[RowSchema](...)`` lowers that
 released shorthand to the native ``TS[Frame[RowSchema]]`` output constraint.
-Against released hgraph 0.5.36, the resulting 1,862-test audit records 1,092
-exact matches, 765 evidence-backed conversions, 5 reference-unverified
-tests, and no review-required, confirmed-gap, or ambiguous outcomes.
+Against released hgraph 0.5.36, the resulting 1,862-test audit records 1,096
+exact matches, 765 evidence-backed conversions, one reference-unverified
+test, and no review-required, confirmed-gap, or ambiguous outcomes.
 
 The 2026-08-05 evidence-frontier refresh installs Pydantic in both audit
 environments, where the unchanged public compound-scalar case passes on both
@@ -235,11 +235,13 @@ instant, zone, and resolved-zoned types.  The bridge now rejects every
 timezone-bearing standalone ``time`` at both inferred and typed graph ingress
 instead of silently losing a ``ZoneInfo`` whose offset needs a date.
 
-Four stable cases remain without executable reference evidence: the upstream
-multi-client adaptor XFAIL and skipped nested-graph, Kafka, and inspector
-cases.  The latest audit reports five because the already-documented
-real-time scheduler test failed in the reference engine during that run;
-the controller deliberately does not retry ordinary reference failures.
+One stable case remains without executable reference evidence: the upstream
+multi-client adaptor XFAIL.  The skipped generic ``nested_graph`` body is an
+explicit non-requirement, while the skipped Kafka wiring sketch and former
+inspector skip now have deterministic public Python and native C++ evidence.
+The controller deliberately leaves the adaptor XFAIL unclassified because it
+still fails when replayed in isolation and therefore cannot serve as an
+expected-behaviour oracle.
 
 The upstream multi-client service-adaptor XFAIL remains in that direct-audit
 residue: its real-time assertion still fails in isolated released-hgraph runs
@@ -271,9 +273,11 @@ design decisions, not unimplemented user behaviour:
   the private Python ``InputsKey`` cache is likewise replaced by the native
   structural interning key, which compares producer identity, paths, input
   shape, and native scalar values without invoking overloaded port equality;
-- Kafka tests inject consumers through the public ``consumer_factory`` option,
-  and websocket behavior is covered without the upstream module's broad
-  optional-import guard;
+- Kafka tests inject consumers through the public ``consumer_factory`` option.
+  They cover replay/live isolation for both wiring orders, exact recovery
+  handover, and graph shutdown after consumer-thread failure through a native
+  push boundary; websocket behavior is covered without the upstream module's
+  broad optional-import guard;
 - ``cleanup_on_error=False`` defers stop only while the raised exception owns
   the failed executor; releasing it performs mandatory final teardown; and
 - Arrow stop-hook errors cross the native exception boundary, explicit nodes

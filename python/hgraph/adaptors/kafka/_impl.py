@@ -94,6 +94,8 @@ class _ConsumerSession:
         self.consumer = None
         self.topic_partitions = ()
         self.sender = None
+        self.failure_sender = None
+        self.pending_failure = None
         self.thread = None
         self.stop_event = threading.Event()
         self.start_requested = False
@@ -132,6 +134,23 @@ class _ConsumerSession:
         if launch:
             self._launch()
 
+    def attach_failure_sender(self, sender):
+        with self.lock:
+            self.failure_sender = sender
+            pending = self.pending_failure
+            self.pending_failure = None
+        if pending is not None:
+            sender(pending)
+
+    def _report_failure(self, error):
+        message = f"{type(error).__name__}: {error}"
+        with self.lock:
+            sender = self.failure_sender
+            if sender is None:
+                self.pending_failure = message
+                return
+        sender(message)
+
     def request_start(self):
         with self.lock:
             self.start_requested = True
@@ -164,9 +183,16 @@ class _ConsumerSession:
                     if self.stop_event.is_set():
                         break
                     self.sender(_record_to_kafka_message(record))
-        except BaseException:
+        except BaseException as error:
             logger.exception(
                 "Failure occurred while reading Kafka topic %s", self.topic)
+            try:
+                self._report_failure(error)
+            except BaseException:
+                logger.exception(
+                    "Failed to report the Kafka consumer failure for topic %s",
+                    self.topic,
+                )
         finally:
             self._close_consumer()
 
@@ -391,6 +417,18 @@ def _message_subscriber_queue(sender, *, session: object):
     session.attach_sender(sender)
 
 
+@push_queue(TS[str])
+def _consumer_failure_queue(sender, *, session: object):
+    session.attach_failure_sender(sender)
+
+
+@sink_node
+def _stop_on_consumer_failure(
+        failure: TS[str], _api: EvaluationEngineApi = None):
+    logger.error("Kafka consumer stopped: %s", failure.value)
+    _api.request_engine_stop()
+
+
 @sink_node
 def _start_realtime_message_subscriber(
         start_real_time_service: TS[bool], session: object):
@@ -415,6 +453,8 @@ def _message_subscriber_impl(path: str, topic: str):
     state = KafkaMessageState.instance()
     session = state.consumer_session(topic)
     _consumer_lifetime(const(True, tp=TS[bool]), session=session)
+    _stop_on_consumer_failure(
+        _consumer_failure_queue(session=session))
 
     if topic in state.history_subscribers:
         historical = _message_subscriber_history_aggregator(session=session)
