@@ -509,6 +509,7 @@ namespace
                                          Field<"false", REF<TSD<Int, TS<Int>>>>>;
     using RoutedIntRefList      = TSL<REF<TS<Int>>, 3>;
     using IntTslPair            = TSL<TS<Int>, 2>;
+    using IntTslPairReferences  = TSL<REF<TS<Int>>, 2>;
     using IntTsd                = TSD<Int, TS<Int>>;
 
     struct ForwardReference
@@ -577,6 +578,35 @@ namespace
         static Port<TS<Int>> compose(Wiring &, Port<IntTslPair> ts)
         {
             return tsl_element(ts, 0);
+        }
+    };
+
+    struct DereferenceTslReferenceGraph
+    {
+        static constexpr auto name = "dereference_tsl_reference_graph";
+
+        static Port<IntTslPair> compose(Wiring &w,
+                                        Port<IntTslPair> first,
+                                        Port<IntTslPair> second,
+                                        Port<TS<Int>> index)
+        {
+            auto empty = wire<EmptyReferenceSource<IntTslPair>>(w);
+            auto choices = stdlib::to_tsl<TSL<IntTslPair, 3>>(w, first, second, empty);
+            auto selected = wire<stdlib::getitem_>(w, choices, index).as<REF<IntTslPair>>();
+            auto references = wire<stdlib::dereference>(w, selected);
+            if (references.erased().is_structural_source())
+            {
+                throw std::logic_error("dereference did not materialize a node output");
+            }
+            if (references.erased().schema != ts_type<IntTslPairReferences>())
+            {
+                throw std::logic_error("dereference did not resolve a TSL of element references");
+            }
+
+            auto materialized = references.as<IntTslPairReferences>();
+            return stdlib::to_tsl<IntTslPair>(w, tsl_element(materialized, 0),
+                                              tsl_element(materialized, 1))
+                .template as<IntTslPair>();
         }
     };
 
@@ -2673,6 +2703,25 @@ TEST_CASE("std operators: dereference materializes REF TSB fields as references"
                                tsb_delta<ContainerAccessBundle>(std::nullopt, Str{"a"}),
                                none,
                                tsb_delta<ContainerAccessBundle>(Int{2}, Str{"b"}),
+                               none));
+}
+
+TEST_CASE("std operators: dereference materializes REF TSL elements as references")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<DereferenceTslReferenceGraph>(
+                     values<Value>(list_delta<TS<Int>>({{0, 1}}),
+                                   list_delta<TS<Int>>({{1, 10}}),
+                                   none, none, none),
+                     values<Value>(list_delta<TS<Int>>({{0, 2}}),
+                                   list_delta<TS<Int>>({{1, 20}}),
+                                   none, none, none),
+                     values<Int>(0, none, 2, 1, 2)),
+                 values<Value>(list_delta<TS<Int>>({{0, 1}}),
+                               list_delta<TS<Int>>({{1, 10}}),
+                               none,
+                               list_delta<TS<Int>>({{0, 2}, {1, 20}}),
                                none));
 }
 

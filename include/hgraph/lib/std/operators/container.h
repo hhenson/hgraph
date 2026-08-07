@@ -53,9 +53,9 @@ namespace hgraph::stdlib
     {
     };
 
-    /** ``dereference`` — materialize ``REF[TSB[...]]`` as a bundle whose
-        fields are references to the corresponding fields of the referenced
-        bundle. */
+    /** ``dereference`` — materialize ``REF[TSB[...]]`` or ``REF[TSL[...]]``
+        as the same container shape whose children reference the corresponding
+        children of the referenced container. */
     struct dereference : Operator<"dereference", In<"tsb", REF<TsVar<"S">>>, Out<TsVar<"O">>>
     {
     };

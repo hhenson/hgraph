@@ -2,7 +2,23 @@
 import pytest
 
 from datetime import timedelta
-from hgraph import REF, TS, combine, generator, graph, TSL, Size, SCALAR, compute_node, SIZE, getitem_, const, if_, TimeSeriesReference
+from hgraph import (
+    REF,
+    TS,
+    combine,
+    dereference,
+    generator,
+    graph,
+    TSL,
+    Size,
+    SCALAR,
+    compute_node,
+    SIZE,
+    getitem_,
+    const,
+    if_,
+    TimeSeriesReference,
+)
 from hgraph.nodes import flatten_tsl_values
 from hgraph.test import eval_node
 
@@ -102,4 +118,24 @@ def test_tsl_ref_flipping():
         None,
         {0: 2, 1: 2},
         None,
+    ]
+
+
+def test_dereference_materializes_tsl_element_references():
+    tsl_type = TSL[TS[int], Size[2]]
+
+    @compute_node
+    def as_reference(tsl: REF[tsl_type]) -> REF[tsl_type]:
+        return tsl.value
+
+    @graph
+    def g(tsl: tsl_type) -> tsl_type:
+        elements = dereference(as_reference(tsl))
+        assert elements.output_type == TSL[REF[TS[int]], Size[2]]
+        return TSL.from_ts(elements[0], elements[1])
+
+    assert eval_node(g, [{0: 1}, {1: 2}, {0: 3}]) == [
+        {0: 1},
+        {1: 2},
+        {0: 3},
     ]

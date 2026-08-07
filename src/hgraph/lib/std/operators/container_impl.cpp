@@ -29,6 +29,7 @@ namespace hgraph::stdlib
         register_overload<getitem_, tsb_ref_field_node<Str, "key", "getitem_tsb_ref">>();
         register_overload<getitem_, tsb_ref_field_node<Int, "key", "getitem_tsb_ref_index">>();
         register_overload<dereference, dereference_tsb_ref_node>();
+        register_overload<dereference, dereference_tsl_ref_node>();
 
         register_graph_overload<getitem_, getitem_tsb_by_name>();
         register_graph_overload<getitem_, getitem_tsb_by_index>();
