@@ -38,7 +38,10 @@ class _BindingsMap(Mapping):
 
 def _invoke_resolution_callable(fn, bindings, scalar_values):
     """Invoke a wiring callable as ``fn(mapping, **declared_scalars)``."""
-    parameters = list(inspect.signature(fn, eval_str=True).parameters)
+    # Resolver annotations do not participate in argument selection. Avoid
+    # evaluating postponed annotations here: a valid resolver may annotate
+    # its parameters with function-local types that are absent from globals.
+    parameters = list(inspect.signature(fn).parameters)
     scalars = dict(scalar_values or {})
     return fn(
         _BindingsMap(bindings),
