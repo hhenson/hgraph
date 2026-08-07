@@ -18,6 +18,8 @@ from ._markers import (LOGGER, STATE, _INJECTABLE_MARKERS, _MISSING,
                        _RecordableStateExpr, _StateExpr, _annotation_ts_kind,
                        _is_object_vt, _tsw_kind, _unbounded_tuple_kind)
 from ._operator import _register_overload, _run_requires
+from ._resolution import (_apply_resolvers as _apply_wiring_resolvers,
+                          _bind_resolution, _invoke_resolution_callable)
 from ._state import (GlobalState, _GRAPH_LOGGER_FORMATTER_KEY,
                      _GRAPH_LOGGER_KEY)
 
@@ -275,24 +277,13 @@ class _PyNode:
         """Seed a pinned/resolved type variable into the C++ scope: a ts
         expression binds the ts var, a fixed-size value binds the size var,
         and a python scalar type binds the scalar var of the same name."""
-        from .._types import _TsExpr, _value_type
-
-        if isinstance(resolved, _TsExpr):
-            scope.bind_ts(name, resolved.handle)
-        elif isinstance(resolved, _hgraph.TsType):
-            scope.bind_ts(name, resolved)
-        elif isinstance(resolved, int) and not isinstance(resolved, bool):
-            scope.bind_size(name, resolved)
-        else:
-            scope.bind_scalar(name, _value_type(resolved))
+        _bind_resolution(scope, name, resolved)
 
     @staticmethod
     def _eval_policy(policy, fn, scope, scalar_values):
         """Evaluate a wiring-time active=/valid= callable: (m, **scalars) ->
         None (all inputs) / iterable of input names."""
-        params = list(inspect.signature(fn, eval_str=True).parameters)
-        call = {name: scalar_values.get(name) for name in params[1:]}
-        result = fn(scope.bindings, **call)
+        result = _invoke_resolution_callable(fn, scope.bindings, scalar_values)
         if result is None:
             return None
         return frozenset(result)
@@ -418,12 +409,7 @@ class _PyNode:
     def _apply_resolvers(self, scope, scalar_values):
         """resolvers={TYPEVAR: lambda mapping, <scalars...>: type}: bind the
         computed types into the scope (mapping = the scope's bindings)."""
-        for sentinel, resolver in self._resolvers.items():
-            params = list(inspect.signature(resolver, eval_str=True).parameters)
-            call = {name: scalar_values.get(name) for name in params[1:]}
-            resolved = resolver(scope.bindings, **call)
-            name = _type_var_name(sentinel)
-            self._bind_resolved(scope, name, resolved)
+        _apply_wiring_resolvers(scope, self._resolvers, scalar_values)
 
     @staticmethod
     def _resolve_recordable_state(annotation, scope):
@@ -1021,12 +1007,7 @@ class _Generator:
         bound_call.apply_defaults()
         scalar_values = dict(bound_call.arguments)
         scope = _hgraph.ResolutionScope()
-        if self._resolvers:
-            for name, resolver in self._resolvers.items():
-                params = list(inspect.signature(resolver, eval_str=True).parameters)
-                call = {key: scalar_values.get(key) for key in params[1:]}
-                _PyNode._bind_resolved(
-                    scope, _type_var_name(name), resolver(scope.bindings, **call))
+        _apply_wiring_resolvers(scope, self._resolvers, scalar_values)
         if self._requires is not None:
             verdict = _run_requires(self._requires, scope.bindings, scalar_values)
             if verdict is not True:
@@ -1148,12 +1129,7 @@ class _PushQueue:
         bound_call.apply_defaults()
         scalar_values = dict(bound_call.arguments)
         scope = _hgraph.ResolutionScope()
-        if self._resolvers:
-            for name, resolver in self._resolvers.items():
-                params = list(inspect.signature(resolver, eval_str=True).parameters)
-                call = {key: scalar_values.get(key) for key in params[1:]}
-                _PyNode._bind_resolved(
-                    scope, _type_var_name(name), resolver(scope.bindings, **call))
+        _apply_wiring_resolvers(scope, self._resolvers, scalar_values)
         if self._requires is not None:
             verdict = _run_requires(self._requires, scope.bindings, scalar_values)
             if verdict is not True:

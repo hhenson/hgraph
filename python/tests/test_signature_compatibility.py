@@ -237,6 +237,106 @@ def test_graph_generator_and_component_resolvers():
     assert hg.eval_node(resolved_component, [1, 2], width=3) == [4, 5]
 
 
+def test_resolvers_only_run_for_unresolved_targets_across_wiring_surfaces():
+    calls = []
+
+    def unexpected(surface):
+        def resolver(mapping):
+            calls.append(surface)
+            raise AssertionError(f"{surface} resolver must not run")
+        return resolver
+
+    @hg.compute_node(resolvers={hg.SCALAR: unexpected("node inference")})
+    def inferred_node(ts: hg.TS[hg.SCALAR]) -> hg.TS[hg.SCALAR]:
+        return ts.value
+
+    @hg.compute_node(resolvers={hg.SCALAR_1: unexpected("node pin")})
+    def pinned_node(ts: hg.TS[hg.SCALAR]) -> hg.TS[hg.SCALAR_1]:
+        return str(ts.value)
+
+    @hg.graph(resolvers={hg.SCALAR: unexpected("graph")})
+    def inferred_graph(ts: hg.TS[hg.SCALAR]) -> hg.TS[hg.SCALAR]:
+        return ts
+
+    @hg.operator
+    def inferred_operator(ts: hg.TS[hg.SCALAR]) -> hg.TS[hg.SCALAR]: ...
+
+    @hg.compute_node(
+        overloads=inferred_operator,
+        resolvers={hg.SCALAR: unexpected("operator")},
+    )
+    def inferred_operator_impl(ts: hg.TS[hg.SCALAR]) -> hg.TS[hg.SCALAR]:
+        return ts.value
+
+    @hg.graph
+    def operator_graph(ts: hg.TS[int]) -> hg.TS[int]:
+        return inferred_operator(ts)
+
+    assert hg.eval_node(inferred_node, [1, 2]) == [1, 2]
+    assert hg.eval_node(
+        pinned_node[hg.SCALAR:int, hg.SCALAR_1:str], [1, 2]) == ["1", "2"]
+    assert hg.eval_node(inferred_graph, [1, 2]) == [1, 2]
+    assert hg.eval_node(operator_graph, [1, 2]) == [1, 2]
+    assert calls == []
+
+
+def test_resolution_callables_ignore_postponed_local_annotations():
+    class LocalAnnotation:
+        pass
+
+    def operator_resolver(
+            mapping: "LocalAnnotation",
+            scalar_type: "LocalAnnotation") -> "LocalAnnotation":
+        return scalar_type
+
+    def operator_requires(
+            mapping: "LocalAnnotation",
+            scalar_type: "LocalAnnotation") -> "LocalAnnotation":
+        return scalar_type is int
+
+    def service_resolver(
+            mapping: "LocalAnnotation") -> "LocalAnnotation":
+        return int
+
+    @hg.operator
+    def annotated_operator(
+            ts: hg.TS[int], scalar_type: type) -> hg.TS[hg.SCALAR]: ...
+
+    @hg.compute_node(
+        overloads=annotated_operator,
+        resolvers={hg.SCALAR: operator_resolver},
+        requires=operator_requires,
+    )
+    def annotated_operator_impl(
+            ts: hg.TS[int], scalar_type: type) -> hg.TS[hg.SCALAR]:
+        return ts.value
+
+    @hg.request_reply_service(resolvers={hg.SCALAR: service_resolver})
+    def annotated_service(request: hg.TS[int]) -> hg.TS[hg.SCALAR]: ...
+
+    @hg.service_impl(interfaces=annotated_service)
+    def annotated_service_impl(
+            requests: hg.TSD[int, hg.TS[int]],
+    ) -> hg.TSD[int, hg.TS[int]]:
+        return requests
+
+    @hg.graph
+    def operator_app(ts: hg.TS[int]) -> hg.TS[int]:
+        return annotated_operator(ts, int)
+
+    @hg.graph
+    def service_app(ts: hg.TS[int]) -> hg.TS[int]:
+        hg.register_service("annotated", annotated_service_impl)
+        return annotated_service(ts, path="annotated")
+
+    assert hg.eval_node(operator_app, [1, 2]) == [1, 2]
+    assert hg.eval_node(
+        service_app,
+        [3],
+        __end_time__=hg.MIN_ST + 4 * hg.MIN_TD,
+    ) == [None, 3]
+
+
 def test_deprecated_node_warns_at_wiring_and_node_impl_is_explicitly_rejected():
     @hg.compute_node(deprecated="use replacement")
     def old_node(ts: hg.TS[int]) -> hg.TS[int]:

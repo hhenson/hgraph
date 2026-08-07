@@ -236,6 +236,29 @@ TEST_CASE("type_resolution: a generic node resolves its TS type from the connect
     CHECK_OUTPUT(eval_node<PassthroughGraph>(values<Int>(1, none, 3)), {1, none, 3});
 }
 
+TEST_CASE("type_resolution: resolved-variable queries share one typed contract")
+{
+    ResolutionMap resolution;
+
+    CHECK_FALSE(resolution.is_resolved("S"));
+    CHECK_FALSE(resolution.is_resolved<ResolutionKind::TimeSeries>("S"));
+    CHECK_FALSE(resolution.is_resolved<ResolutionKind::Scalar>("S"));
+    CHECK_FALSE(resolution.is_resolved<ResolutionKind::Size>("S"));
+
+    resolution.bind_ts("S", ts_type<TS<Int>>());
+    CHECK(resolution.is_resolved("S"));
+    CHECK(resolution.is_resolved<ResolutionKind::TimeSeries>("S"));
+    CHECK_FALSE(resolution.is_resolved<ResolutionKind::Scalar>("S"));
+    CHECK_FALSE(resolution.is_resolved<ResolutionKind::Size>("S"));
+
+    resolution.bind_scalar("T", scalar_descriptor<Str>::value_meta());
+    resolution.bind_size("N", 3);
+    CHECK(resolution.is_resolved<ResolutionKind::Scalar>("T"));
+    CHECK(resolution.is_resolved<ResolutionKind::Size>("N"));
+    CHECK(resolution.is_resolved("T"));
+    CHECK(resolution.is_resolved("N"));
+}
+
 TEST_CASE("type_resolution: the same generic node resolves to TSS from a set-valued port")
 {
     (void)TypeRegistry::instance().register_scalar<Int>("int");

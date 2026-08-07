@@ -12,6 +12,8 @@ from ._core import (WiringError, WiringPort, _OperatorFunction, _unwrap,
                     _wiring_stack, wire)
 from ._markers import (LOGGER, _INJECTABLE_MARKERS, _RecordableStateExpr,
                        _StateExpr, _is_object_vt)
+from ._resolution import (_BindingsMap, _apply_resolvers,
+                          _invoke_resolution_callable)
 
 
 def _is_hidden_node_parameter(parameter):
@@ -105,39 +107,16 @@ def _overload_registry_name(target):
     raise TypeError(f"overloads= target {target!r} is not an @operator or a registered operator")
 
 
-class _BindingsMap:
-    """The ``m`` argument of hgraph's ``requires=``/resolver lambdas: the
-    resolution scope's bindings, keyed by TYPE VARIABLE (or its name)."""
-
-    __slots__ = ("_bindings",)
-
-    def __init__(self, bindings):
-        self._bindings = bindings
-
-    def __getitem__(self, key):
-        return self._bindings[_type_var_name(key)]
-
-    def __contains__(self, key):
-        return _type_var_name(key) in self._bindings
-
-    def get(self, key, default=None):
-        return self._bindings.get(_type_var_name(key), default)
-
-    def keys(self):
-        return self._bindings.keys()
-
 def _run_requires(user_requires, bindings, scalar_values):
     """Evaluate a ``requires=lambda m[, <scalar names...>]`` predicate.
     Returns True to accept; False or an explanation string rejects."""
-    names = list(inspect.signature(user_requires).parameters)[1:]
     scalar_values = {
         name: (value._python_callable
                if isinstance(value, _hgraph.WiredFn) and value._python_callable is not None
                else value)
         for name, value in scalar_values.items()
     }
-    return user_requires(_BindingsMap(bindings),
-                         **{name: scalar_values.get(name) for name in names})
+    return _invoke_resolution_callable(user_requires, bindings, scalar_values)
 
 
 def _requires_bridge(user_requires):
@@ -165,16 +144,7 @@ def _resolvers_bridge(user_resolvers):
         return None
 
     def _resolve(scope, scalars):
-        from ._node import _PyNode
-
-        scalar_values = dict(scalars)
-        for sentinel, resolver in user_resolvers.items():
-            names = list(inspect.signature(resolver).parameters)[1:]
-            resolved = resolver(
-                scope.bindings,
-                **{name: scalar_values.get(name) for name in names},
-            )
-            _PyNode._bind_resolved(scope, _type_var_name(sentinel), resolved)
+        _apply_resolvers(scope, user_resolvers, dict(scalars))
         return scope
 
     return _resolve

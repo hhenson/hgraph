@@ -208,14 +208,29 @@ def _explicit_output_type(mapping, _tp_out):
     return _tp_out
 
 
-@graph(overloads=ungroup, resolvers={ROW_1: _explicit_output_type})
+def _explicit_output_requested(mapping, _tp_out):
+    # This adapter exists for the legacy third scalar argument. Bracket/output
+    # specialization already matches the native overload directly; selecting
+    # this adapter there would recurse back into itself.
+    return _tp_out is not AUTO_RESOLVE
+
+
+@graph(
+    overloads=ungroup,
+    resolvers={ROW_1: _explicit_output_type},
+    requires=_explicit_output_requested,
+)
 def _ungroup_typed(
     ts: TSD[KEYABLE_SCALAR, TS[Frame[ROW]]], key_col: str, _tp_out: type[ROW_1] = AUTO_RESOLVE
 ) -> TS[Frame[ROW_1]]:
     return ungroup[TS[Frame[_tp_out]]](ts, key_col)
 
 
-@graph(overloads=ungroup, resolvers={ROW_1: _explicit_output_type})
+@graph(
+    overloads=ungroup,
+    resolvers={ROW_1: _explicit_output_type},
+    requires=_explicit_output_requested,
+)
 def _ungroup_typed_tuple(
     ts: TSD[KEYABLE_SCALAR, TS[Frame[ROW]]], key_col: tuple[str, ...], _tp_out: type[ROW_1] = AUTO_RESOLVE
 ) -> TS[Frame[ROW_1]]:

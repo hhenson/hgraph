@@ -1047,6 +1047,9 @@ namespace hgraph::python_bridge
             .def("bind_size", [](PyResolutionScope &self, const std::string &name, std::size_t size) {
                 self.map.bind_size(name, size);
             })
+            .def("is_resolved", [](const PyResolutionScope &self, const std::string &name) {
+                return self.map.is_resolved(name);
+            })
             .def("find_ts",
                  [](const PyResolutionScope &self, const std::string &name) -> std::optional<PyTsType> {
                      const auto *meta = self.map.find_ts(name);
