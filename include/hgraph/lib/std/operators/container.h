@@ -52,6 +52,13 @@ namespace hgraph::stdlib
     struct is_empty : Operator<"is_empty", In<"ts", TsVar<"S">>, Out<TS<Bool>>>
     {
     };
+
+    /** ``dereference`` — materialize ``REF[TSB[...]]`` as a bundle whose
+        fields are references to the corresponding fields of the referenced
+        bundle. */
+    struct dereference : Operator<"dereference", In<"tsb", REF<TsVar<"S">>>, Out<TsVar<"O">>>
+    {
+    };
 }  // namespace hgraph::stdlib
 
 #endif  // HGRAPH_LIB_STD_OPERATORS_CONTAINER_H

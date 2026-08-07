@@ -495,6 +495,8 @@ namespace
     };
 
     using ContainerAccessBundle = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Str>>>;
+    using ContainerAccessReferenceBundle =
+        UnNamedTSB<Field<"a", REF<TS<Int>>>, Field<"b", REF<TS<Str>>>>;
     using NamedContainerAccessBundle =
         TSB<"NamedContainerAccessBundle", Field<"a", TS<Int>>, Field<"b", TS<Str>>>;
     using HandlerOutputBundle =
@@ -590,6 +592,35 @@ namespace
             auto empty = wire<EmptyReferenceSource<ContainerAccessBundle>>(w);
             auto choices = stdlib::to_tsl<TSL<ContainerAccessBundle, 3>>(w, first, second, empty);
             return wire<stdlib::getitem_>(w, choices, index).as<ContainerAccessBundle>();
+        }
+    };
+
+    struct DereferenceTsbReferenceGraph
+    {
+        static constexpr auto name = "dereference_tsb_reference_graph";
+
+        static Port<ContainerAccessBundle> compose(Wiring &w,
+                                                   Port<ContainerAccessBundle> first,
+                                                   Port<ContainerAccessBundle> second,
+                                                   Port<TS<Int>> index)
+        {
+            auto empty = wire<EmptyReferenceSource<ContainerAccessBundle>>(w);
+            auto choices = stdlib::to_tsl<TSL<ContainerAccessBundle, 3>>(w, first, second, empty);
+            auto selected = wire<stdlib::getitem_>(w, choices, index).as<REF<ContainerAccessBundle>>();
+            auto references = wire<stdlib::dereference>(w, selected);
+            if (references.erased().is_structural_source())
+            {
+                throw std::logic_error("dereference did not materialize a node output");
+            }
+            if (references.erased().schema != ts_type<ContainerAccessReferenceBundle>())
+            {
+                throw std::logic_error("dereference did not resolve a TSB of field references");
+            }
+
+            auto materialized = references.as<ContainerAccessReferenceBundle>();
+            auto a = wire<stdlib::getattr_>(w, materialized, Str{"a"}).as<REF<TS<Int>>>();
+            auto b = wire<stdlib::getattr_>(w, materialized, Str{"b"}).as<REF<TS<Str>>>();
+            return stdlib::to_tsb<ContainerAccessBundle>(w, a, b);
         }
     };
 
@@ -2621,6 +2652,25 @@ TEST_CASE("std operators: TSB REF composition flips through an empty reference")
                                    none, none),
                      values<Int>(0, 2, 1, 2)),
                  values<Value>(tsb_delta<ContainerAccessBundle>(Int{1}, std::nullopt),
+                               none,
+                               tsb_delta<ContainerAccessBundle>(Int{2}, Str{"b"}),
+                               none));
+}
+
+TEST_CASE("std operators: dereference materializes REF TSB fields as references")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<DereferenceTsbReferenceGraph>(
+                     values<Value>(tsb_delta<ContainerAccessBundle>(Int{1}, std::nullopt),
+                                   tsb_delta<ContainerAccessBundle>(std::nullopt, Str{"a"}),
+                                   none, none, none),
+                     values<Value>(tsb_delta<ContainerAccessBundle>(Int{2}, std::nullopt),
+                                   tsb_delta<ContainerAccessBundle>(std::nullopt, Str{"b"}),
+                                   none, none, none),
+                     values<Int>(0, none, 2, 1, 2)),
+                 values<Value>(tsb_delta<ContainerAccessBundle>(Int{1}, std::nullopt),
+                               tsb_delta<ContainerAccessBundle>(std::nullopt, Str{"a"}),
                                none,
                                tsb_delta<ContainerAccessBundle>(Int{2}, Str{"b"}),
                                none));

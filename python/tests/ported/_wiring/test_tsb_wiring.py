@@ -30,6 +30,7 @@ from hgraph import (
     SIGNAL,
     TS_SCHEMA,
     REF,
+    dereference,
     nothing,
     TimeSeriesReference,
 )
@@ -309,6 +310,25 @@ def test_tsb_ref_index():
     from hgraph.arrow import eval_, if_then, c, assert_
 
     eval_(True, "") | if_then(c(1) / c("a")) >> g >> assert_(1)
+
+
+def test_dereference_materializes_tsb_field_references():
+    @compute_node
+    def as_reference(tsb: REF[TSB[MyTsb]]) -> REF[TSB[MyTsb]]:
+        return tsb.value
+
+    @graph
+    def g(tsb: TSB[MyTsb]) -> TSB[MyTsb]:
+        fields = dereference(as_reference(tsb))
+        assert fields.p1.output_type == REF[TS[int]]
+        assert fields.p2.output_type == REF[TS[str]]
+        return TSB[MyTsb].from_ts(p1=fields.p1, p2=fields.p2)
+
+    assert eval_node(g, [{"p1": 1}, {"p2": "a"}, {"p1": 2}]) == [
+        {"p1": 1},
+        {"p2": "a"},
+        {"p1": 2},
+    ]
 
 
 def test_tsb_output_access():

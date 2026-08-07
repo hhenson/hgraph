@@ -15,6 +15,8 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace hgraph::stdlib {
 using namespace hgraph::operator_type_resolution;
@@ -122,6 +124,123 @@ inline void resolve_tsb_field_output(ResolutionMap &resolution,
   }
   bind_output(resolution,
               tsb_field_schema_from_context<Key>(context, key_name));
+}
+
+[[nodiscard]] inline const TSValueTypeMetaData *
+materialized_tsb_reference_schema(const TSValueTypeMetaData &bundle) {
+  std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
+  fields.reserve(bundle.field_count());
+  auto &registry = TypeRegistry::instance();
+  for (std::size_t index = 0; index < bundle.field_count(); ++index) {
+    const TSFieldMetaData &field = bundle.fields()[index];
+    fields.emplace_back(field.name != nullptr ? field.name : "",
+                        registry.ref(field.type));
+  }
+  return registry.un_named_tsb(fields);
+}
+
+/** Resolve one field from the VALUE carried by a REF[TSB]. This is the
+    single runtime path used by both scalar field projection and the
+    all-fields dereference operator. */
+[[nodiscard]] inline TimeSeriesReference project_tsb_reference_field(
+    const TimeSeriesReference &reference,
+    const TSValueTypeMetaData &bundle,
+    std::size_t index,
+    DateTime evaluation_time,
+    std::string_view operation,
+    std::string_view field_label) {
+  if (index >= bundle.field_count()) {
+    throw std::out_of_range(std::string{operation} + ": REF[TSB] field '" +
+                            std::string{field_label} + "' is out of range");
+  }
+
+  const auto *field_type = bundle.fields()[index].type;
+  TimeSeriesReference result = TimeSeriesReference::empty(field_type);
+  if (reference.is_peered() && reference.has_output()) {
+    auto target = reference.target_output().view(evaluation_time);
+    auto slow = target.handle();
+    auto fast = slow;
+    const auto advance_forwarding = [evaluation_time](TSOutputHandle handle) {
+      if (!handle.bound()) {
+        return TSOutputHandle{};
+      }
+      auto view = handle.view(evaluation_time);
+      return view.forwarding() && view.forwarding_bound()
+                 ? view.forwarding_target()
+                 : TSOutputHandle{};
+    };
+    while (target.forwarding() && target.forwarding_bound()) {
+      target = target.forwarding_target().view(evaluation_time);
+      slow = advance_forwarding(std::move(slow));
+      fast = advance_forwarding(advance_forwarding(std::move(fast)));
+      if (slow.bound() && fast.bound() && slow.same_as(fast)) {
+        throw std::logic_error(std::string{operation} +
+                               ": REF[TSB] forwarding cycle");
+      }
+    }
+    const auto *data_schema = target.data_view().schema();
+    if (data_schema != nullptr && data_schema->kind == TSTypeKind::REF) {
+      // A descriptive-schema reference: the surface says TSB but the
+      // underlying DATA is itself a REF output (Port::as /
+      // reference-service pattern). Hop through its from-REF alternative
+      // before projecting the field.
+      const auto *deref = TypeRegistry::instance().dereference(data_schema);
+      target = target.binding_for(*deref).view(evaluation_time);
+    }
+    if (!time_series_schema_equivalent(&bundle, target.schema())) {
+      const auto owner = target.owner_node();
+      throw std::invalid_argument(
+          std::string{operation} + ": REF[TSB] requested schema '" +
+          std::string{bundle.name()} + "' but targets schema '" +
+          (target.schema() != nullptr ? std::string{target.schema()->name()}
+                                      : std::string{"<untyped>"}) +
+          "' from node '" +
+          (owner.valid() ? std::string{owner.label()}
+                         : std::string{"<unknown>"}) +
+          "' at index " +
+          (owner.valid() ? std::to_string(owner.node_index())
+                         : std::string{"<unknown>"}));
+    }
+    const auto child_count = target.data_view().indexed_child_count();
+    if (index >= child_count) {
+      throw std::out_of_range(
+          std::string{operation} + ": REF[TSB] field '" +
+          std::string{field_label} + "' has ordinal " +
+          std::to_string(index) + " in requested schema '" +
+          std::string{bundle.name()} + "', but target schema '" +
+          (target.schema() != nullptr ? std::string{target.schema()->name()}
+                                      : std::string{"<untyped>"}) +
+          "' exposes " + std::to_string(child_count) + " children");
+    }
+    try {
+      auto child = target.indexed_child_at(index);
+      if (child.bound()) {
+        result = TimeSeriesReference::peered(child);
+      }
+    } catch (const std::out_of_range &error) {
+      throw std::out_of_range(
+          std::string{operation} + ": failed to project REF[TSB] field '" +
+          std::string{field_label} + "' at ordinal " +
+          std::to_string(index) + " from requested schema '" +
+          std::string{bundle.name()} + "' through target schema '" +
+          (target.schema() != nullptr ? std::string{target.schema()->name()}
+                                      : std::string{"<untyped>"}) +
+          "': " + error.what());
+    }
+  } else if (reference.is_non_peered() && index < reference.items().size()) {
+    result = reference[index];
+  }
+  return result;
+}
+
+inline void set_reference_if_changed(const TSOutputView &out,
+                                     TimeSeriesReference reference) {
+  Value value{std::move(reference)};
+  if (out.data_view().has_current_value() && out.value().equals(value.view())) {
+    return;
+  }
+  auto mutation = out.data_view().begin_mutation(out.evaluation_time());
+  static_cast<void>(mutation.move_value_from(std::move(value)));
 }
 } // namespace container_impl_detail
 
@@ -1215,104 +1334,77 @@ struct tsb_ref_field_node {
     if (!index.has_value()) {
       return;
     }
-    const auto *field_type = bundle->fields()[*index].type;
+    const std::string field_label = [&] {
+      if constexpr (std::same_as<KeyT, Str>) {
+        return key.value();
+      } else {
+        return std::to_string(key.value());
+      }
+    }();
+    const std::string_view operation =
+        KeyName.sv() == std::string_view{"attr"} ? "getattr_" : "getitem_";
+    auto result = container_impl_detail::project_tsb_reference_field(
+        reference, *bundle, *index, erased.evaluation_time(), operation,
+        field_label);
+    container_impl_detail::set_reference_if_changed(erased,
+                                                    std::move(result));
+  }
+};
 
-    TimeSeriesReference result = TimeSeriesReference::empty(field_type);
-    if (reference.is_peered() && reference.has_output()) {
-      auto target = reference.target_output().view(erased.evaluation_time());
-      auto slow = target.handle();
-      auto fast = slow;
-      const auto advance_forwarding = [evaluation_time = erased.evaluation_time()](TSOutputHandle handle) {
-        if (!handle.bound()) {
-          return TSOutputHandle{};
-        }
-        auto view = handle.view(evaluation_time);
-        return view.forwarding() && view.forwarding_bound()
-                   ? view.forwarding_target()
-                   : TSOutputHandle{};
-      };
-      while (target.forwarding() && target.forwarding_bound()) {
-        target = target.forwarding_target().view(erased.evaluation_time());
-        slow = advance_forwarding(std::move(slow));
-        fast = advance_forwarding(advance_forwarding(std::move(fast)));
-        if (slow.bound() && fast.bound() && slow.same_as(fast)) {
-          throw std::logic_error("getattr_: REF[TSB] forwarding cycle");
-        }
-      }
-      const auto *data_schema = target.data_view().schema();
-      if (data_schema != nullptr && data_schema->kind == TSTypeKind::REF) {
-        // A descriptive-schema reference: the surface says TSB but
-        // the underlying DATA is itself a REF output (Port::as /
-        // reference-service pattern) - hop through its from-REF
-        // alternative before the field projection.
-        const auto *deref = TypeRegistry::instance().dereference(data_schema);
-        target = target.binding_for(*deref).view(erased.evaluation_time());
-      }
-      if (!time_series_schema_equivalent(bundle, target.schema())) {
-        const auto owner = target.owner_node();
-        throw std::invalid_argument(
-            std::string{"getattr_: REF[TSB] requested schema '"} +
-            std::string{bundle->name()} + "' but targets schema '" +
-            (target.schema() != nullptr ? std::string{target.schema()->name()}
-                                        : std::string{"<untyped>"}) +
-            "' from node '" +
-            (owner.valid() ? std::string{owner.label()}
-                           : std::string{"<unknown>"}) +
-            "' at index " +
-            (owner.valid() ? std::to_string(owner.node_index())
-                           : std::string{"<unknown>"}));
-      }
-      const auto child_count = target.data_view().indexed_child_count();
-      if (*index >= child_count) {
-        const std::string field_label = [&] {
-          if constexpr (std::same_as<KeyT, Str>) {
-            return key.value();
-          } else {
-            return std::to_string(key.value());
-          }
-        }();
-        throw std::out_of_range(
-            std::string{"getattr_: REF[TSB] field '"} + field_label +
-            "' has ordinal " + std::to_string(*index) +
-            " in requested schema '" + std::string{bundle->name()} +
-            "', but target schema '" +
-            (target.schema() != nullptr ? std::string{target.schema()->name()}
-                                        : std::string{"<untyped>"}) +
-            "' exposes " + std::to_string(child_count) + " children");
-      }
-      try {
-        auto child = target.indexed_child_at(*index);
-        if (child.bound()) {
-          result = TimeSeriesReference::peered(child);
-        }
-      } catch (const std::out_of_range &error) {
-        const std::string field_label = [&] {
-          if constexpr (std::same_as<KeyT, Str>) {
-            return key.value();
-          } else {
-            return std::to_string(key.value());
-          }
-        }();
-        throw std::out_of_range(
-            std::string{"getattr_: failed to project REF[TSB] field '"} +
-            field_label + "' at ordinal " + std::to_string(*index) +
-            " from requested schema '" + std::string{bundle->name()} +
-            "' through target schema '" +
-            (target.schema() != nullptr ? std::string{target.schema()->name()}
-                                        : std::string{"<untyped>"}) +
-            "': " + error.what());
-      }
-    } else if (reference.is_non_peered() && *index < reference.items().size()) {
-      result = reference[*index];
-    }
+/** Materialize REF[TSB] as a peered TSB whose children contain references to
+    the corresponding target fields. The output is intentionally an unnamed
+    schema, matching hgraph's dynamically resolved ``ts_schema`` result. */
+struct dereference_tsb_ref_node {
+  static constexpr auto name = "dereference_tsb_ref";
+  static constexpr bool schedule_on_start = true;
 
-    Value value{std::move(result)};
-    if (erased.data_view().has_current_value() &&
-        erased.value().equals(value.view())) {
+  [[nodiscard]] static const TSValueTypeMetaData *
+  bundle_schema(OperatorCallContext context) {
+    return context.args.size() == 1
+               ? container_impl_detail::ref_tsb_schema(context.args[0])
+               : nullptr;
+  }
+
+  static bool requires_(const ResolutionMap &, OperatorCallContext context) {
+    return bundle_schema(context) != nullptr;
+  }
+
+  static void resolve_default_types(ResolutionMap &resolution,
+                                    OperatorCallContext context) {
+    if (output_bound(resolution)) {
       return;
     }
-    auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
-    static_cast<void>(mutation.move_value_from(std::move(value)));
+    const auto *bundle = bundle_schema(context);
+    if (bundle != nullptr) {
+      bind_output(
+          resolution,
+          container_impl_detail::materialized_tsb_reference_schema(*bundle));
+    }
+  }
+
+  static void eval(In<"tsb", REF<TsVar<"S">>, InputValidity::Unchecked> tsb,
+                   Out<TsVar<"__out__">> out) {
+    const auto &erased = static_cast<const TSOutputView &>(out);
+    const auto *bundle = TypeRegistry::instance().dereference(tsb.base().schema());
+    if (bundle == nullptr || bundle->kind != TSTypeKind::TSB) {
+      throw std::logic_error("dereference: input is not REF[TSB]");
+    }
+    if (erased.schema() == nullptr || erased.schema()->kind != TSTypeKind::TSB ||
+        erased.schema()->field_count() != bundle->field_count()) {
+      throw std::logic_error("dereference: resolved output does not match the referenced TSB shape");
+    }
+
+    const auto reference = tsb.base().reference();
+    auto output = erased.as_bundle();
+    for (std::size_t index = 0; index < bundle->field_count(); ++index) {
+      const TSFieldMetaData &field = bundle->fields()[index];
+      auto result = container_impl_detail::project_tsb_reference_field(
+          reference, *bundle, index, erased.evaluation_time(), "dereference",
+          field.name != nullptr ? std::string_view{field.name}
+                                : std::string_view{});
+      container_impl_detail::set_reference_if_changed(output.at(index),
+                                                      std::move(result));
+    }
   }
 };
 
