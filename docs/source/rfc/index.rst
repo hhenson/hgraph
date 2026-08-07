@@ -28,3 +28,4 @@ workflow are defined by :doc:`rfc_0000`.
    rfc_0012_replyless_request_reply_relay
    rfc_0013_pooled_polymorphic_compound_scalars
    rfc_0014_request_reply_transport_planning
+   rfc_0015_kafka_extension_api
