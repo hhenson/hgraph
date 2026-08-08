@@ -129,7 +129,10 @@ namespace hgraph
             {
                 throw std::invalid_argument("single_nested_graph_node output binding requires an output schema");
             }
-            if (depth == target_path.size()) { return TSEndpointSchema::peered(schema); }
+            if (depth == target_path.size())
+            {
+                return forwarding_output_endpoint_schema(schema);
+            }
 
             const auto selected = target_path[depth];
             const auto count    = nested_output_child_count(*schema);
@@ -364,14 +367,16 @@ namespace hgraph
                 if (target.forwarding_bound()) { target.clear_forwarding_target(); }
                 return;
             }
-            bind_forwarding_output_to_source(target, source);
+            static_cast<void>(bind_forwarding_output_tree_to_source(
+                std::move(target), source));
             return;
         }
 
         auto source = walk_ts_path(
             nested.child_graph().node_at(binding->source.node).output(evaluation_time),
             binding->source.path);
-        bind_forwarding_output_to_source(target, source);
+        static_cast<void>(bind_forwarding_output_tree_to_source(
+            std::move(target), source));
     }
 
     void single_nested_graph_clear_output_binding(const SingleNestedGraphNodeView &nested,

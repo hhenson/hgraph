@@ -65,11 +65,14 @@ namespace hgraph
         std::optional<NestedGraphOutputBinding> output_binding{};
         /** Boundary time-series input schemas, in compose ``Port`` parameter order. */
         std::vector<const TSValueTypeMetaData *> input_schemas{};
+        /** Public/logical result schema of the compiled graph. */
         const TSValueTypeMetaData               *output_schema{nullptr};
-        /** The output endpoint was synthesized from a structural TSB/TSL source.
-            Higher-order containers expose its referenced schema while preserving
-            explicitly authored REF outputs. */
-        bool output_is_structural_reference{false};
+        /** Physical schema of the endpoint named by ``output_binding``.
+            This differs from ``output_schema`` only when compilation adds an
+            internal terminal (for example REF<TSB/TSL> for a newly composed
+            fixed structural result). Consumers expose ``output_schema`` and
+            use this field only when configuring the child terminal itself. */
+        const TSValueTypeMetaData               *terminal_output_schema{nullptr};
         /**
          * Outer-port CAPTURES (nested_graphs.rst): OUTER-wiring ports the
          * compose body referenced (closure capture). One per boundary index

@@ -217,6 +217,33 @@ def test_native_dynamic_tsl_map_runs_python_child_nodes_by_index():
     )
 
 
+def test_native_dynamic_tsl_map_preserves_composed_structural_child_outputs():
+    class Pair(hg.TimeSeriesSchema):
+        value: TS[int]
+        offset: TS[int]
+
+    @graph
+    def pair(value: TS[int]) -> hg.TSB[Pair]:
+        return hg.combine[hg.TSB[Pair]](value=value, offset=value + 100)
+
+    @graph
+    def app(
+        values: TSL[TS[int], Size[0]],
+    ) -> TSL[hg.TSB[Pair], Size[0]]:
+        return hg.map_(pair, values)
+
+    result = eval_node(app, [{0: 1}, {1: 2}, {0: 3}])
+    check(
+        result
+        == [
+            {0: {"value": 1, "offset": 101}},
+            {1: {"value": 2, "offset": 102}},
+            {0: {"value": 3, "offset": 103}},
+        ],
+        f"structural Python child in native dynamic TSL map: {result}",
+    )
+
+
 def test_python_sink_nodes_work_as_native_dynamic_tsl_map_children():
     seen = []
 

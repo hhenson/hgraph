@@ -22,6 +22,10 @@ namespace hgraph
         std::vector<std::size_t> multiplexed_inputs{};
         /** Entry-owned ``TS<int64>`` used when the child accepts ``ndx``. */
         const TSValueTypeMetaData *index_output_schema{nullptr};
+        /** Whether the child terminal writes into the list element or the
+            element preserves and forwards to a child-owned terminal. */
+        MapOutputBindingMode output_binding_mode{
+            MapOutputBindingMode::ChildTerminalWritesElement};
     };
 
     /** Typed inspection surface for a dynamic-TSL arbitrary-function map. */

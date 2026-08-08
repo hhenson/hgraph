@@ -196,7 +196,7 @@ namespace hgraph
                                                      std::nullopt, false, true);
             runtime_detail::bind_mapped_child_output(view, entry.graph.view(), evaluation_time, spec.child.output_binding,
                                                      spec.args, entry.index.view(), index_source,
-                                                     MapOutputBindingMode::ChildTerminalWritesElement);
+                                                     spec.output_binding_mode);
             entry.graph.view().start(evaluation_time);
             schedule_sampled_input_consumers(entry.graph.view(), evaluation_time, spec.child.input_bindings);
             rollback.release();
@@ -247,6 +247,19 @@ namespace hgraph
                     if (!child.evaluate(evaluation_time)) {
                         storage.resume_index = index;
                         return false;
+                    }
+                    // Direct-write terminals already notify the list through
+                    // their re-homed output endpoint. Only a preserved child
+                    // terminal needs the explicit final-state reconciliation;
+                    // doing it for direct writes can expose a partially
+                    // evaluated list to same-cycle downstream nodes.
+                    if (context.spec.output_binding_mode !=
+                        MapOutputBindingMode::ChildTerminalWritesElement)
+                    {
+                        runtime_detail::finalize_mapped_child_output(
+                            view, evaluation_time,
+                            context.spec.child.output_binding,
+                            entry->index.view());
                     }
                 }
                 const DateTime next = child.next_scheduled_time();
@@ -304,6 +317,11 @@ namespace hgraph
                 if (binding.source.node >= child_node_count || !binding.source.path.empty() || !binding.target_path.empty()) {
                     throw std::invalid_argument("tsl_map_node child output binding must connect one whole child "
                                                 "terminal to the list element");
+                }
+                if (spec.output_binding_mode ==
+                    MapOutputBindingMode::OutputElementForwardsToParentSource) {
+                    throw std::invalid_argument(
+                        "tsl_map_node child output cannot use parent-source forwarding mode");
                 }
             }
 
@@ -398,6 +416,14 @@ namespace hgraph
             meta.requires_phase_runner || spec.child.graph_builder.requires_phase_runner();
         meta.node_kind    = NodeKind::Nested;
         meta.valid_inputs = std::vector<std::size_t>{};
+        if (meta.output_schema != nullptr &&
+            spec.output_binding_mode !=
+                MapOutputBindingMode::ChildTerminalWritesElement) {
+            meta.output_endpoint_schema = TSEndpointSchema::non_peered_list(
+                meta.output_schema,
+                forwarding_output_endpoint_schema(
+                    meta.output_schema->element_ts()));
+        }
 
         const GraphTypeRef child_graph_type = spec.child.graph_builder.nested_type();
         const ValueTypeRef index_type       = ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta());

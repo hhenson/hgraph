@@ -85,8 +85,12 @@ namespace hgraph
                 const bool owned_dynamic = ((schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0) ||
                                             schema->kind == TSTypeKind::TSW) &&
                                            endpoint_schema.is_owned();
-                const bool structural_root = (schema->kind == TSTypeKind::TSB || schema->kind == TSTypeKind::TSD) &&
-                                             endpoint_schema.is_non_peered();
+                const bool structural_root =
+                    (schema->kind == TSTypeKind::TSB ||
+                     schema->kind == TSTypeKind::TSD ||
+                     (schema->kind == TSTypeKind::TSL &&
+                      schema->fixed_size() == 0)) &&
+                    endpoint_schema.is_non_peered();
                 if (!direct_peered && !owned_scalar && !owned_fixed && !owned_keyed && !owned_dynamic &&
                     !structural_root)
                 {
@@ -106,13 +110,19 @@ namespace hgraph
                 validate_input_endpoint_schema(endpoint_schema.child(0), false);
                 return;
             }
+            if (schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0)
+            {
+                if (endpoint_schema.child_count() != 1)
+                {
+                    throw std::invalid_argument(
+                        "TSInput non-peered dynamic TSL prefixes require one element annotation");
+                }
+                validate_input_endpoint_schema(endpoint_schema.child(0), false);
+                return;
+            }
             if (schema->kind != TSTypeKind::TSB && schema->kind != TSTypeKind::TSL)
             {
                 throw std::invalid_argument("TSInput non-peered prefixes require TSB or fixed-size TSL schemas");
-            }
-            if (schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0)
-            {
-                throw std::invalid_argument("TSInput non-peered TSL prefixes currently require a fixed size");
             }
             for (const auto &child : endpoint_schema.children()) { validate_input_endpoint_schema(child, false); }
         }
@@ -646,6 +656,23 @@ namespace hgraph
                 if (plan == nullptr)
                 {
                     throw std::logic_error("TSInput non-peered TSD storage plan is not resolved");
+                }
+                return *plan;
+            }
+            if (schema != nullptr && schema->kind == TSTypeKind::TSL &&
+                schema->fixed_size() == 0)
+            {
+                if (endpoint_schema.child_count() != 1)
+                {
+                    throw std::logic_error(
+                        "TSInput non-peered dynamic TSL storage requires one element annotation");
+                }
+                const auto *plan =
+                    ts_data_plan_factory_detail::synthesise_dynamic_list_plan(*schema);
+                if (plan == nullptr)
+                {
+                    throw std::logic_error(
+                        "TSInput non-peered dynamic TSL storage plan is not resolved");
                 }
                 return *plan;
             }
@@ -2012,6 +2039,38 @@ namespace hgraph
                 return intern_ts_type(*schema, storage_role, root_plan, ops,
                                       implementation_label);
             }
+            if (schema != nullptr && schema->kind == TSTypeKind::TSL &&
+                schema->fixed_size() == 0)
+            {
+                if (endpoint_schema.child_count() != 1)
+                {
+                    throw std::logic_error(
+                        "TSInput non-peered dynamic TSL binding requires one element annotation");
+                }
+                const auto &child_schema = endpoint_schema.child(0);
+                const auto &child_plan = input_storage_plan(child_schema);
+                const auto element_type = input_storage_type_for(
+                    child_schema, child_plan, 0, true, storage_role);
+                if (!element_type)
+                {
+                    throw std::logic_error(
+                        "TSInput non-peered dynamic TSL element type is not resolved");
+                }
+                const auto *expected_plan =
+                    ts_data_plan_factory_detail::synthesise_dynamic_list_plan(*schema);
+                if (expected_plan == nullptr)
+                {
+                    throw std::logic_error(
+                        "TSInput non-peered dynamic TSL binding has no storage plan");
+                }
+                const bool root_record =
+                    storage_offset == 0 && expected_plan == &root_plan;
+                const auto &ops = ts_data_plan_factory_detail::dynamic_list_ts_data_ops(
+                    *schema, root_plan, storage_offset, element_type, storage_role,
+                    !root_record);
+                return intern_ts_type(*schema, storage_role, root_plan, ops,
+                                      implementation_label);
+            }
 
             const auto key = binding_cache_key(endpoint_schema, root_plan, storage_offset, storage_role);
             std::lock_guard lock{input_binding_context_cache_mutex()};
@@ -2330,6 +2389,29 @@ namespace hgraph
             throw std::invalid_argument("owned dynamic TSData label requires dynamic TSL or TSW");
         }
 
+        [[nodiscard]] std::string_view dynamic_composite_label(
+            TypeRole role, bool root_record)
+        {
+            switch (role)
+            {
+                case TypeRole::Data:
+                    return root_record
+                               ? std::string_view{"ts.tsl.dynamic.data.composite"}
+                               : std::string_view{"ts.tsl.dynamic.data.composite.embedded"};
+                case TypeRole::Input:
+                    return root_record
+                               ? std::string_view{"ts.tsl.dynamic.input.composite"}
+                               : std::string_view{"ts.tsl.dynamic.input.composite.embedded"};
+                case TypeRole::Output:
+                    return root_record
+                               ? std::string_view{"ts.tsl.dynamic.output.composite"}
+                               : std::string_view{"ts.tsl.dynamic.output.composite.embedded"};
+                default:
+                    throw std::invalid_argument(
+                        "dynamic TSL composite role is not supported");
+            }
+        }
+
         [[nodiscard]] TSRoleTypeRef input_storage_type_for(const TSEndpointSchema         &endpoint_schema,
                                                               const MemoryUtils::StoragePlan &root_plan,
                                                               std::size_t storage_offset,
@@ -2458,8 +2540,27 @@ namespace hgraph
                 return intern_ts_type(*schema, storage_role, root_plan, ops, label);
             }
 
-            if (dynamic_list || window)
-                throw std::invalid_argument("non-peered dynamic TSL and TSW inputs are not supported");
+            if (dynamic_list)
+            {
+                if (endpoint_schema.child_count() != 1)
+                {
+                    throw std::logic_error(
+                        "non-peered dynamic TSL storage requires one element annotation");
+                }
+                const auto &child_schema = endpoint_schema.child(0);
+                const auto &child_plan = input_storage_plan(child_schema);
+                const auto element_type = input_storage_type_for(
+                    child_schema, child_plan, 0, true, storage_role);
+                const auto &ops = ts_data_plan_factory_detail::dynamic_list_ts_data_ops(
+                    *schema, root_plan, storage_offset, element_type, storage_role,
+                    !root_record);
+                return intern_ts_type(
+                    *schema, storage_role, root_plan, ops,
+                    dynamic_composite_label(storage_role, root_record));
+            }
+
+            if (window)
+                throw std::invalid_argument("non-peered TSW inputs are not supported");
 
             const auto composite_label = schema->kind == TSTypeKind::TSD
                                              ? std::string_view{"ts.tsd.input.composite"}
@@ -2866,7 +2967,10 @@ namespace hgraph
                                     schema->kind == TSTypeKind::TSW) &&
                                    plan.endpoint_schema().is_owned();
         const bool structural_root = schema != nullptr &&
-                                     (schema->kind == TSTypeKind::TSB || schema->kind == TSTypeKind::TSD) &&
+                                     (schema->kind == TSTypeKind::TSB ||
+                                      schema->kind == TSTypeKind::TSD ||
+                                      (schema->kind == TSTypeKind::TSL &&
+                                       schema->fixed_size() == 0)) &&
                                      plan.endpoint_schema().is_non_peered();
         if (!direct_peered && !owned_scalar && !owned_fixed && !owned_keyed && !owned_dynamic && !structural_root)
         {

@@ -885,6 +885,18 @@ TEST_CASE("dynamic TSL and TSW role records are canonical distinct and exactly l
     REQUIRE_THROWS_AS(TSEndpointSchema::non_peered(dynamic, {}), std::invalid_argument);
     REQUIRE_THROWS_AS(TSEndpointSchema::non_peered(tick, {}), std::invalid_argument);
 
+    const auto dynamic_composite = TSEndpointSchema::non_peered_list(
+        dynamic, TSEndpointSchema::peered(ts));
+    REQUIRE(dynamic_composite.is_non_peered());
+    REQUIRE(dynamic_composite.child_count() == 1);
+    REQUIRE(dynamic_composite.child(0).schema() == ts);
+    TSInput dynamic_composite_input{
+        TSInputBuilderFactory::checked_builder_for(
+            *dynamic, dynamic_composite)};
+    REQUIRE(std::string{
+                dynamic_composite_input.type_ref().record()->implementation_name()} ==
+            "ts.tsl.dynamic.input.composite");
+
     for (const auto &item : cases)
     {
         const auto data = factory.data_type_for(item.schema);

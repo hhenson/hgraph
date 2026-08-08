@@ -230,6 +230,57 @@ namespace
     };
 
     using TryIntResult = UnNamedTSB<Field<"exception", TS<NodeError>>, Field<"out", TS<Int>>>;
+    using TryStructuralPair =
+        UnNamedTSB<Field<"value", TS<Int>>, Field<"offset", TS<Int>>>;
+    using TryStructuralResult =
+        UnNamedTSB<Field<"exception", TS<NodeError>>,
+                   Field<"out", TryStructuralPair>>;
+
+    struct TryStructuralPairG
+    {
+        static constexpr auto name = "try_structural_pair_g";
+
+        static Port<TryStructuralPair> compose(
+            Wiring &w, Port<TS<Int>> value)
+        {
+            using namespace hgraph::stdlib::syntax;
+            auto offset = (value + Int{1}).as<TS<Int>>();
+            return stdlib::to_tsb<TryStructuralPair>(w, value, offset);
+        }
+    };
+
+    [[nodiscard]] Port<TS<Int>> try_structural_value(
+        Wiring &w, Port<TryStructuralResult> result)
+    {
+        auto out = wire<stdlib::getitem_>(w, result, Str{"out"})
+                       .as<TryStructuralPair>();
+        return wire<stdlib::getitem_>(w, out, Str{"value"}).as<TS<Int>>();
+    }
+
+    struct StaticTryStructuralGraph
+    {
+        static constexpr auto name = "static_try_structural_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value)
+        {
+            return try_structural_value(
+                w, try_except_<TryStructuralPairG>(w, value)
+                       .as<TryStructuralResult>());
+        }
+    };
+
+    struct DynamicTryStructuralGraph
+    {
+        static constexpr auto name = "dynamic_try_structural_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value)
+        {
+            return try_structural_value(
+                w, wire<stdlib::try_except>(
+                       w, fn<TryStructuralPairG>(), value)
+                       .as<TryStructuralResult>());
+        }
+    };
 
     // Splits the try_except TSB result: the ``out`` value when it ticks.
     struct TryOutValue
@@ -658,6 +709,17 @@ TEST_CASE("error handling: try_except over a sub-graph routes value and exceptio
 
     CHECK_OUTPUT(get_recorded_values<Int>(gs, "out"), values<Int>(10, none, 14));
     CHECK_OUTPUT(get_recorded_values<Str>(gs, "err"), values<Str>(none, "negative input"s));
+}
+
+TEST_CASE("error handling: static and dynamic try_except preserve structural child outputs")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+
+    const auto input = values<Int>(1, 2, 3);
+    CHECK_OUTPUT(eval_node<StaticTryStructuralGraph>(input), input);
+    CHECK_OUTPUT(eval_node<DynamicTryStructuralGraph>(input), input);
 }
 
 TEST_CASE("error handling: try_except catches non-standard exceptions as unknown errors")
