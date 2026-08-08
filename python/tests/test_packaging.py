@@ -43,6 +43,12 @@ def test_nanobind_build_and_sdk_headers_use_one_exact_runtime_abi():
     assert "find_dependency(nanobind ${nanobind_VERSION} EXACT CONFIG)" in cmake
 
 
+def test_installed_sdk_exports_required_msvc_source_contract():
+    cmake = (ROOT / "CMakeLists.txt").read_text()
+
+    assert "target_compile_options(hgraph_options INTERFACE /W4 /permissive- /utf-8)" in cmake
+
+
 def test_windows_wheel_installs_all_linked_pyarrow_runtimes():
     python_cmake = (ROOT / "python/CMakeLists.txt").read_text()
 

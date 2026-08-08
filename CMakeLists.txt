@@ -139,7 +139,10 @@ target_include_directories(hgraph_options INTERFACE
 )
 
 if(MSVC)
-    target_compile_options(hgraph_options INTERFACE /W4 /permissive-)
+    # Public hgraph headers expose fmt.  MSVC must decode those headers as
+    # UTF-8, so this is part of the installed SDK compile contract rather
+    # than a private option on the core targets.
+    target_compile_options(hgraph_options INTERFACE /W4 /permissive- /utf-8)
     if(HGRAPH_WARNINGS_AS_ERRORS)
         target_compile_options(hgraph_options INTERFACE /WX)
     endif()

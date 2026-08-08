@@ -118,6 +118,9 @@ set_target_properties(hgraph_kafka PROPERTIES
 )
 
 if(MSVC)
+    # librdkafka includes Windows headers in the implementation.  Keep their
+    # min/max macros from rewriting standard-library calls in this target.
+    target_compile_definitions(hgraph_kafka PRIVATE NOMINMAX)
     target_compile_options(hgraph_kafka PRIVATE /W4 /permissive-)
 else()
     target_compile_options(hgraph_kafka PRIVATE -Wall -Wextra -Wpedantic)

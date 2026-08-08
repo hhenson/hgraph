@@ -37,6 +37,7 @@ def test_native_extension_is_opt_in_and_standalone_buildable():
     assert "if(NOT TARGET hgraph::core)" in extension_cmake
     assert "find_package(hgraph CONFIG REQUIRED)" in extension_cmake
     assert "add_library(hgraph::kafka ALIAS hgraph_kafka)" in extension_cmake
+    assert "target_compile_definitions(hgraph_kafka PRIVATE NOMINMAX)" in extension_cmake
     assert "install(EXPORT hgraphKafkaTargets" in extension_cmake
 
 
@@ -67,3 +68,7 @@ def test_ci_builds_and_tests_separate_kafka_artifacts():
     assert "--wheel --no-isolation" in workflow
     assert "--sdist --no-isolation" in workflow
     assert "--skip-dependency-check" in workflow
+    assert workflow.count(
+        '"scikit-build-core>=0.11" "nanobind==2.13.0" "ninja" '
+        '"pyarrow>=24,<25"'
+    ) == 2

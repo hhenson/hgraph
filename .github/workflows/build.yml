@@ -262,7 +262,7 @@ jobs:
       - name: Install Kafka wheel build tools
         run: >-
           python -m pip install --upgrade
-          "scikit-build-core>=0.11" "nanobind==2.13.0" "pyarrow>=24,<25"
+          "scikit-build-core>=0.11" "nanobind==2.13.0" "ninja" "pyarrow>=24,<25"
       - name: Build Kafka stable ABI wheel
         env:
           CMAKE_GENERATOR: ${{ matrix.cmake_generator }}
@@ -374,7 +374,7 @@ jobs:
       - name: Install Kafka wheel build tools
         run: >-
           /opt/python/cp312-cp312/bin/python -m pip install --upgrade
-          "scikit-build-core>=0.11" "nanobind==2.13.0" "pyarrow>=24,<25"
+          "scikit-build-core>=0.11" "nanobind==2.13.0" "ninja" "pyarrow>=24,<25"
       - name: Build Kafka stable ABI wheel
         shell: bash
         run: |
