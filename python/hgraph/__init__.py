@@ -20,7 +20,7 @@ from ._compat import (CmpResult, DivideByZero, exception_time_series, try_except
                       TryExceptResult, TryExceptTsdMapResult, NodeError,
                       OperatorWiringNodeClass, BoolResult, CompoundScalar, JSON, TimeSeriesReference,
                       NodeException, accumulate, average, center_of_mass_to_alpha, span_to_alpha,
-                      to_json_builder, from_json_builder)
+                      to_json_builder, from_json_builder, register_json_datetime_format)
 from ._wiring import filter_by
 from ._wiring import convert
 from ._wiring import collect

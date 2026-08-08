@@ -33,6 +33,28 @@ namespace
         CHECK(back.view().template checked_as<T>() == input);
         return text;
     }
+
+    template <typename T>
+    T parse_json_value(std::string_view text)
+    {
+        return from_json_string(
+                   scalar_descriptor<T>::value_meta(), text)
+            .view().template checked_as<T>();
+    }
+
+    DateTime utc_instant(
+        int year, unsigned month, unsigned day, int hour = 0,
+        int minute = 0, int second = 0, int microsecond = 0)
+    {
+        using namespace std::chrono;
+        const Date date{
+            std::chrono::year{year}, std::chrono::month{month},
+            std::chrono::day{day}};
+        return DateTime{
+            duration_cast<microseconds>(sys_days{date}.time_since_epoch()) +
+            hours{hour} + minutes{minute} + seconds{second} +
+            microseconds{microsecond}};
+    }
 }  // namespace
 
 TEST_CASE("json: atomic values round-trip in the Python wire format")
@@ -52,6 +74,7 @@ TEST_CASE("json: atomic values round-trip in the Python wire format")
     CHECK(round_trip(TimeDelta{microseconds{2 * 86'400'000'000 + 3'723'500'000}}) ==
           "\"176523500000us\"");
     CHECK(round_trip(time_of_day(9, 30, 5, 250)) == "\"09:30:05.000250\"");
+    CHECK(round_trip(time_of_day(9, 30, 5)) == "\"09:30:05\"");
 }
 
 TEST_CASE("json: temporal version 2 scalar and range forms round-trip")
@@ -135,6 +158,73 @@ TEST_CASE("json: schema-directed temporal reads accept legacy version 1 text")
         "\"0:0:0:0.-00001\"");
     CHECK(early_native_negative.view().checked_as<TimeDelta>() ==
           TimeDelta{-1});
+}
+
+TEST_CASE("json: temporal reads accept ISO, compact, fallback, and registered formats")
+{
+    CHECK(parse_json_value<DateTime>("\"2024-06-13T10:15\"") ==
+          utc_instant(2024, 6, 13, 10, 15));
+    CHECK(parse_json_value<DateTime>("\"2024-06-13\"") ==
+          utc_instant(2024, 6, 13));
+    CHECK(parse_json_value<DateTime>("\"2024-06-13T10:15:30.5\"") ==
+          utc_instant(2024, 6, 13, 10, 15, 30, 500'000));
+    CHECK(parse_json_value<DateTime>("\"20240613T101530\"") ==
+          utc_instant(2024, 6, 13, 10, 15, 30));
+    CHECK(parse_json_value<DateTime>("\"20240613101530\"") ==
+          utc_instant(2024, 6, 13, 10, 15, 30));
+    CHECK(parse_json_value<DateTime>("\"20240613101530123456\"") ==
+          utc_instant(2024, 6, 13, 10, 15, 30, 123'456));
+    CHECK(parse_json_value<DateTime>("\"2024-06-13T11:15:30+01:00\"") ==
+          utc_instant(2024, 6, 13, 10, 15, 30));
+    CHECK(parse_json_value<DateTime>("\"2024-06-13T05:15:30-05:00\"") ==
+          utc_instant(2024, 6, 13, 10, 15, 30));
+    CHECK(parse_json_value<DateTime>("\"2024/06/13 10:15:30\"") ==
+          utc_instant(2024, 6, 13, 10, 15, 30));
+    CHECK(parse_json_value<DateTime>("\"13-Jun-2024 10:15:30\"") ==
+          utc_instant(2024, 6, 13, 10, 15, 30));
+    CHECK(parse_json_value<DateTime>("\"13 Jun 2024\"") ==
+          utc_instant(2024, 6, 13));
+
+    CHECK(parse_json_value<Time>("\"10:15\"") == time_of_day(10, 15));
+    CHECK(parse_json_value<Time>("\"101530\"") ==
+          time_of_day(10, 15, 30));
+    CHECK(parse_json_value<Time>("\"101530123456\"") ==
+          time_of_day(10, 15, 30, 123'456));
+    CHECK(parse_json_value<Date>("\"20240613\"") ==
+          Date{std::chrono::year{2024}, std::chrono::June,
+               std::chrono::day{13}});
+    CHECK(parse_json_value<Date>("\"2024/06/13\"") ==
+          Date{std::chrono::year{2024}, std::chrono::June,
+               std::chrono::day{13}});
+    CHECK(parse_json_value<Date>("\"13-Jun-2024\"") ==
+          Date{std::chrono::year{2024}, std::chrono::June,
+               std::chrono::day{13}});
+    CHECK(parse_json_value<Date>("\"2024-06-13T10:15:30\"") ==
+          Date{std::chrono::year{2024}, std::chrono::June,
+               std::chrono::day{13}});
+
+    register_json_datetime_format("%d/%m/%Y %H:%M:%S");
+    CHECK(parse_json_value<DateTime>("\"13/06/2024 10:15:30\"") ==
+          utc_instant(2024, 6, 13, 10, 15, 30));
+    register_json_datetime_format("%I.%M.%S %p", true);
+    CHECK(parse_json_value<Time>("\"10.15.30 PM\"") ==
+          time_of_day(22, 15, 30));
+    CHECK(parse_json_value<Time>("\"12.00.00 AM\"") ==
+          time_of_day(0, 0, 0));
+    CHECK(parse_json_value<Time>("\"12.00.00 PM\"") ==
+          time_of_day(12, 0, 0));
+
+    try
+    {
+        static_cast<void>(
+            parse_json_value<DateTime>("\"not a datetime\""));
+        FAIL("invalid datetime text should be rejected");
+    }
+    catch (const std::invalid_argument &error)
+    {
+        CHECK(std::string{error.what()}.find("not a datetime") !=
+              std::string::npos);
+    }
 }
 
 TEST_CASE("json: containers round-trip (list, set, map with string and int keys)")
@@ -229,6 +319,18 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Str>> ts)
         {
             return wire<stdlib::from_json, TS<Int>>(w, ts).as<TS<Int>>();
+        }
+    };
+
+    struct FromJsonDateTimeGraph
+    {
+        [[maybe_unused]] static constexpr auto name =
+            "from_json_datetime_graph";
+
+        static Port<TS<DateTime>> compose(Wiring &w, Port<TS<Str>> ts)
+        {
+            return wire<stdlib::from_json, TS<DateTime>>(w, ts)
+                .as<TS<DateTime>>();
         }
     };
 
@@ -365,6 +467,19 @@ TEST_CASE("json operators: from_json parses into the resolved output type")
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<FromJsonGraph>(values<Str>(Str{"3"}, none, Str{"-9"})),
                  values<Int>(3, none, -9));
+}
+
+TEST_CASE("json operators: temporal parsing uses the shared native format registry")
+{
+    stdlib::register_standard_operators();
+    register_json_datetime_format("%d/%m/%Y %H:%M:%S");
+    CHECK_OUTPUT(
+        eval_node<FromJsonDateTimeGraph>(values<Str>(
+            Str{"\"2024-06-13T11:15:30+01:00\""},
+            Str{"\"13/06/2024 10:15:30\""})),
+        values<DateTime>(
+            utc_instant(2024, 6, 13, 10, 15, 30),
+            utc_instant(2024, 6, 13, 10, 15, 30)));
 }
 
 TEST_CASE("json operators: to_json -> from_json round-trips through a graph")

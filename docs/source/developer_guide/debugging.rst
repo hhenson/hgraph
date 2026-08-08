@@ -173,35 +173,54 @@ Linux Python/ASan debugging from macOS
 --------------------------------------
 
 Some lifetime failures only reproduce when the Python bridge is loaded into a
-Linux process. A small Linux VM is useful on an Apple Silicon Mac because it
-exercises the Linux/GCC build without modifying the macOS toolchain. The
-workflow below uses an Ubuntu 24.04 OrbStack machine named ``ubuntu``. Other
-Linux VMs work as long as the repository is shared into the guest and the
-commands are run inside the guest.
+Linux process. The project's preferred Linux system is the native host exposed
+through the ``hg-linux`` SSH alias. Use it whenever it is available. It
+exercises the Linux/GCC build on separate hardware without modifying the macOS
+toolchain. An Ubuntu 24.04 OrbStack machine named ``ubuntu`` is the fallback
+when ``hg-linux`` cannot be reached.
 
 Keep the build directory and virtual environment on the Linux filesystem, not
-in the shared source tree. The examples use ``/tmp`` for both. Replace
-``/Users/<mac-user>/src/hg_cpp`` with the macOS path to the checkout; OrbStack
-mounts that path at the same location in the guest.
+in a macOS-shared source tree. The examples use ``/tmp`` for both.
 
-Prepare the guest
-~~~~~~~~~~~~~~~~~
+Prepare the Linux host
+~~~~~~~~~~~~~~~~~~~~~~
 
-Open a shell in the VM and install a current GCC plus Python development
-support:
+First check the preferred host:
+
+.. code-block:: bash
+
+   ssh -o BatchMode=yes -o ConnectTimeout=10 hg-linux true
+
+When it is available, copy the current checkout, including uncommitted source
+changes, into a disposable directory on that host and open a shell there:
+
+.. code-block:: bash
+
+   remote_root="$(ssh hg-linux 'mktemp -d /tmp/hg_cpp-linux.XXXXXX')"
+   rsync -a \
+       --exclude .git --exclude .venv --exclude '.parity' \
+       --exclude 'cmake-build-*' --exclude '._*' --exclude '.DS_Store' \
+       ./ "hg-linux:${remote_root}/repo/"
+   ssh -t hg-linux "cd '${remote_root}/repo' && exec bash"
+   export REPO="$PWD"
+
+If ``hg-linux`` is unavailable, use the OrbStack VM instead. Install a current
+GCC plus Python development support there when needed. Replace the example
+checkout path below with the macOS path to the checkout; OrbStack mounts that
+path at the same location in the guest:
 
 .. code-block:: bash
 
    orb -m ubuntu bash
    sudo apt update
    sudo apt install -y build-essential git python3-dev python3-venv
+   export REPO=/Users/<mac-user>/src/hg_cpp
 
-Inside that Linux shell, create a disposable Python environment containing the
-binding and test dependencies:
+Inside the selected Linux shell, create a disposable Python environment
+containing the binding and test dependencies:
 
 .. code-block:: bash
 
-   export REPO=/Users/<mac-user>/src/hg_cpp
    export VENV=/tmp/hg_cpp-asan-venv
    export BUILD=/tmp/hg_cpp-linux-asan
 

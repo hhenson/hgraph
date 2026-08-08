@@ -10,13 +10,21 @@
 
 #include <fmt/format.h>
 
+#if defined(HGRAPH_TIME_ZONE_BACKEND_DATE)
+#include <date/date.h>
+#endif
+
 #include <hgraph/util/scope.h>
 
+#include <algorithm>
+#include <array>
 #include <charconv>
 #include <chrono>
+#include <cctype>
 #include <locale>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -24,6 +32,74 @@
 
 namespace hgraph
 {
+    namespace
+    {
+        struct RegisteredJsonDateTimeFormats
+        {
+            std::vector<std::string> datetime{};
+            std::vector<std::string> time{};
+        };
+
+        using JsonDateTimeFormatSnapshot =
+            std::shared_ptr<const RegisteredJsonDateTimeFormats>;
+
+        struct JsonDateTimeFormatRegistry
+        {
+            std::mutex mutex{};
+            JsonDateTimeFormatSnapshot formats{
+                std::make_shared<const RegisteredJsonDateTimeFormats>()};
+        };
+
+#if defined(HGRAPH_TIME_ZONE_BACKEND_DATE)
+        template <typename Duration>
+        using JsonSysTime = date::sys_time<Duration>;
+        template <typename Duration>
+        using JsonLocalTime = date::local_time<Duration>;
+#else
+        template <typename Duration>
+        using JsonSysTime = std::chrono::sys_time<Duration>;
+        template <typename Duration>
+        using JsonLocalTime = std::chrono::local_time<Duration>;
+#endif
+
+        template <typename Stream, typename Value>
+        void json_datetime_from_stream(
+            Stream &stream, const char *format, Value &value)
+        {
+#if defined(HGRAPH_TIME_ZONE_BACKEND_DATE)
+            date::from_stream(stream, format, value);
+#else
+            std::chrono::from_stream(stream, format, value);
+#endif
+        }
+
+        JsonDateTimeFormatRegistry &registered_datetime_formats()
+        {
+            static JsonDateTimeFormatRegistry registry{};
+            return registry;
+        }
+
+        [[nodiscard]] JsonDateTimeFormatSnapshot
+            registered_datetime_format_snapshot()
+        {
+            auto &registry = registered_datetime_formats();
+            std::lock_guard lock{registry.mutex};
+            return registry.formats;
+        }
+
+        constexpr std::array<std::string_view, 8>
+            builtin_json_datetime_formats{
+                "%Y/%m/%d %H:%M:%S.%f",
+                "%Y/%m/%d %H:%M:%S",
+                "%Y/%m/%d",
+                "%d-%b-%Y %H:%M:%S.%f",
+                "%d-%b-%Y %H:%M:%S",
+                "%d-%b-%Y",
+                "%d %b %Y %H:%M:%S",
+                "%d %b %Y",
+            };
+    }  // namespace
+
     namespace json_detail
     {
         // ---------------------------------------------------------------
@@ -67,8 +143,11 @@ namespace hgraph
         void append_time_of_day(std::int64_t micros_since_midnight, std::string &out)
         {
             const auto total_seconds = micros_since_midnight / 1'000'000;
-            out += fmt::format("{:02}:{:02}:{:02}.{:06}", total_seconds / 3'600, (total_seconds / 60) % 60,
-                               total_seconds % 60, micros_since_midnight % 1'000'000);
+            const auto micros = micros_since_midnight % 1'000'000;
+            out += fmt::format("{:02}:{:02}:{:02}", total_seconds / 3'600,
+                               (total_seconds / 60) % 60,
+                               total_seconds % 60);
+            if (micros != 0) { out += fmt::format(".{:06}", micros); }
         }
 
         // ---------------------------------------------------------------
@@ -293,6 +372,350 @@ namespace hgraph
         {
             if (pos >= text.size() || text[pos] != c) { reader.fail("bad date/time separator"); }
             ++pos;
+        }
+
+        [[nodiscard]] std::string translate_python_datetime_format(
+            std::string_view format)
+        {
+            std::string translated;
+            translated.reserve(format.size());
+            for (std::size_t position = 0; position < format.size();)
+            {
+                if (format.substr(position, 5) == "%S.%f")
+                {
+                    // date::from_stream parses the fractional component as
+                    // part of %S; Python strptime spells it as a separate %f.
+                    translated += "%S";
+                    position += 5;
+                }
+                else if (format.substr(position, 4) == "%S%f")
+                {
+                    translated += "%S";
+                    position += 4;
+                }
+                else
+                {
+                    translated.push_back(format[position++]);
+                }
+            }
+            return translated;
+        }
+
+        [[nodiscard]] std::string colon_offset_format(
+            std::string_view format)
+        {
+            std::string translated;
+            translated.reserve(format.size() + 1);
+            for (std::size_t position = 0; position < format.size();)
+            {
+                if (format.substr(position, 2) == "%z")
+                {
+                    translated += "%Ez";
+                    position += 2;
+                }
+                else
+                {
+                    translated.push_back(format[position++]);
+                }
+            }
+            return translated;
+        }
+
+        template <typename TimePoint>
+        [[nodiscard]] std::optional<TimePoint> parse_datetime_format(
+            std::string_view text, std::string_view python_format)
+        {
+            const std::string format =
+                translate_python_datetime_format(python_format);
+            const auto parse = [](std::string_view candidate,
+                                  std::string_view candidate_format)
+                -> std::optional<TimePoint> {
+                std::istringstream stream{std::string{candidate}};
+                stream.imbue(std::locale::classic());
+                TimePoint value{};
+                json_datetime_from_stream(
+                    stream, std::string{candidate_format}.c_str(), value);
+                if (stream.fail() || stream.rdbuf()->in_avail() != 0)
+                {
+                    return std::nullopt;
+                }
+                return value;
+            };
+
+            if (auto value = parse(text, format)) { return value; }
+
+            const bool has_offset =
+                format.find("%z") != std::string::npos ||
+                format.find("%Ez") != std::string::npos;
+            if (!has_offset) { return std::nullopt; }
+
+            const std::string extended_format = colon_offset_format(format);
+            if (extended_format != format)
+            {
+                if (auto value = parse(text, extended_format)) { return value; }
+            }
+            if (!text.empty() && (text.back() == 'Z' || text.back() == 'z'))
+            {
+                std::string normalized{text.substr(0, text.size() - 1)};
+                normalized += "+00:00";
+                if (auto value = parse(normalized, extended_format))
+                {
+                    return value;
+                }
+            }
+            return std::nullopt;
+        }
+
+        template <typename TimePoint, std::size_t N>
+        [[nodiscard]] std::optional<TimePoint> parse_first_datetime_format(
+            std::string_view text,
+            const std::array<std::string_view, N> &formats)
+        {
+            for (const std::string_view format : formats)
+            {
+                if (auto value =
+                        parse_datetime_format<TimePoint>(text, format))
+                {
+                    return value;
+                }
+            }
+            return std::nullopt;
+        }
+
+        template <typename TimePoint>
+        [[nodiscard]] std::optional<TimePoint> parse_json_datetime_value(
+            std::string_view text)
+        {
+            static constexpr std::array<std::string_view, 3> compact_formats{
+                "%Y%m%d", "%Y%m%d%H%M%S", "%Y%m%d%H%M%S"};
+            static constexpr std::array<std::string_view, 12> iso_formats{
+                "%Y-%m-%dT%H:%M:%S%Ez",
+                "%Y-%m-%dT%H:%M%Ez",
+                "%Y-%m-%d %H:%M:%S%Ez",
+                "%Y-%m-%d %H:%M%Ez",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%dT%H:%M",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y-%m-%d",
+                "%Y%m%d",
+                "%Y-%m-%dT%H",
+                "%Y-%m-%d %H",
+            };
+            const auto digits = [](std::string_view value) {
+                return std::ranges::all_of(
+                    value, [](char character) {
+                        return std::isdigit(
+                            static_cast<unsigned char>(character));
+                    });
+            };
+            // Basic ISO date/time has adjacent variable-width numeric
+            // directives which date::from_stream can partition incorrectly.
+            // Normalize the unambiguous lengths before general parsing.
+            if (text.size() >= 13 && text[8] == 'T' &&
+                digits(text.substr(0, 8)) && digits(text.substr(9, 4)))
+            {
+                const bool has_seconds =
+                    text.size() >= 15 && digits(text.substr(13, 2));
+                std::string normalized;
+                normalized.reserve(text.size() + 5);
+                normalized.append(text.substr(0, 4));
+                normalized.push_back('-');
+                normalized.append(text.substr(4, 2));
+                normalized.push_back('-');
+                normalized.append(text.substr(6, 2));
+                normalized.push_back('T');
+                normalized.append(text.substr(9, 2));
+                normalized.push_back(':');
+                normalized.append(text.substr(11, 2));
+                std::size_t remainder = 13;
+                if (has_seconds)
+                {
+                    normalized.push_back(':');
+                    normalized.append(text.substr(13, 2));
+                    remainder = 15;
+                }
+                normalized.append(text.substr(remainder));
+                const auto local_format = has_seconds ?
+                    "%Y-%m-%dT%H:%M:%S" : "%Y-%m-%dT%H:%M";
+                if (auto value = parse_datetime_format<TimePoint>(
+                        normalized, local_format))
+                {
+                    return value;
+                }
+                const auto offset_format = has_seconds ?
+                    "%Y-%m-%dT%H:%M:%S%Ez" :
+                    "%Y-%m-%dT%H:%M%Ez";
+                if (auto value = parse_datetime_format<TimePoint>(
+                        normalized, offset_format))
+                {
+                    return value;
+                }
+            }
+            const bool digits_only = std::ranges::all_of(
+                text, [](char value) {
+                    return std::isdigit(
+                        static_cast<unsigned char>(value));
+                });
+            if (digits_only)
+            {
+                const std::size_t index =
+                    text.size() == 8 ? 0 : text.size() == 14 ? 1 :
+                    text.size() == 20 ? 2 : compact_formats.size();
+                if (index < compact_formats.size())
+                {
+                    std::string normalized{text};
+                    if (text.size() == 20) { normalized.insert(14, "."); }
+                    if (auto value = parse_datetime_format<TimePoint>(
+                            normalized, compact_formats[index]))
+                    {
+                        return value;
+                    }
+                }
+            }
+            if (auto value =
+                    parse_first_datetime_format<TimePoint>(text, iso_formats))
+            {
+                return value;
+            }
+            if (auto value = parse_first_datetime_format<TimePoint>(
+                    text, builtin_json_datetime_formats))
+            {
+                return value;
+            }
+            const auto registered = registered_datetime_format_snapshot();
+            for (const std::string &format : registered->datetime)
+            {
+                if (auto value =
+                        parse_datetime_format<TimePoint>(text, format))
+                {
+                    return value;
+                }
+            }
+            return std::nullopt;
+        }
+
+        [[nodiscard]] std::optional<CivilTime> parse_json_time_value(
+            std::string_view text)
+        {
+            static constexpr std::array<std::string_view, 3> iso_formats{
+                "%H:%M:%S", "%H:%M", "%H"};
+            const bool digits_only = std::ranges::all_of(
+                text, [](char value) {
+                    return std::isdigit(
+                        static_cast<unsigned char>(value));
+                });
+            if (digits_only && (text.size() == 6 || text.size() == 12))
+            {
+                std::string normalized{text};
+                if (text.size() == 12) { normalized.insert(6, "."); }
+                std::chrono::microseconds value{};
+                std::istringstream stream{normalized};
+                stream.imbue(std::locale::classic());
+                json_datetime_from_stream(stream, "%H%M%S", value);
+                if (!stream.fail() && stream.rdbuf()->in_avail() == 0)
+                {
+                    return CivilTime{value.count()};
+                }
+            }
+            const auto parse = [](std::string_view candidate,
+                                  std::string_view python_format)
+                -> std::optional<CivilTime> {
+                const std::string format =
+                    translate_python_datetime_format(python_format);
+                std::istringstream stream{std::string{candidate}};
+                stream.imbue(std::locale::classic());
+                std::chrono::microseconds value{};
+                json_datetime_from_stream(stream, format.c_str(), value);
+                if (stream.fail() || stream.rdbuf()->in_avail() != 0)
+                {
+                    return std::nullopt;
+                }
+                if (format.find("%p") != std::string::npos)
+                {
+                    std::string meridiem{candidate};
+                    std::ranges::transform(
+                        meridiem, meridiem.begin(), [](char value) {
+                            return static_cast<char>(std::toupper(
+                                static_cast<unsigned char>(value)));
+                        });
+                    const bool is_am = meridiem.find("AM") != std::string::npos;
+                    const bool is_pm = meridiem.find("PM") != std::string::npos;
+                    if (is_am == is_pm) { return std::nullopt; }
+
+                    const auto hour =
+                        std::chrono::duration_cast<std::chrono::hours>(value);
+                    // Howard Hinnant date releases differ in whether parsing
+                    // a duration applies %p. Normalize either result.
+                    if (is_pm && hour < std::chrono::hours{12})
+                    {
+                        value += std::chrono::hours{12};
+                    }
+                    else if (is_am && hour >= std::chrono::hours{12})
+                    {
+                        value -= std::chrono::hours{12};
+                    }
+                }
+                if (value < std::chrono::microseconds{0} ||
+                    value >= std::chrono::hours{24})
+                {
+                    return std::nullopt;
+                }
+                return CivilTime{value.count()};
+            };
+            for (const std::string_view format : iso_formats)
+            {
+                if (auto value = parse(text, format)) { return value; }
+            }
+            const auto registered = registered_datetime_format_snapshot();
+            for (const std::string &format : registered->time)
+            {
+                if (auto value = parse(text, format)) { return value; }
+            }
+            return std::nullopt;
+        }
+
+        [[nodiscard]] CivilDate json_date(
+            std::string_view text, Reader &reader)
+        {
+            using LocalMicros =
+                JsonLocalTime<std::chrono::microseconds>;
+            auto value = parse_json_datetime_value<LocalMicros>(text);
+            if (!value)
+            {
+                reader.fail(fmt::format(
+                    "cannot parse '{}' as a date; it is not ISO 8601 nor any registered format",
+                    text));
+            }
+            const auto day = std::chrono::floor<std::chrono::days>(*value);
+            return CivilDate{std::chrono::sys_days{day.time_since_epoch()}};
+        }
+
+        [[nodiscard]] CivilTime json_time(
+            std::string_view text, Reader &reader)
+        {
+            auto value = parse_json_time_value(text);
+            if (!value)
+            {
+                reader.fail(fmt::format(
+                    "cannot parse '{}' as a time; it is not ISO 8601 nor any registered format",
+                    text));
+            }
+            return *value;
+        }
+
+        [[nodiscard]] Instant json_instant(
+            std::string_view text, Reader &reader)
+        {
+            using SysMicros = JsonSysTime<std::chrono::microseconds>;
+            auto value = parse_json_datetime_value<SysMicros>(text);
+            if (!value)
+            {
+                reader.fail(fmt::format(
+                    "cannot parse '{}' as a datetime; it is not ISO 8601 nor any registered format",
+                    text));
+            }
+            return Instant{value->time_since_epoch()};
         }
 
         [[nodiscard]] Date parse_date_body(std::string_view s, std::size_t &i, Reader &reader)
@@ -611,6 +1034,27 @@ namespace hgraph
         }
     }  // namespace json_detail
 
+    void register_json_datetime_format(std::string format, bool time_only)
+    {
+        if (format.empty())
+        {
+            throw std::invalid_argument(
+                "register_json_datetime_format: format must not be empty");
+        }
+        auto &registry = registered_datetime_formats();
+        std::lock_guard lock{registry.mutex};
+        const auto &current = registry.formats;
+        const auto &formats =
+            time_only ? current->time : current->datetime;
+        if (std::ranges::find(formats, format) != formats.end())
+        {
+            return;
+        }
+        auto next = std::make_shared<RegisteredJsonDateTimeFormats>(*current);
+        (time_only ? next->time : next->datetime).push_back(format);
+        registry.formats = std::move(next);
+    }
+
     namespace
     {
         using json_detail::Reader;
@@ -896,16 +1340,12 @@ namespace hgraph
                     return Value{json_detail::parse_float_token(reader.parse_number_token(), reader)};
                 case AtomicTag::Str: return Value{Str{reader.parse_string()}};
                 case AtomicTag::Date: {
-                    const std::string s = reader.parse_string();
-                    std::size_t       i = 0;
-                    return Value{json_detail::parse_date_body(s, i, reader)};
+                    return Value{json_detail::json_date(
+                        reader.parse_string(), reader)};
                 }
                 case AtomicTag::DateTime: {
-                    const CivilDateTime value =
-                        json_detail::parse_civil_datetime(
-                            reader.parse_string(), reader, true);
-                    return Value{Instant{
-                        Duration{value.epoch_microseconds()}}};
+                    return Value{json_detail::json_instant(
+                        reader.parse_string(), reader)};
                 }
                 case AtomicTag::TimeDelta: {
                     return Value{
@@ -913,9 +1353,8 @@ namespace hgraph
                             reader.parse_string(), reader)};
                 }
                 case AtomicTag::Time: {
-                    const std::string s = reader.parse_string();
-                    std::size_t       i = 0;
-                    return Value{Time{json_detail::parse_time_body_micros(s, i, reader)}};
+                    return Value{json_detail::json_time(
+                        reader.parse_string(), reader)};
                 }
                 case AtomicTag::CivilDateTime:
                     return Value{json_detail::parse_civil_datetime(

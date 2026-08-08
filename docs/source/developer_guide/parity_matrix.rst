@@ -136,11 +136,13 @@ after the release-hardening audit; the counts come from comparing
      - 2
      - 0
      - 0
-     - equiv-API: to_json_builder, from_json_builder. **Recorded divergence:**
-       RFC 0002 version-2 writers emit RFC 3339 UTC instants and canonical
-       signed-microsecond durations instead of upstream's legacy text.
-       Schema-directed readers accept both formats and normalize legacy input
-       before any subsequent write.
+     - equiv-API: to_json_builder, from_json_builder,
+       register_json_datetime_format. Temporal input formats are registered in
+       the shared C++ codec and apply equally to builders and wired nodes.
+       **Recorded divergence:** RFC 0002 version-2 writers emit RFC 3339 UTC
+       instants and canonical signed-microsecond durations instead of
+       upstream's legacy text. Schema-directed readers accept both formats and
+       normalize legacy input before any subsequent write.
    * - Table (``to_table``)
      - 3
      - 0

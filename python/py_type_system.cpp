@@ -887,6 +887,8 @@ namespace hgraph::python_bridge
         const Value parsed = from_json_string(meta.meta, text);
         return python_bridge::value_to_py(parsed.view());
     });
+    m.def("register_json_datetime_format", &register_json_datetime_format,
+          nb::arg("format"), nb::arg("time_only") = false);
     m.def("enum_vt", [](const std::string &name, nb::list members, nb::object cls) {
         std::vector<std::pair<std::string, long long>> table;
         table.reserve(nb::len(members));

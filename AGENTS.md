@@ -92,10 +92,11 @@ uv pip install --python "$test_env/bin/python" "${wheel_path}[test]"
 
 For large changes, especially runtime, ownership, memory-layout, type-erasure,
 or cross-language changes, run the same full C++ and Python validation in the
-local Linux VM before reporting completion. Use the Ubuntu/OrbStack workflow in
-`docs/source/developer_guide/debugging.rst`; add ASan when lifetime or memory
-safety is involved. macOS is the normal local gate. Windows remains a
-best-effort CI platform, but portable code should still be maintained.
+Linux environment before reporting completion. Use the `hg-linux` SSH host
+when it is available; use the Ubuntu/OrbStack VM only as a fallback. Follow the
+workflow in `docs/source/developer_guide/debugging.rst`; add ASan when lifetime
+or memory safety is involved. macOS is the normal local gate. Windows remains
+a best-effort CI platform, but portable code should still be maintained.
 
 The x86_64 OrbStack VM on Apple Silicon does not expose AVX/AVX2. Standard
 Polars warns about the missing CPU features and then segfaults inside

@@ -120,6 +120,18 @@ def from_json_builder(tp):
     return _read
 
 
+def register_json_datetime_format(fmt: str, *, time_only: bool = False) -> None:
+    """Register an additional ``strptime``-style temporal JSON input format.
+
+    ISO 8601 and the native compatibility formats remain preferred. The
+    registration is process-wide and is consumed directly by the C++ JSON
+    codec used by both builders and graph nodes.
+    """
+    import _hgraph
+
+    _hgraph.register_json_datetime_format(fmt, time_only)
+
+
 def _window_result():
     """hgraph's window() result schema {buffer, index} (generic over the
     element type; resolves when the window operator lands). Built lazily -
