@@ -1,3 +1,5 @@
+"""Compatibility surface for the former in-core Kafka adaptor."""
+
 from ._api import KafkaMessage, MessageState, message_publisher, message_subscriber
 from ._impl import register_kafka_adaptor
 

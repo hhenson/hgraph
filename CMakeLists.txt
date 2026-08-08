@@ -70,6 +70,7 @@ option(HGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS "Use local .venv Python/nanobind he
 option(HGRAPH_ENABLE_COMPILER_CACHE "Use sccache or ccache when available" ON)
 option(HGRAPH_ENABLE_PCH "Use private precompiled headers for repository targets" ON)
 option(HGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS "Run debugger subprocess smoke tests when the platform debugger is available" OFF)
+option(HGRAPH_BUILD_KAFKA_EXTENSION "Build the first-party Kafka extension" OFF)
 
 if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_BUILD_SHARED)
     # Every static library linked into the extension must provide PIC on ELF
@@ -138,7 +139,10 @@ target_include_directories(hgraph_options INTERFACE
 )
 
 if(MSVC)
-    target_compile_options(hgraph_options INTERFACE /W4 /permissive-)
+    # Public hgraph headers expose fmt.  MSVC must decode those headers as
+    # UTF-8, so this is part of the installed SDK compile contract rather
+    # than a private option on the core targets.
+    target_compile_options(hgraph_options INTERFACE /W4 /permissive- /utf-8)
     if(HGRAPH_WARNINGS_AS_ERRORS)
         target_compile_options(hgraph_options INTERFACE /WX)
     endif()
@@ -356,6 +360,14 @@ if(NOT fmt_FOUND)
     set(_hgraph_fmt_fetched ON)
 endif()
 if(HGRAPH_BUILD_SHARED AND HGRAPH_BUILD_PYTHON_BINDINGS)
+    if(WIN32)
+        # Public hgraph templates call fmt. Let each installed extension
+        # instantiate those formatting paths itself instead of introducing a
+        # binary dependency on fmt symbols owned by an hgraph DLL.
+        target_compile_definitions(hgraph_options INTERFACE
+            $<INSTALL_INTERFACE:FMT_HEADER_ONLY>
+        )
+    endif()
     target_link_libraries(hgraph_private_dependencies INTERFACE fmt::fmt)
 elseif(_hgraph_fmt_fetched)
     target_link_libraries(hgraph_options INTERFACE
@@ -468,6 +480,17 @@ for path in (root, root / "include", arrow_link, compute_link, acero_link,
     endif()
     set(HGRAPH_PYARROW_LIBRARY_DIR "${_hgraph_pyarrow_dir}" CACHE PATH
         "Directory containing pyarrow's bundled Arrow libraries" FORCE)
+    set(HGRAPH_PYARROW_RUNTIME_DIRS "${_hgraph_pyarrow_dir}")
+    if(WIN32)
+        get_filename_component(_hgraph_pyarrow_site_packages
+            "${_hgraph_pyarrow_dir}" DIRECTORY)
+        list(APPEND HGRAPH_PYARROW_RUNTIME_DIRS
+            "${_hgraph_pyarrow_site_packages}")
+        if(EXISTS "${_hgraph_pyarrow_site_packages}/pyarrow.libs")
+            list(APPEND HGRAPH_PYARROW_RUNTIME_DIRS
+                "${_hgraph_pyarrow_site_packages}/pyarrow.libs")
+        endif()
+    endif()
 else()
     find_package(Arrow CONFIG REQUIRED)
     # Arrow 24 splits compute/acero into their own CMake packages; some
@@ -483,6 +506,22 @@ else()
         find_package(ArrowAcero CONFIG REQUIRED)
     endif()
 endif()
+
+function(hgraph_configure_test_runtime_paths test_name)
+    if(NOT WIN32 OR NOT HGRAPH_PYARROW_RUNTIME_DIRS)
+        return()
+    endif()
+
+    set(_hgraph_test_environment)
+    foreach(_hgraph_runtime_dir IN LISTS HGRAPH_PYARROW_RUNTIME_DIRS)
+        cmake_path(NATIVE_PATH _hgraph_runtime_dir NORMALIZE _hgraph_runtime_dir_native)
+        list(APPEND _hgraph_test_environment
+            "PATH=path_list_prepend:${_hgraph_runtime_dir_native}")
+    endforeach()
+    set_tests_properties("${test_name}" PROPERTIES
+        ENVIRONMENT_MODIFICATION "${_hgraph_test_environment}")
+endfunction()
+
 if(HGRAPH_BUILD_SHARED AND HGRAPH_BUILD_PYTHON_BINDINGS)
     target_link_libraries(hgraph_private_dependencies INTERFACE
         Arrow::arrow_shared
@@ -718,6 +757,10 @@ if(HGRAPH_BUILD_PYTHON_BINDINGS)
     else()
         message(STATUS "HGRAPH_BUILD_PYTHON_BINDINGS=ON but no Python binding CMake subtree exists yet")
     endif()
+endif()
+
+if(HGRAPH_BUILD_KAFKA_EXTENSION)
+    add_subdirectory(extensions/kafka)
 endif()
 
 if(BUILD_TESTING AND EXISTS "${PROJECT_SOURCE_DIR}/tests/CMakeLists.txt")

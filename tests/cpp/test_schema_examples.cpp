@@ -19,7 +19,7 @@
 // Value-layer schema kinds
 // ============================================================================
 
-TEST_CASE("schema example: Atomic — register a scalar C++ type")
+TEST_CASE("schema example: Atomic - register a scalar C++ type")
 {
     using namespace hgraph;
     auto &registry = TypeRegistry::instance();
@@ -35,7 +35,7 @@ TEST_CASE("schema example: Atomic — register a scalar C++ type")
     REQUIRE(int_meta->is_buffer_compatible());
 }
 
-TEST_CASE("schema example: Tuple — positional fields, possibly mixed types")
+TEST_CASE("schema example: Tuple - positional fields, possibly mixed types")
 {
     using namespace hgraph;
     auto       &registry    = TypeRegistry::instance();
@@ -56,7 +56,7 @@ TEST_CASE("schema example: Tuple — positional fields, possibly mixed types")
     REQUIRE(tup->fields[1].name == nullptr);
 }
 
-TEST_CASE("schema example: Bundle — named fields with display name")
+TEST_CASE("schema example: Bundle - named fields with display name")
 {
     using namespace hgraph;
     auto       &registry    = TypeRegistry::instance();
@@ -79,7 +79,7 @@ TEST_CASE("schema example: Bundle — named fields with display name")
     REQUIRE(registry.value_type("ExamplePoint2D") == point);
 }
 
-TEST_CASE("schema example: List — fixed-size")
+TEST_CASE("schema example: List - fixed-size")
 {
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
@@ -94,7 +94,7 @@ TEST_CASE("schema example: List — fixed-size")
     REQUIRE(arr4->is_fixed_size());
 }
 
-TEST_CASE("schema example: List — dynamic (no fixed size)")
+TEST_CASE("schema example: List - dynamic (no fixed size)")
 {
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
@@ -109,7 +109,7 @@ TEST_CASE("schema example: List — dynamic (no fixed size)")
     REQUIRE_FALSE(vec->is_fixed_size());
 }
 
-TEST_CASE("schema example: Set — unordered unique elements")
+TEST_CASE("schema example: Set - unordered unique elements")
 {
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
@@ -121,7 +121,7 @@ TEST_CASE("schema example: Set — unordered unique elements")
     REQUIRE(string_set->element_type == str_meta);
 }
 
-TEST_CASE("schema example: Map — keyed lookup")
+TEST_CASE("schema example: Map - keyed lookup")
 {
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
@@ -136,7 +136,7 @@ TEST_CASE("schema example: Map — keyed lookup")
     REQUIRE(counts->element_type == int_meta);
 }
 
-TEST_CASE("schema example: CyclicBuffer — fixed-capacity ring")
+TEST_CASE("schema example: CyclicBuffer - fixed-capacity ring")
 {
     using namespace hgraph;
     auto       &registry    = TypeRegistry::instance();
@@ -150,7 +150,7 @@ TEST_CASE("schema example: CyclicBuffer — fixed-capacity ring")
     REQUIRE(rolling->fixed_size == 32);
 }
 
-TEST_CASE("schema example: Queue — FIFO with capacity")
+TEST_CASE("schema example: Queue - FIFO with capacity")
 {
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
@@ -172,7 +172,7 @@ TEST_CASE("schema example: Queue — FIFO with capacity")
 // Time-series-layer schema kinds
 // ============================================================================
 
-TEST_CASE("schema example: TS[T] — scalar time-series")
+TEST_CASE("schema example: TS[T] - scalar time-series")
 {
     using namespace hgraph;
     auto       &registry    = TypeRegistry::instance();
@@ -187,7 +187,7 @@ TEST_CASE("schema example: TS[T] — scalar time-series")
     REQUIRE_FALSE(ts_double->is_collection());
 }
 
-TEST_CASE("schema example: TSS — time-series set")
+TEST_CASE("schema example: TSS - time-series set")
 {
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
@@ -204,7 +204,7 @@ TEST_CASE("schema example: TSS — time-series set")
     REQUIRE(tss->value_type->element_type == str_meta);
 }
 
-TEST_CASE("schema example: TSD — time-series dict (string -> TS[int])")
+TEST_CASE("schema example: TSD - time-series dict (string -> TS[int])")
 {
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
@@ -221,7 +221,7 @@ TEST_CASE("schema example: TSD — time-series dict (string -> TS[int])")
     REQUIRE(tsd->element_ts() == ts_int);
 }
 
-TEST_CASE("schema example: TSL — fixed-size time-series list")
+TEST_CASE("schema example: TSL - fixed-size time-series list")
 {
     using namespace hgraph;
     auto       &registry    = TypeRegistry::instance();
@@ -237,7 +237,7 @@ TEST_CASE("schema example: TSL — fixed-size time-series list")
     REQUIRE(tsl->element_ts() == ts_double);
 }
 
-TEST_CASE("schema example: TSL — dynamic time-series list")
+TEST_CASE("schema example: TSL - dynamic time-series list")
 {
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
@@ -250,7 +250,7 @@ TEST_CASE("schema example: TSL — dynamic time-series list")
     REQUIRE(dyn_tsl->fixed_size() == 0);
 }
 
-TEST_CASE("schema example: TSW — tick-count window")
+TEST_CASE("schema example: TSW - tick-count window")
 {
     using namespace hgraph;
     auto       &registry    = TypeRegistry::instance();
@@ -267,7 +267,7 @@ TEST_CASE("schema example: TSW — tick-count window")
     REQUIRE(win->value_type == double_meta);
 }
 
-TEST_CASE("schema example: TSW — duration window")
+TEST_CASE("schema example: TSW - duration window")
 {
     using namespace hgraph;
     auto       &registry    = TypeRegistry::instance();
@@ -285,7 +285,7 @@ TEST_CASE("schema example: TSW — duration window")
     REQUIRE(win->min_time_range() == TimeDelta{100'000});
 }
 
-TEST_CASE("schema example: TSB — time-series bundle")
+TEST_CASE("schema example: TSB - time-series bundle")
 {
     using namespace hgraph;
     auto       &registry    = TypeRegistry::instance();
@@ -310,7 +310,7 @@ TEST_CASE("schema example: TSB — time-series bundle")
     REQUIRE(registry.time_series_type("ExampleMarketTick") == tick);
 }
 
-TEST_CASE("schema example: REF — reference to a time-series target")
+TEST_CASE("schema example: REF - reference to a time-series target")
 {
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
@@ -327,7 +327,7 @@ TEST_CASE("schema example: REF — reference to a time-series target")
     REQUIRE(registry.dereference(ref) == ts_int);
 }
 
-TEST_CASE("schema example: Signal — zero-payload tick stream")
+TEST_CASE("schema example: Signal - zero-payload tick stream")
 {
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
@@ -345,7 +345,7 @@ TEST_CASE("schema example: Signal — zero-payload tick stream")
 // Compositional examples — nesting and mixing schema kinds
 // ============================================================================
 
-TEST_CASE("compositional example: nested tuple — tuple of (tuple, scalar)")
+TEST_CASE("compositional example: nested tuple - tuple of (tuple, scalar)")
 {
     using namespace hgraph;
     auto       &registry   = TypeRegistry::instance();
@@ -382,7 +382,7 @@ TEST_CASE("compositional example: bundle of bundles")
     REQUIRE(std::string(labelled->fields[1].name) == "location");
 }
 
-TEST_CASE("compositional example: TSD with TSB value — keyed time-series of bundles")
+TEST_CASE("compositional example: TSD with TSB value - keyed time-series of bundles")
 {
     using namespace hgraph;
     auto       &registry    = TypeRegistry::instance();
@@ -402,7 +402,7 @@ TEST_CASE("compositional example: TSD with TSB value — keyed time-series of bu
     REQUIRE(named_points->element_ts()->kind == TSTypeKind::TSB);
 }
 
-TEST_CASE("compositional example: REF wrapping a TSB — reference to a time-series bundle")
+TEST_CASE("compositional example: REF wrapping a TSB - reference to a time-series bundle")
 {
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
@@ -419,7 +419,7 @@ TEST_CASE("compositional example: REF wrapping a TSB — reference to a time-ser
     REQUIRE(registry.dereference(ref) == bundle);
 }
 
-TEST_CASE("compositional example: TSL of TSD — list of dicts")
+TEST_CASE("compositional example: TSL of TSD - list of dicts")
 {
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
