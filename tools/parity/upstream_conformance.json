@@ -343,13 +343,41 @@
       "match": "hgraph_unit_tests/_operators/test_to_json.py::test_to_json*case-3*",
       "classification": "converted",
       "candidate_outcomes": ["failed"],
-      "diagnostic_regex": "2024-06-13T10:15:30[.]000042Z.*2024-06-13 10:15:30[.]000042",
+      "diagnostic_regex": "2024-06-13T10:15:30[.]000042Z.*2024-06-13T10:15:30[.]000042",
       "reason": "RFC 0002 writers emit canonical RFC 3339 UTC instants rather than the legacy timezone-free text.",
       "decision": "docs/source/developer_guide/parity_matrix.rst",
-      "review_date": "2026-08-05",
+      "review_date": "2026-08-08",
       "evidence": [
         "python/tests/ported/_operators/test_to_json.py",
-        "tests/cpp/test_std_operators.cpp"
+        "tests/cpp/test_json.cpp"
+      ]
+    },
+    {
+      "id": "operators-json-rfc3339-instant-zero-fraction",
+      "match": "hgraph_unit_tests/_operators/test_to_json.py::test_to_json_omits_fractional_seconds_when_zero",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "2024-06-13T10:15:30Z.*2024-06-13T10:15:30",
+      "reason": "RFC 0002 omits a zero fractional component but retains the canonical RFC 3339 UTC suffix for an Instant.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-08",
+      "evidence": [
+        "python/tests/ported/_operators/test_to_json.py",
+        "tests/cpp/test_json.cpp"
+      ]
+    },
+    {
+      "id": "operators-json-native-datetime-format-registry",
+      "match": "hgraph_unit_tests/_operators/test_to_json.py::test_register_json_datetime_format_accepts_a_producers_own_format",
+      "classification": "converted",
+      "candidate_outcomes": ["failed"],
+      "diagnostic_regex": "No module named 'hgraph[.]_impl'",
+      "reason": "The public format-registration behavior is implemented by the shared C++ JSON codec and covered through public Python and native wiring APIs. The upstream test fails only when it imports the private Python implementation list to restore that list by mutation; hg_cpp deliberately does not reproduce that private layout.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-08",
+      "evidence": [
+        "python/tests/ported/_operators/test_to_json.py",
+        "tests/cpp/test_json.cpp"
       ]
     },
     {

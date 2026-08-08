@@ -83,6 +83,18 @@ namespace hgraph
     /** Clear the interned converters (registry reset — see registry_reset.h). */
     HGRAPH_EXPORT void clear_json_converters() noexcept;
 
+    /**
+     * Register an additional Python-``strptime``-style format accepted by
+     * schema-directed JSON temporal reads. Date/datetime formats are shared;
+     * ``time_only`` selects the independent time-of-day list.
+     *
+     * Registration is process-wide, idempotent, and safe to perform while
+     * other threads are reading JSON. ISO 8601 and the built-in compatibility
+     * formats are always tried before registered extensions.
+     */
+    HGRAPH_EXPORT void register_json_datetime_format(
+        std::string format, bool time_only = false);
+
     /** Serialize any value view to a JSON string. */
     [[nodiscard]] HGRAPH_EXPORT std::string to_json_string(const ValueView &view);
 

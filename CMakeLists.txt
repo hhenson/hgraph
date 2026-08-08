@@ -191,11 +191,15 @@ else()
 endif()
 check_cxx_source_compiles([=[
     #include <chrono>
+    #include <sstream>
     int main() {
         const auto &database = std::chrono::get_tzdb();
         const auto *zone = database.locate_zone("UTC");
         (void)zone->get_info(std::chrono::sys_time<std::chrono::microseconds>{});
         (void)zone->get_info(std::chrono::local_time<std::chrono::microseconds>{});
+        std::istringstream input{"2024-06-13T10:15:30"};
+        std::chrono::sys_time<std::chrono::microseconds> parsed{};
+        std::chrono::from_stream(input, "%Y-%m-%dT%H:%M:%S", parsed);
         return database.version.empty();
     }
 ]=] HGRAPH_STD_CHRONO_TZDB_AVAILABLE)
