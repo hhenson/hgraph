@@ -1,0 +1,105 @@
+from dataclasses import dataclass
+from typing import Generic
+
+import pytest
+from frozendict import frozendict
+
+from hgraph import (AUTO_RESOLVE, COMPOUND_SCALAR, COMPOUND_SCALAR_1, CompoundScalar, compute_node,
+                    sink_node, TS, TIME_SERIES_TYPE, graph, SCALAR, TSL,
+                    Size, TSS, TSD, operator)
+from hgraph.test import eval_node
+
+
+def test_compound_scalar_type_vars_support_generic_schemas():
+    class Pair(CompoundScalar, Generic[COMPOUND_SCALAR, COMPOUND_SCALAR_1]):
+        left: COMPOUND_SCALAR
+        right: COMPOUND_SCALAR_1
+
+    assert Pair.__parameters__ == (COMPOUND_SCALAR, COMPOUND_SCALAR_1)
+
+
+@pytest.mark.parametrize(
+    ("ts_tp", "value", "should_work"),
+    (
+        (TS[int], 1, True),
+        (TS[int], "1", False),
+        (TS[bool], True, True),
+        (TSL[TS[int], Size[2]], (1, 2), True),
+        (TSL[TS[int], Size[2]], frozendict({0: 1}), True),
+        (TSL[TS[int], Size[2]], (1, 2, 3), False),
+        (TSS[int], frozenset({1, 2}), True),
+        (TSS[int], {0: 1, 1: 2}, False),
+        (TSS[int], 1, False),
+        (TSD[int, TS[int]], frozenset({1, 2}), False),
+        (TSD[int, TS[int]], frozendict({1: 1, 2: 2}), True),
+        (TSD[int, TSL[TS[int], Size[2]]], frozendict({1: (1, 2)}), True),
+    ),
+)
+def test_auto_const(ts_tp, value, should_work):
+    @compute_node
+    def n(t: ts_tp) -> TS[bool]:
+        return bool(t.value)
+
+    @graph
+    def g() -> TS[bool]:
+        return n(value)
+
+    if should_work:
+        assert eval_node(g) == [True]
+    else:
+        with pytest.raises(Exception):
+            eval_node(g)
+
+
+def test_auto_cons_with_overload():
+
+    @operator
+    def op(a: TS[int], b: TS[int]) -> TS[int]: ...
+
+    @compute_node(overloads=op)
+    def op_default(a: TS[int], b: TS[int]) -> TS[int]:
+        return a.value + b.value + 1
+
+    @compute_node(overloads=op)
+    def op_scalar(a: TS[int], b: int) -> TS[int]:
+        return a.value + b
+
+    @graph
+    def g(a: TS[int]) -> TS[int]:
+        return op(a, 1)
+
+    assert eval_node(g, [1]) == [2]
+
+
+def test_generic_time_series_input_auto_const_infers_its_schema():
+    captured = []
+
+    @sink_node
+    def capture(value: TIME_SERIES_TYPE):
+        captured.append(value.value)
+
+    @graph
+    def g():
+        capture(True)
+
+    eval_node(g)
+    assert captured == [True]
+
+
+def test_generic_graph_input_auto_const_retains_compound_scalar_schema():
+    @dataclass(frozen=True)
+    class Payload(CompoundScalar):
+        value: int
+
+    @graph
+    def generic_identity(
+        value: TS[COMPOUND_SCALAR],
+        _tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+    ) -> TS[COMPOUND_SCALAR]:
+        return value
+
+    @graph
+    def g() -> TS[Payload]:
+        return generic_identity(Payload(7))
+
+    assert eval_node(g) == [Payload(7)]

@@ -1,0 +1,66 @@
+{
+  "adaptor_std": {
+    "hg-cpp": {
+      "scenario": "adaptor_std",
+      "scale": 100.0,
+      "use_cpp": "",
+      "source_fingerprint": "377f5bd4bbe22c41d77512bcdec13cbda3f98d4f8a567b4fccee538a9751fbb1",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "native_module": "/Users/hhenson/CLionProjects/hg_cpp/benchmarks/.venv-hg-cpp-3.12/lib/python3.12/site-packages/_hgraph.abi3.so",
+      "ok": true,
+      "seconds": 1.2415,
+      "cycles": 2000000,
+      "cycles_per_s": 1610957,
+      "max_rss_mb": 60.9
+    }
+  },
+  "adaptor_py": {
+    "hg-cpp": {
+      "scenario": "adaptor_py",
+      "scale": 100.0,
+      "use_cpp": "",
+      "source_fingerprint": "377f5bd4bbe22c41d77512bcdec13cbda3f98d4f8a567b4fccee538a9751fbb1",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "native_module": "/Users/hhenson/CLionProjects/hg_cpp/benchmarks/.venv-hg-cpp-3.12/lib/python3.12/site-packages/_hgraph.abi3.so",
+      "ok": true,
+      "seconds": 1.215,
+      "cycles": 2000000,
+      "cycles_per_s": 1646066,
+      "max_rss_mb": 56.7
+    }
+  },
+  "service_adaptor_std": {
+    "hg-cpp": {
+      "scenario": "service_adaptor_std",
+      "scale": 100.0,
+      "use_cpp": "",
+      "source_fingerprint": "377f5bd4bbe22c41d77512bcdec13cbda3f98d4f8a567b4fccee538a9751fbb1",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "native_module": "/Users/hhenson/CLionProjects/hg_cpp/benchmarks/.venv-hg-cpp-3.12/lib/python3.12/site-packages/_hgraph.abi3.so",
+      "ok": true,
+      "seconds": 4.6187,
+      "cycles": 2000000,
+      "cycles_per_s": 433022,
+      "max_rss_mb": 57.0
+    }
+  },
+  "service_adaptor_py": {
+    "hg-cpp": {
+      "scenario": "service_adaptor_py",
+      "scale": 100.0,
+      "use_cpp": "",
+      "source_fingerprint": "377f5bd4bbe22c41d77512bcdec13cbda3f98d4f8a567b4fccee538a9751fbb1",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "native_module": "/Users/hhenson/CLionProjects/hg_cpp/benchmarks/.venv-hg-cpp-3.12/lib/python3.12/site-packages/_hgraph.abi3.so",
+      "ok": true,
+      "seconds": 4.0939,
+      "cycles": 2000000,
+      "cycles_per_s": 488533,
+      "max_rss_mb": 57.0
+    }
+  }
+}

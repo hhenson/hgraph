@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "tsd-key-set-pipeline",
+  "description": "A REF-transparent TSD key-set projection drives membership, extrema, and aggregate operators across keyed lifecycle events.",
+  "template": "tsd_key_set_pipeline",
+  "inputs": {
+    "values": [
+      {"$map": []},
+      {"$map": [[1, 10], [3, 30]]},
+      null,
+      {"$map": [[1, 11]]},
+      {"$map": [[-2, -20], [1, {"$remove": true}]]},
+      {"$map": [[4, 40]]},
+      null,
+      {"$map": [[3, {"$remove": true}], [-2, {"$remove": true}]]},
+      {"$map": [[0, 0], [2, 20], [4, {"$remove": true}]]},
+      null,
+      {"$map": [[0, {"$remove": true}], [2, {"$remove": true}]]}
+    ],
+    "probe": [1, null, 3, null, -2, 4, 0, null, 2, -1, 0]
+  },
+  "parameters": {
+    "dedup_size": true
+  },
+  "features": [
+    "shape:TSD",
+    "shape:TSS",
+    "topology:operator-composition",
+    "topology:key-set-projection",
+    "lifecycle:key-removal",
+    "lifecycle:value-only-update",
+    "reference:REF",
+    "binding:non-peered",
+    "lifecycle:multi-cycle"
+  ]
+}

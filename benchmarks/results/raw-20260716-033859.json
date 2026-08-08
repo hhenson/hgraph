@@ -1,0 +1,58 @@
+{
+  "tsd_dense_std": {
+    "hg-cpp": {
+      "scenario": "tsd_dense_std",
+      "scale": 1.0,
+      "use_cpp": "",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "ok": true,
+      "seconds": 0.2726,
+      "cycles": 1000,
+      "cycles_per_s": 3668,
+      "max_rss_mb": 56.0
+    }
+  },
+  "tsd_sparse_std": {
+    "hg-cpp": {
+      "scenario": "tsd_sparse_std",
+      "scale": 1.0,
+      "use_cpp": "",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "ok": true,
+      "seconds": 0.0904,
+      "cycles": 2000,
+      "cycles_per_s": 22129,
+      "max_rss_mb": 65.2
+    }
+  },
+  "tsd_churn_std": {
+    "hg-cpp": {
+      "scenario": "tsd_churn_std",
+      "scale": 1.0,
+      "use_cpp": "",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "ok": true,
+      "seconds": 0.1191,
+      "cycles": 2000,
+      "cycles_per_s": 16795,
+      "max_rss_mb": 56.1
+    }
+  },
+  "mesh_std": {
+    "hg-cpp": {
+      "scenario": "mesh_std",
+      "scale": 1.0,
+      "use_cpp": "",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "ok": true,
+      "seconds": 0.0665,
+      "cycles": 500,
+      "cycles_per_s": 7520,
+      "max_rss_mb": 55.8
+    }
+  }
+}

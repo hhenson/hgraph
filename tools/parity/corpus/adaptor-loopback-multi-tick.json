@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "adaptor-loopback-multi-tick",
+  "description": "A configured automatic adaptor transfers sparse REF-transparent input through a registered path.",
+  "template": "adaptor_loopback",
+  "inputs": {
+    "value": [2, 4, null, -3, 0, null, 7, 1, -5, null]
+  },
+  "parameters": {
+    "factor": 3,
+    "path": "loopback"
+  },
+  "features": [
+    "framework:adaptor",
+    "adaptor:automatic",
+    "adaptor:explicit-path",
+    "configuration:path",
+    "reference:REF",
+    "binding:non-peered",
+    "lifecycle:multi-cycle"
+  ]
+}

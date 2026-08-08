@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "issue-74-dedup-int-const",
+  "description": "dedup of an int const stays int: the scalar auto-const selects the generic overload rather than coercing into the float-tolerance overload.",
+  "template": "scalar_expression",
+  "inputs": {
+    "lhs": [
+      0
+    ],
+    "rhs": [
+      null
+    ]
+  },
+  "parameters": {
+    "expression": {
+      "args": [
+        {
+          "const": 2
+        }
+      ],
+      "op": "dedup"
+    },
+    "input_types": {
+      "lhs": "int",
+      "rhs": "int"
+    },
+    "output_type": "int"
+  },
+  "features": [
+    "operator:dedup",
+    "shape:TS",
+    "topology:expression",
+    "type:int"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/74"
+}

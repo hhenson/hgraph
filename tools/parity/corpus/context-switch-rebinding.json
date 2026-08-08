@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "context-switch-rebinding",
+  "description": "A context-bound time series is imported into switching branches while inputs update independently.",
+  "template": "context_switch",
+  "inputs": {
+    "selector": ["add", null, null, "subtract", null, "add", null, "subtract", null, "add"],
+    "value": [1, 2, null, null, 3, null, -1, 7, null, 4],
+    "offset": [10, null, 20, null, null, -5, null, 2, 4, null]
+  },
+  "parameters": {},
+  "features": [
+    "framework:context",
+    "topology:context",
+    "topology:switch",
+    "lifecycle:branch-rebind",
+    "reference:REF",
+    "binding:non-peered",
+    "lifecycle:multi-cycle"
+  ]
+}

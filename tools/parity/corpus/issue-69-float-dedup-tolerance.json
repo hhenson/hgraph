@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "id": "issue-69-float-dedup-tolerance",
+  "description": "Float dedup applies the upstream default tolerance (abs_tol=1e-15): a sub-tolerance product change after 0.0 does not tick.",
+  "template": "scalar_expression",
+  "inputs": {
+    "lhs": [
+      0.0,
+      1.0
+    ],
+    "rhs": [
+      9.395605309808467e-37,
+      null
+    ]
+  },
+  "parameters": {
+    "expression": {
+      "args": [
+        {
+          "args": [
+            {
+              "input": "rhs"
+            },
+            {
+              "input": "lhs"
+            }
+          ],
+          "op": "mul"
+        }
+      ],
+      "op": "dedup"
+    },
+    "input_types": {
+      "lhs": "float",
+      "rhs": "float"
+    },
+    "output_type": "float"
+  },
+  "features": [
+    "operator:dedup",
+    "operator:mul",
+    "shape:TS",
+    "topology:expression",
+    "type:float"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/69"
+}

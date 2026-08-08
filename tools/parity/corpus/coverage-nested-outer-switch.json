@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "id": "coverage-nested-outer-switch",
+  "description": "Outer switch tearing down and rebuilding a map+switch+reduce pipeline over a churning key set (verified matching released hgraph).",
+  "template": "nested_higher_order",
+  "inputs": {
+    "values": [
+      {
+        "k1": 3
+      },
+      {
+        "k2": 4
+      },
+      null,
+      {
+        "k1": {
+          "$remove": true
+        }
+      },
+      {
+        "k3": 5
+      },
+      null
+    ],
+    "selector": [
+      "alpha",
+      null,
+      "beta",
+      null,
+      "alpha",
+      null
+    ],
+    "outer_selector": [
+      "on",
+      null,
+      "off",
+      null,
+      "on",
+      null
+    ]
+  },
+  "parameters": {
+    "inner": "arithmetic",
+    "outer": "map",
+    "wrap_switch": true,
+    "reduce_output": true,
+    "increment": 2
+  },
+  "features": [
+    "topology:nested-higher-order"
+  ]
+}

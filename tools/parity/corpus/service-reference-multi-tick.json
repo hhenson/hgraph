@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "service-reference-multi-tick",
+  "description": "Reference-service registration, path configuration, passive consumption, and sparse multi-tick input.",
+  "template": "service_reference",
+  "inputs": {
+    "value": [1, 2, null, -3, 0, null, 5, 8, null, 1]
+  },
+  "parameters": {
+    "base": 7,
+    "path": "desk"
+  },
+  "features": [
+    "framework:service",
+    "service:reference",
+    "configuration:path",
+    "reference:REF",
+    "binding:non-peered",
+    "lifecycle:multi-cycle"
+  ]
+}

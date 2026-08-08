@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "divergences": [
+    {
+      "fingerprint": "81c998bdb8bbd40abf634dc8285a79830b5996564c52996222c2443110a35d89",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/44",
+      "reason": "Accepted deviation: released hgraph applies a non-identity reduce zero a capacity-history-dependent number of times (tree leaves re-bound to zero); hg_cpp applies it deterministically. See the documented reduce deviation in docs/source/developer_guide/parity_matrix.rst.",
+      "review_after": "2027-07-26"
+    },
+    {
+      "fingerprint": "00d2af4c324e8d88fe70e229b9f8fbc993424deee930006b60df260f0c5dac74",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/46",
+      "reason": "Accepted deviation (same family as issue #44): a never-ticking TSD reduce with a non-identity zero publishes 2*zero in released hgraph (empty node tree, both leaves bound to zero) and exactly zero in hg_cpp. See the documented reduce deviation in docs/source/developer_guide/parity_matrix.rst.",
+      "review_after": "2027-07-26"
+    },
+    {
+      "fingerprint": "7834fe8ecb1c87ca79cd6ef4229a20376622857e8b1b7b56b6a76d02e4613182",
+      "issue": "https://github.com/hhenson/hg_cpp/pull/67",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst): a mesh over an initially empty key set emits no tick in hg_cpp where released hgraph ticks an empty map. Fingerprint pinned by test_parity_harness.py against the corpus recipe mesh-empty-initial-no-tick.",
+      "review_after": "2027-07-26"
+    },
+    {
+      "fingerprint": "70b8f025dfa3f8d634861689a9bdf0ca1ec3c46b0dccb6d8153d340f57e66fa1",
+      "issue": "https://github.com/hhenson/hg_cpp/pull/270",
+      "reason": "RFC 0014 intentional timing difference composed with issue #175: the mapped request/reply response and the next outer-key event preserve their order and payloads but each occupies the preceding candidate output cycle after removal of the response-feedback boundary. The fixed corpus recipe and public map scheduling regressions continue to detect response loss or starvation.",
+      "review_after": "2027-08-04"
+    }
+  ],
+  "families": [
+    {
+      "family": "self-coupled-request-reply-one-cycle-earlier",
+      "template": "service_request_reply",
+      "parameters_not_equal": {},
+      "relation": "request-reply-one-cycle-earlier",
+      "issue": "https://github.com/hhenson/hg_cpp/pull/270",
+      "reason": "RFC 0014 selects deferred-request/direct-response transport for the self-coupled request/reply template. Relative to released hgraph 0.5.34, hg_cpp removes exactly the leading silent response-feedback cycle while preserving every subsequent payload and silent cycle.",
+      "review_after": "2027-08-04"
+    },
+    {
+      "family": "nested-mapped-request-reply-one-cycle-earlier",
+      "template": "nested_higher_order",
+      "parameters_equal": {
+        "inner": "request_reply",
+        "outer": "map",
+        "wrap_switch": false,
+        "reduce_output": false
+      },
+      "parameters_not_equal": {},
+      "relation": "nested-request-reply-one-cycle-earlier",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/274",
+      "reason": "RFC 0014 removes the same response-feedback cycle when a self-coupled request/reply client is nested under an unreduced map. A stable structural-map prefix may precede the response; suppress only when the alpha request/reply branch is active at the removed cycle, the advanced tick contains a mapped response value, and deleting that single silence makes every payload and remaining silence identical. The full issue-175 response-versus-new-key collision remains exact-fingerprint-only.",
+      "review_after": "2027-08-04"
+    },
+    {
+      "family": "key-set-size-no-retick",
+      "template": "tsd_key_set_pipeline",
+      "parameters_not_equal": {
+        "dedup_size": true
+      },
+      "relation": "key-set-size-no-retick",
+      "float_abs_tolerance": 1e-12,
+      "issue": "https://github.com/hhenson/hg_cpp/issues/65",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst): suppress only when removing size fields from both dedup_size=false traces makes every other field equal within the template tolerance.",
+      "review_after": "2027-07-26"
+    },
+    {
+      "family": "reduce-non-identity-zero",
+      "template": "tsd_map_reduce",
+      "parameters_not_equal": {
+        "zero": 0
+      },
+      "relation": "trace-value",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/44",
+      "reason": "Released hgraph applies a non-identity reduce zero a capacity-history-dependent number of times; any mismatch with zero != 0 is the documented reduce deviation, not a candidate defect.",
+      "review_after": "2027-07-26"
+    },
+    {
+      "family": "collection-size-no-retick",
+      "template": "collection_size",
+      "parameters_not_equal": {},
+      "relation": "no-change-elision",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/65",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst Accepted Deviations): a size/emptiness/membership recompute equal to the previously emitted value does not re-tick in hg_cpp where released hgraph re-emits it; suppress only when eliding upstream's equal re-ticks makes the traces identical.",
+      "review_after": "2027-07-27"
+    },
+    {
+      "family": "nested-no-change-retick",
+      "template": "nested_higher_order",
+      "parameters_not_equal": {},
+      "relation": "no-change-elision",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/141",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst Accepted Deviations) reached through the nested pipeline: the off-branch len_*0 and the reduce over an unchanged sum recompute values that released hgraph re-emits and hg_cpp elides; suppress only when eliding upstream's equal re-ticks makes the traces identical.",
+      "review_after": "2027-07-28"
+    },
+    {
+      "family": "mapped-subscription-valid-subset-reduce",
+      "template": "nested_higher_order",
+      "parameters_equal": {
+        "inner": "subscription",
+        "reduce_output": true
+      },
+      "parameters_not_equal": {},
+      "relation": "valid-subset-reduce",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/95",
+      "reason": "Accepted reduce deviation (issue #95, roadmap.rst): reduction is over currently-valid values \u2014 a mapped/meshed subscription child can exist before its output first validates, and hg_cpp may publish the valid-subset aggregate while released hgraph waits for every live keyed slot. Suppress only extra candidate emissions while every released-hgraph emission remains exactly equal. When released hgraph later emits exactly the value the candidate published early, the candidate's silent position is the composed no-change elision of the equal re-tick (issues #98/#102/#110/#150); any other released-hgraph emission must match exactly. The mesh_ outer reaches the same startup window (issue #173).",
+      "review_after": "2027-07-28"
+    },
+    {
+      "family": "switch-flip-valid-subset-reduce",
+      "template": "nested_higher_order",
+      "parameters_equal": {
+        "inner": "request_reply",
+        "reduce_output": true
+      },
+      "parameters_not_equal": {},
+      "relation": "switch-flip-valid-subset-reduce",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/95",
+      "reason": "The same issue #95 semantics reached through a per-key switch_ flip: flipping to the request-reply-backed branch invalidates the switch output on both runtimes (upstream's own value=None reset) while the round trip is in flight; upstream's reduce tree stalls on the invalid input, hg_cpp recomputes the remaining valid subset down to the identity (issues #99/#101/#104/#108/#115/#130/#131/#147/#152/#154/#155). Scoped to the request_reply inner \u2014 only a service round trip opens the in-flight invalid window; a pure-arithmetic branch evaluates same-cycle under sampled semantics, so its extra ticks stay reportable. Suppress only extra candidate emissions inside a disturbance window (from a selector/values input tick until the next agreeing reference emission \u2014 the span a flip or in-flight round trip can cover) while every released-hgraph emission remains exactly equal. When released hgraph later emits exactly the value the candidate published early, the candidate's silent position is the composed no-change elision of the equal re-tick (issues #98/#102/#110/#150); any other released-hgraph emission must match exactly.",
+      "review_after": "2027-07-28"
+    },
+    {
+      "family": "request-reply-switch-map-removal",
+      "template": "nested_higher_order",
+      "parameters_equal": {
+        "inner": "request_reply",
+        "outer": "map",
+        "wrap_switch": false,
+        "reduce_output": false
+      },
+      "parameters_not_equal": {},
+      "relation": "switch-flip-map-removal",
+      "issue": "https://github.com/hhenson/hg_cpp/issues/105",
+      "reason": "Accepted map-validity deviation (issues #105/#117/#119/#133/#145, nested_graphs.rst) composed with RFC 0014 timing: a beta-to-request-reply-alpha switch flip transiently invalidates the mapped child while the response is in flight. Released hgraph publishes an empty TSD delta and retains the stale element; hg_cpp removes every currently-live invalid child output so the map contains exactly its valid outputs. Suppress only an all-live-key, removal-only candidate delta opposite the reference's canonical empty-map delta on the exact beta-to-alpha flip, plus at most the single silent response-feedback cycle removed immediately afterward by RFC 0014; the earlier response and every other payload must match.",
+      "review_after": "2027-08-04"
+    }
+  ]
+}

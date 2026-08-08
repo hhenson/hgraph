@@ -1,5 +1,0 @@
-from hgraph.adaptors.dataclass._dataclass_to_compound_scalar import *
-
-__all__ = [
-    "CS",
-]

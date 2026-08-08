@@ -1,0 +1,34 @@
+{
+  "adaptor_py": {
+    "hg-cpp": {
+      "scenario": "adaptor_py",
+      "scale": 100.0,
+      "use_cpp": "",
+      "source_fingerprint": "b6111dd7d4b8a06164bac66d796cd77f962fddb11a2a6fdbfff5dd669287e6c2",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "native_module": "/Users/hhenson/CLionProjects/hg_cpp/benchmarks/.venv-hg-cpp-3.12/lib/python3.12/site-packages/_hgraph.abi3.so",
+      "ok": true,
+      "seconds": 1.2548,
+      "cycles": 2000000,
+      "cycles_per_s": 1593883,
+      "max_rss_mb": 56.8
+    }
+  },
+  "service_adaptor_py": {
+    "hg-cpp": {
+      "scenario": "service_adaptor_py",
+      "scale": 100.0,
+      "use_cpp": "",
+      "source_fingerprint": "b6111dd7d4b8a06164bac66d796cd77f962fddb11a2a6fdbfff5dd669287e6c2",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "native_module": "/Users/hhenson/CLionProjects/hg_cpp/benchmarks/.venv-hg-cpp-3.12/lib/python3.12/site-packages/_hgraph.abi3.so",
+      "ok": true,
+      "seconds": 4.1148,
+      "cycles": 2000000,
+      "cycles_per_s": 486053,
+      "max_rss_mb": 57.1
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "regression-integer-pow-result-type",
+  "description": "Homogeneous integer pow_ retains the released hgraph TS[int] result type when the rhs is a raw scalar.",
+  "template": "scalar_operator_arguments",
+  "inputs": {
+    "value": [
+      0
+    ]
+  },
+  "parameters": {
+    "operation": "pow",
+    "input_type": "int",
+    "scalar_type": "int",
+    "scalar_side": "rhs",
+    "scalar_value": 0,
+    "divide_by_zero": "NONE"
+  },
+  "features": [
+    "argument:scalar",
+    "argument:scalar-rhs",
+    "operator:pow",
+    "policy:divide-by-zero-none",
+    "shape:TS",
+    "topology:operator-overload",
+    "type:input-int",
+    "type:output-int",
+    "type:scalar-int"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "service-subscription-rebinding",
+  "description": "Subscription keys rebind across sparse ticks while a compute-node implementation supplies keyed responses.",
+  "template": "service_subscription",
+  "inputs": {
+    "symbol": ["fx", null, "rates", "a", null, "EURUSD", null, "fx", "long_symbol", null, "a", "rates"]
+  },
+  "parameters": {
+    "multiplier": 4,
+    "path": "quotes"
+  },
+  "features": [
+    "framework:service",
+    "service:subscription",
+    "lifecycle:keyed",
+    "lifecycle:reference-rebind",
+    "reference:REF",
+    "binding:non-peered"
+  ]
+}

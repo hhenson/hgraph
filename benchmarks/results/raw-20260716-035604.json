@@ -1,0 +1,154 @@
+{
+  "tsd_dense_source_std": {
+    "upstream-py": {
+      "scenario": "tsd_dense_source_std",
+      "scale": 2.0,
+      "use_cpp": "",
+      "hgraph": "0.5.24",
+      "python": "3.12.10",
+      "ok": true,
+      "seconds": 0.9282,
+      "cycles": 2000,
+      "cycles_per_s": 2155,
+      "max_rss_mb": 69.4
+    },
+    "upstream-cpp": {
+      "scenario": "tsd_dense_source_std",
+      "scale": 2.0,
+      "use_cpp": "true",
+      "hgraph": "0.5.24",
+      "python": "3.12.10",
+      "ok": true,
+      "seconds": 0.1164,
+      "cycles": 2000,
+      "cycles_per_s": 17187,
+      "max_rss_mb": 72.1
+    },
+    "hg-cpp": {
+      "scenario": "tsd_dense_source_std",
+      "scale": 2.0,
+      "use_cpp": "",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "ok": true,
+      "seconds": 0.2175,
+      "cycles": 2000,
+      "cycles_per_s": 9196,
+      "max_rss_mb": 54.6
+    }
+  },
+  "tsd_dense_map_std": {
+    "upstream-py": {
+      "scenario": "tsd_dense_map_std",
+      "scale": 2.0,
+      "use_cpp": "",
+      "hgraph": "0.5.24",
+      "python": "3.12.10",
+      "ok": true,
+      "seconds": 8.3385,
+      "cycles": 2000,
+      "cycles_per_s": 240,
+      "max_rss_mb": 75.2
+    },
+    "upstream-cpp": {
+      "scenario": "tsd_dense_map_std",
+      "scale": 2.0,
+      "use_cpp": "true",
+      "hgraph": "0.5.24",
+      "python": "3.12.10",
+      "ok": true,
+      "seconds": 0.5845,
+      "cycles": 2000,
+      "cycles_per_s": 3422,
+      "max_rss_mb": 76.0
+    },
+    "hg-cpp": {
+      "scenario": "tsd_dense_map_std",
+      "scale": 2.0,
+      "use_cpp": "",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "ok": true,
+      "seconds": 0.7174,
+      "cycles": 2000,
+      "cycles_per_s": 2788,
+      "max_rss_mb": 56.2
+    }
+  },
+  "tsd_dense_reduce_std": {
+    "upstream-py": {
+      "scenario": "tsd_dense_reduce_std",
+      "scale": 2.0,
+      "use_cpp": "",
+      "hgraph": "0.5.24",
+      "python": "3.12.10",
+      "ok": true,
+      "seconds": 4.4067,
+      "cycles": 2000,
+      "cycles_per_s": 454,
+      "max_rss_mb": 74.5
+    },
+    "upstream-cpp": {
+      "scenario": "tsd_dense_reduce_std",
+      "scale": 2.0,
+      "use_cpp": "true",
+      "hgraph": "0.5.24",
+      "python": "3.12.10",
+      "ok": true,
+      "seconds": 0.2715,
+      "cycles": 2000,
+      "cycles_per_s": 7366,
+      "max_rss_mb": 75.3
+    },
+    "hg-cpp": {
+      "scenario": "tsd_dense_reduce_std",
+      "scale": 2.0,
+      "use_cpp": "",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "ok": true,
+      "seconds": 0.3489,
+      "cycles": 2000,
+      "cycles_per_s": 5732,
+      "max_rss_mb": 55.3
+    }
+  },
+  "tsd_dense_std": {
+    "upstream-py": {
+      "scenario": "tsd_dense_std",
+      "scale": 2.0,
+      "use_cpp": "",
+      "hgraph": "0.5.24",
+      "python": "3.12.10",
+      "ok": true,
+      "seconds": 11.4144,
+      "cycles": 2000,
+      "cycles_per_s": 175,
+      "max_rss_mb": 80.1
+    },
+    "upstream-cpp": {
+      "scenario": "tsd_dense_std",
+      "scale": 2.0,
+      "use_cpp": "true",
+      "hgraph": "0.5.24",
+      "python": "3.12.10",
+      "ok": true,
+      "seconds": 0.676,
+      "cycles": 2000,
+      "cycles_per_s": 2959,
+      "max_rss_mb": 79.5
+    },
+    "hg-cpp": {
+      "scenario": "tsd_dense_std",
+      "scale": 2.0,
+      "use_cpp": "",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "ok": true,
+      "seconds": 0.8505,
+      "cycles": 2000,
+      "cycles_per_s": 2352,
+      "max_rss_mb": 56.9
+    }
+  }
+}

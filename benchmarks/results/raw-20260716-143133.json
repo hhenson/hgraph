@@ -1,0 +1,18 @@
+{
+  "service_adaptor_std": {
+    "hg-cpp": {
+      "scenario": "service_adaptor_std",
+      "scale": 100.0,
+      "use_cpp": "",
+      "source_fingerprint": "c0b275f7083422b50fea29c26c1755fdd1e386662044e00cb0462a16a5f36bb0",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "native_module": "/Users/hhenson/CLionProjects/hg_cpp/benchmarks/.venv-hg-cpp-3.12/lib/python3.12/site-packages/_hgraph.abi3.so",
+      "ok": true,
+      "seconds": 6.8458,
+      "cycles": 2000000,
+      "cycles_per_s": 292150,
+      "max_rss_mb": 57.0
+    }
+  }
+}

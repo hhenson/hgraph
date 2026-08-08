@@ -1,0 +1,32 @@
+{
+  "description": "TSD removal re-ticks (agreeing space): removing the last key flips is_empty on both runtimes; None values are per-key no-ticks (ruling 2026-07-28).",
+  "features": [
+    "binding:non-peered",
+    "domain:collection-size",
+    "operator:is_empty",
+    "reference:REF",
+    "shape:TSD",
+    "topology:expression"
+  ],
+  "id": "coverage-tsd-removal-is-empty",
+  "inputs": {
+    "ts": [
+      {
+        "b": 4
+      },
+      {
+        "b": {
+          "$remove_if_exists": true
+        }
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "is_empty",
+    "shape": "tsd"
+  },
+  "schema_version": 1,
+  "seed": 7,
+  "template": "collection_size",
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/129"
+}

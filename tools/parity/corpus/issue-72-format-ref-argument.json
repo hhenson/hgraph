@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "issue-72-format-ref-argument",
+  "description": "A REF-valued format argument renders its referenced value (not the reference object) through the operator pipeline.",
+  "template": "operator_pipeline",
+  "inputs": {
+    "choose_minimum": [
+      true
+    ],
+    "lhs": [
+      8
+    ],
+    "rhs": [
+      -6
+    ]
+  },
+  "parameters": {
+    "format_ref": true
+  },
+  "features": [
+    "binding:non-peered",
+    "reference:REF",
+    "shape:TS",
+    "shape:TSB",
+    "shape:TSL",
+    "topology:operator-composition",
+    "type:bool",
+    "type:int",
+    "type:str"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/72"
+}
