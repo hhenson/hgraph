@@ -1,3 +1,4 @@
+import sys
 import time
 from datetime import timedelta, datetime
 
@@ -122,6 +123,16 @@ def test_wall_clock_scheduler():
     assert values[1][0] < now + timedelta(milliseconds=107)
     
     
+# Upper bound on the lag accumulated across the two 50ms ticks below. Measured over 8 runs on an
+# idle machine: macOS 100.6-105.2ms, Windows 109.7-111.8ms -- Windows straddles the 110ms the other
+# platforms comfortably meet, so the same bound would fail there most, but not all, of the time.
+#
+# The margin is widened only where it has to be, rather than everywhere, so a real drift regression
+# on Linux and macOS still trips this. It is not the coarse 15.6ms Windows clock tick: the timer
+# resolution measured 0.997ms, so this is scheduling overshoot, not granularity.
+_RESCHEDULE_LAG_BOUND = timedelta(milliseconds=130 if sys.platform == "win32" else 110)
+
+
 def test_wall_clock_scheduler_reschedule():
     @graph
     def g():
@@ -137,4 +148,4 @@ def test_wall_clock_scheduler_reschedule():
     assert values[1][0] >= now + timedelta(milliseconds=50)  # we will expect to accumulate 100/7*3 = 42.8ms lag
     assert values[1][0] < now + timedelta(milliseconds=60)
     assert values[2][1][1] >= values[1][1][1] + timedelta(milliseconds=90)  # we will expect to accumulate 100/7*3 = 42.8ms lag
-    assert values[2][1][1] < values[1][1][1] + timedelta(milliseconds=110)
+    assert values[2][1][1] < values[1][1][1] + _RESCHEDULE_LAG_BOUND
