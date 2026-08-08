@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import argparse
 import glob
+import re
+import shutil
+import subprocess
 import tarfile
+import tempfile
 import zipfile
 from pathlib import Path
-
 
 WHEEL_REQUIRED = (
     "hgraph_kafka/__init__.py",
@@ -25,11 +28,85 @@ SDIST_REQUIRED = (
     "tools/audit_distribution.py",
 )
 
+WINDOWS_EXTENSION_ALLOWED_DEPENDENCIES = {
+    "hgraph_stdlib.dll",
+    "nanobind-abi3.dll",
+    "python3.dll",
+    "advapi32.dll",
+    "bcrypt.dll",
+    "crypt32.dll",
+    "kernel32.dll",
+    "ntdll.dll",
+    "ole32.dll",
+    "secur32.dll",
+    "shell32.dll",
+    "user32.dll",
+    "ws2_32.dll",
+}
+
 
 def _assert_required(names: set[str], required: tuple[str, ...], path: Path) -> None:
     for item in required:
         if not any(name.endswith(f"/{item}") or name == item for name in names):
             raise AssertionError(f"{path}: missing {item}")
+
+
+def _unexpected_windows_dependencies(dependencies: set[str]) -> list[str]:
+    unexpected = []
+    for dependency in dependencies:
+        normalized = dependency.lower()
+        if normalized in WINDOWS_EXTENSION_ALLOWED_DEPENDENCIES:
+            continue
+        if normalized.startswith(("api-ms-win-", "ext-ms-win-")):
+            continue
+        if normalized.startswith(("msvcp", "vcruntime")):
+            continue
+        unexpected.append(dependency)
+    return sorted(unexpected, key=str.lower)
+
+
+def _windows_dependencies_from_output(output: str) -> set[str]:
+    return set(
+        re.findall(
+            r"^\s+(?:DLL Name:\s*)?([^\s]+\.dll)\s*$",
+            output,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+    )
+
+
+def _audit_windows_extension_dependencies(
+    archive: zipfile.ZipFile, module_name: str, path: Path
+) -> None:
+    dumpbin = shutil.which("dumpbin")
+    objdump = shutil.which("objdump")
+    if dumpbin is not None:
+        command_prefix = [dumpbin, "/DEPENDENTS"]
+    elif objdump is not None:
+        command_prefix = [objdump, "-p"]
+    else:
+        raise AssertionError(
+            f"{path}: dumpbin or objdump is required to audit a Windows wheel"
+        )
+
+    with tempfile.TemporaryDirectory() as directory:
+        module_path = Path(directory) / Path(module_name).name
+        module_path.write_bytes(archive.read(module_name))
+        result = subprocess.run(
+            [*command_prefix, str(module_path)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    dependencies = _windows_dependencies_from_output(result.stdout)
+    if not dependencies:
+        raise AssertionError(f"{path}: unable to identify native module dependencies")
+    unexpected = _unexpected_windows_dependencies(dependencies)
+    if unexpected:
+        raise AssertionError(
+            f"{path}: native module has unbundled runtime dependencies: {unexpected}"
+        )
 
 
 def _audit_wheel(path: Path) -> None:
@@ -39,14 +116,20 @@ def _audit_wheel(path: Path) -> None:
         if len(metadata_names) != 1:
             raise AssertionError(f"{path}: expected one METADATA file, got {metadata_names}")
         metadata = archive.read(metadata_names[0]).decode()
+        native_modules = [
+            name
+            for name in names
+            if name.startswith("hgraph_kafka/_hgraph_kafka.")
+            and name.endswith((".so", ".pyd"))
+        ]
+        if len(native_modules) != 1:
+            raise AssertionError(
+                f"{path}: expected one native hgraph_kafka module, got {native_modules}"
+            )
+        if path.name.endswith("-win_amd64.whl"):
+            _audit_windows_extension_dependencies(archive, native_modules[0], path)
 
     _assert_required(names, WHEEL_REQUIRED, path)
-    if not any(
-        name.startswith("hgraph_kafka/_hgraph_kafka.")
-        and (name.endswith(".so") or name.endswith(".pyd"))
-        for name in names
-    ):
-        raise AssertionError(f"{path}: missing the native hgraph_kafka module")
     forbidden = [
         name
         for name in names

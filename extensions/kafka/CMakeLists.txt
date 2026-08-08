@@ -51,12 +51,18 @@ if(NOT TARGET RdKafka::rdkafka AND NOT TARGET rdkafka)
     set(RDKAFKA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(RDKAFKA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 
-    # A Python extension statically embeds librdkafka. On macOS, prefer the
-    # static codec/TLS libraries as well so the resulting wheel does not retain
-    # absolute Homebrew dylib paths. System libraries (curl, zlib, SASL) remain
+    # A Python extension statically embeds librdkafka. Keep OpenSSL inside the
+    # extension on wheel platforms where a package-local dynamic dependency
+    # would otherwise require loader-path repair. In particular, Python 3.8+
+    # does not search the Windows process PATH for dependent DLLs.
+    if(HGRAPH_KAFKA_BUILD_PYTHON AND (APPLE OR WIN32))
+        set(OPENSSL_USE_STATIC_LIBS TRUE)
+    endif()
+
+    # On macOS, prefer the static codec library as well so the resulting wheel
+    # does not retain an absolute Homebrew dylib path. System libraries remain
     # normal platform dependencies.
     if(APPLE AND HGRAPH_KAFKA_BUILD_PYTHON)
-        set(OPENSSL_USE_STATIC_LIBS TRUE)
         set(ENABLE_LZ4_EXT OFF CACHE BOOL "" FORCE)
         find_library(HGRAPH_KAFKA_ZSTD_STATIC_LIBRARY NAMES libzstd.a)
         if(NOT HGRAPH_KAFKA_ZSTD_STATIC_LIBRARY)
