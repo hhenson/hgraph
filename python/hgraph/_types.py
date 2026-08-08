@@ -2107,6 +2107,21 @@ class TimeSeriesSchema:
 
     __scalar_type__ = None
 
+    def __init_subclass__(cls, *, namespace=None, **kwargs):
+        """Optionally bind a Python schema to a native named-TSB namespace.
+
+        Plain Python-authored schemas retain their historical class-name
+        identity. Installed native extensions can supply ``namespace=`` to
+        resolve the same globally named TSB as their public C++ schema.
+        """
+        super().__init_subclass__(**kwargs)
+        if namespace is not None:
+            if not isinstance(namespace, str) or not namespace:
+                raise TypeError(
+                    "TimeSeriesSchema namespace must be a non-empty string"
+                )
+            cls.__time_series_namespace__ = namespace
+
     @classmethod
     def scalar_type(cls):
         """Return the CompoundScalar this schema was lifted from, if any."""
@@ -2431,8 +2446,15 @@ class _TSBMeta(type):
         # module + qualname so distinct classes never collide; the plain
         # __name__ stays for stable top-level classes (nicer diagnostics).
         name = compound_meta.name if compound_meta is not None else origin.__name__
+        time_series_namespace = origin.__dict__.get("__time_series_namespace__")
+        if compound_meta is None and time_series_namespace is not None:
+            name = f"{time_series_namespace}::{origin.__name__}"
         qualname = getattr(origin, "__qualname__", origin.__name__)
-        if compound_meta is None and "<locals>" in qualname:
+        if (
+            compound_meta is None
+            and time_series_namespace is None
+            and "<locals>" in qualname
+        ):
             # Function-local TimeSeriesSchema classes need nominal isolation.
             name = f"{origin.__module__}.{qualname}"
         if compound_meta is None and type_args:

@@ -1044,7 +1044,7 @@ namespace hgraph
          * wiring an implementation cannot leak a stale active scope into the
          * enclosing graph wiring.
          */
-        class ServiceImplementationScope
+        class HGRAPH_EXPORT ServiceImplementationScope
         {
           public:
             ServiceImplementationScope() noexcept = default;

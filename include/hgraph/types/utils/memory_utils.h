@@ -1,6 +1,8 @@
 #ifndef HGRAPH_CPP_ROOT_MEMORY_UTILS_H
 #define HGRAPH_CPP_ROOT_MEMORY_UTILS_H
 
+#include <hgraph/config.h>
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -1177,7 +1179,8 @@ namespace hgraph
          * returned for every call with the same ``T``. Lifecycle hooks are
          * elided for trivially-destructible / trivially-copyable types.
          */
-        template <typename T> [[nodiscard]] static const StoragePlan &plan_for() noexcept {
+        template <typename T>
+        [[nodiscard]] static HGRAPH_NOINLINE const StoragePlan &plan_for() noexcept {
             using Type                    = std::remove_cv_t<std::remove_reference_t<T>>;
             static const StoragePlan plan = {
                 .layout = layout_for<Type>(),

@@ -1214,47 +1214,18 @@
       ]
     },
     {
-      "id": "adaptors-kafka-private-consumer-injection-converted",
+      "id": "adaptors-kafka-extension-owned-package",
       "match": "hgraph_unit_tests/adaptors/kafka/test_kafka_api.py::*",
-      "classification": "converted",
-      "candidate_outcomes": ["failed", "error"],
-      "diagnostic_regex": "has no attribute 'KafkaConsumer'",
-      "reason": "These upstream tests monkeypatch a private module import. hg_cpp exposes deterministic consumer injection through register_kafka_adaptor's consumer_factory while preserving public real-time delivery, shared-topic recovery, replay/live handover, and wiring-order behavior.",
+      "classification": "expected-change",
+      "candidate_outcomes": ["collection-error"],
+      "diagnostic_regex": "No module named ['\"]hgraph[.]adaptors[.]kafka['\"]",
+      "reason": "Kafka is no longer distributed by the core wheel. The separately installed C++-first Kafka extension owns the released hgraph.adaptors.kafka path; behavior conformance must use a candidate environment containing both distributions.",
       "decision": "docs/source/developer_guide/parity_matrix.rst",
       "review_date": "2026-08-08",
       "evidence": [
-        "python/tests/adaptors/kafka/test_kafka_api.py",
-        "tests/cpp/test_service_wiring.cpp"
-      ]
-    },
-    {
-      "id": "adaptors-kafka-private-consumer-thread-converted",
-      "match": "hgraph_unit_tests/adaptors/kafka/test_kafka_api.py::test_consumer_failure_is_reported_rather_than_swallowed",
-      "classification": "converted",
-      "candidate_outcomes": ["failed"],
-      "diagnostic_regex": "cannot import name 'KafkaConsumerThread'",
-      "reason": "The upstream assertion directly constructs its private worker thread. hg_cpp reports consumer failures through a push source and stops the engine on the graph thread, preserving the public stop-on-broker-failure behavior without exposing the implementation worker.",
-      "decision": "docs/source/developer_guide/parity_matrix.rst",
-      "review_date": "2026-08-08",
-      "evidence": [
-        "python/tests/adaptors/kafka/test_kafka_api.py",
-        "tests/cpp/test_service_wiring.cpp"
-      ]
-    },
-    {
-      "id": "adaptors-kafka-skipped-subscriber-converted",
-      "match": "hgraph_unit_tests/adaptors/kafka/test_kafka_api.py::test_subscriber",
-      "classification": "converted",
-      "reference_outcomes": ["skipped"],
-      "candidate_outcomes": ["skipped"],
-      "diagnostic_regex": "Skipped: Not patched yet",
-      "reference_diagnostic_regex": "Skipped: Not patched yet",
-      "reason": "The released test is an unexecuted wiring sketch rather than reference evidence. Deterministic public tests cover subscriber signatures, replay/live separation, shared-topic wiring order, recovery handover, consumer failure, and multi-interface native service composition.",
-      "decision": "docs/source/developer_guide/parity_matrix.rst",
-      "review_date": "2026-08-06",
-      "evidence": [
-        "python/tests/adaptors/kafka/test_kafka_api.py",
-        "tests/cpp/test_service_wiring.cpp"
+        "extensions/kafka/python/tests/test_compat.py",
+        "extensions/kafka/python/tests/test_runtime.py",
+        "extensions/kafka/tests/test_service.cpp"
       ]
     },
     {

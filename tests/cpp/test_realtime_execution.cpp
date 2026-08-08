@@ -488,7 +488,12 @@ TEST_CASE("real-time executor honours end_time on the wall clock under busy resc
     NodeCallbacks callbacks;
     callbacks.evaluate = [&eval_count, cycle_cost](const NodeView &view, DateTime evaluation_time) {
         ++eval_count;
-        std::this_thread::sleep_for(cycle_cost);
+        // Burn a measured millisecond instead of sleeping. Windows commonly
+        // rounds a 1 ms sleep to its ~15.6 ms scheduler quantum, which turns
+        // the executor's 1024-cycle drain bound into a 16 second test without
+        // changing the runtime behavior under test.
+        const auto cycle_end = std::chrono::steady_clock::now() + cycle_cost;
+        while (std::chrono::steady_clock::now() < cycle_end) {}
         testing::set_output_value(view, evaluation_time, Int{eval_count.load()});
         view.graph_value()->schedule_node(view.node_index(), evaluation_time + MIN_TD);
     };
@@ -1172,4 +1177,51 @@ TEST_CASE("push source nodes require a real-time root graph executor")
 
     CHECK_THROWS_AS(nested_builder.make_nested_graph(parent_view.pointer()),
                     std::invalid_argument);
+
+    GraphBuilder simulation_capable_nested_builder;
+    simulation_capable_nested_builder.add_node(
+        make_simulation_capable_push_source_node(*ts_int));
+    CHECK_THROWS_AS(
+        simulation_capable_nested_builder.make_nested_graph(parent_view.pointer()),
+        std::invalid_argument);
+}
+
+TEST_CASE("simulation-capable push sources deterministically preload simulation")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<Int>("int");
+    const auto *ts_int   = registry.ts(int_meta);
+    const auto *input_schema = hgraph::testing::single_input_schema(*ts_int);
+
+    Value       observed;
+    std::size_t evaluations{};
+    GraphBuilder graph_builder;
+    graph_builder.add_node(make_simulation_capable_push_source_node(
+        *ts_int,
+        [](PushSourceSender sender) {
+            sender.send(Int{41});
+            sender.send(Int{42});
+        }));
+    graph_builder.add_node(hgraph::testing::recording_value_sink(
+        *input_schema, *ts_int, observed, evaluations, false));
+    graph_builder.add_edge(GraphEdge{
+        .source_node = make_graph_edge_source(0),
+        .source_path = {},
+        .target_node = 1,
+        .target_path = {0},
+    });
+
+    GraphExecutorBuilder executor_builder;
+    executor_builder.graph_builder(std::move(graph_builder))
+        .mode(GraphExecutorMode::Simulation)
+        .start_time(MIN_ST)
+        .end_time(MIN_ST + TimeDelta{3});
+
+    auto executor = executor_builder.make_executor();
+    executor.view().run();
+
+    CHECK(evaluations == 2);
+    CHECK(observed.view().checked_as<Int>() == Int{42});
 }

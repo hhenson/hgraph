@@ -32,6 +32,22 @@ ctest --test-dir build --output-on-failure
 Requires a C++23 compiler and CMake >= 3.25. Python/nanobind are **not** needed
 for the default build (bindings are opt-in via `-DHGRAPH_BUILD_PYTHON_BINDINGS=ON`).
 
+## First-party extensions
+
+First-party extensions are co-developed in `extensions/` but remain separate
+native and Python distributions. Kafka is built in-tree for development with
+`-DHGRAPH_BUILD_KAFKA_EXTENSION=ON`, or independently from
+`extensions/kafka/` against an installed hgraph SDK. Its wheel is selected
+from the `uv` workspace after making that matching SDK discoverable:
+
+```sh
+CMAKE_PREFIX_PATH=/path/to/hgraph/sdk \
+  uv build --wheel --package hgraph-kafka --python 3.12
+```
+
+The core build does not enable the extension by default and does not acquire a
+Kafka or librdkafka dependency.
+
 ## Documentation
 
 Sphinx docs live under `docs/source` (`uv sync --extra docs`, then

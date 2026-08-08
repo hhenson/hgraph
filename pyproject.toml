@@ -77,9 +77,6 @@ sql = [
 snowflake = [
     "adbc-driver-snowflake>=1.8",
 ]
-kafka = [
-    "kafka-python>=2.2",
-]
 delta = [
     "boto3>=1.34",
     "deltalake>=1.0",
@@ -117,6 +114,12 @@ dev = [
 Homepage = "https://github.com/hhenson/hg_cpp"
 Repository = "https://github.com/hhenson/hg_cpp.git"
 
+[tool.uv.sources]
+hg-cpp = {workspace = true}
+
+[tool.uv.workspace]
+members = ["extensions/*"]
+
 [tool.scikit-build]
 build.verbose = true
 cmake.source-dir = "."
@@ -126,6 +129,7 @@ wheel.packages = ["python/hgraph"]
 sdist.exclude = [
     "reports/**",
     "ext/**",
+    "extensions/**",
     "benchmarks/.venv*/**",
     "benchmarks/results/**",
 ]

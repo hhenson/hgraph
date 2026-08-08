@@ -607,59 +607,97 @@ namespace hgraph
         return make_push_source_policy(PushSourcePolicyKind::Conflating, sender_schema);
     }
 
+    namespace
+    {
+        NodeBuilder make_push_source_node_with_capability(
+            const TSValueTypeMetaData &output_schema,
+            PushSourcePolicy policy,
+            PushSourceStartCallback on_start,
+            bool requires_phase_runner,
+            bool simulation_capable)
+        {
+            if (!policy.output_compatible(output_schema))
+            {
+                throw std::invalid_argument("Push source policy is not compatible with the output schema");
+            }
+
+            NodeTypeMetaData schema;
+            schema.display_name = "push_source";
+            schema.output_schema = &output_schema;
+            schema.node_kind = NodeKind::PushSource;
+            schema.simulation_capable_push_source = simulation_capable;
+            schema.requires_phase_runner = requires_phase_runner;
+
+            const std::array fields{
+                NodeStorageField{
+                    push_source_policy_field_name,
+                    &detail::PushSourcePolicyAccess::storage_plan(policy),
+                },
+            };
+            const auto &plan = node_storage_plan_for(schema, fields);
+            const auto *context = &register_push_source_node_context(
+                output_schema,
+                policy,
+                plan.component(push_source_policy_field_name).offset,
+                std::move(on_start));
+
+            NodeCallbacks callbacks;
+            callbacks.start = [context](const NodeView &view, DateTime) {
+                push_source_start(*context, view);
+            };
+            callbacks.evaluate = [context](const NodeView &view, DateTime evaluation_time) {
+                push_source_eval(*context, view, evaluation_time);
+            };
+            callbacks.stop = [context](const NodeView &view, DateTime) {
+                push_source_stop(*context, view);
+            };
+
+            NodeTypeDescriptor descriptor;
+            descriptor.schema = std::move(schema);
+            descriptor.storage_plan = &plan;
+            descriptor.callbacks = std::move(callbacks);
+            descriptor.ops.inspection_metrics_impl = &push_source_inspection_metrics;
+            descriptor.ops.extended_view_context = context;
+            return NodeBuilder::from_descriptor(std::move(descriptor));
+        }
+    }  // namespace
+
     NodeBuilder make_push_source_node(const TSValueTypeMetaData &output_schema,
                                       PushSourcePolicy policy,
                                       PushSourceStartCallback on_start,
                                       bool requires_phase_runner)
     {
-        if (!policy.output_compatible(output_schema))
-        {
-            throw std::invalid_argument("Push source policy is not compatible with the output schema");
-        }
-
-        NodeTypeMetaData schema;
-        schema.display_name = "push_source";
-        schema.output_schema = &output_schema;
-        schema.node_kind = NodeKind::PushSource;
-        schema.requires_phase_runner = requires_phase_runner;
-
-        const std::array fields{
-            NodeStorageField{
-                push_source_policy_field_name,
-                &detail::PushSourcePolicyAccess::storage_plan(policy),
-            },
-        };
-        const auto &plan = node_storage_plan_for(schema, fields);
-        const auto *context = &register_push_source_node_context(
-            output_schema,
-            policy,
-            plan.component(push_source_policy_field_name).offset,
-            std::move(on_start));
-
-        NodeCallbacks callbacks;
-        callbacks.start = [context](const NodeView &view, DateTime) {
-            push_source_start(*context, view);
-        };
-        callbacks.evaluate = [context](const NodeView &view, DateTime evaluation_time) {
-            push_source_eval(*context, view, evaluation_time);
-        };
-        callbacks.stop = [context](const NodeView &view, DateTime) {
-            push_source_stop(*context, view);
-        };
-
-        NodeTypeDescriptor descriptor;
-        descriptor.schema = std::move(schema);
-        descriptor.storage_plan = &plan;
-        descriptor.callbacks = std::move(callbacks);
-        descriptor.ops.inspection_metrics_impl = &push_source_inspection_metrics;
-        descriptor.ops.extended_view_context = context;
-        return NodeBuilder::from_descriptor(std::move(descriptor));
+        return make_push_source_node_with_capability(
+            output_schema, std::move(policy), std::move(on_start),
+            requires_phase_runner, false);
     }
 
     NodeBuilder make_push_source_node(const TSValueTypeMetaData &output_schema,
                                       PushSourceStartCallback on_start)
     {
         return make_push_source_node(
+            output_schema,
+            make_push_source_queue_policy(*output_schema.delta_value_schema),
+            std::move(on_start),
+            false);
+    }
+
+    NodeBuilder make_simulation_capable_push_source_node(
+        const TSValueTypeMetaData &output_schema,
+        PushSourcePolicy policy,
+        PushSourceStartCallback on_start,
+        bool requires_phase_runner)
+    {
+        return make_push_source_node_with_capability(
+            output_schema, std::move(policy), std::move(on_start),
+            requires_phase_runner, true);
+    }
+
+    NodeBuilder make_simulation_capable_push_source_node(
+        const TSValueTypeMetaData &output_schema,
+        PushSourceStartCallback on_start)
+    {
+        return make_simulation_capable_push_source_node(
             output_schema,
             make_push_source_queue_policy(*output_schema.delta_value_schema),
             std::move(on_start),

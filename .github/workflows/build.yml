@@ -6,6 +6,7 @@ on:
       - main
     tags:
       - "v_*.*.*"
+      - "hgraph-kafka-v_*.*.*"
   pull_request:
   workflow_dispatch:
 
@@ -48,28 +49,40 @@ jobs:
           import re
 
           tag = os.environ["RELEASE_TAG"]
-          match = re.fullmatch(r"v_(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?)", tag)
-          if match is None:
+          patterns = (
+              (r"v_(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?)", "hg_cpp"),
+              (
+                  r"hgraph-kafka-v_(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?)",
+                  "hgraph-kafka",
+              ),
+          )
+          release = next(
+              ((match, package) for pattern, package in patterns
+               if (match := re.fullmatch(pattern, tag)) is not None),
+              None,
+          )
+          if release is None:
               raise SystemExit(
-                  f"release tag must match v_x.x.x or a PEP 440 prerelease such as "
-                  f"v_0.4.0rc1, got {tag!r}"
+                  "release tag must match v_x.x.x or hgraph-kafka-v_x.x.x "
+                  f"(including PEP 440 prereleases), got {tag!r}"
               )
 
           # The TAG is the version authority: the project version in
           # pyproject.toml is ignored for releases (the publish job restamps
           # the tested artifacts' metadata to the tag version).
+          match, package = release
           version = match.group(1)
 
           try:
-              with urlopen(f"https://pypi.org/pypi/hg_cpp/{version}/json"):
+              with urlopen(f"https://pypi.org/pypi/{package}/{version}/json"):
                   pass
           except HTTPError as error:
               if error.code != 404:
                   raise
           else:
-              raise SystemExit(f"hg_cpp {version} already exists on PyPI")
+              raise SystemExit(f"{package} {version} already exists on PyPI")
 
-          print(f"Validated new hg_cpp release {version}")
+          print(f"Validated new {package} release {version}")
 
   reuse-build:
     name: Find tested distributions for this commit
@@ -89,6 +102,10 @@ jobs:
               "distribution-wheel-macos-26",
               "distribution-wheel-ubuntu-latest",
               "distribution-wheel-windows-latest",
+              "kafka-distribution-sdist",
+              "kafka-distribution-wheel-macos-26",
+              "kafka-distribution-wheel-ubuntu-latest",
+              "kafka-distribution-wheel-windows-latest",
             ]);
             const runs = await github.paginate(
               github.rest.actions.listWorkflowRuns,
@@ -217,6 +234,68 @@ jobs:
           name: distribution-wheel-${{ matrix.os }}
           path: dist/*.whl
           if-no-files-found: error
+      - name: Install the matching core SDK
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          wheels = list(Path("dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          subprocess.check_call([sys.executable, "-m", "pip", "install", str(wheels[0])])
+      - name: Locate the installed core SDK
+        shell: python
+        run: |
+          from importlib import metadata
+          import os
+          from pathlib import Path
+
+          distribution = metadata.distribution("hg_cpp")
+          sdk_prefix = Path(distribution.locate_file("")).resolve()
+          config = sdk_prefix / "lib" / "cmake" / "hgraph" / "hgraphConfig.cmake"
+          if not config.is_file():
+              raise FileNotFoundError(f"installed hgraph CMake package not found: {config}")
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"HGRAPH_KAFKA_SDK_PREFIX={sdk_prefix}\n")
+      - name: Install Kafka wheel build tools
+        run: >-
+          python -m pip install --upgrade
+          "scikit-build-core>=0.11" "nanobind==2.13.0" "ninja" "pyarrow>=24,<25"
+      - name: Build Kafka stable ABI wheel
+        env:
+          CMAKE_GENERATOR: ${{ matrix.cmake_generator }}
+          CMAKE_ARGS: ${{ matrix.cmake_args }}
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.parallel }}
+          CMAKE_PREFIX_PATH: ${{ env.HGRAPH_KAFKA_SDK_PREFIX }}
+        run: >-
+          python -m build --wheel --no-isolation --skip-dependency-check
+          --outdir kafka-dist extensions/kafka
+      - name: Verify Kafka wheel ABI
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          wheels = list(Path("kafka-dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          wheel = wheels[0]
+          assert wheel.name.startswith("hgraph_kafka-"), wheel.name
+          assert "-cp312-abi3-" in wheel.name, wheel.name
+          if sys.platform == "darwin":
+              assert "-macosx_15_0_arm64.whl" in wheel.name, wheel.name
+          elif sys.platform == "win32":
+              assert wheel.name.endswith("-win_amd64.whl"), wheel.name
+          subprocess.check_call(["abi3audit", "--strict", str(wheel)])
+      - name: Audit Kafka wheel contents
+        run: python extensions/kafka/tools/audit_distribution.py "kafka-dist/*.whl"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: kafka-distribution-wheel-${{ matrix.os }}
+          path: kafka-dist/*.whl
+          if-no-files-found: error
 
   build-linux-wheel:
     name: Build manylinux 2.28 / GCC 14 wheel
@@ -290,6 +369,61 @@ jobs:
           name: distribution-wheel-ubuntu-latest
           path: dist/*.whl
           if-no-files-found: error
+      - name: Install the matching core SDK
+        run: /opt/python/cp312-cp312/bin/python -m pip install dist/*.whl
+      - name: Install Kafka wheel build tools
+        run: >-
+          /opt/python/cp312-cp312/bin/python -m pip install --upgrade
+          "scikit-build-core>=0.11" "nanobind==2.13.0" "ninja" "pyarrow>=24,<25"
+      - name: Build Kafka stable ABI wheel
+        shell: bash
+        run: |
+          hgraph_sdk="$(/opt/python/cp312-cp312/bin/python -c 'import site; print(site.getsitepackages()[0])')"
+          CMAKE_GENERATOR=Ninja \
+          CMAKE_ARGS=-DHGRAPH_WARNINGS_AS_ERRORS=ON \
+          CMAKE_BUILD_PARALLEL_LEVEL=2 \
+          CMAKE_PREFIX_PATH="$hgraph_sdk" \
+            /opt/python/cp312-cp312/bin/python -m build \
+              --wheel --no-isolation --skip-dependency-check \
+              --outdir kafka-dist-raw extensions/kafka
+      - name: Repair Kafka wheel for the glibc 2.28 floor
+        run: |
+          mkdir kafka-dist
+          auditwheel repair \
+            --plat manylinux_2_28_x86_64 \
+            --exclude libarrow.so.2400 \
+            --exclude libarrow_compute.so.2400 \
+            --exclude libarrow_acero.so.2400 \
+            --exclude libhgraph_runtime.so \
+            --exclude libhgraph_wiring.so \
+            --exclude libhgraph_stdlib.so \
+            --exclude libnanobind-abi3.so \
+            --wheel-dir kafka-dist \
+            kafka-dist-raw/*.whl
+      - name: Verify Kafka wheel ABI and platform tag
+        run: |
+          /opt/python/cp312-cp312/bin/python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          from packaging.tags import Tag
+          from packaging.utils import parse_wheel_filename
+
+          wheels = list(Path("kafka-dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          wheel = wheels[0]
+          assert wheel.name.startswith("hgraph_kafka-"), wheel.name
+          tags = parse_wheel_filename(wheel.name)[3]
+          expected = Tag("cp312", "abi3", "manylinux_2_28_x86_64")
+          assert expected in tags, (wheel.name, tags)
+          subprocess.check_call(["abi3audit", "--strict", str(wheel)])
+          PY
+      - name: Audit Kafka wheel contents
+        run: /opt/python/cp312-cp312/bin/python extensions/kafka/tools/audit_distribution.py "kafka-dist/*.whl"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: kafka-distribution-wheel-ubuntu-latest
+          path: kafka-dist/*.whl
+          if-no-files-found: error
 
   build-sdist:
     name: Build source distribution
@@ -307,7 +441,7 @@ jobs:
           python-version: "3.12"
       - name: Build source distribution
         run: |
-          python -m pip install --upgrade build
+          python -m pip install --upgrade build "scikit-build-core>=0.11" "nanobind==2.13.0" "pyarrow>=24,<25"
           python -m build --sdist
       - name: Audit source distribution contents
         run: python tools/audit_distribution.py "dist/*.tar.gz"
@@ -325,6 +459,40 @@ jobs:
         with:
           name: distribution-sdist
           path: dist/*.tar.gz
+          if-no-files-found: error
+      - name: Build Kafka source distribution
+        run: >-
+          python -m build --sdist --no-isolation --skip-dependency-check
+          --outdir kafka-dist extensions/kafka
+      - name: Verify Kafka source distribution
+        shell: python
+        run: |
+          from pathlib import Path
+          import tarfile
+          import tomllib
+
+          version = tomllib.loads(
+              Path("extensions/kafka/pyproject.toml").read_text()
+          )["project"]["version"]
+          archives = list(Path("kafka-dist").glob("*.tar.gz"))
+          assert len(archives) == 1, archives
+          archive = archives[0]
+          assert archive.name == f"hgraph_kafka-{version}.tar.gz", archive.name
+          with tarfile.open(archive) as package:
+              names = set(package.getnames())
+          root = f"hgraph_kafka-{version}"
+          for required in (
+              "CMakeLists.txt",
+              "include/hgraph/kafka/service.h",
+              "python/hgraph_kafka/__init__.py",
+          ):
+              assert f"{root}/{required}" in names, required
+      - name: Audit Kafka source distribution contents
+        run: python extensions/kafka/tools/audit_distribution.py "kafka-dist/*.tar.gz"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: kafka-distribution-sdist
+          path: kafka-dist/*.tar.gz
           if-no-files-found: error
 
   test-wheel:
@@ -370,8 +538,12 @@ jobs:
         with:
           name: distribution-wheel-${{ matrix.os }}
           path: dist
+      - uses: actions/download-artifact@v7
+        with:
+          name: kafka-distribution-wheel-${{ matrix.os }}
+          path: kafka-dist
       - name: Sync test dependencies
-        run: uv sync --frozen --all-extras --all-groups --no-install-project --python ${{ matrix.python-version }}
+        run: uv sync --frozen --all-extras --all-groups --no-install-workspace --python ${{ matrix.python-version }}
       - name: Install wheel
         shell: python
         run: |
@@ -387,10 +559,18 @@ jobs:
           subprocess.check_call([
               "uv", "pip", "install", "--python", str(venv_python), str(wheels[0]),
           ])
+          kafka_wheels = list(Path("kafka-dist").glob("*.whl"))
+          assert len(kafka_wheels) == 1, kafka_wheels
+          subprocess.check_call([
+              "uv", "pip", "install", "--python", str(venv_python),
+              "--no-deps", str(kafka_wheels[0]),
+          ])
       - name: Confirm installed distribution
         run: uv run --no-sync python -c "import importlib.metadata as m; import _hgraph; print(m.version('hg_cpp'), _hgraph.__file__)"
       - name: Run Python compatibility suite
         run: uv run --no-sync python -m pytest python/tests -q -m "not wip"
+      - name: Run Kafka extension suite
+        run: uv run --no-sync python -m pytest extensions/kafka/python/tests -q
       - name: Build installed Python extension consumer
         if: matrix.python-version == '3.12'
         run: uv run --no-sync python tests/python_extension_consumer/check.py
@@ -496,7 +676,7 @@ jobs:
           with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:
               path_file.write(str(Path(pyarrow.__file__).resolve().parent) + "\n")
       - name: Configure native C++ tests
-        run: cmake -S . -B build-native -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF -DHGRAPH_USE_PYARROW_ARROW=ON -DHGRAPH_FETCH_SIMDJSON=ON -DHGRAPH_FETCH_DATE=ON -DHGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS=ON -DHGRAPH_WARNINGS_AS_ERRORS=ON
+        run: cmake -S . -B build-native -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF -DHGRAPH_USE_PYARROW_ARROW=ON -DHGRAPH_FETCH_SIMDJSON=ON -DHGRAPH_FETCH_DATE=ON -DHGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS=ON -DHGRAPH_WARNINGS_AS_ERRORS=ON -DHGRAPH_BUILD_KAFKA_EXTENSION=ON -DHGRAPH_KAFKA_FORCE_FETCH_LIBRDKAFKA=ON
       - name: Build native C++ tests
         run: cmake --build build-native --parallel ${{ matrix.parallel }}
       - name: Run native C++ tests
@@ -553,6 +733,8 @@ jobs:
           -DHGRAPH_FETCH_DATE=ON
           -DHGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS=ON
           -DHGRAPH_WARNINGS_AS_ERRORS=ON
+          -DHGRAPH_BUILD_KAFKA_EXTENSION=ON
+          -DHGRAPH_KAFKA_FORCE_FETCH_LIBRDKAFKA=ON
       - name: Build shared C++ tests
         shell: micromamba-shell {0}
         run: cmake --build build-shared --parallel 2
@@ -574,6 +756,18 @@ jobs:
           cmake --build build-consumer --parallel 2
           LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             ctest --test-dir build-consumer --output-on-failure
+      - name: Configure installed Kafka consumer
+        shell: micromamba-shell {0}
+        run: >-
+          cmake -S extensions/kafka/test_package -B build-kafka-consumer -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/install-shared;$CONDA_PREFIX"
+      - name: Build and test installed Kafka consumer
+        shell: micromamba-shell {0}
+        run: |
+          cmake --build build-kafka-consumer --parallel 2
+          LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install-shared/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            ctest --test-dir build-kafka-consumer --output-on-failure
 
   publish:
     name: Publish hg_cpp to PyPI
@@ -607,6 +801,9 @@ jobs:
       actions: read
       id-token: write
     steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v7
         with:
           pattern: distribution-*
@@ -615,117 +812,63 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ needs.reuse-build.outputs.run-id || github.run_id }}
       - name: Restamp distributions to the tag version
-        shell: python
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          # The TAG is the version authority. The distributions were built
-          # (and fully tested) at whatever version pyproject.toml carried -
-          # rewriting the version is a METADATA-ONLY operation, so the
-          # expensive compiled artifacts are reused byte-identical.
-          import base64
-          import csv
-          import hashlib
-          import io
-          import os
-          import re
-          import tarfile
-          import zipfile
-          from pathlib import Path
-
-          version = os.environ["RELEASE_TAG"].removeprefix("v_")
-
-          def record_hash(data: bytes) -> str:
-              digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest())
-              return "sha256=" + digest.decode().rstrip("=")
-
-          def restamp_wheel(path: Path) -> None:
-              name, old_version, rest = path.name.split("-", 2)
-              if old_version == version:
-                  print(f"{path.name}: already at {version}")
-                  return
-              old_info = f"{name}-{old_version}.dist-info"
-              new_info = f"{name}-{version}.dist-info"
-              entries = {}
-              with zipfile.ZipFile(path) as archive:
-                  for item in archive.infolist():
-                      entries[item.filename] = archive.read(item.filename)
-              renamed = {}
-              for item_name, data in entries.items():
-                  new_name = item_name.replace(old_info + "/", new_info + "/")
-                  if new_name == f"{new_info}/METADATA":
-                      text = data.decode()
-                      text, count = re.subn(rf"(?m)^Version: {re.escape(old_version)}$",
-                                            f"Version: {version}", text, count=1)
-                      assert count == 1, "wheel METADATA Version line not found"
-                      data = text.encode()
-                  renamed[new_name] = data
-              record_name = f"{new_info}/RECORD"
-              rows = []
-              for row in csv.reader(io.StringIO(renamed[record_name].decode())):
-                  if not row:
-                      continue
-                  entry = row[0].replace(old_info + "/", new_info + "/")
-                  if entry == record_name:
-                      rows.append([entry, "", ""])
-                  else:
-                      data = renamed[entry]
-                      rows.append([entry, record_hash(data), str(len(data))])
-              buffer = io.StringIO(newline="")
-              csv.writer(buffer, lineterminator="\n").writerows(rows)
-              renamed[record_name] = buffer.getvalue().encode()
-              new_path = path.with_name(path.name.replace(f"-{old_version}-", f"-{version}-", 1))
-              with zipfile.ZipFile(new_path, "w", zipfile.ZIP_DEFLATED) as archive:
-                  for item_name, data in renamed.items():
-                      archive.writestr(item_name, data)
-              if new_path != path:
-                  path.unlink()
-              print(f"{path.name} -> {new_path.name}")
-
-          def restamp_sdist(path: Path) -> None:
-              name, old_version = path.name.removesuffix(".tar.gz").rsplit("-", 1)
-              if old_version == version:
-                  print(f"{path.name}: already at {version}")
-                  return
-              old_root = f"{name}-{old_version}"
-              new_root = f"{name}-{version}"
-              members = []
-              with tarfile.open(path, "r:gz") as archive:
-                  for member in archive.getmembers():
-                      data = archive.extractfile(member).read() if member.isfile() else None
-                      member.name = member.name.replace(old_root, new_root, 1)
-                      # long (>100 char) paths ride PAX 'path' headers which
-                      # would override the renamed member.name at write time.
-                      member.pax_headers.pop("path", None)
-                      member.pax_headers.pop("linkpath", None)
-                      if member.name == f"{new_root}/PKG-INFO":
-                          text = data.decode()
-                          text, count = re.subn(rf"(?m)^Version: {re.escape(old_version)}$",
-                                                f"Version: {version}", text, count=1)
-                          assert count == 1, "sdist PKG-INFO Version line not found"
-                          data = text.encode()
-                      elif member.name == f"{new_root}/pyproject.toml":
-                          text = data.decode()
-                          text, count = re.subn(r'(?m)^version = "[^"]+"$',
-                                                f'version = "{version}"', text, count=1)
-                          assert count == 1, "sdist pyproject.toml version not found"
-                          data = text.encode()
-                      if data is not None:
-                          member.size = len(data)
-                      members.append((member, data))
-              new_path = path.with_name(f"{new_root}.tar.gz")
-              with tarfile.open(new_path, "w:gz") as archive:
-                  for member, data in members:
-                      archive.addfile(member, io.BytesIO(data) if data is not None else None)
-              if new_path != path:
-                  path.unlink()
-              print(f"{path.name} -> {new_path.name}")
-
-          for wheel in sorted(Path("dist").glob("*.whl")):
-              restamp_wheel(wheel)
-          for sdist in sorted(Path("dist").glob("*.tar.gz")):
-              restamp_sdist(sdist)
+        run: python tools/restamp_distribution.py dist "${RELEASE_TAG#v_}"
       - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+
+  publish-kafka:
+    name: Publish hgraph-kafka to PyPI
+    if: >-
+      always() &&
+      startsWith(github.ref, 'refs/tags/hgraph-kafka-v_') &&
+      needs.validate-release.result == 'success' &&
+      needs.reuse-build.result == 'success' &&
+      (
+        needs.reuse-build.outputs.run-id != '' ||
+        (
+          needs.build-sdist.result == 'success' &&
+          needs.test-wheel.result == 'success' &&
+          needs.native-cpp.result == 'success' &&
+          needs.native-install.result == 'success'
+        )
+      )
+    needs:
+      - validate-release
+      - reuse-build
+      - build-sdist
+      - test-wheel
+      - native-cpp
+      - native-install
+      - build-linux-wheel
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://pypi.org/p/hgraph-kafka
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: kafka-distribution-*
+          path: dist
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.reuse-build.outputs.run-id || github.run_id }}
+      - name: Restamp Kafka distributions to the tag version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          python tools/restamp_distribution.py dist
+          "${RELEASE_TAG#hgraph-kafka-v_}"
+      - name: Publish Kafka package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist

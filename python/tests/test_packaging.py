@@ -1,14 +1,13 @@
 """Packaging contract checks for the optional Python bridge."""
 
-from pathlib import Path
 import re
 import tomllib
+from pathlib import Path
 
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 from trove_classifiers import classifiers as valid_classifiers
-
 
 ROOT = Path(__file__).resolve().parents[2]
 PYARROW_REQUIREMENT = "pyarrow>=24,<25"
@@ -42,6 +41,17 @@ def test_nanobind_build_and_sdk_headers_use_one_exact_runtime_abi():
 
     cmake = (ROOT / "CMakeLists.txt").read_text()
     assert "find_dependency(nanobind ${nanobind_VERSION} EXACT CONFIG)" in cmake
+
+
+def test_installed_sdk_exports_required_msvc_source_contract():
+    cmake = (ROOT / "CMakeLists.txt").read_text()
+    graph_wiring = (ROOT / "include/hgraph/types/graph_wiring.h").read_text()
+
+    assert "target_compile_options(hgraph_options INTERFACE /W4 /permissive- /utf-8)" in cmake
+    assert "$<INSTALL_INTERFACE:FMT_HEADER_ONLY>" in cmake
+    assert "FMT_LIB_EXPORT" not in cmake
+    assert "FMT_SHARED" not in cmake
+    assert "class HGRAPH_EXPORT ServiceImplementationScope" in graph_wiring
 
 
 def test_windows_wheel_installs_all_linked_pyarrow_runtimes():
@@ -86,7 +96,7 @@ def test_release_metadata_uses_untagged_sentinel():
 
     workflow = (ROOT / ".github/workflows/build.yml").read_text()
     assert "Restamp distributions to the tag version" in workflow
-    assert 'version = os.environ["RELEASE_TAG"].removeprefix("v_")' in workflow
+    assert 'python tools/restamp_distribution.py dist "${RELEASE_TAG#v_}"' in workflow
 
 
 def test_wheel_targets_the_python_312_stable_abi():
@@ -107,6 +117,7 @@ def test_source_distribution_excludes_private_release_evidence():
 
     assert "reports/**" in excluded
     assert "ext/**" in excluded
+    assert "extensions/**" in excluded
     assert "benchmarks/.venv*/**" in excluded
     assert "benchmarks/results/**" in excluded
 
@@ -204,9 +215,21 @@ def test_release_workflow_reuses_tested_commit_artifacts():
 def test_release_workflow_audits_distribution_contents():
     workflow = (ROOT / ".github/workflows/build.yml").read_text()
 
-    assert workflow.count("tools/audit_distribution.py") == 3
+    assert workflow.count(" tools/audit_distribution.py") == 3
+    assert workflow.count("extensions/kafka/tools/audit_distribution.py") == 3
     assert '"dist/*.whl"' in workflow
     assert '"dist/*.tar.gz"' in workflow
+    assert '"kafka-dist/*.whl"' in workflow
+    assert '"kafka-dist/*.tar.gz"' in workflow
+
+
+def test_release_workflow_locates_installed_sdk_from_distribution():
+    workflow = (ROOT / ".github/workflows/build.yml").read_text()
+
+    assert 'metadata.distribution("hg_cpp")' in workflow
+    assert 'distribution.locate_file("")' in workflow
+    assert '"hgraphConfig.cmake"' in workflow
+    assert "HGRAPH_KAFKA_SDK_PREFIX={site.getsitepackages()[0]}" not in workflow
 
 
 def main():
@@ -224,6 +247,7 @@ def main():
     test_release_workflow_targets_supported_platforms()
     test_release_workflow_reuses_tested_commit_artifacts()
     test_release_workflow_audits_distribution_contents()
+    test_release_workflow_locates_installed_sdk_from_distribution()
     print("PASS test_pyarrow_build_and_runtime_requirements_share_the_supported_abi")
     print("PASS test_windows_wheel_installs_all_linked_pyarrow_runtimes")
     print("PASS test_supported_python_versions_are_declared")
@@ -238,6 +262,7 @@ def main():
     print("PASS test_release_workflow_targets_supported_platforms")
     print("PASS test_release_workflow_reuses_tested_commit_artifacts")
     print("PASS test_release_workflow_audits_distribution_contents")
+    print("PASS test_release_workflow_locates_installed_sdk_from_distribution")
 
 
 if __name__ == "__main__":

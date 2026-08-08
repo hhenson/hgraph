@@ -408,7 +408,7 @@ TEST_CASE("ValueTypeRef is canonical by record and narrows generic pointers safe
 // here we exercise the value-layer round-trip that uses it through
 // ``Value`` and ``ValueTypeRef``.
 
-TEST_CASE("Value: atomic round-trip — construct, view, hash/equals/to_string")
+TEST_CASE("Value: atomic round-trip - construct, view, hash/equals/to_string")
 {
     using namespace hgraph;
     auto &registry = TypeRegistry::instance();

@@ -475,25 +475,29 @@ authentication challenge.
 **Completed: external adaptor families (2026-07-17).**  The dependency-light
 dataclass, executor, threaded-graph, stream status, dataframe source, and
 dataframe record-store compatibility modules are present.  Catalogue
-publish/subscribe, JSON, SQL, Delta Lake, Kafka, and Perspective now execute
-over the native keyed service/adaptor or native time-series boundary.  Arrow
+publish/subscribe, JSON, SQL, Delta Lake, and Perspective now execute over the
+native keyed service/adaptor or native time-series boundary.  Kafka is now
+provided by the separately installed C++-first ``hgraph-kafka`` extension,
+which owns the released ``hgraph.adaptors.kafka`` compatibility path.  Arrow
 ``Table`` is the dataframe interchange value; Polars is accepted only as an
 optional producer and is converted at the boundary.
 
 Resource configuration belongs to the seeded/result ``GlobalState``:
-catalogues, environments, SQL connection stores, Delta backends, Kafka
-producer/consumer state, Perspective managers, executors, and dataframe
+catalogues, environments, SQL connection stores, Delta backends, Perspective
+managers, executors, and dataframe
 storage do not use unrelated module globals. Worker threads receive resolved
 connection/environment targets and never attempt to discover graph state from
 their own thread.  Request generation and published-key tracking suppress
 stale replies and ensure a request that never published cannot emit a remove.
 
-Optional clients are declared as ``sql``, ``snowflake``, ``kafka``, ``delta``,
-``perspective``, and ``dataframe`` extras. Imports stay lazy. An application
-may inject a DB-API connection, ``DeltaBackend``, Kafka producer/consumer
-factory, or Perspective client, which also keeps transport tests deterministic.
+Optional clients are declared as ``sql``, ``snowflake``, ``delta``,
+``perspective``, and ``dataframe`` extras. Kafka client dependencies belong to
+``hgraph-kafka`` rather than the core package. Imports stay lazy. An application
+may inject a DB-API connection, ``DeltaBackend``, or Perspective client, which
+also keeps transport tests deterministic.
 
-Kafka retains the released hgraph user contract. Publishers and subscribers
+The Kafka extension retains the released hgraph user contract. Publishers and
+subscribers
 accept raw bytes or structured ``KafkaMessage`` values; replay-aware graphs
 receive historical messages from the graph start time together with the
 ``recovered`` signal. Partition offsets are selected by timestamp, historical
@@ -522,9 +526,10 @@ passed on each platform.  A macOS ``cp312-abi3`` wheel built with ``-O3`` and
 installed under Python 3.14.6 produced 1145 passed, 18 skipped, and 6
 deselected.  The Ubuntu Python 3.14.6 bridge produced the same result under
 AddressSanitizer with no sanitizer report.  Focused tests also exercise the
-real Delta Lake and Perspective clients; Kafka and external databases remain
-covered through injected deterministic clients rather than requiring live
-infrastructure.
+real Delta Lake and Perspective clients.  At that stage Kafka and external
+databases were covered through injected deterministic clients rather than
+requiring live infrastructure; the later extension migration adds mock-cluster
+and live-broker Kafka integration gates.
 
 Remaining external work is integration-specific authentication, deployment,
 or scheduling policy, not a missing graph/adaptor boundary.
