@@ -800,13 +800,39 @@ jobs:
           # elsewhere still lands on the default branch as before.
           DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
           TAG_SHA="$(git rev-parse "refs/tags/${REF}^{commit}")"
-          TARGET_BRANCH="$DEFAULT_BRANCH"
-          for remote_branch in $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/release/*'); do
+          RELEASE_BRANCHES="$(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/release/*')"
+          TARGET_BRANCH=""
+
+          # First choice: a release branch still sitting on the tagged commit. If the default
+          # branch happens to be on that commit too -- they are identical until the two lanes
+          # diverge -- the release branch still wins, because its head is the specific signal
+          # while the default branch coinciding is incidental.
+          for remote_branch in $RELEASE_BRANCHES; do
             if [ "$(git rev-parse "${remote_branch}^{commit}")" = "$TAG_SHA" ]; then
               TARGET_BRANCH="${remote_branch#origin/}"
               break
             fi
           done
+
+          # Second choice: a release branch that contains the tag but has moved on since. This
+          # step runs after publishing, which can be an hour after the tag was pushed, so the
+          # branch may well have advanced by now. Requiring the head to still match would send
+          # the maintenance version to the default branch -- the corruption this exists to stop.
+          #
+          # Containment alone is not enough to decide, because a commit shared with the default
+          # branch is contained by both; such a tag is genuinely ambiguous and keeps the previous
+          # behaviour of going to the default branch.
+          if [ -z "$TARGET_BRANCH" ]; then
+            for remote_branch in $RELEASE_BRANCHES; do
+              if git merge-base --is-ancestor "$TAG_SHA" "$remote_branch" 2>/dev/null &&
+                 ! git merge-base --is-ancestor "$TAG_SHA" "origin/$DEFAULT_BRANCH" 2>/dev/null; then
+                TARGET_BRANCH="${remote_branch#origin/}"
+                break
+              fi
+            done
+          fi
+
+          TARGET_BRANCH="${TARGET_BRANCH:-$DEFAULT_BRANCH}"
           echo "tag ${REF} (${TAG_SHA}) -> bumping version on ${TARGET_BRANCH}"
           git checkout "$TARGET_BRANCH"
 
@@ -820,7 +846,7 @@ jobs:
           else:
               print(f'Unexpected tag format: {ref}', file=sys.stderr)
               sys.exit(1)
-          print(f'Committing version {ver} to pyproject.toml on default branch')
+          print(f'Committing version {ver} to pyproject.toml')
           p = pathlib.Path('pyproject.toml')
           s = p.read_text(encoding='utf-8')
           new_s, n = re.subn(r'(?m)^(version\s*=\s*")[^"]+("\s*)$', rf"\g<1>{ver}\2", s)
