@@ -9,6 +9,7 @@ target_link_libraries(hgraph_smoke_test
 
 hgraph_enable_private_pch(hgraph_smoke_test)
 add_test(NAME hgraph.smoke COMMAND hgraph_smoke_test)
+hgraph_configure_test_runtime_paths(hgraph.smoke)
 
 add_executable(hgraph_header_compile_check
     header_compile_check.cpp
@@ -21,6 +22,7 @@ target_link_libraries(hgraph_header_compile_check
 
 hgraph_enable_private_pch(hgraph_header_compile_check)
 add_test(NAME hgraph.header_compile_check COMMAND hgraph_header_compile_check)
+hgraph_configure_test_runtime_paths(hgraph.header_compile_check)
 
 add_library(hgraph_abi_boundary_producer SHARED
     abi_boundary/producer.cpp
@@ -55,6 +57,7 @@ target_link_libraries(hgraph_abi_boundary_test
 )
 
 add_test(NAME hgraph.abi_boundary COMMAND hgraph_abi_boundary_test)
+hgraph_configure_test_runtime_paths(hgraph.abi_boundary)
 
 if(HGRAPH_BUILD_SHARED)
     add_library(hgraph_standard_binding_boundary_producer SHARED
@@ -87,6 +90,7 @@ if(HGRAPH_BUILD_SHARED)
     )
 
     add_test(NAME hgraph.standard_binding_boundary COMMAND hgraph_standard_binding_boundary_test)
+    hgraph_configure_test_runtime_paths(hgraph.standard_binding_boundary)
 endif()
 
 add_executable(hgraph_debugger_fixture
@@ -105,6 +109,7 @@ else()
     target_compile_options(hgraph_debugger_fixture PRIVATE -O0 -g)
 endif()
 add_test(NAME hgraph.debugger_fixture COMMAND hgraph_debugger_fixture)
+hgraph_configure_test_runtime_paths(hgraph.debugger_fixture)
 
 if(HGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS AND APPLE)
     find_program(HGRAPH_LLDB_EXECUTABLE lldb)
@@ -148,6 +153,13 @@ if(NOT Catch2_FOUND)
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(Catch2)
+
+    # Catch2 3.6 builds itself as C++14 by default, while these tests consume
+    # its headers as C++23. On MSVC that makes the headers declare the
+    # std::string_view StringMaker without compiling its out-of-line definition
+    # into Catch2. Keep the fetched library's feature set consistent with its
+    # consumers.
+    target_compile_features(Catch2 PRIVATE cxx_std_17)
 endif()
 
 add_library(hgraph_test_listener_objects OBJECT
@@ -167,6 +179,9 @@ function(hgraph_add_test_objects target_name)
             hgraph::core
             Catch2::Catch2
     )
+    if(MSVC)
+        target_compile_options(${target_name} PRIVATE /bigobj)
+    endif()
     hgraph_enable_private_pch(${target_name})
 endfunction()
 
@@ -355,4 +370,10 @@ target_link_libraries(hgraph_stable_slot_representation_perf
 hgraph_enable_private_pch(hgraph_stable_slot_representation_perf)
 
 include(Catch)
-catch_discover_tests(hgraph_unit_tests)
+if(WIN32 AND HGRAPH_USE_PYARROW_ARROW)
+    catch_discover_tests(hgraph_unit_tests
+        DL_PATHS ${HGRAPH_PYARROW_RUNTIME_DIRS}
+    )
+else()
+    catch_discover_tests(hgraph_unit_tests)
+endif()

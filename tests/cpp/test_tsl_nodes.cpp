@@ -281,7 +281,7 @@ TEST_CASE("tsl: eval_node drives scalar-child TSL inputs/outputs as canonical de
     CHECK_OUTPUT(testing::eval_node<DynamicMirrorList>(dynamic_in), dynamic_in);
 }
 
-TEST_CASE("tsl: recursive — list_delta over container children builds nested canonical Values")
+TEST_CASE("tsl: recursive - list_delta over container children builds nested canonical Values")
 {
     (void)TypeRegistry::instance().register_scalar<Int>("int");
 

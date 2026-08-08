@@ -488,7 +488,12 @@ TEST_CASE("real-time executor honours end_time on the wall clock under busy resc
     NodeCallbacks callbacks;
     callbacks.evaluate = [&eval_count, cycle_cost](const NodeView &view, DateTime evaluation_time) {
         ++eval_count;
-        std::this_thread::sleep_for(cycle_cost);
+        // Burn a measured millisecond instead of sleeping. Windows commonly
+        // rounds a 1 ms sleep to its ~15.6 ms scheduler quantum, which turns
+        // the executor's 1024-cycle drain bound into a 16 second test without
+        // changing the runtime behavior under test.
+        const auto cycle_end = std::chrono::steady_clock::now() + cycle_cost;
+        while (std::chrono::steady_clock::now() < cycle_end) {}
         testing::set_output_value(view, evaluation_time, Int{eval_count.load()});
         view.graph_value()->schedule_node(view.node_index(), evaluation_time + MIN_TD);
     };

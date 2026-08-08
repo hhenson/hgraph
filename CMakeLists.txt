@@ -480,6 +480,17 @@ for path in (root, root / "include", arrow_link, compute_link, acero_link,
     endif()
     set(HGRAPH_PYARROW_LIBRARY_DIR "${_hgraph_pyarrow_dir}" CACHE PATH
         "Directory containing pyarrow's bundled Arrow libraries" FORCE)
+    set(HGRAPH_PYARROW_RUNTIME_DIRS "${_hgraph_pyarrow_dir}")
+    if(WIN32)
+        get_filename_component(_hgraph_pyarrow_site_packages
+            "${_hgraph_pyarrow_dir}" DIRECTORY)
+        list(APPEND HGRAPH_PYARROW_RUNTIME_DIRS
+            "${_hgraph_pyarrow_site_packages}")
+        if(EXISTS "${_hgraph_pyarrow_site_packages}/pyarrow.libs")
+            list(APPEND HGRAPH_PYARROW_RUNTIME_DIRS
+                "${_hgraph_pyarrow_site_packages}/pyarrow.libs")
+        endif()
+    endif()
 else()
     find_package(Arrow CONFIG REQUIRED)
     # Arrow 24 splits compute/acero into their own CMake packages; some
@@ -495,6 +506,22 @@ else()
         find_package(ArrowAcero CONFIG REQUIRED)
     endif()
 endif()
+
+function(hgraph_configure_test_runtime_paths test_name)
+    if(NOT WIN32 OR NOT HGRAPH_PYARROW_RUNTIME_DIRS)
+        return()
+    endif()
+
+    set(_hgraph_test_environment)
+    foreach(_hgraph_runtime_dir IN LISTS HGRAPH_PYARROW_RUNTIME_DIRS)
+        cmake_path(NATIVE_PATH _hgraph_runtime_dir NORMALIZE _hgraph_runtime_dir_native)
+        list(APPEND _hgraph_test_environment
+            "PATH=path_list_prepend:${_hgraph_runtime_dir_native}")
+    endforeach()
+    set_tests_properties("${test_name}" PROPERTIES
+        ENVIRONMENT_MODIFICATION "${_hgraph_test_environment}")
+endfunction()
+
 if(HGRAPH_BUILD_SHARED AND HGRAPH_BUILD_PYTHON_BINDINGS)
     target_link_libraries(hgraph_private_dependencies INTERFACE
         Arrow::arrow_shared

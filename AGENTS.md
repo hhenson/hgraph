@@ -98,6 +98,18 @@ workflow in `docs/source/developer_guide/debugging.rst`; add ASan when lifetime
 or memory safety is involved. macOS is the normal local gate. Windows remains
 a best-effort CI platform, but portable code should still be maintained.
 
+When it is reachable, use the Windows build host at
+`ssh hhenson@hg-windows` as the preferred local environment for reproducing
+Windows-specific failures and validating Windows builds, wheel installation,
+and runtime imports. The host is not guaranteed to be available, so inability
+to connect does not make this opportunistic Windows validation a completion
+blocker. Use the current stable Visual Studio 2026 Build Tools installation
+(MSVC 19.51 or newer), initialize it explicitly through its `vcvars64.bat`, and
+verify `cl.exe` before building; do not assume the newest compiler or CMake is
+already on `PATH`. The host has eight physical cores with hyper-threading, so
+use at least eight parallel build workers unless a specific diagnostic requires
+serial execution.
+
 The x86_64 OrbStack VM on Apple Silicon does not expose AVX/AVX2. Standard
 Polars warns about the missing CPU features and then segfaults inside
 `_polars_runtime` during ordinary `DataFrame` construction. This is a VM

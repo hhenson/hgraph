@@ -12,3 +12,6 @@ else()
 endif()
 
 add_test(NAME hgraph_kafka_tests COMMAND hgraph_kafka_tests)
+if(COMMAND hgraph_configure_test_runtime_paths)
+    hgraph_configure_test_runtime_paths(hgraph_kafka_tests)
+endif()
