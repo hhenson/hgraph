@@ -377,6 +377,44 @@ def _service_type_variables(signature):
     return tuple(found.values())
 
 
+def _copy_service_resolution(resolution):
+    """Return a call-local copy of a native service resolution scope."""
+    copied = _hgraph.ResolutionScope()
+    if resolution is None:
+        return copied
+    for name, value in resolution.bindings.items():
+        if isinstance(value, _hgraph.TsType):
+            copied.bind_ts(name, value)
+        elif isinstance(value, _hgraph.ValueType):
+            copied.bind_scalar(name, value)
+        elif isinstance(value, int) and not isinstance(value, bool):
+            copied.bind_size(name, value)
+        else:  # pragma: no cover - ResolutionScope exposes only these kinds
+            raise TypeError(
+                f"unsupported service resolution binding {name}={value!r}")
+    return copied
+
+
+def _service_needs_resolution(stub):
+    """Whether transport or type-only interface variables remain unresolved.
+
+    A concrete transport descriptor is not sufficient: ``type[T]`` parameters
+    can still require call-time scalar values before a resolver can bind them.
+    Keep that distinction in one predicate for clients and registrations.
+    """
+    if getattr(stub, "descriptor", None) is None:
+        return True
+    signature = getattr(stub, "_signature", None)
+    if signature is None:
+        return False
+    resolution = getattr(stub, "_resolution", None)
+    return any(
+        resolution is None
+        or not resolution.is_resolved(_type_var_name(variable))
+        for variable in _service_type_variables(signature)
+    )
+
+
 def _inferred_specialization(fn, request_annotation, request, resolvers=None):
     resolution = _hgraph.ResolutionScope()
     actual = _unwrap(request).ts_type
@@ -675,7 +713,7 @@ class _ServiceStub:
         _remember_service_resolution(self)
 
     def __getitem__(self, item):
-        if self.descriptor is not None and not self._specialization:
+        if not _service_needs_resolution(self) and not self._specialization:
             raise TypeError(f"service '{self.__name__}' is not generic")
 
         items = item if isinstance(item, tuple) else (item,)
@@ -701,9 +739,9 @@ class _ServiceStub:
             pending_registrations=self._pending_registrations,
             registered_resolutions=self._registered_resolutions,
             resolution_variables=variables)
-        if result.descriptor is None:
+        if _service_needs_resolution(result):
             raise TypeError(
-                f"service '{self.__name__}' specialization leaves an unresolved time-series type")
+                f"service '{self.__name__}' specialization leaves an unresolved type")
         return result
 
     def _require_descriptor(self):
@@ -756,11 +794,12 @@ class _ServiceStub:
             ]
         w = _current_wiring()
         stub = self
-        if self.descriptor is None:
-            scalar_values = _service_scalar_values(self._signature, bound)
+        scalar_values = _service_scalar_values(self._signature, bound)
+        if _service_needs_resolution(self):
             resolution = _resolve_service_signature(
                 self._signature,
                 self._resolvers,
+                resolution=_copy_service_resolution(self._resolution),
                 request_params=self._request_params,
                 requests=requests,
                 scalar_values=scalar_values,
@@ -776,6 +815,9 @@ class _ServiceStub:
                 deprecated=self._deprecated,
                 pending_registrations=self._pending_registrations,
                 registered_resolutions=self._registered_resolutions)
+            if _service_needs_resolution(stub):
+                raise TypeError(
+                    f"generic service '{self.__name__}' has unresolved type variables")
         elif self._registered_resolutions:
             resolution = _registered_service_resolution(
                 self, w, path, self._resolution)
@@ -786,7 +828,6 @@ class _ServiceStub:
                 deprecated=self._deprecated,
                 pending_registrations=self._pending_registrations,
                 registered_resolutions=self._registered_resolutions)
-        scalar_values = _service_scalar_values(self._signature, bound)
         _materialize_pending_registrations(
             self, stub._resolution, w, scalar_values=scalar_values)
         # Record the client's wiring-time scalar options against the resolved
@@ -819,7 +860,7 @@ class _ServiceStub:
         """Register an implementation through this interface specialization."""
         if not isinstance(implementation, _ServiceImpl):
             raise WiringError("register_impl requires an @service_impl-decorated implementation")
-        if self.descriptor is None:
+        if _service_needs_resolution(self):
             _queue_service_registration(path, implementation, kwargs, (self,))
             return
         resolved = _implementation_for_stub(implementation, self)
@@ -890,10 +931,11 @@ class _AdaptorClientStub:
         ]
         stub = self
         scalar_values = _service_scalar_values(self._signature, bound)
-        if self.descriptor is None:
+        if _service_needs_resolution(self):
             resolution = _resolve_service_signature(
                 self._signature,
                 self._resolvers,
+                resolution=_copy_service_resolution(self._resolution),
                 request_params=self._request_params,
                 requests=requests,
                 scalar_values=scalar_values,
@@ -901,6 +943,10 @@ class _AdaptorClientStub:
             )
             specialization = _specialization_label(resolution)
             stub = self._specialized_stub(resolution, specialization)
+            if _service_needs_resolution(stub):
+                raise TypeError(
+                    f"generic {_flavour_label(self.flavour)} '{self.__name__}' "
+                    "has unresolved type variables")
         self._materialize_client_registration(stub, scalar_values)
         config_path, path = _resolved_client_path(stub, path)
         configured_path = _record_client_config(
@@ -982,7 +1028,7 @@ class _AdaptorStub(_AdaptorClientStub):
         _remember_service_resolution(self)
 
     def __getitem__(self, item):
-        if self.descriptor is not None and not self._specialization:
+        if not _service_needs_resolution(self) and not self._specialization:
             raise TypeError(f"adaptor '{self.__name__}' is not generic")
         resolution, specialization, variables = _specialization(
             item, f"adaptor '{self.__name__}'", self._signature,
@@ -993,9 +1039,9 @@ class _AdaptorStub(_AdaptorClientStub):
             pending_registrations=self._pending_registrations,
             registered_resolutions=self._registered_resolutions,
             resolution_variables=variables)
-        if result.descriptor is None:
+        if _service_needs_resolution(result):
             raise TypeError(
-                f"adaptor '{self.__name__}' specialization leaves an unresolved time-series type")
+                f"adaptor '{self.__name__}' specialization leaves an unresolved type")
         return result
 
     def _require_descriptor(self):
@@ -1121,7 +1167,7 @@ class _ServiceAdaptorStub(_AdaptorClientStub):
         _remember_service_resolution(self)
 
     def __getitem__(self, item):
-        if self.descriptor is not None and not self._specialization:
+        if not _service_needs_resolution(self) and not self._specialization:
             raise TypeError(f"service adaptor '{self.__name__}' is not generic")
         items = item if isinstance(item, tuple) else (item,)
         if not all(isinstance(binding, slice) for binding in items):
@@ -1144,9 +1190,9 @@ class _ServiceAdaptorStub(_AdaptorClientStub):
             pending_registrations=self._pending_registrations,
             registered_resolutions=self._registered_resolutions,
             resolution_variables=variables)
-        if result.descriptor is None:
+        if _service_needs_resolution(result):
             raise TypeError(
-                f"service adaptor '{self.__name__}' specialization leaves an unresolved time-series type")
+                f"service adaptor '{self.__name__}' specialization leaves an unresolved type")
         return result
 
     def _require_descriptor(self):
@@ -1316,7 +1362,7 @@ def register_adaptor(path, implementation, resolution_dict=None, **kwargs):
         raise WiringError("register_adaptor requires an @adaptor_impl-decorated implementation")
     unresolved = tuple(
         stub for stub in implementation.interfaces
-        if getattr(stub, "descriptor", None) is None)
+        if _service_needs_resolution(stub))
     if unresolved and not resolution_dict:
         _queue_service_registration(
             path, implementation, kwargs, unresolved,
@@ -1751,6 +1797,11 @@ def _bind_registered_impl(implementation, path, config):
         ts_type = resolution.find_ts(name)
         if ts_type is not None:
             resolved_config[param.name] = _TsExpr(ts_type, f"resolved[{name}]")
+            continue
+        size = resolution.find_size(name)
+        if size is not None:
+            from ._graph import _ResolvedSize
+            resolved_config[param.name] = _ResolvedSize(size)
 
     cache_key = None
     if not registration_contexts:
@@ -1949,7 +2000,7 @@ def _resolve_registered_implementation(implementation, resolution_dict, operatio
     """
     unresolved = [
         stub for stub in implementation.interfaces
-        if getattr(stub, "descriptor", None) is None
+        if _service_needs_resolution(stub)
     ]
     if not unresolved:
         return implementation
@@ -1962,7 +2013,7 @@ def _resolve_registered_implementation(implementation, resolution_dict, operatio
 
     resolved = copy.copy(implementation)
     resolved.interfaces = tuple(
-        stub[entries] if getattr(stub, "descriptor", None) is None else stub
+        stub[entries] if _service_needs_resolution(stub) else stub
         for stub in implementation.interfaces
     )
     return resolved
@@ -2009,8 +2060,9 @@ def _specialize_registered_implementation(
 ):
     import copy
 
+    participants = (_ServiceStub, _AdaptorStub, _ServiceAdaptorStub)
     for stub in implementation.interfaces:
-        if isinstance(stub, _ServiceStub):
+        if isinstance(stub, participants):
             _resolve_service_signature(
                 stub._signature,
                 stub._resolvers,
@@ -2022,21 +2074,21 @@ def _specialize_registered_implementation(
     resolved._resolution = resolution
     interfaces = []
     for stub in implementation.interfaces:
-        if getattr(stub, "descriptor", None) is not None:
-            if len(implementation.interfaces) > 1 and isinstance(stub, _ServiceStub):
-                interfaces.append(_ServiceStub(
-                    stub.fn, stub.flavour, resolution=resolution,
-                    specialization=specialization, resolvers=stub._resolvers,
-                    deprecated=stub._deprecated,
-                    pending_registrations=stub._pending_registrations,
-                    registered_resolutions=stub._registered_resolutions,
-                ))
-            else:
-                interfaces.append(stub)
+        if not isinstance(stub, participants):
+            if getattr(stub, "descriptor", None) is None:
+                raise WiringError(
+                    f"generic registration is not supported for "
+                    f"{stub.flavour} '{stub.__name__}'")
+            interfaces.append(stub)
             continue
-        if not isinstance(stub, (_ServiceStub, _AdaptorStub, _ServiceAdaptorStub)):
-            raise WiringError(
-                f"generic registration is not supported for {stub.flavour} '{stub.__name__}'")
+
+        needs_concrete = (
+            _service_needs_resolution(stub)
+            or (len(implementation.interfaces) > 1 and bool(specialization))
+        )
+        if not needs_concrete:
+            interfaces.append(stub)
+            continue
         if isinstance(stub, _AdaptorStub):
             concrete = _AdaptorStub(
                 stub.fn, resolution=resolution, specialization=specialization,
@@ -2056,7 +2108,7 @@ def _specialize_registered_implementation(
                 deprecated=stub._deprecated,
                 pending_registrations=stub._pending_registrations,
                 registered_resolutions=stub._registered_resolutions)
-        if concrete.descriptor is None:
+        if _service_needs_resolution(concrete):
             raise WiringError(
                 f"service '{stub.__name__}' remains unresolved after request inference")
         interfaces.append(concrete)
@@ -2068,7 +2120,7 @@ def _queue_service_registration(path, implementation, config, owners=None,
                                 registrar=None):
     unresolved = tuple(
         stub for stub in implementation.interfaces
-        if getattr(stub, "descriptor", None) is None
+        if _service_needs_resolution(stub)
     )
     triggers = tuple(owners or unresolved)
     if not triggers:
@@ -2343,7 +2395,7 @@ def register_service(path, implementation, resolution_dict=None, **kwargs):
         raise WiringError("register_service requires an @service_impl-decorated implementation")
     unresolved = tuple(
         stub for stub in implementation.interfaces
-        if getattr(stub, "descriptor", None) is None
+        if _service_needs_resolution(stub)
     )
     if unresolved and not resolution_dict:
         _queue_service_registration(path, implementation, kwargs, unresolved)

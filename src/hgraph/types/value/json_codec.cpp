@@ -29,6 +29,7 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace hgraph
 {
@@ -374,29 +375,95 @@ namespace hgraph
             ++pos;
         }
 
-        [[nodiscard]] std::string translate_python_datetime_format(
-            std::string_view format)
+        struct TranslatedPythonDateTimeInput
         {
-            std::string translated;
-            translated.reserve(format.size());
-            for (std::size_t position = 0; position < format.size();)
+            std::string              format{};
+            std::vector<std::string> candidates{};
+        };
+
+        [[nodiscard]] TranslatedPythonDateTimeInput
+            translate_python_datetime_input(
+                std::string_view text, std::string_view format)
+        {
+            TranslatedPythonDateTimeInput translated{
+                std::string{format}, {std::string{text}}};
+            const std::size_t fraction = format.find("%f");
+            if (fraction == std::string_view::npos)
             {
-                if (format.substr(position, 5) == "%S.%f")
+                return translated;
+            }
+
+            const std::size_t seconds = format.rfind("%S", fraction);
+            if (seconds == std::string_view::npos)
+            {
+                return translated;
+            }
+            const std::string_view separator = format.substr(
+                seconds + 2, fraction - (seconds + 2));
+            if (separator.find('%') != std::string_view::npos)
+            {
+                return translated;
+            }
+
+            // date::from_stream parses fractional seconds as part of %S,
+            // whereas Python strptime exposes them as a separate %f. Remove
+            // the literal separator and %f from the format, then normalize
+            // that separator in candidate text to the classic locale's '.'.
+            translated.format = std::string{format.substr(0, seconds + 2)};
+            translated.format.append(format.substr(fraction + 2));
+
+            const auto add_candidate = [&](std::string candidate) {
+                if (std::ranges::find(
+                        translated.candidates, candidate) ==
+                    translated.candidates.end())
                 {
-                    // date::from_stream parses the fractional component as
-                    // part of %S; Python strptime spells it as a separate %f.
-                    translated += "%S";
-                    position += 5;
+                    translated.candidates.push_back(std::move(candidate));
                 }
-                else if (format.substr(position, 4) == "%S%f")
+            };
+            const auto is_digit = [](char value) {
+                return std::isdigit(
+                    static_cast<unsigned char>(value)) != 0;
+            };
+
+            if (separator == ".")
+            {
+                return translated;
+            }
+            if (separator.empty())
+            {
+                // For compact %S%f spellings, try each position after a
+                // two-digit seconds field. Full-format parsing selects the
+                // position consistent with the surrounding directives.
+                for (std::size_t position = 2; position < text.size();
+                     ++position)
                 {
-                    translated += "%S";
-                    position += 4;
+                    if (!is_digit(text[position - 2]) ||
+                        !is_digit(text[position - 1]) ||
+                        !is_digit(text[position]))
+                    {
+                        continue;
+                    }
+                    std::string candidate{text};
+                    candidate.insert(position, 1, '.');
+                    add_candidate(std::move(candidate));
                 }
-                else
+                return translated;
+            }
+
+            for (std::size_t position = text.find(separator);
+                 position != std::string_view::npos;
+                 position = text.find(separator, position + separator.size()))
+            {
+                const std::size_t fraction_start =
+                    position + separator.size();
+                if (fraction_start >= text.size() ||
+                    !is_digit(text[fraction_start]))
                 {
-                    translated.push_back(format[position++]);
+                    continue;
                 }
+                std::string candidate{text};
+                candidate.replace(position, separator.size(), ".");
+                add_candidate(std::move(candidate));
             }
             return translated;
         }
@@ -425,8 +492,9 @@ namespace hgraph
         [[nodiscard]] std::optional<TimePoint> parse_datetime_format(
             std::string_view text, std::string_view python_format)
         {
-            const std::string format =
-                translate_python_datetime_format(python_format);
+            const auto translated =
+                translate_python_datetime_input(text, python_format);
+            const std::string &format = translated.format;
             const auto parse = [](std::string_view candidate,
                                   std::string_view candidate_format)
                 -> std::optional<TimePoint> {
@@ -442,7 +510,10 @@ namespace hgraph
                 return value;
             };
 
-            if (auto value = parse(text, format)) { return value; }
+            for (const std::string &candidate : translated.candidates)
+            {
+                if (auto value = parse(candidate, format)) { return value; }
+            }
 
             const bool has_offset =
                 format.find("%z") != std::string::npos ||
@@ -452,11 +523,23 @@ namespace hgraph
             const std::string extended_format = colon_offset_format(format);
             if (extended_format != format)
             {
-                if (auto value = parse(text, extended_format)) { return value; }
+                for (const std::string &candidate : translated.candidates)
+                {
+                    if (auto value = parse(candidate, extended_format))
+                    {
+                        return value;
+                    }
+                }
             }
-            if (!text.empty() && (text.back() == 'Z' || text.back() == 'z'))
+            for (const std::string &candidate : translated.candidates)
             {
-                std::string normalized{text.substr(0, text.size() - 1)};
+                if (candidate.empty() ||
+                    (candidate.back() != 'Z' && candidate.back() != 'z'))
+                {
+                    continue;
+                }
+                std::string normalized{
+                    candidate.substr(0, candidate.size() - 1)};
                 normalized += "+00:00";
                 if (auto value = parse(normalized, extended_format))
                 {
@@ -621,47 +704,54 @@ namespace hgraph
             const auto parse = [](std::string_view candidate,
                                   std::string_view python_format)
                 -> std::optional<CivilTime> {
-                const std::string format =
-                    translate_python_datetime_format(python_format);
-                std::istringstream stream{std::string{candidate}};
-                stream.imbue(std::locale::classic());
-                std::chrono::microseconds value{};
-                json_datetime_from_stream(stream, format.c_str(), value);
-                if (stream.fail() || stream.rdbuf()->in_avail() != 0)
+                const auto translated = translate_python_datetime_input(
+                    candidate, python_format);
+                for (const std::string &normalized : translated.candidates)
                 {
-                    return std::nullopt;
-                }
-                if (format.find("%p") != std::string::npos)
-                {
-                    std::string meridiem{candidate};
-                    std::ranges::transform(
-                        meridiem, meridiem.begin(), [](char value) {
-                            return static_cast<char>(std::toupper(
-                                static_cast<unsigned char>(value)));
-                        });
-                    const bool is_am = meridiem.find("AM") != std::string::npos;
-                    const bool is_pm = meridiem.find("PM") != std::string::npos;
-                    if (is_am == is_pm) { return std::nullopt; }
+                    std::istringstream stream{normalized};
+                    stream.imbue(std::locale::classic());
+                    std::chrono::microseconds value{};
+                    json_datetime_from_stream(
+                        stream, translated.format.c_str(), value);
+                    if (stream.fail() || stream.rdbuf()->in_avail() != 0)
+                    {
+                        continue;
+                    }
+                    if (translated.format.find("%p") != std::string::npos)
+                    {
+                        std::string meridiem{normalized};
+                        std::ranges::transform(
+                            meridiem, meridiem.begin(), [](char value) {
+                                return static_cast<char>(std::toupper(
+                                    static_cast<unsigned char>(value)));
+                            });
+                        const bool is_am =
+                            meridiem.find("AM") != std::string::npos;
+                        const bool is_pm =
+                            meridiem.find("PM") != std::string::npos;
+                        if (is_am == is_pm) { continue; }
 
-                    const auto hour =
-                        std::chrono::duration_cast<std::chrono::hours>(value);
-                    // Howard Hinnant date releases differ in whether parsing
-                    // a duration applies %p. Normalize either result.
-                    if (is_pm && hour < std::chrono::hours{12})
-                    {
-                        value += std::chrono::hours{12};
+                        const auto hour = std::chrono::duration_cast<
+                            std::chrono::hours>(value);
+                        // Howard Hinnant date releases differ in whether
+                        // parsing a duration applies %p. Normalize either.
+                        if (is_pm && hour < std::chrono::hours{12})
+                        {
+                            value += std::chrono::hours{12};
+                        }
+                        else if (is_am && hour >= std::chrono::hours{12})
+                        {
+                            value -= std::chrono::hours{12};
+                        }
                     }
-                    else if (is_am && hour >= std::chrono::hours{12})
+                    if (value < std::chrono::microseconds{0} ||
+                        value >= std::chrono::hours{24})
                     {
-                        value -= std::chrono::hours{12};
+                        continue;
                     }
+                    return CivilTime{value.count()};
                 }
-                if (value < std::chrono::microseconds{0} ||
-                    value >= std::chrono::hours{24})
-                {
-                    return std::nullopt;
-                }
-                return CivilTime{value.count()};
+                return std::nullopt;
             };
             for (const std::string_view format : iso_formats)
             {

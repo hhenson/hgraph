@@ -206,6 +206,10 @@ TEST_CASE("json: temporal reads accept ISO, compact, fallback, and registered fo
     register_json_datetime_format("%d/%m/%Y %H:%M:%S");
     CHECK(parse_json_value<DateTime>("\"13/06/2024 10:15:30\"") ==
           utc_instant(2024, 6, 13, 10, 15, 30));
+    register_json_datetime_format("%Y-%m-%d %H:%M:%S,%f");
+    CHECK(parse_json_value<DateTime>(
+              "\"2024-06-13 10:15:30,123456\"") ==
+          utc_instant(2024, 6, 13, 10, 15, 30, 123'456));
     register_json_datetime_format("%I.%M.%S %p", true);
     CHECK(parse_json_value<Time>("\"10.15.30 PM\"") ==
           time_of_day(22, 15, 30));
@@ -213,6 +217,9 @@ TEST_CASE("json: temporal reads accept ISO, compact, fallback, and registered fo
           time_of_day(0, 0, 0));
     CHECK(parse_json_value<Time>("\"12.00.00 PM\"") ==
           time_of_day(12, 0, 0));
+    register_json_datetime_format("%H:%M:%S,%f", true);
+    CHECK(parse_json_value<Time>("\"10:15:30,000042\"") ==
+          time_of_day(10, 15, 30, 42));
 
     try
     {

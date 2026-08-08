@@ -103,3 +103,44 @@ def test_service_and_adaptor_resolvers_receive_bound_scalar_values():
         eval_node(app, [1])
 
     assert all(values and set(values) == {str} for values in calls.values())
+
+
+def test_type_only_service_and_adaptor_resolvers_run_with_concrete_transports():
+    @hg.reference_service(
+        resolvers={hg.SIZE: lambda mapping, width: width})
+    def sized_reference(
+        width: int,
+        size: type[hg.SIZE] = hg.AUTO_RESOLVE,
+        path: str = "sized-reference",
+    ) -> TS[int]: ...
+
+    @hg.service_impl(interfaces=sized_reference)
+    def sized_reference_impl(
+        size: type[hg.SIZE] = hg.AUTO_RESOLVE,
+    ) -> TS[int]:
+        return hg.const(size.SIZE)
+
+    @hg.adaptor(resolvers={hg.SIZE: lambda mapping, width: width})
+    def sized_adaptor(
+        value: TS[int],
+        width: int,
+        size: type[hg.SIZE] = hg.AUTO_RESOLVE,
+        path: str = "sized-adaptor",
+    ) -> TS[int]: ...
+
+    @hg.adaptor_impl(interfaces=sized_adaptor)
+    def sized_adaptor_impl(
+        value: TS[int],
+        size: type[hg.SIZE] = hg.AUTO_RESOLVE,
+    ) -> TS[int]:
+        return value + size.SIZE
+
+    @graph
+    def app(value: TS[int]) -> TS[int]:
+        hg.register_service("sized-reference", sized_reference_impl)
+        hg.register_adaptor("sized-adaptor", sized_adaptor_impl)
+        reference = sized_reference(3, path="sized-reference")
+        adapted = sized_adaptor(value, 4, path="sized-adaptor")
+        return reference + adapted
+
+    assert eval_node(app, [1, 2]) == [8, 9]

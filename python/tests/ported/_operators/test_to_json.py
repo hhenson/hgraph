@@ -172,6 +172,14 @@ def test_register_json_datetime_format_accepts_a_producers_own_format():
     ) == [datetime(2024, 6, 13, 10, 15, 30)]
 
 
+def test_registered_json_datetime_format_translates_fraction_directives():
+    register_json_datetime_format("%Y-%m-%d %H:%M:%S,%f")
+    assert eval_node(
+        from_json[TS[datetime]],
+        ['"2024-06-13 10:15:30,123456"'],
+    ) == [datetime(2024, 6, 13, 10, 15, 30, 123456)]
+
+
 def test_register_json_time_format_accepts_a_producers_own_format():
     register_json_datetime_format("%I.%M.%S %p", time_only=True)
     assert eval_node(
@@ -182,6 +190,13 @@ def test_register_json_time_format_accepts_a_producers_own_format():
         time(0, 0, 0),
         time(12, 0, 0),
     ]
+
+
+def test_registered_json_time_format_translates_fraction_directives():
+    register_json_datetime_format("%H:%M:%S,%f", time_only=True)
+    assert eval_node(
+        from_json[TS[time]], ['"10:15:30,000042"'],
+    ) == [time(10, 15, 30, 42)]
 
 
 def test_to_json_omits_fractional_seconds_when_zero():
