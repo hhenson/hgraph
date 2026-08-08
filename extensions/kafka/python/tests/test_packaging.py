@@ -55,6 +55,9 @@ def test_windows_wheel_statically_links_non_system_dependencies():
 
     assert "HGRAPH_KAFKA_BUILD_PYTHON AND (APPLE OR WIN32)" in extension_cmake
     assert "set(OPENSSL_USE_STATIC_LIBS TRUE)" in extension_cmake
+    assert "MSVC AND OPENSSL_USE_STATIC_LIBS" in extension_cmake
+    assert "/NODEFAULTLIB:libcrypto.lib" in extension_cmake
+    assert "/NODEFAULTLIB:libssl.lib" in extension_cmake
     assert AUDIT_MODULE._unexpected_windows_dependencies(
         {
             "hgraph_stdlib.dll",

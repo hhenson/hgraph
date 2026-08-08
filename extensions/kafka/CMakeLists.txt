@@ -81,6 +81,17 @@ if(NOT TARGET RdKafka::rdkafka AND NOT TARGET rdkafka)
         GIT_SHALLOW TRUE
     )
     FetchContent_MakeAvailable(librdkafka)
+
+    if(MSVC AND OPENSSL_USE_STATIC_LIBS)
+        # librdkafka's Windows TLS source embeds default-library directives for
+        # the OpenSSL import libraries.  Ignore those names when CMake selected
+        # the explicitly linked *_static.lib archives for a self-contained
+        # consumer; otherwise MSVC still searches for the absent import libs.
+        target_link_options(rdkafka INTERFACE
+            /NODEFAULTLIB:libcrypto.lib
+            /NODEFAULTLIB:libssl.lib
+        )
+    endif()
 endif()
 
 if(TARGET RdKafka::rdkafka)
