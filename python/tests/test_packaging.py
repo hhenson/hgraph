@@ -45,8 +45,12 @@ def test_nanobind_build_and_sdk_headers_use_one_exact_runtime_abi():
 
 def test_installed_sdk_exports_required_msvc_source_contract():
     cmake = (ROOT / "CMakeLists.txt").read_text()
+    graph_wiring = (ROOT / "include/hgraph/types/graph_wiring.h").read_text()
 
     assert "target_compile_options(hgraph_options INTERFACE /W4 /permissive- /utf-8)" in cmake
+    assert "target_compile_definitions(fmt PRIVATE FMT_LIB_EXPORT)" in cmake
+    assert "$<INSTALL_INTERFACE:FMT_SHARED>" in cmake
+    assert "class HGRAPH_EXPORT ServiceImplementationScope" in graph_wiring
 
 
 def test_windows_wheel_installs_all_linked_pyarrow_runtimes():
