@@ -213,6 +213,15 @@ def test_release_workflow_audits_distribution_contents():
     assert '"kafka-dist/*.tar.gz"' in workflow
 
 
+def test_release_workflow_locates_installed_sdk_from_distribution():
+    workflow = (ROOT / ".github/workflows/build.yml").read_text()
+
+    assert 'metadata.distribution("hg_cpp")' in workflow
+    assert 'distribution.locate_file("")' in workflow
+    assert '"hgraphConfig.cmake"' in workflow
+    assert "HGRAPH_KAFKA_SDK_PREFIX={site.getsitepackages()[0]}" not in workflow
+
+
 def main():
     test_pyarrow_build_and_runtime_requirements_share_the_supported_abi()
     test_windows_wheel_installs_all_linked_pyarrow_runtimes()
@@ -228,6 +237,7 @@ def main():
     test_release_workflow_targets_supported_platforms()
     test_release_workflow_reuses_tested_commit_artifacts()
     test_release_workflow_audits_distribution_contents()
+    test_release_workflow_locates_installed_sdk_from_distribution()
     print("PASS test_pyarrow_build_and_runtime_requirements_share_the_supported_abi")
     print("PASS test_windows_wheel_installs_all_linked_pyarrow_runtimes")
     print("PASS test_supported_python_versions_are_declared")
@@ -242,6 +252,7 @@ def main():
     print("PASS test_release_workflow_targets_supported_platforms")
     print("PASS test_release_workflow_reuses_tested_commit_artifacts")
     print("PASS test_release_workflow_audits_distribution_contents")
+    print("PASS test_release_workflow_locates_installed_sdk_from_distribution")
 
 
 if __name__ == "__main__":

@@ -234,11 +234,18 @@ jobs:
       - name: Locate the installed core SDK
         shell: python
         run: |
+          from importlib import metadata
           import os
-          import site
+          from pathlib import Path
+
+          distribution = metadata.distribution("hg_cpp")
+          sdk_prefix = Path(distribution.locate_file("")).resolve()
+          config = sdk_prefix / "lib" / "cmake" / "hgraph" / "hgraphConfig.cmake"
+          if not config.is_file():
+              raise FileNotFoundError(f"installed hgraph CMake package not found: {config}")
 
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
-              env_file.write(f"HGRAPH_KAFKA_SDK_PREFIX={site.getsitepackages()[0]}\n")
+              env_file.write(f"HGRAPH_KAFKA_SDK_PREFIX={sdk_prefix}\n")
       - name: Build Kafka stable ABI wheel
         env:
           CMAKE_GENERATOR: ${{ matrix.cmake_generator }}
