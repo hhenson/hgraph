@@ -1,6 +1,8 @@
 [project]
 name = "hgraph"
-version = "0.5.40"
+# A placeholder. Release artifacts are restamped from the v_x.x.x tag by release-wheels.yml, so
+# this is never the published version and does not need to track releases.
+version = "0.0.0"
 description = "A functional reactive platform used to process time-series streams. Provides support for backtest (simulation) and realtime time-series processing. Using a forward propagation graph with a microtask scheduler for the runtime engine."
 readme = "README.md"
 license = {text = "MIT"}

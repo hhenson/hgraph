@@ -445,7 +445,7 @@ wheels = [
 
 [[package]]
 name = "hgraph"
-version = "0.5.40"
+version = "0.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "frozendict" },
