@@ -32,6 +32,8 @@ namespace
     using namespace hgraph::testing;
 
     using IntPair = TSL<TS<Int>, 2>;
+    using StructuralPair =
+        UnNamedTSB<Field<"lhs", TS<Int>>, Field<"rhs", TS<Int>>>;
 
     // ---------------- sub-graph definitions under test ----------------
 
@@ -164,6 +166,21 @@ namespace
         static Port<REF<TS<Int>>> compose(Wiring &, Port<REF<TS<Int>>> in) { return in; }
     };
 
+    // The callable exposes a plain logical result while its actual terminal
+    // remains a REF-producing node. CompiledSubGraph must retain both views.
+    struct DereferencedRefOutputSubGraph
+    {
+        static constexpr auto name = "dereferenced_ref_output_subgraph";
+
+        static Port<TS<Int>> compose(Wiring &w,
+                                     Port<TS<Bool>> pick_rhs,
+                                     Port<TS<Int>> lhs,
+                                     Port<TS<Int>> rhs)
+        {
+            return wire<RefSelector>(w, pick_rhs, lhs, rhs).as<TS<Int>>();
+        }
+    };
+
     struct PairSum
     {
         static constexpr auto name = "pair_sum";
@@ -180,6 +197,63 @@ namespace
         static Port<TS<Int>>  compose(Wiring &w, Port<REF<IntPair>> in)
         {
             return wire<PairSum>(w, in);
+        }
+    };
+
+    struct StructuralPairSubGraph
+    {
+        static constexpr auto name = "structural_pair_subgraph";
+
+        static Port<StructuralPair> compose(
+            Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            return stdlib::to_tsb<StructuralPair>(w, lhs, rhs);
+        }
+    };
+
+    struct StructuralListSubGraph
+    {
+        static constexpr auto name = "structural_list_subgraph";
+
+        static Port<IntPair> compose(
+            Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            return stdlib::to_tsl<IntPair>(w, lhs, rhs).as<IntPair>();
+        }
+    };
+
+    struct DynamicListPassThroughSubGraph
+    {
+        static constexpr auto name = "dynamic_list_pass_through_subgraph";
+
+        static Port<TSL<TS<Int>>> compose(
+            Wiring &, Port<TSL<TS<Int>>> values)
+        {
+            return values;
+        }
+    };
+
+    struct StructuralPairPassThroughSubGraph
+    {
+        static constexpr auto name = "structural_pair_pass_through_subgraph";
+
+        static Port<StructuralPair> compose(
+            Wiring &w, Port<StructuralPair> value, Port<TS<Int>> trigger)
+        {
+            static_cast<void>(wire<stdlib::null_sink>(w, trigger));
+            return value;
+        }
+    };
+
+    struct EmptyStructuralPairReferenceSource
+    {
+        static constexpr auto name = "empty_structural_pair_reference_source";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<REF<StructuralPair>> out)
+        {
+            out.set(TimeSeriesReference::empty(
+                schema_descriptor<StructuralPair>::ts_meta()));
         }
     };
 
@@ -328,6 +402,58 @@ namespace
         }
     };
 
+    struct NestedStructuralPairGraph
+    {
+        static constexpr auto name = "nested_structural_pair_graph";
+
+        static Port<StructuralPair> compose(
+            Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            return nested_<StructuralPairSubGraph>(w, lhs, rhs);
+        }
+    };
+
+    struct NestedStructuralListGraph
+    {
+        static constexpr auto name = "nested_structural_list_graph";
+
+        static Port<IntPair> compose(
+            Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs)
+        {
+            return nested_<StructuralListSubGraph>(w, lhs, rhs);
+        }
+    };
+
+    struct NestedDynamicListPassThroughGraph
+    {
+        static constexpr auto name = "nested_dynamic_list_pass_through_graph";
+
+        static Port<TSL<TS<Int>>> compose(
+            Wiring &w, Port<TSL<TS<Int>>> values)
+        {
+            return nested_<DynamicListPassThroughSubGraph>(w, values);
+        }
+    };
+
+    struct NestedStructuralPairUnbindGraph
+    {
+        static constexpr auto name = "nested_structural_pair_unbind_graph";
+
+        static Port<StructuralPair> compose(
+            Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs,
+            Port<TS<Int>> choice, Port<TS<Int>> trigger)
+        {
+            auto value = stdlib::to_tsb<StructuralPair>(w, lhs, rhs);
+            auto empty = wire<EmptyStructuralPairReferenceSource>(w);
+            auto choices = stdlib::to_tsl<TSL<StructuralPair, 2>>(
+                w, value, empty);
+            auto selected = wire<stdlib::getitem_>(w, choices, choice)
+                                .as<StructuralPair>();
+            return nested_<StructuralPairPassThroughSubGraph>(
+                w, selected, trigger);
+        }
+    };
+
     struct NestedTslGraph
     {
         static constexpr auto name = "nested_tsl_graph";
@@ -383,6 +509,81 @@ TEST_CASE("nested wiring: nested_<G> binds an outer input into the child graph a
     stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<NestedAddOneGraph>(values<Int>(1, 2, 3)), values<Int>(2, 3, 4));
+}
+
+TEST_CASE("nested wiring: compiled structural results keep logical and terminal schemas distinct")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    const auto *bundle_schema = schema_descriptor<StructuralPair>::ts_meta();
+    const CompiledSubGraph bundle = compile_subgraph<StructuralPairSubGraph>();
+    CHECK(bundle.output_schema == bundle_schema);
+    CHECK(bundle.terminal_output_schema ==
+          TypeRegistry::instance().ref(bundle_schema));
+
+    const auto *list_schema = schema_descriptor<IntPair>::ts_meta();
+    const CompiledSubGraph list = compile_subgraph<StructuralListSubGraph>();
+    CHECK(list.output_schema == list_schema);
+    CHECK(list.terminal_output_schema == TypeRegistry::instance().ref(list_schema));
+
+    const auto *plain_schema = schema_descriptor<TS<Int>>::ts_meta();
+    const CompiledSubGraph dereferenced_ref =
+        compile_subgraph<DereferencedRefOutputSubGraph>();
+    CHECK(dereferenced_ref.output_schema == plain_schema);
+    CHECK(dereferenced_ref.terminal_output_schema ==
+          TypeRegistry::instance().ref(plain_schema));
+}
+
+TEST_CASE("nested wiring: newly composed fixed structural results retain their public schemas")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        (eval_node<NestedStructuralPairGraph>(
+            values<Int>(1, 2), values<Int>(10, 20))),
+        values<Value>(tsb_delta<StructuralPair>(Int{1}, Int{10}),
+                      tsb_delta<StructuralPair>(Int{2}, Int{20})));
+    CHECK_OUTPUT(
+        (eval_node<NestedStructuralListGraph>(
+            values<Int>(1, 2), values<Int>(10, 20))),
+        values<Value>(list_delta<TS<Int>>({1, 10}),
+                      list_delta<TS<Int>>({2, 20})));
+}
+
+TEST_CASE("nested wiring: a dynamic TSL pass-through binds before the producer grows the list")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    const auto input = values<Value>(
+        list_delta<TS<Int>>({}),
+        list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+        list_delta<TS<Int>>({{1, 3}}));
+    CHECK_OUTPUT(
+        eval_node<NestedDynamicListPassThroughGraph>(input),
+        values<Value>(none,
+                      list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+                      list_delta<TS<Int>>({{1, 3}})));
+}
+
+TEST_CASE("nested wiring: structural pass-through leaves clear while their source is unbound")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        (eval_node<NestedStructuralPairUnbindGraph>(
+            values<Int>(1, none, 2, none),
+            values<Int>(10, none, 20, none),
+            values<Int>(0, 1, none, 0),
+            values<Int>(0, 1, 2, 3))),
+        values<Value>(
+            tsb_delta<StructuralPair>(Int{1}, Int{10}),
+            none,
+            none,
+            tsb_delta<StructuralPair>(Int{2}, Int{20})));
 }
 
 TEST_CASE("nested wiring: every dynamic child graph uses planned or stable in-place storage")

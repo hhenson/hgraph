@@ -319,6 +319,39 @@ namespace
             return wire<stdlib::dispatch_>(w, cases.value(), source_ref).as<TS<Str>>();
         }
     };
+
+    using DispatchStructuralResult =
+        UnNamedTSB<Field<"id", TS<Int>>, Field<"sound", TS<Str>>>;
+
+    struct StructuralSound
+    {
+        static constexpr auto name = "dispatch_structural_sound";
+
+        static Port<DispatchStructuralResult> compose(
+            Wiring &w, Port<void> animal)
+        {
+            auto id = wire<stdlib::getattr_, TS<Int>>(
+                w, animal, Str{"id"});
+            auto sound = wire<stdlib::getattr_, TS<Str>>(
+                w, animal, Str{"sound"});
+            return stdlib::to_tsb<DispatchStructuralResult>(w, id, sound);
+        }
+    };
+
+    struct StructuralDispatchGraph
+    {
+        static constexpr auto name = "structural_dispatch_graph";
+
+        static Port<TS<Str>> compose(
+            Wiring &w, Port<TS<Animal>> animal,
+            Scalar<"cases", stdlib::DispatchCases> cases)
+        {
+            auto result = wire<stdlib::dispatch_>(w, cases.value(), animal)
+                              .as<DispatchStructuralResult>();
+            return wire<stdlib::getitem_>(w, result, Str{"sound"})
+                .as<TS<Str>>();
+        }
+    };
 }
 
 TEST_CASE("dispatch_: C++ wiring selects exact and inherited Bundle cases")
@@ -341,6 +374,25 @@ TEST_CASE("dispatch_: C++ wiring selects exact and inherited Bundle cases")
                 cat_value(types, 3)),
             arg<"count">(testing::values<Int>(1, 2, 3)))),
         string_values({"woof", "yip", "meow"}));
+}
+
+TEST_CASE("dispatch_: composed structural branch outputs retain their public schema")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    const auto types = register_dispatch_types();
+
+    const auto cases = stdlib::dispatch_cases({
+        stdlib::dispatch_case(types.dog, fn<StructuralSound>()),
+        stdlib::dispatch_case(types.cat, fn<StructuralSound>()),
+    });
+
+    CHECK_OUTPUT(
+        (testing::eval_node<StructuralDispatchGraph>(
+            testing::values<Value>(dog_value(types, 1, "woof"),
+                                   cat_value(types, 2)),
+            cases)),
+        testing::values<Str>(Str{"woof"}, Str{"meow"}));
 }
 
 TEST_CASE("dispatch_: compiled branches import an enclosing context")

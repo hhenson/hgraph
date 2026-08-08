@@ -116,7 +116,12 @@ def test_dispatch_uses_declared_concrete_output_schema():
     def app(animal: TS[Animal]) -> TSB[Result]:
         return sound(animal)
 
+    @graph
+    def projected(animal: TS[Animal]) -> TS[str]:
+        return sound(animal).sound
+
     assert eval_node(app, [Dog()]) == [{"sound": "woof"}]
+    assert eval_node(projected, [Dog()]) == ["woof"]
 
 
 def test_union_overload_is_registered_for_direct_operator_dispatch():

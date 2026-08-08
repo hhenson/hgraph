@@ -56,18 +56,19 @@ namespace hgraph
          * while another index with the same element schema may remain
          * non-peered and expose deeper peered descendants.
          *
-         * A dynamic TSD has one child annotation: the endpoint topology used
-         * for every value slot. Use ``non_peered_list`` when every fixed TSL
-         * index has the same endpoint annotation and ``non_peered_dict`` for
-         * a dynamic TSD.
+         * A dynamic TSL or TSD has one child annotation: the endpoint topology
+         * used for every element/value slot. Use ``non_peered_list`` when
+         * every TSL element has the same annotation and ``non_peered_dict``
+         * for a dynamic TSD.
          */
         [[nodiscard]] static TSEndpointSchema non_peered(
             const TSValueTypeMetaData       *schema,
             std::vector<TSEndpointSchema>    children);
 
         /**
-         * Non-peered fixed-size TSL prefix where each list index uses the same
-         * element annotation.
+         * Non-peered TSL prefix where each list index uses the same element
+         * annotation. Fixed lists expand it once per index; dynamic lists
+         * retain one annotation for every runtime-created element.
          */
         [[nodiscard]] static TSEndpointSchema non_peered_list(
             const TSValueTypeMetaData *schema,

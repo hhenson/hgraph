@@ -1,6 +1,6 @@
-from hgraph import (REMOVE, NodeError, TSD, TS, TSB, TryExceptResult,
+from hgraph import (REMOVE, NodeError, TSD, TS, TSB, TimeSeriesSchema, TryExceptResult,
                     TryExceptTsdMapResult, compute_node, exception_time_series,
-                    graph, map_, sink_node, try_except)
+                    combine, graph, map_, sink_node, try_except)
 from hgraph.test import eval_node
 
 
@@ -61,6 +61,25 @@ def test_try_except_wraps_python_value_graph():
     assert "divide" in result[1]["exception"].activation_back_trace
     assert "*args*: value={_0: 9, _1: 0}" in result[1]["exception"].activation_back_trace
     assert result[2] == {"out": 2}
+
+
+def test_try_except_preserves_composed_structural_graph_output():
+    class Pair(TimeSeriesSchema):
+        value: TS[int]
+        offset: TS[int]
+
+    @graph
+    def pair(value: TS[int]) -> TSB[Pair]:
+        return combine[TSB[Pair]](value=value, offset=value + 1)
+
+    @graph
+    def protected(value: TS[int]):
+        return try_except(pair, value)
+
+    assert eval_node(protected, [1, 2]) == [
+        {"out": {"value": 1, "offset": 2}},
+        {"out": {"value": 2, "offset": 3}},
+    ]
 
 
 def test_try_except_uses_native_error_output_for_python_compute_node():

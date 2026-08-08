@@ -280,13 +280,15 @@ forwarding_output_endpoint_schema(const TSValueTypeMetaData *schema) {
     }
     return TSEndpointSchema::non_peered(schema, std::move(children));
   }
+  // A fixed list's owner constructs every element, so each stable element can
+  // carry its own forwarding tree. A dynamic list's size belongs to its
+  // producer; before that producer grows the list there are no target
+  // elements to walk, so its generic forwarding endpoint must remain peered
+  // as one whole output. Owner-managed dynamic containers (for example the
+  // outer result of dynamic TSL map_) opt into non_peered_list explicitly.
   if (schema->kind == TSTypeKind::TSL && schema->fixed_size() != 0) {
-    children.reserve(schema->fixed_size());
-    for (std::size_t index = 0; index < schema->fixed_size(); ++index) {
-      children.push_back(
-          forwarding_output_endpoint_schema(schema->element_ts()));
-    }
-    return TSEndpointSchema::non_peered(schema, std::move(children));
+    return TSEndpointSchema::non_peered_list(
+        schema, forwarding_output_endpoint_schema(schema->element_ts()));
   }
   return TSEndpointSchema::peered(schema);
 }
@@ -311,7 +313,8 @@ inline bool clear_forwarding_output_tree(TSOutputView target,
       schema != nullptr && schema->kind == TSTypeKind::TSB
           ? schema->field_count()
       : schema != nullptr && schema->kind == TSTypeKind::TSL
-          ? schema->fixed_size()
+          ? (schema->fixed_size() != 0 ? schema->fixed_size()
+                                       : target.data_view().indexed_child_count())
           : 0;
   if (child_count == 0) {
     throw std::logic_error("Forwarding output tree has a non-forwarding leaf");
@@ -390,7 +393,8 @@ inline bool bind_forwarding_output_tree_to_source(TSOutputView target,
       schema != nullptr && schema->kind == TSTypeKind::TSB
           ? schema->field_count()
       : schema != nullptr && schema->kind == TSTypeKind::TSL
-          ? schema->fixed_size()
+          ? (schema->fixed_size() != 0 ? schema->fixed_size()
+                                       : target.data_view().indexed_child_count())
           : 0;
   if (child_count == 0) {
     throw std::logic_error("Forwarding output tree has a non-forwarding leaf");

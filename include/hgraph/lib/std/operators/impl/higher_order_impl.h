@@ -1216,16 +1216,6 @@ namespace hgraph::stdlib
 
             const bool branch_has_output = compiled.output_schema != nullptr;
             const auto *branch_output_schema = compiled.output_schema;
-            if (compiled.output_is_structural_reference)
-            {
-                // A structural TSB/TSL return is given a synthetic REF
-                // terminal so the child graph has one peered endpoint. That
-                // REF is a child-graph implementation detail, not the public
-                // result type of switch_. Explicitly authored REF outputs do
-                // not carry this flag and retain their REF identity.
-                branch_output_schema =
-                    TypeRegistry::instance().dereference(branch_output_schema);
-            }
             if (!branches_have_output.has_value()) { branches_have_output = branch_has_output; }
             else if (*branches_have_output != branch_has_output)
             {
@@ -2471,6 +2461,62 @@ namespace hgraph::stdlib
             bool whole_variable{false};
         };
 
+        /** Configure a whole child terminal against one public container
+            element. A terminal with endpoint topology of its own, including
+            the synthetic REF used for composed fixed structures, stays owned
+            by the child and the element forwards to it. Only an ordinary
+            owned terminal with the exact public schema is re-homed so it can
+            write directly into the container element. */
+        [[nodiscard]] inline MapOutputBindingMode configure_mapped_child_terminal(
+            NodeBuilder &terminal,
+            const TSValueTypeMetaData *output_schema,
+            const TSValueTypeMetaData *terminal_output_schema,
+            std::string_view operation_name)
+        {
+            const NodeTypeMetaData *terminal_meta = terminal.type().schema();
+            const auto *declared_terminal_schema =
+                terminal_meta != nullptr ? terminal_meta->output_schema : nullptr;
+            if (output_schema == nullptr || terminal_output_schema == nullptr ||
+                declared_terminal_schema == nullptr ||
+                !time_series_schema_equivalent(
+                    declared_terminal_schema, terminal_output_schema))
+            {
+                throw std::logic_error(fmt::format(
+                    "{}: compiled child terminal schema is inconsistent",
+                    operation_name));
+            }
+
+            auto &registry = TypeRegistry::instance();
+            const bool exact_match = time_series_schema_equivalent(
+                output_schema, terminal_output_schema);
+            if (!exact_match &&
+                !time_series_schema_equivalent(
+                    registry.dereference(output_schema),
+                    registry.dereference(terminal_output_schema)))
+            {
+                throw std::invalid_argument(fmt::format(
+                    "{}: child terminal schema is incompatible with its public output",
+                    operation_name));
+            }
+
+            const TSEndpointSchema &terminal_override = terminal.output_endpoint();
+            const TSEndpointSchema &terminal_declared =
+                terminal_meta != nullptr
+                    ? terminal_meta->output_endpoint_schema
+                    : terminal_override;
+            const TSEndpointSchema &terminal_endpoint =
+                !terminal_override.empty() ? terminal_override : terminal_declared;
+            if (!exact_match ||
+                (!terminal_endpoint.empty() &&
+                 (terminal_endpoint.is_peered() || terminal_endpoint.is_non_peered())))
+            {
+                return MapOutputBindingMode::OutputElementForwardsToChildTerminal;
+            }
+
+            terminal.output_endpoint(TSEndpointSchema::peered(output_schema));
+            return MapOutputBindingMode::ChildTerminalWritesElement;
+        }
+
         /** Determine whether one mapped parameter accepts a TSD whole or its
             element. A bare pattern variable on a user callable denotes a
             whole-time-series parameter; abstract operator markers retain the
@@ -2719,15 +2765,6 @@ namespace hgraph::stdlib
             if (child_has_output)
             {
                 const auto *element_schema = compiled.output_schema;
-                if (compiled.output_is_structural_reference)
-                {
-                    // A structural return needs one internal REF terminal so
-                    // the child graph has a peered endpoint. That terminal is
-                    // an implementation detail even when a dynamic callable
-                    // (for example an unannotated Python lambda) cannot report
-                    // a declared output schema before it is compiled.
-                    element_schema = registry.dereference(compiled.output_schema);
-                }
                 if (const auto *declared = func.output_schema(); declared != nullptr)
                 {
                     const bool exact_match = time_series_schema_equivalent(
@@ -2742,14 +2779,10 @@ namespace hgraph::stdlib
                             "{}: the function's wired output is incompatible with its declared output schema",
                             operation_name));
                     }
-                    if (exact_match || declared->kind == TSTypeKind::REF ||
-                        compiled.output_is_structural_reference)
+                    if (exact_match || declared->kind == TSTypeKind::REF)
                     {
-                        // A structural graph return compiles through an
-                        // internal REF terminal; that implementation detail
-                        // collapses back to its declared TSB/TSL shape. A REF
-                        // produced by an actual operator such as switch_
-                        // remains the child's public output identity.
+                        // A REF produced by an actual operator such as
+                        // switch_ remains the child's public output identity.
                         element_schema = declared;
                     }
                 }
@@ -2793,42 +2826,9 @@ namespace hgraph::stdlib
                     NodeBuilder &terminal =
                         spec.child.graph_builder.node_at(spec.child.output_binding->source.node);
                     const auto *out = output_schema->element_ts();
-                    const TSEndpointSchema &terminal_override = terminal.output_endpoint();
-                    const NodeTypeMetaData *terminal_meta = terminal.type().schema();
-                    const TSEndpointSchema &terminal_declared =
-                        terminal_meta != nullptr ? terminal_meta->output_endpoint_schema : terminal_override;
-                    const TSEndpointSchema &terminal_endpoint =
-                        !terminal_override.empty() ? terminal_override : terminal_declared;
-                    const auto *terminal_schema = terminal_meta != nullptr
-                                                      ? terminal_meta->output_schema
-                                                      : nullptr;
-                    const bool requires_alternative_binding =
-                        !time_series_schema_equivalent(terminal_schema, out);
-                    if (requires_alternative_binding &&
-                        !time_series_schema_equivalent(
-                            registry.dereference(terminal_schema), registry.dereference(out)))
-                    {
-                        throw std::invalid_argument(fmt::format(
-                            "{}: child terminal schema is incompatible with its declared output",
-                            operation_name));
-                    }
-                    // A declared forwarding terminal already owns its link, and a
-                    // non-peered terminal has required child endpoint topology
-                    // (for example, map_ owns a TSD root whose elements forward).
-                    // Preserve either shape, as well as a REF terminal exposed
-                    // through its dereferenced schema, and make the parent map
-                    // element point at the terminal. Only an ordinary/owned
-                    // terminal of the same schema can be safely re-homed.
-                    if (requires_alternative_binding ||
-                        (!terminal_endpoint.empty() &&
-                         (terminal_endpoint.is_peered() || terminal_endpoint.is_non_peered())))
-                    {
-                        spec.output_binding_mode = MapOutputBindingMode::OutputElementForwardsToChildTerminal;
-                    }
-                    else
-                    {
-                        terminal.output_endpoint(TSEndpointSchema::peered(out));
-                    }
+                    spec.output_binding_mode = configure_mapped_child_terminal(
+                        terminal, out, compiled.terminal_output_schema,
+                        operation_name);
                 }
             }
 
@@ -4007,17 +4007,11 @@ namespace hgraph::stdlib
                     throw std::invalid_argument("map_: dynamic TSL function output node is out of range");
                 }
 
-                NodeBuilder            &terminal          = spec.child.graph_builder.node_at(binding.source.node);
-                const TSEndpointSchema &terminal_override = terminal.output_endpoint();
-                const NodeTypeMetaData *terminal_meta     = terminal.type().schema();
-                const TSEndpointSchema &terminal_declared =
-                    terminal_meta != nullptr ? terminal_meta->output_endpoint_schema : terminal_override;
-                const TSEndpointSchema &terminal_endpoint = !terminal_override.empty() ? terminal_override : terminal_declared;
-                if (!terminal_endpoint.empty() && (terminal_endpoint.is_peered() || terminal_endpoint.is_non_peered())) {
-                    throw std::invalid_argument("map_: dynamic TSL functions must return an "
-                                                "ordinary owned terminal output");
-                }
-                terminal.output_endpoint(TSEndpointSchema::peered(compiled.output_schema));
+                NodeBuilder &terminal =
+                    spec.child.graph_builder.node_at(binding.source.node);
+                spec.output_binding_mode = configure_mapped_child_terminal(
+                    terminal, compiled.output_schema,
+                    compiled.terminal_output_schema, "map_");
                 output_schema = registry.tsl(compiled.output_schema, 0);
             } else {
                 output_schema = nullptr;

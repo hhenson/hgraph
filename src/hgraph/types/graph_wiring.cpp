@@ -2550,10 +2550,16 @@ CompiledSubGraph Wiring::finish_subgraph(
   }
   finalize_extensions();
 
+  // Keep the callable's logical result before materialising any child-only
+  // terminal. CompiledSubGraph exposes this schema to every consumer and
+  // records the physical terminal schema separately below.
+  const TSValueTypeMetaData *logical_output_schema =
+      output.has_value() ? output->schema : nullptr;
+
   // A composed TSB/TSL has no single endpoint of its own. Preserve its field
   // bindings through the structural-REF node instead of copying partial
-  // values through a materializer. Higher-order runtimes recognize that
-  // internal REF terminal and expose the declared structural value type.
+  // values through a materializer. The compiled graph records that internal
+  // REF terminal separately from the logical structural result type.
   // An unchanged structural boundary argument remains the zero-node alias
   // handled below.
   if (output.has_value() && output->is_structural_source()) {
@@ -2736,6 +2742,12 @@ CompiledSubGraph Wiring::finish_subgraph(
   const auto &index_of = build.index_of;
 
   if (output.has_value()) {
+    compiled.output_schema = logical_output_schema;
+    // Boundary and projected endpoints already carry their physical schema.
+    // A whole child-node output can expose a dereferenced logical view (for
+    // example Port<TS<T>> over an operator whose declared output is
+    // REF<TS<T>>), so replace this below from the terminal node metadata.
+    compiled.terminal_output_schema = output->schema;
     if (output->is_boundary_source()) {
       // Pass-through: the sub-graph returns a boundary input directly
       // (alias_parent_input) — the outer output aliases the upstream
@@ -2749,7 +2761,6 @@ CompiledSubGraph Wiring::finish_subgraph(
           .kind = NestedGraphOutputBinding::Kind::ParentInput,
           .parent_source_path = std::move(parent_path),
       };
-      compiled.output_schema = output->schema;
     } else if (output->is_peered_source()) {
       const auto external = external_sources.find(output->peered_node());
       if (external != external_sources.end()) {
@@ -2757,7 +2768,6 @@ CompiledSubGraph Wiring::finish_subgraph(
             .kind = NestedGraphOutputBinding::Kind::ParentInput,
             .parent_source_path = {external->second},
         };
-        compiled.output_schema = output->schema;
       } else {
         if (output->peered_output_kind() != GraphEdgeSourceKind::Output) {
           throw std::invalid_argument(
@@ -2771,17 +2781,20 @@ CompiledSubGraph Wiring::finish_subgraph(
               .parent_source_path = {captures.base_index +
                                      captures.index_for(*output)},
           };
-          compiled.output_schema = output->schema;
         } else {
+          const NodeTypeMetaData *terminal_meta =
+              compiled.graph_builder.node_at(it->second).type().schema();
+          if (terminal_meta == nullptr || terminal_meta->output_schema == nullptr) {
+            throw std::logic_error(
+                "Wiring::finish_subgraph: child output terminal has no output schema");
+          }
+          if (output->peered_path().empty()) {
+            compiled.terminal_output_schema = terminal_meta->output_schema;
+          }
           compiled.output_binding = NestedGraphOutputBinding{
               .source = NestedGraphEndpoint{.node = it->second,
                                             .path = output->peered_path()},
           };
-          compiled.output_schema = output->schema;
-          compiled.output_is_structural_reference =
-              output->peered_path().empty() &&
-              output->peered_node()->definition ==
-                  std::type_index(typeid(StructuralRefNodeTag));
         }
       }
     } else if (const auto ordinal =
@@ -2795,7 +2808,6 @@ CompiledSubGraph Wiring::finish_subgraph(
           .kind = NestedGraphOutputBinding::Kind::ParentInput,
           .parent_source_path = {*ordinal},
       };
-      compiled.output_schema = output->schema;
     } else {
       throw std::invalid_argument(
           "Wiring::finish_subgraph: the sub-graph output must be a node output "

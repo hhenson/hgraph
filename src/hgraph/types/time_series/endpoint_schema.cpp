@@ -23,8 +23,12 @@ namespace hgraph
                 case TSTypeKind::TSL:
                     if (schema.fixed_size() == 0)
                     {
-                        throw std::invalid_argument(
-                            "TSEndpointSchema non-peered TSL annotations require a fixed size");
+                        if (index != 0)
+                        {
+                            throw std::out_of_range(
+                                "TSEndpointSchema child index is out of range for dynamic TSL");
+                        }
+                        return schema.element_ts();
                     }
                     if (index >= schema.fixed_size())
                     {
@@ -53,12 +57,7 @@ namespace hgraph
                     return schema.field_count();
 
                 case TSTypeKind::TSL:
-                    if (schema.fixed_size() == 0)
-                    {
-                        throw std::invalid_argument(
-                            "TSEndpointSchema non-peered TSL annotations require a fixed size");
-                    }
-                    return schema.fixed_size();
+                    return schema.fixed_size() == 0 ? 1 : schema.fixed_size();
 
                 case TSTypeKind::TSD:
                     return 1;

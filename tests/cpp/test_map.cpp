@@ -2154,6 +2154,34 @@ namespace
         }
     };
 
+    using DynamicStructuralPair =
+        UnNamedTSB<Field<"value", TS<Int>>, Field<"offset", TS<Int>>>;
+
+    struct DynamicStructuralPairG
+    {
+        static constexpr auto name = "dynamic_structural_pair_g";
+
+        static Port<DynamicStructuralPair> compose(
+            Wiring &w, Port<TS<Int>> value)
+        {
+            using namespace hgraph::stdlib::syntax;
+            auto offset = (value + Int{100}).as<TS<Int>>();
+            return stdlib::to_tsb<DynamicStructuralPair>(w, value, offset);
+        }
+    };
+
+    struct MapDynamicStructuralPairG
+    {
+        static constexpr auto name = "map_dynamic_structural_pair_g";
+
+        static Port<TSL<DynamicStructuralPair>> compose(
+            Wiring &w, Port<TSL<TS<Int>>> values)
+        {
+            return wire<stdlib::map_>(w, fn<DynamicStructuralPairG>(), values)
+                .as<TSL<DynamicStructuralPair>>();
+        }
+    };
+
     struct MapDynamicCounterG
     {
         static constexpr auto name = "map_dynamic_counter_g";
@@ -2639,6 +2667,25 @@ TEST_CASE("map_ over dynamic TSL: arbitrary graphs grow stable children and "
             values<Value>(list_delta<TS<Int>>({{0, 1}, {1, 2}}), none, list_delta<TS<Int>>({{0, 5}})),
             values<Value>(list_delta<TS<Int>>({{0, 10}}), list_delta<TS<Int>>({{1, 20}}), none), values<Int>(100, none, 200))),
         values<Value>(list_delta<TS<Int>>({{0, 111}}), list_delta<TS<Int>>({{1, 123}}), list_delta<TS<Int>>({{0, 215}, {1, 223}})));
+}
+
+TEST_CASE("map_ over dynamic TSL: composed structural child results retain their element schema")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        (eval_node<MapDynamicStructuralPairG>(values<Value>(
+            list_delta<TS<Int>>({{0, 1}}),
+            list_delta<TS<Int>>({{1, 2}}),
+            list_delta<TS<Int>>({{0, 3}})))),
+        values<Value>(
+            list_delta<DynamicStructuralPair>(
+                {{0, tsb_delta<DynamicStructuralPair>(Int{1}, Int{101})}}),
+            list_delta<DynamicStructuralPair>(
+                {{1, tsb_delta<DynamicStructuralPair>(Int{2}, Int{102})}}),
+            list_delta<DynamicStructuralPair>(
+                {{0, tsb_delta<DynamicStructuralPair>(Int{3}, Int{103})}})));
 }
 
 TEST_CASE("map_ over dynamic TSL: each index preserves isolated child state") {
