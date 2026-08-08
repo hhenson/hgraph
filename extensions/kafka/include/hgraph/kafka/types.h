@@ -75,6 +75,7 @@ namespace hgraph::kafka
         Snapshot,
         Timestamp,
         Offsets,
+        GraphLifetime,
     };
 
     enum class KafkaOffsetFallback : std::int64_t {
@@ -192,6 +193,7 @@ namespace hgraph::kafka
             switch (value) {
                 case KafkaStopPositionKind::Unbounded: return "Unbounded";
                 case KafkaStopPositionKind::Snapshot: return "Snapshot";
+                case KafkaStopPositionKind::GraphLifetime: return "GraphLifetime";
                 case KafkaStopPositionKind::Timestamp: return "Timestamp";
                 case KafkaStopPositionKind::Offsets: return "Offsets";
             }

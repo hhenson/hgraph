@@ -16,8 +16,6 @@ from frozendict import frozendict
 
 from hgraph import (
     CompoundScalar,
-    EvaluationMode,
-    GlobalState,
     TS,
     compute_node,
     drop_dups,
@@ -25,6 +23,7 @@ from hgraph import (
 )
 from hgraph._types import _TsExpr
 from hgraph._wiring import _unwrap
+from hgraph._wiring._core import _current_wiring
 from hgraph._wiring._markers import _INJECTABLE_MARKERS, _StateExpr
 
 from . import (
@@ -60,8 +59,8 @@ __all__ = (
 )
 
 _LEGACY_PATH = "legacy"
-_STATE_KEY = ":hgraph-kafka:compatibility-state"
 _CONTENT_TYPE_HEADER = "content-type"
+_COMPATIBILITY_STATE_KEY = "hgraph-kafka.compatibility-state"
 
 
 @dataclass(frozen=True)
@@ -118,12 +117,10 @@ class _CompatibilityState(MessageState):
 
 
 def get_message_state() -> MessageState:
-    state = GlobalState.instance()
-    value = state.get(_STATE_KEY)
-    if value is None:
-        value = _CompatibilityState()
-        state[_STATE_KEY] = value
-    return value
+    wiring = _current_wiring()
+    return wiring._acquire_extension_state(
+        _COMPATIBILITY_STATE_KEY, _CompatibilityState
+    )
 
 
 _COMMON_OPTIONS = {
@@ -255,15 +252,6 @@ def _subscription_key(topic: str, *, history: bool, continue_live: bool):
     state = _configured_state()
     client_id = state.service_config.connection.client_id or "hgraph"
     phase = "replay" if history else "live"
-    # The released API describes a replay-to-live handoff, but simulation
-    # cannot accept asynchronous work after its bounded replay. Select the
-    # equivalent bounded native contract while wiring simulation; real-time
-    # runs retain the continuous-subscription behavior.
-    native_continue_live = (
-        continue_live
-        and GlobalState.instance().get("__evaluation_mode__")
-        != EvaluationMode.SIMULATION
-    )
     return KafkaSubscriptionKey(
         topics=(topic,),
         group_id=f"{client_id}-legacy-{phase}-{topic}",
@@ -274,8 +262,8 @@ def _subscription_key(topic: str, *, history: bool, continue_live: bool):
             else KafkaStartPosition.latest()
         ),
         stop_position=(
-            KafkaStopPosition.unbounded()
-            if native_continue_live
+            KafkaStopPosition.graph_lifetime()
+            if continue_live
             else KafkaStopPosition.snapshot()
         ),
         commit_mode=KafkaCommitMode.NONE,
@@ -290,7 +278,7 @@ def _subscription_key(topic: str, *, history: bool, continue_live: bool):
             else KafkaMergePolicy.PARTITION
         ),
         sharing_identity=(
-            f"legacy:{phase}:{topic}:{'live' if native_continue_live else 'history'}"
+            f"legacy:{phase}:{topic}:{'live' if continue_live else 'history'}"
         ),
     )
 

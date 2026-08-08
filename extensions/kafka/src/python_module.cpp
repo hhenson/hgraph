@@ -115,6 +115,7 @@ NB_MODULE(_hgraph_kafka, module) {
       nb::enum_<KafkaStopPositionKind>(module, "KafkaStopPositionKind")
           .value("UNBOUNDED", KafkaStopPositionKind::Unbounded)
           .value("SNAPSHOT", KafkaStopPositionKind::Snapshot)
+          .value("GRAPH_LIFETIME", KafkaStopPositionKind::GraphLifetime)
           .value("TIMESTAMP", KafkaStopPositionKind::Timestamp)
           .value("OFFSETS", KafkaStopPositionKind::Offsets);
   python_bridge::register_native_scalar_type<KafkaStopPositionKind>(stop_kind);

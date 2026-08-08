@@ -13,6 +13,7 @@ from hgraph.test import use_wiring
 from hgraph_kafka.compat import (
     KafkaMessage,
     MessageState,
+    get_message_state,
     message_publisher,
     message_subscriber,
     register_kafka_adaptor,
@@ -139,21 +140,37 @@ def test_replay_uses_graph_start_with_released_end_offset_fallback() -> None:
     assert key.start_position.fallback.name == "LATEST"
 
 
-def test_released_subscription_selects_a_bounded_native_simulation_contract() -> None:
+def test_released_subscription_uses_native_graph_lifetime_policy() -> None:
     wiring = _hgraph.Wiring()
     with hg.GlobalContext(hg.GlobalState()), use_wiring(wiring):
         register_kafka_adaptor({"bootstrap_servers": "localhost:9092"})
-        hg.GlobalState.instance()["__evaluation_mode__"] = hg.EvaluationMode.SIMULATION
-        simulation_key = _subscription_key(
-            "orders", history=True, continue_live=True
-        )
-        hg.GlobalState.instance()["__evaluation_mode__"] = hg.EvaluationMode.REAL_TIME
-        real_time_key = _subscription_key(
-            "orders", history=True, continue_live=True
-        )
+        key = _subscription_key("orders", history=True, continue_live=True)
 
-    assert simulation_key.stop_position.kind.name == "SNAPSHOT"
-    assert real_time_key.stop_position.kind.name == "UNBOUNDED"
+    assert key.stop_position.kind.name == "GRAPH_LIFETIME"
+
+
+def test_released_compatibility_state_is_owned_by_each_wiring() -> None:
+    first = _hgraph.Wiring()
+    second = _hgraph.Wiring()
+
+    with hg.GlobalContext(hg.GlobalState()), use_wiring(first):
+        register_kafka_adaptor(
+            {"bootstrap_servers": "localhost:9092", "client_id": "first"}
+        )
+        first_state = get_message_state()
+        assert get_message_state() is first_state
+        first_key = _subscription_key("orders", history=False, continue_live=True)
+
+    with hg.GlobalContext(hg.GlobalState()), use_wiring(second):
+        register_kafka_adaptor(
+            {"bootstrap_servers": "localhost:9092", "client_id": "second"}
+        )
+        second_state = get_message_state()
+        second_key = _subscription_key("orders", history=False, continue_live=True)
+
+    assert first_state is not second_state
+    assert first_key.group_id == "first-legacy-live-orders"
+    assert second_key.group_id == "second-legacy-live-orders"
 
 
 def test_released_producer_batching_defaults_map_to_typed_native_options() -> None:

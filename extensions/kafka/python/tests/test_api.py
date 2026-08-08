@@ -101,6 +101,14 @@ def test_invalid_public_values_are_rejected_at_construction(factory) -> None:
         factory()
 
 
+def test_graph_lifetime_stop_policy_is_exposed_to_python() -> None:
+    stop = kafka.KafkaStopPosition.graph_lifetime()
+
+    assert stop.kind == kafka.KafkaStopPositionKind.GRAPH_LIFETIME
+    assert stop.timestamp is None
+    assert stop.offsets == ()
+
+
 def test_all_service_interfaces_and_topic_forms_share_one_binding() -> None:
     wiring = _hgraph.Wiring()
     config = kafka.KafkaServiceConfig.from_bootstrap_servers(

@@ -471,6 +471,40 @@ namespace
         PyObject *callback_{nullptr};
     };
 
+    class PyWiringExtensionState final
+    {
+      public:
+        PyWiringExtensionState() = default;
+        PyWiringExtensionState(const PyWiringExtensionState &) = delete;
+        PyWiringExtensionState &operator=(const PyWiringExtensionState &) = delete;
+
+        ~PyWiringExtensionState() noexcept
+        {
+            nb::gil_scoped_acquire gil;
+            for (const auto &[key, value] : values_)
+            {
+                static_cast<void>(key);
+                Py_DECREF(value);
+            }
+        }
+
+        [[nodiscard]] nb::object acquire(const std::string &key, const nb::object &factory)
+        {
+            if (const auto found = values_.find(key); found != values_.end())
+            {
+                return nb::borrow<nb::object>(nb::handle(found->second));
+            }
+            nb::object value = factory();
+            PyObject  *raw   = value.ptr();
+            values_.emplace(key, raw);
+            static_cast<void>(value.release());
+            return nb::borrow<nb::object>(nb::handle(raw));
+        }
+
+      private:
+        std::unordered_map<std::string, PyObject *> values_{};
+    };
+
     [[nodiscard]] WiringPortRef py_graph_fn_wire(const void *context, Wiring &w,
                                                  std::span<const WiringPortRef> args)
     {
@@ -1127,6 +1161,15 @@ namespace hgraph::python_bridge
         .def("identity", [](const PyWiring &wiring) {
             return wiring.raw->identity();
         }, "Return the stable identity of the underlying C++ Wiring.")
+        .def("_acquire_extension_state", [](PyWiring &wiring, const std::string &key,
+                                             const nb::object &factory) {
+            auto state = std::static_pointer_cast<PyWiringExtensionState>(
+                wiring.raw->acquire_extension_state(
+                    std::type_index(typeid(PyWiringExtensionState)),
+                    [] { return std::make_shared<PyWiringExtensionState>(); }));
+            return state->acquire(key, factory);
+        }, nb::arg("key"), nb::arg("factory"),
+        "Return state owned by this wiring, creating it once with factory.")
         .def("_retain_cleanup", [](PyWiring &wiring, nb::object callback) {
             wiring.raw->retain_extension_state(
                 std::make_shared<PyWiringCleanup>(std::move(callback)));

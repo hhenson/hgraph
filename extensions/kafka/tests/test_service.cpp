@@ -183,6 +183,7 @@ inline SenderLatch subscription_key_sender{};
 inline SenderLatch subscription_commit_sender{};
 inline GenerationLatch subscription_generations{};
 inline CountLatch stale_commit_events{};
+inline CountLatch graph_lifetime_live{};
 
 inline Value service_config{};
 inline Value subscription_key{};
@@ -439,6 +440,40 @@ struct ProductionSubscriptionGraph {
         w, subscription_key.clone());
     static_cast<void>(
         wire<ProductionSubscriptionCapture>(w, subscribe(w, path, key)));
+  }
+};
+
+struct GraphLifetimeSubscriptionCapture {
+  static constexpr auto name = "kafka_graph_lifetime_subscription_capture";
+
+  static void
+  eval(NodeView node,
+       In<"subscription", KafkaSubscriptionOutput, InputValidity::Unchecked>
+           subscription) {
+    auto state = subscription.template field<"state">();
+    if (state.valid() && state.modified() &&
+        state.value() == KafkaSubscriptionState::Live) {
+      graph_lifetime_live.publish();
+    }
+    auto record = subscription.template field<"record">();
+    if (!record.valid() || !record.modified()) {
+      return;
+    }
+    production_record = record.base().value().clone();
+    node.graph().executor().request_stop();
+  }
+};
+
+struct GraphLifetimeSubscriptionGraph {
+  static constexpr auto name = "kafka_graph_lifetime_subscription_test_graph";
+
+  static void compose(Wiring &w) {
+    const auto path = service::path("graph-lifetime-subscription");
+    register_service(w, path, production_config.clone());
+    auto key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
+        w, subscription_key.clone());
+    static_cast<void>(wire<GraphLifetimeSubscriptionCapture>(
+        w, subscribe(w, path, key)));
   }
 };
 
@@ -1455,6 +1490,46 @@ void test_librdkafka_subscription_path() {
           "cursor did not expose the next commit position");
 }
 
+void test_graph_lifetime_stop_remains_live_in_real_time() {
+  MockCluster cluster;
+  cluster.create_topic(Str{"graph-lifetime-live"});
+  production_config = hgraph::kafka::service_config()
+                          .bootstrap_servers({cluster.bootstrap_servers()})
+                          .client_id(Str{"graph-lifetime-live-subscriber"})
+                          .build();
+  subscription_key =
+      hgraph::kafka::subscription_key()
+          .topics({Str{"graph-lifetime-live"}})
+          .group_id(Str{"graph-lifetime-live-group"})
+          .assignment_mode(KafkaAssignmentMode::Independent)
+          .start(make_start_position(KafkaStartPositionKind::Latest))
+          .stop(make_stop_position(KafkaStopPositionKind::GraphLifetime))
+          .commit_mode(KafkaCommitMode::None)
+          .recovery_clock(KafkaRecoveryClock::Arrival)
+          .merge_policy(KafkaMergePolicy::Partition)
+          .sharing_identity(Str{"graph-lifetime-live-subscription"})
+          .build();
+  production_record = Value{};
+  graph_lifetime_live.reset();
+
+  auto executor =
+      start_realtime(build_graph<GraphLifetimeSubscriptionGraph>());
+  auto view = executor.view();
+  AsyncGraphExecutorRun runner{view};
+  require(graph_lifetime_live.await(1),
+          "graph-lifetime subscription did not enter its live phase");
+  cluster.seed_record(Str{"graph-lifetime-live"}, Bytes{"live"});
+  runner.join();
+
+  require(production_record.view()
+              .as_bundle()
+              .at("value")
+              .checked_as<Bytes>()
+              .data == "live",
+          "graph-lifetime subscription stopped at the real-time snapshot");
+  initialize_values();
+}
+
 void test_permanent_consumer_failure_stops_the_graph() {
   MockCluster cluster;
   cluster.create_topic(Str{"native-consumer-failure"});
@@ -1903,7 +1978,7 @@ void test_record_time_recovery_is_deterministically_merged() {
       "record-time recovery did not emit records on increasing graph times");
 }
 
-void test_record_time_recovery_is_pull_capable_in_simulation() {
+void test_graph_lifetime_stop_is_bounded_in_simulation() {
   MockCluster cluster;
   cluster.create_topic(Str{"simulation-record-time"});
   const DateTime graph_start{std::chrono::duration_cast<TimeDelta>(
@@ -1923,7 +1998,7 @@ void test_record_time_recovery_is_pull_capable_in_simulation() {
           .partitions({{Str{"simulation-record-time"}, Int{0}}})
           .group_id(Str{"simulation-record-time-group"})
           .start(make_start_position(KafkaStartPositionKind::Earliest))
-          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
+          .stop(make_stop_position(KafkaStopPositionKind::GraphLifetime))
           .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
           .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
           .sharing_identity(Str{"simulation-record-time-subscription"})
@@ -1941,10 +2016,10 @@ void test_record_time_recovery_is_pull_capable_in_simulation() {
 
   require(
       bounded_payloads == std::vector<Str>{Str{"simulation-history"}},
-      "simulation completed before Kafka record-time history became available");
+      "graph-lifetime simulation completed before record-time history became available");
   require(
       bounded_evaluation_times == std::vector<DateTime>{record_time},
-      "simulation did not use Kafka record time as the historical graph time");
+      "graph-lifetime simulation did not use Kafka record time as the historical graph time");
 }
 
 void test_multiple_simulation_subscriptions_preload_before_graph_drain() {
@@ -2132,6 +2207,7 @@ int main() {
     test_librdkafka_publish_path();
     test_librdkafka_delivery_failures_are_typed();
     test_librdkafka_subscription_path();
+    test_graph_lifetime_stop_remains_live_in_real_time();
     test_permanent_consumer_failure_stops_the_graph();
     test_typed_explicit_partition_boundaries();
     test_latest_snapshot_is_empty();
@@ -2140,7 +2216,7 @@ int main() {
     test_independent_assignment_reads_every_partition();
     test_commit_modes_and_monotonic_explicit_commits();
     test_record_time_recovery_is_deterministically_merged();
-    test_record_time_recovery_is_pull_capable_in_simulation();
+    test_graph_lifetime_stop_is_bounded_in_simulation();
     test_multiple_simulation_subscriptions_preload_before_graph_drain();
     test_real_broker_publish_subscribe_and_commit_round_trip();
     std::cout << "hgraph-kafka service tests passed\n";

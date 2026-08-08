@@ -163,6 +163,12 @@ class KafkaStopPosition(CompoundScalar, namespace=_NAMESPACE):
         return KafkaStopPosition(KafkaStopPositionKind.SNAPSHOT)
 
     @staticmethod
+    def graph_lifetime() -> "KafkaStopPosition":
+        """Replay to the initial high watermark in simulation, otherwise live."""
+
+        return KafkaStopPosition(KafkaStopPositionKind.GRAPH_LIFETIME)
+
+    @staticmethod
     def at_timestamp(timestamp: datetime) -> "KafkaStopPosition":
         return KafkaStopPosition(KafkaStopPositionKind.TIMESTAMP, timestamp=timestamp)
 

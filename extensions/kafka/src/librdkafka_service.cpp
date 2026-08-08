@@ -781,6 +781,10 @@ public:
 
   void add_subscription(Value key) {
     SubscriptionSpec spec = parse_subscription(key.view());
+    if (spec.stop_kind == KafkaStopPositionKind::GraphLifetime) {
+      spec.stop_kind = simulation_ ? KafkaStopPositionKind::Snapshot
+                                   : KafkaStopPositionKind::Unbounded;
+    }
     if (std::ranges::any_of(sessions_, [&](const auto &session) {
           return session->identity() == spec.identity;
         })) {
