@@ -222,6 +222,41 @@ namespace
         }
     };
 
+    struct DynamicListPassThroughSubGraph
+    {
+        static constexpr auto name = "dynamic_list_pass_through_subgraph";
+
+        static Port<TSL<TS<Int>>> compose(
+            Wiring &, Port<TSL<TS<Int>>> values)
+        {
+            return values;
+        }
+    };
+
+    struct StructuralPairPassThroughSubGraph
+    {
+        static constexpr auto name = "structural_pair_pass_through_subgraph";
+
+        static Port<StructuralPair> compose(
+            Wiring &w, Port<StructuralPair> value, Port<TS<Int>> trigger)
+        {
+            static_cast<void>(wire<stdlib::null_sink>(w, trigger));
+            return value;
+        }
+    };
+
+    struct EmptyStructuralPairReferenceSource
+    {
+        static constexpr auto name = "empty_structural_pair_reference_source";
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(Out<REF<StructuralPair>> out)
+        {
+            out.set(TimeSeriesReference::empty(
+                schema_descriptor<StructuralPair>::ts_meta()));
+        }
+    };
+
     // A structural-initializer boundary: the outer arg is a non-peered TSL whose
     // shape is mirrored into the child compile (boundary leaves), so the child
     // consumer binds leaf-wise.
@@ -389,6 +424,36 @@ namespace
         }
     };
 
+    struct NestedDynamicListPassThroughGraph
+    {
+        static constexpr auto name = "nested_dynamic_list_pass_through_graph";
+
+        static Port<TSL<TS<Int>>> compose(
+            Wiring &w, Port<TSL<TS<Int>>> values)
+        {
+            return nested_<DynamicListPassThroughSubGraph>(w, values);
+        }
+    };
+
+    struct NestedStructuralPairUnbindGraph
+    {
+        static constexpr auto name = "nested_structural_pair_unbind_graph";
+
+        static Port<StructuralPair> compose(
+            Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs,
+            Port<TS<Int>> choice, Port<TS<Int>> trigger)
+        {
+            auto value = stdlib::to_tsb<StructuralPair>(w, lhs, rhs);
+            auto empty = wire<EmptyStructuralPairReferenceSource>(w);
+            auto choices = stdlib::to_tsl<TSL<StructuralPair, 2>>(
+                w, value, empty);
+            auto selected = wire<stdlib::getitem_>(w, choices, choice)
+                                .as<StructuralPair>();
+            return nested_<StructuralPairPassThroughSubGraph>(
+                w, selected, trigger);
+        }
+    };
+
     struct NestedTslGraph
     {
         static constexpr auto name = "nested_tsl_graph";
@@ -485,6 +550,40 @@ TEST_CASE("nested wiring: newly composed fixed structural results retain their p
             values<Int>(1, 2), values<Int>(10, 20))),
         values<Value>(list_delta<TS<Int>>({1, 10}),
                       list_delta<TS<Int>>({2, 20})));
+}
+
+TEST_CASE("nested wiring: a dynamic TSL pass-through binds before the producer grows the list")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    const auto input = values<Value>(
+        list_delta<TS<Int>>({}),
+        list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+        list_delta<TS<Int>>({{1, 3}}));
+    CHECK_OUTPUT(
+        eval_node<NestedDynamicListPassThroughGraph>(input),
+        values<Value>(none,
+                      list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+                      list_delta<TS<Int>>({{1, 3}})));
+}
+
+TEST_CASE("nested wiring: structural pass-through leaves clear while their source is unbound")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        (eval_node<NestedStructuralPairUnbindGraph>(
+            values<Int>(1, none, 2, none),
+            values<Int>(10, none, 20, none),
+            values<Int>(0, 1, none, 0),
+            values<Int>(0, 1, 2, 3))),
+        values<Value>(
+            tsb_delta<StructuralPair>(Int{1}, Int{10}),
+            none,
+            none,
+            tsb_delta<StructuralPair>(Int{2}, Int{20})));
 }
 
 TEST_CASE("nested wiring: every dynamic child graph uses planned or stable in-place storage")

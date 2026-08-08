@@ -280,7 +280,13 @@ forwarding_output_endpoint_schema(const TSValueTypeMetaData *schema) {
     }
     return TSEndpointSchema::non_peered(schema, std::move(children));
   }
-  if (schema->kind == TSTypeKind::TSL) {
+  // A fixed list's owner constructs every element, so each stable element can
+  // carry its own forwarding tree. A dynamic list's size belongs to its
+  // producer; before that producer grows the list there are no target
+  // elements to walk, so its generic forwarding endpoint must remain peered
+  // as one whole output. Owner-managed dynamic containers (for example the
+  // outer result of dynamic TSL map_) opt into non_peered_list explicitly.
+  if (schema->kind == TSTypeKind::TSL && schema->fixed_size() != 0) {
     return TSEndpointSchema::non_peered_list(
         schema, forwarding_output_endpoint_schema(schema->element_ts()));
   }

@@ -364,7 +364,8 @@ namespace hgraph
             auto source     = walk_ts_path(root_input.borrowed_ref(), binding->parent_source_path).bound_output();
             if (!source.bound())
             {
-                if (target.forwarding_bound()) { target.clear_forwarding_target(); }
+                static_cast<void>(clear_forwarding_output_tree(
+                    std::move(target)));
                 return;
             }
             static_cast<void>(bind_forwarding_output_tree_to_source(
@@ -386,7 +387,7 @@ namespace hgraph
         if (!binding.has_value()) { return; }
 
         auto target = walk_forwarding_target_path(nested.node().output(evaluation_time), binding->target_path);
-        if (target.forwarding_bound()) { target.clear_forwarding_target(); }
+        static_cast<void>(clear_forwarding_output_tree(std::move(target)));
     }
 
     void single_nested_graph_propagate_schedule(const SingleNestedGraphNodeView &nested)
