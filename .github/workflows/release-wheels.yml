@@ -15,6 +15,12 @@ on:
   push:
     branches:
       - main
+      # Maintenance lanes build and test on push for the same reason main does: tagging reuses
+      # the artifacts the branch already built and tested, matched by commit SHA. Without a run
+      # for that commit there is nothing to reuse, so a release tag would rebuild from scratch
+      # and the reuse and restamp paths -- which no pull request can exercise -- would run for
+      # the first time during the release itself.
+      - 'release/**'
     tags:
       - 'v*'
       - 'v_*.*.*'
@@ -780,16 +786,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Commit version bump to default branch
+      - name: Commit version bump to the branch the tag was cut from
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REF: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          # Determine version from tag inside Python to avoid env mismatches
+          # The bump belongs on whichever branch was released, not on the default branch. While
+          # main was the only release lane the two were the same; with a maintenance lane
+          # alongside it, a 0.5.x tag cut from release/0.5 would otherwise write its version onto
+          # main. Only an exact match on a release branch head diverts it, so anything tagged
+          # elsewhere still lands on the default branch as before.
           DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
-          git checkout "$DEFAULT_BRANCH"
+          TAG_SHA="$(git rev-parse "refs/tags/${REF}^{commit}")"
+          TARGET_BRANCH="$DEFAULT_BRANCH"
+          for remote_branch in $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/release/*'); do
+            if [ "$(git rev-parse "${remote_branch}^{commit}")" = "$TAG_SHA" ]; then
+              TARGET_BRANCH="${remote_branch#origin/}"
+              break
+            fi
+          done
+          echo "tag ${REF} (${TAG_SHA}) -> bumping version on ${TARGET_BRANCH}"
+          git checkout "$TARGET_BRANCH"
 
           python - <<PY
           import os, re, pathlib, sys
@@ -812,21 +831,43 @@ jobs:
               sys.exit(1)
           if new_s != s:
               p.write_text(new_s, encoding='utf-8')
+
+          # uv.lock carries the project's own version too. Leaving it behind meant every later
+          # 'uv sync' rewrote it and showed the tree as dirty, so the lock drifted several
+          # releases behind pyproject.
+          #
+          # The entry is edited directly rather than by running 'uv lock': re-resolving during a
+          # release could move third-party pins, which is not what a version bump should do.
+          lock = pathlib.Path('uv.lock')
+          if lock.is_file():
+              ls = lock.read_text(encoding='utf-8')
+              # Match the version line only within hgraph's own [[package]] block.
+              new_ls, ln = re.subn(
+                  r'(?ms)(\[\[package\]\]\nname = "hgraph"\nversion = ")[^"]+(")',
+                  rf'\g<1>{ver}\2',
+                  ls,
+              )
+              if ln == 0:
+                  print('WARNING: could not find hgraph version in uv.lock; leaving it unchanged', file=sys.stderr)
+              elif new_ls != ls:
+                  lock.write_text(new_ls, encoding='utf-8')
+                  print(f'Updated uv.lock to {ver}')
           PY
 
           # Commit only if changed; push to default branch
           git config --local user.name "github-actions"
           git config --local user.email "github-actions@github.com"
-          if ! git diff --quiet -- pyproject.toml; then
+          if ! git diff --quiet -- pyproject.toml uv.lock; then
             git add pyproject.toml
+            git add uv.lock 2>/dev/null || true
             # Compute version string for the commit subject from REF (supports v_#.#.# and v#.#.#)
             VER_COMMIT="$REF"
             if [[ "$VER_COMMIT" == v_* ]]; then VER_COMMIT="${VER_COMMIT#v_}"; elif [[ "$VER_COMMIT" == v* ]]; then VER_COMMIT="${VER_COMMIT#v}"; fi
-            # [skip ci]: this lands on main, which now builds release-grade wheels on every push.
-            # A version-bump commit changes no source, so rebuilding and re-testing it would cost
-            # a full matrix run to produce artifacts identical to the ones just published.
+            # [skip ci]: the target branch builds release-grade wheels on every push. A
+            # version-bump commit changes no source, so rebuilding and re-testing it would cost a
+            # full matrix run to produce artifacts identical to the ones just published.
             git commit -m "Update version to ${VER_COMMIT} based on tag [skip ci]"
-            git push origin HEAD:"$DEFAULT_BRANCH"
+            git push origin HEAD:"$TARGET_BRANCH"
           else
-            echo "No changes detected in pyproject.toml. Skipping commit and push."
+            echo "No changes detected in pyproject.toml or uv.lock. Skipping commit and push."
           fi
