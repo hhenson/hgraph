@@ -383,29 +383,37 @@ jobs:
   #
   # Skipped in its entirety on a tag whose commit has already been through it.
   test-matrix:
-    name: Test suite (py${{ matrix.python-version }}, ${{ matrix.runtime }} runtime)
+    name: Test suite (${{ matrix.os }}, py${{ matrix.python-version }}, ${{ matrix.runtime }} runtime)
     permissions:
       contents: read
     needs: [ reuse-build, build-wheels ]
     if: needs.reuse-build.outputs.run-id == ''
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     # The C++ runtime is not yet at parity with the Python reference implementation, so its legs
     # report without blocking. Every Python version blocks, 3.14 included.
     continue-on-error: ${{ matrix.runtime == 'cpp' }}
     strategy:
       fail-fast: false
       matrix:
+        # Windows wheels are published, so they are tested rather than assumed. Until this was
+        # added the suite only ever ran on Linux, and a Windows-only scheduler failure sat
+        # undetected because nothing here could see it.
+        os: [ ubuntu-latest, windows-latest ]
         python-version: [ '3.12', '3.13', '3.14' ]
         runtime: [ 'python', 'cpp' ]
-        # Coverage is measured once, on the reference leg; the other five would report the same
-        # lines at six times the cost.
+        # Coverage is measured once, on the reference leg; the others would report the same
+        # lines at many times the cost.
         include:
-          - python-version: '3.12'
+          - os: ubuntu-latest
+            python-version: '3.12'
             runtime: 'python'
             coverage_args: '--cov=hgraph --cov-report=xml'
     env:
       HGRAPH_USE_CPP: ${{ matrix.runtime == 'cpp' && 'true' || 'false' }}
       PYTHONFAULTHANDLER: '1'
+      # Layouts differ; every step below runs under bash (Git Bash on Windows) and goes through
+      # this rather than hard-coding one platform's path.
+      VENV_BIN: ${{ matrix.os == 'windows-latest' && '.venv/Scripts' || '.venv/bin' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -416,14 +424,16 @@ jobs:
       - name: Cache uv downloads
         uses: actions/cache@v6.1.0
         with:
-          path: ~/.cache/uv
+          # uv caches under LOCALAPPDATA on Windows, not ~/.cache.
+          path: ${{ runner.os == 'Windows' && '~\AppData\Local\uv\cache' || '~/.cache/uv' }}
           key: ${{ runner.os }}-uv-py${{ matrix.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-uv-py${{ matrix.python-version }}-
 
+      # Each OS tests the wheel built for it, not Linux's.
       - uses: actions/download-artifact@v7
         with:
-          name: release-wheels-Linux
+          name: release-wheels-${{ runner.os }}
           path: wheelhouse
 
       - name: Sync test dependencies (project itself comes from the wheel)
@@ -450,9 +460,9 @@ jobs:
           # Hide the source tree so a local copy cannot shadow the installed wheel.
           mv hgraph hgraph_src
           trap 'mv hgraph_src hgraph' EXIT
-          .venv/bin/python -c "import importlib.util as u; m=u.find_spec('hgraph._hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
-          .venv/bin/python -c "import hgraph; print('hgraph:', hgraph.__file__)"
-          .venv/bin/python -c "import sys; print('python:', sys.version)"
+          "${VENV_BIN}/python" -c "import importlib.util as u; m=u.find_spec('hgraph._hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
+          "${VENV_BIN}/python" -c "import hgraph; print('hgraph:', hgraph.__file__)"
+          "${VENV_BIN}/python" -c "import sys; print('python:', sys.version)"
 
       # The verdict comes from the JUnit report rather than from pytest's exit status alone. The
       # report is written as the run finishes, so it still describes what happened even when the
@@ -461,17 +471,17 @@ jobs:
       - name: Run test suite
         shell: bash
         run: |
-          echo "python=${{ matrix.python-version }} HGRAPH_USE_CPP=${HGRAPH_USE_CPP}"
+          echo "os=${{ matrix.os }} python=${{ matrix.python-version }} HGRAPH_USE_CPP=${HGRAPH_USE_CPP}"
           ulimit -c unlimited || true
           mv hgraph hgraph_src
           trap 'mv hgraph_src hgraph' EXIT
           set +e
-          .venv/bin/pytest hgraph_unit_tests docs -ra -q \
+          "${VENV_BIN}/pytest" hgraph_unit_tests docs -ra -q \
             --junitxml=pytest-report.xml ${{ matrix.coverage_args }}
           pytest_status=$?
           set -e
           echo "pytest exit status: ${pytest_status}"
-          .venv/bin/python - "${pytest_status}" <<'PY'
+          "${VENV_BIN}/python" - "${pytest_status}" <<'PY'
           import sys, xml.etree.ElementTree as ET
           from pathlib import Path
 
@@ -511,13 +521,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: pytest-report-py${{ matrix.python-version }}-${{ matrix.runtime }}
+          name: pytest-report-${{ runner.os }}-py${{ matrix.python-version }}-${{ matrix.runtime }}
           path: pytest-report.xml
           if-no-files-found: warn
           retention-days: 7
 
+      # gdb and core dumps are Linux-only; there is nothing equivalent to collect on Windows.
       - name: Collect crash artifacts
-        if: failure()
+        if: failure() && runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
@@ -534,7 +545,7 @@ jobs:
           done
 
       - name: Upload core dumps
-        if: failure()
+        if: failure() && runner.os == 'Linux'
         uses: actions/upload-artifact@v7.0.1
         with:
           name: core-dumps-py${{ matrix.python-version }}-${{ matrix.runtime }}
