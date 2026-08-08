@@ -206,11 +206,19 @@ def test_run_inspector():
                     _state.map_id = i
                     return {'requests': f"expand/{i}"}
                 
+            # Each expansion check below waits for its children and then decides. The wait is
+            # `>=` rather than `==` deliberately: the table accumulates, so an exact count that
+            # is ever overshot would never match again and the check would sit unresolved until
+            # the deadline, reporting nothing about why. The count is still asserted, just as
+            # part of the verdict instead of as the trigger, and what was seen is recorded so a
+            # failure says so.
             if getattr(_state, 'test_map', None) is False:
                 f = u.filter(pl.col("id").cast(str).str.starts_with(_state.map_id + '/'))
-                if len(f) == 3:
-                    print("checking MAP", f, f['name'].cast(str).str.strip_chars().is_in(["INPUTS", "OUTPUT", "GRAPHS"]))
-                    _state.test_map = f['name'].cast(str).str.strip_chars().is_in(["INPUTS", "OUTPUT", "GRAPHS"]).all()
+                if len(f) >= 3:
+                    names = f['name'].cast(str).str.strip_chars()
+                    print("checking MAP", f, names.is_in(["INPUTS", "OUTPUT", "GRAPHS"]))
+                    _state.map_children = names.to_list()
+                    _state.test_map = len(f) == 3 and names.is_in(["INPUTS", "OUTPUT", "GRAPHS"]).all()
                     
                     f = f.filter(pl.col("name").cast(str).str.strip_chars() == "GRAPHS")
                     if len(f) > 0:
@@ -236,9 +244,11 @@ def test_run_inspector():
                 
             if getattr(_state, 'test_push', None) is False:
                 f = u.filter(pl.col("id").cast(str).str.starts_with(_state.push_id + '/'))
-                if len(f) == 1:
-                    print("checking PUSH", f, f['name'].cast(str).str.strip_chars().is_in(["OUTPUT"]))
-                    _state.test_push = f['name'].cast(str).str.strip_chars().is_in(["OUTPUT"]).all()
+                if len(f) >= 1:
+                    names = f['name'].cast(str).str.strip_chars()
+                    print("checking PUSH", f, names.is_in(["OUTPUT"]))
+                    _state.push_children = names.to_list()
+                    _state.test_push = len(f) == 1 and names.is_in(["OUTPUT"]).all()
                     
             if getattr(_state, 'test_sink', None) is None:
                 f = u.filter((pl.col("type") == "SINK") & (pl.col("name").cast(str).str.contains("debug_print")))
@@ -250,9 +260,11 @@ def test_run_inspector():
                 
             if getattr(_state, 'test_sink', None) is False:
                 f = u.filter(pl.col("id").cast(str).str.starts_with(_state.sink_id + '/'))
-                if len(f) == 2:
-                    print("checking SINK", f, f['name'].cast(str).str.strip_chars().is_in(["SCALARS", "INPUTS"]))
-                    _state.test_sink = f['name'].cast(str).str.strip_chars().is_in(["SCALARS", "INPUTS"]).all()
+                if len(f) >= 2:
+                    names = f['name'].cast(str).str.strip_chars()
+                    print("checking SINK", f, names.is_in(["SCALARS", "INPUTS"]))
+                    _state.sink_children = names.to_list()
+                    _state.test_sink = len(f) == 2 and names.is_in(["SCALARS", "INPUTS"]).all()
                     
             return {'done': 
                 getattr(_state, 'test_map', False) 
@@ -293,9 +305,15 @@ def test_run_inspector():
         # None means the sequence never got that far -- normally the deadline -- whereas False means
         # the step ran and the inspector returned something unexpected.
         checks = {n: getattr(gs.test_state, n, None) for n in ("test_map", "test_push", "test_sink", "test_graphs")}
+        # The children each expansion actually produced. Without these a False says only that a
+        # check did not pass, leaving no way to tell a wrong name from a wrong count -- and this
+        # test has failed on a CI runner in a way that has not been reproducible locally.
+        observed = {n: getattr(gs.test_state, n, None) for n in ("map_children", "push_children", "sink_children")}
         assert all(v is True for v in checks.values()), (
-            f"inspector checks did not all pass: {checks} "
-            f"(None = never reached, likely the {30}s deadline; False = ran but returned the wrong shape)"
+            f"inspector checks did not all pass: {checks}\n"
+            f"children observed: {observed}\n"
+            f"None = the expansion never produced enough rows within the 30s deadline; "
+            f"False = the rows arrived but the count or the names were not as expected"
         )
         
         
