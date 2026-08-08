@@ -6,6 +6,7 @@
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input/detail.h>
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output/forwarding.h>
 
 #include <cstddef>
 #include <span>
@@ -232,52 +233,6 @@ inline void bind_nested_input_to_source(TSInputView target, TSInputView source,
   }
 }
 
-/**
- * Resolve a source through any already-bound forwarding-output chain.
- *
- * If a keyed parent has re-homed a nested terminal (for example a switch
- * node that is the terminal of a map_/mesh_ child), binding through the
- * intermediate target link would leave the writer one hop too high. Follow
- * the chain when it is already bound so the child terminal writes the
- * ultimate real storage directly.
- */
-[[nodiscard]] inline TSOutputView
-resolve_forwarding_source(TSOutputView source) {
-  const DateTime evaluation_time = source.evaluation_time();
-  const auto next_forwarding_target =
-      [evaluation_time](const TSOutputHandle &handle) {
-        if (!handle.bound()) {
-          return TSOutputHandle{};
-        }
-        const TSOutputView view = handle.view(evaluation_time);
-        if (!view.forwarding()) {
-          return TSOutputHandle{};
-        }
-        const TSOutputHandle target = view.forwarding_target();
-        return target.bound() ? target : TSOutputHandle{};
-      };
-
-  TSOutputHandle tortoise = source.handle();
-  TSOutputHandle hare = source.handle();
-  while (source.bound() && source.forwarding()) {
-    TSOutputHandle target = source.forwarding_target();
-    if (!target.bound()) {
-      break;
-    }
-    source = target.view(evaluation_time);
-
-    tortoise = next_forwarding_target(tortoise);
-    hare = next_forwarding_target(hare);
-    if (hare.bound()) {
-      hare = next_forwarding_target(hare);
-    }
-    if (tortoise.bound() && hare.bound() && tortoise.same_as(hare)) {
-      throw std::logic_error("Nested graph forwarding output cycle");
-    }
-  }
-  return source;
-}
-
 /** Re-point a forwarding output endpoint at ``source`` (no-op when already
  * there). */
 inline void bind_forwarding_output_to_source(const TSOutputView &target,
@@ -303,6 +258,13 @@ inline void bind_forwarding_output_to_source(const TSOutputView &target,
 }
 
 /** Build a stable forwarding tree for fixed structural outputs. */
+[[nodiscard]] inline bool
+requires_structural_forwarding(const TSValueTypeMetaData &schema) noexcept
+{
+  return schema.kind == TSTypeKind::TSD || schema.kind == TSTypeKind::TSL ||
+         schema.kind == TSTypeKind::TSB;
+}
+
 [[nodiscard]] inline TSEndpointSchema
 forwarding_output_endpoint_schema(const TSValueTypeMetaData *schema) {
   if (schema == nullptr) {

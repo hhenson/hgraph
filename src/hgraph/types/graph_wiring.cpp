@@ -2549,6 +2549,29 @@ CompiledSubGraph Wiring::finish_subgraph(
                            "unterminated service/adaptor implementation scope");
   }
   finalize_extensions();
+
+  // A composed TSB/TSL has no single endpoint of its own. Preserve its field
+  // bindings through the structural-REF node instead of copying partial
+  // values through a materializer. Higher-order runtimes recognize that
+  // internal REF terminal and expose the declared structural value type.
+  // An unchanged structural boundary argument remains the zero-node alias
+  // handled below.
+  if (output.has_value() && output->is_structural_source()) {
+    const OuterCaptureCollector output_captures{
+        .base_index = input_schemas.size(),
+        .captured = impl_->captured_inputs,
+    };
+    const auto boundary = structural_boundary_ordinal(*output, output_captures);
+    const bool unchanged_boundary =
+        boundary.has_value() && *boundary < input_schemas.size() &&
+        input_schemas[*boundary] == output->schema;
+    if (!unchanged_boundary) {
+      auto &registry = TypeRegistry::instance();
+      output = graph_wiring_detail::adapt_source_for_input(
+          *this, registry.ref(output->schema), std::move(*output));
+    }
+  }
+
   apply_service_rank_dependencies();
   const TypeRealizationSnapshot *active_realization =
       active_type_realization();

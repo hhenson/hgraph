@@ -3,6 +3,7 @@
 
 #include <hgraph/lib/std/operators/container.h>
 #include <hgraph/lib/std/operators/conversion.h>
+#include <hgraph/lib/std/operators/impl/collection_input_semantics.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/operator_type_resolution.h>
 #include <hgraph/types/primitive_types.h>
@@ -169,27 +170,8 @@ resolve_indexed_reference_target(
     return std::nullopt;
   }
 
-  auto target = reference.target_output().view(evaluation_time);
-  auto slow = target.handle();
-  auto fast = slow;
-  const auto advance_forwarding = [evaluation_time](TSOutputHandle handle) {
-    if (!handle.bound()) {
-      return TSOutputHandle{};
-    }
-    auto view = handle.view(evaluation_time);
-    return view.forwarding() && view.forwarding_bound()
-               ? view.forwarding_target()
-               : TSOutputHandle{};
-  };
-  while (target.forwarding() && target.forwarding_bound()) {
-    target = target.forwarding_target().view(evaluation_time);
-    slow = advance_forwarding(std::move(slow));
-    fast = advance_forwarding(advance_forwarding(std::move(fast)));
-    if (slow.bound() && fast.bound() && slow.same_as(fast)) {
-      throw std::logic_error(std::string{operation} + ": " +
-                             std::string{subject} + " forwarding cycle");
-    }
-  }
+  auto target = resolve_forwarding_source(
+      reference.target_output().view(evaluation_time));
 
   const auto *data_schema = target.data_view().schema();
   if (data_schema != nullptr && data_schema->kind == TSTypeKind::REF) {
@@ -350,6 +332,7 @@ struct is_empty_tss {
 
   static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
                    Out<TS<Bool>> out) {
+    if (!collection_input_semantics::has_bound_source(ts)) { return; }
     // upstream parity (ported test_is_empty): a never-valid input READS
     // empty and ticks True at start — unlike len_, which stays silent.
     container_impl_detail::set_if_changed(out, !ts.valid() || ts.empty());
@@ -359,6 +342,7 @@ struct is_empty_tss {
 struct contains_tss_item {
   static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
                    In<"item", TS<ScalarVar<"K">>> item, Out<TS<Bool>> out) {
+    if (!collection_input_semantics::has_bound_source(ts)) { return; }
     // upstream parity (issue #149): contains SEEDS False before the set
     // first ticks (upstream initializes the per-item contains ref-output)
     // — a never-valid input reads as EMPTY, unlike len_, which stays
@@ -379,19 +363,15 @@ struct contains_tss_item {
 struct contains_tss_subset {
   static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts,
                    In<"item", TSS<ScalarVar<"K">>> item, Out<TS<Bool>> out) {
-    // upstream parity (issue #149): contains SEEDS False before the set
-    // first ticks — a never-valid input reads as EMPTY, unlike len_,
-    // which stays silent until the set is valid.
+    if (!ts.valid()) { return; }
+    // Unlike scalar membership, upstream evaluates subset membership only
+    // after the subject set becomes valid.
     const auto &item_set = item.base().as_set();
     Bool contains_all = true;
-    if (!ts.valid()) {
-      contains_all = item_set.size() == 0;
-    } else {
-      for (const ValueView &value : item_set.values()) {
-        if (!ts.base().as_set().contains(value)) {
-          contains_all = false;
-          break;
-        }
+    for (const ValueView &value : item_set.values()) {
+      if (!ts.base().as_set().contains(value)) {
+        contains_all = false;
+        break;
       }
     }
     container_impl_detail::set_if_changed(out, contains_all);
@@ -417,6 +397,7 @@ struct is_empty_tsd {
   static void
   eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
        Out<TS<Bool>> out) {
+    if (!collection_input_semantics::has_bound_source(ts)) { return; }
     // upstream parity (ported test_is_empty): a never-valid input READS
     // empty and ticks True at start — unlike len_, which stays silent.
     container_impl_detail::set_if_changed(out, !ts.valid() || ts.empty());
@@ -451,6 +432,7 @@ struct contains_tsd_key {
   static void
   eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
        In<"item", TS<ScalarVar<"K">>> item, Out<TS<Bool>> out) {
+    if (!collection_input_semantics::has_bound_source(ts)) { return; }
     // upstream parity (issue #149): contains SEEDS False before the dict
     // first ticks (upstream initializes the per-key contains ref-output)
     // — a never-valid input reads as EMPTY, unlike len_, which stays

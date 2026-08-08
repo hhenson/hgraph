@@ -687,16 +687,18 @@
       "id": "wiring-adaptor-private-builder-converted",
       "match": "hgraph_unit_tests/_wiring/test_adaptor.py::*",
       "classification": "converted",
+      "isolate_reference_outcomes": ["xfailed"],
       "candidate_outcomes": ["collection-error"],
       "diagnostic_regex": "No module named 'hgraph[.]_wiring[.]_decorators'",
-      "reason": "The exact module imports the upstream private adaptor builder. Public adaptor call shapes, automatic registration, scalar configuration, service integration, and lifecycle execute through the native adaptor wiring contract.",
+      "reason": "The exact module imports the upstream private adaptor builder. Public adaptor call shapes, automatic registration, scalar configuration, parameterized multi-client routing, service integration, and lifecycle execute through the native adaptor wiring contract. Its parameterized real-time case is marked XFAIL upstream as load-sensitive, so an isolated pass is required before using it as reference evidence.",
       "decision": "docs/source/developer_guide/parity_matrix.rst",
-      "review_date": "2026-08-05",
+      "review_date": "2026-08-08",
       "evidence": [
         "python/tests/test_hgraph_api.py",
         "python/tests/test_python_authoring.py",
         "python/tests/test_service_timing_semantics.py",
-        "tests/cpp/test_adaptor_wiring.cpp"
+        "tests/cpp/test_adaptor_wiring.cpp",
+        "tests/cpp/test_service_wiring.cpp"
       ]
     },
     {
@@ -1219,7 +1221,12 @@
       "diagnostic_regex": "No module named ['\"]hgraph[.]adaptors[.]kafka['\"]",
       "reason": "Kafka is no longer distributed by the core wheel. The separately installed C++-first Kafka extension owns the released hgraph.adaptors.kafka path; behavior conformance must use a candidate environment containing both distributions.",
       "decision": "docs/source/developer_guide/parity_matrix.rst",
-      "review_date": "2026-08-07"
+      "review_date": "2026-08-08",
+      "evidence": [
+        "extensions/kafka/python/tests/test_compat.py",
+        "extensions/kafka/python/tests/test_runtime.py",
+        "extensions/kafka/tests/test_service.cpp"
+      ]
     },
     {
       "id": "adaptors-run-graph-on-thread-cycle-converted",

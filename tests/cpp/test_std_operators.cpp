@@ -2081,7 +2081,7 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
     CHECK_OUTPUT((eval_node<stdlib::contains_, TSS<Int>, TSS<Int>>(
                      values<Value>(none, set_delta<Int>({1, 2}, {})),
                      values<Value>(set_delta<Int>({1}, {}), none))),
-                 values<Bool>(false, true));
+                 values<Bool>(none, true));
 
     // Removal-driven re-ticks over EXPLICIT removal deltas — plain correct
     // behaviour on which both runtimes agree (the #120/#129 divergences were

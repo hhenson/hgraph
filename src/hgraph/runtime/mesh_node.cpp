@@ -1581,7 +1581,7 @@ NodeBuilder mesh_node(NodeTypeMetaData meta, MeshNodeSpec spec) {
     }
     meta.output_endpoint_schema = TSEndpointSchema::non_peered_dict(
         meta.output_schema,
-        TSEndpointSchema::peered(meta.output_schema->element_ts()));
+        forwarding_output_endpoint_schema(meta.output_schema->element_ts()));
   }
 
   const auto key_binding =

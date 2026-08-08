@@ -250,6 +250,14 @@ def test_contains_tss_2():
     assert eval_node(g, [{1, 2, 3}], [{1, 2}, {3, 4}]) == [True, False]
 
 
+def test_contains_tss_subset_waits_for_subject_to_be_valid():
+    @graph
+    def g(tss: TSS[int], item: TSS[int]) -> TS[bool]:
+        return contains_(tss, item)
+
+    assert eval_node(g, [None, {1, 2}], [{1}, None]) == [None, True]
+
+
 def test_add_tss_scalar():
     (
             eval_([{1, 2}], [3, 4], type_map=(TSS[int], TS[int]))

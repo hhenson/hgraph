@@ -26,6 +26,7 @@ from hgraph import (
     add_,
     collapse_keys,
     combine,
+    contains_,
     compute_node,
     const,
     default_path,
@@ -158,6 +159,55 @@ def test_tsd_get_item_follows_late_valid_mapped_slot():
         return mapped[1]
 
     assert eval_node(g, [{1}, None], [None, {1: 42}]) == [None, 42]
+
+
+def test_map_explicit_key_does_not_publish_uninitialized_collection():
+    @graph
+    def g(keys: TSS[str], values: TSD[str, TSS[int]]) -> TSD[str, TSS[int]]:
+        return map_(lambda value: value, values, __keys__=keys)
+
+    assert eval_node(g, [{"a"}, None], [None, {"a": {1}}]) == [
+        frozendict(),
+        {"a": {1}},
+    ]
+
+
+def test_unbound_mapped_collection_is_silent_through_feature_operators():
+    @graph
+    def contains_g(keys: TSS[str], values: TSD[str, TSS[int]]) -> TS[bool]:
+        mapped = map_(lambda value: value, values, __keys__=keys)
+        return contains_(mapped["a"], 1)
+
+    @graph
+    def is_empty_g(keys: TSS[str], values: TSD[str, TSS[int]]) -> TS[bool]:
+        mapped = map_(lambda value: value, values, __keys__=keys)
+        return is_empty(mapped["a"])
+
+    @graph
+    def not_g(keys: TSS[str], values: TSD[str, TSS[int]]) -> TS[bool]:
+        mapped = map_(lambda value: value, values, __keys__=keys)
+        return not_(mapped["a"])
+
+    inputs = ([{"a"}, None], [None, {"a": {1}}])
+    assert eval_node(contains_g, *inputs) == [None, True]
+    assert eval_node(is_empty_g, *inputs) == [None, False]
+    assert eval_node(not_g, *inputs) == [None, False]
+
+
+def test_unbound_collection_projected_from_mapped_bundle_is_silent():
+    class BundleWithSet(TimeSeriesSchema):
+        values: TSS[int]
+
+    @graph
+    def materialize(values: TSS[int]) -> TSB[BundleWithSet]:
+        return TSB[BundleWithSet].from_ts(values=values)
+
+    @graph
+    def g(keys: TSS[str], values: TSD[str, TSS[int]]) -> TS[bool]:
+        mapped = map_(materialize, values, __keys__=keys)
+        return contains_(mapped["a"].values, 1)
+
+    assert eval_node(g, [{"a"}, None], [None, {"a": {1}}]) == [None, True]
 
 
 def test_map_late_explicit_key_samples_structured_element():

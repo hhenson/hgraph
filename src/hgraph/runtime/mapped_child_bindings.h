@@ -203,7 +203,7 @@ namespace hgraph::runtime_detail
             auto source = mapped_child_input_source(root_input.borrowed_ref(), args[source_index], key,
                                                     key_source, output_binding->parent_source_path);
             auto target = silent_repoint ? element.handle().view(MIN_DT) : element.borrowed_ref();
-            bind_forwarding_output_to_source(target, source);
+            static_cast<void>(bind_forwarding_output_tree_to_source(std::move(target), source));
             return;
         }
 
@@ -239,7 +239,7 @@ namespace hgraph::runtime_detail
 
         auto element = mapped_output_element(parent, evaluation_time, key);
         if (!element.bound()) { return; }
-        if (element.forwarding() && element.forwarding_bound()) { element.clear_forwarding_target(); }
+        static_cast<void>(clear_forwarding_output_tree(std::move(element)));
     }
 
     /**

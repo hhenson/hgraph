@@ -49,6 +49,16 @@ namespace
         using value_schema = StructuredPrice;
     };
 
+    using SubscriptionSetBundle =
+        TSB<"SubscriptionSetBundle", Field<"values", TSS<Int>>>;
+
+    struct SetBundleService
+    {
+        static constexpr std::string_view name{"set_bundle"};
+        using key_type     = Str;
+        using value_schema = SubscriptionSetBundle;
+    };
+
     using BaseSubscriptionRequest =
         Bundle<"tests.service::BaseSubscriptionRequest", Field<"id", Int>>;
 
@@ -439,6 +449,77 @@ namespace
             Wiring &w, NamedPort<"key", TS<BaseSubscriptionRequest>> key)
         {
             return wire<BundlePriceForKeyNode>(w, key);
+        }
+    };
+
+    struct DelayedSetBundleResponseNode
+    {
+        static constexpr auto name = "delayed_set_bundle_response_node";
+
+        static void eval(In<"keys", TSS<Str>, InputValidity::Unchecked> keys,
+                         NodeScheduler scheduler,
+                         State<Int> phase,
+                         Out<TSD<Str, SubscriptionSetBundle>> out)
+        {
+            if (!keys.valid()) { return; }
+
+            auto mutation = out.begin_mutation(out.evaluation_time());
+            for (const Str &removed : keys.removed())
+            {
+                const Value key{removed};
+                static_cast<void>(mutation.erase(key.view()));
+            }
+
+            if (phase.get() == Int{0})
+            {
+                for (const Str &key : keys.values())
+                {
+                    const Value key_value{key};
+                    static_cast<void>(mutation.at(key_value.view()));
+                }
+                phase.set(Int{1});
+                scheduler.schedule(MIN_TD);
+                return;
+            }
+
+            if (phase.get() == Int{1})
+            {
+                for (const Str &key : keys.values())
+                {
+                    const Value key_value{key};
+                    auto child = mutation.at(key_value.view());
+                    auto values = child.indexed_child_at(0);
+                    auto set_mutation = values.as_set().begin_mutation(
+                        out.evaluation_time());
+                    const Value item{Int{1}};
+                    static_cast<void>(set_mutation.add(item.view()));
+                }
+                phase.set(Int{2});
+            }
+        }
+    };
+
+    struct SetBundleServiceImpl
+    {
+        [[maybe_unused]] static constexpr auto name = "set_bundle_service_impl";
+
+        static Port<TSD<Str, SubscriptionSetBundle>> compose(
+            Wiring &w, Port<TSS<Str>> keys)
+        {
+            return wire<DelayedSetBundleResponseNode>(w, keys);
+        }
+    };
+
+    struct SetBundleServiceClientGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "set_bundle_service_client_graph";
+
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Str>> key)
+        {
+            service::register_subscription_service<SetBundleService, SetBundleServiceImpl>(w);
+            auto response = wire<SetBundleService>(w, key);
+            auto values = wire<stdlib::getitem_>(w, response, Str{"values"}).as<TSS<Int>>();
+            return wire<stdlib::contains_>(w, values, Int{1}).as<TS<Bool>>();
         }
     };
 
@@ -3103,6 +3184,14 @@ TEST_CASE("service wiring: subscription under map switch retains late keys")
                 dict_delta<Int, TS<Int>>({}, {1})),
             values<Str>(Str{"alpha"}, none, Str{"beta"}, none)),
         values<Int>(0, 15, 70, 46));
+}
+
+TEST_CASE("service wiring: structured subscription response waits for a valid field")
+{
+    hgraph::stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<SetBundleServiceClientGraph>(values<Str>(Str{"a"})),
+                 values<Bool>(none, none, true));
 }
 
 TEST_CASE("service wiring: a mapped request/reply implementation can call itself recursively")

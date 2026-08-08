@@ -16,6 +16,7 @@
 #include <hgraph/lib/std/operators/collection.h>
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/comparison.h>
+#include <hgraph/lib/std/operators/impl/collection_input_semantics.h>
 #include <hgraph/types/operator_type_resolution.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/lib/std/operators/impl/tsb_itemwise_impl.h>
@@ -221,6 +222,7 @@ namespace hgraph::stdlib
 
             static void eval(In<"ts", TSS<ScalarVar<"K">>, InputValidity::Unchecked> ts, Out<TS<Bool>> out)
             {
+                if (!collection_input_semantics::has_bound_source(ts)) { return; }
                 // hgraph parity: ticks only when the answer CHANGES.
                 const Bool value = ts.empty();
                 if (!out.valid() || out.value().checked_as<Bool>() != value) { out.set(value); }
@@ -235,6 +237,7 @@ namespace hgraph::stdlib
             static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
                              Out<TS<Bool>> out)
             {
+                if (!collection_input_semantics::has_bound_source(ts)) { return; }
                 // hgraph parity: ticks only when the answer CHANGES.
                 const Bool value = ts.empty();
                 if (!out.valid() || out.value().checked_as<Bool>() != value) { out.set(value); }
