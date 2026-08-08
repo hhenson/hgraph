@@ -3,6 +3,7 @@ requires = [
     "scikit-build-core>=0.11",
     "nanobind==2.13.0",
     "pyarrow>=24,<25",
+    "hg_cpp>=0.4.18",
 ]
 build-backend = "scikit_build_core.build"
 
@@ -18,9 +19,6 @@ dependencies = ["hg_cpp>=0.4.18", "frozendict>=2"]
 [project.urls]
 Homepage = "https://github.com/hhenson/hg_cpp"
 Repository = "https://github.com/hhenson/hg_cpp.git"
-
-[tool.uv.sources]
-hg-cpp = {workspace = true}
 
 [project.optional-dependencies]
 test = ["pytest>=8"]

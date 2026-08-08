@@ -1,14 +1,13 @@
 """Packaging contract checks for the optional Python bridge."""
 
-from pathlib import Path
 import re
 import tomllib
+from pathlib import Path
 
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 from trove_classifiers import classifiers as valid_classifiers
-
 
 ROOT = Path(__file__).resolve().parents[2]
 PYARROW_REQUIREMENT = "pyarrow>=24,<25"
@@ -86,7 +85,7 @@ def test_release_metadata_uses_untagged_sentinel():
 
     workflow = (ROOT / ".github/workflows/build.yml").read_text()
     assert "Restamp distributions to the tag version" in workflow
-    assert 'version = os.environ["RELEASE_TAG"].removeprefix("v_")' in workflow
+    assert 'python tools/restamp_distribution.py dist "${RELEASE_TAG#v_}"' in workflow
 
 
 def test_wheel_targets_the_python_312_stable_abi():

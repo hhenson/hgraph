@@ -158,6 +158,17 @@ consumer instead configures ``extensions/kafka`` against the installed
 Each extension owns its nested ``pyproject.toml``, CMake package configuration,
 tests, and release version.  Cross-cutting changes are tested against core at
 the same commit, while the resulting wheels remain separately publishable.
+Core releases use ``v_<version>`` tags.  Kafka releases use independent
+``hgraph-kafka-v_<version>`` tags, which publish only the tested Kafka wheel
+and source-distribution artifacts.  When both packages change, publish the
+core tag first so the Kafka source build requirement is available from PyPI,
+then tag Kafka at the same tested commit.
+
+The Kafka PEP 517 build requirements include ``hg_cpp`` because its standalone
+CMake configure consumes the installed core SDK.  In-repository CI installs
+the core wheel built from the same commit and builds Kafka without a second
+isolated environment; published Kafka source distributions provision the
+declared core SDK in their normal isolated build environment.
 
 Open Design Items
 -----------------

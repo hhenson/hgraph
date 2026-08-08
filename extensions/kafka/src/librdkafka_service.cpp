@@ -129,6 +129,14 @@ void validate_option_sets(const Options &common, const Options &specific,
 
 [[nodiscard]] std::size_t kibibytes_for_limit(std::size_t bytes) noexcept;
 
+[[nodiscard]] OutputLimits
+subscription_control_limits(OutputLimits ingress) noexcept {
+  constexpr auto maximum = std::numeric_limits<std::size_t>::max();
+  const auto bytes =
+      ingress.records > maximum / 512 ? maximum : ingress.records * 512;
+  return OutputLimits{ingress.records, std::max<std::size_t>(bytes, 4096)};
+}
+
 [[nodiscard]] Options options(ValueView value) {
   Options result;
   for (const auto item : value.as_list()) {
@@ -801,6 +809,16 @@ public:
     }
     auto session =
         std::make_unique<ConsumerSession>(*this, key.clone(), std::move(spec));
+    if (simulation_ && sessions_.size() >= simulation_ingress_slots_) {
+      // Each session buffers at most one configured ingress window before it
+      // hands recovery to the shared bridge.  Simulation must finish that
+      // finite hand-off before graph evaluation starts, so reserve one bridge
+      // window per concurrently live session instead of letting an earlier
+      // session block every later preload behind the shared queue.
+      bridge_.value->add_capacity(OutputChannel::Subscription, config_.ingress,
+                                  subscription_control_limits(config_.ingress));
+      ++simulation_ingress_slots_;
+    }
     session->start();
     if (simulation_) {
       session->wait_until_preloaded();
@@ -923,6 +941,9 @@ public:
   }
 
   [[nodiscard]] bool ingress_at_high_watermark() const {
+    if (simulation_) {
+      return false;
+    }
     const auto pending =
         bridge_.value->payload_pending(OutputChannel::Subscription);
     const auto bytes =
@@ -935,6 +956,9 @@ public:
   }
 
   [[nodiscard]] bool ingress_below_low_watermark() const {
+    if (simulation_) {
+      return true;
+    }
     return bridge_.value->payload_pending(OutputChannel::Subscription) <=
                config_.ingress.records / 2 &&
            bridge_.value->payload_retained_bytes(OutputChannel::Subscription) <=
@@ -1351,6 +1375,7 @@ private:
   ServiceBridgeHandle bridge_{};
   std::int64_t graph_start_ms_{};
   bool simulation_{};
+  std::size_t simulation_ingress_slots_{1};
   std::atomic<bool> accepting_{};
   std::vector<std::unique_ptr<ConsumerSession>> sessions_{};
   rd_kafka_t *producer_{};
@@ -1381,8 +1406,9 @@ void ConsumerSession::wait_until_preloaded() {
                                  [&] { return preload_complete_; })) {
     lock.unlock();
     stop();
-    throw std::runtime_error(
-        "Kafka simulation subscription did not preload within 30 seconds");
+    throw std::runtime_error("Kafka simulation subscription '" +
+                             spec_.identity +
+                             "' did not preload within 30 seconds");
   }
   if (!preload_error_.empty()) {
     throw std::runtime_error(preload_error_);
@@ -2578,15 +2604,8 @@ struct KafkaServiceImpl {
     detail::ServiceBridgeHandle bridge{std::make_shared<detail::ServiceBridge>(
         parsed.ingress, parsed.outbound,
         detail::OutputLimits{1024, 1024 * 1024},
-        detail::OutputLimits{
-            parsed.ingress.records,
-            std::max<std::size_t>(
-                parsed.ingress.records >
-                        std::numeric_limits<std::size_t>::max() / 512
-                    ? std::numeric_limits<std::size_t>::max()
-                    : parsed.ingress.records * 512,
-                4096)},
-        parsed.outbound, detail::OutputLimits{1, 64 * 1024})};
+        detail::subscription_control_limits(parsed.ingress), parsed.outbound,
+        detail::OutputLimits{1, 64 * 1024})};
     auto outputs = detail::wire_service_outputs(w, bridge);
 
     static_cast<void>(wire<KafkaRuntimeNode>(

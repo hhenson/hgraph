@@ -114,6 +114,9 @@ dev = [
 Homepage = "https://github.com/hhenson/hg_cpp"
 Repository = "https://github.com/hhenson/hg_cpp.git"
 
+[tool.uv.sources]
+hg-cpp = {workspace = true}
+
 [tool.uv.workspace]
 members = ["extensions/*"]
 

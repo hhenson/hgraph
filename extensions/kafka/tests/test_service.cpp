@@ -192,6 +192,7 @@ inline Value produced_record{};
 inline Value event_value{};
 inline Value production_config{};
 inline Value independent_subscription_key{};
+inline Value secondary_subscription_key{};
 inline Str production_topic{"native-out"};
 
 inline FakeBrokerPtr subscription_broker{};
@@ -219,6 +220,7 @@ inline std::vector<Int> bounded_offsets{};
 inline std::vector<KafkaSubscriptionState> bounded_states{};
 inline std::vector<Str> bounded_payloads{};
 inline std::vector<DateTime> bounded_evaluation_times{};
+inline std::size_t multi_bounded_complete_count{};
 inline std::vector<Int> backlog_offsets{};
 inline std::vector<Str> backlog_events{};
 inline std::vector<Str> flow_control_events{};
@@ -482,6 +484,48 @@ struct BoundedSubscriptionGraph {
   }
 };
 
+struct MultiBoundedSubscriptionCapture {
+  static constexpr auto name = "kafka_multi_bounded_subscription_capture";
+
+  static void
+  eval(NodeView node,
+       In<"subscription", KafkaSubscriptionOutput, InputValidity::Unchecked>
+           subscription) {
+    auto record = subscription.template field<"record">();
+    if (record.valid() && record.modified()) {
+      const auto fields = record.base().value().as_bundle();
+      if (present(fields.at("value"))) {
+        bounded_payloads.push_back(fields.at("value").checked_as<Bytes>().data);
+      }
+    }
+    auto state = subscription.template field<"state">();
+    if (state.valid() && state.modified() &&
+        state.value() == KafkaSubscriptionState::BoundedComplete) {
+      ++multi_bounded_complete_count;
+      if (multi_bounded_complete_count == 2) {
+        node.graph().executor().request_stop();
+      }
+    }
+  }
+};
+
+struct MultiBoundedSubscriptionGraph {
+  static constexpr auto name = "kafka_multi_bounded_subscription_test_graph";
+
+  static void compose(Wiring &w) {
+    const auto path = service::path("production-multi-bounded-subscription");
+    register_service(w, path, production_config.clone());
+    auto first_key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
+        w, subscription_key.clone());
+    auto second_key = wire<stdlib::const_, TS<KafkaSubscriptionKey>>(
+        w, secondary_subscription_key.clone());
+    static_cast<void>(wire<MultiBoundedSubscriptionCapture>(
+        w, subscribe(w, path, first_key)));
+    static_cast<void>(wire<MultiBoundedSubscriptionCapture>(
+        w, subscribe(w, path, second_key)));
+  }
+};
+
 struct FlowControlCapture {
   static constexpr auto name = "kafka_flow_control_capture";
 
@@ -732,6 +776,7 @@ void initialize_values() {
   independent_subscription_key = make_subscription_key(
       {Str{"orders"}}, Str{"risk"}, Str{"earliest"}, Str{"unbounded"},
       KafkaCommitMode::Explicit, Str{"orders-risk-independent"});
+  secondary_subscription_key = Value{};
   consumed_record = make_record(
       Str{"orders"}, Int{2}, Int{41}, Bytes{"payload"}, Bytes{"key"},
       {{Str{"trace"}, Bytes{"abc"}}, {Str{"trace"}, std::nullopt}});
@@ -762,6 +807,7 @@ void release_test_state() noexcept {
            &consumed_record,       &cursor,
            &produced_record,       &event_value,
            &production_config,     &independent_subscription_key,
+           &secondary_subscription_key,
            &subscription_observed, &delivery_observed,
            &event_observed,        &engine_a_event,
            &engine_b_event,        &production_delivery,
@@ -1901,6 +1947,67 @@ void test_record_time_recovery_is_pull_capable_in_simulation() {
       "simulation did not use Kafka record time as the historical graph time");
 }
 
+void test_multiple_simulation_subscriptions_preload_before_graph_drain() {
+  MockCluster cluster;
+  cluster.create_topic(Str{"simulation-preload-a"});
+  cluster.create_topic(Str{"simulation-preload-b"});
+  const DateTime graph_start{std::chrono::duration_cast<TimeDelta>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          wall_now().time_since_epoch()))};
+  const DateTime record_time = graph_start + TimeDelta{1'000'000};
+  std::vector<Str> expected_payloads;
+  for (Int offset = 0; offset < 8; ++offset) {
+    const Str first = Str{"first-"} + std::to_string(offset);
+    const Str second = Str{"second-"} + std::to_string(offset);
+    cluster.seed_record(Str{"simulation-preload-a"}, Bytes{first}, std::nullopt,
+                        {}, 0, record_time + offset * MIN_TD);
+    cluster.seed_record(Str{"simulation-preload-b"}, Bytes{second},
+                        std::nullopt, {}, 0, record_time + offset * MIN_TD);
+    expected_payloads.push_back(first);
+    expected_payloads.push_back(second);
+  }
+
+  production_config = hgraph::kafka::service_config()
+                          .bootstrap_servers({cluster.bootstrap_servers()})
+                          .client_id(Str{"simulation-multi-preload"})
+                          .ingress_limits(Int{8}, Int{8192})
+                          .build();
+  subscription_key =
+      hgraph::kafka::subscription_key()
+          .partitions({{Str{"simulation-preload-a"}, Int{0}}})
+          .group_id(Str{"simulation-preload-a"})
+          .start(make_start_position(KafkaStartPositionKind::Earliest))
+          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
+          .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
+          .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
+          .sharing_identity(Str{"simulation-preload-a"})
+          .build();
+  secondary_subscription_key =
+      hgraph::kafka::subscription_key()
+          .partitions({{Str{"simulation-preload-b"}, Int{0}}})
+          .group_id(Str{"simulation-preload-b"})
+          .start(make_start_position(KafkaStartPositionKind::Earliest))
+          .stop(make_stop_position(KafkaStopPositionKind::Snapshot))
+          .recovery_clock(KafkaRecoveryClock::RecordTimestamp)
+          .merge_policy(KafkaMergePolicy::TimestampTopicPartitionOffset)
+          .sharing_identity(Str{"simulation-preload-b"})
+          .build();
+  bounded_payloads.clear();
+  multi_bounded_complete_count = 0;
+
+  static_cast<void>(run_graph(build_graph<MultiBoundedSubscriptionGraph>(),
+                              graph_start, record_time + TimeDelta{1'000'000},
+                              GraphExecutorMode::Simulation));
+
+  std::ranges::sort(bounded_payloads);
+  std::ranges::sort(expected_payloads);
+  require(bounded_payloads == expected_payloads,
+          "multiple simulation subscriptions did not preload before the "
+          "graph began draining their shared ingress queue");
+  require(multi_bounded_complete_count == 2,
+          "simulation did not complete both bounded subscriptions");
+}
+
 void test_real_broker_publish_subscribe_and_commit_round_trip() {
   const char *bootstrap_value =
       std::getenv("HGRAPH_KAFKA_INTEGRATION_BOOTSTRAP");
@@ -2034,6 +2141,7 @@ int main() {
     test_commit_modes_and_monotonic_explicit_commits();
     test_record_time_recovery_is_deterministically_merged();
     test_record_time_recovery_is_pull_capable_in_simulation();
+    test_multiple_simulation_subscriptions_preload_before_graph_drain();
     test_real_broker_publish_subscribe_and_commit_round_trip();
     std::cout << "hgraph-kafka service tests passed\n";
     return 0;

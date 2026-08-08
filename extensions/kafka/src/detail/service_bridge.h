@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -213,6 +214,25 @@ public:
   payload_retained_bytes(OutputChannel channel) const {
     std::lock_guard lock{mutex_};
     return at(channel).payload_bytes;
+  }
+
+  void add_capacity(OutputChannel channel, OutputLimits payload_capacity,
+                    OutputLimits control_capacity = {}) {
+    std::lock_guard lock{mutex_};
+    auto &state = at(channel);
+    const auto add_saturated = [](std::size_t value,
+                                  std::size_t increment) noexcept {
+      constexpr auto maximum = std::numeric_limits<std::size_t>::max();
+      return increment > maximum - value ? maximum : value + increment;
+    };
+    state.limits.records =
+        add_saturated(state.limits.records, payload_capacity.records);
+    state.limits.bytes =
+        add_saturated(state.limits.bytes, payload_capacity.bytes);
+    state.control_limits.records =
+        add_saturated(state.control_limits.records, control_capacity.records);
+    state.control_limits.bytes =
+        add_saturated(state.control_limits.bytes, control_capacity.bytes);
   }
 
   void discard_subscription(const ValueView &key) {

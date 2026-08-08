@@ -1,10 +1,10 @@
-from pathlib import Path
 import re
 import tomllib
-
+from pathlib import Path
 
 EXTENSION_ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY_ROOT = EXTENSION_ROOT.parents[1]
+CORE_SDK_REQUIREMENT = "hg_cpp>=0.4.18"
 
 
 def _load(path: Path) -> dict:
@@ -16,13 +16,12 @@ def test_kafka_is_a_separate_workspace_distribution():
     project = _load(EXTENSION_ROOT / "pyproject.toml")
 
     assert root["tool"]["uv"]["workspace"]["members"] == ["extensions/*"]
+    assert root["tool"]["uv"]["sources"]["hg-cpp"] == {"workspace": True}
     assert project["project"]["name"] == "hgraph-kafka"
-    assert project["tool"]["uv"]["sources"]["hg-cpp"] == {"workspace": True}
+    assert "uv" not in project.get("tool", {})
     assert project["tool"]["scikit-build"]["wheel"]["py-api"] == "cp312"
-    assert any(
-        requirement.startswith("hg_cpp")
-        for requirement in project["project"]["dependencies"]
-    )
+    assert CORE_SDK_REQUIREMENT in project["project"]["dependencies"]
+    assert CORE_SDK_REQUIREMENT in project["build-system"]["requires"]
     assert "extensions/**" in root["tool"]["scikit-build"]["sdist"]["exclude"]
 
 
@@ -62,3 +61,9 @@ def test_ci_builds_and_tests_separate_kafka_artifacts():
         assert artifact in workflow
     assert "python -m pytest extensions/kafka/python/tests -q" in workflow
     assert "-DHGRAPH_BUILD_KAFKA_EXTENSION=ON" in workflow
+    assert '"hgraph-kafka-v_*.*.*"' in workflow
+    assert "pattern: kafka-distribution-*" in workflow
+    assert "python tools/restamp_distribution.py dist" in workflow
+    assert "--wheel --no-isolation" in workflow
+    assert "--sdist --no-isolation" in workflow
+    assert "--skip-dependency-check" in workflow

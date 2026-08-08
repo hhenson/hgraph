@@ -6,6 +6,7 @@ on:
       - main
     tags:
       - "v_*.*.*"
+      - "hgraph-kafka-v_*.*.*"
   pull_request:
   workflow_dispatch:
 
@@ -48,28 +49,40 @@ jobs:
           import re
 
           tag = os.environ["RELEASE_TAG"]
-          match = re.fullmatch(r"v_(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?)", tag)
-          if match is None:
+          patterns = (
+              (r"v_(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?)", "hg_cpp"),
+              (
+                  r"hgraph-kafka-v_(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?)",
+                  "hgraph-kafka",
+              ),
+          )
+          release = next(
+              ((match, package) for pattern, package in patterns
+               if (match := re.fullmatch(pattern, tag)) is not None),
+              None,
+          )
+          if release is None:
               raise SystemExit(
-                  f"release tag must match v_x.x.x or a PEP 440 prerelease such as "
-                  f"v_0.4.0rc1, got {tag!r}"
+                  "release tag must match v_x.x.x or hgraph-kafka-v_x.x.x "
+                  f"(including PEP 440 prereleases), got {tag!r}"
               )
 
           # The TAG is the version authority: the project version in
           # pyproject.toml is ignored for releases (the publish job restamps
           # the tested artifacts' metadata to the tag version).
+          match, package = release
           version = match.group(1)
 
           try:
-              with urlopen(f"https://pypi.org/pypi/hg_cpp/{version}/json"):
+              with urlopen(f"https://pypi.org/pypi/{package}/{version}/json"):
                   pass
           except HTTPError as error:
               if error.code != 404:
                   raise
           else:
-              raise SystemExit(f"hg_cpp {version} already exists on PyPI")
+              raise SystemExit(f"{package} {version} already exists on PyPI")
 
-          print(f"Validated new hg_cpp release {version}")
+          print(f"Validated new {package} release {version}")
 
   reuse-build:
     name: Find tested distributions for this commit
@@ -246,13 +259,19 @@ jobs:
 
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
               env_file.write(f"HGRAPH_KAFKA_SDK_PREFIX={sdk_prefix}\n")
+      - name: Install Kafka wheel build tools
+        run: >-
+          python -m pip install --upgrade
+          "scikit-build-core>=0.11" "nanobind==2.13.0" "pyarrow>=24,<25"
       - name: Build Kafka stable ABI wheel
         env:
           CMAKE_GENERATOR: ${{ matrix.cmake_generator }}
           CMAKE_ARGS: ${{ matrix.cmake_args }}
           CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.parallel }}
           CMAKE_PREFIX_PATH: ${{ env.HGRAPH_KAFKA_SDK_PREFIX }}
-        run: python -m build --wheel --outdir kafka-dist extensions/kafka
+        run: >-
+          python -m build --wheel --no-isolation --skip-dependency-check
+          --outdir kafka-dist extensions/kafka
       - name: Verify Kafka wheel ABI
         shell: python
         run: |
@@ -352,6 +371,10 @@ jobs:
           if-no-files-found: error
       - name: Install the matching core SDK
         run: /opt/python/cp312-cp312/bin/python -m pip install dist/*.whl
+      - name: Install Kafka wheel build tools
+        run: >-
+          /opt/python/cp312-cp312/bin/python -m pip install --upgrade
+          "scikit-build-core>=0.11" "nanobind==2.13.0" "pyarrow>=24,<25"
       - name: Build Kafka stable ABI wheel
         shell: bash
         run: |
@@ -361,7 +384,8 @@ jobs:
           CMAKE_BUILD_PARALLEL_LEVEL=2 \
           CMAKE_PREFIX_PATH="$hgraph_sdk" \
             /opt/python/cp312-cp312/bin/python -m build \
-              --wheel --outdir kafka-dist-raw extensions/kafka
+              --wheel --no-isolation --skip-dependency-check \
+              --outdir kafka-dist-raw extensions/kafka
       - name: Repair Kafka wheel for the glibc 2.28 floor
         run: |
           mkdir kafka-dist
@@ -417,7 +441,7 @@ jobs:
           python-version: "3.12"
       - name: Build source distribution
         run: |
-          python -m pip install --upgrade build
+          python -m pip install --upgrade build "scikit-build-core>=0.11" "nanobind==2.13.0" "pyarrow>=24,<25"
           python -m build --sdist
       - name: Audit source distribution contents
         run: python tools/audit_distribution.py "dist/*.tar.gz"
@@ -437,7 +461,9 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
       - name: Build Kafka source distribution
-        run: python -m build --sdist --outdir kafka-dist extensions/kafka
+        run: >-
+          python -m build --sdist --no-isolation --skip-dependency-check
+          --outdir kafka-dist extensions/kafka
       - name: Verify Kafka source distribution
         shell: python
         run: |
@@ -775,6 +801,9 @@ jobs:
       actions: read
       id-token: write
     steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v7
         with:
           pattern: distribution-*
@@ -783,117 +812,63 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ needs.reuse-build.outputs.run-id || github.run_id }}
       - name: Restamp distributions to the tag version
-        shell: python
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          # The TAG is the version authority. The distributions were built
-          # (and fully tested) at whatever version pyproject.toml carried -
-          # rewriting the version is a METADATA-ONLY operation, so the
-          # expensive compiled artifacts are reused byte-identical.
-          import base64
-          import csv
-          import hashlib
-          import io
-          import os
-          import re
-          import tarfile
-          import zipfile
-          from pathlib import Path
-
-          version = os.environ["RELEASE_TAG"].removeprefix("v_")
-
-          def record_hash(data: bytes) -> str:
-              digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest())
-              return "sha256=" + digest.decode().rstrip("=")
-
-          def restamp_wheel(path: Path) -> None:
-              name, old_version, rest = path.name.split("-", 2)
-              if old_version == version:
-                  print(f"{path.name}: already at {version}")
-                  return
-              old_info = f"{name}-{old_version}.dist-info"
-              new_info = f"{name}-{version}.dist-info"
-              entries = {}
-              with zipfile.ZipFile(path) as archive:
-                  for item in archive.infolist():
-                      entries[item.filename] = archive.read(item.filename)
-              renamed = {}
-              for item_name, data in entries.items():
-                  new_name = item_name.replace(old_info + "/", new_info + "/")
-                  if new_name == f"{new_info}/METADATA":
-                      text = data.decode()
-                      text, count = re.subn(rf"(?m)^Version: {re.escape(old_version)}$",
-                                            f"Version: {version}", text, count=1)
-                      assert count == 1, "wheel METADATA Version line not found"
-                      data = text.encode()
-                  renamed[new_name] = data
-              record_name = f"{new_info}/RECORD"
-              rows = []
-              for row in csv.reader(io.StringIO(renamed[record_name].decode())):
-                  if not row:
-                      continue
-                  entry = row[0].replace(old_info + "/", new_info + "/")
-                  if entry == record_name:
-                      rows.append([entry, "", ""])
-                  else:
-                      data = renamed[entry]
-                      rows.append([entry, record_hash(data), str(len(data))])
-              buffer = io.StringIO(newline="")
-              csv.writer(buffer, lineterminator="\n").writerows(rows)
-              renamed[record_name] = buffer.getvalue().encode()
-              new_path = path.with_name(path.name.replace(f"-{old_version}-", f"-{version}-", 1))
-              with zipfile.ZipFile(new_path, "w", zipfile.ZIP_DEFLATED) as archive:
-                  for item_name, data in renamed.items():
-                      archive.writestr(item_name, data)
-              if new_path != path:
-                  path.unlink()
-              print(f"{path.name} -> {new_path.name}")
-
-          def restamp_sdist(path: Path) -> None:
-              name, old_version = path.name.removesuffix(".tar.gz").rsplit("-", 1)
-              if old_version == version:
-                  print(f"{path.name}: already at {version}")
-                  return
-              old_root = f"{name}-{old_version}"
-              new_root = f"{name}-{version}"
-              members = []
-              with tarfile.open(path, "r:gz") as archive:
-                  for member in archive.getmembers():
-                      data = archive.extractfile(member).read() if member.isfile() else None
-                      member.name = member.name.replace(old_root, new_root, 1)
-                      # long (>100 char) paths ride PAX 'path' headers which
-                      # would override the renamed member.name at write time.
-                      member.pax_headers.pop("path", None)
-                      member.pax_headers.pop("linkpath", None)
-                      if member.name == f"{new_root}/PKG-INFO":
-                          text = data.decode()
-                          text, count = re.subn(rf"(?m)^Version: {re.escape(old_version)}$",
-                                                f"Version: {version}", text, count=1)
-                          assert count == 1, "sdist PKG-INFO Version line not found"
-                          data = text.encode()
-                      elif member.name == f"{new_root}/pyproject.toml":
-                          text = data.decode()
-                          text, count = re.subn(r'(?m)^version = "[^"]+"$',
-                                                f'version = "{version}"', text, count=1)
-                          assert count == 1, "sdist pyproject.toml version not found"
-                          data = text.encode()
-                      if data is not None:
-                          member.size = len(data)
-                      members.append((member, data))
-              new_path = path.with_name(f"{new_root}.tar.gz")
-              with tarfile.open(new_path, "w:gz") as archive:
-                  for member, data in members:
-                      archive.addfile(member, io.BytesIO(data) if data is not None else None)
-              if new_path != path:
-                  path.unlink()
-              print(f"{path.name} -> {new_path.name}")
-
-          for wheel in sorted(Path("dist").glob("*.whl")):
-              restamp_wheel(wheel)
-          for sdist in sorted(Path("dist").glob("*.tar.gz")):
-              restamp_sdist(sdist)
+        run: python tools/restamp_distribution.py dist "${RELEASE_TAG#v_}"
       - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+
+  publish-kafka:
+    name: Publish hgraph-kafka to PyPI
+    if: >-
+      always() &&
+      startsWith(github.ref, 'refs/tags/hgraph-kafka-v_') &&
+      needs.validate-release.result == 'success' &&
+      needs.reuse-build.result == 'success' &&
+      (
+        needs.reuse-build.outputs.run-id != '' ||
+        (
+          needs.build-sdist.result == 'success' &&
+          needs.test-wheel.result == 'success' &&
+          needs.native-cpp.result == 'success' &&
+          needs.native-install.result == 'success'
+        )
+      )
+    needs:
+      - validate-release
+      - reuse-build
+      - build-sdist
+      - test-wheel
+      - native-cpp
+      - native-install
+      - build-linux-wheel
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://pypi.org/p/hgraph-kafka
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: kafka-distribution-*
+          path: dist
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.reuse-build.outputs.run-id || github.run_id }}
+      - name: Restamp Kafka distributions to the tag version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          python tools/restamp_distribution.py dist
+          "${RELEASE_TAG#hgraph-kafka-v_}"
+      - name: Publish Kafka package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
