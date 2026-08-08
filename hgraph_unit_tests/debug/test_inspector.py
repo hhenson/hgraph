@@ -281,12 +281,22 @@ def test_run_inspector():
         return mapped
     
     with GlobalState() as gs, pl.StringCache():
-        result = evaluate_graph(g, config=GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=5), trace=False))
-    
-        assert gs.test_state.test_map
-        assert gs.test_state.test_push
-        assert gs.test_state.test_sink
-        assert gs.test_state.test_graphs
+        # A deadline, not a duration: stop_engine(if_true(test.done)) above ends the run as soon as
+        # every check has passed, so a machine that finishes in a second still takes a second. The
+        # budget only has to be large enough for the slowest runner to complete the HTTP exchanges,
+        # each of which can spend up to its own read timeout. At 5s this failed on the GitHub
+        # Windows runners, where the sequence simply did not finish in time.
+        result = evaluate_graph(g, config=GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=30), trace=False))
+
+        # Reported together, and by name. Reading the attributes directly raised AttributeError for
+        # whichever step was never reached, which says nothing about what actually went wrong.
+        # None means the sequence never got that far -- normally the deadline -- whereas False means
+        # the step ran and the inspector returned something unexpected.
+        checks = {n: getattr(gs.test_state, n, None) for n in ("test_map", "test_push", "test_sink", "test_graphs")}
+        assert all(v is True for v in checks.values()), (
+            f"inspector checks did not all pass: {checks} "
+            f"(None = never reached, likely the {30}s deadline; False = ran but returned the wrong shape)"
+        )
         
         
 def test_inspector_graph_api_graph_id():
