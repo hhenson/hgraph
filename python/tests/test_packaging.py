@@ -48,8 +48,9 @@ def test_installed_sdk_exports_required_msvc_source_contract():
     graph_wiring = (ROOT / "include/hgraph/types/graph_wiring.h").read_text()
 
     assert "target_compile_options(hgraph_options INTERFACE /W4 /permissive- /utf-8)" in cmake
-    assert "target_compile_definitions(fmt PRIVATE FMT_LIB_EXPORT)" in cmake
-    assert "$<INSTALL_INTERFACE:FMT_SHARED>" in cmake
+    assert "$<INSTALL_INTERFACE:FMT_HEADER_ONLY>" in cmake
+    assert "FMT_LIB_EXPORT" not in cmake
+    assert "FMT_SHARED" not in cmake
     assert "class HGRAPH_EXPORT ServiceImplementationScope" in graph_wiring
 
 

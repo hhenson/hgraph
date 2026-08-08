@@ -361,12 +361,11 @@ if(NOT fmt_FOUND)
 endif()
 if(HGRAPH_BUILD_SHARED AND HGRAPH_BUILD_PYTHON_BINDINGS)
     if(WIN32)
-        # Public hgraph templates call fmt, while wheel builds keep fmt's
-        # implementation inside the unified hgraph DLL. Export that compiled
-        # API and teach installed consumers to import it from hgraph_stdlib.
-        target_compile_definitions(fmt PRIVATE FMT_LIB_EXPORT)
+        # Public hgraph templates call fmt. Let each installed extension
+        # instantiate those formatting paths itself instead of introducing a
+        # binary dependency on fmt symbols owned by an hgraph DLL.
         target_compile_definitions(hgraph_options INTERFACE
-            $<INSTALL_INTERFACE:FMT_SHARED>
+            $<INSTALL_INTERFACE:FMT_HEADER_ONLY>
         )
     endif()
     target_link_libraries(hgraph_private_dependencies INTERFACE fmt::fmt)
