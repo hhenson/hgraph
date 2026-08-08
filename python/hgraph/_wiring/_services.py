@@ -313,10 +313,10 @@ def _resolved_implementation_path(stub, path):
     return resolved
 
 
-def _apply_service_resolvers(resolution, resolvers):
+def _apply_service_resolvers(resolution, resolvers, scalar_values=None):
     if resolution is None:
         resolution = _hgraph.ResolutionScope()
-    return _apply_resolvers(resolution, resolvers)
+    return _apply_resolvers(resolution, resolvers, scalar_values)
 
 
 def _specialization_label(resolution):
@@ -327,7 +327,7 @@ def _specialization_label(resolution):
     return ",".join(sorted(segments))
 
 
-def _specialization(item, owner, resolvers=None):
+def _specialization(item, owner, signature, resolvers=None):
     items = item if isinstance(item, tuple) else (item,)
     resolution = _hgraph.ResolutionScope()
     variables = {}
@@ -355,7 +355,8 @@ def _specialization(item, owner, resolvers=None):
             else:
                 meta = concrete
             resolution.bind_ts(name, meta)
-    _apply_service_resolvers(resolution, resolvers)
+    resolution = _resolve_service_signature(
+        signature, resolvers, resolution=resolution)
     return resolution, _specialization_label(resolution), variables
 
 
@@ -382,7 +383,9 @@ def _inferred_specialization(fn, request_annotation, request, resolvers=None):
     if not resolution.match(_pattern_of(request_annotation), actual):
         raise TypeError(
             f"generic adaptor '{fn.__name__}' request does not match its type pattern")
-    _apply_service_resolvers(resolution, resolvers)
+    resolution = _resolve_service_signature(
+        inspect.signature(fn, eval_str=True), resolvers,
+        resolution=resolution)
     specialization = _specialization_label(resolution)
     if not specialization:
         raise TypeError(
@@ -419,16 +422,71 @@ def _apply_service_defaults(signature, resolution):
         sentinel = args[0]
         if not isinstance(sentinel, _TypeVarSentinel):
             continue
+        name = _type_var_name(sentinel)
+        if resolution.is_resolved(name):
+            continue
         default = parameter.default
         if default in (inspect.Parameter.empty, AUTO_RESOLVE):
             continue
         if isinstance(default, _GenericTsExpr):
             resolved = resolution.resolve_ts(_pattern_of(default))
             if resolved is not None:
-                resolution.bind_ts(_type_var_name(sentinel), resolved)
+                resolution.bind_ts(name, resolved)
+        elif isinstance(default, (_TypeVarSentinel, typing.TypeVar)):
+            default_name = _type_var_name(default)
+            if (resolved := resolution.find_scalar(default_name)) is not None:
+                resolution.bind_scalar(name, resolved)
+            elif (resolved := resolution.find_ts(default_name)) is not None:
+                resolution.bind_ts(name, resolved)
+            elif (resolved := resolution.find_size(default_name)) is not None:
+                resolution.bind_size(name, resolved)
         else:
-            _PyNode._bind_resolved(resolution, _type_var_name(sentinel), default)
+            _PyNode._bind_resolved(resolution, name, default)
     return resolution
+
+
+def _service_scalar_values(signature, bound):
+    """Return the bound wiring-time scalars available to resolvers.
+
+    Time-series arguments may still be raw Python values at this point, so
+    select by the declared interface annotation rather than by runtime value.
+    This matches graph/node resolution: supplied values and applied defaults
+    are both visible by their declared parameter name.
+    """
+    return {
+        parameter.name: bound.arguments[parameter.name]
+        for parameter in signature.parameters.values()
+        if parameter.name in bound.arguments
+        and not _is_ts_annotation(parameter.annotation)
+        and parameter.annotation not in _INJECTABLE_MARKERS
+    }
+
+
+def _resolve_service_signature(
+    signature,
+    resolvers,
+    *,
+    resolution=None,
+    request_params=(),
+    requests=(),
+    scalar_values=None,
+    owner="service or adaptor",
+):
+    """Apply the common interface resolution order in one place.
+
+    Explicit bindings or request inference run first, type-valued defaults run
+    second, and only then do unresolved user resolvers receive the bound scalar
+    values. This is the same ordering used by nodes, graphs, and operators.
+    """
+    if resolution is None:
+        resolution = _hgraph.ResolutionScope()
+    for parameter, request in zip(request_params, requests):
+        if not resolution.match(
+                _pattern_of(parameter.annotation), _unwrap(request).ts_type):
+            raise TypeError(
+                f"generic {owner} request does not match its type pattern")
+    _apply_service_defaults(signature, resolution)
+    return _apply_service_resolvers(resolution, resolvers, scalar_values)
 
 
 class context:
@@ -554,9 +612,13 @@ class _ServiceStub:
         self._request_annotation = (
             self._request_params[0].annotation if self._request_params else None
         )
-        self._resolution = _apply_service_defaults(self._signature, resolution)
-        self._resolution = _apply_service_resolvers(
-            self._resolution, self._resolvers
+        # Interface construction is descriptive. Resolution happens only once
+        # explicit bindings, inferred request types, and call scalars are
+        # available; running a resolver here gives services a different order
+        # from nodes, graphs, and adaptors.
+        self._resolution = (
+            resolution if resolution is not None
+            else _hgraph.ResolutionScope()
         )
         out = self._signature.return_annotation
         reply_less = (
@@ -630,7 +692,8 @@ class _ServiceStub:
             item = slice(variables[0], items[0])
 
         resolution, specialization, variables = _specialization(
-            item, f"service '{self.__name__}'", self._resolvers)
+            item, f"service '{self.__name__}'", self._signature,
+            self._resolvers)
         result = _ServiceStub(
             self.fn, self.flavour, resolution=resolution,
             specialization=specialization, resolvers=self._resolvers,
@@ -694,19 +757,17 @@ class _ServiceStub:
         w = _current_wiring()
         stub = self
         if self.descriptor is None:
-            if requests:
-                resolution = _hgraph.ResolutionScope()
-                for parameter, request in zip(self._request_params, requests):
-                    actual = _unwrap(request).ts_type
-                    if not resolution.match(_pattern_of(parameter.annotation), actual):
-                        raise TypeError(
-                            f"generic service '{self.__name__}' request does not match its type pattern")
-                _apply_service_defaults(self._signature, resolution)
-                _apply_service_resolvers(resolution, self._resolvers)
-                _expand_pending_resolution(self, resolution, w)
-            else:
-                resolution = _apply_service_resolvers(
-                    _hgraph.ResolutionScope(), self._resolvers)
+            scalar_values = _service_scalar_values(self._signature, bound)
+            resolution = _resolve_service_signature(
+                self._signature,
+                self._resolvers,
+                request_params=self._request_params,
+                requests=requests,
+                scalar_values=scalar_values,
+                owner=f"service '{self.__name__}'",
+            )
+            _expand_pending_resolution(
+                self, resolution, w, scalar_values=scalar_values)
             resolution = _registered_service_resolution(self, w, path, resolution)
             specialization = _specialization_label(resolution)
             stub = _ServiceStub(
@@ -725,7 +786,9 @@ class _ServiceStub:
                 deprecated=self._deprecated,
                 pending_registrations=self._pending_registrations,
                 registered_resolutions=self._registered_resolutions)
-        _materialize_pending_registrations(self, stub._resolution, w)
+        scalar_values = _service_scalar_values(self._signature, bound)
+        _materialize_pending_registrations(
+            self, stub._resolution, w, scalar_values=scalar_values)
         # Record the client's wiring-time scalar options against the resolved
         # path, exactly as adaptor clients do. The key carries the flavour, and
         # ``_bind_registered_impl`` reads it back through ``_client_config``.
@@ -793,7 +856,7 @@ class _AdaptorClientStub:
             self.fn, resolution=resolution, specialization=specialization,
             resolvers=self._resolvers)
 
-    def _materialize_client_registration(self, stub):
+    def _materialize_client_registration(self, stub, scalar_values=None):
         del stub
 
     def _prepare_client_request(self, args, kwargs):
@@ -826,19 +889,19 @@ class _AdaptorClientStub:
             for value in (bound.arguments[parameter.name],)
         ]
         stub = self
+        scalar_values = _service_scalar_values(self._signature, bound)
         if self.descriptor is None:
-            resolution = _hgraph.ResolutionScope()
-            for parameter, request in zip(self._request_params, requests):
-                if not resolution.match(
-                        _pattern_of(parameter.annotation), _unwrap(request).ts_type):
-                    raise TypeError(
-                        f"generic {_flavour_label(self.flavour)} '{self.__name__}' "
-                        "request does not match its type pattern")
-            _apply_service_defaults(self._signature, resolution)
-            _apply_service_resolvers(resolution, self._resolvers)
+            resolution = _resolve_service_signature(
+                self._signature,
+                self._resolvers,
+                request_params=self._request_params,
+                requests=requests,
+                scalar_values=scalar_values,
+                owner=f"{_flavour_label(self.flavour)} '{self.__name__}'",
+            )
             specialization = _specialization_label(resolution)
             stub = self._specialized_stub(resolution, specialization)
-        self._materialize_client_registration(stub)
+        self._materialize_client_registration(stub, scalar_values)
         config_path, path = _resolved_client_path(stub, path)
         configured_path = _record_client_config(
             stub,
@@ -922,7 +985,8 @@ class _AdaptorStub(_AdaptorClientStub):
         if self.descriptor is not None and not self._specialization:
             raise TypeError(f"adaptor '{self.__name__}' is not generic")
         resolution, specialization, variables = _specialization(
-            item, f"adaptor '{self.__name__}'", self._resolvers)
+            item, f"adaptor '{self.__name__}'", self._signature,
+            self._resolvers)
         result = _AdaptorStub(
             self.fn, resolution=resolution, specialization=specialization,
             resolvers=self._resolvers,
@@ -971,9 +1035,10 @@ class _AdaptorStub(_AdaptorClientStub):
             pending_registrations=self._pending_registrations,
             registered_resolutions=self._registered_resolutions)
 
-    def _materialize_client_registration(self, stub):
+    def _materialize_client_registration(self, stub, scalar_values=None):
         _materialize_pending_registrations(
-            self, stub._resolution, _current_wiring())
+            self, stub._resolution, _current_wiring(),
+            scalar_values=scalar_values)
 
     def __call__(self, *args, **kwargs):
         prepared = self._prepare_client_request(args, kwargs)
@@ -1071,7 +1136,8 @@ class _ServiceAdaptorStub(_AdaptorClientStub):
                     f"to bind; use TYPEVAR: concrete")
             item = slice(variables[0], items[0])
         resolution, specialization, variables = _specialization(
-            item, f"service adaptor '{self.__name__}'", self._resolvers)
+            item, f"service adaptor '{self.__name__}'", self._signature,
+            self._resolvers)
         result = _ServiceAdaptorStub(
             self.fn, resolution=resolution, specialization=specialization,
             resolvers=self._resolvers,
@@ -1106,9 +1172,10 @@ class _ServiceAdaptorStub(_AdaptorClientStub):
             pending_registrations=self._pending_registrations,
             registered_resolutions=self._registered_resolutions)
 
-    def _materialize_client_registration(self, stub):
+    def _materialize_client_registration(self, stub, scalar_values=None):
         _materialize_pending_registrations(
-            self, stub._resolution, _current_wiring())
+            self, stub._resolution, _current_wiring(),
+            scalar_values=scalar_values)
 
     @staticmethod
     def _client_request_id(path, request):
@@ -1937,13 +2004,19 @@ def _implementation_for_stub(implementation, concrete_stub):
     return resolved
 
 
-def _specialize_registered_implementation(implementation, resolution):
+def _specialize_registered_implementation(
+    implementation, resolution, scalar_values=None,
+):
     import copy
 
     for stub in implementation.interfaces:
         if isinstance(stub, _ServiceStub):
-            _apply_service_defaults(stub._signature, resolution)
-            _apply_service_resolvers(resolution, stub._resolvers)
+            _resolve_service_signature(
+                stub._signature,
+                stub._resolvers,
+                resolution=resolution,
+                scalar_values=scalar_values,
+            )
     specialization = _specialization_label(resolution)
     resolved = copy.copy(implementation)
     resolved._resolution = resolution
@@ -2019,7 +2092,9 @@ def _queue_service_registration(path, implementation, config, owners=None,
         stub._pending_registrations.append(pending)
 
 
-def _materialize_pending_registrations(owner, resolution, wiring):
+def _materialize_pending_registrations(
+    owner, resolution, wiring, scalar_values=None,
+):
     if resolution is None:
         return
     root_wiring = _wiring_stack[0] if _wiring_stack else wiring
@@ -2027,7 +2102,7 @@ def _materialize_pending_registrations(owner, resolution, wiring):
         if pending.completed or pending.wiring is not root_wiring:
             continue
         resolved = _specialize_registered_implementation(
-            pending.implementation, resolution)
+            pending.implementation, resolution, scalar_values)
         pending.completed = True
         registered = (pending.wiring, pending.path, resolution)
         newly_registered = []
@@ -2084,15 +2159,21 @@ def _registered_service_resolution(owner, wiring, path, requested):
     return candidates[0]
 
 
-def _expand_pending_resolution(owner, resolution, wiring):
+def _expand_pending_resolution(
+    owner, resolution, wiring, scalar_values=None,
+):
     for pending in tuple(owner._pending_registrations):
         if pending.completed or pending.wiring is not wiring:
             continue
         for stub in pending.implementation.interfaces:
             if not isinstance(stub, _ServiceStub):
                 continue
-            _apply_service_defaults(stub._signature, resolution)
-            _apply_service_resolvers(resolution, stub._resolvers)
+            _resolve_service_signature(
+                stub._signature,
+                stub._resolvers,
+                resolution=resolution,
+                scalar_values=scalar_values,
+            )
 
 
 def _registered_stub_for_path(stub, path, wiring):
