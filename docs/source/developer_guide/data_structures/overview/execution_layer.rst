@@ -33,7 +33,7 @@ Current implementation
     real-time graph may lag the wall clock (cycles cost more wall time than
     their logical spacing); once the wall clock passes ``end_time`` the
     executor **drains**: remaining scheduled work still evaluates at its
-    scheduled (logical) times up to ``end_time``, matching the ``ext/main``
+    scheduled (logical) times up to ``end_time``, matching the ``release/0.5``
     Python runtime and the ported wall-clock scheduler tests, which rely on
     a lagging graph delivering its alarms late rather than dropping them.
     The drain is bounded by *logical progress*: a cycle that advances

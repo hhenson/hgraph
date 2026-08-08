@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/_wiring/test_reference_observer_lifetime.py
+# Ported from release/0.5:hgraph_unit_tests/_wiring/test_reference_observer_lifetime.py
 # Changes from upstream: none (regression gate for the structural-REF
 # no-op publish fix - move_value_from returns newly-modified, not success).
 from hgraph import (

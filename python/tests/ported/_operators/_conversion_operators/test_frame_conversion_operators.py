@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/_operators/_conversion_operators/
+# Ported from release/0.5:hgraph_unit_tests/_operators/_conversion_operators/
 # test_frame_conversion_operators.py
 # Changes from upstream:
 #  - polars -> pyarrow (Arrow ruling); assert_frame_equal -> Table.equals.

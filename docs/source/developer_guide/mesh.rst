@@ -11,9 +11,9 @@ land that contradicts this page; change the page in the same change as the code.
 other's outputs by key, create instances on demand when an absent key is
 referenced (so recursion works), and are evaluated in dependency order each
 cycle. It mirrors the Python reference
-(``ext/main/hgraph/_wiring/_mesh.py``, ``_impl/_runtime/_mesh_node.py``,
+(``release/0.5:hgraph/_wiring/_mesh.py``, ``_impl/_runtime/_mesh_node.py``,
 ``nodes/_mesh_util.py``) and the bundled C++ reference
-(``ext/main/cpp/.../mesh_node``); the deliberate adaptations to this runtime are
+(``release/0.5:cpp/.../mesh_node``); the deliberate adaptations to this runtime are
 called out in the Implementation section.
 
 
@@ -137,7 +137,7 @@ consumer (keys are seeded only through ``__keys__`` / the multiplexed inputs).
 Worked examples (the conformance tests)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-These mirror ``ext/main`` ``test_mesh.py`` and define conformance:
+These mirror ``release/0.5`` ``test_mesh.py`` and define conformance:
 
 - **Recursion (``fib``).** ``mesh_(fib, __keys__=i)`` where ``fib(n)`` returns
   ``mesh_(fib)[n-1] + mesh_(fib)[n-2]`` (with ``0/1`` base cases).

@@ -4,7 +4,7 @@ Error handling
 This page is the **authoritative design record** for runtime error handling:
 per-node exception capture, the ``NodeError`` value, ``exception_time_series``
 (the per-node extractor) and ``try_except`` (wrapping a whole sub-graph). It
-mirrors the Python reference (``ext/main/hgraph/_wiring/_exception_handling.py``,
+mirrors the Python reference (``release/0.5:hgraph/_wiring/_exception_handling.py``,
 ``_types/_error_type.py``) and records the deliberate C++ adaptations.
 
 The substrate this builds on (an error-output port already plumbed into the

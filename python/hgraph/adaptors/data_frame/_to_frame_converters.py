@@ -1,6 +1,6 @@
 """to-frame ``convert`` targets (hgraph parity, ARROW-NATIVE).
 
-Ports ext/main ``_impl/_operators/_conversion_operators/_to_data_frame_converters.py``
+Ports release/0.5 ``_impl/_operators/_conversion_operators/_to_data_frame_converters.py``
 onto the Arrow substrate (ruling 2026-07-17: Arrow is the Frame
 representation; polars interop is boundary conversion). Frames are built as
 ``pyarrow`` tables; consumers convert with ``pl.from_arrow`` when they want

@@ -89,7 +89,7 @@ foreach(_hgraph_py_test IN ITEMS test_bridge test_hgraph_api test_python_authori
 endforeach()
 
 # The PORTED hgraph test suite (python/tests/ported): the parity yardstick.
-# Near-verbatim copies of ext/main's tests; GREEN and gating (skips carry
+# Near-verbatim copies of release/0.5's tests; GREEN and gating (skips carry
 # precise "gap:"/"deviation:" reasons).
 add_test(
     NAME hgraph_python_ported_suite

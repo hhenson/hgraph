@@ -420,7 +420,7 @@ namespace hgraph::stdlib
     };
 
     /**
-     * The race node (hgraph semantics, ext/main _flow_control.race_default):
+     * The race node (hgraph semantics, release/0.5 _flow_control.race_default):
      * the winner is the candidate whose TARGET was valid first; a winner
      * that goes invalid triggers a re-race. The ``ts`` input carries the
      * candidate REFERENCES; references alone do not tick when a target

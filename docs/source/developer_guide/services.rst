@@ -6,7 +6,7 @@ shared outputs, the context runtime primitive, adaptors, and the three service
 flavours (**reference**, **subscription**, and **request/reply**). It records the model
 that has landed — the "Boundary design decisions" originally drafted on the
 :doc:`roadmap` are restated here as the canonical form. The Python reference is
-``ext/main/hgraph`` (``@reference_service`` / ``@subscription_service`` /
+``release/0.5:hgraph`` (``@reference_service`` / ``@subscription_service`` /
 ``@request_reply_service`` / ``@service_impl``); the C++ adaptations are
 deliberate and noted where they diverge.
 

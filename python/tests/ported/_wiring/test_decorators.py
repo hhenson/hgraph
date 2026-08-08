@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/_wiring/test_decorators.py
+# Ported from release/0.5:hgraph_unit_tests/_wiring/test_decorators.py
 from datetime import timedelta
 
 from hgraph import generator, SCALAR, compute_node, WiringNodeClass, sink_node, graph

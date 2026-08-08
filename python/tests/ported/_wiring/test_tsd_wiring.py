@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/_wiring/test_tsd_wiring.py
+# Ported from release/0.5:hgraph_unit_tests/_wiring/test_tsd_wiring.py
 import pytest
 
 from hgraph import (

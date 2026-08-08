@@ -254,7 +254,7 @@ def operator_function(name, signature=None):
     return _OperatorFunction(name, signature=signature)
 
 
-# --- hgraph's WiringPort operator sugar (ext/main _operators pattern) ---
+# --- hgraph's WiringPort operator sugar (release/0.5 _operators pattern) ---
 _DUNDERS = {
     "__add__": "add_", "__sub__": "sub_", "__mul__": "mul_", "__truediv__": "div_",
     "__floordiv__": "floordiv_", "__mod__": "mod_", "__divmod__": "divmod_",

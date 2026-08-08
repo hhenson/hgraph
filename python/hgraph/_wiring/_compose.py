@@ -41,7 +41,7 @@ def _mesh_name(fn_or_name):
 
 
 class MeshWiringPort(WiringPort):
-    """A reference to the enclosing mesh, matching ext/main's Python API.
+    """A reference to the enclosing mesh, matching release/0.5's Python API.
 
     Indexing wires a sibling subscription. Treating the object as a normal
     time-series port lazily materializes the mesh key-set forwarding node.

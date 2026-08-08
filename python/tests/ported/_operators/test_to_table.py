@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/_operators/test_to_table.py
+# Ported from release/0.5:hgraph_unit_tests/_operators/test_to_table.py
 # Changes from upstream:
 #  - polars -> pyarrow (the Arrow ruling: Frame values cross the bridge as
 #    pyarrow tables; assert_frame_equal -> Table.equals).

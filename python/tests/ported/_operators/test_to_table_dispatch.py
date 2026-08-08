@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/_operators/test_to_table_dispatch.py
+# Ported from release/0.5:hgraph_unit_tests/_operators/test_to_table_dispatch.py
 # Changes from upstream:
 #  - `from hgraph._impl._operators._to_table_dispatch_impl import ...` (an
 #    upstream implementation-internal module) -> `from hgraph._compat import

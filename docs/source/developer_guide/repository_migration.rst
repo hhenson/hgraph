@@ -17,8 +17,9 @@ still making the replacement visible as an ordinary pull request.
 
 The old implementation is not duplicated on the new ``main`` tree. Its latest
 maintenance head at migration time is ``release/0.5`` commit ``27819fa6``
-(``v_0.5.41``). The read-only ``ext/main`` submodule is pinned to that commit
-and follows ``release/0.5`` for future compatibility comparisons.
+(``v_0.5.41``). No reference checkout is embedded in ``main``; compatibility
+campaigns install the pinned ``hgraph==0.5.41`` release in an isolated
+environment, while maintenance continues directly on ``release/0.5``.
 
 The hgraph MIT ``LICENSE`` is retained. Active project, package, release, and
 issue-publishing links target ``hhenson/hgraph``. Links in parity corpus and

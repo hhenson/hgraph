@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/_runtime/test_scheduler.py.
+# Ported from release/0.5:hgraph_unit_tests/_runtime/test_scheduler.py.
 # SCHEDULER.schedule(datetime|timedelta, tag) and record(ts) default
 # key both landed 2026-07-18. The wall-clock record path now selects the
 # SPARSE ``:memory:`` recorder under the default IN_MEMORY model (the

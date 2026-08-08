@@ -64,5 +64,3 @@ Sphinx docs live under `docs/source` (`uv sync --extra docs`, then
 - [`CLAUDE.md`](CLAUDE.md) — the operational working guide: the enforced
   design-first workflow (docs change in the same commit as code), guardrails,
   architecture map, and current state.
-- The read-only `ext/main` tree tracks the maintained Python-first
-  `release/0.5` reference.

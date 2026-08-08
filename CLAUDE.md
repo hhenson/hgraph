@@ -91,9 +91,10 @@ over an `InternTable`.
 - `ts_input` = the **input proxies** (non-owning endpoints that bind to an output and
   read it).
 
-**Reference tree (read-only, never edit):** `ext/main` tracks the maintained
-Python-first `release/0.5` line for compatibility comparisons. It is not the
-implementation source of truth. Memory: `reference_branches`.
+**Compatibility reference:** the Python-first implementation remains on the
+maintained `release/0.5` branch and is installed as a pinned reference when
+needed. It is not embedded in this tree or the implementation source of truth.
+Memory: `reference_branches`.
 
 ---
 

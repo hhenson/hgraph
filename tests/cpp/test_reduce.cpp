@@ -5,7 +5,7 @@
 // The combiner is a WiredFn scalar (fn<X>()), so
 // user specialisations register as ordinary overloads and are selected by the
 // standard best-match machinery — including requires_ gating on the function's
-// identity, mirroring ext/main's map_ overload test.
+// identity, mirroring release/0.5's map_ overload test.
 //
 // Tests run through the eval_node operator harness; the TSL input is the usual
 // canonical-delta values<Value>(...) sequence, with its time-series schema
@@ -107,7 +107,7 @@ namespace
         }
     };
 
-    // ---- user specialisation, mirroring ext/main's test_map_overload ----
+    // ---- user specialisation, mirroring release/0.5's test_map_overload ----
 
     // A combiner used purely as a selection marker for the specialised overload.
     struct FirstCombiner

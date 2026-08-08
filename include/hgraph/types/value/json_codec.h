@@ -26,7 +26,7 @@ namespace hgraph
      * cached ``to_json_builder``/``from_json_builder`` closure pipelines).
      *
      * The wire format mirrors the Python implementation
-     * (``ext/main/hgraph/_impl/_operators/_to_json.py``): atomics as JSON
+     * (``release/0.5:hgraph/_impl/_operators/_to_json.py``): atomics as JSON
      * scalars (dates ``"YYYY-MM-DD"``, datetimes ``"YYYY-MM-DD
      * HH:MM:SS.ffffff"``, times ``"HH:MM:SS.ffffff"``, timedeltas
      * ``"D:H:M:S.ffffff"``), bundles/tuples as objects/arrays, lists and sets

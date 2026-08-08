@@ -17,7 +17,7 @@
 // JSON serialization — step 1 of the record/replay/table design record: the
 // interned per-schema JsonConverter (serializer-ops pattern) plus the
 // to_json/from_json operators. The wire format mirrors the Python
-// implementation (ext/main/hgraph/_impl/_operators/_to_json.py).
+// implementation (release/0.5:hgraph/_impl/_operators/_to_json.py).
 
 namespace
 {

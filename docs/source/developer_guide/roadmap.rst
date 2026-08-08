@@ -199,7 +199,7 @@ The mesh Python-surface follow-on passed fresh macOS arm64/AppleClang 21 and
 Ubuntu 24.04 x86_64/GCC 13.3 Release gates with warnings as errors:
 1095/1095 native tests passed on each platform. Fresh ``cp312-abi3`` wheels
 installed under Python 3.14.6 produced 1229 passed, 19 skipped, and 6
-deselected on each platform. Python self-reference now matches ``ext/main``
+deselected on each platform. Python self-reference now matches ``release/0.5``
 through ``mesh_(func)[key]`` / ``get_mesh(func_or_name)`` and a lazy
 ``MeshWiringPort``; native key-only meshes driven by explicit ``__keys__``
 close the associated call-shape gap.
@@ -226,7 +226,7 @@ the following are true:
    restrictions.
 3. **Met (inventory, 2026-07-15):** the unported upstream ``_wiring`` and
    ``ts_tests`` tiers have been reviewed and classified in
-   :doc:`parity_matrix`.  The baseline is ``ext/main`` at
+   :doc:`parity_matrix`.  The baseline is ``release/0.5`` at
    ``4760fccadd5368b0482393e5acb0ceaac48518e9``; future inventory updates must
    record any baseline change explicitly.  Required behavioural cases still
    need implementation and paired public C++/Python tests before replacement

@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/_wiring/test_component.py
+# Ported from release/0.5:hgraph_unit_tests/_wiring/test_component.py
 from typing import Generic
 
 import pytest

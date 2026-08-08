@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/_wiring/test_ts_auto_cast.py
+# Ported from release/0.5:hgraph_unit_tests/_wiring/test_ts_auto_cast.py
 from dataclasses import dataclass
 
 from hgraph import CompoundScalar, compute_node, TS, graph

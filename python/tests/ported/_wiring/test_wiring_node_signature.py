@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/_wiring/test_wiring_node_signature.py
+# Ported from release/0.5:hgraph_unit_tests/_wiring/test_wiring_node_signature.py
 # ported: private-module imports corrected to the public hgraph surface
 # deviation: HgTypeMetaData is not part of the public API (recorded ruling) —
 # input_types/output_type carry the raw annotations; the scalar/time-series

@@ -229,7 +229,7 @@ Higher-order constructs are operators
 -------------------------------------
 
 ``reduce``, ``switch_`` and the current ``map_`` subset are **ordinary
-operators**, not bespoke wiring functions. This mirrors the ``ext/main``
+operators**, not bespoke wiring functions. This mirrors the ``release/0.5``
 direction (``map_`` is an ``@operator`` whose old implementation became the
 default registered overload): the default implementation is one registry
 candidate, the future dynamic kernels (e.g. ``reduce`` over ``TSD``) are
@@ -294,7 +294,7 @@ single-node fast path for fixed ``TSL`` inputs; all other associative forms use
 the runtime tree below.
 
 Tests: ``tests/cpp/test_reduce.cpp`` (including a user overload gated on the
-wired function's identity, mirroring ``ext/main``'s ``test_map_overload``).
+wired function's identity, mirroring ``release/0.5``'s ``test_map_overload``).
 
 
 Associative ``reduce`` runtime

@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/arrow/test_arrow.py
+# Ported from release/0.5:hgraph_unit_tests/arrow/test_arrow.py
 # Changes from upstream:
 #  - `from hgraph.arrow._arrow import PairSchema, Pair` -> public
 #    `from hgraph.arrow import ...` (private paths are internal-only here).

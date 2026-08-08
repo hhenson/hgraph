@@ -1,4 +1,0 @@
-[submodule "ext/main"]
-	path = ext/main
-	url = https://github.com/hhenson/hgraph.git
-	branch = release/0.5

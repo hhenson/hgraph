@@ -385,7 +385,7 @@ namespace hgraph::python_bridge
     }, nb::arg("name") = std::string{});
 
     // Internal primitives behind Python's MeshWiringPort. The public Python
-    // surface is mesh_(func)[key] / get_mesh(func), matching ext/main.
+    // surface is mesh_(func)[key] / get_mesh(func), matching release/0.5.
     m.def("mesh_ref", [](PyWiring &w, nb::handle key, const std::string &name) {
         const TSValueTypeMetaData *out_schema = OperatorRegistry::instance().resolve_mesh_scope(name);
         if (out_schema == nullptr)

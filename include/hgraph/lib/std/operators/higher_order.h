@@ -20,7 +20,7 @@ namespace hgraph::stdlib
 {
     /**
      * Higher-order operator **definitions** (markers only), mirroring the
-     * ``ext/main`` Python direction where higher-order constructs are
+     * ``release/0.5`` Python direction where higher-order constructs are
      * ``@operator``s whose default implementations are ordinary
      * registered overloads. The wirable-function argument is the ``WiredFn``
      * scalar (``fn<X>()``), so overload selection — including user

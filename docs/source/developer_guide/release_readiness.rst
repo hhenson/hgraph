@@ -181,8 +181,8 @@ Sphinx 9.1 passed with warnings as errors; all 48 packaging, readiness,
 distribution, and benchmark-harness canaries passed; and ``uv lock --check``
 was clean. The source distribution contained 735 audited files (2,091,465
 bytes), retained the public headers, implementation sources, consumer test,
-and audit tool, and excluded the reference submodule, benchmark
-environments/results, release-review reports, caches, and build trees. Wheel
+and audit tool, and excluded benchmark environments/results, release-review
+reports, caches, and build trees. Wheel
 audits require the extension, native libraries, headers, CMake package,
 debugger support, and Python package while accepting the platform-standard
 ``lib`` or ``lib64`` root.

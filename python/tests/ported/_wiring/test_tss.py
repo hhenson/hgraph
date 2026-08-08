@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/_wiring/test_tss.py
+# Ported from release/0.5:hgraph_unit_tests/_wiring/test_tss.py
 from hgraph import _SetDelta, graph, TS, TSS, compute_node, Removed, contains_, set_delta
 from hgraph import pass_through_node
 from hgraph.test import eval_node

@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/_wiring/test_passivate.py
+# Ported from release/0.5:hgraph_unit_tests/_wiring/test_passivate.py
 from hgraph import graph, TS, passive
 from hgraph.test import eval_node
 

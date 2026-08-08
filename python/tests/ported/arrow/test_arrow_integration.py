@@ -1,4 +1,4 @@
-# Ported from ext/main/hgraph_unit_tests/arrow/test_arrow_integration.py
+# Ported from release/0.5:hgraph_unit_tests/arrow/test_arrow_integration.py
 # Changes from upstream:
 #  - `from hgraph.arrow._pair_operators import flatten_tsb, to_pair` -> public
 #    `from hgraph.arrow import ...`.

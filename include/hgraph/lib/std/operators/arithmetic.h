@@ -14,7 +14,7 @@ namespace hgraph::stdlib
     /**
      * Arithmetic operator **definitions** — the abstract markers only; implementations
      * are registered separately (see ``register_standard_operators``). Mirrors the
-     * Python ``hgraph`` arithmetic operators (``ext/main/hgraph/_operators/_operators.py``).
+     * Python ``hgraph`` arithmetic operators (``release/0.5:hgraph/_operators/_operators.py``).
      *
      * The operator signature is a *suggestion*: binary operators declare independent
      * type variables for ``lhs`` / ``rhs`` / the result so a single name spans
@@ -25,7 +25,7 @@ namespace hgraph::stdlib
 
     /**
      * Divide-by-zero policy — the wiring-time choice of what ``div_`` (and other dividing
-     * operators) produce when the divisor is zero. Mirrors ``ext/main``'s ``DivideByZero``:
+     * operators) produce when the divisor is zero. Mirrors ``release/0.5``'s ``DivideByZero``:
      * ``Error`` raise · ``Nan`` · ``Inf`` · ``NoTick`` (no tick; Python ``NONE``) · ``Zero`` · ``One``.
      * Registered as a scalar so it can be a wiring-time ``Scalar<>`` argument.
      */

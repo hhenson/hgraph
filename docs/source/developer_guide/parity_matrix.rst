@@ -2,12 +2,12 @@ Python parity matrix
 ====================
 
 The Python-to-C++ inventory (roadmap Priority 3's first deliverable): what the
-Python ``hgraph`` surface (the ``ext/main`` reference tree) offers, what the
+Python ``hgraph`` surface (the ``release/0.5`` reference tree) offers, what the
 C++ runtime provides today, and precisely what is missing — so "done" for the
 Python bridge is measurable rather than discovered.
 
 **Snapshot: 2026-07-21.** Regenerate the operator section by scanning
-``ext/main/hgraph/_operators/*.py`` for public ``def`` names and comparing
+``release/0.5:hgraph/_operators/*.py`` for public ``def`` names and comparing
 against ``lib/std``'s ``Operator<"name">`` markers and ``register_*``
 call sites (three states below). Update this page in the same change as any
 operator addition — a stale matrix is a doc/code-divergence bug.
@@ -314,7 +314,7 @@ also covered natively.
 Compatibility audit: wiring and time-series tiers
 -------------------------------------------------
 
-The follow-on inventory was reviewed on 2026-07-15 against ``ext/main`` at
+The follow-on inventory was reviewed on 2026-07-15 against ``release/0.5`` at
 ``4760fccadd5368b0482393e5acb0ceaac48518e9``.  Upstream has 32 ``_wiring``
 test modules containing 244 tests; 24 modules are now represented under
 ``python/tests/ported/_wiring``.  The saved post-error-handling baseline had 10

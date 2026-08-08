@@ -1,4 +1,4 @@
-"""Ported hgraph test suite (from ext/main/hgraph_unit_tests).
+"""Ported hgraph test suite (from release/0.5:hgraph_unit_tests).
 
 Conventions:
 - Files are near-verbatim copies; only genuinely unsupported pieces are

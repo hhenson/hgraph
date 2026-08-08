@@ -674,7 +674,7 @@ def test_context_imports_into_compiled_higher_order_graphs():
 
 
 class _TestContext:
-    # Transcribed from ext/main hgraph_unit_tests/_wiring/test_context.py.
+    # Transcribed from release/0.5 hgraph_unit_tests/_wiring/test_context.py.
     __instance__ = None
 
     def __init__(self, msg="non-default"):

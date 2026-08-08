@@ -565,7 +565,7 @@ under ``include/hgraph/lib/std/operators/``, grouped by family and pulled togeth
 
 The marker's signature is documentary (a *suggestion*); each operator names independent
 type variables where operands and result may differ, mirroring the Python ``hgraph``
-catalogue under ``ext/main/hgraph/_operators/`` (the canonical Python reference). Each
+catalogue under ``release/0.5:hgraph/_operators/`` (the canonical Python reference). Each
 operator's **registry name string matches the Python operator name exactly** — including
 its trailing underscore where Python has one (``Operator<"add_">`` / ``"eq_">`` /
 ``"sum_">``, but ``"sign">`` / ``"mean">`` / ``"zero">``) — so the name is the shared key
@@ -642,7 +642,7 @@ Higher-order operators and the ``WiredFn`` scalar
 -------------------------------------------------
 
 The higher-order constructs (``reduce``, ``switch_`` and the current ``map_``
-subset) are **ordinary operators**, mirroring the ``ext/main`` Python
+subset) are **ordinary operators**, mirroring the ``release/0.5`` Python
 direction where ``map_`` is an ``@operator`` whose old wiring-time
 implementation became the default registered overload (``map_default``), and
 user specialisations register alongside it — selected by the standard
