@@ -15,6 +15,7 @@ validates again instead of retaining a stale value behind an empty delta.
 """
 
 import pytest
+from frozendict import frozendict
 
 import hgraph as hg
 from hgraph import TS, TSD, TSS, graph
@@ -200,6 +201,33 @@ def test_subscription_replacement_waits_for_fresh_value_and_preserves_transition
     assert out == [None, 1, None, None, 2]
     assert transitions == [(["rates"], []), (["fx"], ["rates"]), (["rates"], ["fx"])]
     assert calls == {"rates": 2, "fx": 1}
+
+
+def test_subscription_structured_response_stays_unbound_until_its_field_is_valid():
+    class BundleWithSet(hg.TimeSeriesSchema):
+        values: hg.TSS[int]
+
+    @hg.subscription_service
+    def bundle_for(key: TS[str], path: str = hg.default_path) -> hg.TSB[BundleWithSet]: ...
+
+    @graph
+    def materialize(values: hg.TSS[int]) -> hg.TSB[BundleWithSet]:
+        return hg.TSB[BundleWithSet].from_ts(values=values)
+
+    @hg.service_impl(interfaces=bundle_for)
+    def bundle_for_impl(key: hg.TSS[str]) -> TSD[str, hg.TSB[BundleWithSet]]:
+        values = hg.const(
+            frozendict({"a": frozenset({1})}),
+            tp=TSD[str, hg.TSS[int]],
+        )
+        return hg.map_(materialize, values, __keys__=key)
+
+    @graph
+    def app(key: TS[str], item: TS[int]) -> TS[bool]:
+        hg.register_service(hg.default_path, bundle_for_impl)
+        return hg.contains_(bundle_for(key).values, item)
+
+    assert eval_node(app, ["a"], [1]) == [None, True]
 
 
 def test_decoupled_subscription_from_to_graph_is_same_cycle():

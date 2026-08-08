@@ -74,18 +74,12 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None):
                 # (hgraph parity - dispatch branches `return "woof"`).
                 out = wire("const", out)
             raw = _unwrap(out)
-            if raw.is_structural:
-                # A structural source has no single endpoint for a child
-                # output binding. REFERENCE-valued fields materialize as a
-                # REFERENCE output (hgraph's combine-of-refs shape - zero
-                # copy); plain fields copy through the canonical-delta
-                # identity node. Peered child projections are already valid
-                # nested output bindings and pass through unchanged.
-                if _hgraph.structural_has_ref_children(raw):
-                    raw = _hgraph.ref_port(borrowed_wiring, raw)
-                else:
-                    raw = _unwrap(wire("__materialize", out))
-            elif raw.has_path and not (isinstance(out_tp, _TsExpr) and out_tp.is_ref):
+            # Common C++ subgraph finalization converts a structural result
+            # into its zero-copy REF terminal. Leaving the structural port
+            # intact here keeps Python and native graph functions on the same
+            # wiring path and preserves partially-bound field references.
+            if not raw.is_structural and raw.has_path and not (
+                    isinstance(out_tp, _TsExpr) and out_tp.is_ref):
                 # Python graph outputs expose referenced values unless the
                 # author explicitly declares a REF return. Preserve the
                 # projected endpoint path while giving map_/mesh_ the plain

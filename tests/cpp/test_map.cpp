@@ -208,6 +208,64 @@ namespace
         static Port<TS<Int>>  compose(Wiring &, Port<TS<Int>> ts) { return ts; }
     };
 
+    struct IdentitySetG
+    {
+        static constexpr auto name = "identity_set_g";
+        static Port<TSS<Int>> compose(Wiring &, Port<TSS<Int>> ts) { return ts; }
+    };
+
+    struct ExplicitKeySetMapG
+    {
+        static constexpr auto name = "explicit_key_set_map_g";
+
+        static Port<TSD<Str, TSS<Int>>> compose(Wiring &w, Port<TSS<Str>> keys,
+                                                Port<TSD<Str, TSS<Int>>> values)
+        {
+            return wire<stdlib::map_>(w, fn<IdentitySetG>(), values,
+                                      arg<"__keys__">(keys))
+                .as<TSD<Str, TSS<Int>>>();
+        }
+    };
+
+    struct ExplicitKeySetMapContainsG
+    {
+        static constexpr auto name = "explicit_key_set_map_contains_g";
+
+        static Port<TS<Bool>> compose(Wiring &w, Port<TSS<Str>> keys,
+                                      Port<TSD<Str, TSS<Int>>> values)
+        {
+            auto mapped = ExplicitKeySetMapG::compose(w, keys, values);
+            auto selected = wire<stdlib::getitem_>(w, mapped, Str{"a"}).as<TSS<Int>>();
+            return wire<stdlib::contains_>(w, selected, Int{1}).as<TS<Bool>>();
+        }
+    };
+
+    struct ExplicitKeySetMapIsEmptyG
+    {
+        static constexpr auto name = "explicit_key_set_map_is_empty_g";
+
+        static Port<TS<Bool>> compose(Wiring &w, Port<TSS<Str>> keys,
+                                      Port<TSD<Str, TSS<Int>>> values)
+        {
+            auto mapped = ExplicitKeySetMapG::compose(w, keys, values);
+            auto selected = wire<stdlib::getitem_>(w, mapped, Str{"a"}).as<TSS<Int>>();
+            return wire<stdlib::is_empty>(w, selected).as<TS<Bool>>();
+        }
+    };
+
+    struct ExplicitKeySetMapNotG
+    {
+        static constexpr auto name = "explicit_key_set_map_not_g";
+
+        static Port<TS<Bool>> compose(Wiring &w, Port<TSS<Str>> keys,
+                                      Port<TSD<Str, TSS<Int>>> values)
+        {
+            auto mapped = ExplicitKeySetMapG::compose(w, keys, values);
+            auto selected = wire<stdlib::getitem_>(w, mapped, Str{"a"}).as<TSS<Int>>();
+            return wire<stdlib::not_>(w, selected).as<TS<Bool>>();
+        }
+    };
+
     struct LookupLateMappedIdentityG
     {
         static constexpr auto name = "lookup_late_mapped_identity_g";
@@ -1212,6 +1270,38 @@ TEST_CASE("map_: __keys__ additions and removals drive the lifecycle, not the di
                                dict_delta<Str, TS<Int>>({}, {"a"s})));
 }
 
+TEST_CASE("map_: explicit keys do not publish an uninitialized collection child")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    const auto populated =
+        dict_delta<Str, TSS<Int>>({{"a"s, set_delta<Int>({1}, {})}});
+    CHECK_OUTPUT(
+        eval_node<ExplicitKeySetMapG>(
+            values<Value>(set_delta<Str>({"a"s}, {}), none),
+            values<Value>(none, populated)),
+        values<Value>(dict_delta<Str, TSS<Int>>({}), populated));
+}
+
+TEST_CASE("map_: an unbound collection child stays silent through feature operators")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    const auto keys = values<Value>(set_delta<Str>({"a"s}, {}), none);
+    const auto populated =
+        dict_delta<Str, TSS<Int>>({{"a"s, set_delta<Int>({1}, {})}});
+    const auto source = values<Value>(none, populated);
+
+    CHECK_OUTPUT(eval_node<ExplicitKeySetMapContainsG>(keys, source),
+                 values<Bool>(none, true));
+    CHECK_OUTPUT(eval_node<ExplicitKeySetMapIsEmptyG>(keys, source),
+                 values<Bool>(none, false));
+    CHECK_OUTPUT(eval_node<ExplicitKeySetMapNotG>(keys, source),
+                 values<Bool>(none, false));
+}
+
 TEST_CASE("map_: removed children stop before their source slot erases")
 {
     using namespace hgraph;
@@ -1855,6 +1945,72 @@ namespace
         }
     };
 
+    struct MaterializeMappedSetStructuralG
+    {
+        static constexpr auto name = "materialize_mapped_set_structural_g";
+        static Port<DelayedMappedSetBundle> compose(Wiring &w,
+                                                    Port<TSS<Int>> values)
+        {
+            return stdlib::to_tsb<DelayedMappedSetBundle>(w, values);
+        }
+    };
+
+    struct MapDelayedStructuralElementG
+    {
+        static Port<TSD<Str, DelayedMappedSetBundle>>
+        compose(Wiring &w, Port<TSD<Str, TSS<Int>>> values,
+                Port<TSS<Str>> keys)
+        {
+            return wire<stdlib::map_>(w, fn<MaterializeMappedSetStructuralG>(), values,
+                                      arg<"__keys__">(keys))
+                .as<TSD<Str, DelayedMappedSetBundle>>();
+        }
+    };
+
+    struct DelayedMappedBundleContainsG
+    {
+        static constexpr auto name = "delayed_mapped_bundle_contains_g";
+
+        static Port<TS<Bool>> compose(Wiring &w, Port<TSS<Str>> keys,
+                                      Port<TSD<Str, TSS<Int>>> values)
+        {
+            auto mapped = MapDelayedStructuralElementG::compose(w, values, keys);
+            auto bundle = wire<stdlib::getitem_>(w, mapped, Str{"a"})
+                              .as<DelayedMappedSetBundle>();
+            auto set = wire<stdlib::getitem_>(w, bundle, Str{"values"}).as<TSS<Int>>();
+            return wire<stdlib::contains_>(w, set, Int{1}).as<TS<Bool>>();
+        }
+    };
+
+    using MappedDictBundle =
+        TSB<"MappedDictBundle", Field<"direct", TSD<Str, TS<Int>>>,
+            Field<"copy", TSD<Str, TS<Int>>>>;
+
+    struct MaterializeMappedDictBundleG
+    {
+        static constexpr auto name = "materialize_mapped_dict_bundle_g";
+
+        static Port<MappedDictBundle> compose(Wiring &w,
+                                              Port<TSD<Str, TS<Int>>> values)
+        {
+            return stdlib::to_tsb<MappedDictBundle>(w, values, values);
+        }
+    };
+
+    struct TakeMappedDictBundleG
+    {
+        static constexpr auto name = "take_mapped_dict_bundle_g";
+
+        static Port<TSD<Str, MappedDictBundle>>
+        compose(Wiring &w, Port<TSD<Str, TSD<Str, TS<Int>>>> branches)
+        {
+            auto mapped = wire<stdlib::map_>(w, fn<MaterializeMappedDictBundleG>(), branches)
+                              .as<TSD<Str, MappedDictBundle>>();
+            return wire<stdlib::take>(w, mapped, Int{1})
+                .as<TSD<Str, MappedDictBundle>>();
+        }
+    };
+
     struct NestedExplicitKeysMapBodyG
     {
         static constexpr auto name = "nested_explicit_keys_map_body_g";
@@ -2365,6 +2521,35 @@ TEST_CASE("map_: a late explicit key samples a structured element")
                      dict_delta<Str, DelayedMappedSetBundle>(
                          {{"a"s, tsb_delta<DelayedMappedSetBundle>(
                                       set_delta<Int>({1, 2}, {}))}})));
+}
+
+TEST_CASE("map_: a projected collection waits for its mapped bundle source")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<DelayedMappedBundleContainsG>(
+                     values<Value>(set_delta<Str>({"a"s}, {}), none),
+                     values<Value>(none,
+                                   dict_delta<Str, TSS<Int>>(
+                                       {{"a"s, set_delta<Int>({1}, {})}})))),
+                 values<Bool>(none, true));
+}
+
+TEST_CASE("map_: a fixed structural child output can be copied as a whole value")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    const auto inner = dict_delta<Str, TS<Int>>({{"x"s, 1}, {"y"s, 2}});
+    CHECK_OUTPUT((eval_node<TakeMappedDictBundleG>(
+                     values<Value>(dict_delta<Str, TSD<Str, TS<Int>>>(
+                         {{"branch"s, inner}})))),
+                 values<Value>(dict_delta<Str, MappedDictBundle>(
+                     {{"branch"s,
+                       tsb_delta<MappedDictBundle>(
+                           dict_delta<Str, TS<Int>>({{"x"s, 1}, {"y"s, 2}}),
+                           dict_delta<Str, TS<Int>>({{"x"s, 1}, {"y"s, 2}}))}})));
 }
 
 TEST_CASE("map_: nested explicit-key maps resolve and execute through public wiring")

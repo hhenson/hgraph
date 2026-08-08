@@ -1002,17 +1002,24 @@ struct TypeRealizationSnapshot::Impl {
         found != union_types.end()) {
       return found->second->binding;
     }
-    if (std::ranges::find(
+    const auto &alternative_schemas = closure_for_locked(schema);
+    const bool closes_active_exact = std::ranges::any_of(
+        realization_path, [&](const RealizationStep &step) {
+          return step.kind == RealizationKind::ExternalExact &&
+                 std::ranges::find(alternative_schemas, step.schema) !=
+                     alternative_schemas.end();
+        });
+    if (closes_active_exact ||
+        std::ranges::find(
             realization_path,
             RealizationStep{schema, RealizationKind::ExternalUnion}) !=
-        realization_path.end()) {
+            realization_path.end()) {
       return ValuePlanFactory::instance().type_for(
           TypeRegistry::instance().owned(schema));
     }
     auto realization =
         enter_realization(schema, RealizationKind::ExternalUnion);
     std::vector<ValueTypeRef> alternatives;
-    const auto &alternative_schemas = closure_for_locked(schema);
     alternatives.reserve(alternative_schemas.size());
     for (const auto *alternative : alternative_schemas) {
       alternatives.push_back(exact_type_for_locked(alternative));
@@ -1139,16 +1146,23 @@ struct TypeRealizationSnapshot::Impl {
         found != graph_union_bindings.end()) {
       return found->second;
     }
-    if (std::ranges::find(
+    const auto &alternative_schemas = closure_for_locked(schema);
+    const bool closes_active_exact = std::ranges::any_of(
+        realization_path, [&](const RealizationStep &step) {
+          return step.kind == RealizationKind::GraphExact &&
+                 std::ranges::find(alternative_schemas, step.schema) !=
+                     alternative_schemas.end();
+        });
+    if (closes_active_exact ||
+        std::ranges::find(
             realization_path,
             RealizationStep{schema, RealizationKind::GraphUnion}) !=
-        realization_path.end()) {
+            realization_path.end()) {
       return ValuePlanFactory::instance().type_for(
           TypeRegistry::instance().owned(schema));
     }
     auto realization = enter_realization(schema, RealizationKind::GraphUnion);
     std::vector<ValueTypeRef> alternatives;
-    const auto &alternative_schemas = closure_for_locked(schema);
     alternatives.reserve(alternative_schemas.size());
     std::size_t minimum_size = std::numeric_limits<std::size_t>::max();
     std::size_t maximum_size = 0;

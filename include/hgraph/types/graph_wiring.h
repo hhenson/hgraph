@@ -326,6 +326,22 @@ namespace hgraph
             return source->children;
         }
 
+        /** Whether a fixed structural source carries a direct REF child.
+         *
+         * Such a source must retain reference identity when it crosses a
+         * compiled-graph boundary. A structure containing only ordinary
+         * children is instead materialized through an owned output so its
+         * observers have the usual node-owned lifetime.
+         */
+        [[nodiscard]] bool structural_has_reference_children() const noexcept
+        {
+            const auto *source = std::get_if<StructuralSource>(&source_);
+            if (source == nullptr) { return false; }
+            return std::ranges::any_of(source->children, [](const WiringPortRef &child) {
+                return child.schema != nullptr && child.schema->kind == TSTypeKind::REF;
+            });
+        }
+
         [[nodiscard]] const WiringInstance *peered_node_or_null() const noexcept
         {
             const auto *source = std::get_if<PeeredSource>(&source_);

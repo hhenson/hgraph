@@ -4,7 +4,7 @@ from datetime import date
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Generic
+from typing import Generic, TypeVar
 
 import pytest
 from frozendict import frozendict
@@ -203,6 +203,31 @@ def test_generic_tsb():
         return tsb_multi_type(TSB[GenericTSB[int]].from_ts(p1=ts1), ts2)
 
     assert eval_node(g, [1, 2], ["a", "b"]) == [fd({"p1": "a"}), fd({"p1": "b"})]
+
+
+def test_generic_tsb_accepts_structured_scalar_specialization():
+    class LeftOrder(TimeSeriesSchema):
+        value: TS[int]
+
+    class RightOrder(TimeSeriesSchema):
+        value: TS[str]
+
+    Order = TypeVar("Order", LeftOrder, RightOrder)
+
+    class OrderState(TimeSeriesSchema, Generic[Order]):
+        requested: TSB[Order]
+        confirmed: TSB[Order]
+
+    @dataclass(frozen=True)
+    class ConcreteOrderType:
+        value: int
+
+    # Python's runtime GenericAlias does not enforce TypeVar constraints, and
+    # released hgraph therefore permits downstream declarations like this at
+    # import time. TSB already lifts dataclass scalar schemas; generic schema
+    # specialization must use the same conversion path.
+    concrete = TSB[OrderState[ConcreteOrderType]]
+    assert concrete.handle.is_tsb
 
 
 def test_tsb_order_preservation():

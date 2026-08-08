@@ -493,6 +493,31 @@ def test_recursive_python_owned_dataclass_preserves_nested_objects():
     assert eval_node(child_value, [source, Recursive(3)]) == [2, -1]
 
 
+def test_indirect_recursive_closed_hierarchy_realizes_from_leaf():
+    @dataclass(frozen=True)
+    class Instrument:
+        symbol: str
+
+    @dataclass(frozen=True)
+    class ContractSpec:
+        underlying: Instrument
+
+    @dataclass(frozen=True)
+    class ContractSeries:
+        spec: ContractSpec
+
+    @dataclass(frozen=True)
+    class Future(Instrument):
+        series: ContractSeries
+
+    @compute_node
+    def symbol(value: TS[Future]) -> TS[str]:
+        return value.value.symbol
+
+    future = Future("FUT", ContractSeries(ContractSpec(Instrument("SPOT"))))
+    assert eval_node(symbol, [future]) == ["FUT"]
+
+
 def test_time_series_schema_can_be_lifted_from_python_owned_dataclass():
     @dataclass(frozen=True)
     class Quote:

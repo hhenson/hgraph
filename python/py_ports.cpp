@@ -169,15 +169,7 @@ void bind_ports(nb::module_ &m) {
   });
 
   m.def("structural_has_ref_children", [](const PyPort &port) {
-    if (!port.ref.is_structural_source()) {
-      return false;
-    }
-    for (const WiringPortRef &child : port.ref.structural_children()) {
-      if (child.schema != nullptr && child.schema->kind == TSTypeKind::REF) {
-        return true;
-      }
-    }
-    return false;
+    return port.ref.structural_has_reference_children();
   });
 
   m.def("tsb_has_ref_fields", [](PyTsType ts_type) {

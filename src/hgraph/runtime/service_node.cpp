@@ -1,6 +1,7 @@
 #include <hgraph/runtime/service_node.h>
 
 #include <hgraph/runtime/graph.h>
+#include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/time_series/ts_delta.h>
@@ -99,6 +100,7 @@ namespace hgraph
         {
             std::size_t storage_offset{0};
             bool        response_same_cycle{false};
+            bool        forwards_structure{false};
         };
 
         struct SubscriptionResponseGateStorage
@@ -213,20 +215,23 @@ namespace hgraph
         [[nodiscard]] const SubscriptionResponseGateContext &
         register_subscription_response_gate_context(
             std::size_t storage_offset,
-            bool response_same_cycle)
+            bool response_same_cycle,
+            bool forwards_structure)
         {
             auto &contexts = subscription_response_gate_contexts();
             const auto existing = std::ranges::find_if(
                 contexts,
                 [&](const auto &context) {
                     return context->storage_offset == storage_offset
-                        && context->response_same_cycle == response_same_cycle;
+                        && context->response_same_cycle == response_same_cycle
+                        && context->forwards_structure == forwards_structure;
                 });
             if (existing != contexts.end()) { return **existing; }
             auto context = std::make_unique<SubscriptionResponseGateContext>(
                 SubscriptionResponseGateContext{
                     .storage_offset = storage_offset,
                     .response_same_cycle = response_same_cycle,
+                    .forwards_structure = forwards_structure,
                 });
             const auto *result = context.get();
             contexts.push_back(std::move(context));
@@ -790,6 +795,46 @@ namespace hgraph
             }
             auto output = view.output(evaluation_time);
 
+            const auto clear_response = [&]() {
+                if (context.forwards_structure)
+                {
+                    static_cast<void>(clear_forwarding_output_tree(
+                        output.borrowed_ref(), true));
+                }
+                else
+                {
+                    auto mutation = output.begin_mutation(evaluation_time);
+                    static_cast<void>(mutation.invalidate());
+                }
+            };
+
+            const auto publish_response_source = [&]() {
+                if (!context.forwards_structure)
+                {
+                    if (!value.valid())
+                    {
+                        clear_response();
+                    }
+                    else if (!output.valid())
+                    {
+                        apply_current_value(output, value.value());
+                    }
+                    else if (value.modified())
+                    {
+                        apply_delta(output, capture_delta(value).view());
+                    }
+                    return;
+                }
+                auto source = value.bound_output();
+                if (!source.bound())
+                {
+                    clear_response();
+                    return;
+                }
+                static_cast<void>(bind_forwarding_output_tree_to_source(
+                    output.borrowed_ref(), source, true));
+            };
+
             const auto key_was_added = [&]() {
                 if (!key.valid()) { return false; }
                 return std::ranges::any_of(
@@ -805,7 +850,14 @@ namespace hgraph
                 if (!value.valid() || !value.modified()) { return; }
                 if (context.response_same_cycle)
                 {
-                    apply_current_value(output, value.value());
+                    if (context.forwards_structure)
+                    {
+                        publish_response_source();
+                    }
+                    else
+                    {
+                        apply_current_value(output, value.value());
+                    }
                     storage.pending_response = Value{};
                     storage.awaiting_fresh_response = false;
                     return;
@@ -819,8 +871,7 @@ namespace hgraph
                 storage.pending_response = Value{};
                 storage.awaiting_subscription = false;
                 storage.awaiting_fresh_response = false;
-                auto mutation = output.begin_mutation(evaluation_time);
-                static_cast<void>(mutation.invalidate());
+                clear_response();
                 if (!key.valid()) { return; }
                 if (!key_is_live())
                 {
@@ -863,7 +914,14 @@ namespace hgraph
                     {
                         storage.pending_response = Value{value.value()};
                     }
-                    apply_current_value(output, storage.pending_response.view());
+                    if (context.forwards_structure)
+                    {
+                        publish_response_source();
+                    }
+                    else
+                    {
+                        apply_current_value(output, storage.pending_response.view());
+                    }
                     storage.pending_response = Value{};
                     storage.awaiting_fresh_response = false;
                     return;
@@ -872,15 +930,12 @@ namespace hgraph
                 return;
             }
 
-            if (!value.valid())
-            {
-                auto mutation = output.begin_mutation(evaluation_time);
-                static_cast<void>(mutation.invalidate());
-                return;
-            }
-
-            if (!output.valid()) { apply_current_value(output, value.value()); }
-            else if (value.modified()) { apply_delta(output, capture_delta(value).view()); }
+            // Once a response has been admitted, retain its endpoint identity
+            // through ordinary value changes and transient invalidity. A
+            // source replacement rebinds the forwarding tree; an unbound
+            // source clears it. This preserves hgraph's REF topology while
+            // the target itself supplies value/delta propagation.
+            publish_response_source();
         }
 
         bool subscription_key_capture_evaluate_impl(
@@ -1129,7 +1184,8 @@ namespace hgraph
         descriptor.storage_plan = &node_storage_plan_for(descriptor.schema, fields);
         const auto *context = &register_subscription_response_gate_context(
             descriptor.storage_plan->component(subscription_response_gate_storage_field).offset,
-            response_same_cycle);
+            response_same_cycle,
+            requires_structural_forwarding(response_schema));
 
         descriptor.callbacks.evaluate = [context](
             const NodeView &view, DateTime evaluation_time) {
@@ -1138,6 +1194,10 @@ namespace hgraph
 
         NodeBuilder builder = NodeBuilder::from_canonical_descriptor(
             std::move(descriptor), context);
+        if (context->forwards_structure)
+        {
+            builder.output_endpoint(forwarding_output_endpoint_schema(&response_schema));
+        }
         builder.label("subscription_response_gate");
         return builder;
     }

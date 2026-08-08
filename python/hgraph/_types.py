@@ -2315,8 +2315,21 @@ class _TSBMeta(type):
                 ts_argument = None
                 if isinstance(argument, _TsExpr):
                     ts_argument = argument
-                elif isinstance(argument, type) and issubclass(argument, TimeSeriesSchema):
-                    ts_argument = cls[argument]
+                else:
+                    argument_origin = typing.get_origin(argument) or argument
+                    if (
+                        isinstance(argument_origin, type)
+                        and (
+                            issubclass(argument_origin, (TimeSeriesSchema, _CS))
+                            or _is_python_object_class(argument_origin)
+                        )
+                    ):
+                        # TSB accepts structured scalar classes by lifting
+                        # them through TimeSeriesSchema.from_scalar_schema.
+                        # Apply the same conversion when that class appears
+                        # as a generic schema argument so annotation
+                        # construction has one consistent TSB contract.
+                        ts_argument = cls[argument]
                 if not isinstance(ts_argument, _TsExpr):
                     raise TypeError(
                         f"time-series schema parameter {parameter!r} requires a "

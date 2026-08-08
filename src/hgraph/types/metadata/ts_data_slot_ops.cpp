@@ -521,6 +521,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 return ops.has_current_value_impl(ops.context, values_.value_memory(slot));
             }
 
+            [[nodiscard]] bool child_valid(std::size_t slot) const
+            {
+                const auto &ops = element_type_.ops_ref();
+                return ops.tracking_impl(ops.context, values_.value_memory(slot))->last_modified_time != MIN_DT;
+            }
+
             void reserve(std::size_t capacity)
             {
                 keys_.reserve_to(capacity);
@@ -548,7 +554,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     removed_.reset(result.slot);
                     value_published_.set(result.slot);
                 }
-                else if (child_has_current_value(result.slot))
+                else if (child_valid(result.slot))
                 {
                     value_published_.set(result.slot);
                     added_.set(result.slot);
@@ -575,7 +581,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     removed_.reset(result.slot);
                     value_published_.set(result.slot);
                 }
-                else if (child_has_current_value(result.slot))
+                else if (child_valid(result.slot))
                 {
                     value_published_.set(result.slot);
                     added_.set(result.slot);

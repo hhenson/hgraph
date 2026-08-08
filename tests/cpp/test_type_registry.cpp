@@ -925,11 +925,13 @@ TEST_CASE(
                       {{"id", integer}, {"series", series}}, {instrument});
 
   const auto snapshot = TypeRealizationSnapshot::capture(registry);
-  const auto realized_instrument = snapshot->type_for(instrument);
   const auto realized_future = snapshot->type_for(future);
+  const auto realized_instrument = snapshot->type_for(instrument);
+  const auto graph_future = snapshot->graph_type_for(future);
   REQUIRE(realized_instrument !=
           ValuePlanFactory::instance().type_for(instrument));
   REQUIRE(realized_future != ValuePlanFactory::instance().type_for(future));
+  REQUIRE(graph_future != ValuePlanFactory::instance().type_for(future));
 
   Value value{realized_future};
   auto future_fields = value.as_bundle().begin_mutation();

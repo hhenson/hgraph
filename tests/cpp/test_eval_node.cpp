@@ -230,6 +230,9 @@ namespace
     using LiftedPriceValue =
         Bundle<"LiftedPriceValue", Field<"price", Float>, Field<"currency", Str>>;
     using LiftedPriceBundle = TSBFromScalar<LiftedPriceValue>;
+    using LiftedOrderState = TSB<"LiftedOrderState",
+                                 Field<"requested", LiftedPriceBundle>,
+                                 Field<"confirmed", LiftedPriceBundle>>;
 
     struct PassThroughLiftedPrice
     {
@@ -237,6 +240,15 @@ namespace
         static void eval(In<"price", LiftedPriceBundle> price, Out<LiftedPriceBundle> out)
         {
             apply_delta(out.base(), price.delta());
+        }
+    };
+
+    struct PassThroughLiftedOrderState
+    {
+        static constexpr auto name = "eval_pass_through_lifted_order_state";
+        static void eval(In<"state", LiftedOrderState> state, Out<LiftedOrderState> out)
+        {
+            apply_delta(out.base(), state.delta());
         }
     };
 }  // namespace
@@ -421,4 +433,16 @@ TEST_CASE("eval_node: TSBFromScalar is a first-class native wiring schema")
                           tsb_delta<LiftedPriceBundle>(Float{2.5}, Str{"EUR"}))),
         values<Value>(tsb_delta<LiftedPriceBundle>(Float{1.25}, Str{"USD"}),
                       tsb_delta<LiftedPriceBundle>(Float{2.5}, Str{"EUR"})));
+}
+
+TEST_CASE("eval_node: scalar-lifted TSBs compose inside a native bundle schema")
+{
+    using namespace hgraph;
+    const auto requested = tsb_delta<LiftedPriceBundle>(Float{1.25}, Str{"USD"});
+    const auto confirmed = tsb_delta<LiftedPriceBundle>(Float{1.5}, Str{"USD"});
+    const auto state = tsb_delta<LiftedOrderState>(
+        Value{requested.view()}, Value{confirmed.view()});
+
+    CHECK_OUTPUT(testing::eval_node<PassThroughLiftedOrderState>(values<Value>(state)),
+                 values<Value>(state));
 }

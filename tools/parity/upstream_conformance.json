@@ -687,16 +687,18 @@
       "id": "wiring-adaptor-private-builder-converted",
       "match": "hgraph_unit_tests/_wiring/test_adaptor.py::*",
       "classification": "converted",
+      "isolate_reference_outcomes": ["xfailed"],
       "candidate_outcomes": ["collection-error"],
       "diagnostic_regex": "No module named 'hgraph[.]_wiring[.]_decorators'",
-      "reason": "The exact module imports the upstream private adaptor builder. Public adaptor call shapes, automatic registration, scalar configuration, service integration, and lifecycle execute through the native adaptor wiring contract.",
+      "reason": "The exact module imports the upstream private adaptor builder. Public adaptor call shapes, automatic registration, scalar configuration, parameterized multi-client routing, service integration, and lifecycle execute through the native adaptor wiring contract. Its parameterized real-time case is marked XFAIL upstream as load-sensitive, so an isolated pass is required before using it as reference evidence.",
       "decision": "docs/source/developer_guide/parity_matrix.rst",
-      "review_date": "2026-08-05",
+      "review_date": "2026-08-08",
       "evidence": [
         "python/tests/test_hgraph_api.py",
         "python/tests/test_python_authoring.py",
         "python/tests/test_service_timing_semantics.py",
-        "tests/cpp/test_adaptor_wiring.cpp"
+        "tests/cpp/test_adaptor_wiring.cpp",
+        "tests/cpp/test_service_wiring.cpp"
       ]
     },
     {
@@ -1213,13 +1215,27 @@
     },
     {
       "id": "adaptors-kafka-private-consumer-injection-converted",
-      "match": "hgraph_unit_tests/adaptors/kafka/test_kafka_api.py::test_realtime_subscriber",
+      "match": "hgraph_unit_tests/adaptors/kafka/test_kafka_api.py::*",
+      "classification": "converted",
+      "candidate_outcomes": ["failed", "error"],
+      "diagnostic_regex": "has no attribute 'KafkaConsumer'",
+      "reason": "These upstream tests monkeypatch a private module import. hg_cpp exposes deterministic consumer injection through register_kafka_adaptor's consumer_factory while preserving public real-time delivery, shared-topic recovery, replay/live handover, and wiring-order behavior.",
+      "decision": "docs/source/developer_guide/parity_matrix.rst",
+      "review_date": "2026-08-08",
+      "evidence": [
+        "python/tests/adaptors/kafka/test_kafka_api.py",
+        "tests/cpp/test_service_wiring.cpp"
+      ]
+    },
+    {
+      "id": "adaptors-kafka-private-consumer-thread-converted",
+      "match": "hgraph_unit_tests/adaptors/kafka/test_kafka_api.py::test_consumer_failure_is_reported_rather_than_swallowed",
       "classification": "converted",
       "candidate_outcomes": ["failed"],
-      "diagnostic_regex": "has no attribute 'KafkaConsumer'",
-      "reason": "The upstream test monkeypatches a private module import. hg_cpp exposes deterministic consumer injection through register_kafka_adaptor's consumer_factory while preserving the public real-time subscriber behavior.",
+      "diagnostic_regex": "cannot import name 'KafkaConsumerThread'",
+      "reason": "The upstream assertion directly constructs its private worker thread. hg_cpp reports consumer failures through a push source and stops the engine on the graph thread, preserving the public stop-on-broker-failure behavior without exposing the implementation worker.",
       "decision": "docs/source/developer_guide/parity_matrix.rst",
-      "review_date": "2026-08-05",
+      "review_date": "2026-08-08",
       "evidence": [
         "python/tests/adaptors/kafka/test_kafka_api.py",
         "tests/cpp/test_service_wiring.cpp"
