@@ -6,7 +6,7 @@ dynamic shapes. Dynamic graphs, are those that can change over time, for example
 new order requires a new order handler graph to be constructed, but the set of orders will vary over time, thus we
 make use of dynamic graph operators to support this behaviour.
 
-There are currently three key dynamic graph tools in HGraph, these are:
+There are currently four key dynamic graph tools in HGraph, these are:
 
 * map\_
 * reduce
@@ -16,7 +16,7 @@ There are currently three key dynamic graph tools in HGraph, these are:
 Map
 ---
 
-As with the standard Python map, this takes a function or in the case a graph, node, or lamba (which will be treated
+As with the standard Python map, this takes a function, in this case a graph, node, or lambda (which will be treated
 as a graph) and the multiplexed inputs. The map function then returns the multiplexed result.
 
 For example:
@@ -37,16 +37,16 @@ This allows us to write graphs to deal with the problem at a singular level and 
 the same.
 
 The ``map_`` operator can be used with both ``TSD`` and ``TSL`` data-types (not at the same time). When applied to
-``TSL`` types, the graphs are initialised at wiring time and not dynamically as currently ``TSL`` data-types fixed
-length.
+``TSL`` types, the graphs are initialised at wiring time and not dynamically, as ``TSL`` data-types are currently of
+fixed length.
 
 There are a number of useful options to deal with difference scenarios you may encounter, these include:
 
 Knowing the key
 ...............
 
-It can be useful to know what the key is that created the graph instance, for example, when processing orders it
-the collection may be keyed with the order id. Then it could be useful to know the id. To do this there are two
+It can be useful to know the key that created the graph instance, for example, when processing orders the
+collection may be keyed with the order id. Then it could be useful to know that id. To do this there are two
 strategies, they are:
 
 1. Add an attribute named ``key`` as the first argument in the argument list with the type of ``TS[<key_type>]``.
@@ -58,7 +58,7 @@ strategies, they are:
         @graph
         def order_handler(key: TS[str], order: TS[Order]) -> ...
 
-        orders: TSD[str, TS[Order] = ...
+        orders: TSD[str, TS[Order]] = ...
         results = map_(order_handler, orders)
 
     In this example, the ``order_handler`` function takes in the key, which will be the order id that keys the ``order``
@@ -74,11 +74,11 @@ strategies, they are:
         @graph
         def order_handler(order_id: TS[str], order: TS[Order]) -> ...
 
-        orders: TSD[str, TS[Order] = ...
+        orders: TSD[str, TS[Order]] = ...
         results = map_(order_handler, orders, __key_arg__='order_id')
 
-Manging the key set
-...................
+Managing the key set
+....................
 
 When there are multiple inputs provided to the ``map_``, it is possible that some of the inputs should not contribute
 the set of keys that construct new graph instances. There are a couple of solutions to this, these are:
@@ -95,8 +95,8 @@ the set of keys that construct new graph instances. There are a couple of soluti
         def price(instrument_id: TS[str], request: TS[PriceRequest], market_data: TS[Price]) -> TS[Price]:
             ...
 
-        requests = TSD[str, TS[PriceRequest]] = ...
-        market_data = TSD[str, TS[Price]] = ...
+        requests: TSD[str, TS[PriceRequest]] = ...
+        market_data: TSD[str, TS[Price]] = ...
 
         result = map_(price, requests, no_key(market_data), __key_arg__ = 'instrument_id')
 
@@ -125,7 +125,7 @@ the set of keys that construct new graph instances. There are a couple of soluti
     Note that it is possible to construct any valid set of keys, this does not have to come from any of the inputs,
     but remember that only keys that match an entry in the key set will be de-multiplexed and made use of.
 
-    Using the ``__key_set__`` to set the de-multiplex keys is also helpful when multiple input are provided with
+    Using ``__keys__`` to set the de-multiplex keys is also helpful when multiple inputs are provided with
     different key types (for example, ``TSD[int, ...]`` and ``TSD[str, ...]``) then it is difficult for the operator
     to know which is the de-multiplexing key set and which is not (for example there is insufficient information in
     the mapped signature to work this out).
@@ -137,7 +137,7 @@ Finally, there are times, when an input fits with the correct key type, but the 
 de-multiplexed. When this can be determined by inspecting the mapped functions signature, this is not a problem, but
 that is not always the case.
 
-To ensure we don't de-multiplex the input, we use the ``pass_through`` marker to advice the ``map_`` operator not to
+To ensure we don't de-multiplex the input, we use the ``pass_through`` marker to advise the ``map_`` operator not to
 de-multiplex the input, for example:
 
 ::
@@ -153,12 +153,12 @@ de-multiplex the input, for example:
 
 In this case, there is no way for the ``map_`` operator to guess what to do with a, and since we wish it to be
 supplied to the scale function as is, we mark it as ``pass_through``. This is then supplied to each instance of the
-newly constructed graph's as is and only ``b`` is de-multiplexed.
+newly constructed graphs as is and only ``b`` is de-multiplexed.
 
 Reduce
 ------
 
-Another common issues is to take a collection and repeatedly apply binary function to the items (and the results) to
+Another common issue is to take a collection and repeatedly apply a binary function to the items (and the results) to
 convert the collection to a single value. This is similar to the ``reduce`` function in functools package.
 
 The ``reduce`` operator can be applied to ``TSL`` and ``TSD`` collection types. When reducing ``TSL`` inputs, the
@@ -171,7 +171,7 @@ the number of changes are small).
 
 Reduction requires the provision of a ``zero`` value in order to correctly operate. The easiest way to supply a zero
 is to implement the ``zero`` operator for the payload data-type (for example, reducing ``TSD[..., TS[int]]`` using
-``add_``, an operator for ``zero(TS[int]], add_)`` would be required to return a valid zero value.
+``add_``, an operator for ``zero(TS[int], add_)`` would be required to return a valid zero value.)
 
 Below is a simple example:
 
@@ -194,7 +194,7 @@ Where ``MyDataType()`` represents a zero value.
 Switch
 ------
 
-It is often a requirement to have different behavior based with the same input signature. To do this,
+It is often a requirement to have different behaviour behind the same input signature. To do this,
 we have the ``switch`` operator. This works a bit like a case statement, by providing a dictionary
 of keys and graphs (or nodes) which represents the options that could be evaluated and then provide
 the switch operator a key time-series that will select the graph to instantiate.
@@ -231,8 +231,8 @@ Mesh
 This is the most complex of the dynamic graph building tools. This allows for the dynamic construction of computational
 nodes.
 
-This bears some similarities to the ``mesh_`` operator. This takes as inputs the function (graph, node or lambda), then
-it is possible to provide multiplexed inputs (as with ``map_``) or to set the ``__key_set__`` to instantiate the graph
+This bears some similarities to the ``map_`` operator. This takes as inputs the function (graph, node or lambda), then
+it is possible to provide multiplexed inputs (as with ``map_``) or to set ``__keys__`` to instantiate the graph
 instances.
 
 Up to this point there is no difference between ``map_`` and mesh, where the difference comes in is that the is possible
@@ -260,18 +260,18 @@ Below is a simple example:
     def compute_a_plus_b() -> TS[float]:
         return mesh_(f,
                      __key_arg__ = 'k',
-                     __key_set__ = const(frozenset({'a+b'}), TSS[str]),
+                     __keys__ = const(frozenset({'a+b'}), TSS[str]),
                      __name__='f')
 
 
-In the main graph ``compute_a_plus_b``, the top level ``mesh_`` operator is called. We use the ``__key_set__`` here to
+In the main graph ``compute_a_plus_b``, the top level ``mesh_`` operator is called. We use ``__keys__`` here to
 keep this very simple. Notice we also name this mesh instance using the ``__name__`` kwarg. Now, when the ``f`` graph is
 instantiated, it can recursively call the mesh dynamically, in this case using the dynamic call signature ``mesh_('f')``
 where 'f' is the name we gave the mesh instance and ``['a']`` and ``['b']`` are the new keys we wish to have
 instantiated.
 
 .. note:: It is not possible to add new entries to the mesh other than in the initial call, so if you use multiplexed
-          arguments it will likely limited the utility of mesh, so as a general rule either use ``__key_set__`` for
+          arguments it will likely limit the utility of mesh, so as a general rule either use ``__keys__`` for
           constructing graph instance and ``no_key`` for the multiplexed inputs to ensure that there are the keys
           required, but instances are only created on demand.
 

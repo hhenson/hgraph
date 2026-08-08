@@ -17,17 +17,17 @@ def default(ts: DEFAULT[OUT], default_value: OUT) -> OUT:
     Returns the time-series ts with any missing values replaced with default_value.
 
     Example:
-    ```python
+    ::
+
         ts = ...
         out = default(ts, 0)  # Note the ability to pass in a constant value.
-    ```
 
     another example:
-    ```python
+    ::
+
         ts: TS[int] = ...
         ts_default: TS[int] = ...
         out = default(ts, ts_default)
-    ```
 
     :param ts: The time-series to replace missing values in.
     :param default_value: The value to replace missing values with.

@@ -75,9 +75,17 @@ INSERT_TEST_DATA = [
 
 @pytest.fixture(scope="function")
 def connection():
-    import duckdb
+    # sqlite3 rather than a third-party engine: this exercises SqlDataFrameSource, which only
+    # needs something polars.read_database accepts, and the standard library provides that
+    # without adding a native dependency to every install.
+    #
+    # PARSE_DECLTYPES is what makes the DATE column arrive as a date rather than a string, so the
+    # frame carries the same polars schema a richer engine would produce.
+    import sqlite3
 
-    return duckdb.connect(":memory:")
+    conn = sqlite3.connect(":memory:", detect_types=sqlite3.PARSE_DECLTYPES)
+    yield conn
+    conn.close()
 
 
 @pytest.fixture(scope="function")
@@ -95,25 +103,29 @@ def age_data(connection):
 
 @pytest.fixture(scope="function")
 def data_store_connection(connection):
+    # The store is a process-wide singleton whose register_instance() raises if one is already
+    # registered, so leaking it does not fail the test that leaked it, it fails whichever test
+    # runs next. The fixture therefore owns registration and release rather than leaving it to
+    # each test body to remember; release_instance() is idempotent, so this is safe even if a
+    # test enters the store as a context manager itself.
     dsc = DataConnectionStore()
-    dsc.set_connection("duckdb", connection)
-    print("Connection stored")
-    return dsc
+    dsc.set_connection("sqlite", connection)
+    with dsc:
+        yield dsc
 
 
-@pytest.mark.xfail(reason="Duck db does not always work correctly")
 def test_db_source(age_data, data_store_connection):
 
     class AgeDataSource(SqlDataFrameSource):
 
         def __init__(self):
-            super().__init__("SELECT date, name, age FROM my_table", "duckdb")
+            super().__init__("SELECT date, name, age FROM my_table", "sqlite")
 
     @graph
     def main() -> TSB[ts_schema(name=TS[str], age=TS[int])]:
         return tsb_from_data_source(AgeDataSource, "date")
 
-    with data_store_connection, DataStore():
+    with DataStore():
         config = GraphConfiguration()
         result = evaluate_graph(main, config)
 

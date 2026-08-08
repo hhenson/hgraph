@@ -22,6 +22,8 @@ from hgraph.adaptors.tornado.http_server_adaptor import (
     HttpDeleteRequest,
 )
 
+__all__ = ("Credentials", "authorization_match", "http_client_adaptor", "http_client_adaptor_impl")
+
 logger = getLogger(__name__)
 
 

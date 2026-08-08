@@ -1,6 +1,6 @@
 [project]
 name = "hgraph"
-version = "0.5.28"
+version = "0.5.39"
 description = "A functional reactive platform used to process time-series streams. Provides support for backtest (simulation) and realtime time-series processing. Using a forward propagation graph with a microtask scheduler for the runtime engine."
 readme = "README.md"
 license = {text = "MIT"}
@@ -27,17 +27,17 @@ requires-python = ">=3.12, <3.15"
 dependencies = [
     "frozendict>=2.3.10",
     "sortedcontainers>=2.4.0",
-    "ordered-set>=4.1.0",
     "numpy>=1.23",
     "polars>=1.0",
     "sqlalchemy",
-    "duckdb",
     "pyarrow>=16.1.0",
-    "multimethod",
+    # <2.1: multimethod 2.1 (2026-07-29) raises "metaclass conflict" when a
+    # Union[...] overload is registered against the C++-engine's bound types
+    # (hgraph.debug._inspector_util's format_value); unpin once adapted.
+    "multimethod<2.1",
     "psutil",
     "typing-extensions",
     "pycurl",
-    "black>=25.1.0",
     "pytz"
 ]
 
@@ -68,7 +68,11 @@ notebook = [
 docs = [
     "sphinx>=7.4",
     "sphinx_rtd_theme>=2.0.0",
-    "sphinx-autodoc-typehints>=2.3.0",
+    # 3.13 appends an ":Overloads:" field to the doc-string of every @overload-ed function without a
+    # preceding blank line. That breaks the reStructuredText structure: the field renders as literal
+    # text and the example literal-block that follows is dropped. Affects graph, sink_node, adaptor,
+    # service_adaptor, subscription_service and request_reply_service in hgraph/_wiring/_decorators.py.
+    "sphinx-autodoc-typehints>=2.3.0,<3.13",
     "sphinxcontrib-plantuml>=0.30",
     "sphinxcontrib-bibtex",
     "pybtex-apa-style>=1.3",

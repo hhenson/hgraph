@@ -65,6 +65,20 @@ def test_output_set_via_frozenset():
     ]
 
 
+def test_output_set_delta_after_frozenset():
+    """Test applying a delta after setting the full value via frozenset."""
+    @compute_node
+    def full_then_delta(trigger: TS[int]) -> TSS[int]:
+        if trigger.value == 1:
+            return frozenset({1})
+        return set_delta(added=frozenset({trigger.value}), removed=frozenset(), tp=int)
+
+    assert eval_node(full_then_delta, [1, 2]) == [
+        {1},
+        set_delta(frozenset({2}), frozenset(), tp=int),
+    ]
+
+
 def test_output_set_empty():
     """Test creating empty set."""
     @compute_node

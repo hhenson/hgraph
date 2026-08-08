@@ -4,6 +4,8 @@ from datetime import timedelta
 
 from hgraph import generator, STATE, TS
 
+__all__ = ("adaptor_executor",)
+
 
 @generator
 def adaptor_executor(pool_size: int = 50, _state: STATE = None) -> TS[Executor]:

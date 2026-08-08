@@ -5,7 +5,30 @@ from hgraph._types import TIME_SERIES_TYPE, TS, OUT, HgTypeMetaData
 from hgraph._types._scalar_types import DEFAULT
 from hgraph._wiring._decorators import operator
 
-__all__ = ["to_json", "from_json", "to_json_builder", "from_json_builder"]
+__all__ = ["to_json", "from_json", "to_json_builder", "from_json_builder", "register_json_datetime_format"]
+
+
+def register_json_datetime_format(fmt: str, *, time_only: bool = False) -> None:
+    """
+    Add a ``strptime`` pattern to those accepted when reading a date, time or datetime from JSON.
+
+    Dates and times are written as ISO 8601 and are read as ISO 8601 first, which already covers a
+    ``T`` or space separator, a ``Z`` suffix, numeric offsets and optional fractional seconds. Use
+    this only for a source that emits something else:
+
+    ::
+
+        register_json_datetime_format("%d/%m/%Y")
+
+    Patterns are tried in registration order. An ambiguous pattern captures every value matching
+    it, so register only what the producer actually emits.
+
+    :param fmt: the ``strptime`` pattern to accept.
+    :param time_only: register against times rather than dates and datetimes.
+    """
+    from hgraph._impl._operators._to_json import register_json_datetime_format as _register
+
+    _register(fmt, time_only=time_only)
 
 
 @operator

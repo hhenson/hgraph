@@ -1,7 +1,7 @@
 Mental Model
 ============
 
-HGraph defines a DSL (Domain Specific Langauge) using Python as the hosting language,
+HGraph defines a DSL (Domain Specific Language) using Python as the hosting language,
 and whilst every attempt is made to make the code look and feel like Python, there are
 a few key elements that differ from standard Python programming.
 These differences will require a change to how things are done from standard Python and
@@ -13,7 +13,7 @@ Below are some of the key concepts or ideas that drive the HGraph mental model:
 * Functional
 * Typing
 
-The rest of this section attempt to introduce these concepts.
+The rest of this section attempts to introduce these concepts.
 
 Graph
 -----
@@ -30,18 +30,18 @@ that is applied to this information flow. Under this model there are two approac
 in the first model (referred to as backward propagation graphs (BPG)) the user requests a
 node to be evaluated, and this causes the model to traverse the dependencies of the node
 evaluating those nodes that require it and then finally produce a result. This is the model
-used in spread sheet applications.
+used in spreadsheet applications.
 
-For example, consider the cells in a spread sheet with values and formulas below:
+For example, consider the cells in a spreadsheet with values and formulas below:
 
 ::
 
     A1 = 5
     A2 = 2
     B2 = A1 + A2
-    C2 = B2 / A1
+    C2 = B2 / A2
 
-The the DAG for this graph is:
+The DAG for this graph is:
 
 .. graphviz::
 
@@ -55,14 +55,14 @@ The the DAG for this graph is:
 
 Whilst the graph shows information flow from ``A1`` to ``B2``, etc. In it's use, data is requested
 from leaves of the graph, thus if the user selects ``C2`` and requests the cell to be evaluated,
-the requested will logically bubble up to ``B2``, which need to be computed, so the request
+the request will logically bubble up to ``B2``, which needs to be computed, so the request
 bubbles up to ``A1``, this is a value cell so no computation required, then the cell ``A2`` is
 requested, it too is a value cell so the result is available. ``B2`` has all of it's dependent
-properties evaluated so ``B2`` is now evaluated, the finally ``C2`` will check ``A1``, this is ready
+properties evaluated so ``B2`` is now evaluated, then finally ``C2`` will check ``A2``, this is ready
 so ``C2`` is now evaluated and the computation cycle is over.
 
 There are variations on the exact algorithm used to compute the values in the dependent
-nodes, but the they are all logically the same as described above. The other trick that
+nodes, but they are all logically the same as described above. The other trick that
 a backward propagation graph plays is remembering what it has already computed, to do
 this the graph will notify children when the cached value is no longer valid.
 This is done by marking children as being invalid. Thus if ``A2`` were modified, it would
@@ -82,10 +82,10 @@ such as computation layers to improve scenario analysis.
 
 The model was a great solution in days past, however, in most modern use-cases this model
 is less efficient, especially in scenarios where users wish to immediately see the results
-of data changing. (For example auto-recalculate in modern spread sheet applications).
+of data changing. (For example auto-recalculate in modern spreadsheet applications).
 
 The problem with the backward propagation model is the invalidation logic, when properties change
-invalidation is expensive, especially if then end result is just to re-compute the leaves.
+invalidation is expensive, especially if the end result is just to re-compute the leaves.
 This also requires additional mechanisms to be added to be able to subscribe
 to cell invalidations in order to be able to request a re-compute.
 
@@ -94,7 +94,7 @@ Forward Propagation Graphs
 
 At this point we introduce the forward propagation graph (FPG). This graph is similar to the
 backward propagation graph, in that it is a DAG, the information flow is from source nodes,
-to sink nodes (leaves), but in this model information changes cause an immediate re-computation
+to sink nodes (leaves), but in this model a change to the information causes an immediate re-computation
 of the graph.
 
 Additionally the user does not request a node to be computed, when information changes at
@@ -121,12 +121,31 @@ pattern.
 In the basic observer pattern, we have an observable and one or more observers.
 
 In the example above, the observables are the cells, the observers are the cells with dependencies.
-That is, ``A1`` and ``A2`` are observables, ``B2`` is observable and observer (observing ``A1`` and ``A2``) and
+That is, ``A1`` and ``A2`` are observables, ``B2`` is both observable and observer (observing ``A1`` and ``A2``) and
 ``C2`` is acting as an observer (of ``B2`` and ``A2``).
 
-If we followed the traditional observer pattern, when ``A2`` is modified it will notify (wlog) ``B2``,
-which will re-compute it's value, then it will notify ``C2``, which will re-compute its value.
-Then ``A2`` will notify ``C2``, causing ``C2`` to be recomputed again.
+If we followed the traditional observer pattern, when ``A2`` is modified it will notify its observers
+in whatever order they happen to be registered in. ``A2`` has two of them, ``B2`` and ``C2``, and
+nothing in the pattern says which comes first. Say ``C2`` is notified first: it re-computes,
+then ``B2`` is notified, it re-computes and in turn notifies ``C2``, which re-computes a second time.
+
+To make this concrete, suppose ``A2`` changes from ``2`` to ``3``:
+
++------+------------------------+-----------+-----------+
+| step | event                  | ``B2``    | ``C2``    |
++======+========================+===========+===========+
+|  0   | starting state         |  7        |  3.5      |
++------+------------------------+-----------+-----------+
+|  1   | ``A2`` notifies ``C2`` |  7        |  2.333    |
++------+------------------------+-----------+-----------+
+|  2   | ``A2`` notifies ``B2`` |  8        |  2.333    |
++------+------------------------+-----------+-----------+
+|  3   | ``B2`` notifies ``C2`` |  8        |  2.667    |
++------+------------------------+-----------+-----------+
+
+The answer at step 3 is the correct one (``8 / 3``), but at step 1 ``C2`` published ``2.333``,
+which is the old ``B2`` divided by the new ``A2``, a value that is not correct for any point
+in time. Anything observing ``C2`` saw that bogus value and acted on it.
 
 This is a real problem, we have two negative consequences:
 
@@ -141,10 +160,29 @@ The FPG extends the observer pattern by separating notification from evaluation.
 In the FPG model, the dependent nodes (or observers) register as observers, but instead
 of the ``eval()`` method being called in the event dispatch loop of the observable, we
 add a new component, the scheduler, which is instead notified that the node should be
-evaluated. The the scheduler performs the call to ``eval()``. This allows the scheduler
+evaluated. The scheduler then performs the call to ``eval()``. This allows the scheduler
 to ensure that the order of evaluation ensures that a node is only evaluated once
-all it's ancestors have been evaluated. This ensures we only evaluate the node one
+all it's ancestors have been evaluated. This ensures we only evaluate the node once
 for a given change set and the results will be consistent.
+
+Taking the same change to ``A2`` through the FPG, ``A2`` (rank 0) is modified, so it marks
+``B2`` (rank 1) and ``C2`` (rank 2) as needing evaluation. The scheduler then walks the ranks
+in order:
+
++------+---------------------------+-----------+-----------+
+| step | event                     | ``B2``    | ``C2``    |
++======+===========================+===========+===========+
+|  0   | starting state            |  7        |  3.5      |
++------+---------------------------+-----------+-----------+
+|  1   | ``A2`` set to ``3``       |  7        |  3.5      |
++------+---------------------------+-----------+-----------+
+|  2   | evaluate ``B2`` (rank 1)  |  8        |  3.5      |
++------+---------------------------+-----------+-----------+
+|  3   | evaluate ``C2`` (rank 2)  |  8        |  2.667    |
++------+---------------------------+-----------+-----------+
+
+``C2`` is evaluated exactly once, and when it is evaluated both of its inputs are already
+in their final state for this change. No intermediate value is ever published.
 
 Cached Results
 ..............
@@ -189,19 +227,28 @@ Many applications are suitable for this model of programming, but it excels when
 time-ordered processing of data is important.
 
 The evaluation of events are ordered by time, with events occurring at the same time
-being process prior to subsequent events. The evaluation engine is built around the
+being processed prior to subsequent events. The evaluation engine is built around the
 concept of time as a first class concept. Time can be simulated or be processed
 in real-time. The data-types used to describe dependencies between nodes are referred
 to as time-series properties or types.
 
-A time-series type has a scalar (or non-time based value) and is combined with the
-concept of when the value came into existence. The types support time-oriented
-values such as last modified time, valid (a time-series value may not have a value yet),
-modified (if the value was updated in the round of evaluation).
+A time-series type pairs a scalar (a non-time based value) with the concept of when
+that value came into existence. So the time-series is not the scalar, and it is not
+merely a stream of scalars either, it is the scalar combined with the time dimension.
+Alongside the value, the types expose the time-oriented properties this makes possible:
+``last_modified_time`` (when the value was last set), ``valid`` (a time-series may not
+have a value yet), and ``modified`` (whether the value was updated in this round of
+evaluation).
+
+.. note:: It is worth being clear on this point, as it is a common source of confusion.
+          Scalars do not vary with time, time-series do. A ``float`` is a scalar; a
+          ``TS[float]`` is a time-series whose value at any point in time is a ``float``.
+          When you pass a scalar to a node it is fixed at wiring time; when you pass a
+          time-series it is a live connection that may cause the node to be re-evaluated.
 
 This makes writing software suitable for simulation and backtesting easy. The system
 also provides a clock and scheduling functionality to each element of the graph
-though which time can be retried and events scheduled.
+though which time can be retrieved and events scheduled.
 
 The abstraction allows for rapid replay to events in simulation mode where the time
 can be advanced as fast as the computations can be performed.
@@ -306,16 +353,16 @@ goal, these are:
 
 In this case we may initially implement a component as a node (for example a ``compute_node``).
 Then over time we may wish to convert the component to a ``graph``, in this case we can
-just change the decorator and implementation with no affect of users already using the
+just change the decorator and implementation with no effect on users already using the
 component.
 
 **Use case 2: Choosing the correct implementation based on input type.**
 
 Different implementations may be required of a component depending on the inputs, in this
-case we use the ``operator`` decorator to define a interface (or abstract class in OO speak).
+case we use the ``operator`` decorator to define an interface (or abstract class in OO speak).
 
 We can then implement the ``operator`` by creating a specialisation and declaring it overloads
-the interface in the decorator signature. This uses a the typing systems generics implementation
+the interface in the decorator signature. This uses the typing system's generics implementation
 to support definition and determining the correct instance to select.
 
 **Use case 3: Extending behaviour.**
@@ -330,7 +377,7 @@ the existing behaviour to provide the new behaviour.
 Typing
 ------
 
-In HGraph, all functions values are typed. This makes use of the Python type annotations
+In HGraph, all function values are typed. This makes use of the Python type annotations
 feature to capture the types for inputs and outputs of a function. The graph wiring logic
 will then make use of the type information to ensure that, when connecting components together,
 they comply with the type signature definitions. This is a bit like strong typing, however,
@@ -340,17 +387,17 @@ In development mode all values are validated against the specified types. In pro
 it is possible to by-pass the type checking for improved performance, but at the risk
 of undefined behaviour if incorrect types are used.
 
-In order to enforce the typing at runtime, HGraph defines it's own meta typing system,
-it also defines it's own generic typing system. This is based off the python ``TypeVar``
+In order to enforce the typing at runtime, HGraph defines its own meta typing system,
+it also defines its own generic typing system. This is based off the python ``TypeVar``
 system, but will perform validation of resolved types.
 
 The type handling system is core to the HGraph wiring logic, and is designed to improve
-code quality by catching type-mismatch errors earlier. Additional, given the system is designed
-to mapped to an underlying langauge such as C++ for the performance engine, typing is
+code quality by catching type-mismatch errors earlier. Additionally, given the system is designed
+to be mapped to an underlying language such as C++ for the performance engine, typing is
 core to ensuring this can be done efficiently.
 
 There are a few key time-series types that HGraph introduces. These are central to the
-use of the frame and every node in the graph will use at least one in either the input
+use of the framework and every node in the graph will use at least one in either the input
 or the output. Note ALL output types MUST be a time-series type.
 
 Non-time-series types are referred to as scalar types. This is scalar in terms of the time

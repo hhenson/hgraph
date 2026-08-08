@@ -117,7 +117,13 @@ set(HGRAPH_SOURCES
 
 add_definitions(-Dhgraph_EXPORTS)
 
-nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
+# NOMINSIZE: nanobind's default size-optimizes every module source with -Os
+# (its "bindings are glue" policy). This module contains the ENTIRE engine,
+# and target options follow the global flags (-O3 ... -Os, last wins), so
+# without NOMINSIZE the whole runtime compiles for size, not speed.
+# LTO: opt-in in nanobind; enables cross-TU inlining across the engine in
+# optimized builds (thin LTO under Clang).
+nanobind_add_module(${PROJECT_NAME} STABLE_ABI NOMINSIZE LTO ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
 target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt ddvisitor dynamic_bitset ${HGRAPH_NANOARROW_TARGET})

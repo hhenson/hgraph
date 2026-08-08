@@ -34,6 +34,8 @@ from hgraph import (
 
 from ._perspective import PerspectiveTablesManager
 
+__all__ = ("TableEdits", "defaultdbldict")
+
 logger = logging.getLogger(__name__)
 
 

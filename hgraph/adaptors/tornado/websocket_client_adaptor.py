@@ -18,6 +18,8 @@ from hgraph import (
 from hgraph.adaptors.tornado._tornado_web import TornadoWeb
 from hgraph.adaptors.tornado.websocket_server_adaptor import STR_OR_BYTES, WebSocketClientRequest, WebSocketResponse
 
+__all__ = ("websocket_client_adaptor", "websocket_client_adaptor_impl")
+
 
 @service_adaptor
 def websocket_client_adaptor(

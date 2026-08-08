@@ -10,7 +10,7 @@ etc. Scalars should be immutable, although this constraint is not formally enfor
 undefined behaviour if the value is mutated during processing.
 
 We have already covered a number of examples using the key time-series properties such as ``value``, ``active``, and
-``valid``. There are two other important properties, namely:
+``valid``. There are three other important properties, namely:
 
 * ``delta_value`` - This represents the change in value but is equivalent to ``value`` in the case of the ``TS`` type.
 
@@ -18,7 +18,7 @@ We have already covered a number of examples using the key time-series propertie
 
 * ``modified`` - A boolean value representing if this input was modified in this engine cycle.
 
-Modified can be useful when there are more than one input that can change and the code behaves differently depending
+Modified can be useful when there is more than one input that can change and the code behaves differently depending
 on which input was modified, for example:
 
 .. testcode::
@@ -39,14 +39,14 @@ on which input was modified, for example:
 
 As mentioned previously, HGraph is strongly typed. Whilst Python itself does not enforce any
 form of typing, this is not true for HGraph functions. They require each input and output to
-be typed. These types are validated when connecting an output to an input. There is no
-automatic type conversions, thus an output of type ``TS[int]`` cannot be bound to a type of ``TS[float]``
+be typed. These types are validated when connecting an output to an input. There are no
+automatic type conversions, thus an output of type ``TS[int]`` cannot be bound to an input of type ``TS[float]``
 without an explicit type cast.
 
 Casting
 -------
 
-To facilitate type conversions a number of casting utility functions exists, these are:
+To facilitate type conversions a number of casting utility functions exist, these are:
 
 * cast\_
 * downcast\_
@@ -95,7 +95,8 @@ The downcast allows a type to be re-cast to a child type, for example:
 
 This may seem a bit strange, since we supply a datetime instance to start with. But in Python
 datetime is an instance of date, thus the type checking logic correctly accepts the datetime
-instance as a date. But if we got rid of the ``downcast_`` operator the graph would complain.
+instance as a date. But if we got rid of the ``downcast_`` operator the graph would complain, as ``TS[date]``
+is not a ``TS[datetime]`` as far as the type system is concerned.
 
 Additionally if we supplied a date as an input, the downcast would raise an assertion error.
 
@@ -129,7 +130,9 @@ of values that tick together.
 
 The types can be sub-classed as well.
 
-To use the type, these are type to time standard time-series type (``TS``)
+A ``CompoundScalar`` is used as the value type of a standard time-series, that is ``TS[MyCompoundScalar]``. The whole
+object is a single scalar value, so all of its fields tick together as one. When you want the fields to be able to
+tick independently, use a ``TSB`` instead, which is described next.
 
 
 TimeSeriesBundle (TSB)
@@ -160,8 +163,8 @@ Using this example we can group time-series values together as follows::
     def my_price_logic(price: TSB[MidSpread], ...) ->  ...
 
 We declare the schema or shape of the bundle in much the same way as for the ``CompoundScalar``, however, in this case
-the types are all time-series types. With a ``TimeSeriesScheam``, all properties must be time-series types. Whereas
-for the ``CompoundScalar`` all types much also be scalar types.
+the types are all time-series types. With a ``TimeSeriesSchema``, all properties must be time-series types. Whereas
+for the ``CompoundScalar`` all types must be scalar types.
 
 With both ``TS`` of ``CompoundScalar`` and ``TSB`` of ``TimeSeriesSchema``, it is possible to dereference the individual
 properties of the schemas by using the standard dot notation, for example::
@@ -203,15 +206,15 @@ To construct a TSB value we consider two options, one in ``graph`` mode and one 
 
 This shows the use of the dot dereferencing of a compound scalar. Remember this does incur two nodes to extract the
 bid and ask time-series values. This also shows the use of many standard operators such as divide and subtraction.
-HGraph supports most of the Python operators at wiring time allowing for writing code is a very similar fashion to
+HGraph supports most of the Python operators at wiring time allowing for writing code in a very similar fashion to
 standard Python. But this is really just building up a dependency graph of nodes with the operators being replaced
 with computation nodes. These nodes will be evaluated when the inputs tick.
 
 The use of the ``combine`` operator is depicted here. The operator is a generic operator that will be resolved into
-the correct node (or logical) instance. In this case let the ``combine`` operator that we which to combine time-series
-values together into a ``TSB`` with the schema ``MidSpread``. If no refining parameters are provide (the
-``[TSB[MidSpread]]`` the combine always assumes it is producing a ``TSB`` instance and will create an un-named type.
-Un named TSB instances are defined dynamically and will match a named type based on the properties matching, that is::
+the correct node (or logical) instance. In this case we tell the ``combine`` operator that we wish to combine time-series
+values together into a ``TSB`` with the schema ``MidSpread``. If no refining parameters are provided (the
+``[TSB[MidSpread]]`` part) then ``combine`` assumes it is producing a ``TSB`` instance and will create an un-named type.
+Un-named ``TSB`` instances are defined dynamically and will match a named type based on the properties matching, that is::
 
     combine[TSB[MidSpread]](mid=mid, spread=spread)
 
@@ -260,7 +263,7 @@ This code looks very similar to the previous example, the only real difference i
 value from price before performing the computations and here we return the bundle as a dictionary of modified values.
 
 In this case the code will produce fewer nodes as the nodes to extract ``bid`` and ``ask`` are not required,
-not will there be nodes for the mathematical operations. This code is likely to run faster then the previous example
+nor will there be nodes for the mathematical operations. This code is likely to run faster than the previous example
 whilst the runtime-engine remains in Python. However, once the engine is migrated to C++, experience indicates that
 the prior code will often outperform the second version as it is all evaluated in C++ and not in Python.
 
@@ -309,8 +312,8 @@ combinations being ticked.
 TimeSeriesList (TSL)
 --------------------
 
-The ``TSL`` is the time-series equivalent of a list, at this point in time, the list have a fixed size. This list is
-of homogenous time-series values. This is different to the ``TSB`` which is a collection of heterogeneous time-series
+The ``TSL`` is the time-series equivalent of a list, at this point in time, the list has a fixed size. This list is
+of homogeneous time-series values. This is different to the ``TSB`` which is a collection of heterogeneous time-series
 values. When specifying the ``TSL`` two generics need to be provided, the first is the time-series type making up the
 elements of the list and the second is the size of the list, for example:
 
@@ -325,8 +328,8 @@ elements of the list and the second is the size of the list, for example:
 
     assert eval_node(my_compute_node, [(1, 2), (3, 4)]) == [3, 7]
 
-.. note:: The use of the ``Size`` class to specifying the size of the list. This is done as Python does not support
-          values as generics and only types. This provides a mechanism to specify the type including it's size using
+.. note:: Note the use of the ``Size`` class to specify the size of the list. This is done as Python does not support
+          values as generics and only types. This provides a mechanism to specify the type including its size using
           the generic tooling provided by Python.
 
 When accessing a collection type, as with the ``TSB``, referencing an element of the type within a node the return value
@@ -400,14 +403,14 @@ TimeSeriesDict (TSD)
 --------------------
 
 This represents a dictionary of time-series values, the ``TSD`` is comprised of a ``key_set`` that is a ``TSS`` instance.
-The values of the dictionary are themselves time-series values in the same manor as for the ``TSB`` and ``TSL``
+The values of the dictionary are themselves time-series values in the same manner as for the ``TSB`` and ``TSL``
 collection types. This is currently the only dynamic type, in that it can grow and shrink the number of collected
 time-series values.
 
 Another way to think of the ``TSD`` is to view it as a multiplex of time-series values.
 
 The ``TSD`` takes generics as for dict, i.e. ``TSD[K, V]`` where the ``K`` must be a keyable scalar value (must support
-the hashable protocol). and ``V`` is a time-series type.
+the hashable protocol), and ``V`` is a time-series type.
 
 The following key behaviours are provided by the ``TSD`` that are accessible in the node, namely:
 
@@ -458,17 +461,17 @@ Here is an example to create a ``TSD`` as an output:
 In this example we create a time-series dictionary from the time-series supplying keys and values and removing
 keys when the remove time-series ticks.
 
-Note the use of ``valid`` to advice the engine that we only require the ``key`` and ``value`` attribute to be
+Note the use of ``valid`` to advise the engine that we only require the ``key`` and ``value`` attributes to be
 valid, thus if the ``remove`` has not ticked the code will still be evaluated. See what happens if you remove the
 ``valid`` constraints.
 
 We also use ``REMOVE_IF_EXISTS``, this is a soft instruction to the ``TSD`` to remove a key, if the key does not
-exist then it nothing happens. If we had used ``REMOVE``, this will raise an exception if the key does not exist.
-In this example this would work, try change this and then supply a key that does not exist to see how that behaves.
+exist then nothing happens. If we had used ``REMOVE``, this will raise an exception if the key does not exist.
+In this example this would work, try changing this and then supply a key that does not exist to see how that behaves.
 
 The delta-value of the ``TSD`` will contain ``REMOVE`` if a key is removed.
 
-Next an example of using a ``TSD`` as in input is considered:
+Next, an example of using a ``TSD`` as an input:
 
 .. testcode::
 
@@ -489,7 +492,7 @@ Next an example of using a ``TSD`` as in input is considered:
                 [None, 1, None, 2]
             ) == [None, "a", "b", "c", "d"]
 
-This is a very low performing approach to extracting a value from a ``TSD`` based on the key.
+This is a low performing approach to extracting a value from a ``TSD`` based on the key.
 This shows the basic dictionary nature of the input.
 
 Note that this has a graph solution that is more performant, here is the example of this:

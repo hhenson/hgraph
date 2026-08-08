@@ -3,7 +3,7 @@ Services
 
 A mechanism to expose shared graphs to user code. This de-couples an interface describing the
 service from a consumers perspective and an implementation, it is possible to bind the interface
-to different implementation and (through the path) also have multiple potential implementations
+to different implementations and (through the path) also have multiple potential implementations
 bound to the same interface.
 
 There are a number of service patterns that represent common client / server patterns. These
@@ -30,14 +30,14 @@ request_reply_service
     bespoke inputs.
 
 All services are streaming, in that the results will continue to be produced and be updated
-until the consumer stops requesting the response. For subscriptions and reqeust reply the
+until the consumer stops requesting the response. For subscriptions and request reply the
 request (or subscription) can be modified over time, that is requests / subscriptions are time
 series inputs.
 
 All services take at least one parameter, namely: ``path``; this is a string which is used to disambiguate
 different instances of implementations associated to the path. You can always supply ``default_path``
 as a parameter value. This will use a default name for the path (which is obtained from the
-name of the service interface). Most graphs will likely use the default path unless there are more
+name of the service interface). Most graphs will likely use the default path unless there is more
 than one implementation involved.
 
 .. note:: Currently the feature set for services is still under development, the key component
@@ -49,7 +49,7 @@ the nodes are ranked above any user code, additionally reference and subscriptio
 to ensure that service dependencies between services also ensure they are ranked based on dependency. The
 request reply services are ranked above user nodes, but not based on usage. The consequences of this are:
 
-* outputs ticks, from reference and subscription services, are delivered in the engine cycle they are produced.
+* output ticks, from reference and subscription services, are delivered in the engine cycle they are produced.
 * output ticks, from request reply services, are delivered one engine cycle after they are created in the implementation
   graph.
 * subscriptions and requests are processed by the implementation service one engine cycle after requested by the user
@@ -71,7 +71,7 @@ Reference Service
     def account_ids(path: str = default_path) -> TSS[str]:
         """ The set of available clients """
 
-The above is an example of a reference service interface definition. Note that there are no implementation in
+The above is an example of a reference service interface definition. Note that there is no implementation in
 this interface. This should have appropriate code-doc to describe the expected behaviour and use of the service.
 As a reference service, there are no time-series inputs supported. Thus it takes the form of a source node.
 
@@ -81,11 +81,11 @@ In this case implementation has the same shape as the service definition, for ex
 
     @service_impl(interfaces=[account_ids])
     def static_account_ids() -> TSS[str]:
-        return const(frozenset("a", "b"), TSS[str])
+        return const(frozenset({"a", "b"}), TSS[str])
 
 This is a simplistic example, but shows the shape of the implementation. The signature is the same as for the client,
 with the exception that the ``path`` element which is not required to be present. All service implementations take
-``interfaces`` as a parameter to the ``services_impl`` decorator. This informs the decorator which interfaces
+``interfaces`` as a parameter to the ``service_impl`` decorator. This informs the decorator which interfaces
 are being implemented.
 
 When only one interface is being implemented the graph (or compute node) being provided takes the expected implementation
@@ -136,14 +136,14 @@ the type must be a ``TS`` and the value type must be keyable (suitable to be typ
           ``default_path`` it is possible to place it at the end (or in the kwargs) section of the interface definition,
           allowing us to default the path and reduce the importance of the path element.
 
-The implementation of this is more complicated then the reference service as the implementation is responsible for
+The implementation of this is more complicated than the reference service as the implementation is responsible for
 handling many requests, but each requester operates on a single request basis. The example impl is below:
 
 ::
 
     @service_impl(interfaces=[market_data])
     def static_market_data(instrument_id: TSS[str]) -> TSD[str, TS[float]]:
-        return map_(lambda key: const(1.0), __key_set__=instrument_id)
+        return map_(lambda key: const(1.0), __keys__=instrument_id)
 
 The implementation will take in a set of requests (or subscriptions). The name of the subscription has to be the same
 as that of the interface's definition. The response is a ``TSD`` with the key type being the same type as the request
@@ -152,7 +152,7 @@ or subscription type (in this case ``str``). The time-series type of the ``TSD``
 Typically, most implementations will use ``map_`` to decompose the requests back to the individual input / output
 shapes.
 
-The usages of subscriptions is much the same as with reference services.
+The usage of subscriptions is much the same as with reference services.
 
 Request Reply Service
 ---------------------
@@ -161,7 +161,7 @@ Request Reply Service
 
     @request_reply_service
     def create_order(path: str, order: TS[Order]) -> TS[str]:
-        """ Creates a new order and returns the order id of the newly created order"
+        """ Creates a new order and returns the order id of the newly created order """
 
 Here we show the interface description, in this case we follow the first param pattern for ``path``. This makes
 path a required parameter to be supplied when calling this service. As with subscriptions, only one request parameter

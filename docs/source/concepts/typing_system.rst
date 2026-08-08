@@ -13,10 +13,58 @@ It is possible to turn off type-checking in production to improve performance.
 But it is valuable to run in development, testing and UAT/PRE environments.
 
 Typing is split into two key types, namely scalar and time-series types.
-Scalar types refer to types that have time dimension. Time-series types refer
-to types that have a time dimension.
+Scalar types refer to types that do **not** have a time dimension. Time-series
+types refer to types that **do** have a time dimension.
 
-Time-series types ultimately decompose into scalar types for their values.
+This distinction is the single most important idea in the type system, so it is
+worth being precise about it. A scalar is a plain value: the integer ``3``, the
+string ``"USD"``, the tuple ``(1, 2, 3)``. It is simply a value, and asking
+"when did it change?" is not a meaningful question of the value itself.
+A time-series is a value *plus* the time dimension: it knows what its value is
+now, when that value last changed, whether it changed in this engine cycle, and
+whether it has been set at all yet.
+
+.. note:: "Scalar" here means *scalar with respect to time*, not "simple" or
+          "single valued". A ``tuple[int, ...]`` or a ``frozendict[str, int]``
+          is still a scalar type, even though it is a collection, because the
+          type carries no time dimension of its own.
+
+The two are not competing alternatives, they compose. Every time-series type
+ultimately decomposes into scalar types for its values: ``TS[int]`` is a
+time-series *of* the scalar type ``int``. The time-series supplies the time
+dimension, the scalar supplies the value.
+
+Where they appear in a signature also differs. Time-series types are what flow
+along the edges of the graph, so they can be inputs and are the only thing that
+can be an output. Scalar types are configuration, they are fixed when the node
+is wired and cannot change during evaluation, so they can only be inputs:
+
+.. testcode::
+
+    from hgraph import compute_node, TS
+    from hgraph.test import eval_node
+
+    @compute_node
+    def scale(ts: TS[float], factor: float) -> TS[float]:
+        #          ^ time-series    ^ scalar     ^ time-series
+        return ts.value * factor
+
+    assert eval_node(scale, [1.0, 2.0, 3.0], factor=10.0) == [10.0, 20.0, 30.0]
+
+Here ``factor`` is bound once, at wiring time, and is the same for the life of
+the node, which is why it is supplied as a single value rather than a list of
+ticks. ``ts`` changes over the life of the graph, and each change may cause this
+function to be evaluated again, which is why it is supplied as a list. Note also
+that inside a node ``ts`` is the time-series object, so we ask it for its
+``value`` to get at the scalar, whereas ``factor`` is already a plain Python
+value.
+
+If you needed the scale factor to change during the run, it would have to become
+a time-series too::
+
+    @compute_node
+    def scale(ts: TS[float], factor: TS[float]) -> TS[float]:
+        return ts.value * factor.value
 
 Examples of a scalar type include:
 
@@ -99,7 +147,15 @@ Standard-library dataclasses can also be used directly as nominal scalar schemas
 The original dataclass instance is retained as the time-series value. Its ordered fields form the schema used for
 wiring, reflection, field access, generic resolution, conversion, and dispatch. Dataclass defaults and default
 factories are honoured when constructing a value. ``TSB[Quote]`` provides the corresponding field-expanded
-time-series form.
+time-series form and is the canonical public spelling; downstream code does not need to create a peer
+``TimeSeriesSchema`` with ``TimeSeriesSchema.from_scalar_schema``.
+
+The lift from a dataclass to a bundle is deliberately conservative. Each stored dataclass field ``field: T`` becomes
+``field: TS[T]``. Collection values remain scalar values (for example, ``items: tuple[int, ...]`` becomes
+``items: TS[tuple[int, ...]]``), and a nested dataclass remains ``TS[Nested]`` rather than becoming a nested ``TSB``.
+HGraph does not infer ``TSL``, ``TSD``, ``TSS``, or another time-series topology from scalar annotations. ``ClassVar``,
+``InitVar``, and computed properties are not stored fields. An unresolved field annotation or a time-series annotation
+inside the scalar dataclass is rejected when the schema is constructed.
 
 Dataclass annotations describe the wiring schema; assigning a whole dataclass does not recursively validate or
 replace the object's fields. Frozen dataclasses are recommended because mutating a retained object in place does not

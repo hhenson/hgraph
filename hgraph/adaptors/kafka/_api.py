@@ -14,8 +14,7 @@ from hgraph import (
     null_sink,
     reference_service,
     debug_print,
-    default,
-    if_then_else,
+    compute_node,
     operator,
     HgAtomicType,
     CompoundScalar,
@@ -155,10 +154,14 @@ def message_publisher(fn: Callable = None, *, topic: str = None):
         get_message_state().add_publisher(topic_)
         if replay_history:
             get_message_state().add_historical_subscriber(topic_)
-            msg_history = message_history_subscriber_service(path=topic_)
-            replay_msg = msg_history["msg"]
+            subscription = message_subscriber_service(path=topic_)
+            recovered = subscription["recovered"]
+            # A publisher replays to rebuild its own state, so it must see history and nothing
+            # after it. Where the same topic also has a live subscriber the stream continues
+            # ticking past recovery, and feeding a publisher its own output would be a loop.
+            replay_msg = _gate_by_recovery(subscription["msg"], recovered, live=False)
             kwargs["msg"] = replay_msg.payload if replay_msg_is_bytes else replay_msg  # Connect replay
-            kwargs["recovered"] = msg_history["recovered"]  # Connect replay
+            kwargs["recovered"] = recovered  # Connect replay
 
         out = fn(**kwargs)
         out_msg = out["msg"] if is_tsb else out
@@ -244,13 +247,23 @@ def message_subscriber(fn: Callable = None, *, topic: str = None):
         topic_ = kwargs.pop("topic", None)
         if topic_ is None:
             raise ValueError(f"topic must be provided to {fn.signature.name}")
-        get_message_state().add_subscriber(topic_, replay=has_recovered)
-        msg_input = message_subscriber_service(path=topic_)
+        # Both registrations happen before the service is referenced. The implementation reads
+        # these registries to decide what to wire, and referencing the service can expand that
+        # implementation, so an expansion between the two calls would see a topic that has
+        # history as though it had none.
         if has_recovered:
             get_message_state().add_historical_subscriber(topic_)
-            msg_history = message_history_subscriber_service(path=topic_)
-            kwargs["recovered"] = (recovered := msg_history["recovered"])  # Connect recovered signal
-            msg_input = if_then_else(default(recovered, False), msg_input, msg_history["msg"])
+        get_message_state().add_subscriber(topic_, replay=has_recovered)
+
+        subscription = message_subscriber_service(path=topic_)
+        msg_input = subscription["msg"]
+        if has_recovered:
+            kwargs["recovered"] = subscription["recovered"]  # Connect recovered signal
+        else:
+            # Whether the topic replays at all depends on what other graphs asked for, and a
+            # subscriber with no 'recovered' input cannot tell a replayed message from a live one.
+            # It therefore sees only live messages, as it would if nothing on the topic replayed.
+            msg_input = _gate_by_recovery(msg_input, subscription["recovered"], live=True)
         kwargs["msg"] = msg_input.payload if msg_is_bytes else msg_input
         out = fn(**kwargs)
         return out
@@ -279,18 +292,44 @@ def get_message_state() -> MessageState:
     return KafkaMessageState.instance()
 
 
+@compute_node(active=("msg",), valid=("msg",))
+def _gate_by_recovery(msg: TS[KafkaMessage], recovered: TS[bool], live: bool) -> TS[KafkaMessage]:
+    """
+    Forward only the ``msg`` ticks falling on the requested side of the recovery handover:
+    ``live=False`` gives replayed history, ``live=True`` gives what arrives after it.
+
+    ``filter_`` is deliberately not used. When its condition turns True it copies the input's most
+    recent value, so opening the gate at recovery could hand the last replayed message to a
+    subscriber that opted out of replay. Today the merge upstream rebinds to the live stream at
+    that instant and there is no history value left to copy, but that is a property of how the
+    merge is built rather than of what is wanted here. Only genuine ticks pass through this node,
+    whatever the merge does with its value when it switches.
+    """
+    if bool(recovered.valid and recovered.value) == live:
+        return msg.delta_value
+
+
 @operator
 def message_publisher_operator(msg: TIME_SERIES_TYPE, topic: str):
     """Publishes the msg (``TS[bytes]`` or ``TS[KafkaMessage]``) to the topic provided."""
 
 
-@reference_service
-def message_history_subscriber_service(path: str) -> TSB["msg" : TS[KafkaMessage], "recovered" : TS[bool]]:
-    """Only retrieve history, after which the topic can be unsubscribed."""
+MessageSubscription = TSB["msg" : TS[KafkaMessage], "recovered" : TS[bool]]
+"""
+What a topic delivers: a single message stream, and the flag marking the end of history.
+
+``msg`` is continuous across the handover. Replayed history arrives first, then ``recovered``
+ticks True, then live messages arrive on the same time-series. Consumers that only want one
+side of the handover select it with ``recovered`` rather than by binding a second stream.
+"""
 
 
 @reference_service
-def message_subscriber_service(path: str) -> TS[KafkaMessage]:
+def message_subscriber_service(path: str) -> MessageSubscription:
     """
-    Subscriber for kafka, output contains the msg and a recovered flag.
+    Everything a graph can receive for one topic, on one service instance per topic.
+
+    Replay and live delivery were once two services gated against each other, which is what
+    let a recovering publisher and subscriber on one topic close a wiring cycle. Splicing them
+    inside the implementation keeps the ordering guarantee without the cross-service edge.
     """

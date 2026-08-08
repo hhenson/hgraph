@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Setup uv (Python 3.12)
-        uses: astral-sh/setup-uv@v8.3.2
+        uses: astral-sh/setup-uv@v9.0.0
         with:
           python-version: '3.12'
 
@@ -43,7 +43,7 @@ jobs:
           uv tool install --upgrade conan==2.26.2
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@v4.37.4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.language == 'cpp' && 'manual' || 'none' }}
@@ -60,6 +60,6 @@ jobs:
           uv build -v
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@v4.37.4
         with:
           category: '/language:${{matrix.language}}'

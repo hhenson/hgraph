@@ -80,11 +80,12 @@ def format_(
     """
     Writes the contents of the time-series values provided (in args / kwargs) to a string using the format string
     provided. The kwargs will be used as named inputs to the format string and args as enumerated args.
+
     :param fmt: A standard python format string (using {}). When converted to C++ this will use the c++ fmt
-                       specifications.
+        specifications.
     :param __sample__: set this to a positive value > 1 to only output every nth formatted string.
-    :param args: Time series args
-    :param kwargs: Time series kwargs
+    :param __pos_args__: Time series args
+    :param __kw_args__: Time series kwargs
     :return: The formatted string.
     """
     ...

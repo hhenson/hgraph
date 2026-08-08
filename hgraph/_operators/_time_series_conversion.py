@@ -32,11 +32,13 @@ def convert(ts: TIME_SERIES_TYPE, to: type[OUT] = DEFAULT[OUT], **kwargs) -> OUT
     """
     Converts the incoming time series to the desired result type. This can be called in one of two ways:
     ::
+
         c = const(..., TS[set[str]])
         convert(c, TS[tuple[str, ...]])
 
     or:
     ::
+
         convert[TS[tuple[str, ...]]](c)
 
     """
@@ -57,8 +59,9 @@ def collect(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
     Converts the `ts` value to a collection time-series. The time-series to convert to must be provided declaratively.
     This is done by setting the OUT to the desired result type, for example:
     ::
+
         ts = const(1)
-        r = collect[OUT: TS[tuple[int, ...]](ts)
+        r = collect[OUT: TS[tuple[int, ...]]](ts)
 
     Where here we set the resultant type to be a time-series of tuples, the input would be a time-series of integers.
 
@@ -67,14 +70,16 @@ def collect(ts: TIME_SERIES_TYPE) -> DEFAULT[OUT]:
 
     For example:
     ::
+
         ts = const(frozendict({"a": 1, "b": 2}), TSB[ts_schema(key=TS[str], value=TS[int])])
-        r = collect[OUT: TS[Mapping[str, int]](ts)
+        r = collect[OUT: TS[Mapping[str, int]]](ts)
 
     Alternative syntax includes:
     ::
+
         key = const("a")
         value = const(1)
-        r = collect[OUT: TS[Mapping[str, int]](key=key, value=value)
+        r = collect[OUT: TS[Mapping[str, int]]](key=key, value=value)
 
     Or options such as the input being a ``TSL[TS[SCALAR], Size[2]]`` (in this case the key and value must be the same).
     It is also possible to accept a TS[Mapping[str, int]] or a TS[tuple[str, int]]

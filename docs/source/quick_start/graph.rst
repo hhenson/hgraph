@@ -1,7 +1,7 @@
 graph
 =====
 
-A graph has two meanings, depending on context. In one context a graph represent the
+A graph has two meanings, depending on context. In one context a graph represents the
 set of nodes that are evaluated by the evaluation engine. In the coding context, the
 graph represents a wiring function that describes the relationship between nodes.
 
@@ -39,8 +39,8 @@ A simple example is below:
         c = const("World")
         debug_print("Hello", c)
 
-In this scenario we are constructing two nodes, the ``const`` which will tick one
-at the start of the evaluation and the output of the ``const`` this output is then
-passed to the input of ``debug_print`` (another node). This produces a graph with
+In this scenario we are constructing two nodes, the ``const``, which will tick once
+at the start of the evaluation, and ``debug_print``; the output of the ``const`` is then
+passed to the input of ``debug_print``. This produces a graph with
 two nodes and one edge.
 
