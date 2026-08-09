@@ -253,11 +253,14 @@ In this case it is required that the output type is provided to produce the corr
 instead create an un-named bundle of the values.
 
 Lets consider the other approach, using a ``compute_node``. The ``BidAsk`` and
-``MidSpread`` schemas declared above are reused — a schema name is registered
-once per process and bound to the class that first used it, so redeclaring an
-identical ``BidAsk`` in a second module or a re-run notebook cell raises
-``TypeError: Bundle schema is already registered to a different Python class``.
-Declare each schema once and import it where it is needed.
+``MidSpread`` schemas declared above are reused rather than redeclared.
+
+.. note:: A schema is identified by its module and its name, so the same name
+          in two different modules is fine. Redeclaring it *within one module* —
+          a re-run notebook cell, an ``importlib.reload`` — currently raises
+          ``TypeError: Bundle schema is already registered to a different
+          Python class`` instead of rebinding. See
+          `issue #403 <https://github.com/hhenson/hgraph/issues/403>`_.
 
 .. testcode::
 

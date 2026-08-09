@@ -117,6 +117,12 @@ In this example we are required to explicitly resolve the type-var ``OUT`` as th
 resolve this. The resolution names the type-var it binds — ``[OUT: TS[float]]`` — which is the same
 ``[TYPE_VAR: type]`` form used for input type-vars.
 
+.. note:: The shorter unnamed form, ``my_add[TS[float]]``, is the intended
+          spelling when the signature has a single type-var or a
+          ``DEFAULT``-marked one. It is not wired up on this release; see
+          `issue #402 <https://github.com/hhenson/hgraph/issues/402>`_. Use the
+          named form until it is.
+
 Exercise
 ........
 

@@ -1443,7 +1443,12 @@ TEST_CASE("TSOutputView delegates validity through slot TSData ops")
     }
 
     REQUIRE(dict_output.view(t1).valid());
-    REQUIRE_FALSE(dict_output.view(t1).all_valid());
+    // A TSD's ``all_valid`` is its ``valid``: it does not walk its values.
+    // This matches upstream, where TSD declares no ``all_valid`` override and
+    // inherits ``PythonTimeSeriesOutput.all_valid``. A key whose value has not
+    // been written yet is therefore not detected here - use the value's own
+    // ``valid`` if that matters to a node.
+    REQUIRE(dict_output.view(t1).all_valid());
 
     {
         auto child = dict.at(key.view());

@@ -222,18 +222,16 @@ ticking elements, which is to say ``TSL`` and ``TSB``. Everywhere else
     * - ``TSL``, ``TSB``
       - ``valid`` **and** every element valid. This is the case worth using.
     * - ``TSD``
-      - ``valid`` **and** every value ``all_valid``. A key only exists once it
-        has a value, so a ``TSD`` of ``TS`` has nothing extra to detect — but a
-        ``TSD`` whose values are themselves collections does.
+      - Same as ``valid``. A key only exists once it has a value, so there is
+        no partially populated state to detect.
     * - ``TSS``
       - Same as ``valid``. The set holds scalars, not time-series.
     * - ``TSW``
       - ``valid`` **and** the buffer has reached its ``min_size``. Useful, but
         it means something different to the collection case.
 
-It follows that ``all_valid`` on a ``TS`` or ``TSS`` input, or on a ``TSD``
-whose values are ``TS``, is not a stricter guard — it is the same guard written
-the long way:
+It follows that ``all_valid`` on a ``TS``, ``TSD`` or ``TSS`` input is not a
+stricter guard, it is the same guard written the long way:
 
 .. testcode::
 
@@ -247,14 +245,15 @@ the long way:
 
     assert eval_node(same, [1], [fd(k=1)], [frozenset({1})]) == [True]
 
-The check **recurses**. A collection asks each of its elements for
-``all_valid``, not merely for ``valid``, so a partially populated collection
-nested inside another does make the outer one ``all_valid``-false. The property
-means what its name suggests: every leaf underneath this point holds a value.
+.. warning:: The check is one level deep, it does **not** recurse. A collection
+             asks each of its elements for ``valid``, not for ``all_valid``, so
+             a partially populated collection nested inside another does not
+             make the outer one ``all_valid``-false. This surprises people, as
+             the name suggests otherwise.
 
-In the example below each inner list has had only its first element set, so
-each inner list is ``valid`` but not ``all_valid`` — and that propagates to the
-outer list:
+The example below demonstrates this. Each inner list has had only its first
+element set, so each is ``valid`` but not ``all_valid``; the outer list is
+nevertheless ``all_valid`` because it only asks its elements for ``valid``:
 
 .. testcode::
 
@@ -266,19 +265,19 @@ outer list:
         return f"outer={x.all_valid} inner0={x[0].all_valid} inner1={x[1].all_valid}"
 
     assert eval_node(nested, [{0: {0: 1}, 1: {0: 2}}]) == [
+        "outer=True inner0=False inner1=False",
+    ]
+
+A direct element that is not valid at all does still make the outer collection
+``all_valid``-false — that is the one level the check does look at:
+
+.. testcode::
+
+    assert eval_node(nested, [{0: {0: 1}}]) == [
         "outer=False inner0=False inner1=False",
     ]
 
-    # Fill the second element of each inner list and the whole tree is valid.
-    assert eval_node(nested, [{0: {0: 1, 1: 9}, 1: {0: 2, 1: 8}}]) == [
-        "outer=True inner0=True inner1=True",
-    ]
-
-.. note:: The Python-first implementation on ``release/0.5`` checked only one
-          level, so a partially populated nested collection left the outer one
-          ``all_valid``-true. Code that relied on that quirk — or that worked
-          around it by re-checking nested validity in the node body — becomes
-          stricter under the recursive rule.
+If you need the nested guarantee, check it explicitly in the body.
 
 The cost
 ........

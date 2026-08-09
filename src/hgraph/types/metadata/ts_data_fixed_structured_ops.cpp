@@ -435,6 +435,13 @@ namespace hgraph::ts_data_plan_factory_detail
             return fixed_tracking(context, memory)->last_modified_time != MIN_DT;
         }
 
+        // ``all_valid`` is a one-level check: each direct child is asked for
+        // ``valid``, never for its own ``all_valid``. A partially populated
+        // collection nested inside this one therefore leaves this one
+        // all_valid-true. This matches the Python-first implementation
+        // (``PythonTimeSeriesBundleOutput``/``PythonTimeSeriesListOutput``
+        // are ``all(ts.valid for ts in self.values())``) and is the contract
+        // documented in user_guide/concepts/time_series_types.rst.
         [[nodiscard]] static bool fixed_all_valid(const void *context, const void *memory)
         {
             if (!fixed_has_current_value(context, memory)) { return false; }
@@ -445,7 +452,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto child = state->element_type(index);
                 const auto &ops  = child_ops(child);
                 const auto *data  = child_data(state, memory, index);
-                if (!ops.all_valid_impl(ops.context, data)) { return false; }
+                if (!ops.has_current_value_impl(ops.context, data)) { return false; }
             }
             return true;
         }
