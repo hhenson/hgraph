@@ -1,5 +1,0 @@
-HGraph Tools
-============
-
-.. toctree::
-    inspector

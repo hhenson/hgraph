@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsd-removal-mixed-update",
+  "description": "Mixed removal+update TSD delta (agreeing space): len_ shrinks while the surviving key updates.",
+  "template": "collection_size",
+  "inputs": {
+    "ts": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": {
+          "$remove_if_exists": true
+        },
+        "b": 5
+      }
+    ]
+  },
+  "parameters": {
+    "shape": "tsd",
+    "operation": "len"
+  },
+  "features": [
+    "topology:expression",
+    "domain:collection-size",
+    "reference:REF",
+    "binding:non-peered",
+    "shape:TSD",
+    "operator:len"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/129"
+}

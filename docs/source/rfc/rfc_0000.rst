@@ -1,0 +1,154 @@
+RFC 0000: RFC Process
+=====================
+
+:Status: Accepted
+:Author: Howard Henson
+:Created: 2026-07-23
+:Target: Project governance
+
+Summary
+-------
+
+Material changes to hgraph's public contract begin with a numbered RFC in this
+directory. The proposal is reviewed before implementation becomes the basis of
+the design, and the accepted RFC is maintained as the durable explanation of
+the resulting contract.
+
+Scope
+-----
+
+An RFC is required for a new or materially changed:
+
+* public C++ or Python type;
+* operator family or dispatch convention;
+* runtime, scheduling, persistence, or wire-format contract;
+* downstream extension or binary-interface facility; or
+* cross-project capability that will be owned by ``hgraph``.
+
+Small fixes that restore documented behaviour, private refactoring, tests, and
+editorial corrections do not require an RFC.
+
+Repository ownership
+--------------------
+
+The RFC belongs in the repository that owns the implementation. A downstream
+requirement that may need a generic hgraph facility is first explored in its
+own repository. Once proposed for the core, its core RFC is placed here and the
+downstream document links to it rather than maintaining a second normative
+specification.
+
+Core promotion is a migration rather than a copy. The downstream
+implementation is removed, deprecated in favour of the core, or reduced to a
+domain composition over the new core contract. The core never imports or links
+against the downstream package. A public core RFC describes the generic
+requirement and evidence without disclosing private downstream designs.
+
+Promotion gate
+--------------
+
+An algorithm being mathematically general is not enough to establish core
+ownership. A capability promoted from a downstream extension must provide:
+
+* implementation experience from at least one real downstream use;
+* a domain-independent contract with domain policy kept outside the core;
+* one native C++ implementation and first-class C++ value, node, or graph
+  authoring as appropriate;
+* matching Python exposure and behavioural tests when the feature is visible
+  to Python;
+* wiring-time overload selection for static policies, or a graph composition
+  for a demonstrated dynamic policy;
+* representation, allocation, and latency evidence for any per-tick path;
+* an installed-SDK fixture proving use from a separately built extension;
+* compatibility, serialization, ABI, and migration rules; and
+* linked core and downstream pull requests with an explicit dependency and
+  release transition.
+
+The generic core change and the downstream migration use separate branches and
+pull requests. The downstream document may remain as motivation and
+domain-specific guidance, but it links to the accepted core RFC rather than
+retaining a second normative definition.
+
+Numbering and filenames
+-----------------------
+
+RFC numbers are allocated monotonically and are never reused. The filename is
+``rfc_NNNN_short_title.rst`` except for this process RFC. A rejected,
+withdrawn, or superseded RFC retains its number and history.
+
+Statuses
+--------
+
+``Proposed``
+   The design is under review or its implementation has not yet merged.
+
+``Accepted``
+   The implementation and its conformance tests have merged. The RFC describes
+   the shipped contract and records any differences from the original
+   proposal.
+
+``Rejected``
+   The proposal was considered and declined, with the reason recorded.
+
+``Withdrawn``
+   The author stopped pursuing the proposal.
+
+``Superseded``
+   A later RFC replaces this one; both documents link to each other.
+
+Workflow
+--------
+
+1. Create a topic branch and add the proposed RFC as the first commit. The RFC
+   is ``Proposed`` and contains no implementation.
+2. Review the public contract, ownership boundary, performance implications,
+   C++/Python parity, compatibility, and acceptance criteria.
+3. Supply the implementation and tests in subsequent commits on a PR branch.
+   Update the RFC in those commits whenever implementation experience changes
+   the design.
+4. The implementation PR must identify its RFC. Once the implementation is
+   accepted for merge, update the RFC status to ``Accepted`` in the same change
+   so code and design cannot land with contradictory states.
+5. Later behavioural changes update the accepted RFC or, for a material
+   redesign, introduce a superseding RFC.
+
+All work follows the repository policy in ``AGENTS.md``: use a non-default
+branch and merge through a pull request. A change spanning hgraph and a
+downstream extension uses separate linked PRs.
+
+Required structure
+------------------
+
+Each feature RFC contains, as applicable:
+
+* metadata: number, title, status, author, creation date, and target;
+* summary and motivation;
+* ownership boundary;
+* detailed C++ and Python contract;
+* runtime representation and operator/dispatch semantics;
+* compatibility, migration, and serialization consequences;
+* performance and memory considerations;
+* downstream incubation evidence and the promotion/removal plan, when
+  applicable;
+* installed-extension and ABI consequences for extension facilities;
+* alternatives considered and unresolved questions;
+* acceptance criteria and test plan;
+* implementation status after work begins; and
+* stable references to standards, papers, or prior art.
+
+Policy selectors
+----------------
+
+A scalar policy known at wiring time should normally select an operator
+implementation through overload resolution. A genuinely time-varying policy is
+normally represented by a graph that switches between those implementations.
+An RFC proposing a per-tick branch inside a generic node must justify why
+dispatch or graph composition cannot express the contract and include
+performance evidence.
+
+Amendments
+----------
+
+Editorial clarifications may update an RFC directly. A change to accepted
+semantics must be visible in the RFC history and implementation PR. Historical
+motivation and rejected alternatives should not be erased merely because the
+final API is smaller than the initial proposal.

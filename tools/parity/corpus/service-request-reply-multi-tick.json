@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "service-request-reply-multi-tick",
+  "description": "Self-coupled request/reply transport with a deferred request and direct response.",
+  "template": "service_request_reply",
+  "inputs": {
+    "value": [5, 7, null, -2, 0, null, 11, 3, null, 4]
+  },
+  "parameters": {
+    "increment": 3,
+    "path": "requests"
+  },
+  "features": [
+    "framework:service",
+    "service:request-reply",
+    "lifecycle:transport-delay",
+    "reference:REF",
+    "binding:non-peered",
+    "lifecycle:multi-cycle"
+  ]
+}

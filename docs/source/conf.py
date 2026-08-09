@@ -1,95 +1,31 @@
-# Configuration file for the Sphinx documentation builder.
-#
-# For the full list of built-in configuration values, see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
-
-# -- Project information -----------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
-import os
-import sys
 from datetime import datetime
-
-sys.path.insert(0, os.path.abspath("."))
-sys.path.insert(0, os.path.abspath(".."))
-
-
-import wiring_autodoc_extension
 
 project = "hgraph"
 author = "Howard Henson"
 copyright = f"{datetime.now().year}, {author}"
-
-
-# -- General configuration ---------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
+release = "0.8.0"
 
 extensions = [
-    "sphinx.ext.duration",
-    "sphinx.ext.doctest",
-    "sphinx.ext.autosummary",
-    "sphinx.ext.intersphinx",
-    "sphinx.ext.napoleon",
-    "sphinx.ext.viewcode",
-    "sphinx_autodoc_typehints",
-    "sphinxcontrib.plantuml",
-    "sphinx.ext.graphviz",
-    "sphinxcontrib.bibtex",
-    "sphinx.ext.mathjax",  # For HTML
-    "sphinx.ext.imgmath",  # For PDF
-    "wiring_autodoc_extension",
     "myst_parser",
+    "sphinx.ext.mathjax",
     "sphinxcontrib.mermaid",
 ]
 
-# MyST-Parser configuration
-myst_enable_extensions = [
-    "colon_fence",
-    "deflist",
-    "fieldlist",
-    "tasklist",
-]
-myst_fence_as_directive = ["mermaid"]
-
-intersphinx_mapping = {
-    "rtd": ("https://docs.readthedocs.io/en/stable/", None),
-    "python": ("https://docs.python.org/3/", None),
-    "sphinx": ("https://www.sphinx-doc.org/en/master/", None),
-}
-intersphinx_disabled_domains = ["std"]
-
-autodoc_typehints_format = "short"
-autodoc_member_order = "groupwise"
-add_module_names = False
-
-# Only run examples that are explicitly marked with `testcode`/`doctest` directives.
-# Without this, `sphinx-build -b doctest` also harvests bare `>>>` blocks, which pulls in the
-# third-party doctests embedded in the numpy docstrings that hgraph.numpy_ re-exports. Those
-# fail whenever numpy changes its repr, which tells us nothing about hgraph.
-doctest_test_doctest_blocks = ""
-
 templates_path = ["_templates"]
-exclude_patterns = ["build", "_build", "Thumbs.db", ".DS_Store"]
-
-
-epub_show_urls = "footnote"
-
-# This is to support Unicode characters in pdf and latex documentation generation
-latex_engine = "xelatex"
-
-# -- Options for HTML output -------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 html_theme = "sphinx_rtd_theme"
-html_static_path = ["_static"]
-
 html_theme_options = {
     "collapse_navigation": False,
-    "sticky_navigation": True,
     "navigation_depth": -1,
-    "includehidden": True,
-    "titles_only": False,
 }
 
-bibtex_bibfiles = ["references.bib"]  # List of your `.bib` files
-bibtex_default_style = "alpha"
-bibtex_reference_style = "author_year"
+myst_enable_extensions = [
+    "amsmath",
+    "colon_fence",
+    "deflist",
+    "dollarmath",
+]
+
+myst_fence_as_directive = ["mermaid"]
+latex_engine = "xelatex"

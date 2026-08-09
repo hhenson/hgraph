@@ -1,0 +1,36 @@
+{
+  "description": "Issue #123: an explicit identity zero must remain published while a mesh child stays invalid.",
+  "features": [
+    "binding:non-peered",
+    "lifecycle:multi-cycle",
+    "nested-leaf:request_reply",
+    "nested:mesh",
+    "reference:REF",
+    "shape:TSD",
+    "topology:nested-higher-order",
+    "topology:reduce",
+    "type:int"
+  ],
+  "id": "issue-123-mesh-reduce-explicit-zero-request-reply",
+  "inputs": {
+    "selector": [
+      null,
+      null
+    ],
+    "values": [
+      {
+        "k1": -5
+      },
+      null
+    ]
+  },
+  "parameters": {
+    "increment": 2,
+    "inner": "request_reply",
+    "outer": "mesh",
+    "reduce_output": true,
+    "wrap_switch": false
+  },
+  "schema_version": 1,
+  "template": "nested_higher_order"
+}

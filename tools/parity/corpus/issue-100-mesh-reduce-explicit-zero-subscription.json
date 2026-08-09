@@ -1,0 +1,36 @@
+{
+  "description": "Issue #100: an explicit identity zero must seed reduction over a mesh whose children remain invalid.",
+  "features": [
+    "binding:non-peered",
+    "lifecycle:multi-cycle",
+    "nested-leaf:subscription",
+    "nested:mesh",
+    "reference:REF",
+    "shape:TSD",
+    "topology:nested-higher-order",
+    "topology:reduce",
+    "type:int"
+  ],
+  "id": "issue-100-mesh-reduce-explicit-zero-subscription",
+  "inputs": {
+    "selector": [
+      null,
+      null
+    ],
+    "values": [
+      {
+        "k2": -3
+      },
+      null
+    ]
+  },
+  "parameters": {
+    "increment": -1,
+    "inner": "subscription",
+    "outer": "mesh",
+    "reduce_output": true,
+    "wrap_switch": false
+  },
+  "schema_version": 1,
+  "template": "nested_higher_order"
+}

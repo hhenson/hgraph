@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "mesh-empty-initial-no-tick",
+  "description": "Track the no-change-means-no-tick ruling for a mesh over an initially empty key set: released hgraph ticks an empty map, hg_cpp emits no tick (known deviation, ruling 2026-07-17).",
+  "template": "mesh_key_set",
+  "inputs": {
+    "values": [
+      {
+        "$map": []
+      }
+    ]
+  },
+  "parameters": {
+    "factor": 2
+  },
+  "features": [
+    "binding:non-peered",
+    "lifecycle:keyed",
+    "reference:REF",
+    "shape:TSD",
+    "shape:TSS",
+    "topology:mesh"
+  ],
+  "source_review": "https://github.com/hhenson/hg_cpp/pull/67 (review, base 0a6df5b7)"
+}

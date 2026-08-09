@@ -1,0 +1,19 @@
+# Accepted static Release baseline from the Ubuntu 24.04 OrbStack VM.
+# Timings use 21 samples, 5,000 warmup iterations, CPU 0, GCC 13.3.0.
+type_erasure_perf format=2 samples=21 warmup_iterations=5000 filter=all host=orbstack-ubuntu24-x86_64 compiler=gcc compiler_version=13.3.0 architecture=x86_64
+benchmark name=atomic_value_read iterations=200000 median_ns_per_op=2.185 mad_ns_per_op=0.012 median_allocations=0 median_bytes=0 checksum=8200000
+benchmark name=scalar_ts_read iterations=100000 median_ns_per_op=12.172 mad_ns_per_op=0.088 median_allocations=0 median_bytes=0 checksum=4300000
+benchmark name=fixed_composite_ts_child_read iterations=50000 median_ns_per_op=48.532 mad_ns_per_op=0.118 median_allocations=0 median_bytes=0 checksum=2350000
+benchmark name=dynamic_tsl_pregrown_child_read iterations=50000 median_ns_per_op=63.897 mad_ns_per_op=0.066 median_allocations=0 median_bytes=0 checksum=2950000
+benchmark name=dynamic_tsl_construct_grow_four iterations=1000 median_ns_per_op=559.749 mad_ns_per_op=2.584 median_allocations=11000 median_bytes=512000 checksum=4000
+benchmark name=tsw_tick_bound_back_read iterations=100000 median_ns_per_op=8.937 mad_ns_per_op=0.002 median_allocations=0 median_bytes=0 checksum=6100000
+benchmark name=tsw_tick_view_back_read iterations=100000 median_ns_per_op=20.936 mad_ns_per_op=0.118 median_allocations=0 median_bytes=0 checksum=6100000
+benchmark name=tsw_tick_steady_push_evict_no_read iterations=20000 median_ns_per_op=78.702 mad_ns_per_op=0.165 median_allocations=0 median_bytes=0 checksum=20000
+benchmark name=tsw_tick_steady_push_evict iterations=20000 median_ns_per_op=86.675 mad_ns_per_op=0.169 median_allocations=0 median_bytes=0 checksum=1220000
+benchmark name=tsw_duration_bound_back_read iterations=100000 median_ns_per_op=8.562 mad_ns_per_op=0.001 median_allocations=0 median_bytes=0 checksum=6700000
+benchmark name=tsw_duration_steady_push_evict_no_read iterations=20000 median_ns_per_op=86.958 mad_ns_per_op=0.592 median_allocations=0 median_bytes=0 checksum=20000
+benchmark name=tsw_duration_steady_push_evict iterations=20000 median_ns_per_op=95.183 mad_ns_per_op=0.787 median_allocations=0 median_bytes=0 checksum=1340000
+benchmark name=erased_native_node_evaluate iterations=100000 median_ns_per_op=22.430 mad_ns_per_op=0.152 median_allocations=0 median_bytes=0 checksum=100000
+benchmark name=small_graph_construct_destroy iterations=2000 median_ns_per_op=1105.227 mad_ns_per_op=6.397 median_allocations=44000 median_bytes=6094000 checksum=2000
+benchmark name=nested_graph_steady_scheduled_scan iterations=20000 median_ns_per_op=3273.088 mad_ns_per_op=28.123 median_allocations=0 median_bytes=0 checksum=160000
+benchmark name=alternating_switch_nested_graph_lifecycle iterations=20 median_ns_per_op=193053.800 mad_ns_per_op=1450.050 median_allocations=30048 median_bytes=3632580 checksum=520

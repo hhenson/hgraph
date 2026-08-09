@@ -1,63 +1,22 @@
-# hatch
-dist/
+/docs/build/
+/dist/
+/wheelhouse/
+/CMakeFiles/
+/.idea/
+/cmake-build*/
+/*build*/
+/**/__pycache__/
+/docs/_build/
+/REVIEW.md
 
-# mypy
-.mypy_cache/
+.claude/
+benchmarks/.venv-upstream*/
+benchmarks/.venv-hg-cpp*/
+benchmarks/results/baseline-*.json
+benchmarks/results/memory-baseline-*.json
+/reports/
+/.parity/
 
-# coverage
-.coverage
-
-# python
-__pycache__/
-
-# Prerequisites
-*.d
-
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
-.idea/*
-
-examples/web_ui/layouts/
-docs/build/*
-/cmake-build-debug/
-/.tmp/
-/cmake-build-relwithdebinfo/
-/cmake-build-release-stable/CMakeFiles/4.2.0/CompilerIdC/apple-sdk.c
-/cmake-build-release-stable/CMakeFiles/4.2.0/CompilerIdC/CMakeCCompilerId.c
-/cmake-build-release-stable/CMakeFiles/4.2.0/CompilerIdCXX/apple-sdk.cpp
-/cmake-build-release-stable/CMakeFiles/4.2.0/CompilerIdCXX/CMakeCXXCompilerId.cpp
-/cmake-build-release-stable/CMakeFiles/4.2.0/CMakeCCompiler.cmake
-/cmake-build-release-stable/CMakeFiles/4.2.0/CMakeCXXCompiler.cmake
-/cmake-build-release-stable/CMakeFiles/4.2.0/CMakeDetermineCompilerABI_C.bin
-/cmake-build-release-stable/CMakeFiles/4.2.0/CMakeDetermineCompilerABI_CXX.bin
-/cmake-build-release-stable/CMakeFiles/4.2.0/CMakeSystem.cmake
-/cmake-build-release-stable/CMakeFiles/cmake.check_cache
-/cmake-build-release-stable/CMakeFiles/CMakeConfigureLog.yaml
-/cmake-build-release-stable/CMakeCache.txt
+python/_hgraph.abi3.so
+test_package/build/
+test_package/CMakeUserPresets.json

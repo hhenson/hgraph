@@ -1,0 +1,212 @@
+Testing
+=======
+
+Testing should scale with the runtime surface being introduced.
+
+C++ Tests
+---------
+
+C++ tests live under ``tests/cpp`` (add new files to
+``tests/cpp/CMakeLists.txt``). They should cover:
+
+- public headers and exported CMake targets,
+- memory ownership and teardown,
+- schema resolution,
+- time-series state transitions,
+- scheduler ordering,
+- node lifecycle behavior,
+- graph execution behavior.
+
+The Catch2 unit-test executable links ``registry_test_listener.cpp``. The
+listener resets all process-wide registries/factories before and after each
+test case. Because ``reset()`` clears the singleton's normal auto-seeded state,
+the listener then re-seeds the standard scalar/time-series vocabulary before the
+test body runs. Tests should normally use the default registry state instead of
+calling ``stdlib::register_standard_types()`` themselves; use a private test-only
+scalar type when a test needs to exercise unregistered-type behaviour.
+
+.. note::
+
+   The teardown ordering is load-bearing: pointer-keyed plan/context registries
+   must be cleared *before* ``TypeRegistry::reset()`` frees the schemas they key
+   on, or a later test can intern a stale pointer (this caused real memory
+   corruption once). The ordered sequence is library-owned —
+   ``reset_all_registries()`` in ``hgraph/types/registry_reset.h`` — and the
+   listener only delegates to it. Any new pointer-keyed registry must be added
+   **there**, never as a second teardown sequence.
+
+The graph unit-testing toolkit (design record)
+----------------------------------------------
+
+This section is the design record for the ``eval_node`` harness and its
+substrate (``include/hgraph/lib/testing/`` — ``eval_node.h``,
+``record_replay.h``, ``check_output.h``). The user-facing reference, with
+worked examples for every time-series kind, is
+*User Guide > Testing Graphs in C++*; this section records *how it works* so
+the toolkit can be maintained and extended.
+
+**Shape.** ``eval_node<NodeT>(inputs…)`` wires and runs a real graph under the
+ordinary executor: one erased ``replay`` source per time-series input, the node
+under test, and one erased ``record`` sink on its output. Tests deal only in
+per-cycle value sequences — one element per engine cycle, ``none`` meaning "no
+tick this cycle".
+
+**Buffers.** ``replay``/``record`` move data through a cycle-aligned
+``List<Any>`` buffer stored in ``GlobalState`` (seeded at wiring via
+``Wiring::global_state()`` / read and written at runtime through the
+``GlobalStateView`` injectable). ``set_replay_values`` /
+``get_recorded_values`` are the raw access points the harness uses.
+
+**Type erasure.** ``replay`` and ``record`` are *single erased nodes*, not
+per-schema templates: capture uses the runtime, type-erased ``capture_delta``
+(dispatch on ``schema()->kind``) to rebuild a canonical delta ``Value`` from
+the live view, and replay applies deltas with ``apply_delta``. Adding a new
+time-series kind therefore extends ``capture_delta``/``apply_delta``, not the
+testing library.
+
+**Element mapping** (``ts_harness<S>::element``): for ``TS<T>`` the harness
+element is ``T``; for ``SIGNAL`` it is ``bool``; for the collection kinds
+(``TSS`` / ``TSL`` / ``TSD`` / ``TSB`` / ``TSW``) it is a canonical delta
+``Value`` built with the recursive builders ``set_delta`` / ``list_delta`` /
+``dict_delta`` / ``tsb_delta``. Expected outputs are written with the same
+``values<T>(…)`` helper used for inputs and compared by ``CHECK_OUTPUT``,
+which uses ``Value::equals`` (order-independent for sets/maps) for erased
+elements and ``==`` otherwise.
+
+**Overloads.** Node forms cover sources (no time-series inputs; scalar arguments
+follow directly) and input-driven nodes (input sequences first, then scalars;
+multiple TS inputs, named arguments via ``arg<"name">(v)``, and node
+``defaults()`` are supported). The operator form ``eval_node<Op>(…)`` dispatches
+through the ``OperatorRegistry`` at wiring time and returns type-erased
+``vector<optional<Value>>``. Graph forms mirror the source and input-driven node
+forms. Use a minimal graph with concrete ``Port`` parameters and return type when
+the item under test is generic or returns an erased port: the graph fixes the
+signature, while ``eval_node`` still owns replay, record, execution, and result
+collection. Do not hand-wire that harness in a behavior test. Callable arguments
+(for higher-order operators such as ``map_`` / ``switch_`` / ``reduce``) are
+passed as the ``WiredFn`` scalar ``fn<X>()``.
+
+**Sources are not scheduled by default.** A source node in a test graph
+initiates via ``schedule_on_start = true`` (declarative), a
+``SingleShotScheduler`` (lightweight one-shot in ``start``), or a full
+``NodeScheduler``. This mirrors the runtime rule that the graph schedule table
+is the only activation gate.
+
+**Reuse rule.** Tests reuse ``lib/std`` operators and the ``replay``/``record``
+substrate rather than defining duplicate test nodes; a bespoke node in a test
+file should exist only to exercise a shape the toolkit cannot express.
+
+Evaluation tracing
+------------------
+
+``hgraph/runtime/evaluation_trace.h`` provides the native
+``EvaluationTrace`` lifecycle observer. Attach it before executor construction
+so it observes the root and every nested graph through the executor's shared
+observer list:
+
+.. code-block:: cpp
+
+   EvaluationTrace trace{EvaluationTraceOptions{.start = false, .stop = false}};
+   GraphExecutorBuilder builder;
+   builder.graph_builder(std::move(graph)).add_lifecycle_observer(&trace);
+   auto executor = builder.make_executor();
+   executor.view().run();
+
+The observer must outlive the executor run. It renders graph lifecycle events,
+node ``[IN]``/``[OUT]`` values, future schedules, and nested graph paths. A
+substring ``filter`` can restrict the trace to matching graph or node paths;
+an optional native output callback supports embedding and deterministic tests.
+
+The Python ``GraphConfiguration(trace=...)``, ``run_graph(__trace__=...)``, and
+``eval_node(__trace__=...)`` forms construct this same C++ observer. ``True``
+uses defaults; a dictionary accepts ``filter``, ``start``, ``eval``, ``stop``,
+``node``, and ``graph``. ``hgraph.test.EvaluationTrace`` is the bound native
+class, including ``set_print_all_values`` and ``set_use_logger``.
+
+Evaluation profiling
+--------------------
+
+``hgraph/runtime/evaluation_profiler.h`` provides the native aggregate
+``EvaluationProfiler``. Register it exactly like ``EvaluationTrace`` and read
+an owned ``EvaluationProfileSnapshot`` after or during the run. Snapshot paths
+and labels do not borrow graph or node memory, so keyed nested graph erase is
+safe. Copies of a profiler share the measurement state; this is how the Python
+object remains readable while the run owns its observer copy.
+
+The profiler uses a monotonic clock and caches graph/node identities during
+start. Steady evaluation updates perform pointer lookup, timing, and aggregate
+updates without rebuilding paths. The recent window is a pre-grown circular
+vector, so it allocates only on its first sample and not while rotating.
+Without a registered profiler the observer list is empty and evaluation does
+not read a clock or call Python.
+
+The canonical native overhead workloads are
+``evaluation_profiler_disabled_cycle`` and
+``evaluation_profiler_enabled_cycle`` in ``hgraph_type_erasure_perf``. Run
+them with:
+
+.. code-block:: bash
+
+   HGRAPH_TYPE_ERASURE_PERF_FILTER=evaluation_profiler \
+     cmake-build-cpp/tests/cpp/hgraph_type_erasure_perf
+
+Both workloads must report zero steady-state allocations. Timing comparisons
+are recorded on the controlled Linux host; macOS runs are useful development
+evidence but not a release performance baseline.
+
+Runtime inspection
+------------------
+
+``hgraph/runtime/graph_diagnostics.h`` provides the native ``GraphDiagnostics`` lifecycle
+observer. Register it on ``GraphExecutorBuilder`` and retain the caller handle;
+observer copies share their C++ collector state:
+
+.. code-block:: cpp
+
+   GraphDiagnostics diagnostics;
+   GraphExecutorBuilder builder;
+   builder.graph_builder(std::move(graph))
+          .add_lifecycle_observer(&diagnostics);
+   auto executor = builder.make_executor();
+   executor.view().run();
+
+   GraphDiagnosticsSnapshot snapshot = diagnostics.snapshot();
+
+Snapshots own their strings, hierarchy, timings, and storage counters. With
+``capture_values`` enabled they also own JSON renderings and immutable Arrow
+``Frame`` handles used by the Python tabular value view. They remain valid
+after nested slot erase and executor destruction. ``reset`` is a between-runs
+operation and throws ``std::logic_error`` while an executor is active.
+
+Storage inspection is a cold path through ``NodeView::storage_metrics`` and is
+never called when no diagnostics collector is registered.
+
+Python Compatibility Tests
+--------------------------
+
+Python tests live under ``python/tests`` and should be used where Python wiring
+or Python user nodes cross into the C++ runtime.
+
+The continuously evolving released-hgraph comparison is documented in
+:doc:`parity_testing`.  It generates bounded, multi-tick recipes and promotes a
+verified mismatch into the ordinary Python and native C++ regression layers;
+it does not replace either acceptance suite.
+
+Commands
+--------
+
+.. code-block:: bash
+
+   cmake -S . -B build
+   cmake --build build -j
+   ctest --test-dir build --output-on-failure
+   ./build/tests/cpp/hgraph_unit_tests   # run the Catch2 suite directly
+
+Sanitizer configurations: ``-DHGRAPH_ENABLE_ASAN=ON -DHGRAPH_ENABLE_UBSAN=ON``
+(Clang/GCC; exclusive with TSAN).
+
+Open Design Items
+-----------------
+
+- Decide how to run Python compatibility tests against locally built bindings.
+- Add sanitizer and leak-checking CI profiles.

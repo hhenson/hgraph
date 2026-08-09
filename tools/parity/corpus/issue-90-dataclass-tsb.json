@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "issue-90-dataclass-tsb",
+  "description": "Plain dataclasses derive a direct TSB schema and round-trip through the bundle form.",
+  "template": "stream_dataclass",
+  "inputs": {
+    "probe": [
+      true,
+      false,
+      null,
+      true
+    ]
+  },
+  "parameters": {},
+  "features": [
+    "boundary:python-owned",
+    "shape:TSB",
+    "type:dataclass",
+    "conversion:round-trip"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/90"
+}

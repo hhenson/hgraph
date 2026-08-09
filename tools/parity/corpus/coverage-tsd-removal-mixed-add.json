@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsd-removal-mixed-add",
+  "description": "Mixed removal+add TSD delta plus a None per-key no-tick. The size stays 2 across the mixed tick: upstream re-publishes the unchanged length while hg_cpp elides it \u2014 the ruled no-change-means-no-tick deviation, classified known by the no-change-elision family (a permanently known mismatch).",
+  "template": "collection_size",
+  "inputs": {
+    "ts": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": {
+          "$remove_if_exists": true
+        },
+        "c": 3
+      },
+      {
+        "d": null
+      }
+    ]
+  },
+  "parameters": {
+    "shape": "tsd",
+    "operation": "len"
+  },
+  "features": [
+    "topology:expression",
+    "domain:collection-size",
+    "reference:REF",
+    "binding:non-peered",
+    "shape:TSD",
+    "operator:len"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/129"
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "issue-95-subscription-map-churn",
+  "description": "Subscription service under map_ with key churn and per-key switching",
+  "template": "nested_higher_order",
+  "inputs": {
+    "values": [
+      {"k1": 3},
+      {"k2": 4},
+      null,
+      {"k1": {"$remove": true}}
+    ],
+    "selector": ["alpha", null, "beta", null]
+  },
+  "parameters": {
+    "inner": "subscription",
+    "outer": "map",
+    "wrap_switch": false,
+    "reduce_output": true,
+    "increment": 2
+  },
+  "features": ["topology:nested-higher-order"]
+}

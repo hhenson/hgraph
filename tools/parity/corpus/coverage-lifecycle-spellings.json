@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "coverage-lifecycle-spellings",
+  "description": "The issue #79 class: start/stop lifecycle parameters spelled without the strict '= None' form match the eval signature by name.",
+  "template": "lifecycle_state",
+  "inputs": {
+    "value": [1, null, 2, 3]
+  },
+  "parameters": {
+    "start_spelling": "bare",
+    "stop_spelling": "unannotated",
+    "seed": 10
+  },
+  "features": [
+    "shape:TS",
+    "type:int",
+    "boundary:python-owned",
+    "domain:lifecycle-signature",
+    "lifecycle:start-bare",
+    "lifecycle:stop-unannotated"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/79"
+}

@@ -1,0 +1,90 @@
+{
+  "construct_std": {
+    "upstream-py": {
+      "scenario": "construct_std",
+      "scale": 1.0,
+      "use_cpp": "",
+      "source_fingerprint": "",
+      "hgraph": "0.5.24",
+      "python": "3.12.8",
+      "native_module": "",
+      "ok": true,
+      "seconds": 0.9034,
+      "cycles": 1,
+      "cycles_per_s": 1,
+      "max_rss_mb": 87.0
+    },
+    "upstream-cpp": {
+      "scenario": "construct_std",
+      "scale": 1.0,
+      "use_cpp": "true",
+      "source_fingerprint": "",
+      "hgraph": "0.5.24",
+      "python": "3.12.8",
+      "native_module": "",
+      "ok": true,
+      "seconds": 0.8401,
+      "cycles": 1,
+      "cycles_per_s": 1,
+      "max_rss_mb": 93.6
+    },
+    "hg-cpp": {
+      "scenario": "construct_std",
+      "scale": 1.0,
+      "use_cpp": "",
+      "source_fingerprint": "bfc0f22038bc28bb9df77dff5dcde32b871b5eb10c6d199400d2eb2d839c4a75",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "native_module": "/Users/hhenson/CLionProjects/hg_cpp/benchmarks/.venv-hg-cpp-3.12/lib/python3.12/site-packages/_hgraph.abi3.so",
+      "ok": true,
+      "seconds": 0.0557,
+      "cycles": 1,
+      "cycles_per_s": 18,
+      "max_rss_mb": 72.4
+    }
+  },
+  "construct_py": {
+    "upstream-py": {
+      "scenario": "construct_py",
+      "scale": 1.0,
+      "use_cpp": "",
+      "source_fingerprint": "",
+      "hgraph": "0.5.24",
+      "python": "3.12.8",
+      "native_module": "",
+      "ok": true,
+      "seconds": 0.1693,
+      "cycles": 1,
+      "cycles_per_s": 6,
+      "max_rss_mb": 82.5
+    },
+    "upstream-cpp": {
+      "scenario": "construct_py",
+      "scale": 1.0,
+      "use_cpp": "true",
+      "source_fingerprint": "",
+      "hgraph": "0.5.24",
+      "python": "3.12.8",
+      "native_module": "",
+      "ok": true,
+      "seconds": 0.1392,
+      "cycles": 1,
+      "cycles_per_s": 7,
+      "max_rss_mb": 85.3
+    },
+    "hg-cpp": {
+      "scenario": "construct_py",
+      "scale": 1.0,
+      "use_cpp": "",
+      "source_fingerprint": "bfc0f22038bc28bb9df77dff5dcde32b871b5eb10c6d199400d2eb2d839c4a75",
+      "hgraph": "hg_cpp 0.3.0",
+      "python": "3.12.8",
+      "native_module": "/Users/hhenson/CLionProjects/hg_cpp/benchmarks/.venv-hg-cpp-3.12/lib/python3.12/site-packages/_hgraph.abi3.so",
+      "ok": true,
+      "seconds": 0.0672,
+      "cycles": 1,
+      "cycles_per_s": 15,
+      "max_rss_mb": 78.1
+    }
+  }
+}

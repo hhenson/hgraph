@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "issue-48-graph-const-return",
+  "description": "A graph body reducing to a bare float constant must lift to const rather than fail wiring.",
+  "template": "scalar_expression",
+  "inputs": {
+    "lhs": [
+      null
+    ],
+    "rhs": [
+      null
+    ]
+  },
+  "parameters": {
+    "expression": {
+      "const": -19.2390193939209
+    },
+    "input_types": {
+      "lhs": "float",
+      "rhs": "float"
+    },
+    "output_type": "float"
+  },
+  "features": [
+    "shape:TS",
+    "topology:expression",
+    "type:float"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/48"
+}

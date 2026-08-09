@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "id": "coverage-temporal-accessors",
+  "description": "The issue #82 class: (date - date).days through the upstream getattr_ accessor tables.",
+  "template": "temporal_expression",
+  "inputs": {
+    "lhs": [
+      {"$date": "2026-07-27"},
+      null,
+      {"$date": "2026-08-03"}
+    ],
+    "rhs": [
+      {"$date": "2026-07-20"},
+      {"$date": "2026-07-21"},
+      null
+    ]
+  },
+  "parameters": {
+    "input_type": "date",
+    "target": "difference",
+    "accessor": "days",
+    "output_type": "int",
+    "postponed_annotations": false
+  },
+  "features": [
+    "shape:TS",
+    "topology:expression",
+    "domain:temporal",
+    "type:date",
+    "operator:days",
+    "temporal:difference"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/82"
+}

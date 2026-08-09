@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "id": "switch-arithmetic-rebinding",
+  "description": "Named switch branches repeatedly rebind while inputs tick independently.",
+  "template": "switch_arithmetic",
+  "inputs": {
+    "selector": [
+      "plus",
+      null,
+      "minus",
+      null,
+      "plus",
+      "minus",
+      null,
+      "plus",
+      "minus",
+      "plus"
+    ],
+    "lhs": [
+      10,
+      20,
+      30,
+      null,
+      50,
+      60,
+      70,
+      null,
+      90,
+      100
+    ],
+    "rhs": [
+      1,
+      2,
+      3,
+      4,
+      null,
+      6,
+      7,
+      8,
+      null,
+      10
+    ]
+  },
+  "parameters": {},
+  "features": [
+    "lifecycle:branch-rebind",
+    "operator:switch_",
+    "shape:TS",
+    "ticks:medium",
+    "topology:switch",
+    "type:int"
+  ]
+}

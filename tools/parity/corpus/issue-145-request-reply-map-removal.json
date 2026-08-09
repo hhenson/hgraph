@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "id": "generated-nested-higher-order-256ae4a231f4",
+  "description": "Deterministically generated parity exploration case.",
+  "template": "nested_higher_order",
+  "inputs": {
+    "selector": [
+      null,
+      "beta",
+      "alpha"
+    ],
+    "values": [
+      {
+        "k2": -5
+      },
+      null,
+      null
+    ]
+  },
+  "parameters": {
+    "increment": -4,
+    "inner": "request_reply",
+    "outer": "map",
+    "reduce_output": false,
+    "wrap_switch": false
+  },
+  "features": [
+    "binding:non-peered",
+    "lifecycle:multi-cycle",
+    "nested-leaf:request_reply",
+    "nested:map",
+    "reference:REF",
+    "shape:TSD",
+    "topology:nested-higher-order",
+    "type:int"
+  ],
+  "seed": 8
+}

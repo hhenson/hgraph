@@ -1,181 +1,152 @@
+[build-system]
+requires = [
+    "scikit-build-core>=0.12",
+    "nanobind==2.13.0",
+    "pyarrow>=24,<25",
+]
+build-backend = "scikit_build_core.build"
+
 [project]
 name = "hgraph"
-# A placeholder. Release artifacts are restamped from the v_x.x.x tag by release-wheels.yml, so
-# this is never the published version and does not need to track releases.
+# Release artifacts are restamped from the v_x.x.x tag by release-wheels.yml.
 version = "0.0.0"
-description = "A functional reactive platform used to process time-series streams. Provides support for backtest (simulation) and realtime time-series processing. Using a forward propagation graph with a microtask scheduler for the runtime engine."
+description = "C++-first functional reactive runtime for time-series processing"
 readme = "README.md"
+requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
     {name = "Howard Henson", email = "howard@henson.me.uk"},
     {name = "Alexander Balabin", email = "balabin@me.com"},
     {name = "Simon Young", email = "whepstead@gmail.com"},
-    {name = "Tope Olukemi", email = "tolukemi@gmail.com"}
+    {name = "Tope Olukemi", email = "tolukemi@gmail.com"},
 ]
 keywords = [
-    "reactive", "graph", "fpg", "forward propogating graph",
-    "time series", "functional reactive programming",
-    "frp", "functional", "time-series"
+    "reactive",
+    "graph",
+    "forward propagating graph",
+    "time series",
+    "functional reactive programming",
+    "c++",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Programming Language :: Python",
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: Implementation :: CPython",
 ]
-requires-python = ">=3.12, <3.15"
 dependencies = [
-    "frozendict>=2.3.10",
-    "sortedcontainers>=2.4.0",
-    "numpy>=1.23",
-    "polars>=1.0",
-    "sqlalchemy",
-    "pyarrow>=16.1.0",
-    # <2.1: multimethod 2.1 (2026-07-29) raises "metaclass conflict" when a
-    # Union[...] overload is registered against the C++-engine's bound types
-    # (hgraph.debug._inspector_util's format_value); unpin once adapted.
-    "multimethod<2.1",
-    "psutil",
-    "typing-extensions",
-    "pycurl",
-    "pytz"
+    "frozendict>=2.4",
+    "numpy>=2.0",
+    "pyarrow>=24,<25",
+]
+
+[project.optional-dependencies]
+python = [
+    "nanobind==2.13.0",
+]
+test = [
+    "boto3>=1.34",
+    "connectorx>=0.4.5",
+    "deltalake>=1.0",
+    "duckdb>=1.4",
+    "hypothesis>=6",
+    "pandas>=2.0",
+    "packaging>=24",
+    "polars[rtcompat]>=1.32",
+    "perspective-python>=3.8",
+    "psutil>=5.9",
+    "pytest>=8",
+    "sqlalchemy>=2.0",
+    "tornado>=6.5",
+    "trove-classifiers",
+]
+parity = [
+    "hypothesis>=6",
+]
+web = [
+    "tornado>=6.5",
+]
+sql = [
+    "connectorx>=0.4.5",
+    "duckdb>=1.4",
+    "pandas>=2.0",
+    "polars>=1.32",
+    "sqlalchemy>=2.0",
+]
+snowflake = [
+    "adbc-driver-snowflake>=1.8",
+]
+delta = [
+    "boto3>=1.34",
+    "deltalake>=1.0",
+    "polars>=1.32",
+]
+perspective = [
+    "perspective-python>=3.8",
+    "psutil>=5.9",
+    "tornado>=6.5",
+]
+dataframe = [
+    "polars>=1.32",
+]
+docs = [
+    "sphinx>=7.4",
+    "sphinx-rtd-theme>=2.0",
+    "myst-parser>=2.0",
+    "sphinxcontrib-mermaid>=1.0",
+]
+dev = [
+    "cmake>=3.26",
+    "ninja",
+    "nanobind==2.13.0",
+    "packaging>=24",
+    "pytest>=8",
+    "sphinx>=7.4",
+    "sphinx-rtd-theme>=2.0",
+    "myst-parser>=2.0",
+    "sphinxcontrib-mermaid>=1.0",
+    "scikit-build-core>=0.12",
+    "trove-classifiers",
 ]
 
 [project.urls]
 Homepage = "https://github.com/hhenson/hgraph"
-Documentation = "https://github.com/hhenson/hgraph/blob/main/docs/index.md"
 Repository = "https://github.com/hhenson/hgraph.git"
-Issues = "https://github.com/hhenson/hgraph/blob/main/ISSUES.md"
-Changelog = "https://github.com/hhenson/hgraph/blob/main/CHANGELOG.md"
+Issues = "https://github.com/hhenson/hgraph/issues"
 
-[tool.hatch.build.targets.wheel]
-packages = ["hgraph"]
+[tool.uv.sources]
+hgraph = {workspace = true}
 
-[project.optional-dependencies]
-web = [
-    "perspective-python<5.0.0",
-    "tornado",
-    "requests",
-    "pandas",
-    "pycurl"
-]
-messaging = [
-    "kafka-python>=2.1.5"
-]
-notebook = [
-    "matplotlib"
-]
-docs = [
-    "sphinx>=7.4",
-    "sphinx_rtd_theme>=2.0.0",
-    # 3.13 appends an ":Overloads:" field to the doc-string of every @overload-ed function without a
-    # preceding blank line. That breaks the reStructuredText structure: the field renders as literal
-    # text and the example literal-block that follows is dropped. Affects graph, sink_node, adaptor,
-    # service_adaptor, subscription_service and request_reply_service in hgraph/_wiring/_decorators.py.
-    "sphinx-autodoc-typehints>=2.3.0,<3.13",
-    "sphinxcontrib-plantuml>=0.30",
-    "sphinxcontrib-bibtex",
-    "pybtex-apa-style>=1.3",
-    "setuptools",
-    "myst-parser>=2.0.0",
-    "sphinxcontrib-mermaid>=0.9.0"
-]
-test = [
-    "pytest",
-    "mypy",
-    "pytest-cov",
-    "coverage",
-    "pytest-xdist",
-    "black"
-]
-dev = [
-    # This is needed for CLion / other dev env to find the nanobind libs.
-    "nanobind==2.13.0",
-]
-
-[build-system]
-requires = [
-    "scikit-build-core==1.0.3",
-    "nanobind==2.13.0",
-    "setuptools==83.0.0"
-]
-build-backend = "scikit_build_core.build"
+[tool.uv.workspace]
+members = ["extensions/*"]
 
 [tool.scikit-build]
-# Install pure Python package from hgraph and place the compiled extension under hgraph/
-wheel.packages = ["hgraph"]
-wheel.py-api = "cp312"
 build.verbose = true
 cmake.source-dir = "."
-# Use the invoking Python for nanobind discovery unless overridden in CI
-cmake.define.Python_EXECUTABLE = "{sys.executable}"
-# Enforce macOS deployment target and architecture to satisfy libc++ requirements for std::format
-cmake.define.CMAKE_OSX_DEPLOYMENT_TARGET = "15.0"
-cmake.define.CMAKE_OSX_ARCHITECTURES = "arm64"
+minimum-version = "build-system.requires"
+wheel.py-api = "cp312"
+wheel.packages = ["python/hgraph"]
+sdist.exclude = [
+    "reports/**",
+    "ext/**",
+    "extensions/**",
+    "benchmarks/.venv*/**",
+    "benchmarks/results/**",
+]
 
+[tool.scikit-build.cmake.define]
+HGRAPH_BUILD_PYTHON_BINDINGS = "ON"
+HGRAPH_ENABLE_PYTHON_USER_NODES = "ON"
+HGRAPH_BUILD_SHARED = "ON"
+HGRAPH_FETCH_DATE = "ON"
+BUILD_TESTING = "OFF"
 
-# Configure pytest
 [tool.pytest.ini_options]
-minversion = "7.4.3"
-# After 4 cores there are no measurable improvements I can measure at the moment.
-# If you want the default runs to include these arguement uncomment
-#addopts = "-n 4 -ra -q --dist=loadscope" # " --cov=hgraph --cov-report=term-missing --cov-report=xml"
-#adapots = "--doctest-modules"
-# Ensure tests and IDE analysis can resolve the in-tree package
-pythonpath = ["."]
+minversion = "8.0"
 testpaths = [
-    "hgraph_unit_tests",
-    "docs"
+    "python/tests",
 ]
-markers = [
-    "serial: mark test to run serially (not in parallel with xdist)",
-    "smoke: Smoke test marker used to perform a very basic checkout of built pips"
-]
-
-# Configure coverage
-[tool.coverage.run]
-source_pkgs = ["hgraph", ]
-branch = true
-parallel = true
-omit = [
-    "hgraph_unit_tests/*",
-    "examples/*",
-    "docs/*",
-    "hgraph/notebook/*",
-    "hgraph/debug/*"
-]
-
-[tool.coverage.paths]
-hg = ["hgraph", ]
-tests = ["hgraph_unit_tests"]
-
-[tool.coverage.report]
-fail_under = 70
-exclude_lines = [
-    "no cov",
-    "if __name__ == .__main__.:",
-    "if TYPE_CHECKING:",
-]
-
-[tool.black]
-line-length = 120
-target-version = ['py312']
-unstable = true
-include = '\.pyi?$'
-# 'extend-exclude' excludes files or directories in addition to the defaults
-extend-exclude = '''
-# A regex preceded with ^/ will apply only to files and directories
-# in the root of the project.
-(
-  ^/foo.py    # exclude a file named foo.py in the root of the project
-  | .*_pb2.py  # exclude autogenerated Protocol Buffer files anywhere in the project
-)
-'''
-
-[tool.mypy]
-files = [".", ]
-
-[project.scripts]
-build-docs = "sphinx.cmd.build:main"

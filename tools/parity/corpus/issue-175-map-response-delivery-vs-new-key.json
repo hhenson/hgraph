@@ -1,0 +1,41 @@
+{
+  "description": "Issue #175: a map_ child due by its own internal schedule (request-reply response delivery) must evaluate even when an outer input ticks the same cycle \u2014 the input-event fast path starved it and the response was lost.",
+  "features": [
+    "binding:non-peered",
+    "lifecycle:multi-cycle",
+    "nested-leaf:request_reply",
+    "nested:map",
+    "reference:REF",
+    "shape:TSD",
+    "topology:nested-higher-order",
+    "type:int"
+  ],
+  "id": "issue-175-map-response-delivery-vs-new-key",
+  "inputs": {
+    "selector": [
+      "alpha",
+      null,
+      null
+    ],
+    "values": [
+      {
+        "k1": 8
+      },
+      null,
+      {
+        "k2": -2
+      }
+    ]
+  },
+  "parameters": {
+    "increment": 0,
+    "inner": "request_reply",
+    "outer": "map",
+    "reduce_output": false,
+    "wrap_switch": false
+  },
+  "schema_version": 1,
+  "seed": 9,
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/175",
+  "template": "nested_higher_order"
+}

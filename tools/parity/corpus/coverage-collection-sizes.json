@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "coverage-collection-sizes",
+  "description": "The issue #81 class: len_ over a TSS whose deltas net growth and no-change ticks.",
+  "template": "collection_size",
+  "inputs": {
+    "ts": [
+      {"$set_delta": {"added": [1, 2], "removed": []}},
+      {"$set_delta": {"added": [2], "removed": []}},
+      {"$set_delta": {"added": [3], "removed": [1]}},
+      {"$set_delta": {"added": [], "removed": [2, 3]}}
+    ]
+  },
+  "parameters": {
+    "shape": "tss",
+    "operation": "len"
+  },
+  "features": [
+    "topology:expression",
+    "domain:collection-size",
+    "shape:TSS",
+    "operator:len"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/81"
+}

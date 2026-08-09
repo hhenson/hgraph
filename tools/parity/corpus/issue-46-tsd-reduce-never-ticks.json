@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "issue-46-tsd-reduce-never-ticks",
+  "description": "Track released-hgraph parity for a non-identity TSD reduction zero when the dictionary never ticks (known deviation: reference publishes 2*zero, hg_cpp publishes zero).",
+  "template": "tsd_map_reduce",
+  "inputs": {
+    "values": [
+      null,
+      null,
+      null
+    ]
+  },
+  "parameters": {
+    "increment": 3,
+    "zero": -2
+  },
+  "features": [
+    "lifecycle:keyed",
+    "operator:map_",
+    "operator:reduce",
+    "shape:TSD",
+    "ticks:short",
+    "topology:map",
+    "type:int"
+  ],
+  "source_issue": "https://github.com/hhenson/hg_cpp/issues/46"
+}

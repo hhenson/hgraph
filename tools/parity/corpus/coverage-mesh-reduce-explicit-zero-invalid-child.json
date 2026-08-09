@@ -1,0 +1,34 @@
+{
+  "description": "An explicit identity zero seeds reduction while a mesh child remains invalid.",
+  "features": [
+    "binding:non-peered",
+    "lifecycle:multi-cycle",
+    "nested-leaf:arithmetic",
+    "nested:mesh",
+    "reference:REF",
+    "shape:TSD",
+    "topology:nested-higher-order",
+    "topology:reduce",
+    "type:int"
+  ],
+  "id": "coverage-mesh-reduce-explicit-zero-invalid-child",
+  "inputs": {
+    "selector": [
+      null
+    ],
+    "values": [
+      {
+        "k": 1
+      }
+    ]
+  },
+  "parameters": {
+    "increment": 0,
+    "inner": "arithmetic",
+    "outer": "mesh",
+    "reduce_output": true,
+    "wrap_switch": false
+  },
+  "schema_version": 1,
+  "template": "nested_higher_order"
+}
