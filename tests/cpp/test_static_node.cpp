@@ -142,6 +142,20 @@ namespace
         }
     };
 
+    struct RunningTotal
+    {
+        static constexpr auto name = "running_total";
+
+        static void start(State<Int> state) { state.set(Int{0}); }
+
+        static void eval(In<"value", TS<Int>> value, State<Int> state, Out<TS<Int>> out)
+        {
+            const Int total = state.get() + value.value();
+            state.set(total);
+            out.set(total);
+        }
+    };
+
     using LastSeenState = TSB<"LastSeenState", Field<"last", TS<Int>>>;
 
     using ClockSnapshot = TSB<"ClockSnapshot",
@@ -576,6 +590,13 @@ TEST_CASE("static node: State<Int> is constructed and mutated across evaluations
     node.view().evaluate(t2);
     CHECK(node.view().state().checked_as<Int>() == 2);
     CHECK(node.view().output(t2).value().checked_as<Int>() == 2);
+}
+
+TEST_CASE("static node: State<Int> persists through public eval_node wiring")
+{
+    using namespace hgraph;
+
+    CHECK_OUTPUT(testing::eval_node<RunningTotal>({1, 2, 3}), {1, 3, 6});
 }
 
 TEST_CASE("static node: EvaluationClockView is injected as a read-only clock view")

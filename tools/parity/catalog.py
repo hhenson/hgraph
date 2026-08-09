@@ -642,6 +642,8 @@ def _validate_lifecycle_state(recipe):
     seed = parameters.get("seed", 0)
     if not isinstance(seed, int) or isinstance(seed, bool) or not -100 <= seed <= 100:
         raise RecipeError("lifecycle_state seed must be a bounded integer")
+    if parameters.get("state_access", "attribute") not in ("attribute", "mapping"):
+        raise RecipeError("lifecycle_state state_access must be 'attribute' or 'mapping'")
     if set(recipe.inputs) != {"value"}:
         raise RecipeError("lifecycle_state requires the value input")
 
@@ -651,23 +653,54 @@ def _lifecycle_state(hg, recipe):
 
     parameters = recipe.parameters
     seed = parameters.get("seed", 0)
+    state_access = parameters.get("state_access", "attribute")
     start_signature = _LIFECYCLE_SPELLINGS[parameters["start_spelling"]]
     stop_spelling = parameters.get("stop_spelling")
+    if state_access == "mapping":
+        eval_body = (
+            "    if _state.is_updated():\n"
+            "        raise AssertionError('state unexpectedly dirty before evaluation')\n"
+            "    _state.total = _state['total'] + value.value\n"
+            "    expected = [('total', _state['total'])]\n"
+            "    if list(_state.keys()) != ['total'] or list(_state.items()) != expected:\n"
+            "        raise AssertionError('state mapping views disagree')\n"
+            "    if list(_state.values()) != [_state.total]:\n"
+            "        raise AssertionError('state values view disagrees')\n"
+            "    result = _state['total']\n"
+            "    _state.reset_updated()\n"
+            "    return result\n"
+        )
+        start_body = (
+            f"    _state.total = {seed}\n"
+            "    if not isinstance(_state, hg.STATE) or _state['total'] != _state.total:\n"
+            "        raise AssertionError('naked STATE mapping surface unavailable')\n"
+            "    _state.reset_updated()\n"
+        )
+        stop_body = (
+            "    if _state['total'] != _state.total:\n"
+            "        raise AssertionError('naked STATE did not persist through stop')\n"
+        )
+    else:
+        eval_body = (
+            "    _state.total = _state.total + value.value\n"
+            "    return _state.total\n"
+        )
+        start_body = f"    _state.total = {seed}\n"
+        stop_body = "    pass\n"
     stop_block = ""
     if stop_spelling is not None:
         stop_block = (
             "@lifecycle_node.stop\n"
             f"def lifecycle_stop({_LIFECYCLE_SPELLINGS[stop_spelling]}):\n"
-            "    pass\n"
+            f"{stop_body}"
         )
     source = (
         "@hg.compute_node\n"
         "def lifecycle_node(value: hg.TS[int], _state: hg.STATE = None) -> hg.TS[int]:\n"
-        "    _state.total = _state.total + value.value\n"
-        "    return _state.total\n"
+        f"{eval_body}"
         "@lifecycle_node.start\n"
         f"def lifecycle_start({start_signature}):\n"
-        f"    _state.total = {seed}\n"
+        f"{start_body}"
         f"{stop_block}"
         "@hg.graph\n"
         "def parity_graph(value: hg.TS[int]) -> hg.TS[int]:\n"

@@ -724,6 +724,7 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             "start_spelling": draw(st.sampled_from(spellings)),
             "stop_spelling": draw(st.sampled_from((None,) + spellings)),
             "seed": draw(st.integers(min_value=-50, max_value=50)),
+            "state_access": draw(st.sampled_from(("attribute", "mapping"))),
         }
         return {
             "template": "lifecycle_state",
@@ -733,6 +734,7 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
                 *CATALOG["lifecycle_state"].features,
                 f"lifecycle:start-{parameters['start_spelling']}",
                 f"lifecycle:stop-{parameters['stop_spelling'] or 'absent'}",
+                f"state-access:{parameters['state_access']}",
             ],
         }
 

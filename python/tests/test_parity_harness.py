@@ -1900,6 +1900,17 @@ def test_new_template_validators_reject_malformed_recipes():
     )
     rejects(
         {
+            "template": "lifecycle_state",
+            "inputs": {"value": [1]},
+            "parameters": {
+                "start_spelling": "default",
+                "state_access": "sequence",
+            },
+        },
+        "state_access",
+    )
+    rejects(
+        {
             "template": "data_frame_recording",
             "inputs": {"ts": [1]},
             "parameters": {"as_of_offset": 0},

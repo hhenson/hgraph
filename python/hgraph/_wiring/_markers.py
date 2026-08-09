@@ -10,11 +10,68 @@ from .._types import _GenericTsExpr, _TsExpr
 from ._state import GlobalState
 
 class STATE:
-    """Injectable per-node state. ``STATE`` supplies a mutable namespace;
-    ``STATE[T]`` constructs and preserves one ``T`` instance."""
+    """Injectable per-node state.
+
+    Naked ``STATE`` stores values in an attribute dictionary, with attribute
+    access mirrored through ``state[name]`` and ``keys`` / ``items`` /
+    ``values`` views. ``STATE[T]`` constructs and preserves one ``T``
+    instance instead.
+    """
+
+    def __init__(self, **kwargs):
+        self.__dict__["__schema__"] = None
+        self.__dict__["_updated"] = False
+        self.__dict__["_value"] = dict(kwargs)
 
     def __class_getitem__(cls, item):
         return _StateExpr(item)
+
+    @property
+    def as_schema(self):
+        return self.__dict__["_value"]
+
+    def __getattr__(self, name):
+        values = self.__dict__.get("_value")
+        if values is not None and name in values:
+            return values[name]
+        raise AttributeError(name)
+
+    def __getitem__(self, name):
+        return getattr(self, name)
+
+    def keys(self):
+        return self.__dict__["_value"].keys()
+
+    def items(self):
+        return self.__dict__["_value"].items()
+
+    def values(self):
+        return self.__dict__["_value"].values()
+
+    def __setattr__(self, name, value):
+        if name in ("__schema__", "_updated", "_value"):
+            self.__dict__[name] = value
+            return
+        self.__dict__["_updated"] = True
+        self.__dict__["_value"][name] = value
+
+    def __delattr__(self, name):
+        if name in ("__schema__", "_updated", "_value"):
+            return
+        self.__dict__["_updated"] = True
+        del self.__dict__["_value"][name]
+
+    def reset_updated(self):
+        self.__dict__["_updated"] = False
+
+    def is_updated(self):
+        return self.__dict__["_updated"]
+
+    def __repr__(self):
+        values = ", ".join(
+            f"{name}={value!r}" for name, value in self.__dict__["_value"].items()
+        )
+        return f"SCALAR({values})"
 
 
 class _StateExpr:
