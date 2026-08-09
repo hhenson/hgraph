@@ -217,8 +217,8 @@ def test_matrix_wheel_builds_use_stable_cacheable_paths():
     )[0]
 
     assert "--wheel --no-isolation --skip-dependency-check" in matrix_job
-    assert "-Cbuild-dir=.ci-build/core/{wheel_tag}" in matrix_job
-    assert "-Cbuild-dir=.ci-build/kafka/{wheel_tag}" in matrix_job
+    assert '"-Cbuild-dir=.ci-build/core/{wheel_tag}"' in matrix_job
+    assert '"-Cbuild-dir=.ci-build/kafka/{wheel_tag}"' in matrix_job
     assert "Install Kafka wheel build tools" not in matrix_job
     for dependency in (
         '"scikit-build-core==1.0.3"',

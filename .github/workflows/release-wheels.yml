@@ -176,7 +176,7 @@ jobs:
           CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.parallel }}
         run: >-
           python -m build --wheel --no-isolation --skip-dependency-check
-          -Cbuild-dir=.ci-build/core/{wheel_tag}
+          "-Cbuild-dir=.ci-build/core/{wheel_tag}"
       - name: Audit wheel contents
         run: python tools/audit_distribution.py "dist/*.whl"
       - name: Verify wheel ABI
@@ -234,7 +234,7 @@ jobs:
           CMAKE_PREFIX_PATH: ${{ env.HGRAPH_KAFKA_SDK_PREFIX }}
         run: >-
           python -m build --wheel --no-isolation --skip-dependency-check
-          -Cbuild-dir=.ci-build/kafka/{wheel_tag}
+          "-Cbuild-dir=.ci-build/kafka/{wheel_tag}"
           --outdir kafka-dist extensions/kafka
       - name: Verify Kafka wheel ABI
         shell: python
