@@ -78,11 +78,11 @@ jobs:
               "--no-deps", str(kafka_wheels[0]),
           ])
       - name: Confirm installed distribution
-        run: uv run --no-sync python -c "import importlib.metadata as m; import _hgraph; print(m.version('hgraph'), _hgraph.__file__)"
+        run: uv run --no-sync --no-build python -c "import importlib.metadata as m; import _hgraph; print(m.version('hgraph'), _hgraph.__file__)"
       - name: Run Python compatibility suite
-        run: uv run --no-sync python -m pytest python/tests -q -m "not wip"
+        run: uv run --no-sync --no-build python -m pytest python/tests -q -m "not wip"
       - name: Run Kafka extension suite
-        run: uv run --no-sync python -m pytest extensions/kafka/python/tests -q
+        run: uv run --no-sync --no-build python -m pytest extensions/kafka/python/tests -q
       - name: Build installed Python extension consumer
         if: matrix.python-version == '3.12'
-        run: uv run --no-sync python tests/python_extension_consumer/check.py
+        run: uv run --no-sync --no-build python tests/python_extension_consumer/check.py
