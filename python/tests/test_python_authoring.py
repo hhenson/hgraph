@@ -131,11 +131,12 @@ def test_python_generator_stop_hook_receives_state_and_scalars():
     @hg.generator
     def source(label: str, state: hg.STATE = None) -> TS[int]:
         state.value = 7
-        yield hg.MIN_ST, state.value
+        check(isinstance(state, hg.STATE), "generator receives the public STATE wrapper")
+        yield hg.MIN_ST, state["value"]
 
     @source.stop
     def stop(label: str, state: hg.STATE = None):
-        stopped.append((label, state.value))
+        stopped.append((label, state["value"]))
 
     @graph
     def app() -> TS[int]:
@@ -143,6 +144,50 @@ def test_python_generator_stop_hook_receives_state_and_scalars():
 
     check(eval_node(app) == [7], "generator output")
     check(stopped == [("generator", 7)], f"generator stop hook: {stopped}")
+
+
+def test_naked_state_matches_attribute_dictionary_compatibility_surface():
+    lifecycle = []
+
+    @hg.compute_node
+    def accumulate(value: TS[int], state: hg.STATE = None) -> TS[int]:
+        check(not state.is_updated(), "dirty state is reset between observations")
+        state.total = state["total"] + value.value
+        check(state.is_updated(), "attribute assignment marks state updated")
+        check(state.total == state["total"], "attribute and item reads agree")
+        check(list(state.keys()) == ["total"], "state keys view")
+        check(list(state.items()) == [("total", state.total)], "state items view")
+        check(list(state.values()) == [state.total], "state values view")
+        result = state["total"]
+        state.reset_updated()
+        return result
+
+    @accumulate.start
+    def start(state: hg.STATE = None):
+        check(isinstance(state, hg.STATE), "naked injection returns STATE")
+        check(repr(state) == "SCALAR()", "empty state repr")
+        check(state.as_schema == {}, "empty backing dictionary")
+        check(not state.is_updated(), "new state is clean")
+        expect_raises(AttributeError, lambda: state.missing)
+        expect_raises(AttributeError, lambda: state["missing"])
+        expect_raises(AttributeError, lambda: state.__setitem__("total", 10))
+        state.total = 10
+        check(state["total"] == 10, "attribute writes feed item reads")
+        check(repr(state) == "SCALAR(total=10)", "populated state repr")
+        check(state.as_schema == {"total": 10}, "backing dictionary exposes values")
+        check(state.is_updated(), "start mutation marks state updated")
+        state.reset_updated()
+        lifecycle.append(("start", state["total"]))
+
+    @accumulate.stop
+    def stop(state: hg.STATE = None):
+        lifecycle.append(("stop", state["total"]))
+        del state.total
+        check(state.is_updated(), "attribute deletion marks state updated")
+        check(list(state.items()) == [], "attribute deletion removes the item")
+
+    check(eval_node(accumulate, [1, 2, 3]) == [11, 13, 16], "naked state mapping")
+    check(lifecycle == [("start", 10), ("stop", 16)], f"state lifecycle: {lifecycle}")
 
 
 def test_python_compute_consumes_and_produces_dynamic_tsl():

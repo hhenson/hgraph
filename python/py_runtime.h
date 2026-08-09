@@ -94,7 +94,7 @@ namespace hgraph::python_bridge
 
     struct PyStateRef
     {
-        PyObject         *ns{nullptr};   ///< a SimpleNamespace, lazily created (per-node python STATE)
+        PyObject         *ns{nullptr};   ///< the lazily created per-node Python state value
         PyCallLeaseState *call_lease{nullptr};
         friend bool operator==(const PyStateRef &, const PyStateRef &) noexcept = default;
     };
@@ -104,30 +104,8 @@ namespace hgraph::python_bridge
         NodeScheduler scheduler;
     };
 
-    [[nodiscard]] inline nb::object py_state_namespace(State<PyStateRef> &state)
-    {
-        PyStateRef ref = state.get();
-        if (ref.ns == nullptr)
-        {
-            nb::object ns = nb::module_::import_("types").attr("SimpleNamespace")();
-            ref.ns        = ns.release().ptr();
-            state.set(ref);
-        }
-        return nb::borrow(nb::handle(ref.ns));
-    }
-
-    [[nodiscard]] inline nb::object py_state_namespace(PyStateRef &state)
-    {
-        if (state.ns == nullptr)
-        {
-            nb::object ns = nb::module_::import_("types").attr("SimpleNamespace")();
-            state.ns = ns.release().ptr();
-        }
-        return nb::borrow(nb::handle(state.ns));
-    }
-
-    [[nodiscard]] inline nb::object py_typed_state(PyStateRef &state,
-                                                    nb::handle factory)
+    [[nodiscard]] inline nb::object py_state_value(PyStateRef &state,
+                                                   nb::handle factory)
     {
         if (state.ns == nullptr)
         {
@@ -137,13 +115,45 @@ namespace hgraph::python_bridge
         return nb::borrow(nb::handle(state.ns));
     }
 
+    [[nodiscard]] inline nb::object py_state_value(State<PyStateRef> &state,
+                                                   nb::handle factory)
+    {
+        PyStateRef ref = state.get();
+        const bool created = ref.ns == nullptr;
+        nb::object value = py_state_value(ref, factory);
+        if (created) { state.set(ref); }
+        return value;
+    }
+
+    [[nodiscard]] inline nb::object py_state_namespace(PyStateRef &state)
+    {
+        if (state.ns == nullptr)
+        {
+            nb::object factory = nb::module_::import_("hgraph._wiring._markers").attr("STATE");
+            return py_state_value(state, factory);
+        }
+        return nb::borrow(nb::handle(state.ns));
+    }
+
+    [[nodiscard]] inline nb::object py_state_namespace(State<PyStateRef> &state)
+    {
+        PyStateRef ref = state.get();
+        const bool created = ref.ns == nullptr;
+        nb::object value = py_state_namespace(ref);
+        if (created) { state.set(ref); }
+        return value;
+    }
+
+    [[nodiscard]] inline nb::object py_typed_state(PyStateRef &state,
+                                                    nb::handle factory)
+    {
+        return py_state_value(state, factory);
+    }
+
     [[nodiscard]] inline nb::object py_typed_state(State<PyStateRef> &state,
                                                     nb::handle factory)
     {
-        PyStateRef ref = state.get();
-        nb::object value = py_typed_state(ref, factory);
-        state.set(ref);
-        return value;
+        return py_state_value(state, factory);
     }
 
     /** Call-scope lifetime guard: python must not use a view after its eval. */

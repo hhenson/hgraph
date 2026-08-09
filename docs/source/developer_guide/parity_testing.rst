@@ -241,7 +241,8 @@ production triage has actually produced (the 2026-07 batch, issues #74-#92):
   relation in ``known_divergences.json``;
 - ``lifecycle_state`` generates start/stop lifecycle functions across the
   accepted signature spellings — strict, bare-injectable, and unannotated
-  name-match (the #79 class);
+  name-match (the #79 class) — and alternates attribute and dictionary-view
+  access over naked ``STATE``;
 - ``data_frame_recording`` records through the DATA_FRAME model and emits
   the frame a ``DataFrameStorage`` hands back to user code — column names,
   **timezone presentation**, and row values — so a tz-aware engine column or

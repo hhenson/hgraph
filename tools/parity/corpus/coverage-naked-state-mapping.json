@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "coverage-naked-state-mapping",
+  "description": "Naked STATE preserves the Python 0.5 attribute dictionary surface through start, evaluation, and stop.",
+  "template": "lifecycle_state",
+  "inputs": {
+    "value": [1, null, 2, 3]
+  },
+  "parameters": {
+    "start_spelling": "default",
+    "stop_spelling": "default",
+    "seed": 10,
+    "state_access": "mapping"
+  },
+  "features": [
+    "shape:TS",
+    "type:int",
+    "boundary:python-owned",
+    "domain:lifecycle-signature",
+    "lifecycle:start-default",
+    "lifecycle:stop-default",
+    "state-access:mapping"
+  ]
+}
