@@ -885,7 +885,11 @@ TEST_CASE("TSInput target binding updates non-peered bundle and list prefixes")
     list_view[0].bind_output(first_output.view(t1));
 
     REQUIRE(input_root.valid());
-    REQUIRE_FALSE(input_root.all_valid());
+    // ``all_valid`` is one level deep: the root bundle asks its only child
+    // (``items``) for ``valid``, not for ``all_valid``. ``items`` is valid
+    // because element 0 is bound, so the root is all_valid even though the
+    // list beneath it is only partly bound. See the ``items`` assertion below.
+    REQUIRE(input_root.all_valid());
     REQUIRE(input_root.modified());
     REQUIRE(input_root.last_modified_time() == t1);
 
@@ -983,7 +987,8 @@ TEST_CASE("TSInput data views project non-peered prefixes")
     REQUIRE(root_data.schema() == input.schema());
     REQUIRE(root_data.type_ref().record() == root_view.type_ref().record());
     REQUIRE(root_data.has_current_value());
-    REQUIRE_FALSE(root_data.all_valid());
+    // One level deep: the root asks ``items`` for ``valid``, which is true.
+    REQUIRE(root_data.all_valid());
     REQUIRE(root_data.modified(t1));
 
     auto bundle_data = root_data.as_bundle();

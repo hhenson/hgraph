@@ -1008,6 +1008,9 @@ namespace hgraph
             return false;
         }
 
+        // One-level check over the direct children of an indexed (TSB/TSL)
+        // input: each child is asked for ``valid``, never for its own
+        // ``all_valid``. See ts_data_fixed_structured_ops.cpp for the contract.
         [[nodiscard]] bool input_all_valid(const void *context, const void *memory)
         {
             const auto *state = static_cast<const InputBindingContext *>(context);
@@ -1018,7 +1021,7 @@ namespace hgraph
                 const auto *data    = input_element_memory(context, memory, index);
                 if (!type || data == nullptr) { return false; }
                 const auto &ops = *type.ops();
-                if (!ops.all_valid_impl(ops.context, data)) { return false; }
+                if (!ops.has_current_value_impl(ops.context, data)) { return false; }
             }
             return true;
         }

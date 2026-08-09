@@ -5,8 +5,8 @@ The C++-first implementation executes real graphs today: you author nodes and
 graphs in C++, test them with the ``eval_node`` harness, and run them through
 the graph executor in simulation or real-time mode. This page takes you from a
 clean checkout to a first tested node; the deeper guides are
-:doc:`authoring_nodes_cpp`, :doc:`authoring_graphs_cpp` and
-:doc:`testing_graphs_cpp`.
+:doc:`authoring_nodes`, :doc:`authoring_graphs` and
+:doc:`testing_graphs`.
 
 Build the C++ Project
 ---------------------
@@ -61,11 +61,11 @@ Add the file to ``tests/cpp/CMakeLists.txt`` and it runs as part of
 ``hgraph_unit_tests``. From here:
 
 - **authoring nodes** — state, scalars, schedulers, lifecycle hooks, all the
-  time-series kinds: :doc:`authoring_nodes_cpp`;
+  time-series kinds: :doc:`authoring_nodes`;
 - **wiring graphs** — ``compose``/``wire``, the standard operator library,
-  ``map_`` / ``switch_`` / ``reduce`` and friends: :doc:`authoring_graphs_cpp`;
+  ``map_`` / ``switch_`` / ``reduce`` and friends: :doc:`authoring_graphs`;
 - **testing** — the full ``eval_node`` harness, collection deltas, replay and
-  record: :doc:`testing_graphs_cpp`.
+  record: :doc:`testing_graphs`.
 
 Install Locally
 ---------------
@@ -91,4 +91,4 @@ The relevant options are:
    -DHGRAPH_ENABLE_PYTHON_USER_NODES=ON
 
 The installed ``hgraph`` wheel exposes the Python authoring surface and native
-``_hgraph`` bridge described in :doc:`python_compatibility`.
+``_hgraph`` bridge described in :doc:`../python_compatibility`.

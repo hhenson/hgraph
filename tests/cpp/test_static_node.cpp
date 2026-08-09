@@ -85,6 +85,34 @@ namespace
         }
     };
 
+    // ``all_valid`` is one level deep: the outer list asks each inner list for
+    // ``valid``, never for the inner list's own ``all_valid``. So this gate
+    // opens as soon as both inner lists hold *something*, without waiting for
+    // every leaf.
+    struct NestedAllValidProbe
+    {
+        static constexpr auto name = "nested_all_valid_probe";
+
+        static void eval(In<"values", TSL<TSL<TS<Int>, 2>, 2>, InputValidity::AllValid>,
+                         Out<TS<Bool>> out)
+        {
+            out.set(true);
+        }
+    };
+
+    // A TSD's ``all_valid`` is its ``valid``: it does not walk its values, so a
+    // partially populated list value does not hold the gate closed.
+    struct TsdAllValidProbe
+    {
+        static constexpr auto name = "tsd_all_valid_probe";
+
+        static void eval(In<"values", TSD<Str, TSL<TS<Int>, 2>>, InputValidity::AllValid>,
+                         Out<TS<Bool>> out)
+        {
+            out.set(true);
+        }
+    };
+
     struct ActiveRelay
     {
         static constexpr auto name = "active_relay";
@@ -370,6 +398,34 @@ TEST_CASE("static node: all-valid inputs guard evaluation through public eval_no
         list_delta<TS<Int>>({{1, 2}}),
     };
     CHECK_OUTPUT(testing::eval_node<AllValidProbe>(input), {std::nullopt, Bool{true}});
+}
+
+TEST_CASE("static node: all-valid on a nested list is a one-level check")
+{
+    using namespace hgraph;
+
+    // Cycle 1 fills only the first inner list, and only its first element:
+    // the outer list is not all_valid because its second element is not valid
+    // at all. Cycle 2 gives the second inner list one element, at which point
+    // both direct children are valid and the gate opens - even though neither
+    // inner list is itself all_valid. A recursive check would never fire here.
+    const std::vector<std::optional<Value>> input{
+        list_delta<TSL<TS<Int>, 2>>({{0, list_delta<TS<Int>>({{0, 1}})}}),
+        list_delta<TSL<TS<Int>, 2>>({{1, list_delta<TS<Int>>({{0, 2}})}}),
+    };
+    CHECK_OUTPUT(testing::eval_node<NestedAllValidProbe>(input), {std::nullopt, Bool{true}});
+}
+
+TEST_CASE("static node: all-valid on a TSD does not walk its values")
+{
+    using namespace hgraph;
+
+    // One key, whose list value holds only its first element. The TSD is valid,
+    // so it is all_valid, and the node evaluates on the first cycle.
+    const std::vector<std::optional<Value>> input{
+        dict_delta<Str, TSL<TS<Int>, 2>>({{Str{"a"}, list_delta<TS<Int>>({{0, 1}})}}),
+    };
+    CHECK_OUTPUT(testing::eval_node<TsdAllValidProbe>(input), {Bool{true}});
 }
 
 TEST_CASE("static node: set_delta construction survives value registry resets")

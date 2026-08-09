@@ -377,7 +377,11 @@ Recorded divergences / gaps (the morning-summary list):
   applies as the initial tick). ``AUTO_RESOLVE`` materialises resolved
   typevars/SIZE; ``valid=``/``active=``/``all_valid=`` accept name sets or
   wiring-time callables. ``all_valid`` is enforced by the native input view's
-  recursive ``all_valid()`` operation, including TSL/TSB/TSD children.
+  ``all_valid()`` operation, which is a **one-level** check matching upstream:
+  a TSL/TSB asks each direct child for ``valid``, never for the child's own
+  ``all_valid``, and TSD/TSS/TS define ``all_valid`` as ``valid``. A partially
+  populated collection nested inside another therefore leaves the outer one
+  ``all_valid``-true.
   ``resolvers={...}`` binds typevars from scalars on compute, sink, graph,
   generator, component, service, adaptor, and push-queue declarations. TSS returns follow
   upstream exactly: an exact ``frozenset`` REPLACES the whole set, a

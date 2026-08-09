@@ -1,7 +1,9 @@
 Developer Guide
 ===============
 
-The developer guide describes the internal design of the C++ implementation. These pages start as outlines and should become the design record for runtime behavior, ownership, type/schema representation, and the Python compatibility boundary.
+The developer guide is the authoritative design record for the C++ implementation: runtime behaviour, ownership, type and schema representation, the operator library, and the Python compatibility boundary. A page here and the code it describes change together — a divergence between the two is a bug, not a documentation backlog item.
+
+These pages describe *how the runtime is built*. For how to write programs with it, see the :doc:`../user_guide/index`; for proposed changes to public types, runtime, or the extension surface, see the :doc:`../rfc/index`.
 
 .. toctree::
    :maxdepth: 2

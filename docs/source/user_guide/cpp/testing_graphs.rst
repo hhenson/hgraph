@@ -5,8 +5,8 @@ The C++ testing toolkit mirrors the Python ``eval_node`` model: feed a node (or
 graph) a fixed sequence of inputs, run it in simulation, and read back the
 sequence of outputs. It is built from two reusable static nodes — ``replay`` (a
 source that emits a recorded sequence) and ``record`` (a sink that captures one)
-— both layered on the :doc:`GlobalState <authoring_nodes_cpp>` injectable, plus
-the :doc:`NodeScheduler <authoring_nodes_cpp>` for multi-cycle ticking.
+— both layered on the :doc:`GlobalState <authoring_nodes>` injectable, plus
+the :doc:`NodeScheduler <authoring_nodes>` for multi-cycle ticking.
 
 Most tests use the high-level :ref:`eval_node <eval-node>` harness (below), which
 wires ``replay → node-under-test → record`` for you. This page documents that

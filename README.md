@@ -51,11 +51,21 @@ Kafka or librdkafka dependency.
 Sphinx docs live under `docs/source` (`uv sync --extra docs`, then
 `uv run sphinx-build -W -b html docs/source docs/_build/html`):
 
-- **User guide** — start at `docs/source/user_guide/quick_start.rst`, then the
-  authoring/testing guides for nodes, graphs, and the `eval_node` harness.
+- **Getting started** — `docs/source/getting_started.rst`: install the wheel and
+  run a first graph in Python.
+- **User guide** — `docs/source/user_guide/`: the concepts the runtime
+  implements, then the Python authoring track (`python/`: quick start, tutorial,
+  programming model) or the C++ one (`cpp/`: authoring nodes, graphs, and the
+  `eval_node` harness).
+- **Specification** — `docs/source/specification/`: a language-neutral
+  definition of HGraph semantics.
 - **Developer guide** — the authoritative design records
   (`docs/source/developer_guide/`): architecture, data structures,
   wiring, nested graphs, mesh, services, error handling, operators, roadmap.
+
+The narrative documentation's Python examples are executable. They are checked
+against a real runtime by `sphinx-build -b doctest`, which needs an importable
+`hgraph`; CI runs both that and the warning-free HTML build.
 
 ## Contributing / AI sessions
 

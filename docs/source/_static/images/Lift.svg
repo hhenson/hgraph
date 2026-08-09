@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xl="http://www.w3.org/1999/xlink" viewBox="218.74846 458.1758 137 78.5" width="137" height="78.5">
+  <defs>
+    <marker orient="auto" overflow="visible" markerUnits="strokeWidth" id="FilledArrow_Marker" stroke-linejoin="miter" stroke-miterlimit="10" viewBox="-1 -4 10 8" markerWidth="10" markerHeight="8" color="black">
+      <g>
+        <path d="M 8 0 L 0 -3 L 0 3 Z" fill="currentColor" stroke="currentColor" stroke-width="1"/>
+      </g>
+    </marker>
+  </defs>
+  <g id="Canvas_1" stroke="none" fill="none" fill-opacity="1" stroke-opacity="1" stroke-dasharray="none">
+    <title>Canvas 1</title>
+    <g id="Canvas_1_Layer_1">
+      <title>Layer 1</title>
+      <g id="Graphic_21">
+        <path d="M 250.74846 458.6758 L 323.74846 458.6758 C 330.37588 458.6758 335.74846 464.04836 335.74846 470.6758 L 335.74846 524.1758 C 335.74846 530.8032 330.37588 536.1758 323.74846 536.1758 L 250.74846 536.1758 C 244.12104 536.1758 238.74846 530.8032 238.74846 524.1758 L 238.74846 470.6758 C 238.74846 464.04836 244.12104 458.6758 250.74846 458.6758 Z" fill="white"/>
+        <path d="M 250.74846 458.6758 L 323.74846 458.6758 C 330.37588 458.6758 335.74846 464.04836 335.74846 470.6758 L 335.74846 524.1758 C 335.74846 530.8032 330.37588 536.1758 323.74846 536.1758 L 250.74846 536.1758 C 244.12104 536.1758 238.74846 530.8032 238.74846 524.1758 L 238.74846 470.6758 C 238.74846 464.04836 244.12104 458.6758 250.74846 458.6758 Z" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <text transform="translate(243.74846 463.6758)" fill="black">
+          <tspan font-family="Helvetica Neue" font-size="16" fill="black" x="35.06" y="15" xml:space="preserve">lift</tspan>
+        </text>
+      </g>
+      <g id="Line_20">
+        <line x1="219.24846" y1="505.6052" x2="345.34846" y2="505.6052" marker-end="url(#FilledArrow_Marker)" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+      </g>
+      <g id="Graphic_19">
+        <path d="M 269.74692 486.8552 L 303.24692 486.8552 C 309.87434 486.8552 315.24692 492.2278 315.24692 498.8552 L 315.24692 512.3552 C 315.24692 518.9826 309.87434 524.3552 303.24692 524.3552 L 269.74692 524.3552 C 263.1195 524.3552 257.74692 518.9826 257.74692 512.3552 L 257.74692 498.8552 C 257.74692 492.2278 263.1195 486.8552 269.74692 486.8552 Z" fill="white"/>
+        <path d="M 269.74692 486.8552 L 303.24692 486.8552 C 309.87434 486.8552 315.24692 492.2278 315.24692 498.8552 L 315.24692 512.3552 C 315.24692 518.9826 309.87434 524.3552 303.24692 524.3552 L 269.74692 524.3552 C 263.1195 524.3552 257.74692 518.9826 257.74692 512.3552 L 257.74692 498.8552 C 257.74692 492.2278 263.1195 486.8552 269.74692 486.8552 Z" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="1"/>
+        <text transform="translate(262.74692 496.3812)" fill="black">
+          <tspan font-family="Helvetica Neue" font-size="16" fill="black" x="16.934" y="15" xml:space="preserve">fn</tspan>
+        </text>
+      </g>
+    </g>
+  </g>
+</svg>

@@ -492,6 +492,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 return storage(memory).tracking().last_modified_time != MIN_DT;
             }
 
+            // One-level check: ask each direct child for ``valid``, not for its
+            // own ``all_valid``. See fixed_all_valid for the contract.
             [[nodiscard]] static bool dynamic_all_valid(const void *context, const void *memory)
             {
                 if (!dynamic_has_current_value(context, memory)) { return false; }
@@ -501,7 +503,10 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto &ops   = child_ops(state->element_type);
                 for (std::size_t index = 0; index < store.size(); ++index)
                 {
-                    if (!ops.all_valid_impl(ops.context, store.child_memory(index))) { return false; }
+                    if (!ops.has_current_value_impl(ops.context, store.child_memory(index)))
+                    {
+                        return false;
+                    }
                 }
                 return true;
             }
