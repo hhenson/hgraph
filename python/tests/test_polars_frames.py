@@ -8,8 +8,11 @@ Inbound polars is accepted regardless of the switch (anything exposing
 runtime substrate; the switch is a Python-boundary veneer only.
 """
 
+import os
+import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import pyarrow as pa
 import pytest
@@ -29,25 +32,32 @@ class PriceRow(CompoundScalar):
 
 @pytest.fixture
 def polars_frames():
+    previous = _hgraph.polars_frames()
     _hgraph.set_polars_frames(True)
     try:
         yield
     finally:
-        _hgraph.set_polars_frames(False)
+        _hgraph.set_polars_frames(previous)
 
 
 def _price_table():
     return pa.table({"instrument": ["A", "B"], "value": [101.5, 7.25]})
 
 
-def test_switch_defaults_off_and_frames_stay_pyarrow():
-    assert _hgraph.polars_frames() is False
-    result = eval_node(
-        pass_through,
-        [_price_table()],
-        resolution_dict={"tsd": TS[Frame[PriceRow]]},
-    )[0]
-    assert isinstance(result, pa.Table)
+def test_repository_config_enables_polars_compatibility():
+    environment = os.environ.copy()
+    environment.pop("HGRAPH_POLARS_FRAMES", None)
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import _hgraph; import hgraph; assert _hgraph.polars_frames() is True",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        env=environment,
+        check=True,
+        timeout=30,
+    )
 
 
 def test_frames_surface_as_polars_dataframes(polars_frames):

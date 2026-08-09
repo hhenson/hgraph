@@ -1,4 +1,4 @@
-"""Validate release tags against package and native SDK version invariants."""
+"""Validate shared release tags against package and native API invariants."""
 
 from __future__ import annotations
 
@@ -46,13 +46,6 @@ def parse_release_tag(tag: str) -> Release:
     )
 
 
-def native_project_version(cmake_path: Path) -> tuple[int, int, int]:
-    match = _CMAKE_PROJECT_VERSION.search(cmake_path.read_text())
-    if match is None:
-        raise ValueError(f"could not read hgraph project version from {cmake_path}")
-    return tuple(map(int, match.groups()))
-
-
 def pypi_release_exists(package: str, version: str) -> bool:
     try:
         with urlopen(
@@ -63,6 +56,13 @@ def pypi_release_exists(package: str, version: str) -> bool:
         if error.code == 404:
             return False
         raise
+
+
+def native_project_version(cmake_path: Path) -> tuple[int, int, int]:
+    match = _CMAKE_PROJECT_VERSION.search(cmake_path.read_text())
+    if match is None:
+        raise ValueError(f"could not read hgraph project version from {cmake_path}")
+    return tuple(map(int, match.groups()))
 
 
 def validate_release(
@@ -83,11 +83,10 @@ def validate_release(
         ("hgraph-kafka", kafka_cmake_path),
     ):
         native_version = native_project_version(path)
-        if release.core != native_version:
+        if release.core < native_version:
             raise ValueError(
-                f"{package} tag {release.version} has native version core "
-                f"{release.core}, but {path} declares {native_version}; "
-                "bump project(VERSION) before building reusable release artifacts"
+                f"{package} tag {release.version} predates native API version "
+                f"{native_version} declared by {path}"
             )
     for package in release.packages:
         if release_exists(package, release.version):

@@ -693,9 +693,11 @@ The following are intentional unless separately re-opened:
   feature flag ``polars_frames`` / ``HGRAPH_POLARS_FRAMES``) flips the
   OUTBOUND boundary only: ``Frame``/``Series`` values surface as
   ``polars.DataFrame``/``polars.Series`` (``pl.from_arrow``, zero-copy) to
-  reduce migration cost for polars-era user code.  Default off; polars stays
-  a lazy optional dependency (a clear error if the switch is on without it);
-  the runtime substrate and record/replay artifacts remain Arrow either way.
+  reduce migration cost for polars-era user code.  The feature mechanism
+  defaults off, while this repository's ``hgraph_features.yaml`` enables it
+  for source-tree use during the migration period. Polars stays a lazy optional
+  dependency (a clear error if the switch is on without it); the runtime
+  substrate and record/replay artifacts remain Arrow either way.
   The same boundary presents **naive UTC timestamps** (upstream parity — the
   Python convention is tz-free datetimes throughout): version-2 Instant
   columns (``timestamp[us, UTC]``) strip their timezone on the way out and
