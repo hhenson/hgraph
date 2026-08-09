@@ -103,15 +103,17 @@ an example:
         sz = len_(raw_signal)
         keys = sort(raw_signal)
         values = range_(-1.0, step=2.0/sz)
-        return combine[TSD[str, TS[float]](keys, values)
+        return combine[TSD[str, TS[float]]](keys, values)
 
 We can now review how hard this would be to implement. We know for example that ``len_``
 exists in the standard library, but ``sort`` and ``range_`` may not, and ``combine``
 probably exists, will need to test.
 
 There is an option to write this as a node, always think carefully about this as nodes
-require more testing and debugging. Additionally, these will not benefit from performance improvements
-made when the runtime is converted to C++ / Rust.
+require more testing and debugging. There is also a runtime cost: the graph form evaluates
+natively in the C++ runtime, whereas a Python-authored node pays a Python call — and the
+boxing of its inputs and result — on every tick. Reach for a node when the logic genuinely
+cannot be expressed as a graph, not as the default.
 
 That said, let's consider implementing this as a compute node to further this example. The code can
 then be converted as follows:
@@ -167,7 +169,11 @@ normal as well as boundary conditions.
 
 In this case if we correct the node as follows we get a correct result:
 
-::
+.. testcode::
+
+    from hgraph import compute_node, TSD, TS
+    from hgraph.test import eval_node
+    from frozendict import frozendict as fd
 
     @compute_node
     def rank(raw_signal: TSD[str, TS[float]]) -> TSD[str, TS[float]]:
@@ -175,8 +181,10 @@ In this case if we correct the node as follows we get a correct result:
         Takes a raw_signal that needs to be evenly normalised over the range [-1.0,1.0].
         """
         sz = len(raw_signal)
-        keys = (k for _, k in sorted((v, k) for k, v in raw_signal.value))
+        keys = (k for _, k in sorted((v, k) for k, v in raw_signal.value.items()))
         return {k: (-1.0 + i*2.0/(sz-1.0)) for k, i in zip(keys, range(sz))}
+
+    assert eval_node(rank, [fd(a=0.1, b=0.3, c=-3.0)]) == [fd(c=-1.0, a=0.0, b=1.0)]
 
 
 NOTE the adjustment of the divisor ``(sz-1.0)`` to get the correct offset alignment.

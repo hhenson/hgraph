@@ -11,9 +11,20 @@ To install:
 
     pip install hgraph
 
-The runtime underneath is C++; the ``hgraph`` package is the Python authoring surface over it. Adaptors
-for web serving, SQL, Delta, Kafka and the rest are behind packaging extras — ``pip install "hgraph[web]"``
-and friends — so a plain install stays small.
+The runtime underneath is C++; the ``hgraph`` package is the Python authoring surface over it. Most
+adaptors are behind packaging extras — ``web``, ``sql``, ``snowflake``, ``delta``, ``perspective``,
+``dataframe`` — so a plain install stays small:
+
+.. code-block:: bash
+
+    pip install "hgraph[web]"
+
+Kafka is not an extra. It is a separate distribution built against the hgraph SDK, so install it
+alongside:
+
+.. code-block:: bash
+
+    pip install hgraph-kafka
 
 If you would rather author graphs natively, with no Python involved at all, start at
 :doc:`user_guide/cpp/quick_start` instead.

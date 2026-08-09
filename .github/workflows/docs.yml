@@ -16,9 +16,10 @@ concurrency:
 
 jobs:
   html:
-    # Mirrors what Read the Docs does: install only docs/requirements.txt and
-    # build. No compiler, no wheel. If this job needs hgraph importable, the
-    # docs have grown a dependency RTD cannot satisfy.
+    # Mirrors what Read the Docs does: install the docs extra from uv.lock with
+    # no source builds, then build. No compiler, no hgraph import. If this job
+    # needs hgraph importable, the docs have grown a dependency RTD cannot
+    # satisfy.
     name: HTML (warnings are errors)
     runs-on: ubuntu-24.04
     steps:
@@ -28,13 +29,20 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+      - name: Install uv
+        run: >-
+          python -m pip install --upgrade --only-binary=:all: "uv==0.12.3"
+      # Pinned by uv.lock; --no-build forbids building any source distribution,
+      # so no dependency setup script runs.
       - name: Install documentation dependencies
-        run: python -m pip install --upgrade -r docs/requirements.txt
+        run: >-
+          uv sync --frozen --extra docs --no-install-workspace --no-build
+          --python 3.12
       - name: Build HTML
-        run: python -m sphinx -W --keep-going -b html docs/source docs/_build/html
+        run: .venv/bin/python -m sphinx -W --keep-going -b html docs/source docs/_build/html
       - name: Check external and internal links
         continue-on-error: true
-        run: python -m sphinx -b linkcheck docs/source docs/_build/linkcheck
+        run: .venv/bin/python -m sphinx -b linkcheck docs/source docs/_build/linkcheck
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -66,12 +74,16 @@ jobs:
       - name: Install uv
         run: >-
           python -m pip install --upgrade --only-binary=:all: "uv==0.12.3"
-      # `--extra test` is needed alongside `docs`: two tutorial examples use
-      # pytest.raises to show the wiring error they are teaching.
-      - name: Build and install hgraph plus the docs dependencies
+      # This job cannot use --no-build: hgraph is a C++ extension and compiling
+      # it from this checkout is the whole point of the job. Everything else is
+      # pinned by uv.lock and --no-binary-package is not needed because the
+      # third-party wheels are prebuilt. `--extra test` is needed alongside
+      # `docs`: two tutorial examples use pytest.raises to show the wiring error
+      # they are teaching.
+      - name: Build hgraph and install the docs dependencies
         run: uv sync --frozen --extra docs --extra test --python 3.12
       - name: Run doctests
-        run: uv run --no-sync python -m sphinx -W --keep-going -b doctest docs/source docs/_build/doctest
+        run: .venv/bin/python -m sphinx -W --keep-going -b doctest docs/source docs/_build/doctest
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:
