@@ -382,6 +382,19 @@ Recorded divergences / gaps (the morning-summary list):
   ``all_valid``, and TSD/TSS/TS define ``all_valid`` as ``valid``. A partially
   populated collection nested inside another therefore leaves the outer one
   ``all_valid``-true.
+  ``node[TYPE_VAR: type]`` pre-resolution seeds the call's ``ResolutionScope``
+  by name. An **unnamed** item — ``node[TS[int]]`` — binds the signature's sole
+  unbound type variable, or the one marked ``DEFAULT[...]``; several unnamed
+  items bind unbound type variables in order of first appearance across the
+  parameters and then the return annotation. Named entries are never filled by
+  position, so the two forms compose. An item that cannot be placed raises
+  ``WiringError`` naming the candidates rather than being dropped. The ordering
+  is read off the lowered pattern (``TypePattern.variables`` /
+  ``ScalarPattern.variables``, a build-time walk in ``type_pattern.h``) so it
+  cannot drift from what the overload matcher unifies against.
+  ``DEFAULT[X]`` is stripped by the signature scan, so annotations and defaults
+  are restored to bare ``X`` before any pattern is lowered; the bare ``DEFAULT``
+  class remains ``switch_``'s default-branch key.
   ``resolvers={...}`` binds typevars from scalars on compute, sink, graph,
   generator, component, service, adaptor, and push-queue declarations. TSS returns follow
   upstream exactly: an exact ``frozenset`` REPLACES the whole set, a

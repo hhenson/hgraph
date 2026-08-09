@@ -2762,13 +2762,72 @@ def compound_scalar(**kwargs):
     return dataclasses.dataclass(frozen=True)(cls)
 
 
+class _DefaultTypeArg:
+    """``DEFAULT[X]`` - X, tagged as this signature's default type argument.
+
+    An unnamed pre-resolution item (``my_node[TS[int]]``) binds this type
+    variable. The marker is unwrapped by the signature scan of whatever
+    consumes it, so nothing downstream ever sees it: annotations and defaults
+    are restored to the bare ``X`` before any pattern is lowered.
+    """
+
+    __slots__ = ("type_var",)
+
+    def __init__(self, type_var):
+        self.type_var = type_var
+
+    def __repr__(self):
+        return f"DEFAULT[{self.type_var!r}]"
+
+
 class _DefaultMeta(type):
     def __getitem__(cls, item):
-        return item   # DEFAULT[OUT] documents the defaulted output
+        return _DefaultTypeArg(item)
 
 
 class DEFAULT(metaclass=_DefaultMeta):
-    """hgraph's DEFAULT[...] output marker (documentary here)."""
+    """hgraph's DEFAULT marker.
+
+    ``DEFAULT[X]`` marks X as the signature's default type argument, so an
+    unnamed ``[]`` pre-resolution binds it. The bare class doubles as the
+    default-branch key for ``switch_``, matching upstream.
+    """
+
+
+def default_type_var_of(signature):
+    """Return ``(cleaned_signature, default_type_var_name)``.
+
+    Strips every ``DEFAULT[X]`` marker out of ``signature`` - whether it
+    appears as a parameter annotation, a parameter default, or the return
+    annotation - and reports the name of the type variable it marked.
+    """
+    import inspect as _inspect
+
+    name = None
+
+    def unwrap(value):
+        nonlocal name
+        if isinstance(value, _DefaultTypeArg):
+            marked = value.type_var
+            resolved = _type_var_name(marked)
+            if name is not None and name != resolved:
+                raise TypeError(
+                    f"DEFAULT is declared twice, on {name} and on {resolved}; "
+                    "a signature has at most one default type argument")
+            name = resolved
+            return marked
+        return value
+
+    parameters = [
+        parameter.replace(annotation=unwrap(parameter.annotation),
+                          default=unwrap(parameter.default))
+        for parameter in signature.parameters.values()
+    ]
+    return_annotation = unwrap(signature.return_annotation)
+    if name is None:
+        return signature, None
+    return (signature.replace(parameters=parameters,
+                              return_annotation=return_annotation), name)
 
 
 class _KeyValueMeta(type):

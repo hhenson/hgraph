@@ -109,24 +109,43 @@ type must be user specified or use the user-defined function approach to type re
 
     @graph
     def g(lhs: TS[float], rhs: TS[int]) -> TS[float]:
-        return my_add[OUT: TS[float]](lhs, rhs)
+        return my_add[TS[float]](lhs, rhs)
 
     assert eval_node(g, [1.0, 2.0, 3.0], [4, 5, 6]) == [5.0, 7.0, 9.0]
 
 In this example we are required to explicitly resolve the type-var ``OUT`` as there is no way for the framework to
-resolve this. The resolution names the type-var it binds — ``[OUT: TS[float]]`` — which is the same
-``[TYPE_VAR: type]`` form used for input type-vars.
+resolve this. ``OUT`` is the only type-var in the signature, so the unnamed form above is unambiguous.
 
-.. note:: The shorter unnamed form, ``my_add[TS[float]]``, is the intended
-          spelling when the signature has a single type-var or a
-          ``DEFAULT``-marked one. It is not wired up on this release; see
-          `issue #402 <https://github.com/hhenson/hgraph/issues/402>`_. Use the
-          named form until it is.
+When a signature has more than one type-var, say which one you mean — the ``[TYPE_VAR: type]`` form used for input
+type-vars works on the output too::
+
+    my_add[OUT: TS[float]](lhs, rhs)
+
+Alternatively, mark the type-var that an unnamed resolution should bind with ``DEFAULT``, and the short form keeps
+working:
+
+.. testcode::
+
+    from hgraph import compute_node, graph, TS, SCALAR, OUT, DEFAULT
+    from hgraph.test import eval_node
+
+    @compute_node
+    def repeat(ts: TS[SCALAR], count: int) -> DEFAULT[OUT]:
+        return str(ts.value) * count
+
+    @graph
+    def g(ts: TS[int]) -> TS[str]:
+        return repeat[TS[str]](ts, 2)
+
+    assert eval_node(g, [7]) == ["77"]
+
+Several unnamed resolutions bind type-vars in the order they first appear, reading the parameters and then the
+return annotation. For a ``TSD[K, TS[V]]`` input, ``[str, int]`` therefore means ``K=str, V=int``.
 
 Exercise
 ........
 
-Remove the ``[OUT: TS[float]]`` from ``my_add`` and see the error that results.
+Remove the ``[TS[float]]`` from ``my_add`` and see the error that results.
 
 Resolvers
 ---------
