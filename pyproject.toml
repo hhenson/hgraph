@@ -42,6 +42,7 @@ dependencies = [
     "frozendict>=2.4",
     "numpy>=2.0",
     "pyarrow>=25,<26",
+    "polars>=1.32",
     "pyyaml>=6",
 ]
 
