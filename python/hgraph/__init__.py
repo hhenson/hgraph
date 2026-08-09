@@ -123,7 +123,7 @@ def __dir__():
 
 __all__ = [
     "TS", "TSS", "TSD", "TSL", "TSB", "Size", "TimeSeriesSchema", "CONTEXT", "REQUIRED", "WiringError", "TimeSeries",
-    "NUMBER", "NUMBER_2",
+    "NUMBER", "NUMBER_2", "DEFAULT",
     "WiringPort", "CmpResult", "DivideByZero", "NodeError", "exception_time_series", "try_except", "lift", "lower",
     "TryExceptResult", "TryExceptTsdMapResult", "OperatorWiringNodeClass", "graph", "run_graph", "eval_node", "wire", "map_", "reduce", "mesh_", "MeshWiringPort", "get_mesh", "REMOVE", "REMOVE_IF_EXISTS", "feedback", "delayed_binding", "switch_", "passive", "compute_node", "sink_node", "generator", "STATE", "SCHEDULER", "CLOCK", "EvaluationEngineApi", "NODE", "Node", "component", "record_replay_scope", "RecordReplayEnum", "comparison_summary", "push_queue", "EvaluationMode", "context",
     "MIN_ST", "MIN_TD", "MIN_DT", "MAX_DT", "MAX_ET", "IN_MEMORY", "IN_MEMORY_DENSE", "DATA_FRAME",

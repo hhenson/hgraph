@@ -8,7 +8,8 @@ from functools import partial
 
 import _hgraph
 
-from .._types import (_ContextExpr, _GenericTsExpr, _Required, _TsExpr,
+from .._types import (default_type_var_of as _default_type_var_of,
+                      _ContextExpr, _GenericTsExpr, _Required, _TsExpr,
                       _TypeVarSentinel, _evaluated_annotations,
                       _type_var_is_scalar, _type_var_name)
 from ._core import (IncorrectTypeBinding, RequirementsNotMetWiringError,
@@ -29,6 +30,30 @@ def _warn_deprecated(name, deprecated):
         return
     message = deprecated if isinstance(deprecated, str) else f"'{name}' is deprecated"
     warnings.warn(message, DeprecationWarning, stacklevel=3)
+
+
+def _annotation_type_vars(annotation):
+    """The type-variable names in one parameter or return annotation, in order.
+
+    Read off the lowered C++ pattern, so the answer comes from the same
+    structure the matcher unifies against. Annotations that lower to no pattern
+    at all - a plain ``int`` scalar, an injectable marker - contribute nothing.
+    """
+    from .._types import _pattern_of, _scalar_pattern, _type_var_name
+
+    if typing.get_origin(annotation) is type:
+        # `to: Type[SCALAR_1]` - a scalar parameter naming a type variable.
+        args = typing.get_args(annotation)
+        if args and isinstance(args[0], (_TypeVarSentinel, typing.TypeVar)):
+            return (_type_var_name(args[0]),)
+        return ()
+    for lower in (_pattern_of, _scalar_pattern):
+        try:
+            pattern = lower(annotation)
+        except Exception:
+            continue
+        return tuple(getattr(pattern, "variables", ()) or ())
+    return ()
 
 
 def _is_time_series_annotation(annotation):
@@ -65,7 +90,8 @@ class _PyNode:
 
     def __init__(self, fn, has_output, active=None, valid=None, all_valid=None,
                  resolvers=None, node_type=None, label=None, deprecated=False):
-        self._wiring_signature = inspect.signature(fn, eval_str=True)
+        self._wiring_signature, self._default_type_var = _default_type_var_of(
+            inspect.signature(fn, eval_str=True))
         var_params = [p for p in self._wiring_signature.parameters.values()
                       if p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)]
         if var_params:
@@ -250,10 +276,70 @@ class _PyNode:
         pinned._pins = dict(self._pins)
         pinned._wired_fn_cache = {}
         items = item if isinstance(item, tuple) else (item,)
+        unnamed = []
+        named = set()
         for entry in items:
             if isinstance(entry, slice) and isinstance(entry.start, _TypeVarSentinel):
-                pinned._pins[_type_var_name(entry.start)] = entry.stop
+                name = _type_var_name(entry.start)
+                pinned._pins[name] = entry.stop
+                named.add(name)
+            else:
+                unnamed.append(entry)
+        # Unnamed items fill the type variables the caller did NOT name, so the
+        # two forms compose: my_node[str, V: int] names V and positions str.
+        for name, entry in zip(self._unnamed_targets(unnamed, named), unnamed):
+            pinned._pins[name] = entry
         return pinned
+
+    def _ordered_type_vars(self):
+        """This signature's type-variable names, in order of first appearance.
+
+        Derived from the lowered patterns rather than from a second python-side
+        notion of what a type variable is, so it cannot drift from what the
+        matcher actually unifies against. Cached: signatures are immutable once
+        the node is decorated.
+        """
+        cached = getattr(self, "_type_var_cache", None)
+        if cached is not None:
+            return cached
+        ordered = []
+        annotations = [param.annotation for param in self._params]
+        if self.has_output:
+            annotations.append(self._out_tp)
+        for annotation in annotations:
+            for name in _annotation_type_vars(annotation):
+                if name not in ordered:
+                    ordered.append(name)
+        ordered = tuple(ordered)
+        self._type_var_cache = ordered
+        return ordered
+
+    def _unnamed_targets(self, entries, named):
+        """Type-variable names for the unnamed pre-resolution ``entries``.
+
+        A single item binds the signature's sole remaining type variable, or
+        the one marked ``DEFAULT[...]``. Several items bind remaining type
+        variables in order of first appearance across the parameters and then
+        the return annotation. ``named`` are the variables the caller already
+        bound explicitly, and are never filled by position.
+        """
+        if not entries:
+            return ()
+        remaining = tuple(name for name in self._ordered_type_vars()
+                          if name not in named)
+        if len(entries) == 1:
+            if len(remaining) == 1:
+                return remaining
+            if self._default_type_var is not None and self._default_type_var not in named:
+                return (self._default_type_var,)
+        elif len(entries) <= len(remaining):
+            return remaining[:len(entries)]
+        rendered = ", ".join(remaining) if remaining else "none"
+        raise WiringError(
+            f"{self.__name__}: can not figure out which type parameter to assign "
+            f"{entries[0]!r} to (unbound type variables in this signature: {rendered}). "
+            f"Name it explicitly, as in {self.__name__}[TYPE_VAR: {entries[0]!r}], "
+            f"or mark one with DEFAULT[...].")
 
     def _with_resolution(self, bindings):
         """Return a call-local node seeded from operator dispatch.
@@ -1104,7 +1190,8 @@ class _PushQueue:
         self.tp = tp
         self.conflate = conflate
         self.__name__ = fn.__name__
-        signature = inspect.signature(fn, eval_str=True)
+        signature, self._default_type_var = _default_type_var_of(
+            inspect.signature(fn, eval_str=True))
         parameters = list(signature.parameters.values())
         if not parameters:
             raise TypeError(f"@push_queue '{self.__name__}' requires a sender parameter")

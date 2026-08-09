@@ -619,17 +619,34 @@ namespace hgraph::python_bridge
             return self.meta != nullptr && !self.meta->name().empty() ? std::string{self.meta->name()}
                                                                       : std::string{"<ts?>"};
         });
+    // ``variables`` reports the type-variable names in a pattern, in order of
+    // first appearance. The wiring layer uses it to map an unnamed
+    // pre-resolution item (``my_node[TS[int]]``) onto a type variable, so that
+    // the mapping is derived from the same structure the matcher unifies
+    // against rather than from a second, drift-prone python-side notion of what
+    // a type variable is. Build-time only.
     nb::class_<PyScalarPattern>(m, "ScalarPattern")
         .def("__repr__", [](const PyScalarPattern &self) {
             return scalar_pattern_to_string(self.pattern);
+        })
+        .def_prop_ro("variables", [](const PyScalarPattern &self) {
+            return pattern_variables(self.pattern);
         });
     nb::class_<PySizePattern>(m, "SizePattern")
         .def("__repr__", [](const PySizePattern &self) {
             return self.variable ? "~" + self.name : std::to_string(self.value);
+        })
+        .def_prop_ro("variables", [](const PySizePattern &self) {
+            return self.variable && !self.name.empty()
+                       ? std::vector<std::string>{self.name}
+                       : std::vector<std::string>{};
         });
     nb::class_<PyTypePattern>(m, "TypePattern")
         .def("__repr__", [](const PyTypePattern &self) {
             return ts_pattern_to_string(self.pattern);
+        })
+        .def_prop_ro("variables", [](const PyTypePattern &self) {
+            return pattern_variables(self.pattern);
         })
         .def_prop_ro("ts_kind", [](const PyTypePattern &self) -> int {
             // The TS KIND the pattern describes (structural introspection -
