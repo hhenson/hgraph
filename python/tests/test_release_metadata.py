@@ -22,9 +22,22 @@ def _cmake_projects(
     return core_path, kafka_path
 
 
-def test_shared_release_requires_matching_core_native_version(tmp_path: Path):
+def test_shared_release_can_advance_without_bumping_native_api_version(tmp_path: Path):
     core_path, kafka_path = _cmake_projects(tmp_path)
-    with pytest.raises(ValueError, match="bump project\\(VERSION\\)"):
+    release = validate_release(
+        "0.8.1",
+        cmake_path=core_path,
+        kafka_cmake_path=kafka_path,
+        release_exists=lambda _package, _version: False,
+    )
+
+    assert release.version == "0.8.1"
+
+
+def test_shared_release_cannot_predate_native_api_version(tmp_path: Path):
+    core_path, kafka_path = _cmake_projects(tmp_path, kafka_version="0.8.2")
+
+    with pytest.raises(ValueError, match="hgraph-kafka.*predates native API version"):
         validate_release(
             "0.8.1",
             cmake_path=core_path,
@@ -33,23 +46,9 @@ def test_shared_release_requires_matching_core_native_version(tmp_path: Path):
         )
 
 
-def test_shared_release_requires_matching_kafka_native_version(tmp_path: Path):
-    core_path, kafka_path = _cmake_projects(tmp_path, kafka_version="0.8.1")
-    with pytest.raises(ValueError, match="hgraph-kafka.*bump project\\(VERSION\\)"):
-        validate_release(
-            "0.8.0",
-            cmake_path=core_path,
-            kafka_cmake_path=kafka_path,
-            release_exists=lambda _package, _version: False,
-        )
-
-
-def test_shared_prerelease_uses_matching_numeric_native_core(tmp_path: Path):
-    core_path, kafka_path = _cmake_projects(tmp_path)
+def test_shared_prerelease_uses_numeric_release_core():
     release = validate_release(
         "0.8.0rc1",
-        cmake_path=core_path,
-        kafka_cmake_path=kafka_path,
         release_exists=lambda _package, _version: False,
     )
 
@@ -58,14 +57,11 @@ def test_shared_prerelease_uses_matching_numeric_native_core(tmp_path: Path):
     assert release.core == (0, 8, 0)
 
 
-def test_shared_release_checks_both_pypi_packages(tmp_path: Path):
-    core_path, kafka_path = _cmake_projects(tmp_path)
+def test_shared_release_checks_both_pypi_packages():
     checked: list[tuple[str, str]] = []
 
     validate_release(
         "0.8.0",
-        cmake_path=core_path,
-        kafka_cmake_path=kafka_path,
         release_exists=lambda package, version: checked.append((package, version))
         or False,
     )
@@ -73,13 +69,10 @@ def test_shared_release_checks_both_pypi_packages(tmp_path: Path):
     assert checked == [("hgraph", "0.8.0"), ("hgraph-kafka", "0.8.0")]
 
 
-def test_release_rejects_existing_pypi_version(tmp_path: Path):
-    core_path, kafka_path = _cmake_projects(tmp_path)
+def test_release_rejects_existing_pypi_version():
     with pytest.raises(ValueError, match="hgraph-kafka 0.8.0 already exists on PyPI"):
         validate_release(
             "0.8.0",
-            cmake_path=core_path,
-            kafka_cmake_path=kafka_path,
             release_exists=lambda package, _version: package == "hgraph-kafka",
         )
 
@@ -88,16 +81,11 @@ def test_release_rejects_existing_pypi_version(tmp_path: Path):
     "tag",
     ["0.7.9", "v_0.8.0", "hgraph-kafka-v_0.8.0", "0.8", "not-a-tag"],
 )
-def test_invalid_or_pre_port_core_tags_are_rejected(tmp_path: Path, tag: str):
+def test_invalid_or_pre_port_core_tags_are_rejected(tag: str):
     if tag == "0.7.9":
-        core_path, kafka_path = _cmake_projects(
-            tmp_path, core_version="0.7.9", kafka_version="0.7.9"
-        )
         with pytest.raises(ValueError, match="starts at 0.8.0"):
             validate_release(
                 tag,
-                cmake_path=core_path,
-                kafka_cmake_path=kafka_path,
                 release_exists=lambda _package, _version: False,
             )
     else:

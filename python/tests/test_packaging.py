@@ -130,6 +130,17 @@ def test_wheel_targets_the_python_312_stable_abi():
     assert scikit_build["wheel"]["py-api"] == STABLE_ABI_TAG
 
 
+def test_repository_enables_polars_compatibility_without_a_cpp_switch():
+    feature_config = (ROOT / "hgraph_features.yaml").read_text().splitlines()
+    runtime_dependencies = load_project()["project"]["dependencies"]
+
+    assert feature_config == ["features:", "  polars_frames: true"]
+    assert "pyyaml" in {
+        canonicalize_name(Requirement(requirement).name)
+        for requirement in runtime_dependencies
+    }
+
+
 def test_wheel_uses_shared_runtime_for_downstream_native_extensions():
     cmake_defines = load_project()["tool"]["scikit-build"]["cmake"]["define"]
 
@@ -337,6 +348,7 @@ def main():
     test_pypi_classifiers_are_valid()
     test_release_metadata_uses_untagged_sentinel()
     test_wheel_targets_the_python_312_stable_abi()
+    test_repository_enables_polars_compatibility_without_a_cpp_switch()
     test_wheel_uses_shared_runtime_for_downstream_native_extensions()
     test_source_distribution_excludes_private_release_evidence()
     test_full_suite_dependencies_include_the_dataframe_runtime()
@@ -354,6 +366,7 @@ def main():
     print("PASS test_pypi_classifiers_are_valid")
     print("PASS test_release_metadata_uses_untagged_sentinel")
     print("PASS test_wheel_targets_the_python_312_stable_abi")
+    print("PASS test_repository_enables_polars_compatibility_without_a_cpp_switch")
     print("PASS test_wheel_uses_shared_runtime_for_downstream_native_extensions")
     print("PASS test_source_distribution_excludes_private_release_evidence")
     print("PASS test_full_suite_dependencies_include_the_dataframe_runtime")

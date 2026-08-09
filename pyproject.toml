@@ -42,6 +42,7 @@ dependencies = [
     "frozendict>=2.4",
     "numpy>=2.0",
     "pyarrow>=25,<26",
+    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]

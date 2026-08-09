@@ -442,6 +442,7 @@ dependencies = [
     { name = "frozendict" },
     { name = "numpy" },
     { name = "pyarrow" },
+    { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
@@ -549,6 +550,7 @@ requires-dist = [
     { name = "pyarrow", specifier = ">=25,<26" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
+    { name = "pyyaml", specifier = ">=6" },
     { name = "scikit-build-core", marker = "extra == 'dev'", specifier = ">=0.12" },
     { name = "sphinx", marker = "extra == 'dev'", specifier = ">=7.4" },
     { name = "sphinx", marker = "extra == 'docs'", specifier = ">=7.4" },

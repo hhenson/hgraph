@@ -65,11 +65,13 @@ CPython 3.12, 3.13, and 3.14. A bare tag matching ``x.x.x`` publishes the tested
 core and Kafka wheels and source distributions through PyPI trusted publishing.
 The tag is the shared release version authority: the publish jobs restamp the
 metadata of artifacts already tested for that exact commit, rather than
-rebuilding them. The tag's numeric version core must match both CMake
-``project(VERSION)`` declarations. This guarantees that reused wheels contain
-matching generated ``version.h``, CMake package versions, and native API version
-values. A prerelease suffix belongs to the Python distribution metadata; the
-native SDKs continue to expose their numeric API version core.
+rebuilding them. The CMake ``project(VERSION)`` declarations identify the native
+API line and are intentionally independent of the shared Python distribution
+version. Reused wheels therefore retain the native API version they were built
+and tested with; a patch release tag does not require a source commit that only
+bumps CMake metadata. The release's numeric core may not predate either native
+API version. A prerelease suffix likewise belongs only to the Python distribution
+metadata.
 ``pyproject.toml`` therefore uses ``0.0.0`` as an explicit untagged-artifact
 sentinel; it is never the version published to PyPI.  CMake's numeric
 ``project(VERSION)`` and ``docs/source/conf.py`` track the current C++ API line
@@ -167,8 +169,8 @@ Each extension owns its nested ``pyproject.toml``, CMake package configuration,
 and tests. Cross-cutting changes are tested against core at the same commit,
 while the resulting wheels remain separate distribution artifacts. During the
 current release line, core and Kafka are co-versioned and co-released: a bare
-``<version>`` tag such as ``0.8.1`` validates both native project versions,
-restamps both distributions, and publishes both packages. Independent
+``<version>`` tag such as ``0.8.1`` validates that the version is new for both
+packages, restamps both distributions, and publishes both packages. Independent
 extension tags are intentionally not part of this release workflow.
 
 The Kafka PEP 517 build requirements include ``hgraph>=0.8.0`` because its standalone
