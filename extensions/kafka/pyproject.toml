@@ -9,7 +9,8 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "hgraph-kafka"
-version = "0.1.0"
+# Release artifacts are restamped from the shared x.x.x tag by release-wheels.yml.
+version = "0.0.0"
 description = "C++-first Kafka services for hgraph"
 readme = "README.md"
 license = {text = "MIT"}

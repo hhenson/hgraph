@@ -79,19 +79,36 @@ def test_windows_wheel_statically_links_non_system_dependencies():
     ) == {"hgraph_stdlib.dll", "libcrypto-3-x64.dll"}
 
 
-def test_cmake_and_python_distribution_versions_match():
+def test_kafka_uses_the_shared_release_version_contract():
     project_version = _load(EXTENSION_ROOT / "pyproject.toml")["project"]["version"]
-    cmake = (EXTENSION_ROOT / "CMakeLists.txt").read_text()
-    match = re.search(r"project\(hgraph_kafka VERSION ([^ ]+)", cmake)
+    kafka_cmake = (EXTENSION_ROOT / "CMakeLists.txt").read_text()
+    kafka_match = re.search(r"project\(hgraph_kafka VERSION ([^ ]+)", kafka_cmake)
+    core_cmake = (REPOSITORY_ROOT / "CMakeLists.txt").read_text()
+    core_match = re.search(
+        r"project\(\s*hgraph\s+VERSION\s+(\d+\.\d+\.\d+)", core_cmake
+    )
 
-    assert match is not None
-    assert match.group(1) == project_version
+    assert project_version == "0.0.0"
+    assert kafka_match is not None
+    assert core_match is not None
+    assert kafka_match.group(1) == core_match.group(1)
 
 
 def test_ci_builds_and_tests_separate_kafka_artifacts():
-    workflow = (
+    release_workflow = (
         REPOSITORY_ROOT / ".github/workflows/release-wheels.yml"
     ).read_text()
+    workflow = "\n".join(
+        (
+            release_workflow,
+            (
+                REPOSITORY_ROOT / ".github/workflows/release-platform-wheel.yml"
+            ).read_text(),
+            (
+                REPOSITORY_ROOT / ".github/workflows/test-platform-wheel.yml"
+            ).read_text(),
+        )
+    )
 
     for artifact in (
         "kafka-distribution-sdist",
@@ -102,9 +119,12 @@ def test_ci_builds_and_tests_separate_kafka_artifacts():
         assert artifact in workflow
     assert "python -m pytest extensions/kafka/python/tests -q" in workflow
     assert "-DHGRAPH_BUILD_KAFKA_EXTENSION=ON" in workflow
-    assert '"hgraph-kafka-v_*.*.*"' in workflow
+    assert '      - "*.*.*"' in release_workflow
+    assert "hgraph-kafka-v_" not in release_workflow
     assert "pattern: kafka-distribution-*" in workflow
-    assert "python tools/restamp_distribution.py dist" in workflow
+    assert release_workflow.count(
+        'python tools/restamp_distribution.py dist "$RELEASE_TAG"'
+    ) == 2
     assert "--wheel --no-isolation" in workflow
     assert "--sdist --no-isolation" in workflow
     assert "--skip-dependency-check" in workflow

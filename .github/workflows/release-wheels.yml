@@ -5,8 +5,7 @@ on:
     branches:
       - main
     tags:
-      - "v_*.*.*"
-      - "hgraph-kafka-v_*.*.*"
+      - "*.*.*"
   pull_request:
   workflow_dispatch:
 
@@ -109,157 +108,36 @@ jobs:
             core.notice(`No reusable distributions found for commit ${context.sha}`);
             core.setOutput("run-id", "");
 
-  build-wheel:
-    name: Build ${{ matrix.os }} wheel
+  build-windows-wheel:
+    name: Build Windows wheel artifacts
     needs:
       - validate-release
       - reuse-build
     if: needs.reuse-build.outputs.run-id == ''
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Ninja (not the Visual Studio generator): MSBuild ignores
-          # CMAKE_CXX_COMPILER_LAUNCHER, so sccache never fires under the VS
-          # generator. Debug-carrying configurations use /Z7 (embedded debug
-          # info) so they stay cacheable — sccache cannot cache /Zi's shared
-          # PDB; the Release wheel carries no debug info and no format flag.
-          - os: windows-latest
-            parallel: "4"
-            cmake_generator: Ninja
-            cmake_args: >-
-              -DHGRAPH_WARNINGS_AS_ERRORS=OFF
-              -DCMAKE_POLICY_DEFAULT_CMP0141=NEW
-              "-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>"
-          - os: macos-26
-            parallel: "1"
-            cmake_generator: Ninja
-            cmake_args: -DHGRAPH_WARNINGS_AS_ERRORS=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+    uses: ./.github/workflows/release-platform-wheel.yml
+    with:
+      os: windows-latest
+      parallel: "4"
+      # Ninja (not the Visual Studio generator): MSBuild ignores
+      # CMAKE_CXX_COMPILER_LAUNCHER, so sccache never fires under the VS
+      # generator. /Z7 keeps debug-carrying configurations cacheable because
+      # sccache cannot cache /Zi's shared PDB.
+      cmake_args: >-
+        -DHGRAPH_WARNINGS_AS_ERRORS=OFF
+        -DCMAKE_POLICY_DEFAULT_CMP0141=NEW
+        "-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>"
 
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Enable shared compiler cache
-        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
-        with:
-          version: v0.15.0
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.12"
-      - name: Configure current Clang on macOS
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          echo "CC=/usr/bin/clang" >> "$GITHUB_ENV"
-          echo "CXX=/usr/bin/clang++" >> "$GITHUB_ENV"
-          echo "MACOSX_DEPLOYMENT_TARGET=15.0" >> "$GITHUB_ENV"
-          /usr/bin/clang++ --version
-      - name: Configure MSVC toolchain for Ninja
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
-      - name: Install Ninja
-        if: runner.os == 'Windows'
-        run: >-
-          python -m pip install --only-binary=:all: "ninja==1.13.0"
-      - name: Install wheel build tools
-        run: >-
-          python -m pip install --upgrade --only-binary=:all:
-          "build==1.5.0" "abi3audit==0.0.26"
-          "scikit-build-core==1.0.3" "nanobind==2.13.0"
-          "pyarrow==24.0.0"
-      - name: Build stable ABI wheel
-        env:
-          CMAKE_GENERATOR: ${{ matrix.cmake_generator }}
-          CMAKE_ARGS: ${{ matrix.cmake_args }}
-          CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.parallel }}
-        run: >-
-          python -m build --wheel --no-isolation --skip-dependency-check
-          "-Cbuild-dir=.ci-build/core/{wheel_tag}"
-      - name: Audit wheel contents
-        run: python tools/audit_distribution.py "dist/*.whl"
-      - name: Verify wheel ABI
-        shell: python
-        run: |
-          from pathlib import Path
-          import subprocess
-          import sys
-
-          wheels = list(Path("dist").glob("*.whl"))
-          assert len(wheels) == 1, wheels
-          wheel = wheels[0]
-          assert wheel.name.startswith("hgraph-"), wheel.name
-          assert "-cp312-abi3-" in wheel.name, wheel.name
-          if sys.platform == "darwin":
-              assert "-macosx_15_0_arm64.whl" in wheel.name, wheel.name
-          elif sys.platform == "win32":
-              assert wheel.name.endswith("-win_amd64.whl"), wheel.name
-          subprocess.check_call(["abi3audit", "--strict", str(wheel)])
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: distribution-wheel-${{ matrix.os }}
-          path: dist/*.whl
-          if-no-files-found: error
-      - name: Install the matching core SDK
-        shell: python
-        run: |
-          from pathlib import Path
-          import subprocess
-          import sys
-
-          wheels = list(Path("dist").glob("*.whl"))
-          assert len(wheels) == 1, wheels
-          subprocess.check_call([sys.executable, "-m", "pip", "install", str(wheels[0])])
-      - name: Locate the installed core SDK
-        shell: python
-        run: |
-          from importlib import metadata
-          import os
-          from pathlib import Path
-
-          distribution = metadata.distribution("hgraph")
-          sdk_prefix = Path(distribution.locate_file("")).resolve()
-          config = sdk_prefix / "lib" / "cmake" / "hgraph" / "hgraphConfig.cmake"
-          if not config.is_file():
-              raise FileNotFoundError(f"installed hgraph CMake package not found: {config}")
-
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
-              env_file.write(f"HGRAPH_KAFKA_SDK_PREFIX={sdk_prefix}\n")
-      - name: Build Kafka stable ABI wheel
-        env:
-          CMAKE_GENERATOR: ${{ matrix.cmake_generator }}
-          CMAKE_ARGS: ${{ matrix.cmake_args }}
-          CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.parallel }}
-          CMAKE_PREFIX_PATH: ${{ env.HGRAPH_KAFKA_SDK_PREFIX }}
-        run: >-
-          python -m build --wheel --no-isolation --skip-dependency-check
-          "-Cbuild-dir=.ci-build/kafka/{wheel_tag}"
-          --outdir kafka-dist extensions/kafka
-      - name: Verify Kafka wheel ABI
-        shell: python
-        run: |
-          from pathlib import Path
-          import subprocess
-          import sys
-
-          wheels = list(Path("kafka-dist").glob("*.whl"))
-          assert len(wheels) == 1, wheels
-          wheel = wheels[0]
-          assert wheel.name.startswith("hgraph_kafka-"), wheel.name
-          assert "-cp312-abi3-" in wheel.name, wheel.name
-          if sys.platform == "darwin":
-              assert "-macosx_15_0_arm64.whl" in wheel.name, wheel.name
-          elif sys.platform == "win32":
-              assert wheel.name.endswith("-win_amd64.whl"), wheel.name
-          subprocess.check_call(["abi3audit", "--strict", str(wheel)])
-      - name: Audit Kafka wheel contents
-        run: python extensions/kafka/tools/audit_distribution.py "kafka-dist/*.whl"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: kafka-distribution-wheel-${{ matrix.os }}
-          path: kafka-dist/*.whl
-          if-no-files-found: error
+  build-macos-wheel:
+    name: Build macOS wheel artifacts
+    needs:
+      - validate-release
+      - reuse-build
+    if: needs.reuse-build.outputs.run-id == ''
+    uses: ./.github/workflows/release-platform-wheel.yml
+    with:
+      os: macos-26
+      parallel: "1"
+      cmake_args: -DHGRAPH_WARNINGS_AS_ERRORS=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
 
   build-linux-wheel:
     name: Build manylinux 2.28 / GCC 14 wheel
@@ -467,86 +345,35 @@ jobs:
           path: kafka-dist/*.tar.gz
           if-no-files-found: error
 
-  test-wheel:
-    name: Test ${{ matrix.os }} / Python ${{ matrix.python-version }}
+  test-windows-wheel:
+    name: Test Windows wheel artifacts
     needs:
       - reuse-build
-      - build-wheel
+      - build-windows-wheel
+    if: needs.reuse-build.outputs.run-id == ''
+    uses: ./.github/workflows/test-platform-wheel.yml
+    with:
+      os: windows-latest
+
+  test-macos-wheel:
+    name: Test macOS wheel artifacts
+    needs:
+      - reuse-build
+      - build-macos-wheel
+    if: needs.reuse-build.outputs.run-id == ''
+    uses: ./.github/workflows/test-platform-wheel.yml
+    with:
+      os: macos-26
+
+  test-linux-wheel:
+    name: Test Linux wheel artifacts
+    needs:
+      - reuse-build
       - build-linux-wheel
     if: needs.reuse-build.outputs.run-id == ''
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-26
-        python-version:
-          - "3.12"
-          - "3.13"
-          - "3.14"
-
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Configure GCC 14 for the installed C++ consumer
-        if: runner.os == 'Linux' && matrix.python-version == '3.12'
-        shell: bash
-        run: |
-          cc_path="$(command -v "gcc-$GCC_VERSION")"
-          cxx_path="$(command -v "g++-$GCC_VERSION")"
-          test "$("$cxx_path" -dumpfullversion -dumpversion | cut -d. -f1)" -eq "$GCC_VERSION"
-          echo "CC=$cc_path" >> "$GITHUB_ENV"
-          echo "CXX=$cxx_path" >> "$GITHUB_ENV"
-          "$cxx_path" --version
-      - name: Install uv
-        run: >-
-          python -m pip install --upgrade --only-binary=:all: "uv==0.12.3"
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: distribution-wheel-${{ matrix.os }}
-          path: dist
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: kafka-distribution-wheel-${{ matrix.os }}
-          path: kafka-dist
-      - name: Sync test dependencies
-        run: uv sync --frozen --all-extras --all-groups --no-install-workspace --python ${{ matrix.python-version }}
-      - name: Install wheel
-        shell: python
-        run: |
-          from pathlib import Path
-          import subprocess
-          import sys
-
-          wheels = list(Path("dist").glob("*.whl"))
-          assert len(wheels) == 1, wheels
-          venv_python = Path(".venv") / (
-              "Scripts/python.exe" if sys.platform == "win32" else "bin/python"
-          )
-          subprocess.check_call([
-              "uv", "pip", "install", "--python", str(venv_python), str(wheels[0]),
-          ])
-          kafka_wheels = list(Path("kafka-dist").glob("*.whl"))
-          assert len(kafka_wheels) == 1, kafka_wheels
-          subprocess.check_call([
-              "uv", "pip", "install", "--python", str(venv_python),
-              "--no-deps", str(kafka_wheels[0]),
-          ])
-      - name: Confirm installed distribution
-        run: uv run --no-sync python -c "import importlib.metadata as m; import _hgraph; print(m.version('hgraph'), _hgraph.__file__)"
-      - name: Run Python compatibility suite
-        run: uv run --no-sync python -m pytest python/tests -q -m "not wip"
-      - name: Run Kafka extension suite
-        run: uv run --no-sync python -m pytest extensions/kafka/python/tests -q
-      - name: Build installed Python extension consumer
-        if: matrix.python-version == '3.12'
-        run: uv run --no-sync python tests/python_extension_consumer/check.py
+    uses: ./.github/workflows/test-platform-wheel.yml
+    with:
+      os: ubuntu-latest
 
   parity-smoke:
     name: Differential parity smoke / Python 3.14
@@ -750,14 +577,16 @@ jobs:
     name: Publish hgraph to PyPI
     if: >-
       always() &&
-      startsWith(github.ref, 'refs/tags/v_') &&
+      github.ref_type == 'tag' &&
       needs.validate-release.result == 'success' &&
       needs.reuse-build.result == 'success' &&
       (
         needs.reuse-build.outputs.run-id != '' ||
         (
           needs.build-sdist.result == 'success' &&
-          needs.test-wheel.result == 'success' &&
+          needs.test-windows-wheel.result == 'success' &&
+          needs.test-macos-wheel.result == 'success' &&
+          needs.test-linux-wheel.result == 'success' &&
           needs.native-cpp.result == 'success' &&
           needs.native-install.result == 'success'
         )
@@ -766,7 +595,9 @@ jobs:
       - validate-release
       - reuse-build
       - build-sdist
-      - test-wheel
+      - test-windows-wheel
+      - test-macos-wheel
+      - test-linux-wheel
       - native-cpp
       - native-install
       - build-linux-wheel
@@ -791,7 +622,7 @@ jobs:
       - name: Restamp distributions to the tag version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: python tools/restamp_distribution.py dist "${RELEASE_TAG#v_}"
+        run: python tools/restamp_distribution.py dist "$RELEASE_TAG"
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
@@ -801,14 +632,16 @@ jobs:
     name: Publish hgraph-kafka to PyPI
     if: >-
       always() &&
-      startsWith(github.ref, 'refs/tags/hgraph-kafka-v_') &&
+      github.ref_type == 'tag' &&
       needs.validate-release.result == 'success' &&
       needs.reuse-build.result == 'success' &&
       (
         needs.reuse-build.outputs.run-id != '' ||
         (
           needs.build-sdist.result == 'success' &&
-          needs.test-wheel.result == 'success' &&
+          needs.test-windows-wheel.result == 'success' &&
+          needs.test-macos-wheel.result == 'success' &&
+          needs.test-linux-wheel.result == 'success' &&
           needs.native-cpp.result == 'success' &&
           needs.native-install.result == 'success'
         )
@@ -817,7 +650,9 @@ jobs:
       - validate-release
       - reuse-build
       - build-sdist
-      - test-wheel
+      - test-windows-wheel
+      - test-macos-wheel
+      - test-linux-wheel
       - native-cpp
       - native-install
       - build-linux-wheel
@@ -842,9 +677,7 @@ jobs:
       - name: Restamp Kafka distributions to the tag version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: >-
-          python tools/restamp_distribution.py dist
-          "${RELEASE_TAG#hgraph-kafka-v_}"
+        run: python tools/restamp_distribution.py dist "$RELEASE_TAG"
       - name: Publish Kafka package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:

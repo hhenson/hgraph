@@ -263,6 +263,10 @@ One CI matrix tests core plus all extensions on every change, which is the
 monorepo's payoff: a cross-cutting change lands atomically and is proven
 against every first-party consumer before anything ships.
 
+That independent extension scheme is the 1.0 target. During the 0.8 port,
+current automation deliberately co-releases core and Kafka from one bare
+version tag (for example ``0.8.1``), so both packages carry the same version.
+
 Python API contract
 -------------------
 
