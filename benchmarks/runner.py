@@ -9,12 +9,56 @@ not take the matrix down).
 import argparse
 import json
 import os
-import resource
 import sys
 import time
 import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+
+def _max_rss_mb() -> float:
+    """Return peak resident memory using the platform's process API."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        class ProcessMemoryCounters(ctypes.Structure):
+            _fields_ = [
+                ("cb", wintypes.DWORD),
+                ("page_fault_count", wintypes.DWORD),
+                ("peak_working_set_size", ctypes.c_size_t),
+                ("working_set_size", ctypes.c_size_t),
+                ("quota_peak_paged_pool_usage", ctypes.c_size_t),
+                ("quota_paged_pool_usage", ctypes.c_size_t),
+                ("quota_peak_non_paged_pool_usage", ctypes.c_size_t),
+                ("quota_non_paged_pool_usage", ctypes.c_size_t),
+                ("pagefile_usage", ctypes.c_size_t),
+                ("peak_pagefile_usage", ctypes.c_size_t),
+            ]
+
+        get_current_process = ctypes.windll.kernel32.GetCurrentProcess
+        get_current_process.restype = wintypes.HANDLE
+        get_process_memory_info = ctypes.windll.psapi.GetProcessMemoryInfo
+        get_process_memory_info.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(ProcessMemoryCounters),
+            wintypes.DWORD,
+        ]
+        get_process_memory_info.restype = wintypes.BOOL
+
+        counters = ProcessMemoryCounters()
+        counters.cb = ctypes.sizeof(counters)
+        if not get_process_memory_info(
+            get_current_process(), ctypes.byref(counters), counters.cb
+        ):
+            raise ctypes.WinError()
+        rss_bytes = counters.peak_working_set_size
+    else:
+        import resource
+
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        rss_bytes = rss if sys.platform == "darwin" else rss * 1024
+    return round(rss_bytes / (1024 * 1024), 1)
 
 
 def _implementation_label():
@@ -89,13 +133,12 @@ def main() -> int:
         hg.run_graph(graph_fn, start_time=start, end_time=end)
         seconds = time.perf_counter() - t0
 
-        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         result.update(
             ok=True,
             seconds=round(seconds, 6),
             cycles=cycles,
             cycles_per_s=round(cycles / seconds) if seconds > 0 else None,
-            max_rss_mb=round(rss / (1024 * 1024 if sys.platform == "darwin" else 1024), 1),
+            max_rss_mb=_max_rss_mb(),
         )
     except Exception:
         result.update(ok=False, error=traceback.format_exc(limit=20))
