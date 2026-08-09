@@ -3,8 +3,6 @@ What Is HGraph?
 
 HGraph is a framework for writing functional reactive programs. Programs are modeled as forward propagation graphs over time-series values.
 
-In the original Python implementation, users describe graphs through a Python DSL. This C++-first implementation makes the native C++ runtime the source of truth: graphs are authored, wired, tested, and executed entirely in C++ (see :doc:`authoring_graphs_cpp`). A Python bridge onto the same runtime is planned for ecosystem compatibility, but Python is a compatibility surface, not the foundation.
-
 The core model is:
 
 - nodes perform computation, manage data sources, or produce side effects,
@@ -15,15 +13,42 @@ The core model is:
 
 This model is useful for real-time processing, simulation, backtesting, and other domains where time ordering and graph dependencies must be explicit.
 
+Two Authoring Languages, One Runtime
+------------------------------------
+
+HGraph 0.8 is a C++ runtime with two supported authoring surfaces:
+
+Python
+    The ``hgraph`` package provides the DSL: the ``@graph``, ``@compute_node``
+    and ``@sink_node`` decorators, the ``TS``/``TSL``/``TSB``/``TSD``/``TSS``
+    type constructors, the operator library, services, adaptors, and the
+    ``eval_node`` test harness. Python-authored nodes execute *inside* the C++
+    runtime; Python does not implement a second graph engine. Start at
+    :doc:`../getting_started`.
+
+C++
+    Graphs and nodes can be authored, wired, tested, and executed entirely in
+    C++ against the native API, with no Python involved in the build or the
+    run. Start at :doc:`cpp/quick_start`.
+
+The two surfaces describe the same graphs and obey the same evaluation
+semantics, so :doc:`concepts/index` applies to both. Where the surfaces differ
+in what they expose, the difference is recorded in
+:doc:`python_compatibility`.
+
 Implementation Direction
 ------------------------
 
-The objective of this repository is not to embed a C++ runtime behind a Python-first system. The objective is to make the C++ runtime authoritative, with Python wiring and Python user nodes supported as integration layers.
-
-That means:
+The C++ runtime is the source of truth. Python is a wiring and compatibility
+surface, not the foundation. Concretely:
 
 - system nodes are C++ only,
 - C++ graphs and C++ nodes are first-class,
-- Python graph wiring remains supported,
-- Python user nodes can run inside the C++ runtime where needed,
-- the same runtime semantics should apply across C++ and Python-authored graphs.
+- Python graph wiring is fully supported and lowers into the same runtime
+  construction data the C++ path produces,
+- Python user nodes run inside the C++ runtime,
+- the same runtime semantics apply across C++ and Python-authored graphs.
+
+Version 0.8.0 replaced the Python-first implementation, which remains on the
+``release/0.5`` maintenance line. Accepted behavioural deviations from that
+implementation are recorded in the developer guide's parity matrix.

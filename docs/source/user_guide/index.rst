@@ -1,17 +1,43 @@
 User Guide
 ==========
 
-The user guide describes the HGraph model from a user point of view: what the framework is, the core concepts, and how to author, wire, and test graphs in C++. Start with :doc:`quick_start` to go from a clean checkout to a first tested node; the authoring and testing pages are the full reference for the C++ API.
+The user guide describes the HGraph model from a user's point of view: what the
+framework is, the concepts it is built on, and how to author, wire, and test
+graphs.
+
+If you are new here, read :doc:`what_is_hgraph`, then follow
+:doc:`../getting_started` for the Python surface or :doc:`cpp/quick_start` for
+the C++ one.
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Orientation
+
+   what_is_hgraph
 
 .. toctree::
    :maxdepth: 2
+   :caption: The model
 
-   what_is_hgraph
-   core_concepts
-   quick_start
-   authoring_nodes_cpp
-   authoring_graphs_cpp
-   testing_graphs_cpp
+   concepts/index
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Authoring
+
+   python/index
+   cpp/index
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Working with data and services
+
    data_and_analytics
+   adaptors/index
+   tools/index
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Compatibility
+
    python_compatibility
-   tornado_adaptors
