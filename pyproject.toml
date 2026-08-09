@@ -2,7 +2,7 @@
 requires = [
     "scikit-build-core>=0.12",
     "nanobind==2.13.0",
-    "pyarrow>=24,<25",
+    "pyarrow>=25,<26",
 ]
 build-backend = "scikit_build_core.build"
 
@@ -41,7 +41,7 @@ classifiers = [
 dependencies = [
     "frozendict>=2.4",
     "numpy>=2.0",
-    "pyarrow>=24,<25",
+    "pyarrow>=25,<26",
 ]
 
 [project.optional-dependencies]

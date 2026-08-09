@@ -385,7 +385,7 @@ endif()
 # may use its bundled libraries; the resulting native targets do not link the
 # Python runtime unless Python support is independently enabled.
 set(HGRAPH_PYARROW_LIBRARY_DIR "" CACHE PATH "Directory containing pyarrow's bundled Arrow libraries")
-set(HGRAPH_PYARROW_ABI_MAJOR "24" CACHE STRING "Required pyarrow/Arrow ABI major for pyarrow-backed builds")
+set(HGRAPH_PYARROW_ABI_MAJOR "25" CACHE STRING "Required pyarrow/Arrow ABI major for pyarrow-backed builds")
 if(HGRAPH_USE_PYARROW_ARROW)
     if(DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
         set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
@@ -493,7 +493,7 @@ for path in (root, root / "include", arrow_link, compute_link, acero_link,
     endif()
 else()
     find_package(Arrow CONFIG REQUIRED)
-    # Arrow 24 splits compute/acero into their own CMake packages; some
+    # Recent Arrow releases split compute/acero into their own CMake packages; some
     # packagers (Conan's Arrow recipe) define all three target namespaces
     # from the single Arrow config, in which case the separate packages do
     # not exist and must not be required.

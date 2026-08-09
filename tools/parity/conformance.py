@@ -32,7 +32,7 @@ CONFORMANCE_DEPENDENCIES = (
     "ordered-set>=4.1.0",
     "polars>=1.32",
     "psutil",
-    "pyarrow>=16.1,<25",
+    "pyarrow>=25,<26",
     "pycurl",
     "pytz",
     "sortedcontainers>=2.4.0",

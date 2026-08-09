@@ -120,7 +120,7 @@ generate a competing CMake config (``cmake_find_mode`` is ``none``);
 consumers call ``find_package(hgraph CONFIG)`` against the packaged config,
 so the SDK helpers (``hgraph_add_python_module``, dependency pinning)
 behave identically to a plain CMake install. Dependencies (fmt, spdlog,
-simdjson, date/tz, Arrow 24 with compute + acero, all shared) come from
+simdjson, date/tz, Arrow 25 with compute + acero, all shared) come from
 Conan Center; the named-zone backend is pinned to ``date`` for
 deterministic behaviour across platforms, and the Python bridge is out of
 scope — wheels remain the Python distribution channel.

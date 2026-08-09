@@ -457,7 +457,7 @@ Recorded divergences / gaps (the morning-summary list):
   Tables convert back to Frame values, and ``to_table``/``from_table``
   are fully usable from Python. The extension itself links against pyarrow's
   versioned Arrow libraries, so wheel build and runtime dependencies are
-  constrained to the same supported ABI major (Arrow 24 for this release).
+  constrained to the same supported ABI major (Arrow 25 for this release).
 - **Contexts** are surfaced BOTH ways (Howard: existing python code must
   keep working). The hgraph-compatible API: ``with port:`` publishes (the
   wiring port is a context manager; ``as name`` binds the context name via

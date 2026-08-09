@@ -6,7 +6,7 @@ namespace hgraph::stdlib
 {
     void register_series_operators()
     {
-        // Arrow 24 requires the compute module to be initialised before any
+        // Arrow requires the compute module to be initialised before any
         // CallFunction (the built-in kernels register here).
         static const bool initialised = [] {
             const auto status = arrow::compute::Initialize();

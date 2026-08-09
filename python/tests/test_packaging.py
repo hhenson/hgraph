@@ -10,7 +10,7 @@ from packaging.version import Version
 from trove_classifiers import classifiers as valid_classifiers
 
 ROOT = Path(__file__).resolve().parents[2]
-PYARROW_REQUIREMENT = "pyarrow>=24,<25"
+PYARROW_REQUIREMENT = "pyarrow>=25,<26"
 NANOBIND_REQUIREMENT = "nanobind==2.13.0"
 SUPPORTED_PYTHON_MINIMUM = ">=3.12"
 STABLE_ABI_TAG = "cp312"
@@ -40,6 +40,11 @@ def test_pyarrow_build_and_runtime_requirements_share_the_supported_abi():
 
     assert PYARROW_REQUIREMENT in build_requires
     assert PYARROW_REQUIREMENT in runtime_requires
+
+    cmake = (ROOT / "CMakeLists.txt").read_text()
+    conan = (ROOT / "conanfile.py").read_text()
+    assert 'set(HGRAPH_PYARROW_ABI_MAJOR "25"' in cmake
+    assert 'self.requires("arrow/25.0.0")' in conan
 
 
 def test_nanobind_build_and_sdk_headers_use_one_exact_runtime_abi():
@@ -194,15 +199,15 @@ def test_release_workflow_targets_supported_platforms():
     assert "quay.io/pypa/manylinux_2_28_x86_64:latest" in workflow
     assert "Build manylinux 2.28 / GCC 14 wheel" in workflow
     assert "--plat manylinux_2_28_x86_64" in workflow
-    assert "--exclude libarrow.so.2400" in workflow
-    assert "--exclude libarrow_compute.so.2400" in workflow
-    assert "--exclude libarrow_acero.so.2400" in workflow
+    assert "--exclude libarrow.so.2500" in workflow
+    assert "--exclude libarrow_compute.so.2500" in workflow
+    assert "--exclude libarrow_acero.so.2500" in workflow
     assert "--exclude libhgraph_runtime.so" in workflow
     assert "--exclude libhgraph_wiring.so" in workflow
     assert "--exclude libhgraph_stdlib.so" in workflow
     assert "--exclude libnanobind-abi3.so" in workflow
     assert "tests/python_extension_consumer/check.py" in combined_workflow
-    assert "libarrow-acero=24" in workflow
+    assert "libarrow-acero=25" in workflow
     for linux_workflow in (workflow, nightly_workflow):
         assert 'GCC_VERSION: "14"' in linux_workflow
         assert 'command -v "gcc-$GCC_VERSION"' in linux_workflow
@@ -244,7 +249,7 @@ def test_platform_wheel_builds_use_stable_cacheable_paths():
     for dependency in (
         '"scikit-build-core==1.0.3"',
         '"nanobind==2.13.0"',
-        '"pyarrow==24.0.0"',
+        '"pyarrow==25.0.0"',
     ):
         assert platform_workflow.index(dependency) < platform_workflow.index(
             "Build stable ABI wheel"
