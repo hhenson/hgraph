@@ -167,12 +167,16 @@ jobs:
         run: >-
           python -m pip install --upgrade --only-binary=:all:
           "build==1.5.0" "abi3audit==0.0.26"
+          "scikit-build-core==1.0.3" "nanobind==2.13.0"
+          "pyarrow==24.0.0"
       - name: Build stable ABI wheel
         env:
           CMAKE_GENERATOR: ${{ matrix.cmake_generator }}
           CMAKE_ARGS: ${{ matrix.cmake_args }}
           CMAKE_BUILD_PARALLEL_LEVEL: ${{ matrix.parallel }}
-        run: python -m build --wheel
+        run: >-
+          python -m build --wheel --no-isolation --skip-dependency-check
+          -Cbuild-dir=.ci-build/core/{wheel_tag}
       - name: Audit wheel contents
         run: python tools/audit_distribution.py "dist/*.whl"
       - name: Verify wheel ABI
@@ -222,11 +226,6 @@ jobs:
 
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
               env_file.write(f"HGRAPH_KAFKA_SDK_PREFIX={sdk_prefix}\n")
-      - name: Install Kafka wheel build tools
-        run: >-
-          python -m pip install --upgrade --only-binary=:all:
-          "scikit-build-core==1.0.3" "nanobind==2.13.0"
-          "ninja==1.13.0" "pyarrow==24.0.0"
       - name: Build Kafka stable ABI wheel
         env:
           CMAKE_GENERATOR: ${{ matrix.cmake_generator }}
@@ -235,6 +234,7 @@ jobs:
           CMAKE_PREFIX_PATH: ${{ env.HGRAPH_KAFKA_SDK_PREFIX }}
         run: >-
           python -m build --wheel --no-isolation --skip-dependency-check
+          -Cbuild-dir=.ci-build/kafka/{wheel_tag}
           --outdir kafka-dist extensions/kafka
       - name: Verify Kafka wheel ABI
         shell: python

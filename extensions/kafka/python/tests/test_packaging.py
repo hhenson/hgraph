@@ -108,7 +108,12 @@ def test_ci_builds_and_tests_separate_kafka_artifacts():
     assert "--wheel --no-isolation" in workflow
     assert "--sdist --no-isolation" in workflow
     assert "--skip-dependency-check" in workflow
-    assert workflow.count(
-        '"scikit-build-core>=0.11" "nanobind==2.13.0" "ninja" '
-        '"pyarrow>=24,<25"'
-    ) == 2
+    for dependency in (
+        '"scikit-build-core==1.0.3"',
+        '"nanobind==2.13.0"',
+        '"ninja==1.13.0"',
+        '"pyarrow==24.0.0"',
+    ):
+        assert dependency in workflow
+    assert '"scikit-build-core>=0.11"' not in workflow
+    assert '"pyarrow>=24,<25"' not in workflow

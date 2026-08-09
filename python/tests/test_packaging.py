@@ -210,6 +210,26 @@ def test_release_workflow_targets_supported_platforms():
     assert '- "3.14"' in workflow
 
 
+def test_matrix_wheel_builds_use_stable_cacheable_paths():
+    workflow = (ROOT / ".github/workflows/release-wheels.yml").read_text()
+    matrix_job = workflow.split("  build-wheel:\n", 1)[1].split(
+        "  build-linux-wheel:\n", 1
+    )[0]
+
+    assert "--wheel --no-isolation --skip-dependency-check" in matrix_job
+    assert "-Cbuild-dir=.ci-build/core/{wheel_tag}" in matrix_job
+    assert "-Cbuild-dir=.ci-build/kafka/{wheel_tag}" in matrix_job
+    assert "Install Kafka wheel build tools" not in matrix_job
+    for dependency in (
+        '"scikit-build-core==1.0.3"',
+        '"nanobind==2.13.0"',
+        '"pyarrow==24.0.0"',
+    ):
+        assert matrix_job.index(dependency) < matrix_job.index(
+            "Build stable ABI wheel"
+        )
+
+
 def test_workflow_actions_are_pinned_to_immutable_commits():
     workflows = "\n".join(
         path.read_text() for path in (ROOT / ".github/workflows").glob("*.yml")
@@ -264,6 +284,7 @@ def main():
     test_adaptor_extras_include_their_runtime_dependencies()
     test_full_suite_gate_installs_the_wheel_test_extra()
     test_release_workflow_targets_supported_platforms()
+    test_matrix_wheel_builds_use_stable_cacheable_paths()
     test_release_workflow_reuses_tested_commit_artifacts()
     test_release_workflow_audits_distribution_contents()
     test_release_workflow_locates_installed_sdk_from_distribution()
@@ -279,6 +300,7 @@ def main():
     print("PASS test_adaptor_extras_include_their_runtime_dependencies")
     print("PASS test_full_suite_gate_installs_the_wheel_test_extra")
     print("PASS test_release_workflow_targets_supported_platforms")
+    print("PASS test_matrix_wheel_builds_use_stable_cacheable_paths")
     print("PASS test_release_workflow_reuses_tested_commit_artifacts")
     print("PASS test_release_workflow_audits_distribution_contents")
     print("PASS test_release_workflow_locates_installed_sdk_from_distribution")
