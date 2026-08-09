@@ -2,7 +2,7 @@
 requires = [
     "scikit-build-core>=0.11",
     "nanobind==2.13.0",
-    "pyarrow>=24,<25",
+    "pyarrow>=25,<26",
     "hgraph>=0.8.0",
 ]
 build-backend = "scikit_build_core.build"

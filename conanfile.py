@@ -79,7 +79,7 @@ class HgraphConan(ConanFile):
         self.requires("spdlog/1.15.3")
         self.requires("simdjson/4.6.3")
         self.requires("date/3.0.4")
-        self.requires("arrow/24.0.0")
+        self.requires("arrow/25.0.0")
 
     def configure(self):
         # The SDK links Arrow's shared targets and needs compute + acero.
