@@ -27,69 +27,22 @@ jobs:
     name: Validate release metadata
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
       - name: Validate package metadata
         run: |
-          python -m pip install --upgrade packaging trove-classifiers
+          python -m pip install --upgrade --only-binary=:all: \
+            "packaging==26.3" "trove-classifiers==2026.6.1.19"
           python python/tests/test_packaging.py
       - name: Validate release tag
         if: github.ref_type == 'tag'
-        shell: python
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          from urllib.error import HTTPError
-          from urllib.request import urlopen
-          import os
-          import re
-
-          tag = os.environ["RELEASE_TAG"]
-          patterns = (
-              (r"v_(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?)", "hgraph"),
-              (
-                  r"hgraph-kafka-v_(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?)",
-                  "hgraph-kafka",
-              ),
-          )
-          release = next(
-              ((match, package) for pattern, package in patterns
-               if (match := re.fullmatch(pattern, tag)) is not None),
-              None,
-          )
-          if release is None:
-              raise SystemExit(
-                  "release tag must match v_x.x.x or hgraph-kafka-v_x.x.x "
-                  f"(including PEP 440 prereleases), got {tag!r}"
-              )
-
-          # The TAG is the version authority: the project version in
-          # pyproject.toml is ignored for releases (the publish job restamps
-          # the tested artifacts' metadata to the tag version).
-          match, package = release
-          version = match.group(1)
-          release_core = tuple(
-              map(int, re.match(r"(\d+)\.(\d+)\.(\d+)", version).groups())
-          )
-          if package == "hgraph" and release_core < (0, 8, 0):
-              raise SystemExit(
-                  f"the C++-first hgraph release line starts at 0.8.0, got {version}"
-              )
-
-          try:
-              with urlopen(f"https://pypi.org/pypi/{package}/{version}/json"):
-                  pass
-          except HTTPError as error:
-              if error.code != 404:
-                  raise
-          else:
-              raise SystemExit(f"{package} {version} already exists on PyPI")
-
-          print(f"Validated new {package} release {version}")
+        run: python tools/validate_release.py "$RELEASE_TAG"
 
   reuse-build:
     name: Find tested distributions for this commit
@@ -101,7 +54,7 @@ jobs:
       - name: Find successful build by commit SHA
         id: find
         if: github.ref_type == 'tag'
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const requiredArtifacts = new Set([
@@ -185,14 +138,14 @@ jobs:
             cmake_args: -DHGRAPH_WARNINGS_AS_ERRORS=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - name: Enable shared compiler cache
-        uses: mozilla-actions/sccache-action@v0.0.10
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
           version: v0.15.0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
       - name: Configure current Clang on macOS
@@ -205,12 +158,15 @@ jobs:
           /usr/bin/clang++ --version
       - name: Configure MSVC toolchain for Ninja
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
       - name: Install Ninja
         if: runner.os == 'Windows'
-        run: python -m pip install ninja
+        run: >-
+          python -m pip install --only-binary=:all: "ninja==1.13.0"
       - name: Install wheel build tools
-        run: python -m pip install --upgrade build abi3audit
+        run: >-
+          python -m pip install --upgrade --only-binary=:all:
+          "build==1.5.0" "abi3audit==0.0.26"
       - name: Build stable ABI wheel
         env:
           CMAKE_GENERATOR: ${{ matrix.cmake_generator }}
@@ -236,7 +192,7 @@ jobs:
           elif sys.platform == "win32":
               assert wheel.name.endswith("-win_amd64.whl"), wheel.name
           subprocess.check_call(["abi3audit", "--strict", str(wheel)])
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: distribution-wheel-${{ matrix.os }}
           path: dist/*.whl
@@ -268,8 +224,9 @@ jobs:
               env_file.write(f"HGRAPH_KAFKA_SDK_PREFIX={sdk_prefix}\n")
       - name: Install Kafka wheel build tools
         run: >-
-          python -m pip install --upgrade
-          "scikit-build-core>=0.11" "nanobind==2.13.0" "ninja" "pyarrow>=24,<25"
+          python -m pip install --upgrade --only-binary=:all:
+          "scikit-build-core==1.0.3" "nanobind==2.13.0"
+          "ninja==1.13.0" "pyarrow==24.0.0"
       - name: Build Kafka stable ABI wheel
         env:
           CMAKE_GENERATOR: ${{ matrix.cmake_generator }}
@@ -298,7 +255,7 @@ jobs:
           subprocess.check_call(["abi3audit", "--strict", str(wheel)])
       - name: Audit Kafka wheel contents
         run: python extensions/kafka/tools/audit_distribution.py "kafka-dist/*.whl"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kafka-distribution-wheel-${{ matrix.os }}
           path: kafka-dist/*.whl
@@ -314,11 +271,11 @@ jobs:
     container:
       image: quay.io/pypa/manylinux_2_28_x86_64:latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - name: Enable shared compiler cache
-        uses: mozilla-actions/sccache-action@v0.0.10
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
           version: v0.15.0
       - name: Verify official build toolchain
@@ -330,7 +287,10 @@ jobs:
           echo "CXX=$(command -v g++)" >> "$GITHUB_ENV"
           /opt/python/cp312-cp312/bin/python --version
       - name: Install wheel build tools
-        run: /opt/python/cp312-cp312/bin/python -m pip install --upgrade build abi3audit auditwheel
+        run: >-
+          /opt/python/cp312-cp312/bin/python -m pip install --upgrade
+          --only-binary=:all: "build==1.5.0" "abi3audit==0.0.26"
+          "auditwheel==6.7.0"
       - name: Build stable ABI wheel
         env:
           CMAKE_GENERATOR: Ninja
@@ -371,17 +331,20 @@ jobs:
           assert expected in tags, (wheel.name, tags)
           subprocess.check_call(["abi3audit", "--strict", str(wheel)])
           PY
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: distribution-wheel-ubuntu-latest
           path: dist/*.whl
           if-no-files-found: error
       - name: Install the matching core SDK
-        run: /opt/python/cp312-cp312/bin/python -m pip install dist/*.whl
+        run: >-
+          /opt/python/cp312-cp312/bin/python -m pip install
+          --only-binary=:all: dist/*.whl
       - name: Install Kafka wheel build tools
         run: >-
           /opt/python/cp312-cp312/bin/python -m pip install --upgrade
-          "scikit-build-core>=0.11" "nanobind==2.13.0" "ninja" "pyarrow>=24,<25"
+          --only-binary=:all: "scikit-build-core==1.0.3"
+          "nanobind==2.13.0" "ninja==1.13.0" "pyarrow==24.0.0"
       - name: Build Kafka stable ABI wheel
         shell: bash
         run: |
@@ -426,7 +389,7 @@ jobs:
           PY
       - name: Audit Kafka wheel contents
         run: /opt/python/cp312-cp312/bin/python extensions/kafka/tools/audit_distribution.py "kafka-dist/*.whl"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kafka-distribution-wheel-ubuntu-latest
           path: kafka-dist/*.whl
@@ -440,15 +403,17 @@ jobs:
     if: needs.reuse-build.outputs.run-id == ''
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
       - name: Build source distribution
         run: |
-          python -m pip install --upgrade build "scikit-build-core>=0.11" "nanobind==2.13.0" "pyarrow>=24,<25"
+          python -m pip install --upgrade --only-binary=:all: \
+            "build==1.5.0" "scikit-build-core==1.0.3" \
+            "nanobind==2.13.0" "pyarrow==24.0.0"
           python -m build --sdist
       - name: Audit source distribution contents
         run: python tools/audit_distribution.py "dist/*.tar.gz"
@@ -462,7 +427,7 @@ jobs:
           archives = list(Path("dist").glob("*.tar.gz"))
           assert len(archives) == 1, archives
           assert archives[0].name == f"hgraph-{version}.tar.gz", archives[0].name
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: distribution-sdist
           path: dist/*.tar.gz
@@ -496,7 +461,7 @@ jobs:
               assert f"{root}/{required}" in names, required
       - name: Audit Kafka source distribution contents
         run: python extensions/kafka/tools/audit_distribution.py "kafka-dist/*.tar.gz"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kafka-distribution-sdist
           path: kafka-dist/*.tar.gz
@@ -523,10 +488,10 @@ jobs:
           - "3.14"
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
       - name: Configure GCC 14 for the installed C++ consumer
@@ -540,12 +505,13 @@ jobs:
           echo "CXX=$cxx_path" >> "$GITHUB_ENV"
           "$cxx_path" --version
       - name: Install uv
-        run: python -m pip install --upgrade uv
-      - uses: actions/download-artifact@v7
+        run: >-
+          python -m pip install --upgrade --only-binary=:all: "uv==0.12.3"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: distribution-wheel-${{ matrix.os }}
           path: dist
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: kafka-distribution-wheel-${{ matrix.os }}
           path: kafka-dist
@@ -592,20 +558,22 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.14"
       - name: Install parity controller
-        run: python -m pip install --upgrade uv hypothesis
-      - uses: actions/download-artifact@v7
+        run: >-
+          python -m pip install --upgrade --only-binary=:all:
+          "uv==0.12.3" "hypothesis==6.165.2"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: distribution-wheel-ubuntu-latest
           path: dist
       - name: Restore released-hgraph traces
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: |
             .parity/envs/reference-*
@@ -620,7 +588,7 @@ jobs:
           --seed 20260726
           --candidate-wheel dist/*.whl
           --output-dir parity-results
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: parity-smoke
@@ -644,14 +612,14 @@ jobs:
             parallel: "1"
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - name: Enable shared compiler cache
-        uses: mozilla-actions/sccache-action@v0.0.10
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
           version: v0.15.0
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
       - name: Configure current Clang on macOS
@@ -672,7 +640,9 @@ jobs:
           echo "CXX=$cxx_path" >> "$GITHUB_ENV"
           "$cxx_path" --version
       - name: Install native build dependencies
-        run: python -m pip install --upgrade "cmake>=3.26" ninja "pyarrow>=24,<25"
+        run: >-
+          python -m pip install --upgrade --only-binary=:all:
+          "cmake==4.4.2" "ninja==1.13.0" "pyarrow==24.0.0"
       - name: Expose Arrow runtime libraries
         shell: python
         run: |
@@ -697,11 +667,11 @@ jobs:
     if: needs.reuse-build.outputs.run-id == ''
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - name: Enable shared compiler cache
-        uses: mozilla-actions/sccache-action@v0.0.10
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
         with:
           version: v0.15.0
       - name: Configure GCC 14
@@ -713,7 +683,7 @@ jobs:
           echo "CC=$cc_path" >> "$GITHUB_ENV"
           echo "CXX=$cxx_path" >> "$GITHUB_ENV"
           "$cxx_path" --version
-      - uses: mamba-org/setup-micromamba@v3
+      - uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39 # v3
         with:
           environment-name: hgraph-native
           cache-environment: true
@@ -808,10 +778,10 @@ jobs:
       actions: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: distribution-*
           path: dist
@@ -823,7 +793,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python tools/restamp_distribution.py dist "${RELEASE_TAG#v_}"
       - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: dist
 
@@ -859,10 +829,10 @@ jobs:
       actions: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: kafka-distribution-*
           path: dist
@@ -876,6 +846,6 @@ jobs:
           python tools/restamp_distribution.py dist
           "${RELEASE_TAG#hgraph-kafka-v_}"
       - name: Publish Kafka package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: dist

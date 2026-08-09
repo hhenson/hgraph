@@ -102,7 +102,7 @@ def test_release_metadata_uses_untagged_sentinel():
     workflow = (ROOT / ".github/workflows/release-wheels.yml").read_text()
     assert "Restamp distributions to the tag version" in workflow
     assert 'python tools/restamp_distribution.py dist "${RELEASE_TAG#v_}"' in workflow
-    assert 'release_core < (0, 8, 0)' in workflow
+    assert 'python tools/validate_release.py "$RELEASE_TAG"' in workflow
 
 
 def test_wheel_targets_the_python_312_stable_abi():
@@ -195,7 +195,10 @@ def test_release_workflow_targets_supported_platforms():
     # Visual Studio generator ignores CMAKE_CXX_COMPILER_LAUNCHER, so the
     # shared compiler cache never fires under MSBuild.
     assert "Visual Studio 18 2026" not in workflow
-    assert "ilammy/msvc-dev-cmd@v1" in workflow
+    assert (
+        "ilammy/msvc-dev-cmd@"
+        "0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1" in workflow
+    )
     # Embedded (/Z7) debug info only for debug-carrying configurations: the
     # Release wheel emits no debug info, and sccache cannot cache /Zi.
     assert (
@@ -205,6 +208,16 @@ def test_release_workflow_targets_supported_platforms():
     assert 'python-version: "3.12"' in workflow
     assert '- "3.13"' in workflow
     assert '- "3.14"' in workflow
+
+
+def test_workflow_actions_are_pinned_to_immutable_commits():
+    workflows = "\n".join(
+        path.read_text() for path in (ROOT / ".github/workflows").glob("*.yml")
+    )
+    action_refs = re.findall(r"(?m)^\s*(?:-\s*)?uses:\s*[^@\s]+@([^\s#]+)", workflows)
+
+    assert action_refs
+    assert all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in action_refs)
 
 
 def test_release_workflow_reuses_tested_commit_artifacts():

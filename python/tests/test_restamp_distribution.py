@@ -4,6 +4,8 @@ import tarfile
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from tools.restamp_distribution import restamp_sdist, restamp_wheel
 
 
@@ -71,3 +73,41 @@ def test_restamp_sdist_updates_root_metadata_and_project(tmp_path: Path):
         project = archive.extractfile(f"{new_root}/pyproject.toml")
         assert metadata is not None and b"Version: 0.2.0" in metadata.read()
         assert project is not None and b'version = "0.2.0"' in project.read()
+
+
+@pytest.mark.parametrize("member_name", ["../escape", "/absolute", "..\\escape"])
+def test_restamp_wheel_rejects_unsafe_member_paths(
+    tmp_path: Path, member_name: str
+):
+    wheel = tmp_path / "hgraph-0.1.0-cp312-abi3-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(member_name, b"unsafe")
+
+    with pytest.raises(ValueError, match="unsafe archive member path"):
+        restamp_wheel(wheel, "0.2.0")
+
+
+def test_restamp_sdist_rejects_members_outside_distribution_root(tmp_path: Path):
+    old_root = "hgraph-0.1.0"
+    sdist = tmp_path / f"{old_root}.tar.gz"
+    data = b"unsafe"
+    with tarfile.open(sdist, "w:gz") as archive:
+        member = tarfile.TarInfo(f"{old_root}/../escape")
+        member.size = len(data)
+        archive.addfile(member, io.BytesIO(data))
+
+    with pytest.raises(ValueError, match="unsafe archive member path"):
+        restamp_sdist(sdist, "0.2.0")
+
+
+def test_restamp_sdist_rejects_links(tmp_path: Path):
+    old_root = "hgraph-0.1.0"
+    sdist = tmp_path / f"{old_root}.tar.gz"
+    with tarfile.open(sdist, "w:gz") as archive:
+        member = tarfile.TarInfo(f"{old_root}/link")
+        member.type = tarfile.SYMTYPE
+        member.linkname = "../escape"
+        archive.addfile(member)
+
+    with pytest.raises(ValueError, match="links are not allowed"):
+        restamp_sdist(sdist, "0.2.0")

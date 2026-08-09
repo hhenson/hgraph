@@ -65,6 +65,12 @@ CPython 3.12, 3.13, and 3.14.  A tag matching ``v_x.x.x`` publishes the tested
 wheels and source distribution through PyPI trusted publishing.  The tag is the
 release version authority: the publish job restamps the metadata of artifacts
 already tested for that exact commit, rather than rebuilding them.
+For core tags, the tag's numeric version core must match CMake's
+``project(VERSION)``. This guarantees that reused wheels contain a matching
+generated ``version.h``, ``hgraphConfigVersion.cmake``, and native
+``hgraph::version()`` value. A prerelease suffix belongs to the Python
+distribution metadata; the native SDK continues to expose its numeric API
+version core.
 ``pyproject.toml`` therefore uses ``0.0.0`` as an explicit untagged-artifact
 sentinel; it is never the version published to PyPI.  CMake's numeric
 ``project(VERSION)`` and ``docs/source/conf.py`` track the current C++ API line

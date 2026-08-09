@@ -39,7 +39,7 @@ CONFORMANCE_DEPENDENCIES = (
     "sqlalchemy>=2.0",
     "typing-extensions",
 )
-_VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[A-Za-z0-9.+-]*)?$")
+_VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[A-Za-z0-9.+-]+)?$")
 _ACCEPTED_CLASSIFICATIONS = {"expected-change", "converted"}
 _CLASSIFICATIONS = _ACCEPTED_CLASSIFICATIONS | {"confirmed-gap"}
 _PASS_LIKE_OUTCOMES = {"passed", "xpassed"}

@@ -94,7 +94,7 @@ def _client_implementation(message_type: type):
                         message = message.decode()
                     sender({request_id: {"message": message}})
             except asyncio.CancelledError:
-                pass
+                raise
             finally:
                 socket.close()
                 state.sockets.pop(request_id, None)

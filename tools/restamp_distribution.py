@@ -8,14 +8,29 @@ import csv
 import hashlib
 import io
 import re
+import stat
 import tarfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 def _record_hash(data: bytes) -> str:
     digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest())
     return "sha256=" + digest.decode().rstrip("=")
+
+
+def _safe_archive_name(name: str, *, required_root: str | None = None) -> str:
+    normalized = name.rstrip("/")
+    path = PurePosixPath(normalized)
+    if (
+        not normalized
+        or "\\" in name
+        or path.is_absolute()
+        or any(part in {"", ".", ".."} for part in normalized.split("/"))
+        or (required_root is not None and path.parts[0] != required_root)
+    ):
+        raise ValueError(f"unsafe archive member path: {name!r}")
+    return normalized + ("/" if name.endswith("/") else "")
 
 
 def restamp_wheel(path: Path, version: str) -> Path:
@@ -29,7 +44,13 @@ def restamp_wheel(path: Path, version: str) -> Path:
     entries: dict[str, bytes] = {}
     with zipfile.ZipFile(path) as archive:
         for item in archive.infolist():
-            entries[item.filename] = archive.read(item.filename)
+            item_name = _safe_archive_name(item.filename)
+            file_type = (item.external_attr >> 16) & 0o170000
+            if file_type == stat.S_IFLNK:
+                raise ValueError(f"symbolic links are not allowed in wheels: {item_name!r}")
+            if item_name in entries:
+                raise ValueError(f"duplicate wheel member: {item_name!r}")
+            entries[item_name] = archive.read(item)
 
     renamed: dict[str, bytes] = {}
     for item_name, data in entries.items():
@@ -81,11 +102,21 @@ def restamp_sdist(path: Path, version: str) -> Path:
     old_root = f"{name}-{old_version}"
     new_root = f"{name}-{version}"
     members: list[tuple[tarfile.TarInfo, bytes | None]] = []
+    seen_names: set[str] = set()
     with tarfile.open(path, "r:gz") as archive:
         for member in archive.getmembers():
+            member.name = _safe_archive_name(member.name, required_root=old_root)
+            if member.name in seen_names:
+                raise ValueError(f"duplicate sdist member: {member.name!r}")
+            seen_names.add(member.name)
+            if member.issym() or member.islnk():
+                raise ValueError(
+                    f"symbolic and hard links are not allowed in sdists: {member.name!r}"
+                )
             source = archive.extractfile(member) if member.isfile() else None
             data = source.read() if source is not None else None
-            member.name = member.name.replace(old_root, new_root, 1)
+            member_path = PurePosixPath(member.name)
+            member.name = str(PurePosixPath(new_root, *member_path.parts[1:]))
             member.pax_headers.pop("path", None)
             member.pax_headers.pop("linkpath", None)
             if member.name == f"{new_root}/PKG-INFO":

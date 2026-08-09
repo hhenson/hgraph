@@ -136,10 +136,10 @@ def test_upstream_environment_replaces_a_post_port_hgraph_release(
 ):
     calls = []
     upstream = tmp_path / "upstream"
-    python = upstream / "bin" / "python"
+    monkeypatch.setattr(orchestrate, "UPSTREAM_VENV", upstream)
+    python = orchestrate.upstream_python()
     python.parent.mkdir(parents=True)
     python.touch()
-    monkeypatch.setattr(orchestrate, "UPSTREAM_VENV", upstream)
     monkeypatch.setattr(orchestrate, "_first_line", lambda _command: "0.8.0")
     monkeypatch.setattr(
         orchestrate.subprocess,

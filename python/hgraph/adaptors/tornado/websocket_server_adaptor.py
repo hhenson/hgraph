@@ -256,7 +256,7 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
             self._accepted = await response
         except asyncio.CancelledError:
             self.close()
-            return
+            raise
         if not self._accepted:
             self.close()
 

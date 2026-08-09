@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, timezone
 import socket
 from threading import Thread
 import time
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from tornado.httpclient import HTTPClientError
@@ -21,7 +23,10 @@ from hgraph.adaptors.tornado import (
     websocket_server_adaptor_helper,
     websocket_server_adaptor_impl,
 )
-from hgraph.adaptors.tornado.websocket_server_adaptor import WebSocketAdaptorManager
+from hgraph.adaptors.tornado.websocket_server_adaptor import (
+    WebSocketAdaptorManager,
+    WebSocketHandler,
+)
 
 
 @pytest.fixture
@@ -66,6 +71,31 @@ def test_websocket_manager_buffers_open_until_route_queues_start(free_tcp_port):
         manager.remove_request(request_id)
         assert connect_events[-1] == {request_id: hg.REMOVE_IF_EXISTS}
         assert message_events == [{request_id: hg.REMOVE_IF_EXISTS}]
+
+    asyncio.run(exercise())
+
+
+def test_websocket_handler_open_propagates_cancellation_after_closing():
+    async def exercise():
+        response = asyncio.get_running_loop().create_future()
+        response.cancel()
+        manager = SimpleNamespace(
+            binary=False,
+            add_request=lambda _path, _request, _sender: (1, response),
+        )
+        handler = SimpleNamespace(
+            _path="/cancelled",
+            _manager=manager,
+            _request_id=None,
+            _accepted=False,
+            request=SimpleNamespace(headers={}, cookies={}),
+            write_message=Mock(),
+            close=Mock(),
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await WebSocketHandler.open(handler)
+        handler.close.assert_called_once_with()
 
     asyncio.run(exercise())
 
