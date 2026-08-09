@@ -441,6 +441,7 @@ source = { editable = "." }
 dependencies = [
     { name = "frozendict" },
     { name = "numpy" },
+    { name = "polars" },
     { name = "pyarrow" },
     { name = "pyyaml" },
 ]
@@ -541,6 +542,7 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'test'", specifier = ">=2.0" },
     { name = "perspective-python", marker = "extra == 'perspective'", specifier = ">=3.8" },
     { name = "perspective-python", marker = "extra == 'test'", specifier = ">=3.8" },
+    { name = "polars", specifier = ">=1.32" },
     { name = "polars", marker = "extra == 'dataframe'", specifier = ">=1.32" },
     { name = "polars", marker = "extra == 'delta'", specifier = ">=1.32" },
     { name = "polars", marker = "extra == 'sql'", specifier = ">=1.32" },

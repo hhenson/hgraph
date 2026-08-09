@@ -133,12 +133,14 @@ def test_wheel_targets_the_python_312_stable_abi():
 def test_repository_enables_polars_compatibility_without_a_cpp_switch():
     feature_config = (ROOT / "hgraph_features.yaml").read_text().splitlines()
     runtime_dependencies = load_project()["project"]["dependencies"]
-
-    assert feature_config == ["features:", "  polars_frames: true"]
-    assert "pyyaml" in {
+    runtime_dependency_names = {
         canonicalize_name(Requirement(requirement).name)
         for requirement in runtime_dependencies
     }
+
+    assert feature_config == ["features:", "  polars_frames: true"]
+    assert "polars>=1.32" in runtime_dependencies
+    assert {"polars", "pyyaml"} <= runtime_dependency_names
 
 
 def test_wheel_uses_shared_runtime_for_downstream_native_extensions():
