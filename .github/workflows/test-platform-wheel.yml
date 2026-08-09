@@ -1,0 +1,88 @@
+name: Test platform wheel artifacts
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        description: GitHub-hosted runner matching the wheel platform.
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  GCC_VERSION: "14"
+
+jobs:
+  test:
+    name: Test ${{ inputs.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ inputs.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.12"
+          - "3.13"
+          - "3.14"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Configure GCC 14 for the installed C++ consumer
+        if: runner.os == 'Linux' && matrix.python-version == '3.12'
+        shell: bash
+        run: |
+          cc_path="$(command -v "gcc-$GCC_VERSION")"
+          cxx_path="$(command -v "g++-$GCC_VERSION")"
+          test "$("$cxx_path" -dumpfullversion -dumpversion | cut -d. -f1)" -eq "$GCC_VERSION"
+          echo "CC=$cc_path" >> "$GITHUB_ENV"
+          echo "CXX=$cxx_path" >> "$GITHUB_ENV"
+          "$cxx_path" --version
+      - name: Install uv
+        run: >-
+          python -m pip install --upgrade --only-binary=:all: "uv==0.12.3"
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: distribution-wheel-${{ inputs.os }}
+          path: dist
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: kafka-distribution-wheel-${{ inputs.os }}
+          path: kafka-dist
+      - name: Sync test dependencies
+        run: uv sync --frozen --all-extras --all-groups --no-install-workspace --python ${{ matrix.python-version }}
+      - name: Install wheel
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          wheels = list(Path("dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          venv_python = Path(".venv") / (
+              "Scripts/python.exe" if sys.platform == "win32" else "bin/python"
+          )
+          subprocess.check_call([
+              "uv", "pip", "install", "--python", str(venv_python), str(wheels[0]),
+          ])
+          kafka_wheels = list(Path("kafka-dist").glob("*.whl"))
+          assert len(kafka_wheels) == 1, kafka_wheels
+          subprocess.check_call([
+              "uv", "pip", "install", "--python", str(venv_python),
+              "--no-deps", str(kafka_wheels[0]),
+          ])
+      - name: Confirm installed distribution
+        run: uv run --no-sync python -c "import importlib.metadata as m; import _hgraph; print(m.version('hgraph'), _hgraph.__file__)"
+      - name: Run Python compatibility suite
+        run: uv run --no-sync python -m pytest python/tests -q -m "not wip"
+      - name: Run Kafka extension suite
+        run: uv run --no-sync python -m pytest extensions/kafka/python/tests -q
+      - name: Build installed Python extension consumer
+        if: matrix.python-version == '3.12'
+        run: uv run --no-sync python tests/python_extension_consumer/check.py

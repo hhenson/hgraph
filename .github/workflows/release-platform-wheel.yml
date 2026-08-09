@@ -1,0 +1,152 @@
+name: Build platform wheel artifacts
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        description: GitHub-hosted runner used to build the wheel.
+        required: true
+        type: string
+      parallel:
+        description: Maximum number of parallel CMake build jobs.
+        required: true
+        type: string
+      cmake_args:
+        description: Platform-specific CMake configuration arguments.
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  build:
+    name: Build ${{ inputs.os }} wheel
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Enable shared compiler cache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+        with:
+          version: v0.15.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Configure current Clang on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          echo "CC=/usr/bin/clang" >> "$GITHUB_ENV"
+          echo "CXX=/usr/bin/clang++" >> "$GITHUB_ENV"
+          echo "MACOSX_DEPLOYMENT_TARGET=15.0" >> "$GITHUB_ENV"
+          /usr/bin/clang++ --version
+      - name: Configure MSVC toolchain for Ninja
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+      - name: Install Ninja
+        if: runner.os == 'Windows'
+        run: >-
+          python -m pip install --only-binary=:all: "ninja==1.13.0"
+      - name: Install wheel build tools
+        run: >-
+          python -m pip install --upgrade --only-binary=:all:
+          "build==1.5.0" "abi3audit==0.0.26"
+          "scikit-build-core==1.0.3" "nanobind==2.13.0"
+          "pyarrow==24.0.0"
+      - name: Build stable ABI wheel
+        env:
+          CMAKE_GENERATOR: Ninja
+          CMAKE_ARGS: ${{ inputs.cmake_args }}
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ inputs.parallel }}
+        run: >-
+          python -m build --wheel --no-isolation --skip-dependency-check
+          "-Cbuild-dir=.ci-build/core/{wheel_tag}"
+      - name: Audit wheel contents
+        run: python tools/audit_distribution.py "dist/*.whl"
+      - name: Verify wheel ABI
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          wheels = list(Path("dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          wheel = wheels[0]
+          assert wheel.name.startswith("hgraph-"), wheel.name
+          assert "-cp312-abi3-" in wheel.name, wheel.name
+          if sys.platform == "darwin":
+              assert "-macosx_15_0_arm64.whl" in wheel.name, wheel.name
+          elif sys.platform == "win32":
+              assert wheel.name.endswith("-win_amd64.whl"), wheel.name
+          subprocess.check_call(["abi3audit", "--strict", str(wheel)])
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: distribution-wheel-${{ inputs.os }}
+          path: dist/*.whl
+          if-no-files-found: error
+      - name: Install the matching core SDK
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          wheels = list(Path("dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          subprocess.check_call([sys.executable, "-m", "pip", "install", str(wheels[0])])
+      - name: Locate the installed core SDK
+        shell: python
+        run: |
+          from importlib import metadata
+          import os
+          from pathlib import Path
+
+          distribution = metadata.distribution("hgraph")
+          sdk_prefix = Path(distribution.locate_file("")).resolve()
+          config = sdk_prefix / "lib" / "cmake" / "hgraph" / "hgraphConfig.cmake"
+          if not config.is_file():
+              raise FileNotFoundError(f"installed hgraph CMake package not found: {config}")
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"HGRAPH_KAFKA_SDK_PREFIX={sdk_prefix}\n")
+      - name: Build Kafka stable ABI wheel
+        env:
+          CMAKE_GENERATOR: Ninja
+          CMAKE_ARGS: ${{ inputs.cmake_args }}
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ inputs.parallel }}
+          CMAKE_PREFIX_PATH: ${{ env.HGRAPH_KAFKA_SDK_PREFIX }}
+        run: >-
+          python -m build --wheel --no-isolation --skip-dependency-check
+          "-Cbuild-dir=.ci-build/kafka/{wheel_tag}"
+          --outdir kafka-dist extensions/kafka
+      - name: Verify Kafka wheel ABI
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          wheels = list(Path("kafka-dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          wheel = wheels[0]
+          assert wheel.name.startswith("hgraph_kafka-"), wheel.name
+          assert "-cp312-abi3-" in wheel.name, wheel.name
+          if sys.platform == "darwin":
+              assert "-macosx_15_0_arm64.whl" in wheel.name, wheel.name
+          elif sys.platform == "win32":
+              assert wheel.name.endswith("-win_amd64.whl"), wheel.name
+          subprocess.check_call(["abi3audit", "--strict", str(wheel)])
+      - name: Audit Kafka wheel contents
+        run: python extensions/kafka/tools/audit_distribution.py "kafka-dist/*.whl"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: kafka-distribution-wheel-${{ inputs.os }}
+          path: kafka-dist/*.whl
+          if-no-files-found: error
