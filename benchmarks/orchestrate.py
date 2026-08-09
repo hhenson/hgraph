@@ -1,8 +1,9 @@
-"""Benchmark orchestrator — compares Python-first hgraph 0.5 with the
+"""Benchmark orchestrator — compares fixed hgraph releases with the
 C++-first candidate and renders the performance matrix.
 
 Modes:
   upstream-cpp  same package with HGRAPH_USE_CPP=true (the old C++ runtime)
+  release       published C++-first hgraph 0.8.1 release
   hg-cpp        this repository's package, from the CURRENT interpreter's env
   upstream-py   optional pinned hgraph 0.5 Python runtime reference
 
@@ -10,6 +11,7 @@ Usage (from the repo root, inside the repo's env):
   uv run python benchmarks/orchestrate.py                 # C++ comparison
   uv run python benchmarks/orchestrate.py --scale 0.1     # quick pass
   uv run python benchmarks/orchestrate.py --mode upstream-py  # on demand
+  uv run python benchmarks/orchestrate.py --mode release      # fixed 0.8.1
   uv run python benchmarks/orchestrate.py --scenario tick_std --mode hg-cpp
   uv run python benchmarks/orchestrate.py --setup-only    # just build venvs
 
@@ -45,19 +47,60 @@ ENVIRONMENT_KEY = (
 )
 UPSTREAM_VENV = BENCH_DIR / f".venv-upstream-{ENVIRONMENT_KEY}"
 HG_CPP_VENV = BENCH_DIR / f".venv-hg-cpp-{ENVIRONMENT_KEY}"
+REFERENCE_HGRAPH_VERSION = "0.5.41"
+FIXED_RELEASE_HGRAPH_VERSION = "0.8.1"
+UPSTREAM_ARTIFACT_FILE = UPSTREAM_VENV / ".artifact-sha256"
+RELEASE_VENV = BENCH_DIR / (
+    f".venv-release-{FIXED_RELEASE_HGRAPH_VERSION}-{ENVIRONMENT_KEY}"
+)
+RELEASE_ARTIFACT_FILE = RELEASE_VENV / ".artifact-sha256"
+REFERENCE_ARTIFACTS = {
+    ("darwin", "arm64"): {
+        "filename": "hgraph-0.5.41-cp312-abi3-macosx_15_0_arm64.whl",
+        "url": "https://files.pythonhosted.org/packages/b6/1c/a5bbc64ae4b749c91cd02662d4213702ec057d2cb6d240e373b1396cb8f4/hgraph-0.5.41-cp312-abi3-macosx_15_0_arm64.whl",
+        "sha256": "872bd8f07fcec148317786be517ba7c73bc8c6023de50a4fe88cc68c0ae1eef1",
+    },
+    ("linux", "x86_64"): {
+        "filename": "hgraph-0.5.41-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "url": "https://files.pythonhosted.org/packages/98/e1/efac47f201136234dd356ff19a994e95973cb6341fc293cff1c1f8dbe0f3/hgraph-0.5.41-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "sha256": "c24da699910c3eb44019a38a0fb293557ec707b48a8e8ab5b3e5fd8b0be2db7d",
+    },
+    ("win32", "x86_64"): {
+        "filename": "hgraph-0.5.41-cp312-abi3-win_amd64.whl",
+        "url": "https://files.pythonhosted.org/packages/31/35/2f743be8a9ee0e236169b202fabd69aeaf61292429138bc30cfaea1f2d04/hgraph-0.5.41-cp312-abi3-win_amd64.whl",
+        "sha256": "74deabc55a4e5a93f3d5234ff828d499c51344924fdac303303abe8b80b224f8",
+    },
+}
+FIXED_RELEASE_ARTIFACTS = {
+    ("darwin", "arm64"): {
+        "filename": "hgraph-0.8.1-cp312-abi3-macosx_15_0_arm64.whl",
+        "url": "https://files.pythonhosted.org/packages/7c/79/c0a5d044fe9f824fc588552b26b63a3d9693cfb0b5276d8ad51c75e73bde/hgraph-0.8.1-cp312-abi3-macosx_15_0_arm64.whl",
+        "sha256": "daab5629e766d26bcfa2dee0d06e27de5567485825d512edaf75e74787ad708c",
+    },
+    ("linux", "x86_64"): {
+        "filename": "hgraph-0.8.1-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "url": "https://files.pythonhosted.org/packages/ca/65/a16e00ecf13021e9cd44fd95560fb6f9c41b04a45b33cc02ad944b89699f/hgraph-0.8.1-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+        "sha256": "c584116405c6b454220758764d3f3ad39055d2a3b43c4bd4b044fd70365025f0",
+    },
+    ("win32", "x86_64"): {
+        "filename": "hgraph-0.8.1-cp312-abi3-win_amd64.whl",
+        "url": "https://files.pythonhosted.org/packages/7c/b7/2c5792d118dd1c23318e81fa6ff203b804c64cce4c5737c2a0ddc578832e/hgraph-0.8.1-cp312-abi3-win_amd64.whl",
+        "sha256": "7d30ce7b27e3add5869eeda795cbd8ce21830218258533cd8a1a963b711adcd8",
+    },
+}
 RESULTS_DIR = BENCH_DIR / "results"
 RUNNER = BENCH_DIR / "runner.py"
 VALIDATOR = BENCH_DIR / "validate.py"
 HG_CPP_FINGERPRINT_FILE = HG_CPP_VENV / ".source-fingerprint"
-REFERENCE_HGRAPH_VERSION = "0.5.41"
 
-MODES = ("upstream-py", "upstream-cpp", "hg-cpp")
-DEFAULT_MODES = ("upstream-cpp", "hg-cpp")
-BASELINE_MODES = ("upstream-py", "upstream-cpp")
+MODES = ("upstream-py", "upstream-cpp", "release", "hg-cpp")
+DEFAULT_MODES = ("release", "hg-cpp")
+BASELINE_MODES = ("upstream-py", "upstream-cpp", "release")
 MODE_LABELS = {
     "upstream-py": "Python",
     "upstream-cpp": "legacy C++",
-    "hg-cpp": "hg_cpp",
+    "release": f"hgraph {FIXED_RELEASE_HGRAPH_VERSION}",
+    "hg-cpp": "current source",
 }
 BASELINE_CACHE_SCHEMA = 1
 BASELINE_CACHE = RESULTS_DIR / f"baseline-{ENVIRONMENT_KEY}.json"
@@ -75,6 +118,34 @@ def upstream_python() -> Path:
 
 def hg_cpp_python() -> Path:
     return HG_CPP_VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+
+def release_python() -> Path:
+    return RELEASE_VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+
+def _platform_artifact(artifacts: dict, version: str) -> dict[str, str]:
+    machine = platform.machine().lower()
+    if machine in {"amd64", "x64"}:
+        machine = "x86_64"
+    key = (sys.platform, machine)
+    try:
+        return artifacts[key]
+    except KeyError as exc:
+        raise RuntimeError(
+            f"hgraph {version} has no pinned benchmark "
+            f"wheel for {sys.platform}/{machine}"
+        ) from exc
+
+
+def reference_artifact() -> dict[str, str]:
+    return _platform_artifact(REFERENCE_ARTIFACTS, REFERENCE_HGRAPH_VERSION)
+
+
+def fixed_release_artifact() -> dict[str, str]:
+    return _platform_artifact(
+        FIXED_RELEASE_ARTIFACTS, FIXED_RELEASE_HGRAPH_VERSION
+    )
 
 
 def hg_cpp_source_fingerprint() -> str:
@@ -129,7 +200,7 @@ def benchmark_metadata() -> dict[str, str]:
         revision += "+dirty"
 
     compiler = shlex.split(os.environ.get("CXX", "c++"))
-    return {
+    metadata = {
         "revision": revision,
         "source_fingerprint": hg_cpp_source_fingerprint(),
         "build_type": "Release",
@@ -137,16 +208,32 @@ def benchmark_metadata() -> dict[str, str]:
         "python": platform.python_version(),
         "cpu": _cpu_model(),
     }
+    try:
+        artifact = fixed_release_artifact()
+        reference = reference_artifact()
+    except RuntimeError:
+        return metadata
+    metadata.update(
+        fixed_release_wheel=artifact["filename"],
+        fixed_release_sha256=artifact["sha256"],
+        reference_wheel=reference["filename"],
+        reference_sha256=reference["sha256"],
+    )
+    return metadata
 
 
 def ensure_upstream_venv() -> None:
+    artifact = reference_artifact()
     if upstream_python().exists():
-        installed = _first_line([
-            str(upstream_python()),
-            "-c",
-            "from importlib.metadata import version; print(version('hgraph'))",
-        ])
-        if installed == REFERENCE_HGRAPH_VERSION:
+        installed = installed_hgraph_version(upstream_python())
+        recorded_sha256 = (
+            UPSTREAM_ARTIFACT_FILE.read_text().strip()
+            if UPSTREAM_ARTIFACT_FILE.exists() else ""
+        )
+        if (
+            installed == REFERENCE_HGRAPH_VERSION
+            and recorded_sha256 == artifact["sha256"]
+        ):
             return
         print(
             f"[setup] replacing hgraph {installed} in the upstream venv with "
@@ -164,15 +251,26 @@ def ensure_upstream_venv() -> None:
     subprocess.run(
         [
             "uv", "pip", "install", "--python", str(upstream_python()),
-            f"hgraph=={REFERENCE_HGRAPH_VERSION}",
+            "--reinstall", f"{artifact['url']}#sha256={artifact['sha256']}",
         ],
         check=True,
     )
+    installed = installed_hgraph_version(upstream_python())
+    if installed != REFERENCE_HGRAPH_VERSION:
+        raise RuntimeError(
+            f"reference environment contains hgraph {installed}, expected "
+            f"{REFERENCE_HGRAPH_VERSION}"
+        )
+    UPSTREAM_ARTIFACT_FILE.write_text(artifact["sha256"] + "\n")
 
 
 def upstream_hgraph_version() -> str:
+    return installed_hgraph_version(upstream_python())
+
+
+def installed_hgraph_version(executable: Path | str) -> str:
     version = _first_line([
-        str(upstream_python()),
+        str(executable),
         "-c",
         "from importlib.metadata import version; print(version('hgraph'))",
     ])
@@ -184,16 +282,70 @@ def upstream_hgraph_version() -> str:
     return version
 
 
+def ensure_release_venv() -> None:
+    artifact = fixed_release_artifact()
+    if release_python().exists():
+        installed = installed_hgraph_version(release_python())
+        recorded_sha256 = (
+            RELEASE_ARTIFACT_FILE.read_text().strip()
+            if RELEASE_ARTIFACT_FILE.exists() else ""
+        )
+        if (
+            installed == FIXED_RELEASE_HGRAPH_VERSION
+            and recorded_sha256 == artifact["sha256"]
+        ):
+            return
+        print(
+            f"[setup] replacing hgraph {installed} in the fixed release venv "
+            f"with hgraph=={FIXED_RELEASE_HGRAPH_VERSION}..."
+        )
+    else:
+        print(
+            f"[setup] creating fixed release venv at {RELEASE_VENV} "
+            f"(pip install hgraph=={FIXED_RELEASE_HGRAPH_VERSION})..."
+        )
+        subprocess.run(
+            ["uv", "venv", "--python", sys.executable, str(RELEASE_VENV)],
+            check=True,
+        )
+    subprocess.run(
+        [
+            "uv", "pip", "install", "--python", str(release_python()),
+            "--reinstall", f"{artifact['url']}#sha256={artifact['sha256']}",
+        ],
+        check=True,
+    )
+    installed = installed_hgraph_version(release_python())
+    if installed != FIXED_RELEASE_HGRAPH_VERSION:
+        raise RuntimeError(
+            f"fixed release environment contains hgraph {installed}, expected "
+            f"{FIXED_RELEASE_HGRAPH_VERSION}"
+        )
+    RELEASE_ARTIFACT_FILE.write_text(artifact["sha256"] + "\n")
+
+
+def mode_hgraph_version(mode: str) -> str:
+    executable, _ = mode_invocation(mode)
+    return installed_hgraph_version(executable)
+
+
 def baseline_identity(
     cycle_scale: float,
     size_scale: float,
     samples: int,
+    modes: tuple[str, ...] | list[str] = BASELINE_MODES,
 ) -> dict:
     return {
         "schema": BASELINE_CACHE_SCHEMA,
         "environment": ENVIRONMENT_KEY,
         "cpu": _cpu_model(),
-        "upstream_hgraph": upstream_hgraph_version(),
+        "hgraph_versions": {
+            "upstream-py": REFERENCE_HGRAPH_VERSION,
+            "upstream-cpp": REFERENCE_HGRAPH_VERSION,
+            "release": FIXED_RELEASE_HGRAPH_VERSION,
+        },
+        "fixed_release_artifact": fixed_release_artifact()["sha256"],
+        "reference_artifact": reference_artifact()["sha256"],
         "benchmark_pack": benchmark_pack_fingerprint(),
         "cycle_scale": cycle_scale,
         "size_scale": size_scale,
@@ -273,7 +425,19 @@ def mode_invocation(mode: str):
     if mode == "hg-cpp":
         fingerprint = HG_CPP_FINGERPRINT_FILE.read_text().strip()
         return str(hg_cpp_python()), {"HGRAPH_BENCHMARK_SOURCE_FINGERPRINT": fingerprint}
-    env = {"HGRAPH_USE_CPP": "true"} if mode == "upstream-cpp" else {}
+    if mode == "release":
+        artifact = fixed_release_artifact()
+        return str(release_python()), {
+            "HGRAPH_BENCHMARK_FIXED_RELEASE": FIXED_RELEASE_HGRAPH_VERSION,
+            "HGRAPH_BENCHMARK_FIXED_RELEASE_SHA256": artifact["sha256"],
+        }
+    artifact = reference_artifact()
+    env = {
+        "HGRAPH_BENCHMARK_REFERENCE": REFERENCE_HGRAPH_VERSION,
+        "HGRAPH_BENCHMARK_REFERENCE_SHA256": artifact["sha256"],
+    }
+    if mode == "upstream-cpp":
+        env["HGRAPH_USE_CPP"] = "true"
     return str(upstream_python()), env
 
 
@@ -378,7 +542,8 @@ def render(
     baseline_mode = (
         "upstream-py"
         if "upstream-py" in display_modes
-        else "upstream-cpp" if "upstream-cpp" in display_modes else None
+        else "upstream-cpp" if "upstream-cpp" in display_modes
+        else "release" if "release" in display_modes else None
     )
     reused_baselines = sum(
         bool(result.get("baseline_reused"))
@@ -395,15 +560,32 @@ def render(
         f"- host: {platform.platform()} / {platform.processor() or platform.machine()}",
         f"- CPU: {metadata['cpu']}",
         f"- Python: {metadata['python']}",
-        f"- compiler: {metadata['compiler']}",
-        f"- hg_cpp revision: {metadata['revision']}",
-        f"- hg_cpp source fingerprint: {metadata['source_fingerprint']}",
-        f"- hg_cpp build type: {metadata['build_type']}",
+        *(
+            [f"- reference baseline: hgraph {REFERENCE_HGRAPH_VERSION} "
+             "(published wheel)",
+             f"- reference wheel: {metadata.get('reference_wheel', reference_artifact()['filename'])}",
+             f"- reference SHA-256: {metadata.get('reference_sha256', reference_artifact()['sha256'])}"]
+            if any(mode.startswith("upstream") for mode in display_modes) else []
+        ),
+        *(
+            [f"- fixed release baseline: hgraph {FIXED_RELEASE_HGRAPH_VERSION} "
+             "(published wheel)",
+             f"- fixed release wheel: {metadata.get('fixed_release_wheel', fixed_release_artifact()['filename'])}",
+             f"- fixed release SHA-256: {metadata.get('fixed_release_sha256', fixed_release_artifact()['sha256'])}"]
+            if "release" in display_modes else []
+        ),
+        *(
+            [f"- current-source compiler: {metadata['compiler']}",
+             f"- current-source revision: {metadata['revision']}",
+             f"- current-source fingerprint: {metadata['source_fingerprint']}",
+             f"- current-source build type: {metadata['build_type']}"]
+            if "hg-cpp" in display_modes else []
+        ),
         f"- cycle scale: {cycle_scale}",
         f"- size scale: {size_scale}",
         f"- fresh-process samples: {samples}",
         f"- modes: {mode_summary}",
-        f"- reused upstream baseline cells: {reused_baselines}",
+        f"- reused fixed baseline cells: {reused_baselines}",
         "",
         "Median seconds per scenario (lower is better); +/- is median absolute "
         "deviation"
@@ -411,10 +593,10 @@ def render(
             f" and xN is speed-up vs {MODE_LABELS[baseline_mode]}."
             if baseline_mode else "."
         ),
-        "hg_cpp-only sections are tracked without an upstream comparison.",
+        "C++-first-only sections are tracked without a 0.5 comparison.",
     ]
     current_group = None
-    group_is_hg_cpp_only = False
+    group_is_cpp_first_only = False
     for name, per_mode in results.items():
         metadata = next(
             (value for value in per_mode.values() if not value.get("skipped")),
@@ -424,15 +606,18 @@ def render(
         label = metadata.get("label", name)
         if group != current_group:
             current_group = group
-            group_is_hg_cpp_only = metadata.get("supported_modes") == ["hg-cpp"]
+            supported_modes = set(metadata.get("supported_modes", ()))
+            group_is_cpp_first_only = bool(supported_modes) and not (
+                supported_modes & {"upstream-py", "upstream-cpp"}
+            )
             lines += ["", f"## {group}", ""]
-            if group_is_hg_cpp_only:
+            if group_is_cpp_first_only:
                 lines += [
-                    "This section is tracked within hg_cpp and is not a "
+                    "This section is tracked within C++-first hgraph and is not a "
                     "cross-implementation comparison.",
                     "",
-                    "| workload | cycles | hg-cpp |",
-                    "|---|---|---|",
+                    f"| workload | cycles | {' | '.join(MODE_LABELS[mode] for mode in display_modes)} |",
+                    "|" + "---|" * (2 + len(display_modes)),
                 ]
             else:
                 headers = " | ".join(
@@ -442,7 +627,7 @@ def render(
                     f"| workload | cycles | {headers} |",
                     "|" + "---|" * (2 + len(display_modes)),
                 ]
-        row_modes = ["hg-cpp"] if group_is_hg_cpp_only else display_modes
+        row_modes = display_modes
         base = per_mode.get(baseline_mode, {}) if baseline_mode else {}
         base_s = base.get("seconds") if base.get("ok") else None
         cycles = next(
@@ -498,13 +683,13 @@ def main() -> int:
     parser.add_argument("--group", action="append",
                         help="restrict to exact report group name")
     parser.add_argument("--mode", action="append", choices=MODES,
-                        help="restrict to mode(s); default legacy C++ and hg_cpp")
+                        help="restrict to mode(s); default fixed 0.8.1 and current source")
     parser.add_argument("--timeout", type=int, default=300,
                         help="per-scenario timeout, seconds")
     parser.add_argument("--baseline-cache", type=Path, default=BASELINE_CACHE,
-                        help="upstream timing cache (default: platform-specific)")
+                        help="fixed-release timing cache (default: platform-specific)")
     parser.add_argument("--refresh-baseline", action="store_true",
-                        help="rerun selected upstream modes and refresh their cache")
+                        help="rerun selected fixed-release modes and refresh their cache")
     parser.add_argument("--setup-only", action="store_true")
     parser.add_argument("--skip-validation", action="store_true",
                         help="skip the cross-runtime workload correctness preflight")
@@ -520,6 +705,8 @@ def main() -> int:
     modes = args.mode or list(DEFAULT_MODES)
     if any(m.startswith("upstream") for m in modes):
         ensure_upstream_venv()
+    if "release" in modes:
+        ensure_release_venv()
     if "hg-cpp" in modes:
         ensure_hg_cpp_venv()
     if args.setup_only:
@@ -551,7 +738,7 @@ def main() -> int:
     baseline_cache = {}
     if selected_baseline_modes:
         baseline_cache_identity = baseline_identity(
-            cycle_scale, size_scale, args.samples
+            cycle_scale, size_scale, args.samples, selected_baseline_modes
         )
         baseline_cache = load_baseline_cache(
             args.baseline_cache, baseline_cache_identity

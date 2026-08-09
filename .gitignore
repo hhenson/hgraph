@@ -12,6 +12,7 @@
 .claude/
 benchmarks/.venv-upstream*/
 benchmarks/.venv-hg-cpp*/
+benchmarks/.venv-release*/
 benchmarks/results/baseline-*.json
 benchmarks/results/memory-baseline-*.json
 /reports/

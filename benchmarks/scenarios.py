@@ -1,10 +1,11 @@
-"""Comparative benchmark scenarios for the three hgraph implementations.
+"""Comparative benchmark scenarios for released and candidate hgraph implementations.
 
 Written in standard Python hgraph syntax only — the SAME source must wire and
 run on:
   1. Python-first hgraph 0.5.41 runtime        (pip install hgraph==0.5.41)
   2. Python-first hgraph 0.5.41 C++ runtime    (HGRAPH_USE_CPP=true)
   3. C++-first hgraph                          (this repository's package)
+  4. Published C++-first hgraph 0.8.1 release
 
 Two flavours per scenario family:
   *_std — mostly-graph, standard operators (python nodes only where a tick
@@ -40,8 +41,8 @@ MIN_TD = hg.MIN_TD
 # the bench degrades with a clear message rather than an import error.
 REMOVE = getattr(hg, "REMOVE")
 
-ALL_MODES = ("upstream-py", "upstream-cpp", "hg-cpp")
-HG_CPP_ONLY = ("hg-cpp",)
+ALL_MODES = ("upstream-py", "upstream-cpp", "release", "hg-cpp")
+CPP_FIRST_ONLY = ("release", "hg-cpp")
 
 
 @dataclass(frozen=True)
@@ -288,7 +289,7 @@ def _tss_churn_pulse(cycles: int, live: int, churn: int) -> TSS[int]:
 def _dynamic_tsl_sparse_pulse(
     cycles: int, initial_size: int, per_cycle: int
 ) -> TSL[TS[int], Size[0]]:
-    """hg_cpp-only unbounded TSL source with sparse positional updates."""
+    """C++-first-only unbounded TSL source with sparse positional updates."""
     yield MIN_TD, {index: index for index in range(initial_size)}
     for i in range(1, cycles):
         base = (i * per_cycle) % initial_size
@@ -1459,7 +1460,7 @@ SCENARIOS = {
         python_sink_boundary, suite="diagnostic"),
     "python_global_state_boundary": _scenario(
         "Python boundary", "Python compute with injected GlobalState",
-        python_global_state_boundary, suite="diagnostic", modes=HG_CPP_ONLY),
+        python_global_state_boundary, suite="diagnostic", modes=CPP_FIRST_ONLY),
 
     "type_int_std": _scenario(
         "Value types", "Integer arithmetic", type_int_std),
@@ -1476,52 +1477,52 @@ SCENARIOS = {
         "Python-owned structured scalars",
         "Whole-object pass-through - native layout",
         python_owned_pass_through_native,
-        suite="diagnostic", modes=HG_CPP_ONLY),
+        suite="diagnostic", modes=CPP_FIRST_ONLY),
     "python_owned_pass_through_python": _scenario(
         "Python-owned structured scalars",
         "Whole-object pass-through - Python-owned",
         python_owned_pass_through_python,
-        suite="diagnostic", modes=HG_CPP_ONLY),
+        suite="diagnostic", modes=CPP_FIRST_ONLY),
     "python_owned_project_one_native": _scenario(
         "Python-owned structured scalars",
         "One field projection - native layout",
         python_owned_project_one_native,
-        suite="diagnostic", modes=HG_CPP_ONLY),
+        suite="diagnostic", modes=CPP_FIRST_ONLY),
     "python_owned_project_one_python": _scenario(
         "Python-owned structured scalars",
         "One field projection - Python-owned",
         python_owned_project_one_python,
-        suite="diagnostic", modes=HG_CPP_ONLY),
+        suite="diagnostic", modes=CPP_FIRST_ONLY),
     "python_owned_project_several_native": _scenario(
         "Python-owned structured scalars",
         "Three field projections - native layout",
         python_owned_project_several_native,
-        suite="diagnostic", modes=HG_CPP_ONLY),
+        suite="diagnostic", modes=CPP_FIRST_ONLY),
     "python_owned_project_several_python": _scenario(
         "Python-owned structured scalars",
         "Three field projections - Python-owned",
         python_owned_project_several_python,
-        suite="diagnostic", modes=HG_CPP_ONLY),
+        suite="diagnostic", modes=CPP_FIRST_ONLY),
     "python_owned_construct_native": _scenario(
         "Python-owned structured scalars",
         "Construction from fields - native layout",
         python_owned_construct_native,
-        suite="diagnostic", modes=HG_CPP_ONLY),
+        suite="diagnostic", modes=CPP_FIRST_ONLY),
     "python_owned_construct_python": _scenario(
         "Python-owned structured scalars",
         "Construction from fields - Python-owned",
         python_owned_construct_python,
-        suite="diagnostic", modes=HG_CPP_ONLY),
+        suite="diagnostic", modes=CPP_FIRST_ONLY),
     "python_owned_dedup_native": _scenario(
         "Python-owned structured scalars",
         "Equality and deduplication - native layout",
         python_owned_dedup_native,
-        suite="diagnostic", modes=HG_CPP_ONLY),
+        suite="diagnostic", modes=CPP_FIRST_ONLY),
     "python_owned_dedup_python": _scenario(
         "Python-owned structured scalars",
         "Equality and deduplication - Python-owned",
         python_owned_dedup_python,
-        suite="diagnostic", modes=HG_CPP_ONLY),
+        suite="diagnostic", modes=CPP_FIRST_ONLY),
     "type_tsb_partial_fields_std": _scenario(
         "Value types", "Bundle with partial field updates",
         type_tsb_partial_fields_std, suite="diagnostic"),
@@ -1614,10 +1615,10 @@ SCENARIOS = {
         reduce_fixed_tsl_ordered_std, suite="diagnostic"),
     "reduce_tsd_without_zero_std": _scenario(
         "Reduce", "Empty/singleton/two-value TSD without zero",
-        reduce_tsd_without_zero_std, suite="diagnostic", modes=HG_CPP_ONLY),
+        reduce_tsd_without_zero_std, suite="diagnostic", modes=CPP_FIRST_ONLY),
     "reduce_dynamic_tsl_std": _scenario(
-        "hg_cpp - dynamic TSL", "Sparse map and reduce over an unbounded list",
-        reduce_dynamic_tsl_std, suite="diagnostic", modes=HG_CPP_ONLY,
+    "C++-first - dynamic TSL", "Sparse map and reduce over an unbounded list",
+        reduce_dynamic_tsl_std, suite="diagnostic", modes=CPP_FIRST_ONLY,
         independent_size=True),
 
     "switch_alternating_branch_sizes_std": _scenario(

@@ -49,7 +49,7 @@ def _sample(peak, retained, ready=100.0):
 
 
 def test_memory_profiles_reference_stable_scenarios_and_have_growth_context():
-    assert memory.DEFAULT_MODES == memory.MODES
+    assert memory.DEFAULT_MODES == ("release", "hg-cpp")
     for profile in memory.memory_profiles.PROFILES.values():
         assert profile.scenario in memory.scenarios.SCENARIOS
         assert profile.growth_axis
@@ -116,8 +116,8 @@ def test_memory_report_keeps_process_and_inspector_units_distinct():
 
     assert "Peak delta" in report
     assert "native-accounted bytes, not RSS" in report
-    assert "hg/Python" in report
-    assert "hg/hgraph C++" in report
+    assert "current source/Python" in report
+    assert "current source/hgraph C++" in report
     assert "0.33x" in report
     assert "0.50x" in report
     assert "| 64.0 | 32.0 |" in report
@@ -135,8 +135,8 @@ def test_python_reference_remains_reportable_on_demand():
     assert "Python peak delta" in report
     assert "Python retained" in report
     assert "30.0 +/- 0.0" in report
-    assert "hg/Python" not in report
-    assert "hg/hgraph C++" not in report
+    assert "current source/Python" not in report
+    assert "current source/hgraph C++" not in report
 
 
 def test_process_lifetime_profiles_report_first_to_last_growth():
@@ -155,11 +155,11 @@ def test_process_lifetime_profiles_report_first_to_last_growth():
     )
 
     assert "hgraph C++ first-to-last growth" in report
-    assert "hg_cpp first-to-last growth" in report
+    assert "current source first-to-last growth" in report
     assert "1.0 +/- 0.0 | 0.5 +/- 0.0" in report
 
 
-def test_hg_cpp_registry_growth_is_reported_separately_from_live_memory():
+def test_current_source_registry_growth_is_reported_separately_from_live_memory():
     candidate = _sample(3.0, 3.0)
     candidate.update(
         node_runtime_types_growth=42,
@@ -199,3 +199,19 @@ def test_memory_baseline_cache_requires_exact_identity(tmp_path):
     assert memory.load_baseline_cache(
         path, {"schema": 1, "memory_pack": "changed"}
     ) == {}
+
+
+def test_memory_baseline_identity_pins_both_release_artifacts():
+    identity = memory.baseline_identity(
+        samples=3,
+        interval_ms=5.0,
+        scale=1.0,
+        psutil_versions={"release": "7.2.2"},
+    )
+
+    assert identity["reference_artifact"] == (
+        memory.performance.reference_artifact()["sha256"]
+    )
+    assert identity["fixed_release_artifact"] == (
+        memory.performance.fixed_release_artifact()["sha256"]
+    )

@@ -174,10 +174,14 @@ The final controlled performance and memory cut is recorded in
 matrices and raw samples beside it. It covers macOS, native x86_64 Linux, and
 Windows; 69 performance scenarios use five fresh-process samples, and 59
 memory profiles use three fresh-process samples plus native structural
-inspection. The candidate is compared with hgraph 0.5.41 in Python and legacy
-C++ modes. The record preserves improvements, boundary-specific regressions,
-and two independently rerun infrastructure failures rather than treating
-benchmarks as a release pass/fail gate.
+inspection. The measured implementation is the exact published hgraph 0.8.1
+wheel for each platform, compared with released hgraph 0.5.41 in Python and
+legacy C++ modes. Future optimisation and release reports compare back to this
+fixed 0.8.1 record; the 0.5.41 modes are rerun only when deliberately
+reconstructing the historical release baseline. The record preserves
+improvements, boundary-specific regressions, and independently rerun
+infrastructure failures rather than treating benchmarks as a release
+pass/fail gate.
 
 The macOS installed-package CMake consumer passed against system Arrow 25.
 Sphinx 9.1 passed with warnings as errors; all 48 packaging, readiness,
@@ -197,4 +201,6 @@ included ``arrow.dll``, ``arrow_compute.dll``, and ``arrow_acero.dll`` beside
 ``_hgraph.pyd``; the same ``cp312-abi3`` wheel passed under Python 3.12, 3.13,
 and 3.14. The final compatibility-skip refresh on top of that runtime source
 passed 1,204 native tests and 1,509 Python 3.14.6 tests with 10 documented
-deviation skips. The final tag review must still name the exact tagged commit.
+deviation skips. The published ``0.8.1`` tag resolves to
+``bc6c0a7ae1ab``; the benchmark record identifies each distributed wheel by
+its platform filename and SHA-256 digest.
