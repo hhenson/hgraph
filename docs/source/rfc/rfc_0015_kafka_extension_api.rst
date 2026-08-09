@@ -1110,7 +1110,7 @@ Performance and release
 * The extension's native suite, Python 3.14 suite, real/mock broker integration
   tests, installed-SDK consumer, and Linux sanitizer gates pass.
 * The monorepo migration pull request tests core and the extension at the same
-  commit and documents independent artifact release ordering.
+  commit and documents their shared 0.8 version tag and release ordering.
 
 Implementation plan
 -------------------

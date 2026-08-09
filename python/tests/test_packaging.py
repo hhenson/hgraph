@@ -110,7 +110,12 @@ def test_release_metadata_uses_untagged_sentinel():
 
     workflow = (ROOT / ".github/workflows/release-wheels.yml").read_text()
     assert "Restamp distributions to the tag version" in workflow
-    assert 'python tools/restamp_distribution.py dist "${RELEASE_TAG#v_}"' in workflow
+    assert '      - "*.*.*"' in workflow
+    assert "hgraph-kafka-v_" not in workflow
+    assert "v_*.*.*" not in workflow
+    assert workflow.count(
+        'python tools/restamp_distribution.py dist "$RELEASE_TAG"'
+    ) == 2
     assert 'python tools/validate_release.py "$RELEASE_TAG"' in workflow
 
 

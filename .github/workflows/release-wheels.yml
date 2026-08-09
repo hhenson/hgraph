@@ -5,8 +5,7 @@ on:
     branches:
       - main
     tags:
-      - "v_*.*.*"
-      - "hgraph-kafka-v_*.*.*"
+      - "*.*.*"
   pull_request:
   workflow_dispatch:
 
@@ -578,7 +577,7 @@ jobs:
     name: Publish hgraph to PyPI
     if: >-
       always() &&
-      startsWith(github.ref, 'refs/tags/v_') &&
+      github.ref_type == 'tag' &&
       needs.validate-release.result == 'success' &&
       needs.reuse-build.result == 'success' &&
       (
@@ -623,7 +622,7 @@ jobs:
       - name: Restamp distributions to the tag version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: python tools/restamp_distribution.py dist "${RELEASE_TAG#v_}"
+        run: python tools/restamp_distribution.py dist "$RELEASE_TAG"
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
@@ -633,7 +632,7 @@ jobs:
     name: Publish hgraph-kafka to PyPI
     if: >-
       always() &&
-      startsWith(github.ref, 'refs/tags/hgraph-kafka-v_') &&
+      github.ref_type == 'tag' &&
       needs.validate-release.result == 'success' &&
       needs.reuse-build.result == 'success' &&
       (
@@ -678,9 +677,7 @@ jobs:
       - name: Restamp Kafka distributions to the tag version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: >-
-          python tools/restamp_distribution.py dist
-          "${RELEASE_TAG#hgraph-kafka-v_}"
+        run: python tools/restamp_distribution.py dist "$RELEASE_TAG"
       - name: Publish Kafka package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:

@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "hgraph"
-# Release artifacts are restamped from the v_x.x.x tag by release-wheels.yml.
+# Release artifacts are restamped from the x.x.x tag by release-wheels.yml.
 version = "0.0.0"
 description = "C++-first functional reactive runtime for time-series processing"
 readme = "README.md"

@@ -92,8 +92,9 @@ requires all of the following from a clean checkout:
 
 GitHub CI is post-push platform evidence, not a substitute for the local gates.
 Tagged releases reuse the successful distribution artifacts for the exact
-commit SHA and restamp their package metadata to the tag version. Prerelease
-tags use the same ``v_`` convention, for example ``v_0.8.1rc1``.
+commit SHA and restamp both ``hgraph`` and ``hgraph-kafka`` package metadata to
+the shared bare-version tag. For example, ``0.8.1`` publishes both packages as
+version ``0.8.1``; prereleases use the same form, such as ``0.8.1rc1``.
 
 Performance evidence
 --------------------
@@ -112,8 +113,9 @@ Release review
 
 The release reviewer should verify:
 
-- the untagged package, documentation, and CMake baseline versions agree, and
-  tagged artifacts have been restamped to the validated PEP 440 tag version;
+- the untagged packages use their sentinel versions, both native CMake baseline
+  versions agree, and all tagged artifacts have been restamped to the validated
+  shared PEP 440 tag version;
 - no public Python name relies on a private bridge-only runtime implementation;
 - the parity matrix and roadmap contain no stale implemented-as-missing rows;
 - every remaining skip has a ``deviation:`` or ``gap:`` reason and an owner or

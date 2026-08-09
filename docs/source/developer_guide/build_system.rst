@@ -61,22 +61,22 @@ compatibility oracle.
 
 ``.github/workflows/release-wheels.yml`` builds one ``cp312-abi3`` wheel for Linux x86_64,
 Windows x86_64, and Apple Silicon macOS, then installs each platform wheel under
-CPython 3.12, 3.13, and 3.14.  A tag matching ``v_x.x.x`` publishes the tested
-wheels and source distribution through PyPI trusted publishing.  The tag is the
-release version authority: the publish job restamps the metadata of artifacts
-already tested for that exact commit, rather than rebuilding them.
-For core tags, the tag's numeric version core must match CMake's
-``project(VERSION)``. This guarantees that reused wheels contain a matching
-generated ``version.h``, ``hgraphConfigVersion.cmake``, and native
-``hgraph::version()`` value. A prerelease suffix belongs to the Python
-distribution metadata; the native SDK continues to expose its numeric API
-version core.
+CPython 3.12, 3.13, and 3.14. A bare tag matching ``x.x.x`` publishes the tested
+core and Kafka wheels and source distributions through PyPI trusted publishing.
+The tag is the shared release version authority: the publish jobs restamp the
+metadata of artifacts already tested for that exact commit, rather than
+rebuilding them. The tag's numeric version core must match both CMake
+``project(VERSION)`` declarations. This guarantees that reused wheels contain
+matching generated ``version.h``, CMake package versions, and native API version
+values. A prerelease suffix belongs to the Python distribution metadata; the
+native SDKs continue to expose their numeric API version core.
 ``pyproject.toml`` therefore uses ``0.0.0`` as an explicit untagged-artifact
 sentinel; it is never the version published to PyPI.  CMake's numeric
 ``project(VERSION)`` and ``docs/source/conf.py`` track the current C++ API line
 independently.  Packaging tests enforce these relationships and the release
-workflow validates the tag syntax and rejects versions already present on
-PyPI.  The PyPI trusted publisher is bound to the ``release-wheels.yml`` workflow and
+workflow validates the tag syntax and rejects a version already present for
+either package on PyPI. The PyPI trusted publishers are bound to the
+``release-wheels.yml`` workflow and
 the GitHub ``release`` environment.
 
 The macOS build uses the current system Clang from the latest Apple Silicon
@@ -149,7 +149,7 @@ First-party extension distributions
 -----------------------------------
 
 First-party extensions live under ``extensions/`` in the same repository but
-remain independently versioned CMake and Python distributions.  The root
+remain separate CMake and Python distributions.  The root
 ``uv`` workspace makes them selectable without adding an extension dependency
 to core ``hgraph``.  With the matching installed hgraph SDK discoverable, Kafka can
 be built with::
@@ -164,13 +164,12 @@ consumer instead configures ``extensions/kafka`` against the installed
 ``hgraph`` CMake package and links ``hgraph::kafka``.
 
 Each extension owns its nested ``pyproject.toml``, CMake package configuration,
-tests, and release version.  Cross-cutting changes are tested against core at
-the same commit, while the resulting wheels remain separately publishable.
-Core releases use ``v_<version>`` tags.  Kafka releases use independent
-``hgraph-kafka-v_<version>`` tags, which publish only the tested Kafka wheel
-and source-distribution artifacts.  When both packages change, publish the
-core tag first so the Kafka source build requirement is available from PyPI,
-then tag Kafka at the same tested commit.
+and tests. Cross-cutting changes are tested against core at the same commit,
+while the resulting wheels remain separate distribution artifacts. During the
+current release line, core and Kafka are co-versioned and co-released: a bare
+``<version>`` tag such as ``0.8.1`` validates both native project versions,
+restamps both distributions, and publishes both packages. Independent
+extension tags are intentionally not part of this release workflow.
 
 The Kafka PEP 517 build requirements include ``hgraph>=0.8.0`` because its standalone
 CMake configure consumes the installed core SDK.  In-repository CI installs
