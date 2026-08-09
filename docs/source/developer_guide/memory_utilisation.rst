@@ -303,22 +303,22 @@ adding a cache without a bounded key space. Changes in those areas require the
 full native/Python suites plus Linux validation and ASan as described in
 ``debugging``.
 
-Initial measured findings
--------------------------
+Final measured baseline
+-----------------------
 
-The first controlled macOS baseline used hgraph 0.5.33, Python 3.14.6, three
-fresh-process samples, and an Apple M4 Max. The complete report and raw samples
-are committed as ``benchmarks/results/memory-matrix-20260731-mac-main.md`` and
-``benchmarks/results/memory-raw-20260731-mac-main.json``. The raw metadata
-records the exact source revision and environment fingerprint used for the
-run.
+The final controlled macOS baseline used hgraph 0.5.41, Python 3.14.6, three
+fresh-process samples, and an Apple M4 Max. The complete cross-platform summary
+is committed as ``benchmarks/results/baseline-summary-20260809.md``; the macOS
+matrix and raw samples are
+``benchmarks/results/memory-baseline-20260809-macos.md`` and
+``benchmarks/results/memory-baseline-20260809-macos.json``. Raw metadata records
+the exact source revision and environment fingerprint.
 
-The loaded hg_cpp process floor was 63.5 MiB RSS, compared with 83.8 MiB for
-Python hgraph and 86.2 MiB for hgraph C++. Small run deltas favour both reference
-runtimes because hg_cpp touches an approximately 1.3--1.5 MiB one-time set of
-pages on first graph use; USS shows that only about 0.1 MiB remains uniquely
-resident for the scalar duration series. Ratios at this scale are allocator/page
-effects and should not drive node-level optimisation.
+The loaded hg_cpp process floor was 64.2 MiB RSS, compared with 83.9 MiB for
+Python hgraph and 86.5 MiB for hgraph C++. Small run deltas favour both
+reference runtimes because hg_cpp touches an approximately 1.3--1.6 MiB
+one-time set of pages on first graph use. Ratios at this scale are
+allocator/page effects and should not drive node-level optimisation.
 
 Larger graph and collection profiles favour hg_cpp, increasingly with scale:
 
@@ -332,70 +332,69 @@ Larger graph and collection profiles favour hg_cpp, increasingly with scale:
      - hg/Python
      - hg/hgraph C++
    * - Large wide/deep graph
-     - 19.0
-     - 21.6
-     - 19.0
-     - 1.00
-     - 0.88
+     - 19.3
+     - 21.4
+     - 10.2
+     - 0.53
+     - 0.48
    * - Large dense TSD map/reduce
      - 5.8
      - 4.6
-     - 2.5
-     - 0.43
-     - 0.55
+     - 2.4
+     - 0.41
+     - 0.52
    * - Large sparse retained capacity
-     - 616.5
-     - 448.3
-     - 106.1
-     - 0.17
-     - 0.24
-   * - Long monotonic key growth
-     - 98.3
-     - 68.7
-     - 23.1
-     - 0.24
-     - 0.34
-   * - Long clear/repopulate
-     - 100.6
-     - 75.8
-     - 7.3
-     - 0.07
-     - 0.10
-   * - Large keyed switch
-     - 37.8
-     - 8.6
-     - 4.2
+     - 618.2
+     - 454.8
+     - 69.2
      - 0.11
-     - 0.48
+     - 0.15
+   * - Long monotonic key growth
+     - 98.9
+     - 69.8
+     - 15.8
+     - 0.16
+     - 0.23
+   * - Long clear/repopulate
+     - 100.2
+     - 75.6
+     - 5.6
+     - 0.06
+     - 0.07
+   * - Large keyed switch
+     - 38.2
+     - 8.6
+     - 3.3
+     - 0.09
+     - 0.39
    * - Large dependency mesh
      - 10.0
-     - 5.2
-     - 3.5
-     - 0.35
-     - 0.66
+     - 5.1
+     - 3.2
+     - 0.32
+     - 0.62
 
 The hg_cpp duration series are bounded where the data structure is bounded.
 Scalar loops, Python compute chains, strings, the fixed 64-item tick window,
 key reactivation, and clear/repopulate have no material cycle-proportional
-slope. Native peak reserved storage is constant at 501 KiB for bounded TSD
-churn, 302.5 KiB for key reactivation, and 1,408 KiB for clear/repopulate.
-Monotonic key growth scales intentionally: native reported storage rises from
-819 KiB to 6,560 KiB, while process peak rises from 3.6 MiB to 23.2 MiB.
+slope. Native structural storage is constant across the bounded churn,
+reactivation, and clear/repopulate duration points. Monotonic key growth scales
+intentionally; the large point reserves 8.1 MiB of native-accounted dynamic
+storage while its process peak is 15.8 MiB.
 
 The sparse-capacity profile also quantifies the attribution gap. At the large
-point, GraphDiagnostics attributes 33.2 MiB of nested graph slots while process peak
-is 106.1 MiB. Approximately 72.9 MiB remains in key/value/index payloads,
-wiring/Python state, or allocator overhead. TSS cardinality produces a visible
-RSS slope while GraphDiagnostics reports zero dynamic bytes. These are stronger
-reasons to extend structural accounting than to tune the already-accounted
+point, GraphDiagnostics attributes 42.1 MiB of reserved dynamic storage while
+process peak is 69.2 MiB. Approximately 27.1 MiB remains in key/value/index
+payloads, wiring/Python state, or allocator overhead. This remaining gap is a
+reason to extend structural accounting rather than tune the already-accounted
 slot block in isolation.
 
 Repeated graph lifecycle finding
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The same graph callable was wired, executed, stopped, and collected repeatedly
-inside one process. The post-GC series is nearly linear rather than reaching a
-warm plateau:
+inside one process. The reference post-GC series remain nearly linear, while
+the candidate now approaches a warm plateau:
 
 .. list-table:: macOS first-to-last post-GC growth (median MiB)
    :header-rows: 1
@@ -405,46 +404,40 @@ warm plateau:
      - hgraph C++
      - hg_cpp
    * - Small graph, 10 executions
-     - 0.9
-     - 1.0
-     - 1.0
+     - 0.75
+     - 1.05
+     - 0.05
    * - Small graph, 100 executions
-     - 8.6
-     - 10.5
-     - 10.7
+     - 8.55
+     - 10.23
+     - 0.44
    * - Service/adaptor graph, 10 executions
-     - 0.8
-     - 1.0
-     - 0.6
+     - 0.73
+     - 0.97
+     - 0.16
    * - Service/adaptor graph, 50 executions
-     - 4.1
-     - 4.9
-     - 3.1
+     - 4.11
+     - 5.02
+     - 0.30
 
 RSS and USS growth are effectively identical for these series, so this is live
 or allocator-retained private memory rather than shared-library accounting.
-The comparable Python and hgraph-C++ slopes suggest a wider authoring/runtime
-lifecycle pattern, but hg_cpp's static ownership makes its candidate sources
-concrete: ``NodeRuntimeRegistry::make_type`` and the graph runtime registry
-append schemas, ops, contexts, and names before type interning, while several
-node policies append unique contexts to intentionally program-lifetime
-vectors. Rewiring an already-known graph can therefore retain new backing
-records even if the canonical type record is deduplicated.
-
-This is an evidence-backed root-cause hypothesis, not yet an allocation-level
-proof. The leading follow-up is a focused repeated-wiring profile with registry
-cardinality counters, followed by allocation tracing. Any fix must preserve
-the stable context addresses referenced by published ops tables; moving or
-freeing registry entries after publication is not valid.
+The final cut no longer reproduces the earlier approximately linear hg_cpp
+growth for repeated wiring of the same schema: 100 executions grow by 0.44 MiB
+on macOS, and the service/adaptor series grows by 0.30 MiB across 50
+executions. Novel-schema wiring remains intentionally higher (1.22 MiB across
+10 schemas) and is tracked separately. Keep these profiles as regression
+guards for runtime-registry and policy-context deduplication; stable context
+addresses referenced by published ops tables must still be preserved.
 
 Native Linux cross-check
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-The corresponding native x86_64 Linux baseline used hgraph 0.5.33, Python
+The corresponding native x86_64 Linux baseline used hgraph 0.5.41, Python
 3.14.4, and an Intel Core Ultra 7 155H. Its report and raw samples are committed
-as ``benchmarks/results/memory-matrix-20260731-linux-main.md`` and
-``benchmarks/results/memory-raw-20260731-linux-main.json``. The loaded process
-floors are 76.8 MiB for Python, 79.8 MiB for hgraph C++, and 65.4 MiB for
+as ``benchmarks/results/memory-baseline-20260809-linux.md`` and
+``benchmarks/results/memory-baseline-20260809-linux.json``. The loaded process
+floors are 79.1 MiB for Python, 82.1 MiB for hgraph C++, and 71.8 MiB for
 hg_cpp.
 
 The absolute deltas differ from macOS, as expected from the loader and
@@ -462,50 +455,51 @@ allocator, but the material ratios agree:
    * - Large wide/deep graph
      - 19.6
      - 20.9
-     - 19.2
-     - 0.98
-     - 0.92
+     - 7.5
+     - 0.38
+     - 0.36
    * - Large dense TSD map/reduce
-     - 6.0
-     - 4.6
-     - 3.2
-     - 0.53
-     - 0.69
-   * - Large sparse retained capacity
-     - 615.3
-     - 450.4
-     - 111.2
-     - 0.18
-     - 0.25
-   * - Long monotonic key growth
-     - 101.0
-     - 72.2
-     - 24.2
+     - 5.9
+     - 4.7
+     - 1.4
      - 0.24
-     - 0.34
-   * - Long clear/repopulate
-     - 116.2
-     - 64.7
-     - 7.8
-     - 0.07
-     - 0.12
-   * - Large keyed switch
-     - 33.1
+     - 0.30
+   * - Large sparse retained capacity
+     - 614.9
+     - 450.4
+     - 68.9
+     - 0.11
+     - 0.15
+   * - Long monotonic key growth
+     - 100.9
+     - 72.2
      - 8.8
-     - 4.5
-     - 0.14
-     - 0.51
+     - 0.09
+     - 0.12
+   * - Long clear/repopulate
+     - 112.3
+     - 65.4
+     - 4.3
+     - 0.04
+     - 0.07
+   * - Large keyed switch
+     - 33.0
+     - 8.8
+     - 2.1
+     - 0.06
+     - 0.24
    * - Large dependency mesh
      - 10.1
      - 5.4
-     - 4.0
-     - 0.40
-     - 0.75
+     - 1.4
+     - 0.14
+     - 0.26
 
-Repeated-lifecycle growth also reproduces: 100 small executions retain 8.7 MiB
-for Python, 10.9 MiB for hgraph C++, and 11.2 MiB for hg_cpp. This makes the
-lifecycle finding a cross-platform signal rather than a macOS allocator
-artifact.
+Bounded repeated-lifecycle behaviour also reproduces: 100 small executions
+grow by 8.76 MiB for Python, 11.04 MiB for hgraph C++, and only 0.12 MiB for
+hg_cpp. Windows records 8.70 MiB, 13.58 MiB, and 0.08 MiB respectively. This
+makes the candidate result a cross-platform property rather than a macOS
+allocator artifact.
 
 Initial optimisation priorities
 -------------------------------
@@ -524,10 +518,11 @@ audit suggests this order:
 3. Use duration profiles as leak/boundedness guards. A statistically material
    slope for scalar, fixed-window, churn, reactivation, or clear/repopulate
    workloads is higher priority than a one-time import or allocator step.
-4. Address repeated-wiring growth. Instrument process-lifetime registry and
-   policy-context cardinalities, deduplicate before allocating published
-   backing records, and preserve stable addresses for records referenced by
-   live graphs. Add novel-schema wiring as a separate intentional-growth axis.
+4. Preserve bounded repeated wiring. Keep process-lifetime registry and
+   policy-context cardinality counters in the regression profiles, deduplicate
+   before allocating published backing records, and preserve stable addresses
+   for records referenced by live graphs. Keep novel-schema wiring as a
+   separate intentional-growth axis.
 5. Continue demand-driven Python materialisation. A Python mirror is useful
    only when a Python consumer/observer will read the output; Python-only
    storage is useful only when no native consumer requires native expansion.

@@ -1,0 +1,271 @@
+{
+  "tsd_dense_strkeys_std": {
+    "upstream-py": {
+      "scenario": "tsd_dense_strkeys_std",
+      "group": "TSD - dense",
+      "label": "String-key map and reduce",
+      "suite": "diagnostic",
+      "supported_modes": [
+        "upstream-py",
+        "upstream-cpp",
+        "hg-cpp"
+      ],
+      "cycle_scale": 1.0,
+      "size_scale": 1.0,
+      "use_cpp": "",
+      "source_fingerprint": "",
+      "hgraph": "0.5.41",
+      "python": "3.14.4",
+      "native_module": "",
+      "ok": true,
+      "seconds": 3.9507909999999997,
+      "cycles": 1000,
+      "cycles_per_s": 253,
+      "max_rss_mb": 83.2,
+      "seconds_mad": 0.025783499999999737,
+      "seconds_min": 3.823696,
+      "seconds_max": 4.083432,
+      "sample_count": 10,
+      "samples": [
+        {
+          "scenario": "tsd_dense_strkeys_std",
+          "group": "TSD - dense",
+          "label": "String-key map and reduce",
+          "suite": "diagnostic",
+          "supported_modes": [
+            "upstream-py",
+            "upstream-cpp",
+            "hg-cpp"
+          ],
+          "cycle_scale": 1.0,
+          "size_scale": 1.0,
+          "use_cpp": "",
+          "source_fingerprint": "",
+          "hgraph": "0.5.41",
+          "python": "3.14.4",
+          "native_module": "",
+          "ok": true,
+          "seconds": 3.94178,
+          "cycles": 1000,
+          "cycles_per_s": 254,
+          "max_rss_mb": 83.2
+        },
+        {
+          "scenario": "tsd_dense_strkeys_std",
+          "group": "TSD - dense",
+          "label": "String-key map and reduce",
+          "suite": "diagnostic",
+          "supported_modes": [
+            "upstream-py",
+            "upstream-cpp",
+            "hg-cpp"
+          ],
+          "cycle_scale": 1.0,
+          "size_scale": 1.0,
+          "use_cpp": "",
+          "source_fingerprint": "",
+          "hgraph": "0.5.41",
+          "python": "3.14.4",
+          "native_module": "",
+          "ok": true,
+          "seconds": 3.934066,
+          "cycles": 1000,
+          "cycles_per_s": 254,
+          "max_rss_mb": 82.7
+        },
+        {
+          "scenario": "tsd_dense_strkeys_std",
+          "group": "TSD - dense",
+          "label": "String-key map and reduce",
+          "suite": "diagnostic",
+          "supported_modes": [
+            "upstream-py",
+            "upstream-cpp",
+            "hg-cpp"
+          ],
+          "cycle_scale": 1.0,
+          "size_scale": 1.0,
+          "use_cpp": "",
+          "source_fingerprint": "",
+          "hgraph": "0.5.41",
+          "python": "3.14.4",
+          "native_module": "",
+          "ok": true,
+          "seconds": 3.856397,
+          "cycles": 1000,
+          "cycles_per_s": 259,
+          "max_rss_mb": 82.5
+        },
+        {
+          "scenario": "tsd_dense_strkeys_std",
+          "group": "TSD - dense",
+          "label": "String-key map and reduce",
+          "suite": "diagnostic",
+          "supported_modes": [
+            "upstream-py",
+            "upstream-cpp",
+            "hg-cpp"
+          ],
+          "cycle_scale": 1.0,
+          "size_scale": 1.0,
+          "use_cpp": "",
+          "source_fingerprint": "",
+          "hgraph": "0.5.41",
+          "python": "3.14.4",
+          "native_module": "",
+          "ok": true,
+          "seconds": 4.083432,
+          "cycles": 1000,
+          "cycles_per_s": 245,
+          "max_rss_mb": 83.0
+        },
+        {
+          "scenario": "tsd_dense_strkeys_std",
+          "group": "TSD - dense",
+          "label": "String-key map and reduce",
+          "suite": "diagnostic",
+          "supported_modes": [
+            "upstream-py",
+            "upstream-cpp",
+            "hg-cpp"
+          ],
+          "cycle_scale": 1.0,
+          "size_scale": 1.0,
+          "use_cpp": "",
+          "source_fingerprint": "",
+          "hgraph": "0.5.41",
+          "python": "3.14.4",
+          "native_module": "",
+          "ok": true,
+          "seconds": 3.964463,
+          "cycles": 1000,
+          "cycles_per_s": 252,
+          "max_rss_mb": 82.9
+        },
+        {
+          "scenario": "tsd_dense_strkeys_std",
+          "group": "TSD - dense",
+          "label": "String-key map and reduce",
+          "suite": "diagnostic",
+          "supported_modes": [
+            "upstream-py",
+            "upstream-cpp",
+            "hg-cpp"
+          ],
+          "cycle_scale": 1.0,
+          "size_scale": 1.0,
+          "use_cpp": "",
+          "source_fingerprint": "",
+          "hgraph": "0.5.41",
+          "python": "3.14.4",
+          "native_module": "",
+          "ok": true,
+          "seconds": 4.011824,
+          "cycles": 1000,
+          "cycles_per_s": 249,
+          "max_rss_mb": 82.8
+        },
+        {
+          "scenario": "tsd_dense_strkeys_std",
+          "group": "TSD - dense",
+          "label": "String-key map and reduce",
+          "suite": "diagnostic",
+          "supported_modes": [
+            "upstream-py",
+            "upstream-cpp",
+            "hg-cpp"
+          ],
+          "cycle_scale": 1.0,
+          "size_scale": 1.0,
+          "use_cpp": "",
+          "source_fingerprint": "",
+          "hgraph": "0.5.41",
+          "python": "3.14.4",
+          "native_module": "",
+          "ok": true,
+          "seconds": 3.964586,
+          "cycles": 1000,
+          "cycles_per_s": 252,
+          "max_rss_mb": 83.0
+        },
+        {
+          "scenario": "tsd_dense_strkeys_std",
+          "group": "TSD - dense",
+          "label": "String-key map and reduce",
+          "suite": "diagnostic",
+          "supported_modes": [
+            "upstream-py",
+            "upstream-cpp",
+            "hg-cpp"
+          ],
+          "cycle_scale": 1.0,
+          "size_scale": 1.0,
+          "use_cpp": "",
+          "source_fingerprint": "",
+          "hgraph": "0.5.41",
+          "python": "3.14.4",
+          "native_module": "",
+          "ok": true,
+          "seconds": 3.959802,
+          "cycles": 1000,
+          "cycles_per_s": 253,
+          "max_rss_mb": 82.6
+        },
+        {
+          "scenario": "tsd_dense_strkeys_std",
+          "group": "TSD - dense",
+          "label": "String-key map and reduce",
+          "suite": "diagnostic",
+          "supported_modes": [
+            "upstream-py",
+            "upstream-cpp",
+            "hg-cpp"
+          ],
+          "cycle_scale": 1.0,
+          "size_scale": 1.0,
+          "use_cpp": "",
+          "source_fingerprint": "",
+          "hgraph": "0.5.41",
+          "python": "3.14.4",
+          "native_module": "",
+          "ok": true,
+          "seconds": 3.823696,
+          "cycles": 1000,
+          "cycles_per_s": 262,
+          "max_rss_mb": 82.6
+        },
+        {
+          "scenario": "tsd_dense_strkeys_std",
+          "group": "TSD - dense",
+          "label": "String-key map and reduce",
+          "suite": "diagnostic",
+          "supported_modes": [
+            "upstream-py",
+            "upstream-cpp",
+            "hg-cpp"
+          ],
+          "cycle_scale": 1.0,
+          "size_scale": 1.0,
+          "use_cpp": "",
+          "source_fingerprint": "",
+          "hgraph": "0.5.41",
+          "python": "3.14.4",
+          "native_module": "",
+          "ok": true,
+          "seconds": 3.915949,
+          "cycles": 1000,
+          "cycles_per_s": 255,
+          "max_rss_mb": 82.8
+        }
+      ],
+      "benchmark_metadata": {
+        "revision": "17a5b81bca91",
+        "source_fingerprint": "fb5d49c9b61a226bce0c2a1f268556e2a3ffcc13babcec3a90d692f49767da36",
+        "build_type": "Release",
+        "compiler": "c++ (Ubuntu 14.3.0-14ubuntu1) 14.3.0",
+        "python": "3.14.4",
+        "cpu": "Intel(R) Core(TM) Ultra 7 155H"
+      }
+    }
+  }
+}
