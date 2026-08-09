@@ -169,14 +169,15 @@ two migration applications without upstream ``hgraph`` present. ``hg_oap`` at
 ``hg_systematic`` at ``522bcd0a`` passed all 39 tests. Both application
 environments were restored to their locked release dependencies afterwards.
 
-The controlled Linux core benchmark is recorded in
-``benchmarks/results/matrix-20260719-124516.md`` with the corresponding raw
-samples in ``raw-20260719-124516.json``. It used three fresh-process samples,
-Release/GCC 13, Python 3.12.3, and source fingerprint
-``ab42c7aa882b03be53e33de437e4099cf915e6ed558fd7ecad308942dd72c587``.
-All workload guards passed. The result preserves both improvements and
-regressions relative to upstream instead of treating timings as a release
-pass/fail gate.
+The final controlled performance and memory cut is recorded in
+``benchmarks/results/baseline-summary-20260809.md`` with stable per-platform
+matrices and raw samples beside it. It covers macOS, native x86_64 Linux, and
+Windows; 69 performance scenarios use five fresh-process samples, and 59
+memory profiles use three fresh-process samples plus native structural
+inspection. The candidate is compared with hgraph 0.5.41 in Python and legacy
+C++ modes. The record preserves improvements, boundary-specific regressions,
+and two independently rerun infrastructure failures rather than treating
+benchmarks as a release pass/fail gate.
 
 The macOS installed-package CMake consumer passed against system Arrow 25.
 Sphinx 9.1 passed with warnings as errors; all 48 packaging, readiness,

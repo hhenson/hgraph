@@ -219,8 +219,9 @@ Python threads.
 The lock-ordering rules live in :doc:`python_integration` (*GIL And Runtime
 Locks*). Keep the phase guard around the complete executor phase; do not
 extend it across native executor scheduling or waits.
-The controlled before/after performance record is
-``benchmarks/results/gil-guards-20260801-hg-linux.md``.
+The historical before/after record was consolidated into the final benchmark
+cut. The current cross-platform performance record is
+``benchmarks/results/baseline-summary-20260809.md``.
 
 Consumer-selected Python value storage
 --------------------------------------
