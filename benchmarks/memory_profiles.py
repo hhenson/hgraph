@@ -192,7 +192,7 @@ PROFILES.update(_series(
     (("small", 0.05, 0.25), ("medium", 0.05, 1.0), ("large", 0.05, 4.0)),
 ))
 PROFILES.update(_series(
-    "hg_cpp dynamic storage", "Dynamic TSL map/reduce", "reduce_dynamic_tsl_std",
+    "C++-first dynamic storage", "Dynamic TSL map/reduce", "reduce_dynamic_tsl_std",
     "initial capacity", "native slot storage should scale with list capacity",
     (("small", 0.1, 0.25), ("medium", 0.1, 1.0), ("large", 0.1, 4.0)),
 ))

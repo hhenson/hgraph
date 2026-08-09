@@ -20,7 +20,7 @@ def _sample(seconds, rss=10.0):
         "group": "Readable group",
         "label": "Readable workload",
         "suite": "core",
-        "supported_modes": ["upstream-py", "upstream-cpp", "hg-cpp"],
+        "supported_modes": ["upstream-py", "upstream-cpp", "release", "hg-cpp"],
         "ok": True,
         "seconds": seconds,
         "cycles": 100,
@@ -66,8 +66,8 @@ def test_benchmark_report_groups_readable_names_and_marks_unsupported_modes():
     assert "+/- 0.200s" in report
 
 
-def test_default_benchmark_report_compares_legacy_cpp_with_hg_cpp():
-    legacy = orchestrate.aggregate_samples(
+def test_default_benchmark_report_compares_fixed_release_with_current_source():
+    release = orchestrate.aggregate_samples(
         [_sample(2.0), _sample(2.0), _sample(2.0)]
     )
     candidate = orchestrate.aggregate_samples(
@@ -75,15 +75,15 @@ def test_default_benchmark_report_compares_legacy_cpp_with_hg_cpp():
     )
 
     report = orchestrate.render(
-        {"sample": {"upstream-cpp": legacy, "hg-cpp": candidate}},
+        {"sample": {"release": release, "hg-cpp": candidate}},
         cycle_scale=1.0,
         size_scale=1.0,
         samples=3,
     )
 
-    assert orchestrate.DEFAULT_MODES == ("upstream-cpp", "hg-cpp")
-    assert "| workload | cycles | legacy C++ | hg_cpp |" in report
-    assert "speed-up vs legacy C++" in report
+    assert orchestrate.DEFAULT_MODES == ("release", "hg-cpp")
+    assert "| workload | cycles | hgraph 0.8.1 | current source |" in report
+    assert "speed-up vs hgraph 0.8.1" in report
     assert "1.000s +/- 0.000s (x2.0)" in report
     assert "`upstream-py`" not in report
 
@@ -115,20 +115,73 @@ def test_upstream_baseline_cache_reuses_only_matching_successes(tmp_path):
     ) is None
 
 
-def test_upstream_environment_stays_on_the_python_first_0_5_line(
+def test_baseline_identity_is_fixed_to_both_released_lines():
+    identity = orchestrate.baseline_identity(1.0, 1.0, 5, ["release"])
+
+    assert identity["hgraph_versions"] == {
+        "upstream-py": "0.5.41",
+        "upstream-cpp": "0.5.41",
+        "release": "0.8.1",
+    }
+    assert identity["fixed_release_artifact"] == (
+        orchestrate.fixed_release_artifact()["sha256"]
+    )
+    assert identity["reference_artifact"] == (
+        orchestrate.reference_artifact()["sha256"]
+    )
+
+
+def test_fixed_release_invocation_records_exact_artifact(monkeypatch):
+    monkeypatch.setattr(
+        orchestrate,
+        "fixed_release_artifact",
+        lambda: {"sha256": "abc123"},
+    )
+
+    _, environment = orchestrate.mode_invocation("release")
+
+    assert environment == {
+        "HGRAPH_BENCHMARK_FIXED_RELEASE": "0.8.1",
+        "HGRAPH_BENCHMARK_FIXED_RELEASE_SHA256": "abc123",
+    }
+
+
+def test_upstream_environment_installs_pinned_python_first_0_5_artifact(
     monkeypatch, tmp_path
 ):
     calls = []
     monkeypatch.setattr(orchestrate, "UPSTREAM_VENV", tmp_path / "upstream")
     monkeypatch.setattr(
+        orchestrate,
+        "UPSTREAM_ARTIFACT_FILE",
+        tmp_path / "upstream" / ".artifact-sha256",
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "reference_artifact",
+        lambda: {
+            "filename": "hgraph-0.5.41.whl",
+            "url": "https://example.test/hgraph-0.5.41.whl",
+            "sha256": "ref123",
+        },
+    )
+    monkeypatch.setattr(
+        orchestrate, "installed_hgraph_version", lambda _python: "0.5.41"
+    )
+    monkeypatch.setattr(
         orchestrate.subprocess,
         "run",
         lambda command, check: calls.append(command),
     )
+    orchestrate.UPSTREAM_VENV.mkdir()
 
     orchestrate.ensure_upstream_venv()
 
-    assert calls[-1][-1] == "hgraph==0.5.41"
+    assert calls[-1][-2:] == [
+        "--reinstall",
+        "https://example.test/hgraph-0.5.41.whl#sha256=ref123",
+    ]
+    assert orchestrate.UPSTREAM_ARTIFACT_FILE.read_text().strip() == "ref123"
 
 
 def test_upstream_environment_replaces_a_post_port_hgraph_release(
@@ -137,10 +190,27 @@ def test_upstream_environment_replaces_a_post_port_hgraph_release(
     calls = []
     upstream = tmp_path / "upstream"
     monkeypatch.setattr(orchestrate, "UPSTREAM_VENV", upstream)
+    monkeypatch.setattr(
+        orchestrate,
+        "UPSTREAM_ARTIFACT_FILE",
+        upstream / ".artifact-sha256",
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "reference_artifact",
+        lambda: {
+            "filename": "hgraph-0.5.41.whl",
+            "url": "https://example.test/hgraph-0.5.41.whl",
+            "sha256": "ref123",
+        },
+    )
     python = orchestrate.upstream_python()
     python.parent.mkdir(parents=True)
     python.touch()
-    monkeypatch.setattr(orchestrate, "_first_line", lambda _command: "0.8.0")
+    versions = iter(("0.8.0", "0.5.41"))
+    monkeypatch.setattr(
+        orchestrate, "installed_hgraph_version", lambda _python: next(versions)
+    )
     monkeypatch.setattr(
         orchestrate.subprocess,
         "run",
@@ -150,8 +220,47 @@ def test_upstream_environment_replaces_a_post_port_hgraph_release(
     orchestrate.ensure_upstream_venv()
 
     assert calls == [[
-        "uv", "pip", "install", "--python", str(python), "hgraph==0.5.41"
+        "uv", "pip", "install", "--python", str(python), "--reinstall",
+        "https://example.test/hgraph-0.5.41.whl#sha256=ref123",
     ]]
+
+
+def test_fixed_release_environment_installs_published_0_8_1(
+    monkeypatch, tmp_path
+):
+    calls = []
+    monkeypatch.setattr(orchestrate, "RELEASE_VENV", tmp_path / "release")
+    monkeypatch.setattr(
+        orchestrate,
+        "RELEASE_ARTIFACT_FILE",
+        tmp_path / "release" / ".artifact-sha256",
+    )
+    monkeypatch.setattr(
+        orchestrate,
+        "fixed_release_artifact",
+        lambda: {
+            "filename": "hgraph-0.8.1.whl",
+            "url": "https://example.test/hgraph-0.8.1.whl",
+            "sha256": "abc123",
+        },
+    )
+    monkeypatch.setattr(
+        orchestrate, "installed_hgraph_version", lambda _python: "0.8.1"
+    )
+    monkeypatch.setattr(
+        orchestrate.subprocess,
+        "run",
+        lambda command, check: calls.append(command),
+    )
+    orchestrate.RELEASE_VENV.mkdir()
+
+    orchestrate.ensure_release_venv()
+
+    assert calls[-1][-2:] == [
+        "--reinstall", "https://example.test/hgraph-0.8.1.whl#sha256=abc123"
+    ]
+    assert str(orchestrate.release_python()) in calls[-1]
+    assert orchestrate.RELEASE_ARTIFACT_FILE.read_text().strip() == "abc123"
 
 
 def test_benchmark_sample_failure_is_not_hidden_by_successful_samples():
@@ -163,12 +272,12 @@ def test_benchmark_sample_failure_is_not_hidden_by_successful_samples():
     assert "sample 2: boom" in failed["error"]
 
 
-def test_hg_cpp_only_report_section_does_not_claim_an_upstream_comparison():
+def test_cpp_first_only_report_section_does_not_claim_a_0_5_comparison():
     measured = orchestrate.aggregate_samples([{
         **_sample(1.0),
-        "group": "hg_cpp - dynamic TSL",
+        "group": "C++-first - dynamic TSL",
         "label": "Dynamic list workload",
-        "supported_modes": ["hg-cpp"],
+        "supported_modes": ["release", "hg-cpp"],
     }])
     report = orchestrate.render(
         {"dynamic": {"hg-cpp": measured}},
@@ -177,7 +286,7 @@ def test_hg_cpp_only_report_section_does_not_claim_an_upstream_comparison():
         samples=1,
     )
 
-    section = report.split("## hg_cpp - dynamic TSL", 1)[1]
+    section = report.split("## C++-first - dynamic TSL", 1)[1]
     assert "not a cross-implementation comparison" in section
-    assert "| workload | cycles | hg-cpp |" in section
+    assert "| workload | cycles | current source |" in section
     assert "upstream-py" not in section

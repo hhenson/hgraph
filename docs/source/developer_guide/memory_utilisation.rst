@@ -9,11 +9,12 @@ for graph memory. It is intended to direct optimisation work from reproducible
 evidence, not to establish a platform-independent byte limit. The associated
 campaign in ``benchmarks/memory_orchestrate.py`` produces:
 
-* comparative, fresh-process RSS/USS/PSS samples for current Python hgraph,
-  hgraph C++, and hg_cpp;
+* comparative, fresh-process RSS/USS/PSS samples for the fixed published 0.8.1
+  release and current source, with 0.5.41 Python and legacy-C++ reconstruction
+  modes;
 * growth series for graph size, duration, cardinality, retained capacity, and
   client count;
-* hg_cpp process-lifetime runtime-registry cardinalities for identical and
+* C++-first process-lifetime runtime-registry cardinalities for identical and
   intentionally novel graph wiring;
 * an independent native ``GraphDiagnostics`` snapshot for planned and dynamic graph
   storage; and
@@ -306,85 +307,87 @@ full native/Python suites plus Linux validation and ASan as described in
 Final measured baseline
 -----------------------
 
-The final controlled macOS baseline used hgraph 0.5.41, Python 3.14.6, three
-fresh-process samples, and an Apple M4 Max. The complete cross-platform summary
-is committed as ``benchmarks/results/baseline-summary-20260809.md``; the macOS
-matrix and raw samples are
+The final controlled baseline compares the exact published hgraph 0.8.1 wheel
+with hgraph 0.5.41, the head of ``release/0.5``. The macOS run used Python
+3.14.6, three fresh-process samples, and an Apple M4 Max. The complete
+cross-platform summary is committed as
+``benchmarks/results/baseline-summary-20260809.md``; the macOS matrix and raw
+samples are
 ``benchmarks/results/memory-baseline-20260809-macos.md`` and
 ``benchmarks/results/memory-baseline-20260809-macos.json``. Raw metadata records
-the exact source revision and environment fingerprint.
+both platform wheel filenames and SHA-256 digests.
 
-The loaded hg_cpp process floor was 64.2 MiB RSS, compared with 83.9 MiB for
-Python hgraph and 86.5 MiB for hgraph C++. Small run deltas favour both
-reference runtimes because hg_cpp touches an approximately 1.3--1.6 MiB
+The loaded 0.8.1 process floor was 64.3 MiB RSS, compared with 83.9 MiB for
+Python hgraph and 86.3 MiB for legacy hgraph C++. Small run deltas favour both
+reference runtimes because 0.8.1 touches an approximately 1.4--1.6 MiB
 one-time set of pages on first graph use. Ratios at this scale are
 allocator/page effects and should not drive node-level optimisation.
 
-Larger graph and collection profiles favour hg_cpp, increasingly with scale:
+Larger graph and collection profiles favour 0.8.1, increasingly with scale:
 
 .. list-table:: macOS peak RSS delta (median MiB)
    :header-rows: 1
 
    * - Profile
      - Python
-     - hgraph C++
-     - hg_cpp
-     - hg/Python
-     - hg/hgraph C++
+     - Legacy C++
+     - 0.8.1
+     - 0.8.1/Python
+     - 0.8.1/legacy C++
    * - Large wide/deep graph
-     - 19.3
-     - 21.4
+     - 19.1
+     - 21.5
      - 10.2
      - 0.53
-     - 0.48
+     - 0.47
    * - Large dense TSD map/reduce
      - 5.8
      - 4.6
      - 2.4
-     - 0.41
-     - 0.52
+     - 0.42
+     - 0.53
    * - Large sparse retained capacity
-     - 618.2
-     - 454.8
-     - 69.2
+     - 618.8
+     - 445.1
+     - 69.0
      - 0.11
-     - 0.15
+     - 0.16
    * - Long monotonic key growth
-     - 98.9
-     - 69.8
-     - 15.8
+     - 98.4
+     - 68.8
+     - 15.6
      - 0.16
      - 0.23
    * - Long clear/repopulate
-     - 100.2
-     - 75.6
-     - 5.6
-     - 0.06
+     - 100.8
+     - 75.7
+     - 5.4
+     - 0.05
      - 0.07
    * - Large keyed switch
      - 38.2
-     - 8.6
-     - 3.3
+     - 8.7
+     - 3.5
      - 0.09
-     - 0.39
+     - 0.40
    * - Large dependency mesh
      - 10.0
-     - 5.1
-     - 3.2
-     - 0.32
-     - 0.62
+     - 5.2
+     - 3.1
+     - 0.31
+     - 0.60
 
-The hg_cpp duration series are bounded where the data structure is bounded.
+The 0.8.1 duration series are bounded where the data structure is bounded.
 Scalar loops, Python compute chains, strings, the fixed 64-item tick window,
 key reactivation, and clear/repopulate have no material cycle-proportional
 slope. Native structural storage is constant across the bounded churn,
 reactivation, and clear/repopulate duration points. Monotonic key growth scales
 intentionally; the large point reserves 8.1 MiB of native-accounted dynamic
-storage while its process peak is 15.8 MiB.
+storage while its process peak is 15.6 MiB.
 
 The sparse-capacity profile also quantifies the attribution gap. At the large
 point, GraphDiagnostics attributes 42.1 MiB of reserved dynamic storage while
-process peak is 69.2 MiB. Approximately 27.1 MiB remains in key/value/index
+process peak is 69.0 MiB. Approximately 26.9 MiB remains in key/value/index
 payloads, wiring/Python state, or allocator overhead. This remaining gap is a
 reason to extend structural accounting rather than tune the already-accounted
 slot block in isolation.
@@ -393,39 +396,39 @@ Repeated graph lifecycle finding
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The same graph callable was wired, executed, stopped, and collected repeatedly
-inside one process. The reference post-GC series remain nearly linear, while
-the candidate now approaches a warm plateau:
+inside one process. The 0.5.41 post-GC series remain nearly linear, while 0.8.1
+approaches a warm plateau:
 
 .. list-table:: macOS first-to-last post-GC growth (median MiB)
    :header-rows: 1
 
    * - Profile
      - Python
-     - hgraph C++
-     - hg_cpp
+     - Legacy C++
+     - 0.8.1
    * - Small graph, 10 executions
      - 0.75
-     - 1.05
-     - 0.05
+     - 1.02
+     - 0.06
    * - Small graph, 100 executions
-     - 8.55
-     - 10.23
-     - 0.44
+     - 8.75
+     - 10.22
+     - 0.30
    * - Service/adaptor graph, 10 executions
      - 0.73
-     - 0.97
-     - 0.16
+     - 1.00
+     - 0.05
    * - Service/adaptor graph, 50 executions
-     - 4.11
-     - 5.02
-     - 0.30
+     - 4.09
+     - 4.86
+     - 0.14
 
 RSS and USS growth are effectively identical for these series, so this is live
 or allocator-retained private memory rather than shared-library accounting.
-The final cut no longer reproduces the earlier approximately linear hg_cpp
-growth for repeated wiring of the same schema: 100 executions grow by 0.44 MiB
-on macOS, and the service/adaptor series grows by 0.30 MiB across 50
-executions. Novel-schema wiring remains intentionally higher (1.22 MiB across
+The published 0.8.1 release does not reproduce the earlier approximately
+linear growth for repeated wiring of the same schema: 100 executions grow by
+0.30 MiB on macOS, and the service/adaptor series grows by 0.14 MiB across 50
+executions. Novel-schema wiring remains intentionally higher (0.87 MiB across
 10 schemas) and is tracked separately. Keep these profiles as regression
 guards for runtime-registry and policy-context deduplication; stable context
 addresses referenced by published ops tables must still be preserved.
@@ -433,12 +436,12 @@ addresses referenced by published ops tables must still be preserved.
 Native Linux cross-check
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-The corresponding native x86_64 Linux baseline used hgraph 0.5.41, Python
-3.14.4, and an Intel Core Ultra 7 155H. Its report and raw samples are committed
-as ``benchmarks/results/memory-baseline-20260809-linux.md`` and
+The corresponding native x86_64 Linux baseline used the same published
+releases, Python 3.14.4, and an Intel Core Ultra 7 155H. Its report and raw
+samples are committed as ``benchmarks/results/memory-baseline-20260809-linux.md`` and
 ``benchmarks/results/memory-baseline-20260809-linux.json``. The loaded process
-floors are 79.1 MiB for Python, 82.1 MiB for hgraph C++, and 71.8 MiB for
-hg_cpp.
+floors are 79.9 MiB for Python, 82.8 MiB for legacy C++, and 66.2 MiB for
+0.8.1.
 
 The absolute deltas differ from macOS, as expected from the loader and
 allocator, but the material ratios agree:
@@ -448,57 +451,127 @@ allocator, but the material ratios agree:
 
    * - Profile
      - Python
-     - hgraph C++
-     - hg_cpp
-     - hg/Python
-     - hg/hgraph C++
+     - Legacy C++
+     - 0.8.1
+     - 0.8.1/Python
+     - 0.8.1/legacy C++
    * - Large wide/deep graph
      - 19.6
-     - 20.9
-     - 7.5
-     - 0.38
-     - 0.36
+     - 20.8
+     - 8.3
+     - 0.42
+     - 0.40
    * - Large dense TSD map/reduce
      - 5.9
-     - 4.7
-     - 1.4
-     - 0.24
-     - 0.30
+     - 4.6
+     - 2.9
+     - 0.49
+     - 0.64
    * - Large sparse retained capacity
-     - 614.9
-     - 450.4
-     - 68.9
-     - 0.11
-     - 0.15
-   * - Long monotonic key growth
-     - 100.9
-     - 72.2
-     - 8.8
-     - 0.09
+     - 614.8
+     - 450.3
+     - 70.4
      - 0.12
+     - 0.16
+   * - Long monotonic key growth
+     - 101.0
+     - 72.2
+     - 10.4
+     - 0.10
+     - 0.14
    * - Long clear/repopulate
-     - 112.3
+     - 115.6
      - 65.4
-     - 4.3
-     - 0.04
-     - 0.07
+     - 5.9
+     - 0.05
+     - 0.09
    * - Large keyed switch
-     - 33.0
-     - 8.8
-     - 2.1
-     - 0.06
-     - 0.24
+     - 33.1
+     - 8.7
+     - 3.7
+     - 0.11
+     - 0.42
    * - Large dependency mesh
      - 10.1
      - 5.4
-     - 1.4
-     - 0.14
-     - 0.26
+     - 3.6
+     - 0.35
+     - 0.66
 
 Bounded repeated-lifecycle behaviour also reproduces: 100 small executions
-grow by 8.76 MiB for Python, 11.04 MiB for hgraph C++, and only 0.12 MiB for
-hg_cpp. Windows records 8.70 MiB, 13.58 MiB, and 0.08 MiB respectively. This
-makes the candidate result a cross-platform property rather than a macOS
+grow by 8.73 MiB for Python, 10.99 MiB for legacy C++, and only 0.11 MiB for
+0.8.1.
+
+Native Windows cross-check
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Windows 10 x86_64 baseline used the same published releases, Python
+3.14.7, and an Intel Core i9-9980HK. Its report and raw samples are committed
+as ``benchmarks/results/memory-baseline-20260809-windows.md`` and
+``benchmarks/results/memory-baseline-20260809-windows.json``. The loaded
+process floors are 67.3 MiB for Python, 69.4 MiB for legacy C++, and 41.3 MiB
+for 0.8.1.
+
+The scale-series direction also reproduces on Windows:
+
+.. list-table:: Windows peak RSS delta (median MiB)
+   :header-rows: 1
+
+   * - Profile
+     - Python
+     - Legacy C++
+     - 0.8.1
+     - 0.8.1/Python
+     - 0.8.1/legacy C++
+   * - Large wide/deep graph
+     - 19.9
+     - 19.5
+     - 9.8
+     - 0.50
+     - 0.51
+   * - Large dense TSD map/reduce
+     - 5.8
+     - 5.5
+     - 2.6
+     - 0.44
+     - 0.47
+   * - Large sparse retained capacity
+     - 609.2
+     - 514.6
+     - 74.5
+     - 0.12
+     - 0.14
+   * - Long monotonic key growth
+     - 99.5
+     - 72.9
+     - 17.1
+     - 0.17
+     - 0.23
+   * - Long clear/repopulate
+     - 82.9
+     - 61.4
+     - 6.1
+     - 0.07
+     - 0.10
+   * - Large keyed switch
+     - 37.5
+     - 10.7
+     - 3.5
+     - 0.09
+     - 0.33
+   * - Large dependency mesh
+     - 10.2
+     - 6.6
+     - 2.7
+     - 0.27
+     - 0.41
+
+Across 100 small executions, first-to-last post-GC growth was 8.70 MiB for
+Python, 13.88 MiB for legacy C++, and 0.10 MiB for 0.8.1. The service/adaptor
+series likewise grew by 4.25 MiB, 6.95 MiB, and 0.08 MiB across 50 executions.
+The large sparse inspector completed within the extended 1,800-second limit
+and attributed 45,090,920 reserved bytes. Bounded repeated wiring is therefore
+a cross-platform property of the published release rather than a macOS/Linux
 allocator artifact.
 
 Initial optimisation priorities
@@ -536,21 +609,26 @@ Baseline and comparison procedure
 
 Run the complete profile pack on an otherwise idle host from a clean main
 revision. Use the same build type, Python version, sample count, sampling
-interval, and CPU for comparisons. The default report compares current Python
-hgraph, hgraph C++, and hg_cpp and adds hg_cpp GraphDiagnostics data. It reports both
-``hg_cpp/Python`` and ``hg_cpp/hgraph-C++`` peak-memory ratios; values below one
-mean hg_cpp used less incremental resident memory. Preserve the raw JSON; the
-markdown matrix is a presentation view and intentionally rounds values.
+interval, and CPU for comparisons. The default report compares current source
+with the exact published hgraph 0.8.1 wheel and adds current-source
+GraphDiagnostics data. To reconstruct the historical release baseline, select
+``upstream-py``, ``upstream-cpp``, and ``release`` explicitly; that report
+includes both ``0.8.1/Python`` and ``0.8.1/legacy-C++`` peak-memory ratios.
+Values below one mean 0.8.1 used less incremental resident memory. Preserve the
+raw JSON; the markdown matrix is a presentation view and intentionally rounds
+values.
 
 For optimisation work, first select the affected group and increase to five or
 more samples. Compare medians, median absolute deviation, and the complete
 scale series. Treat a change smaller than page/allocator granularity or within
-run-to-run spread as inconclusive. Re-run the released baseline only when the
-hgraph version, profile pack, host, or sampling policy changes; the
-orchestrator enforces this identity in its cache.
+run-to-run spread as inconclusive. The committed 0.8.1-versus-0.5.41 record is
+the forward comparison baseline. Do not rerun the 0.5.41 modes for ordinary
+optimisation work. Reconstruct that historical comparison only when its
+profile pack, host, or sampling policy changes; the orchestrator pins both
+published wheel artifacts and enforces the identity in its cache.
 
 The first committed macOS and Linux reports are baseline artifacts rather than
 normative thresholds. Cross-platform absolute RSS is not directly comparable:
 different loaders, allocators, page sizes, Python builds, and shared-memory
 accounting dominate small graphs. Within each host, the useful signals are
-hg_cpp/released-C++ ratios and growth slopes across the profile series.
+current-source/0.8.1 ratios and growth slopes across the profile series.

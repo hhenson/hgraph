@@ -125,6 +125,14 @@ def _base_result(profile_id, profile, scenario, process_start) -> dict:
         "source_fingerprint": os.environ.get(
             "HGRAPH_BENCHMARK_SOURCE_FINGERPRINT", ""
         ),
+        "fixed_release": os.environ.get("HGRAPH_BENCHMARK_FIXED_RELEASE", ""),
+        "fixed_release_sha256": os.environ.get(
+            "HGRAPH_BENCHMARK_FIXED_RELEASE_SHA256", ""
+        ),
+        "reference": os.environ.get("HGRAPH_BENCHMARK_REFERENCE", ""),
+        "reference_sha256": os.environ.get(
+            "HGRAPH_BENCHMARK_REFERENCE_SHA256", ""
+        ),
         "hgraph": _implementation_label(),
         "python": ".".join(map(str, sys.version_info[:3])),
         "psutil": psutil.__version__,

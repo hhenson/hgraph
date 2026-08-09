@@ -1,9 +1,8 @@
-"""Orchestrate comparative process and hg_cpp structural memory profiles.
+"""Orchestrate comparative process and C++-first structural memory profiles.
 
-Each RSS sample is a fresh subprocess.  Current Python and hgraph C++ results
-are cached until the host, hgraph version, profile pack, psutil version, or
-sample policy changes.  The native GraphDiagnostics pass is intentionally
-separate from RSS.
+Each RSS sample is a fresh subprocess. Fixed-release results are cached until
+the host, hgraph version, profile pack, psutil version, or sample policy
+changes. The native GraphDiagnostics pass is intentionally separate from RSS.
 """
 import argparse
 import copy
@@ -28,9 +27,9 @@ import scenarios
 
 RUNNER = BENCH_DIR / "memory_runner.py"
 RESULTS_DIR = BENCH_DIR / "results"
-MODES = ("upstream-py", "upstream-cpp", "hg-cpp")
-DEFAULT_MODES = MODES
-BASELINE_MODES = ("upstream-py", "upstream-cpp")
+MODES = performance.MODES
+DEFAULT_MODES = performance.DEFAULT_MODES
+BASELINE_MODES = performance.BASELINE_MODES
 MODE_LABELS = {
     **performance.MODE_LABELS,
     "upstream-cpp": "hgraph C++",
@@ -112,6 +111,8 @@ def setup_modes(modes: list[str]) -> dict[str, str]:
         performance.ensure_upstream_venv()
     if "hg-cpp" in modes:
         performance.ensure_hg_cpp_venv()
+    if "release" in modes:
+        performance.ensure_release_venv()
     versions = {}
     for mode in modes:
         executable, _ = performance.mode_invocation(mode)
@@ -120,17 +121,25 @@ def setup_modes(modes: list[str]) -> dict[str, str]:
 
 
 def baseline_identity(samples: int, interval_ms: float, scale: float,
-                      psutil_version: str) -> dict:
+                      psutil_versions: dict[str, str]) -> dict:
     return {
         "schema": BASELINE_CACHE_SCHEMA,
         "environment": performance.ENVIRONMENT_KEY,
         "cpu": performance._cpu_model(),
-        "upstream_hgraph": performance.upstream_hgraph_version(),
+        "hgraph_versions": {
+            "upstream-py": performance.REFERENCE_HGRAPH_VERSION,
+            "upstream-cpp": performance.REFERENCE_HGRAPH_VERSION,
+            "release": performance.FIXED_RELEASE_HGRAPH_VERSION,
+        },
+        "reference_artifact": performance.reference_artifact()["sha256"],
+        "fixed_release_artifact": performance.fixed_release_artifact()["sha256"],
         "memory_pack": memory_pack_fingerprint(),
         "samples": samples,
         "sampling_interval_ms": interval_ms,
         "scale": scale,
-        "psutil": psutil_version,
+        "psutil": psutil_versions.get(
+            "release", next(iter(psutil_versions.values()))
+        ),
     }
 
 
@@ -228,15 +237,22 @@ def _cell(value, mad=None) -> str:
 
 
 def render(results: dict, inspector: dict, samples: int, interval_ms: float,
-           metadata: dict[str, str] | None = None) -> str:
+           metadata: dict[str, str] | None = None,
+           inspector_mode: str | None = None) -> str:
     metadata = metadata or performance.benchmark_metadata()
     display_modes = [
         mode for mode in MODES
         if any(mode in per_mode for per_mode in results.values())
     ]
+    comparison_mode = (
+        "hg-cpp" if "hg-cpp" in display_modes
+        else "release" if "release" in display_modes else None
+    )
     ratio_modes = [
-        mode for mode in ("upstream-py", "upstream-cpp")
-        if mode in display_modes and "hg-cpp" in display_modes
+        mode for mode in display_modes
+        if comparison_mode is not None
+        and mode != comparison_mode
+        and mode in BASELINE_MODES
     ]
     reused = sum(
         bool(value.get("baseline_reused"))
@@ -250,20 +266,42 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
         f"- host: {platform.platform()} / {platform.processor() or platform.machine()}",
         f"- CPU: {metadata['cpu']}",
         f"- Python: {metadata['python']}",
-        f"- hg_cpp revision: {metadata['revision']}",
-        f"- hg_cpp source fingerprint: {metadata['source_fingerprint']}",
+        *(
+            [f"- reference baseline: hgraph "
+             f"{performance.REFERENCE_HGRAPH_VERSION} (published wheel)",
+             f"- reference wheel: "
+             f"{metadata.get('reference_wheel', performance.reference_artifact()['filename'])}",
+             f"- reference SHA-256: "
+             f"{metadata.get('reference_sha256', performance.reference_artifact()['sha256'])}"]
+            if any(mode.startswith("upstream") for mode in display_modes) else []
+        ),
+        *(
+            [f"- fixed release baseline: hgraph "
+             f"{performance.FIXED_RELEASE_HGRAPH_VERSION} (published wheel)",
+             f"- fixed release wheel: "
+             f"{metadata.get('fixed_release_wheel', performance.fixed_release_artifact()['filename'])}",
+             f"- fixed release SHA-256: "
+             f"{metadata.get('fixed_release_sha256', performance.fixed_release_artifact()['sha256'])}"]
+            if "release" in display_modes else []
+        ),
+        *(
+            [f"- current-source revision: {metadata['revision']}",
+             f"- current-source fingerprint: {metadata['source_fingerprint']}"]
+            if "hg-cpp" in display_modes else []
+        ),
         f"- fresh-process samples: {samples}",
         f"- RSS sampling interval: {interval_ms:g} ms",
         "- modes: " + ", ".join(
             f"{MODE_LABELS[mode]} (`{mode}`)" for mode in display_modes
         ),
-        f"- reused upstream baseline cells: {reused}",
+        f"- reused fixed baseline cells: {reused}",
         "",
         "RSS values are medians in MiB; +/- is median absolute deviation. "
         "Peak delta is measured from the post-import/pre-run process state. "
         "Retained delta is measured after graph teardown and two Python GC passes.",
-        "GraphDiagnostics columns are a separate hg_cpp run and are native-accounted "
-        "bytes, not RSS; they are intentionally absent from reference modes.",
+        "GraphDiagnostics columns are a separate C++-first run and are "
+        "native-accounted bytes, not RSS; they are intentionally absent from "
+        "reference modes.",
     ]
     lines += ["", "## Process floor", ""]
     lines += [
@@ -308,7 +346,8 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
             )
             ratio_header = (
                 " | " + " | ".join(
-                    f"hg/{MODE_LABELS[mode]}" for mode in ratio_modes
+                    f"{MODE_LABELS[comparison_mode]}/{MODE_LABELS[mode]}"
+                    for mode in ratio_modes
                 )
                 if ratio_modes else ""
             )
@@ -356,7 +395,7 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
         ratio_cells = []
         for ratio_mode in ratio_modes:
             baseline_peak = peaks[ratio_mode]
-            candidate_peak = peaks["hg-cpp"]
+            candidate_peak = peaks[comparison_mode]
             ratio_cells.append(
                 f"{candidate_peak / baseline_peak:.2f}x"
                 if baseline_peak is not None and baseline_peak > 0
@@ -377,13 +416,13 @@ def render(results: dict, inspector: dict, samples: int, interval_ms: float,
 
     registry_rows = []
     for profile_id, per_mode in results.items():
-        candidate = per_mode.get("hg-cpp", {})
+        candidate = per_mode.get(comparison_mode, {})
         if candidate.get("node_runtime_types_growth") is None:
             continue
         registry_rows.append((profile_id, candidate))
     if registry_rows:
         lines += [
-            "", "## hg_cpp retained runtime registry growth", "",
+            "", f"## {MODE_LABELS[comparison_mode]} retained runtime registry growth", "",
             "Counts are final-minus-pre-run cold-path cardinalities. They are "
             "process-lifetime structural records, not live graph instances.", "",
             "| profile | node types | graph programs | graph types | executor types | all type records |",
@@ -432,7 +471,7 @@ def main() -> int:
     parser.add_argument("--group", action="append",
                         help="restrict to exact memory profile group")
     parser.add_argument("--mode", action="append", choices=MODES,
-                        help="default: legacy C++ and hg_cpp")
+                        help="default: fixed hgraph 0.8.1 and current source")
     parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--sampling-interval-ms", type=float, default=5.0)
     parser.add_argument("--timeout", type=int, default=600)
@@ -489,7 +528,10 @@ def main() -> int:
             args.samples,
             args.sampling_interval_ms,
             1.0,
-            psutil_versions[selected_baselines[0]],
+            {
+                mode: psutil_versions[mode]
+                for mode in selected_baselines
+            },
         )
         cache = load_baseline_cache(args.baseline_cache, cache_identity)
 
@@ -550,14 +592,19 @@ def main() -> int:
         print(f"[baseline] updated {args.baseline_cache}")
 
     inspector = {}
-    if "hg-cpp" in modes and not args.skip_inspector:
+    inspector_mode = (
+        "hg-cpp" if "hg-cpp" in modes
+        else "release" if "release" in modes else None
+    )
+    if inspector_mode is not None and not args.skip_inspector:
         for name in names:
             scenario = scenarios.SCENARIOS[memory_profiles.PROFILES[name].scenario]
-            if "hg-cpp" not in scenario.modes:
+            if inspector_mode not in scenario.modes:
                 continue
             print(f"[inspector] {name} ...", end="", flush=True)
             value = run_one(
-                "hg-cpp", name, "inspector", args.sampling_interval_ms, args.timeout
+                inspector_mode, name, "inspector", args.sampling_interval_ms,
+                args.timeout
             )
             inspector[name] = value
             print(
@@ -572,6 +619,7 @@ def main() -> int:
         "sampling_interval_ms": args.sampling_interval_ms,
         "results": results,
         "inspector": inspector,
+        "inspector_mode": inspector_mode,
     }
     RESULTS_DIR.mkdir(exist_ok=True)
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -579,7 +627,7 @@ def main() -> int:
     report_path = RESULTS_DIR / f"memory-matrix-{stamp}.md"
     raw_path.write_text(json.dumps(payload, indent=2) + "\n")
     report = render(results, inspector, args.samples,
-                    args.sampling_interval_ms, metadata)
+                    args.sampling_interval_ms, metadata, inspector_mode)
     report_path.write_text(report)
     print(f"\n{report}\nwritten: {report_path}\nraw: {raw_path}")
     return 0
