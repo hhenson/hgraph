@@ -169,9 +169,9 @@ Each extension owns its nested ``pyproject.toml``, CMake package configuration,
 and tests. Cross-cutting changes are tested against core at the same commit,
 while the resulting wheels remain separate distribution artifacts. During the
 current release line, core and Kafka are co-versioned and co-released: a bare
-``<version>`` tag such as ``0.8.1`` validates that the version is new for both
-packages, restamps both distributions, and publishes both packages. Independent
-extension tags are intentionally not part of this release workflow.
+``<version>`` tag validates that the version is new for both packages, restamps
+both distributions, and publishes both packages. Independent extension tags are
+intentionally not part of this release workflow.
 
 The Kafka PEP 517 build requirements include ``hgraph>=0.8.0`` because its standalone
 CMake configure consumes the installed core SDK.  In-repository CI installs

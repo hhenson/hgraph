@@ -22,24 +22,40 @@ def _cmake_projects(
     return core_path, kafka_path
 
 
+def _next_patch(version: str) -> str:
+    major, minor, patch = map(int, version.split("."))
+    return f"{major}.{minor}.{patch + 1}"
+
+
 def test_shared_release_can_advance_without_bumping_native_api_version(tmp_path: Path):
-    core_path, kafka_path = _cmake_projects(tmp_path)
+    native_version = "1.2.3"
+    release_version = _next_patch(native_version)
+    core_path, kafka_path = _cmake_projects(
+        tmp_path,
+        core_version=native_version,
+        kafka_version=native_version,
+    )
     release = validate_release(
-        "0.8.1",
+        release_version,
         cmake_path=core_path,
         kafka_cmake_path=kafka_path,
         release_exists=lambda _package, _version: False,
     )
 
-    assert release.version == "0.8.1"
+    assert release.version == release_version
 
 
 def test_shared_release_cannot_predate_native_api_version(tmp_path: Path):
-    core_path, kafka_path = _cmake_projects(tmp_path, kafka_version="0.8.2")
+    release_version = "1.2.3"
+    core_path, kafka_path = _cmake_projects(
+        tmp_path,
+        core_version=release_version,
+        kafka_version=_next_patch(release_version),
+    )
 
     with pytest.raises(ValueError, match="hgraph-kafka.*predates native API version"):
         validate_release(
-            "0.8.1",
+            release_version,
             cmake_path=core_path,
             kafka_cmake_path=kafka_path,
             release_exists=lambda _package, _version: False,
