@@ -25,7 +25,12 @@ def test_optional_wiring_annotations_and_parameterized_objects_are_accepted():
 
     assert TS[Box[int]].handle.is_ts
     assert (TS[int] | None) == TS[int]
-    assert hg.datetime is not None
+
+
+def test_standard_library_datetime_types_do_not_leak_from_top_level_api():
+    for name in ("date", "datetime", "time", "timedelta"):
+        assert name not in hg.__all__
+        assert not hasattr(hg, name)
 
 
 def test_state_accepts_documentary_state_type():

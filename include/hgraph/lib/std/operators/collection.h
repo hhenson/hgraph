@@ -129,10 +129,12 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``max_ts_list`` — internal packed-list maximum used by public ``max_`` overloads. */
     struct extremum_ts_list_max_marker : Operator<"max_ts_list", In<"tsl", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
+    /** ``combine_map`` — build a mapping value from key and value time-series. */
     struct combine_map : Operator<"combine_map", In<"keys", TsVar<"A">>, In<"values", TsVar<"B">>, Out<TsVar<"O">>>
     {
     };
@@ -156,6 +158,7 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``collapse_keys`` — flatten nested TSD keys into tuple keys. */
     struct collapse_keys : Operator<"collapse_keys", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };

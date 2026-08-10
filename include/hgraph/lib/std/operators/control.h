@@ -33,6 +33,7 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``merge`` — forward the first input that ticks in the current cycle. */
     struct merge : Operator<"merge", VarIn<"tsl", TsVar<"S">>, Out<TsVar<"S">>>
     {
     };
@@ -46,12 +47,14 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``reduce_tsd_of_bundles_with_race`` — bundle-flavoured keyed race reduction. */
     struct reduce_tsd_of_bundles_with_race
         : Operator<"reduce_tsd_of_bundles_with_race", In<"tsd", TSD<ScalarVar<"K">, REF<TsVar<"S">>>>,
                    Out<REF<TsVar<"S">>>>
     {
     };
 
+    /** ``race`` — forward the first valid input, falling through when it invalidates. */
     struct race : Operator<"race", VarIn<"ts", TsVar<"S">>, Out<TsVar<"S">>>
     {
     };

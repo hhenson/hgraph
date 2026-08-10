@@ -897,6 +897,40 @@ TEST_CASE("operators: parameter shape distinguishes fixed and generic inputs")
     CHECK(pulse.fixed_ts == nullptr);
 }
 
+TEST_CASE("operators: overload signature inspection preserves the complete public call shape")
+{
+    register_overload<route_shape_, route_shape_any>();
+    register_overload<route_shape_, route_shape_labeled>();
+
+    const auto signatures = OperatorRegistry::instance().overload_signatures("route_shape");
+    REQUIRE(signatures.size() == 2);
+
+    const OperatorOverloadSignature &signature = signatures.front();
+    CHECK_FALSE(signature.variadic);
+    CHECK_FALSE(signature.has_kwargs);
+    CHECK_FALSE(signature.has_output);
+    CHECK_FALSE(signature.output_pattern.has_value());
+    CHECK(signature.positional_params == signature.parameters.size());
+    REQUIRE(signature.parameters.size() == 3);
+    CHECK(signature.parameters[0].name == "condition");
+    CHECK(signature.parameters[0].kind == ParamPattern::Kind::Input);
+    CHECK(signature.parameters[0].type_pattern == "TS[bool]");
+    CHECK_FALSE(signature.parameters[0].has_default);
+    CHECK(signature.parameters[1].name == "ts");
+    CHECK_FALSE(signature.parameters[1].type_pattern.empty());
+    CHECK(signature.parameters[2].name == "pulse");
+    CHECK(signature.parameters[2].type_pattern == "SIGNAL");
+
+    const OperatorOverloadSignature &defaulted = signatures.back();
+    REQUIRE(defaulted.parameters.size() == 4);
+    CHECK(defaulted.parameters.back().name == "label");
+    CHECK(defaulted.parameters.back().kind == ParamPattern::Kind::Scalar);
+    CHECK(defaulted.parameters.back().type_pattern == "str");
+    CHECK(defaulted.parameters.back().has_default);
+
+    CHECK(OperatorRegistry::instance().overload_signatures("not_registered").empty());
+}
+
 TEST_CASE("operators: graph implementations can be registered as overloads")
 {
     register_graph_overload<double_, double_graph>();

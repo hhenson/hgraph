@@ -625,26 +625,34 @@ void bind_ports(nb::module_ &m) {
         WiringPortRef::structural_source(schema, std::move(children))};
   });
 
-  nb::class_<PyOpaqueRef>(m, "TimeSeriesRef")
+  nb::class_<PyOpaqueRef>(
+      m, "TimeSeriesRef",
+      "An immutable runtime reference to another time-series output.\n\n"
+      "Values of this type are produced by REF inputs. is_valid is evaluated "
+      "at the cycle in which the reference value was observed; an empty "
+      "reference has no target output.")
       .def_prop_ro("is_empty",
                    [](const PyOpaqueRef &self) {
                      return self.value.view()
                          .checked_as<TimeSeriesReference>()
                          .is_empty();
-                   })
+                   },
+                   "Whether the reference has no target.")
       .def_prop_ro("has_output",
                    [](const PyOpaqueRef &self) {
                      return self.value.view()
                          .checked_as<TimeSeriesReference>()
                          .has_output();
-                   })
+                   },
+                   "Whether the reference currently identifies an output.")
       .def_prop_ro(
           "is_valid",
           [](const PyOpaqueRef &self) {
             return self.evaluation_time != MIN_DT &&
                    self.value.view().checked_as<TimeSeriesReference>().is_valid(
                        self.evaluation_time);
-          })
+          },
+          "Whether the referenced output is valid at the observation time.")
       .def("__eq__",
            [](const PyOpaqueRef &self, nb::handle other) {
              return nb::isinstance<PyOpaqueRef>(other) &&
@@ -670,6 +678,6 @@ void bind_ports(nb::module_ &m) {
       throw std::logic_error("TimeSeriesReference meta has no canonical type");
     }
     return PyOpaqueRef{Value{type}, MIN_DT};
-  });
+  }, "Return the canonical empty time-series reference.");
 }
 } // namespace hgraph::python_bridge

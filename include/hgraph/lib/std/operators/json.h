@@ -54,30 +54,37 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``json_encode`` — encode a dynamic JSON-tree value as JSON text. */
     struct json_encode : Operator<"json_encode", In<"ts", TsVar<"S">>, Out<TS<Str>>>
     {
     };
 
+    /** ``json_decode`` — parse JSON text into the dynamic JSON-tree value type. */
     struct json_decode : Operator<"json_decode", In<"ts", TS<Str>>, Out<TsVar<"O">>>
     {
     };
 
+    /** ``json_as_int`` — coerce a dynamic JSON leaf to an integer. */
     struct json_as_int : Operator<"json_as_int", In<"ts", TsVar<"S">>, Out<TS<Int>>>
     {
     };
 
+    /** ``json_as_float`` — coerce a dynamic JSON leaf to a floating-point value. */
     struct json_as_float : Operator<"json_as_float", In<"ts", TsVar<"S">>, Out<TS<Float>>>
     {
     };
 
+    /** ``json_as_str`` — coerce a dynamic JSON leaf to a string. */
     struct json_as_str : Operator<"json_as_str", In<"ts", TsVar<"S">>, Out<TS<Str>>>
     {
     };
 
+    /** ``json_as_bool`` — coerce a dynamic JSON leaf to a boolean. */
     struct json_as_bool : Operator<"json_as_bool", In<"ts", TsVar<"S">>, Out<TS<Bool>>>
     {
     };
 
+    /** ``from_json`` — parse JSON text as the explicitly selected output schema. */
     struct from_json : Operator<"from_json", In<"ts", TS<Str>>, Out<TsVar<"O">>>
     {
     };

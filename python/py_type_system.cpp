@@ -48,24 +48,51 @@ namespace hgraph::python_bridge
 
     void bind_type_system(nb::module_ &m)
     {
-    nb::enum_<MonthEndPolicy>(m, "MonthEndPolicy")
-        .value("REJECT", MonthEndPolicy::Reject)
-        .value("CLAMP", MonthEndPolicy::Clamp)
+    nb::enum_<MonthEndPolicy>(
+        m, "MonthEndPolicy",
+        "Policy for calendar-period arithmetic when the target month does "
+        "not contain the original day.")
+        .value("REJECT", MonthEndPolicy::Reject,
+               "Raise when the target month does not contain the source day.")
+        .value("CLAMP", MonthEndPolicy::Clamp,
+               "Clamp an invalid target day to the target month's final day.")
         .value("PRESERVE_END_OF_MONTH",
-               MonthEndPolicy::PreserveEndOfMonth);
-    nb::enum_<AmbiguousTimePolicy>(m, "AmbiguousTimePolicy")
-        .value("REJECT", AmbiguousTimePolicy::Reject)
-        .value("EARLIEST", AmbiguousTimePolicy::Earliest)
-        .value("LATEST", AmbiguousTimePolicy::Latest);
-    nb::enum_<NonexistentTimePolicy>(m, "NonexistentTimePolicy")
-        .value("REJECT", NonexistentTimePolicy::Reject)
-        .value("NEXT_VALID", NonexistentTimePolicy::NextValid)
-        .value("PREVIOUS_VALID", NonexistentTimePolicy::PreviousValid);
-    nb::enum_<Boundary>(m, "Boundary")
-        .value("OPEN", Boundary::Open)
-        .value("CLOSED", Boundary::Closed);
+               MonthEndPolicy::PreserveEndOfMonth,
+               "Map a source month-end to the target month-end; otherwise "
+               "clamp only when the source day is invalid in the target month.");
+    nb::enum_<AmbiguousTimePolicy>(
+        m, "AmbiguousTimePolicy",
+        "Policy for resolving a local civil time that occurs twice during "
+        "a time-zone transition.")
+        .value("REJECT", AmbiguousTimePolicy::Reject,
+               "Raise when the local civil time identifies two instants.")
+        .value("EARLIEST", AmbiguousTimePolicy::Earliest,
+               "Select the earlier of the two matching instants.")
+        .value("LATEST", AmbiguousTimePolicy::Latest,
+               "Select the later of the two matching instants.");
+    nb::enum_<NonexistentTimePolicy>(
+        m, "NonexistentTimePolicy",
+        "Policy for resolving a local civil time skipped by a time-zone "
+        "transition.")
+        .value("REJECT", NonexistentTimePolicy::Reject,
+               "Raise when the local civil time falls inside a transition gap.")
+        .value("NEXT_VALID", NonexistentTimePolicy::NextValid,
+               "Select the first valid instant after the transition gap.")
+        .value("PREVIOUS_VALID", NonexistentTimePolicy::PreviousValid,
+               "Select the final valid instant before the transition gap.");
+    nb::enum_<Boundary>(
+        m, "Boundary",
+        "Whether a temporal range includes or excludes one endpoint.")
+        .value("OPEN", Boundary::Open, "Exclude the endpoint from the range.")
+        .value("CLOSED", Boundary::Closed, "Include the endpoint in the range.");
 
-    nb::class_<CivilDateTime>(m, "CivilDateTime")
+    nb::class_<CivilDateTime>(
+        m, "CivilDateTime",
+        "A timezone-free calendar date and wall-clock time.\n\n"
+        "CivilDateTime represents local civil time without an offset or "
+        "time zone. Use hgraph.temporal.resolve() with a ZoneId to obtain a "
+        "ZonedDateTime. Calendar Period arithmetic preserves civil-time "
+        "semantics; timedelta arithmetic uses fixed elapsed durations.")
         .def(nb::init<CivilDate, int, int, int, int>(),
              nb::arg("date"), nb::arg("hour"),
              nb::arg("minute") = 0, nb::arg("second") = 0,
@@ -88,8 +115,10 @@ namespace hgraph::python_bridge
         .def_prop_ro("minute", &CivilDateTime::minute)
         .def_prop_ro("second", &CivilDateTime::second)
         .def_prop_ro("microsecond", &CivilDateTime::microsecond)
-        .def("weekday", &CivilDateTime::weekday)
-        .def("isoweekday", &CivilDateTime::isoweekday)
+        .def("weekday", &CivilDateTime::weekday,
+             "Return the weekday as Monday=0 through Sunday=6.")
+        .def("isoweekday", &CivilDateTime::isoweekday,
+             "Return the ISO weekday as Monday=1 through Sunday=7.")
         .def_prop_ro("day_of_year", &CivilDateTime::day_of_year)
         .def("__eq__", [](const CivilDateTime &self,
                           const CivilDateTime &other) {
@@ -132,7 +161,12 @@ namespace hgraph::python_bridge
                    format_civil_datetime(self) + "')";
         });
 
-    nb::class_<Period>(m, "Period")
+    nb::class_<Period>(
+        m, "Period",
+        "A calendar-relative duration measured in years, months, and days.\n\n"
+        "Unlike datetime.timedelta, a Period depends on the starting civil "
+        "date. Applying one uses MonthEndPolicy to handle short months and "
+        "is not supported for timezone-independent instants.")
         .def(nb::init<std::int64_t, std::int64_t, std::int64_t>(),
              nb::arg("years") = 0, nb::arg("months") = 0,
              nb::arg("days") = 0)
@@ -197,7 +231,9 @@ namespace hgraph::python_bridge
             return out.str();
         });
 
-    nb::class_<ZoneId>(m, "ZoneId")
+    nb::class_<ZoneId>(
+        m, "ZoneId",
+        "An immutable IANA time-zone identifier such as 'Europe/London'.")
         .def(nb::init<std::string_view>(), nb::arg("name"))
         .def_prop_ro("name", &ZoneId::name)
         .def_prop_ro("value", &ZoneId::value)
@@ -214,13 +250,18 @@ namespace hgraph::python_bridge
             return std::hash<ZoneId>{}(self);
         });
 
-    nb::class_<ZonedDateTime>(m, "ZonedDateTime")
+    nb::class_<ZonedDateTime>(
+        m, "ZonedDateTime",
+        "An instant paired with its time zone, UTC offset, and civil time.\n\n"
+        "Equality includes the zone representation. Use same_instant() when "
+        "only the point on the UTC timeline matters.")
         .def_prop_ro("instant", &ZonedDateTime::instant)
         .def_prop_ro("zone", &ZonedDateTime::zone)
         .def_prop_ro("offset_seconds",
                      &ZonedDateTime::offset_seconds)
         .def_prop_ro("civil", &ZonedDateTime::civil)
-        .def("same_instant", &ZonedDateTime::same_instant)
+        .def("same_instant", &ZonedDateTime::same_instant,
+             "Return whether both values identify the same UTC instant.")
         .def("__eq__", [](const ZonedDateTime &self,
                           const ZonedDateTime &other) {
             return self == other;
@@ -234,15 +275,18 @@ namespace hgraph::python_bridge
             return "ZonedDateTime('" + out.str() + "')";
         });
 
-    const auto bind_range = [&]<typename Range>(const char *name) {
+    const auto bind_range = [&]<typename Range>(const char *name,
+                                                const char *doc) {
         using Endpoint = typename Range::value_type;
-        nb::class_<Range>(m, name)
+        nb::class_<Range>(m, name, doc)
             .def(nb::init<Endpoint, Endpoint, Boundary, Boundary>(),
                  nb::arg("start"), nb::arg("end"),
                  nb::arg("lower") = Boundary::Closed,
                  nb::arg("upper") = Boundary::Open)
-            .def_static("empty", &Range::make_empty)
-            .def_static("all", &Range::all)
+            .def_static("empty", &Range::make_empty,
+                        "Return the canonical empty range.")
+            .def_static("all", &Range::all,
+                        "Return the range with neither endpoint bounded.")
             .def_static("bounded",
                         [](Endpoint start, Endpoint end, Boundary lower,
                            Boundary upper) {
@@ -276,19 +320,38 @@ namespace hgraph::python_bridge
             .def_prop_ro("upper_unbounded", &Range::upper_unbounded)
             .def("contains",
                  nb::overload_cast<const Endpoint &>(
-                     &Range::contains, nb::const_))
+                     &Range::contains, nb::const_),
+                 "Return whether this range contains the value.")
             .def("contains",
                  nb::overload_cast<const Range &>(
-                     &Range::contains, nb::const_))
-            .def("intersection", &Range::intersection)
-            .def("overlaps", &Range::overlaps)
-            .def("touches", &Range::touches)
-            .def("adjacent", &Range::adjacent)
-            .def("mergeable", &Range::mergeable)
-            .def("merge", &Range::merge)
-            .def("hull", &Range::hull)
-            .def("difference", &Range::difference)
-            .def("set_union", &Range::set_union)
+                     &Range::contains, nb::const_),
+                 "Return whether this range completely contains the other "
+                 "range.")
+            .def("intersection", &Range::intersection,
+                 "Return the overlap with the other range, or an empty "
+                 "range when disjoint.")
+            .def("overlaps", &Range::overlaps,
+                 "Return whether the ranges share at least one value.")
+            .def("touches", &Range::touches,
+                 "Return whether one range's finite upper endpoint equals "
+                 "the other's finite lower endpoint, regardless of boundary "
+                 "inclusion.")
+            .def("adjacent", &Range::adjacent,
+                 "Return whether the ranges do not overlap, share an "
+                 "endpoint, and exactly one meeting boundary is closed.")
+            .def("mergeable", &Range::mergeable,
+                 "Return whether the ranges can be represented as one "
+                 "continuous range.")
+            .def("merge", &Range::merge,
+                 "Return the merged range, or None when the ranges are "
+                 "disjoint.")
+            .def("hull", &Range::hull,
+                 "Return the smallest range containing both ranges.")
+            .def("difference", &Range::difference,
+                 "Return the portions of this range outside the other "
+                 "range.")
+            .def("set_union", &Range::set_union,
+                 "Return the normalized union of both ranges.")
             .def("__eq__", [](const Range &self, const Range &other) {
                 return self == other;
             })
@@ -301,12 +364,19 @@ namespace hgraph::python_bridge
                 return out.str();
             });
     };
-    bind_range.template operator()<InstantRange>("InstantRange");
-    bind_range.template operator()<CivilDateRange>("CivilDateRange");
+    bind_range.template operator()<InstantRange>(
+        "InstantRange",
+        "An immutable range of UTC instants with independently open or "
+        "closed endpoints. Unbounded and empty ranges are supported.");
+    bind_range.template operator()<CivilDateRange>(
+        "CivilDateRange",
+        "An immutable range of civil dates with independently open or "
+        "closed endpoints. Unbounded and empty ranges are supported.");
 
-    const auto bind_range_set = [&]<typename RangeSet>(const char *name) {
+    const auto bind_range_set = [&]<typename RangeSet>(const char *name,
+                                                       const char *doc) {
         using Range = typename RangeSet::value_type;
-        nb::class_<RangeSet>(m, name)
+        nb::class_<RangeSet>(m, name, doc)
             .def("__init__",
                  [](nb::pointer_and_handle<RangeSet> self,
                     nb::iterable source) {
@@ -355,9 +425,13 @@ namespace hgraph::python_bridge
             });
     };
     bind_range_set.template operator()<InstantRangeSet>(
-        "InstantRangeSet");
+        "InstantRangeSet",
+        "A normalized immutable collection of at most two disjoint instant "
+        "ranges, typically returned by range set operations.");
     bind_range_set.template operator()<CivilDateRangeSet>(
-        "CivilDateRangeSet");
+        "CivilDateRangeSet",
+        "A normalized immutable collection of at most two disjoint civil "
+        "date ranges, typically returned by range set operations.");
 
     m.def("_temporal_checked_add",
           [](Duration lhs, Duration rhs) {
@@ -1285,6 +1359,42 @@ namespace hgraph::python_bridge
         }
         return nb::make_tuple(std::move(parameters), shape->variadic);
     });
+
+    m.def(
+        "operator_overload_signatures",
+        [](const std::string &name) {
+            nb::list signatures;
+            for (const OperatorOverloadSignature &signature :
+                 OperatorRegistry::instance().overload_signatures(name))
+            {
+                nb::list parameters;
+                for (const OperatorSignatureParameter &parameter : signature.parameters)
+                {
+                    parameters.append(nb::make_tuple(
+                        parameter.name,
+                        parameter.kind == ParamPattern::Kind::Input,
+                        parameter.type_pattern,
+                        parameter.has_default));
+                }
+                nb::object kwargs_pattern = signature.kwargs_pattern.has_value()
+                                                ? nb::cast(*signature.kwargs_pattern)
+                                                : nb::none();
+                nb::object output_pattern = signature.output_pattern.has_value()
+                                                ? nb::cast(*signature.output_pattern)
+                                                : nb::none();
+                signatures.append(nb::make_tuple(
+                    std::move(parameters),
+                    signature.variadic,
+                    signature.positional_params,
+                    signature.has_kwargs,
+                    std::move(kwargs_pattern),
+                    signature.has_output,
+                    std::move(output_pattern)));
+            }
+            return signatures;
+        },
+        nb::arg("name"),
+        "Return complete registered overload signatures for documentation and typing tools.");
 
     // --- python operator overloads (end-game A2): a python @compute_node/
     // @graph registers as an ordinary OperatorImpl{Source::Python} candidate.

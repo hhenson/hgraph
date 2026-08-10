@@ -323,9 +323,9 @@ Recorded divergences / gaps (the morning-summary list):
   GIL is RELEASED the instant the run loop starts; one nanobind guard covers
   the executor's complete start phase, each root evaluation cycle, and the
   complete stop phase (:doc:`python_bridge`, *GIL boundaries*). Inputs arrive
-  as plain Python VALUES (a recorded
-  divergence from Python hgraph's TimeSeries view objects); a compute
-  node's return value ticks its output (``None`` = no tick); a generator
+  as lazy, callback-scoped native ``TimeSeries`` views and convert only when
+  Python reads ``value`` or ``delta_value``; a compute node's return value
+  ticks its output (``None`` = no tick); a generator
   yields ``(datetime, value)`` pairs emitted at their absolute times. The
   bridge registers internal erased operators (``__py_compute`` /
   ``__py_sink`` / ``__py_generator``) over an immortal callable-record
