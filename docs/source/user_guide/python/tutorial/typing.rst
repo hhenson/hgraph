@@ -256,11 +256,11 @@ Lets consider the other approach, using a ``compute_node``. The ``BidAsk`` and
 ``MidSpread`` schemas declared above are reused rather than redeclared.
 
 .. note:: A schema is identified by its module and its name, so the same name
-          in two different modules is fine. Redeclaring it *within one module* —
-          a re-run notebook cell, an ``importlib.reload`` — currently raises
-          ``TypeError: Bundle schema is already registered to a different
-          Python class`` instead of rebinding. See
-          `issue #403 <https://github.com/hhenson/hgraph/issues/403>`_.
+          in two different modules is fine, and re-executing an *unchanged*
+          declaration — a re-run notebook cell, an ``importlib.reload`` —
+          rebinds it. Redeclaring the same name with a **different** shape
+          raises, because the existing schema is already in use: a schema
+          registration lasts for the life of the process.
 
 .. testcode::
 
