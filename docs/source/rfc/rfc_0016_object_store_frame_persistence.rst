@@ -20,9 +20,11 @@ consumer already exists in a downstream project that writes related frames
 carrying frame-level metadata, and the contract below is stated so that use is
 expressible without a private extension to it.
 
-Nothing here requires a new third-party dependency. hgraph already links
-``Arrow::arrow_shared``, and pyarrow's bundled ``libarrow`` exports the
-filesystem layer this builds on.
+The filesystem layer this builds on is in the ``libarrow`` hgraph already
+links. Arrow IPC is too. **Parquet is not** — it lives in a separate
+``libparquet`` that no configuration currently links, and the Conan build
+disables it outright. That is a real dependency task, not a free one, and it is
+planned below rather than assumed away.
 
 Scope
 -----
@@ -62,8 +64,9 @@ environment selected by configuration rather than by a different call.
 
 **Durable, interoperable output.** A recorded frame should be readable by
 anything that reads Arrow — Spark, DuckDB, polars, pandas — without hgraph in
-the loop. That constrains the format to Parquet or Arrow IPC, both of which are
-already available through the linked Arrow build.
+the loop. That constrains the format to Parquet or Arrow IPC. IPC is available
+in the already-linked ``libarrow``; Parquet requires linking ``libparquet``,
+which is what the dependency plan below is for.
 
 **Frames that record how they were produced.**
 :doc:`rfc_0001_typed_frame_metadata` puts frame-level values into the Arrow
@@ -95,9 +98,10 @@ The store abstraction, its configuration, and the Arrow-backed backends are
   ``include/hgraph/types/record_replay.h``);
 * the value type is already core (``Frame``, and ``Frame[Rows, Metadata]``
   under RFC 0001);
-* no new dependency is acquired — ``arrow::fs`` is in the ``libarrow`` hgraph
-  already links, so this adds no package, no toolchain, and no ABI surface
-  beyond hgraph's own.
+* no new *package* is acquired: ``arrow::fs`` and ``arrow::ipc`` are in the
+  ``libarrow`` hgraph already links, and where Parquet is wanted the library
+  ships in the same Arrow distribution rather than coming from a new supplier.
+  No new toolchain, and no ABI surface beyond hgraph's own.
 
 Per :doc:`../developer_guide/extension_policy`, a requirement originating in a
 private downstream project is stated in generic terms before entering a core
@@ -112,8 +116,12 @@ application or extension concerns built *on* this contract.
 C++ contract
 ------------
 
-The existing ops table is retained unchanged as the runtime seam. Consumers
-that only read and write by key are unaffected by this RFC.
+The ops table is retained unchanged as the *runtime* seam — the per-call shape
+that ``store_write``/``store_read`` dispatch through is not altered, and
+consumers that only read and write by key are unaffected.
+
+What does change is **registration**, in two ways the current API cannot
+express. Both were raised in review and both are real:
 
 .. code-block:: cpp
 
@@ -126,7 +134,53 @@ that only read and write by key are unaffected by this RFC.
         void (*clear)(void *context){nullptr};
     };
 
-Added: a described, configurable backend that produces such an ops table.
+**Registration owns the backend.** ``FrameStoreOps`` carries a bare
+``void *context`` and no destructor. That is sufficient for the default store,
+whose context is ``nullptr`` and whose functions close over statics. A
+configured local or S3 backend must allocate, and a factory returning a plain
+ops table would leave that allocation with no owner: it dangles when the
+factory-local owner dies, or leaks when the registration is replaced.
+Registration therefore takes an owning handle.
+
+**Registration is scoped to the run, not the process.** ``g_store`` in
+``record_replay.cpp`` is a file-scope global replaced wholesale by
+``set_frame_store``, so two graph runs selecting different destinations would
+fight over it and one run could write into another's bucket. The precedent for
+the fix is in the same file: ``set_config`` already takes a
+``GlobalStateView``, so record/replay *configuration* is run-scoped while the
+store is not. The store joins it.
+
+.. code-block:: cpp
+
+    namespace hgraph::store
+    {
+        /** Move-only owner of a backend and its context. Destroying it
+            releases the backend; the ops table it exposes is valid for the
+            handle's lifetime. */
+        class HGRAPH_EXPORT FrameStoreHandle
+        {
+          public:
+            FrameStoreHandle(FrameStoreHandle &&) noexcept;
+            FrameStoreHandle &operator=(FrameStoreHandle &&) noexcept;
+            ~FrameStoreHandle();
+            [[nodiscard]] const FrameStoreOps &ops() const noexcept;
+        };
+
+        [[nodiscard]] HGRAPH_EXPORT FrameStoreHandle make_frame_store(FrameStoreConfig config);
+    }
+
+    namespace hgraph::record_replay
+    {
+        /** Register for the active run; the handle is owned by GlobalState and
+            released with it. Mirrors set_config's scoping. */
+        HGRAPH_EXPORT void set_frame_store(GlobalStateView state, store::FrameStoreHandle store);
+    }
+
+The process-global ``set_frame_store(FrameStoreOps)`` is retained for the
+default registration and for a caller that genuinely owns its context for the
+process lifetime, but it is no longer the mechanism a configured backend uses.
+
+The configuration a backend is built from:
 
 .. code-block:: cpp
 
@@ -285,6 +339,56 @@ frames writes several keys, and relates them by naming them — a shared key
 prefix, or values carried in each frame's own metadata. See the open question
 below on what, if anything, relating them further requires.
 
+Dependency plan
+---------------
+
+Raised in review, and the first draft was wrong to wave it away. What each
+format needs, verified against the repository and the bundled Arrow build:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 40 40
+
+   * -
+     - Arrow IPC
+     - Parquet
+   * - Library
+     - ``libarrow`` — already linked
+     - ``libparquet`` — **linked by nothing today**
+   * - Symbols
+     - ``arrow::ipc::MakeFileWriter`` / ``RecordBatchFileReader::Open``
+     - ``parquet::arrow::WriteTable`` / ``parquet::arrow::FileReader``
+   * - pyarrow build
+     - present
+     - ships ``libparquet`` and ``include/parquet``
+   * - Conan build
+     - present
+     - ``conanfile.py`` sets ``arrow.parquet = False``
+
+``arrow::fs`` is likewise present in the pyarrow build — S3, local and the
+filesystem headers are all there, confirmed by symbol inspection — but the
+Conan configuration enables neither Parquet nor S3, so both need turning on
+there.
+
+Enabling Parquet therefore means, in order:
+
+* flip ``arrow.parquet`` in ``conanfile.py``, and enable Arrow's S3 support in
+  the same place, so the Conan configuration can build this at all;
+* add an imported ``Parquet::parquet_shared`` target beside the existing
+  ``Arrow::``/``ArrowCompute::``/``ArrowAcero::`` ones, discovered from the same
+  pyarrow directory in the pyarrow configuration;
+* link it, and export it through ``hgraph::options`` for installed consumers as
+  the Arrow targets already are;
+* stage ``parquet.dll`` beside the extension on Windows. The build tree already
+  needs this for the Arrow DLLs — ``$<TARGET_RUNTIME_DLLS:_hgraph>`` covers a
+  newly linked library automatically, but the wheel's ``install(FILES ...)``
+  list is explicit and must gain the Parquet runtime;
+* extend ``tools/audit_distribution.py`` and the installed-SDK consumer test so
+  a wheel missing the Parquet runtime fails in CI rather than at first use.
+
+This is routine work, but it is *work*, and it is the reason the default format
+is now an open question rather than a settled decision.
+
 Runtime and lifecycle
 ---------------------
 
@@ -427,16 +531,28 @@ about it.
 Unresolved questions
 --------------------
 
-None outstanding on the store contract itself.
+**Should Parquet remain the default format?** The first draft chose Parquet on
+the grounds that durable records are read more often than written, usually by
+something that is not hgraph. That reasoning stands, but the cost was
+mis-stated: IPC needs nothing, and Parquet needs the plan above.
 
-One sizing consideration is recorded rather than left to be discovered. Arrow
-schema metadata lives in the file footer and is read whenever the object is
-opened, so it suits values that describe the frame, not values that *are* the
-data. A query's parameters — a date range, a filter map, a universe of tens or
-hundreds of symbols — are unremarkable. A universe of hundreds of thousands
-belongs in its own keyed frame, because every reader would otherwise pay for it
-on every open even when only the columns are wanted. This
-is a guideline, not a limit enforced by the store.
+* **A. Parquet default, do the work.** Best interchange out of the box. The
+  store cannot ship until the dependency plan lands, and every configuration
+  carries ``libparquet`` whether or not it writes Parquet.
+* **B. IPC default, Parquet behind a build option.** Ships immediately on the
+  existing link set; a build that wants interchange opts in. Costs a
+  configuration axis, and a frame written by one build may be unreadable by
+  another — exactly the kind of environment-dependent behaviour the rest of
+  this design avoids.
+* **C. IPC default, Parquet unconditionally linked.** No configuration axis and
+  no ambiguity about what a build can read; interchange available whenever it
+  is asked for. Pays the ``libparquet`` link everywhere, as A does, but does not
+  block the store on it.
+
+*Recommendation: C.* It keeps a single behaviour across builds, which is the
+property B gives up, and it decouples shipping the store from the Parquet
+plumbing that A blocks on. The default is then a runtime choice rather than a
+build-time one, which is where the rest of this configuration lives.
 
 Acceptance criteria and test plan
 ---------------------------------
@@ -461,6 +577,10 @@ Acceptance criteria and test plan
   S3 path testable in CI rather than only in deployment.
 * C++ tests for each backend, per AGENTS.md, with Python tests covering the
   configuration surface and bridge.
+* Two runs configured with different destinations do not disturb each other's
+  store, and a store released with its GlobalState leaves no live backend.
+* The installed-SDK consumer test links and uses whichever format libraries the
+  build claims to support.
 
 Implementation status
 ---------------------
