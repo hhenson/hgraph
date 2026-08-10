@@ -329,3 +329,44 @@ TEST_CASE("type_resolution: a second resolution of the same generic source does 
     (void)TypeRegistry::instance().register_scalar<Float>("float");
     CHECK_OUTPUT(eval_node<GenConst>(2.5_f), values<Value>(Value{2.5_f}));
 }
+
+TEST_CASE("type_resolution: pattern_variables reports declared variables in order")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    (void)TypeRegistry::instance().register_scalar<Str>("str");
+
+    // The ordering contract the wiring layer maps unnamed pre-resolution items
+    // onto: children are visited in declaration order.
+    CHECK(pattern_variables(to_pattern<TS<ScalarVar<"T">>>()) == std::vector<std::string>{"T"});
+
+    // A TSD reports its key before its value.
+    CHECK(pattern_variables(to_pattern<TSD<ScalarVar<"K">, TS<ScalarVar<"V">>>>())
+          == std::vector<std::string>{"K", "V"});
+
+    // A TSL reports its element before its size, matching TSL<element, size>.
+    CHECK(pattern_variables(to_pattern<TSL<TS<ScalarVar<"E">>, SIZE<"N">>>())
+          == std::vector<std::string>{"E", "N"});
+
+    // A whole-time-series variable is itself a declared variable.
+    CHECK(pattern_variables(to_pattern<TsVar<"OUT">>()) == std::vector<std::string>{"OUT"});
+
+    // A concrete pattern declares nothing.
+    CHECK(pattern_variables(to_pattern<TS<Int>>()).empty());
+
+    // Repeats collapse to first appearance.
+    CHECK(pattern_variables(to_pattern<TSD<ScalarVar<"K">, TS<ScalarVar<"K">>>>())
+          == std::vector<std::string>{"K"});
+}
+
+TEST_CASE("type_resolution: pattern_variables omits synthesized bundle variables")
+{
+    // A generic nominal bundle binds its whole schema to a manufactured
+    // variable so the matcher can unify the bundle as well as its arguments.
+    // That name is internal: reporting it would make a signature look as though
+    // it declared a type variable its author never wrote.
+    ScalarPattern generic_bundle = ScalarPattern::bundle_generic(
+        "__bundle__module::Box", "module::Box", {ScalarPattern::var("T")});
+    CHECK(pattern_variables(generic_bundle) == std::vector<std::string>{"T"});
+
+    CHECK(pattern_variables(TypePattern::ts(generic_bundle)) == std::vector<std::string>{"T"});
+}

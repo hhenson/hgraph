@@ -358,8 +358,11 @@ class _GraphFn:
 
     def __init__(self, fn, *, resolvers=None, requires=None, label=None,
                  deprecated=False):
+        from .._types import default_type_var_of
+
         self.fn = fn
-        self._signature = inspect.signature(fn, eval_str=True)
+        self._signature, self._default_type_var = default_type_var_of(
+            inspect.signature(fn, eval_str=True))
         self._wiring_signature = self._signature
         self.__name__ = fn.__name__
         self.__doc__ = fn.__doc__

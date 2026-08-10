@@ -7,6 +7,8 @@
 #include "py_bindings.h"
 #include "py_wiring.h"
 
+#include <algorithm>
+
 namespace nb = nanobind;
 using namespace hgraph;
 using namespace hgraph::python_bridge;
@@ -349,9 +351,18 @@ void bind_ports(nb::module_ &m) {
          nb::tuple raw_descriptor_fields,
          nb::tuple defaulted_constructor_fields, bool force_constructor) {
         auto &info = bundle_class_info_registry()[type.meta];
-        if (info.type.is_valid() && !info.type.is(cls)) {
-          throw nb::type_error("Bundle schema is already registered to a "
-                               "different Python class");
+        // Re-executing a module - a notebook cell, an importlib.reload, a
+        // doctest - produces a new class object for the same declaration. That
+        // is a duplicate, not a conflict: reaching here means the schema itself
+        // already matched, because a changed field set is rejected earlier by
+        // the named-bundle registry. Rebind, but only if the reconstruction
+        // shape below also matches; the previous entry is restored if it does
+        // not. Long-lived state is still process-wide, so a test or notebook
+        // that wants a clean slate calls hgraph.reset_registries().
+        const bool rebinding = info.type.is_valid() && !info.type.is(cls);
+        PyBundleClassInfo previous;
+        if (rebinding) {
+          previous = info;
         }
         const bool has_specialization =
             specialization.is_valid() && !specialization.is_none();
@@ -462,6 +473,31 @@ void bind_ports(nb::module_ &m) {
             continue;
           }
           info.field_overrides.back() = std::move(owned_override);
+        }
+        if (rebinding) {
+          // Field names and types already matched (same interned schema), so
+          // what remains is how the class is reconstructed. Overrides are
+          // compared by presence rather than identity: a re-executed module
+          // necessarily produces new descriptor objects for the same
+          // declaration.
+          const bool same_shape =
+              previous.constructor_fields == info.constructor_fields &&
+              previous.defaulted_constructor_fields ==
+                  info.defaulted_constructor_fields &&
+              previous.requires_constructor == info.requires_constructor &&
+              previous.field_overrides.size() == info.field_overrides.size() &&
+              std::equal(previous.field_overrides.begin(),
+                         previous.field_overrides.end(),
+                         info.field_overrides.begin(),
+                         [](const nb::object &lhs, const nb::object &rhs) {
+                           return lhs.is_valid() == rhs.is_valid();
+                         });
+          if (!same_shape) {
+            info = std::move(previous);
+            throw nb::type_error(
+                "Bundle schema is already registered to a different Python "
+                "class with a different reconstruction shape");
+          }
         }
         bundle_class_registry()[nb::int_(
             reinterpret_cast<std::uintptr_t>(type.meta))] = std::move(cls);

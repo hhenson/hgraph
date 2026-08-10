@@ -7,6 +7,7 @@
 #include <hgraph/types/static_schema.h>      // TS / TSS / TSL / TSD / REF / SIGNAL, TsVar / ScalarVar, descriptors
 #include <hgraph/types/type_resolution.h>    // ResolutionMap
 
+#include <algorithm>
 #include <cstddef>
 #include <string>
 #include <unordered_map>
@@ -734,6 +735,85 @@ namespace hgraph
             }
         }
     };
+
+    namespace type_pattern_detail
+    {
+        /**
+         * A synthesized variable, not one the author wrote.
+         *
+         * A generic nominal bundle binds its whole schema to a manufactured
+         * variable (``__bundle__module::Box``) so the matcher can unify the
+         * bundle itself as well as its arguments. Those names are internal, and
+         * reporting them would let ``TS[Box[T]]`` claim two type variables when
+         * the author declared one.
+         */
+        [[nodiscard]] inline bool is_synthetic_variable(const std::string &name) noexcept
+        {
+            return name.rfind("__", 0) == 0;
+        }
+
+        inline void push_unique(std::vector<std::string> &out, const std::string &name)
+        {
+            if (name.empty() || is_synthetic_variable(name)) { return; }
+            if (std::find(out.begin(), out.end(), name) == out.end()) { out.push_back(name); }
+        }
+    }  // namespace type_pattern_detail
+
+    /**
+     * Append the author-declared type-variable names appearing in a pattern to
+     * ``out``, in order of first appearance and de-duplicated.
+     *
+     * Children are visited in declaration order, so ``TSD<K, V>`` reports the key
+     * before the value (the key lives in ``scalar``) and ``TSL<E, N>`` reports the
+     * element before the size (the size is a trailing argument). Synthesized
+     * variables are omitted - see ``is_synthetic_variable``.
+     *
+     * **Build-time only.** This answers "which type variables does this signature
+     * declare?", which the wiring layer needs to map an unnamed pre-resolution
+     * item such as ``my_node[TS[int]]`` onto a variable. It is never called on the
+     * per-tick evaluation path.
+     */
+    inline void collect_pattern_variables(const ScalarPattern &pattern, std::vector<std::string> &out)
+    {
+        if (pattern.kind == ScalarPattern::Kind::Var
+            || (pattern.kind == ScalarPattern::Kind::Bundle && pattern.schema_var))
+        {
+            type_pattern_detail::push_unique(out, pattern.name);
+        }
+        for (const auto &child : pattern.children) { collect_pattern_variables(child, out); }
+        for (const auto &dimension : pattern.dimensions)
+        {
+            if (dimension.variable) { type_pattern_detail::push_unique(out, dimension.name); }
+        }
+    }
+
+    /** @copydoc collect_pattern_variables(const ScalarPattern &, std::vector<std::string> &) */
+    inline void collect_pattern_variables(const TypePattern &pattern, std::vector<std::string> &out)
+    {
+        if (pattern.kind == TypePattern::Kind::Var || pattern.schema_var)
+        {
+            type_pattern_detail::push_unique(out, pattern.name);
+        }
+        collect_pattern_variables(pattern.scalar, out);
+        for (const auto &child : pattern.children) { collect_pattern_variables(child, out); }
+        if (pattern.size_var) { type_pattern_detail::push_unique(out, pattern.size_name); }
+    }
+
+    /** The type-variable names in ``pattern``, in order of first appearance. */
+    [[nodiscard]] inline std::vector<std::string> pattern_variables(const TypePattern &pattern)
+    {
+        std::vector<std::string> out;
+        collect_pattern_variables(pattern, out);
+        return out;
+    }
+
+    /** @copydoc pattern_variables(const TypePattern &) */
+    [[nodiscard]] inline std::vector<std::string> pattern_variables(const ScalarPattern &pattern)
+    {
+        std::vector<std::string> out;
+        collect_pattern_variables(pattern, out);
+        return out;
+    }
 }  // namespace hgraph
 
 #endif  // HGRAPH_TYPES_TYPE_PATTERN_H
