@@ -368,38 +368,47 @@ default; an individual write may override it. A large cold frame and a small
 hot one have different economics, and the writer is the only party that knows
 which it is holding.
 
-**A frame's metadata schema is its definition, and is extensible.** Under RFC
-0001 a stored ``Frame[Rows, Metadata]`` carries its frame-level values in its
-own Arrow schema metadata, and both persistence formats preserve them. This RFC
-adds no index, no side object, and no second place for a frame to be described:
-what a frame means travels inside the frame. Extending what that metadata can
-express — beyond identity, as-of and provenance, to things such as canonical
-mappings — is the subject of the open question below, and is a change to RFC
-0001's metadata vocabulary rather than to this store.
+**A frame's metadata schema is its definition.** Under RFC 0001 a stored
+``Frame[Rows, Metadata]`` carries its frame-level values in its own Arrow
+schema metadata. This RFC adds no index, no side object, and no second place
+for a frame to be described: what a frame means travels inside the frame.
+
+**Metadata encodes as byte keys and byte values, with JSON for nested values.**
+This is the encoding Arrow's schema metadata provides — a map of binary to
+binary — and RFC 0001 already uses it: one entry per populated field, atomic
+values in their plain string form, and composite values through the
+schema-directed JSON codec. Nothing new is required for a canonical mapping;
+it is a metadata field like any other. Verified end to end, including the
+persistence round trip this RFC is about:
+
+.. code-block:: text
+
+    b'hgraph.metadata.schema'             -> b'__main__::Provenance'
+    b'hgraph.metadata.version'            -> b'1'
+    b'hgraph.metadata.field.source'       -> b'EXCH'
+    b'hgraph.metadata.field.revision'     -> b'7'
+    b'hgraph.metadata.field.as_of'        -> b'2026-08-10T00:00:00Z'
+    b'hgraph.metadata.field.canonical'    -> b'{"CL": "CRUDE", "NG": "NATGAS"}'
+
+    parquet -> Provenance(source='EXCH', ..., canonical={'CL': 'CRUDE', 'NG': 'NATGAS'})
+    ipc     -> Provenance(source='EXCH', ..., canonical={'CL': 'CRUDE', 'NG': 'NATGAS'})
+
+The typed value is recovered after both Parquet and Arrow IPC, so a frame
+keeps its definition through persistence without hgraph holding any state
+about it.
 
 Unresolved questions
 --------------------
 
-**What does frame-level metadata need to carry beyond identity?** RFC 0001
-types metadata as a named Bundle of scalar fields — good for an as-of time, a
-source, a plan version. A canonical mapping is a different shape: a
-correspondence between names, which is naturally tabular and may be large.
-Three ways it could be expressed, and the choice is not this RFC's to make
-alone because it changes RFC 0001's vocabulary:
+None outstanding on the store contract itself.
 
-* encode the mapping into a scalar field via the existing schema-directed JSON
-  codec — works today, costs readability at the Arrow level and does not scale
-  to large mappings;
-* declare it as its own frame written under its own key, related to the data
-  frames by a shared key prefix or by a value in each frame's metadata — no new
-  mechanism at all, at the cost of the relationship being a convention;
-* extend RFC 0001 to admit a tabular metadata field — the most expressive and
-  the largest change, and it would need its own RFC.
-
-The second needs nothing from this RFC and is available immediately. Which is
-wanted depends on how large the mappings are and whether they must be
-discoverable from the data frame alone, and that is a question for the
-downstream consumer rather than for the store.
+One sizing consideration is recorded rather than left to be discovered. Arrow
+schema metadata lives in the file footer and is read whenever the object is
+opened, so it suits values that describe the frame, not values that *are* the
+data. A mapping of tens or hundreds of entries is unremarkable; one of hundreds
+of thousands belongs in its own keyed frame, because every reader would
+otherwise pay for it on every open even when only the columns are wanted. This
+is a guideline, not a limit enforced by the store.
 
 Acceptance criteria and test plan
 ---------------------------------
@@ -408,7 +417,8 @@ Acceptance criteria and test plan
   passes unchanged with no configuration.
 * Round trip through each backend — memory, local filesystem, S3 — for both
   formats, asserting frame equality including schema.
-* RFC 0001 metadata survives every backend/format combination.
+* RFC 0001 metadata survives every backend/format combination, and decodes
+  back to the typed value — including a composite field carried as JSON.
 * A write to an existing key is rejected under the default immutable setting,
   and succeeds when the store opts out.
 * A key rejected by validation is rejected identically by every backend,
