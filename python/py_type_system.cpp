@@ -333,9 +333,12 @@ namespace hgraph::python_bridge
             .def("overlaps", &Range::overlaps,
                  "Return whether the ranges share at least one value.")
             .def("touches", &Range::touches,
-                 "Return whether the ranges meet at an included endpoint.")
+                 "Return whether one range's finite upper endpoint equals "
+                 "the other's finite lower endpoint, regardless of boundary "
+                 "inclusion.")
             .def("adjacent", &Range::adjacent,
-                 "Return whether the ranges meet without overlapping.")
+                 "Return whether the ranges do not overlap, share an "
+                 "endpoint, and exactly one meeting boundary is closed.")
             .def("mergeable", &Range::mergeable,
                  "Return whether the ranges can be represented as one "
                  "continuous range.")

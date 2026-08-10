@@ -17,7 +17,7 @@ are omitted.
    * - Surface
      - Names
    * - ``hgraph.__all__``
-     - 210
+     - 206
    * - Public lazy operators
      - 212
    * - Public submodules
@@ -151,8 +151,6 @@ Top-level wildcard exports
    * - ``compute_set_delta``
    * - ``context``
    * - ``convert``
-   * - ``date``
-   * - ``datetime``
    * - ``default_path``
    * - ``delayed_binding``
    * - ``dispatch``
@@ -229,8 +227,6 @@ Top-level wildcard exports
    * - ``table_shape``
    * - ``table_shape_from_schema``
    * - ``temporal``
-   * - ``time``
-   * - ``timedelta``
    * - ``to_graph``
    * - ``try_except``
    * - ``ts_schema``

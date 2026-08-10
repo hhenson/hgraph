@@ -100,8 +100,9 @@ class CLOCK:
     """Annotation marker for injecting the graph evaluation clock.
 
     The callback receives an ``EvaluationClock`` exposing logical evaluation
-    time, mode-dependent current time, cycle duration, and the earliest time
-    scheduled for the next cycle. The object is callback-scoped.
+    time, mode-dependent current time, cycle duration, and the logical time of
+    the immediately following possible evaluation cycle. The object is
+    callback-scoped.
     """
 
 
