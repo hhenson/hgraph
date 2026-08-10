@@ -16,9 +16,9 @@ paths.
 
 The mechanism is a *content store*: keyed, typed, and configurable in format
 and location. Record/replay is its first consumer, not its definition. A second
-consumer already exists in a downstream project that writes co-ordinated groups
-of frames carrying frame-level metadata, and the contract below is stated so
-that use is expressible without a private extension to it.
+consumer already exists in a downstream project that writes related frames
+carrying frame-level metadata, and the contract below is stated so that use is
+expressible without a private extension to it.
 
 Nothing here requires a new third-party dependency. hgraph already links
 ``Arrow::arrow_shared``, and pyarrow's bundled ``libarrow`` exports the
@@ -85,9 +85,9 @@ The store abstraction, its configuration, and the Arrow-backed backends are
 
 Per :doc:`../developer_guide/extension_policy`, a requirement originating in a
 private downstream project is stated in generic terms before entering a core
-RFC. The co-ordinated-frame requirement is therefore expressed below as
-*grouped writes over a keyed store*, with no reference to the domain that
-motivated it.
+RFC. The related-frames requirement is therefore expressed below in terms of
+keys and frame metadata only, with no reference to the domain that motivated
+it.
 
 What stays out of core: bucket naming conventions, retention and lifecycle
 policy, dataset partitioning strategy, and catalogue integration. Those are
@@ -138,8 +138,8 @@ Added: a described, configurable backend that produces such an ops table.
             Location    location{MemoryLocation{}};
             Format      format{Format::Parquet};
             Compression compression{Compression::Default};
-            /** Reject a write whose key already exists. */
-            bool        immutable{false};
+            /** Reject a write whose key already exists. Default: on. */
+            bool        immutable{true};
         };
 
         /** Build a store; the caller registers it with set_frame_store. */
@@ -253,39 +253,21 @@ metadata under ``ARROW:schema``; IPC carries the schema natively.
 Multiple usages
 ---------------
 
-The store is keyed and typed, so it is not specific to record/replay. Three
+The store is keyed and typed, so it is not specific to record/replay. Two
 usages are in scope for the contract:
 
 **Keyed frames** — the existing behaviour. ``write(key, frame)`` /
 ``read(key)``. Record/replay uses this and needs nothing more.
 
-**Grouped writes.** A consumer that produces several frames which are only
-meaningful together needs them to become visible together. This is the
-generic form of the co-ordinated-frame requirement:
+**Frames carrying their own definition.** A ``Frame[Rows, Metadata]`` value
+persists with its metadata inside its own Arrow schema, so a stored frame is
+self-describing: a reader recovers the row schema and the frame-level values
+from the object itself. No side-channel, and no index object.
 
-.. code-block:: cpp
-
-    /** Frames written inside the group become readable atomically at commit.
-        On destruction without commit, nothing is published. */
-    class FrameStoreGroup
-    {
-      public:
-        void write(std::string_view key, Frame frame);
-        void commit();
-    };
-
-    [[nodiscard]] HGRAPH_EXPORT FrameStoreGroup begin_group(std::string_view group_key);
-
-Object stores have no multi-object transaction, so "atomically" is delivered by
-writing members under a temporary prefix and publishing a single manifest
-object last. A reader that resolves through the manifest never observes a
-partial group; a reader that addresses members directly can still do so.
-Whether the manifest is *required* for group reads is an open question below.
-
-**Frame-level metadata** is not a third mechanism. A grouped write of
-``Frame[Rows, Metadata]`` values carries each member's metadata inside its own
-Arrow schema, and the manifest records the group's membership and its own
-metadata frame. No side-channel is introduced.
+Keys are the only addressing mechanism. A consumer that writes several related
+frames writes several keys, and relates them by naming them — a shared key
+prefix, or values carried in each frame's own metadata. See the open question
+below on what, if anything, relating them further requires.
 
 Runtime and lifecycle
 ---------------------
@@ -312,10 +294,10 @@ Writes stream through ``arrow::fs::FileSystem::OpenOutputStream`` into the
 Parquet or IPC writer, so a frame is not materialised a second time in memory.
 Reads use ``OpenInputFile`` and Arrow's readers.
 
-For S3 the dominant costs are request count and object size, not encoding —
-which is why grouped writes publish one manifest rather than probing per member,
-and why Parquet is the default. Multipart upload thresholds and read coalescing
-are Arrow's defaults; exposing them is deferred until a workload needs it.
+For S3 the dominant costs are request count and object size, not encoding,
+which is one reason Parquet is the default. Multipart upload thresholds and
+read coalescing are Arrow's defaults; exposing them is deferred until a
+workload needs it.
 
 Compatibility and migration
 ---------------------------
@@ -358,140 +340,66 @@ persisted output is a plausible later addition and does not conflict.
 write-throughput are genuinely different objectives, and the user chooses which
 matters. Fixing either would push the other into a bespoke store.
 
+Decisions
+---------
+
+Recorded from review; each was an open question in the first draft.
+
+**Immutable writes are the default.** A write to an existing key raises;
+overwriting is opt-in per store. Recordings are write-once by nature and a
+durable store makes accidental overwrite expensive — on S3 the previous object
+is usually gone. The develop-and-re-record loop opts out explicitly, or clears
+first, which is cheap in exactly the environments where that loop happens. This
+differs from the current in-memory store, which overwrites silently; the change
+is deliberate and applies to every backend so behaviour does not vary by
+environment.
+
+**Keys map transparently to paths, with validation.** A key is the object-path
+suffix and ``/`` nests, so a bucket browses as a tree and prefix listing works.
+Write-time validation rejects ``..``, leading and trailing ``/``, empty
+segments, and anything S3 cannot represent as an object key. Validation applies
+in *every* backend, including memory, so a key that would fail against S3 fails
+identically in a unit test rather than at deployment. This is the one place a
+store deliberately rejects input the previous in-memory map accepted, and it is
+documented rather than smoothed over.
+
+**Compression is per store, overridable per write.** The store carries the
+default; an individual write may override it. A large cold frame and a small
+hot one have different economics, and the writer is the only party that knows
+which it is holding.
+
+**A frame's metadata schema is its definition, and is extensible.** Under RFC
+0001 a stored ``Frame[Rows, Metadata]`` carries its frame-level values in its
+own Arrow schema metadata, and both persistence formats preserve them. This RFC
+adds no index, no side object, and no second place for a frame to be described:
+what a frame means travels inside the frame. Extending what that metadata can
+express — beyond identity, as-of and provenance, to things such as canonical
+mappings — is the subject of the open question below, and is a change to RFC
+0001's metadata vocabulary rather than to this store.
+
 Unresolved questions
 --------------------
 
-Each carries its options and a recommendation. None is blocking; all change
-observable behaviour, so they are decided here rather than in the
-implementation.
+**What does frame-level metadata need to carry beyond identity?** RFC 0001
+types metadata as a named Bundle of scalar fields — good for an as-of time, a
+source, a plan version. A canonical mapping is a different shape: a
+correspondence between names, which is naturally tabular and may be large.
+Three ways it could be expressed, and the choice is not this RFC's to make
+alone because it changes RFC 0001's vocabulary:
 
-Q1 — must a grouped read resolve through the manifest?
-......................................................
+* encode the mapping into a scalar field via the existing schema-directed JSON
+  codec — works today, costs readability at the Arrow level and does not scale
+  to large mappings;
+* declare it as its own frame written under its own key, related to the data
+  frames by a shared key prefix or by a value in each frame's metadata — no new
+  mechanism at all, at the cost of the relationship being a convention;
+* extend RFC 0001 to admit a tabular metadata field — the most expressive and
+  the largest change, and it would need its own RFC.
 
-A group publishes its members plus a manifest naming them. What is a reader
-entitled to do?
-
-**A. Manifest-only.** Group members live under a prefix that is not a
-documented address; the manifest is the only supported way in.
-
-  A partial group is unreachable by construction, and member layout stays free
-  to change. But an external tool — a Spark job, a ``SELECT`` in DuckDB — must
-  read and interpret the manifest before it can find anything, and members are
-  awkward to glob.
-
-**B. Direct addressing permitted.** Members are at predictable keys; the
-manifest is the *consistent* view, not the only one.
-
-  Any Arrow-aware tool can point at the prefix and read. The cost is that a
-  reader which ignores the manifest can observe a half-written group, and
-  member layout becomes a compatibility surface.
-
-**C. Direct addressing permitted, with the manifest naming a content hash per
-member.** B, plus enough in the manifest to detect a partial or mismatched read.
-
-  Keeps external readability, makes silent partial reads detectable by a
-  reader that opts in. Costs a hash per member on write.
-
-*Recommendation: B.* Interoperability is a stated motivation, and A undermines
-it for a guarantee only hgraph-aware readers benefit from. C is the natural
-upgrade if partial reads turn out to bite in practice, and B → C is additive.
-
-Q2 — should ``immutable`` default on?
-.....................................
-
-**A. Default off (overwrite allowed).** A repeated run overwrites its previous
-output.
-
-  Matches the in-memory store today, and matches iterative development, where
-  re-recording after a change is the normal loop. Risk: a mis-set key silently
-  destroys a prior recording, and on S3 the old version is usually gone.
-
-**B. Default on (overwrite rejected).** A write to an existing key raises;
-overwriting is opt-in per store.
-
-  Recordings are usually write-once, and a durable store makes accidental
-  overwrite expensive. Risk: the develop-and-re-record loop needs a flag, or
-  a ``clear`` between runs, which is friction in exactly the case that is
-  hardest to get wrong anyway (local files, cheap to delete).
-
-**C. Default by location.** Off for memory and local, on for S3.
-
-  Cheap-to-recreate stores stay frictionless; the expensive, shared one is
-  protected. Costs a rule users must know: the same code behaves differently
-  by environment, which is precisely what the rest of this design tries to
-  avoid.
-
-*Recommendation: A, with the caveat that this is the weakest of the five.* It
-is consistent with today's behaviour and with the environment-parity goal, and
-it can be revisited without breaking anyone; B cannot be adopted later without
-breaking existing writers. C should be rejected outright — behaviour that
-varies by environment defeats the purpose of a configured store.
-
-Q3 — how do keys map to object paths?
-.....................................
-
-Keys such as ``calc.lhs`` or ``run/2026-08-10/prices`` have to become object
-paths.
-
-**A. Transparent.** The key is the path suffix; ``/`` nests.
-
-  A bucket browses like a directory tree, and prefix listing works naturally.
-  But keys become path-shaped: ``..``, leading ``/``, and empty segments need
-  rejecting, and two distinct keys must not collide after normalisation.
-
-**B. Escaped.** Separators are percent-encoded, so one key is exactly one flat
-object name.
-
-  Unambiguous and injective. The bucket becomes unbrowsable, which matters
-  because operators do browse buckets when something is wrong.
-
-**C. Transparent with a validated charset.** A, plus an explicit rule: reject
-``..``, leading and trailing ``/``, and empty segments at write time.
-
-  Keeps browsability and closes the ambiguity, at the cost of rejecting some
-  keys that the in-memory store accepts today — a real behavioural difference
-  between backends.
-
-*Recommendation: C*, and the divergence it introduces should be documented
-rather than smoothed over: a key legal in memory but illegal on S3 is better
-found at the first local run than in production.
-
-Q4 — is the group manifest a declared RFC 0001 schema?
-......................................................
-
-**A. Implementation detail.** An internal object, shape owned by the store.
-
-  Free to evolve. Nothing outside hgraph can interpret a group, and the
-  manifest cannot carry group-level metadata in a typed way.
-
-**B. Declared metadata schema.** The manifest is a ``Frame[Rows, Metadata]``
-with a named schema: members as rows, group-level identity as metadata.
-
-  A group becomes self-describing to any Arrow reader and reuses RFC 0001
-  rather than inventing a parallel encoding — which matters directly for the
-  co-ordinated-frames use, where the group *is* the unit of meaning. The cost
-  is a public schema to version.
-
-*Recommendation: B.* The co-ordinated-frame requirement is about frames that
-travel with their meaning; a manifest that is opaque re-creates at the group
-level exactly the problem RFC 0001 solved at the frame level.
-
-Q5 — is compression per store or per write?
-...........................................
-
-**A. Per store.** One setting for every write.
-
-  Simple, and matches how the rest of the configuration behaves.
-
-**B. Per store, overridable per write.** A default with an optional override at
-the call.
-
-  Lets a large cold frame compress hard while a hot small one stays cheap. It
-  puts a storage concern into the writing code, which is the coupling the store
-  exists to remove.
-
-*Recommendation: A* until a workload demonstrates the need. A → B is additive;
-B → A is not.
+The second needs nothing from this RFC and is available immediately. Which is
+wanted depends on how large the mappings are and whether they must be
+discoverable from the data frame alone, and that is a question for the
+downstream consumer rather than for the store.
 
 Acceptance criteria and test plan
 ---------------------------------
@@ -501,8 +409,11 @@ Acceptance criteria and test plan
 * Round trip through each backend — memory, local filesystem, S3 — for both
   formats, asserting frame equality including schema.
 * RFC 0001 metadata survives every backend/format combination.
-* A grouped write is not observable through the manifest before commit, and is
-  complete after it; an abandoned group publishes nothing.
+* A write to an existing key is rejected under the default immutable setting,
+  and succeeds when the store opts out.
+* A key rejected by validation is rejected identically by every backend,
+  including memory.
+* A per-write compression override takes effect over the store default.
 * Credential alternatives select as declared: ``Ambient`` resolves through the
   chain, ``Explicit``/``Profile``/``AssumeRole`` do not consult it, and a
   missing credential fails loudly.
