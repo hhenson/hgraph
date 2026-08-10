@@ -1360,6 +1360,42 @@ namespace hgraph::python_bridge
         return nb::make_tuple(std::move(parameters), shape->variadic);
     });
 
+    m.def(
+        "operator_overload_signatures",
+        [](const std::string &name) {
+            nb::list signatures;
+            for (const OperatorOverloadSignature &signature :
+                 OperatorRegistry::instance().overload_signatures(name))
+            {
+                nb::list parameters;
+                for (const OperatorSignatureParameter &parameter : signature.parameters)
+                {
+                    parameters.append(nb::make_tuple(
+                        parameter.name,
+                        parameter.kind == ParamPattern::Kind::Input,
+                        parameter.type_pattern,
+                        parameter.has_default));
+                }
+                nb::object kwargs_pattern = signature.kwargs_pattern.has_value()
+                                                ? nb::cast(*signature.kwargs_pattern)
+                                                : nb::none();
+                nb::object output_pattern = signature.output_pattern.has_value()
+                                                ? nb::cast(*signature.output_pattern)
+                                                : nb::none();
+                signatures.append(nb::make_tuple(
+                    std::move(parameters),
+                    signature.variadic,
+                    signature.positional_params,
+                    signature.has_kwargs,
+                    std::move(kwargs_pattern),
+                    signature.has_output,
+                    std::move(output_pattern)));
+            }
+            return signatures;
+        },
+        nb::arg("name"),
+        "Return complete registered overload signatures for documentation and typing tools.");
+
     // --- python operator overloads (end-game A2): a python @compute_node/
     // @graph registers as an ordinary OperatorImpl{Source::Python} candidate.
     // Matching/ranking/normalisation are ENTIRELY the C++ registry's (the

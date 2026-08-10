@@ -18,7 +18,7 @@ are omitted.
      - Names
    * - ``hgraph.__all__``
      - 206
-   * - Public lazy operators
+   * - Public registry operators
      - 212
    * - Public submodules
      - 19
@@ -236,12 +236,14 @@ Top-level wildcard exports
    * - ``with_signature``
    * - ``without_frame_metadata``
 
-Lazy operator registry
-----------------------
+Operator registry
+-----------------
 
-The call shapes below are the common parameter prefix reported by the
-native overload registry. Concrete accepted types, optional parameters and
-return types depend on the overload selected while wiring.
+The call shapes below come from the complete native overload metadata.
+The generated typing declarations and runtime operator docstrings list the
+individual accepted signatures, including defaults and keyword-only inputs.
+The coverage column distinguishes lazy proxies from explicit Python helpers
+whose curated signatures remain authoritative.
 
 .. list-table::
    :header-rows: 1
@@ -249,643 +251,643 @@ return types depend on the overload selected while wiring.
 
    * - Name
      - Registry call shape
-     - Parameters
+     - Coverage
    * - ``abs_``
-     - ``abs_(ts)``
-     - ts: time-series
+     - ``5 overloads``
+     - 5 native overloads; lazy operator
    * - ``add_``
-     - ``add_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``24 overloads``
+     - 24 native overloads; lazy operator
    * - ``all_``
-     - ``all_(...)``
-     - overload-specific
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``and_``
-     - ``and_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``8 overloads``
+     - 8 native overloads; lazy operator
    * - ``any_``
-     - ``any_(...)``
-     - overload-specific
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``apply``
-     - ``apply(fn, *args)``
-     - fn: time-series, args: time-series
+     - ``apply(fn: TS[callable], *args: ~S, **kwargs: time-series) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``as_array``
-     - ``as_array(tsw)``
-     - tsw: time-series
+     - ``3 overloads``
+     - 3 native overloads; lazy operator
    * - ``assert_``
-     - ``assert_(condition, error_msg)``
-     - condition: time-series, error_msg: scalar
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``at_zone``
-     - ``at_zone(instant, zone)``
-     - instant: time-series, zone: time-series
+     - ``at_zone(instant: TS[datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
+     - 1 native overload; lazy operator
    * - ``batch``
-     - ``batch(condition, ts, delay, buffer_length)``
-     - condition: time-series, ts: time-series, delay: scalar, buffer_length: scalar
+     - ``batch(condition: TS[bool], ts: ~S, delay: timedelta, buffer_length: int = ...) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``bit_and``
-     - ``bit_and(...)``
-     - overload-specific
+     - ``9 overloads``
+     - 9 native overloads; lazy operator
    * - ``bit_or``
-     - ``bit_or(...)``
-     - overload-specific
+     - ``9 overloads``
+     - 9 native overloads; lazy operator
    * - ``bit_xor``
-     - ``bit_xor(...)``
-     - overload-specific
+     - ``9 overloads``
+     - 9 native overloads; lazy operator
    * - ``call``
-     - ``call(fn, *args)``
-     - fn: time-series, args: time-series
+     - ``call(fn: TS[callable], *args: ~S, **kwargs: time-series) -> None``
+     - 1 native overload; lazy operator
    * - ``clip``
-     - ``clip(ts, min, max)``
-     - ts: time-series, min: scalar, max: scalar
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``cmp_``
-     - ``cmp_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``10 overloads``
+     - 10 native overloads; lazy operator
    * - ``collapse_keys``
-     - ``collapse_keys(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``collect``
-     - ``collect(...)``
-     - overload-specific
+     - ``3 overloads``
+     - 3 native overloads; explicit helper
    * - ``combine``
-     - ``combine(...)``
-     - overload-specific
+     - ``8 overloads``
+     - 8 native overloads; explicit helper
    * - ``combine_cs``
-     - ``combine_cs(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``combine_json``
-     - ``combine_json(...)``
-     - overload-specific
+     - ``combine_json(**kwargs: time-series) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``combine_map``
-     - ``combine_map(keys, values)``
-     - keys: time-series, values: time-series
+     - ``combine_map(keys: ~A, values: ~B) -> ~O``
+     - 1 native overload; lazy operator
    * - ``combine_tsd``
-     - ``combine_tsd(...)``
-     - overload-specific
+     - ``4 overloads``
+     - 4 native overloads; lazy operator
    * - ``combine_tss_from_tsl``
-     - ``combine_tss_from_tsl(ts)``
-     - ts: time-series
+     - ``combine_tss_from_tsl(ts: TSL[TS[~T], ~N]) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``compare``
-     - ``compare(lhs, rhs, recordable_id)``
-     - lhs: time-series, rhs: time-series, recordable_id: scalar
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``concat``
-     - ``concat(ts1, ts2)``
-     - ts1: time-series, ts2: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``const``
-     - ``const(value)``
-     - value: scalar
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``contains_``
-     - ``contains_(ts, item)``
-     - ts: time-series, item: time-series
+     - ``7 overloads``
+     - 7 native overloads; lazy operator
    * - ``convert``
-     - ``convert(...)``
-     - overload-specific
+     - ``24 overloads``
+     - 24 native overloads; explicit helper
    * - ``convert_zone``
-     - ``convert_zone(value, zone)``
-     - value: time-series, zone: time-series
+     - ``convert_zone(value: TS[zoned_datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
+     - 1 native overload; lazy operator
    * - ``corrcoef``
-     - ``corrcoef(x)``
-     - x: time-series
+     - ``4 overloads``
+     - 4 native overloads; lazy operator
    * - ``count``
-     - ``count(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``cumsum``
-     - ``cumsum(a)``
-     - a: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``day``
-     - ``day(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``day_of_month``
-     - ``day_of_month(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``days``
-     - ``days(ts)``
-     - ts: time-series
+     - ``days(ts: TS[timedelta]) -> TS[int]``
+     - 1 native overload; lazy operator
    * - ``debug_print``
-     - ``debug_print(label, ts, sample)``
-     - label: scalar, ts: time-series, sample: scalar
+     - ``debug_print(label: str, ts: ~S, sample: int = ...) -> None``
+     - 1 native overload; lazy operator
    * - ``dedup``
-     - ``dedup(ts)``
-     - ts: time-series
+     - ``6 overloads``
+     - 6 native overloads; lazy operator
    * - ``default``
-     - ``default(ts, default_value)``
-     - ts: time-series, default_value: time-series
+     - ``default(ts: ~S, default_value: ~S) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``dereference``
-     - ``dereference(tsb)``
-     - tsb: time-series
+     - ``dereference(tsb: REF[~S]) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``diff``
-     - ``diff(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``difference``
-     - ``difference(ts, *args)``
-     - ts: time-series
+     - ``difference(*ts: ~S) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``dispatch_``
-     - ``dispatch_(cases, ts, *args)``
-     - cases: scalar, ts: time-series
+     - ``dispatch_(cases: dispatch_cases, *ts: ~TS, **kwargs: time-series) -> ~__out__``
+     - 1 native overload; explicit helper
    * - ``div_``
-     - ``div_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``15 overloads``
+     - 15 native overloads; lazy operator
    * - ``divmod_``
-     - ``divmod_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``4 overloads``
+     - 4 native overloads; lazy operator
    * - ``downcast_``
-     - ``downcast_(ts)``
-     - ts: time-series
+     - ``downcast_(ts: ~S) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``downcast_ref``
-     - ``downcast_ref(ts)``
-     - ts: time-series
+     - ``downcast_ref(ts: REF[~S]) -> REF[~O]``
+     - 1 native overload; explicit helper
    * - ``drop``
-     - ``drop(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``emit``
-     - ``emit(ts)``
-     - ts: time-series
+     - ``emit(ts: ~S) -> ~__out__``
+     - 1 native overload; explicit helper
    * - ``eq_``
-     - ``eq_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``15 overloads``
+     - 15 native overloads; lazy operator
    * - ``evaluation_time_in_range``
-     - ``evaluation_time_in_range(start_time, end_time)``
-     - start_time: time-series, end_time: time-series
+     - ``3 overloads``
+     - 3 native overloads; lazy operator
    * - ``ewma``
-     - ``ewma(ts, alpha)``
-     - ts: time-series, alpha: scalar
+     - ``ewma(ts: TS[float], alpha: float) -> TS[float]``
+     - 1 native overload; lazy operator
    * - ``explode``
-     - ``explode(ts)``
-     - ts: time-series
+     - ``explode(ts: TS[date]) -> TSL[TS[int], 3]``
+     - 1 native overload; lazy operator
    * - ``filter_``
-     - ``filter_(condition, ts)``
-     - condition: time-series, ts: time-series
+     - ``filter_(condition: TS[bool], ts: ~S) -> ~S``
+     - 1 native overload; lazy operator
    * - ``filter_cs``
-     - ``filter_cs(ts, predicate)``
-     - ts: time-series, predicate: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``filter_frame``
-     - ``filter_frame(ts, predicate)``
-     - ts: time-series, predicate: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``filter_tsd_by_matches``
-     - ``filter_tsd_by_matches(ts, matches)``
-     - ts: time-series, matches: time-series
+     - ``filter_tsd_by_matches(ts: TSD[~K, ~V], matches: TSD[~K, TS[bool]]) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``flip``
-     - ``flip(ts)``
-     - ts: time-series
+     - ``3 overloads``
+     - 3 native overloads; lazy operator
    * - ``flip_keys``
-     - ``flip_keys(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``floordiv_``
-     - ``floordiv_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``12 overloads``
+     - 12 native overloads; lazy operator
    * - ``format_``
-     - ``format_(value, __sample__, __strict__, *args)``
-     - value: time-series, __sample__: scalar, __strict__: scalar, args: time-series
+     - ``format_(arg0: TS[str], *args: ~A, __sample__: int = ..., __strict__: bool = ..., **kwargs: time-series) -> TS[str]``
+     - 1 native overload; lazy operator
    * - ``freeze``
-     - ``freeze(...)``
-     - overload-specific
+     - ``3 overloads``
+     - 3 native overloads; lazy operator
    * - ``from_data_frame``
-     - ``from_data_frame(df, dt_col, key_col, value_col, offset)``
-     - df: scalar, dt_col: scalar, key_col: scalar, value_col: scalar, offset: scalar
+     - ``from_data_frame(df: frame, dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> ~O``
+     - 1 native overload; lazy operator
    * - ``from_data_frame_batches``
-     - ``from_data_frame_batches(frames, dt_col, key_col, value_col, offset)``
-     - frames: time-series, dt_col: scalar, key_col: scalar, value_col: scalar, offset: scalar
+     - ``from_data_frame_batches(frames: TS[frame], dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> ~O``
+     - 1 native overload; lazy operator
    * - ``from_json``
-     - ``from_json(ts)``
-     - ts: time-series
+     - ``from_json(ts: TS[str]) -> ~O``
+     - 1 native overload; lazy operator
    * - ``from_table``
-     - ``from_table(ts)``
-     - ts: time-series
+     - ``from_table(ts: ~T) -> ~O``
+     - 1 native overload; lazy operator
    * - ``from_table_const``
-     - ``from_table_const(value)``
-     - value: scalar
+     - ``from_table_const(value: frame) -> ~O``
+     - 1 native overload; lazy operator
    * - ``gate``
-     - ``gate(condition, ts, buffer_length)``
-     - condition: time-series, ts: time-series, buffer_length: scalar
+     - ``gate(condition: TS[bool], ts: ~S, buffer_length: int = ...) -> ~S``
+     - 1 native overload; lazy operator
    * - ``ge_``
-     - ``ge_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``9 overloads``
+     - 9 native overloads; lazy operator
    * - ``get_item``
-     - ``get_item(ts, idx)``
-     - ts: time-series, idx: scalar
+     - ``get_item(ts: ~A, idx: ~I) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``getattr_``
-     - ``getattr_(ts, attr)``
-     - ts: time-series, attr: scalar
+     - ``8 overloads``
+     - 8 native overloads; lazy operator
    * - ``getitem_``
-     - ``getitem_(ts)``
-     - ts: time-series
+     - ``14 overloads``
+     - 14 native overloads; lazy operator
    * - ``group_by``
-     - ``group_by(ts, by)``
-     - ts: time-series, by: scalar
+     - ``group_by(ts: TS[~F], by: ~B) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``gt_``
-     - ``gt_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``9 overloads``
+     - 9 native overloads; lazy operator
    * - ``hour``
-     - ``hour(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``if_``
-     - ``if_(condition, ts)``
-     - condition: time-series, ts: time-series
+     - ``if_(condition: TS[bool], ts: REF[~S]) -> TSB[true: REF[~S], false: REF[~S]]``
+     - 1 native overload; lazy operator
    * - ``if_cmp``
-     - ``if_cmp(cmp, lt, eq, gt)``
-     - cmp: time-series, lt: time-series, eq: time-series, gt: time-series
+     - ``if_cmp(cmp: TS[CmpResult], lt: REF[~O], eq: REF[~O], gt: REF[~O]) -> REF[~O]``
+     - 1 native overload; lazy operator
    * - ``if_then_else``
-     - ``if_then_else(condition, true_value, false_value)``
-     - condition: time-series, true_value: time-series, false_value: time-series
+     - ``if_then_else(condition: TS[bool], true_value: REF[~S], false_value: REF[~S]) -> REF[~S]``
+     - 1 native overload; lazy operator
    * - ``if_true``
-     - ``if_true(condition, tick_once_only)``
-     - condition: time-series, tick_once_only: scalar
+     - ``if_true(condition: TS[bool], tick_once_only: bool = ...) -> TS[bool]``
+     - 1 native overload; lazy operator
    * - ``index_of``
-     - ``index_of(ts, item)``
-     - ts: time-series, item: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``intersection``
-     - ``intersection(ts, *args)``
-     - ts: time-series
+     - ``intersection(*ts: ~S) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``invert_``
-     - ``invert_(ts)``
-     - ts: time-series
+     - ``4 overloads``
+     - 4 native overloads; lazy operator
    * - ``is_empty``
-     - ``is_empty(ts)``
-     - ts: time-series
+     - ``4 overloads``
+     - 4 native overloads; lazy operator
    * - ``isoformat``
-     - ``isoformat(ts)``
-     - ts: time-series
+     - ``isoformat(ts: TS[date]) -> TS[str]``
+     - 1 native overload; lazy operator
    * - ``isoweekday``
-     - ``isoweekday(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``join``
-     - ``join(...)``
-     - overload-specific
+     - ``4 overloads``
+     - 4 native overloads; lazy operator
    * - ``json_as_bool``
-     - ``json_as_bool(ts)``
-     - ts: time-series
+     - ``json_as_bool(ts: ~S) -> TS[bool]``
+     - 1 native overload; lazy operator
    * - ``json_as_float``
-     - ``json_as_float(ts)``
-     - ts: time-series
+     - ``json_as_float(ts: ~S) -> TS[float]``
+     - 1 native overload; lazy operator
    * - ``json_as_int``
-     - ``json_as_int(ts)``
-     - ts: time-series
+     - ``json_as_int(ts: ~S) -> TS[int]``
+     - 1 native overload; lazy operator
    * - ``json_as_str``
-     - ``json_as_str(ts)``
-     - ts: time-series
+     - ``json_as_str(ts: ~S) -> TS[str]``
+     - 1 native overload; lazy operator
    * - ``json_decode``
-     - ``json_decode(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``json_encode``
-     - ``json_encode(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``keys_``
-     - ``keys_(ts)``
-     - ts: time-series
+     - ``3 overloads``
+     - 3 native overloads; lazy operator
    * - ``lag``
-     - ``lag(ts)``
-     - ts: time-series
+     - ``6 overloads``
+     - 6 native overloads; lazy operator
    * - ``last_modified_date``
-     - ``last_modified_date(ts)``
-     - ts: time-series
+     - ``last_modified_date(ts: SIGNAL) -> TS[date]``
+     - 1 native overload; lazy operator
    * - ``last_modified_time``
-     - ``last_modified_time(ts)``
-     - ts: time-series
+     - ``last_modified_time(ts: SIGNAL) -> TS[datetime]``
+     - 1 native overload; lazy operator
    * - ``last_modified_wall_clock_time``
-     - ``last_modified_wall_clock_time(ts)``
-     - ts: time-series
+     - ``last_modified_wall_clock_time(ts: SIGNAL) -> TS[datetime]``
+     - 1 native overload; lazy operator
    * - ``le_``
-     - ``le_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``9 overloads``
+     - 9 native overloads; lazy operator
    * - ``len_``
-     - ``len_(ts)``
-     - ts: time-series
+     - ``6 overloads``
+     - 6 native overloads; lazy operator
    * - ``ln``
-     - ``ln(ts)``
-     - ts: time-series
+     - ``ln(ts: TS[float]) -> TS[float]``
+     - 1 native overload; lazy operator
    * - ``log_``
-     - ``log_(fmt, level, sample_count, *args)``
-     - fmt: time-series, level: scalar, sample_count: scalar, args: time-series
+     - ``log_(fmt: TS[str], *args: ~B, level: int = ..., sample_count: int = ..., **kwargs: time-series) -> None``
+     - 1 native overload; lazy operator
    * - ``lshift_``
-     - ``lshift_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``5 overloads``
+     - 5 native overloads; lazy operator
    * - ``lt_``
-     - ``lt_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``9 overloads``
+     - 9 native overloads; lazy operator
    * - ``make_tsd``
-     - ``make_tsd(key, value)``
-     - key: time-series, value: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``map_``
-     - ``map_(func, __key_arg__, *args)``
-     - func: scalar, __key_arg__: scalar, args: time-series
+     - ``2 overloads``
+     - 2 native overloads; explicit helper
    * - ``match_``
-     - ``match_(pattern, s)``
-     - pattern: time-series, s: time-series
+     - ``match_(pattern: TS[str], s: TS[str]) -> ~O``
+     - 1 native overload; lazy operator
    * - ``max_``
-     - ``max_(...)``
-     - overload-specific
+     - ``25 overloads``
+     - 25 native overloads; lazy operator
    * - ``max_ts_list``
-     - ``max_ts_list(tsl)``
-     - tsl: time-series
+     - ``max_ts_list(tsl: TSL[TS[~T], ~N]) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``mean``
-     - ``mean(...)``
-     - overload-specific
+     - ``18 overloads``
+     - 18 native overloads; lazy operator
    * - ``merge``
-     - ``merge(...)``
-     - overload-specific
+     - ``4 overloads``
+     - 4 native overloads; lazy operator
    * - ``merge_tsd_disjoint``
-     - ``merge_tsd_disjoint(tsl)``
-     - tsl: time-series
+     - ``merge_tsd_disjoint(tsl: TSL[TSD[~K, ~V], ~N]) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``mesh_``
-     - ``mesh_(func, __key_arg__, __name__, *args)``
-     - func: scalar, __key_arg__: scalar, __name__: scalar, args: time-series
+     - ``mesh_(func: fn, *args: ~B, __key_arg__: str = ..., __name__: str = ..., **kwargs: time-series) -> ~__out__``
+     - 1 native overload; explicit helper
    * - ``microsecond``
-     - ``microsecond(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``microseconds``
-     - ``microseconds(ts)``
-     - ts: time-series
+     - ``microseconds(ts: TS[timedelta]) -> TS[int]``
+     - 1 native overload; lazy operator
    * - ``min_``
-     - ``min_(...)``
-     - overload-specific
+     - ``25 overloads``
+     - 25 native overloads; lazy operator
    * - ``min_ts_list``
-     - ``min_ts_list(tsl)``
-     - tsl: time-series
+     - ``min_ts_list(tsl: TSL[TS[~T], ~N]) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``minute``
-     - ``minute(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``mod_``
-     - ``mod_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``12 overloads``
+     - 12 native overloads; lazy operator
    * - ``modified``
-     - ``modified(ts)``
-     - ts: time-series
+     - ``modified(ts: SIGNAL) -> TS[bool]``
+     - 1 native overload; lazy operator
    * - ``month``
-     - ``month(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``month_of_year``
-     - ``month_of_year(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``mul_``
-     - ``mul_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``15 overloads``
+     - 15 native overloads; lazy operator
    * - ``ne_``
-     - ``ne_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``11 overloads``
+     - 11 native overloads; lazy operator
    * - ``neg_``
-     - ``neg_(ts)``
-     - ts: time-series
+     - ``6 overloads``
+     - 6 native overloads; lazy operator
    * - ``not_``
-     - ``not_(ts)``
-     - ts: time-series
+     - ``6 overloads``
+     - 6 native overloads; lazy operator
    * - ``nothing``
-     - ``nothing(...)``
-     - overload-specific
+     - ``nothing() -> ~O``
+     - 1 native overload; lazy operator
    * - ``np_std``
-     - ``np_std(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``null_sink``
-     - ``null_sink(ts)``
-     - ts: time-series
+     - ``null_sink(ts: ~S) -> None``
+     - 1 native overload; lazy operator
    * - ``or_``
-     - ``or_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``8 overloads``
+     - 8 native overloads; lazy operator
    * - ``partition``
-     - ``partition(ts, partitions)``
-     - ts: time-series, partitions: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``pct_change``
-     - ``pct_change(ts)``
-     - ts: time-series
+     - ``pct_change(ts: TS[~T]) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``pos_``
-     - ``pos_(ts)``
-     - ts: time-series
+     - ``5 overloads``
+     - 5 native overloads; lazy operator
    * - ``pow_``
-     - ``pow_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``12 overloads``
+     - 12 native overloads; lazy operator
    * - ``print_``
-     - ``print_(fmt, __std_out__, *args)``
-     - fmt: time-series, __std_out__: scalar, args: time-series
+     - ``print_(fmt: TS[str], *args: ~B, __std_out__: bool = ..., **kwargs: time-series) -> None``
+     - 1 native overload; lazy operator
    * - ``quantile``
-     - ``quantile(a, q)``
-     - a: time-series, q: time-series
+     - ``4 overloads``
+     - 4 native overloads; lazy operator
    * - ``race``
-     - ``race(ts, *args)``
-     - ts: time-series
+     - ``race(*ts: ~S) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``range_adjacent``
-     - ``range_adjacent(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``range_contains``
-     - ``range_contains(range, value)``
-     - range: time-series, value: time-series
+     - ``4 overloads``
+     - 4 native overloads; lazy operator
    * - ``range_difference``
-     - ``range_difference(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``range_extent``
-     - ``range_extent(range)``
-     - range: time-series
+     - ``range_extent(range: TS[instant_range]) -> TS[timedelta]``
+     - 1 native overload; lazy operator
    * - ``range_hull``
-     - ``range_hull(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``range_intersection``
-     - ``range_intersection(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``range_merge``
-     - ``range_merge(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``range_mergeable``
-     - ``range_mergeable(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``range_overlaps``
-     - ``range_overlaps(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``range_shift``
-     - ``range_shift(range, delta, month_end_policy)``
-     - range: time-series, delta: time-series, month_end_policy: scalar
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``range_touches``
-     - ``range_touches(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``range_union``
-     - ``range_union(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``record``
-     - ``record(ts, key)``
-     - ts: time-series, key: scalar
+     - ``3 overloads``
+     - 3 native overloads; lazy operator
    * - ``reduce``
-     - ``reduce(func, ts)``
-     - func: scalar, ts: time-series
+     - ``9 overloads``
+     - 9 native overloads; explicit helper
    * - ``reduce_tsd_of_bundles_with_race``
-     - ``reduce_tsd_of_bundles_with_race(tsd)``
-     - tsd: time-series
+     - ``reduce_tsd_of_bundles_with_race(tsd: TSD[~K, REF[~S]]) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``reduce_tsd_with_race``
-     - ``reduce_tsd_with_race(tsd)``
-     - tsd: time-series
+     - ``reduce_tsd_with_race(tsd: TSD[~K, REF[~S]]) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``rekey``
-     - ``rekey(ts, new_keys)``
-     - ts: time-series, new_keys: time-series
+     - ``3 overloads``
+     - 3 native overloads; lazy operator
    * - ``replace``
-     - ``replace(pattern, repl, s)``
-     - pattern: time-series, repl: time-series, s: time-series
+     - ``replace(pattern: TS[str], repl: TS[str], s: TS[str]) -> TS[str]``
+     - 1 native overload; lazy operator
    * - ``replay``
-     - ``replay(key, recordable_id)``
-     - key: scalar, recordable_id: scalar
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``replay_const``
-     - ``replay_const(key, recordable_id, tm)``
-     - key: scalar, recordable_id: scalar, tm: scalar
+     - ``replay_const(key: str, recordable_id: str = ..., tm: datetime = ...) -> ~O``
+     - 1 native overload; lazy operator
    * - ``replay_data_frame``
-     - ``replay_data_frame(data_frame, as_of_time)``
-     - data_frame: scalar, as_of_time: scalar
+     - ``replay_data_frame(data_frame: frame, as_of_time: datetime = ...) -> ~O``
+     - 1 native overload; lazy operator
    * - ``request_id``
-     - ``request_id(hash)``
-     - hash: scalar
+     - ``request_id(hash: int) -> TS[int]``
+     - 1 native overload; lazy operator
    * - ``resample``
-     - ``resample(ts, period)``
-     - ts: time-series, period: scalar
+     - ``resample(ts: ~S, period: timedelta) -> ~S``
+     - 1 native overload; lazy operator
    * - ``resolve_civil``
-     - ``resolve_civil(local, zone, ambiguous, nonexistent)``
-     - local: time-series, zone: time-series, ambiguous: scalar, nonexistent: scalar
+     - ``resolve_civil(local: TS[civil_datetime], zone: TS[zone_id], ambiguous: ambiguous_time_policy = ..., nonexistent: nonexistent_time_policy = ...) -> TS[zoned_datetime]``
+     - 1 native overload; lazy operator
    * - ``rolling_average``
-     - ``rolling_average(ts, period, min_window_period)``
-     - ts: time-series, period: scalar, min_window_period: scalar
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``rolling_window_arrays``
-     - ``rolling_window_arrays(window)``
-     - window: time-series
+     - ``rolling_window_arrays(window: ~W) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``round_``
-     - ``round_(ts, n_digits)``
-     - ts: time-series, n_digits: time-series
+     - ``round_(ts: TS[float], n_digits: TS[int]) -> TS[float]``
+     - 1 native overload; lazy operator
    * - ``route_by_index``
-     - ``route_by_index(index, ts)``
-     - index: time-series, ts: time-series
+     - ``route_by_index(index: TS[int], ts: REF[~S]) -> TSL[REF[~S], ~N]``
+     - 1 native overload; lazy operator
    * - ``rshift_``
-     - ``rshift_(lhs, rhs)``
-     - lhs: time-series, rhs: time-series
+     - ``5 overloads``
+     - 5 native overloads; lazy operator
    * - ``sample``
-     - ``sample(signal, ts)``
-     - signal: time-series, ts: time-series
+     - ``sample(signal: SIGNAL, ts: ~S) -> ~S``
+     - 1 native overload; lazy operator
    * - ``schedule``
-     - ``schedule(...)``
-     - overload-specific
+     - ``3 overloads``
+     - 3 native overloads; lazy operator
    * - ``second``
-     - ``second(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``seconds``
-     - ``seconds(ts)``
-     - ts: time-series
+     - ``seconds(ts: TS[timedelta]) -> TS[int]``
+     - 1 native overload; lazy operator
    * - ``setattr_``
-     - ``setattr_(ts, attr, value)``
-     - ts: time-series, attr: scalar, value: time-series
+     - ``setattr_(ts: TS[~S], attr: str, value: TS[~V]) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``sign``
-     - ``sign(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``slice_``
-     - ``slice_(ts, start, stop, step_size)``
-     - ts: time-series, start: scalar, stop: scalar, step_size: scalar
+     - ``slice_(ts: ~S, start: int, stop: int, step_size: int) -> ~S``
+     - 1 native overload; lazy operator
    * - ``sorted_``
-     - ``sorted_(ts, by, descending)``
-     - ts: time-series, by: scalar, descending: scalar
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``split``
-     - ``split(s, separator)``
-     - s: time-series, separator: scalar
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``std``
-     - ``std(...)``
-     - overload-specific
+     - ``18 overloads``
+     - 18 native overloads; lazy operator
    * - ``step``
-     - ``step(ts, step_size)``
-     - ts: time-series, step_size: scalar
+     - ``step(ts: ~S, step_size: int) -> ~S``
+     - 1 native overload; lazy operator
    * - ``stop_engine``
-     - ``stop_engine(ts, msg)``
-     - ts: time-series, msg: scalar
+     - ``stop_engine(ts: SIGNAL, msg: str = ...) -> None``
+     - 1 native overload; lazy operator
    * - ``str_``
-     - ``str_(ts)``
-     - ts: time-series
+     - ``str_(ts: ~S) -> TS[str]``
+     - 1 native overload; lazy operator
    * - ``sub_``
-     - ``sub_(...)``
-     - overload-specific
+     - ``26 overloads``
+     - 26 native overloads; lazy operator
    * - ``substr``
-     - ``substr(s, start, end)``
-     - s: time-series, start: time-series, end: time-series
+     - ``substr(s: TS[str], start: TS[int], end: TS[int]) -> TS[str]``
+     - 1 native overload; lazy operator
    * - ``sum_``
-     - ``sum_(...)``
-     - overload-specific
+     - ``18 overloads``
+     - 18 native overloads; lazy operator
    * - ``switch_``
-     - ``switch_(key, cases, ts, *args)``
-     - key: time-series, cases: scalar, ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; explicit helper
    * - ``symmetric_difference``
-     - ``symmetric_difference(ts, *args)``
-     - ts: time-series
+     - ``symmetric_difference(*ts: ~S) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``take``
-     - ``take(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``temporal_bucket``
-     - ``temporal_bucket(value, width, origin)``
-     - value: time-series, width: time-series, origin: scalar
+     - ``temporal_bucket(value: TS[datetime], width: TS[timedelta], origin: datetime = ...) -> TS[instant_range]``
+     - 1 native overload; lazy operator
    * - ``temporal_ceil``
-     - ``temporal_ceil(value, quantum)``
-     - value: time-series, quantum: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``temporal_floor``
-     - ``temporal_floor(value, quantum)``
-     - value: time-series, quantum: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``temporal_round``
-     - ``temporal_round(value, quantum)``
-     - value: time-series, quantum: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``throttle``
-     - ``throttle(ts, period, delay_first_tick)``
-     - ts: time-series, period: time-series, delay_first_tick: scalar
+     - ``throttle(ts: ~S, period: TS[timedelta], delay_first_tick: bool = ...) -> ~S``
+     - 1 native overload; lazy operator
    * - ``timestamp``
-     - ``timestamp(ts)``
-     - ts: time-series
+     - ``timestamp(ts: TS[datetime]) -> TS[float]``
+     - 1 native overload; lazy operator
    * - ``to_civil``
-     - ``to_civil(value)``
-     - value: time-series
+     - ``to_civil(value: TS[zoned_datetime]) -> TS[civil_datetime]``
+     - 1 native overload; lazy operator
    * - ``to_data_frame``
-     - ``to_data_frame(ts, dt_col, key_col, value_col)``
-     - ts: time-series, dt_col: scalar, key_col: scalar, value_col: scalar
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``to_instant``
-     - ``to_instant(value)``
-     - value: time-series
+     - ``to_instant(value: TS[zoned_datetime]) -> TS[datetime]``
+     - 1 native overload; lazy operator
    * - ``to_json``
-     - ``to_json(ts, delta)``
-     - ts: time-series, delta: scalar
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``to_table``
-     - ``to_table(ts, mode)``
-     - ts: time-series, mode: time-series
+     - ``to_table(ts: ~S, mode: TS[~M] = ...) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``to_window``
-     - ``to_window(ts, period, min_window_period)``
-     - ts: time-series, period: scalar, min_window_period: scalar
+     - ``4 overloads``
+     - 4 native overloads; lazy operator
    * - ``total_seconds``
-     - ``total_seconds(ts)``
-     - ts: time-series
+     - ``total_seconds(ts: TS[timedelta]) -> TS[float]``
+     - 1 native overload; lazy operator
    * - ``try_except``
-     - ``try_except(func, __trace_back_depth__, __capture_values__, *args)``
-     - func: scalar, __trace_back_depth__: scalar, __capture_values__: scalar, args: time-series
+     - ``try_except(func: fn, *args: ~A, __trace_back_depth__: int = ..., __capture_values__: bool = ..., **kwargs: time-series) -> ~__out__``
+     - 1 native overload; explicit helper
    * - ``type_``
-     - ``type_(ts)``
-     - ts: time-series
+     - ``type_(ts: ~S) -> TS[Any]``
+     - 1 native overload; lazy operator
    * - ``uncollapse_keys``
-     - ``uncollapse_keys(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``ungroup``
-     - ``ungroup(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``union``
-     - ``union(ts, *args)``
-     - ts: time-series
+     - ``union(*ts: ~S) -> ~__out__``
+     - 1 native overload; lazy operator
    * - ``unpartition``
-     - ``unpartition(ts)``
-     - ts: time-series
+     - ``unpartition(ts: TSD[~K1, TSD[~K, ~V]]) -> TSD[~K, ~V]``
+     - 1 native overload; lazy operator
    * - ``until_true``
-     - ``until_true(...)``
-     - overload-specific
+     - ``3 overloads``
+     - 3 native overloads; lazy operator
    * - ``valid``
-     - ``valid(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``values_``
-     - ``values_(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``var``
-     - ``var(...)``
-     - overload-specific
+     - ``16 overloads``
+     - 16 native overloads; lazy operator
    * - ``weekday``
-     - ``weekday(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``window``
-     - ``window(ts, period, min_window_period)``
-     - ts: time-series, period: scalar, min_window_period: scalar
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``with_columns``
-     - ``with_columns(ts, columns)``
-     - ts: time-series, columns: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``year``
-     - ``year(ts)``
-     - ts: time-series
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - ``zero``
-     - ``zero(op)``
-     - op: scalar
+     - ``4 overloads``
+     - 4 native overloads; lazy operator
 
 Public submodules
 -----------------

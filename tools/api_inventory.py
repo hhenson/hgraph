@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the checked Python API inventory and lazy-operator type stub.
+"""Generate the checked Python API inventory, docs, and lazy-operator stub.
 
 Run this with an installed hgraph wheel (or a built extension on
 ``PYTHONPATH``). The root package, native operator registry, and public module
@@ -13,6 +13,7 @@ import argparse
 import ast
 import importlib
 import keyword
+import re
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RST = ROOT / "docs/source/reference/python_api_inventory.rst"
 DEFAULT_STUB = ROOT / "python/hgraph/_operator_typing.pyi"
+DEFAULT_OPERATOR_DOCS = ROOT / "python/hgraph/_operator_docs.py"
+OPERATOR_HEADERS = ROOT / "include/hgraph/lib/std/operators"
 
 PUBLIC_MODULES = (
     "hgraph.temporal",
@@ -42,6 +45,49 @@ PUBLIC_MODULES = (
     "hgraph.adaptors.sql",
     "hgraph.adaptors.tornado",
 )
+
+_DOCUMENTED_OPERATOR = re.compile(
+    r'/\*\*(?P<documentation>(?:(?!\*/).)*)\*/\s*'
+    r'struct\s+\w+\s*:\s*Operator\s*<\s*"(?P<name>[^"]+)"',
+    re.DOTALL,
+)
+
+
+def _clean_doxygen(documentation: str) -> str:
+    lines = []
+    for raw_line in documentation.splitlines():
+        line = re.sub(r"^\s*\* ?", "", raw_line).rstrip()
+        lines.append(line)
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+
+    paragraphs = []
+    current = []
+    for line in lines:
+        if line:
+            current.append(line.strip())
+        elif current:
+            paragraphs.append(" ".join(current))
+            current = []
+    if current:
+        paragraphs.append(" ".join(current))
+    return "\n\n".join(paragraphs)
+
+
+def collect_operator_documentation() -> dict[str, str]:
+    """Read semantic summaries from the public C++ operator declarations."""
+    collected: dict[str, list[str]] = {}
+    for header in sorted(OPERATOR_HEADERS.glob("*.h")):
+        source = header.read_text(encoding="utf-8")
+        for match in _DOCUMENTED_OPERATOR.finditer(source):
+            documentation = _clean_doxygen(match.group("documentation"))
+            if documentation:
+                entries = collected.setdefault(match.group("name"), [])
+                if documentation not in entries:
+                    entries.append(documentation)
+    return {name: "\n\n".join(entries) for name, entries in collected.items()}
 
 
 def _literal_all(module_name: str) -> tuple[str, ...]:
@@ -86,26 +132,38 @@ def collect_inventory() -> dict[str, Any]:
     import _hgraph
     import hgraph
 
+    operator_documentation = collect_operator_documentation()
     operators: list[dict[str, Any]] = []
     for name in sorted(_hgraph.operator_names()):
         if name.startswith("__"):
             continue
-        shape = _hgraph.operator_parameter_shape(name)
-        parameters: list[dict[str, Any]] = []
-        variadic = False
-        if shape is not None:
-            raw_parameters, variadic = shape
-            for parameter_name, is_time_series, type_variable, fixed_type in raw_parameters:
-                parameters.append({
-                    "name": parameter_name,
-                    "kind": "time-series" if is_time_series else "scalar",
-                    "type_variable": bool(type_variable),
-                    "fixed_type": None if fixed_type is None else repr(fixed_type),
-                })
+        overloads = []
+        for raw_overload in _hgraph.operator_overload_signatures(name):
+            (raw_parameters, variadic, positional_params, has_kwargs,
+             kwargs_pattern, has_output, output_pattern) = raw_overload
+            parameters = tuple({
+                "name": parameter_name,
+                "kind": "time-series" if is_time_series else "scalar",
+                "type_pattern": type_pattern,
+                "has_default": bool(has_default),
+            } for parameter_name, is_time_series, type_pattern, has_default in raw_parameters)
+            overloads.append({
+                "parameters": parameters,
+                "variadic": bool(variadic),
+                "positional_params": int(positional_params),
+                "has_kwargs": bool(has_kwargs),
+                "kwargs_pattern": kwargs_pattern,
+                "has_output": bool(has_output),
+                "output_pattern": output_pattern,
+            })
         operators.append({
             "name": name,
-            "parameters": parameters,
-            "variadic": bool(variadic),
+            "overloads": tuple(overloads),
+            "documentation": operator_documentation.get(name),
+            # Explicit top-level helpers already carry their own annotations.
+            # Generated declarations must not replace those richer contracts
+            # inside hgraph.__init__'s TYPE_CHECKING import.
+            "explicit_root": name in hgraph.__all__,
         })
 
     modules = {
@@ -120,15 +178,12 @@ def collect_inventory() -> dict[str, Any]:
 
 
 def _display_signature(operator: dict[str, Any]) -> str:
-    parameters = [parameter["name"] or "value" for parameter in operator["parameters"]]
-    if operator["variadic"]:
-        if parameters and parameters[-1] == "args":
-            parameters[-1] = "*args"
-        else:
-            parameters.append("*args")
-    if not parameters:
-        parameters = ["..."]
-    return f"{operator['name']}({', '.join(parameters)})"
+    overloads = _unique_overloads(operator)
+    if not overloads:
+        return f"{operator['name']}(*args, **kwargs)"
+    if len(overloads) == 1:
+        return _format_native_signature(operator["name"], overloads[0])
+    return f"{len(overloads)} overloads"
 
 
 def _hlist(names: tuple[str, ...], indent: str = "") -> list[str]:
@@ -163,7 +218,7 @@ def render_rst(inventory: dict[str, Any]) -> str:
         "     - Names",
         f"   * - ``hgraph.__all__``",
         f"     - {len(inventory['root'])}",
-        "   * - Public lazy operators",
+        "   * - Public registry operators",
         f"     - {len(operators)}",
         "   * - Public submodules",
         f"     - {len(modules)}",
@@ -175,12 +230,14 @@ def render_rst(inventory: dict[str, Any]) -> str:
     lines.extend(_hlist(inventory["root"]))
     lines.extend([
         "",
-        "Lazy operator registry",
-        "----------------------",
+        "Operator registry",
+        "-----------------",
         "",
-        "The call shapes below are the common parameter prefix reported by the",
-        "native overload registry. Concrete accepted types, optional parameters and",
-        "return types depend on the overload selected while wiring.",
+        "The call shapes below come from the complete native overload metadata.",
+        "The generated typing declarations and runtime operator docstrings list the",
+        "individual accepted signatures, including defaults and keyword-only inputs.",
+        "The coverage column distinguishes lazy proxies from explicit Python helpers",
+        "whose curated signatures remain authoritative.",
         "",
         ".. list-table::",
         "   :header-rows: 1",
@@ -188,17 +245,15 @@ def render_rst(inventory: dict[str, Any]) -> str:
         "",
         "   * - Name",
         "     - Registry call shape",
-        "     - Parameters",
+        "     - Coverage",
     ])
     for operator in operators:
-        parameter_kinds = ", ".join(
-            f"{parameter['name'] or 'value'}: {parameter['kind']}"
-            for parameter in operator["parameters"]
-        ) or "overload-specific"
+        overload_count = len(_unique_overloads(operator))
+        exposure = "explicit helper" if operator["explicit_root"] else "lazy operator"
         lines.extend([
             f"   * - ``{operator['name']}``",
             f"     - ``{_display_signature(operator)}``",
-            f"     - {parameter_kinds}",
+            f"     - {overload_count} native overload{'s' if overload_count != 1 else ''}; {exposure}",
         ])
 
     lines.extend(["", "Public submodules", "-----------------", ""])
@@ -219,55 +274,265 @@ def _typing_parameter_name(name: str, used: set[str]) -> str | None:
     return candidate
 
 
-def _shape_key(operator: dict[str, Any]) -> tuple[tuple[str, ...], bool]:
-    used: set[str] = set()
-    names: list[str] = []
-    for parameter in operator["parameters"]:
-        name = _typing_parameter_name(parameter["name"], used)
-        if name is None:
-            return (), True
-        names.append(name)
-    return tuple(names), operator["variadic"]
+def _overload_key(overload: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        tuple((parameter["name"], parameter["kind"], parameter["type_pattern"],
+               parameter["has_default"]) for parameter in overload["parameters"]),
+        overload["variadic"],
+        overload["positional_params"],
+        overload["has_kwargs"],
+        overload["kwargs_pattern"],
+        overload["has_output"],
+        overload["output_pattern"],
+    )
+
+
+def _unique_overloads(operator: dict[str, Any]) -> list[dict[str, Any]]:
+    unique: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for overload in operator["overloads"]:
+        unique.setdefault(_overload_key(overload), overload)
+    return list(unique.values())
+
+
+def _format_native_signature(name: str, overload: dict[str, Any]) -> str:
+    parameters = list(overload["parameters"])
+    variadic_parameter = parameters.pop() if overload["variadic"] and parameters else None
+    positional_count = min(overload["positional_params"], len(parameters))
+    rendered = []
+    for index, parameter in enumerate(parameters[:positional_count]):
+        parameter_name = parameter["name"] or f"arg{index}"
+        default = " = ..." if parameter["has_default"] else ""
+        rendered.append(f"{parameter_name}: {parameter['type_pattern']}{default}")
+    if variadic_parameter is not None:
+        parameter_name = variadic_parameter["name"] or "args"
+        rendered.append(f"*{parameter_name}: {variadic_parameter['type_pattern']}")
+    elif positional_count < len(parameters):
+        rendered.append("*")
+    for index, parameter in enumerate(parameters[positional_count:], start=positional_count):
+        parameter_name = parameter["name"] or f"arg{index}"
+        default = " = ..." if parameter["has_default"] else ""
+        rendered.append(f"{parameter_name}: {parameter['type_pattern']}{default}")
+    if overload["has_kwargs"]:
+        pattern = overload["kwargs_pattern"] or "time-series"
+        rendered.append(f"**kwargs: {pattern}")
+    output = overload["output_pattern"] if overload["has_output"] else "None"
+    return f"{name}({', '.join(rendered)}) -> {output}"
+
+
+_SCALAR_ANNOTATIONS = {
+    "bool": "bool",
+    "int": "int",
+    "float": "float",
+    "str": "str",
+    "bytes": "bytes",
+    "date": "_date",
+    "datetime": "_datetime",
+    "time": "_time",
+    "timedelta": "_timedelta",
+    "ambiguous_time_policy": "_AmbiguousTimePolicy",
+    "civil_date_range": "_CivilDateRange",
+    "civil_datetime": "_CivilDateTime",
+    "CmpResult": "_CmpResult",
+    "DivideByZero": "_DivideByZero",
+    "instant_range": "_InstantRange",
+    "month_end_policy": "_MonthEndPolicy",
+    "nonexistent_time_policy": "_NonexistentTimePolicy",
+    "period": "_Period",
+    "zone_id": "_ZoneId",
+    "zoned_datetime": "_ZonedDateTime",
+}
+
+
+def _parameter_annotation(parameter: dict[str, Any]) -> str:
+    pattern = parameter["type_pattern"]
+    if parameter["kind"] == "scalar":
+        if pattern in {"callable", "fn"}:
+            return "_Callable[..., object]"
+        return _SCALAR_ANNOTATIONS.get(pattern, "object")
+    if pattern == "SIGNAL":
+        return "_WiringPort"
+    match = re.fullmatch(r"TS\[([^\[\],]+)\]", pattern)
+    if match and match.group(1) in _SCALAR_ANNOTATIONS:
+        return f"_WiringPort | {_SCALAR_ANNOTATIONS[match.group(1)]}"
+    # Ports are not schema-generic in the Python bridge yet. Preserve the
+    # exact native pattern in the docstring while accurately accepting both a
+    # wired port and values that native dispatch may lift to const sources.
+    return "_WiringPort | object"
+
+
+def _typing_parameter(parameter: dict[str, Any], used: set[str], index: int) -> str:
+    name = _typing_parameter_name(parameter["name"], used)
+    if name is None:
+        name = f"arg{index}"
+        while name in used:
+            index += 1
+            name = f"arg{index}"
+        used.add(name)
+    default = " = ..." if parameter["has_default"] else ""
+    return f"{name}: {_parameter_annotation(parameter)}{default}"
+
+
+def _python_signature_variants(overload: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    """Represent native default-before-required calls with valid Python forms.
+
+    Native dispatch permits ``(required, optional=..., required)`` because it
+    normalises positional and named arguments itself. Python syntax expresses
+    the same accepted calls as a fully positional form (the earlier default is
+    required there) plus a form making the suffix keyword-only.
+    """
+    parameters = overload["parameters"]
+    positional_count = min(overload["positional_params"],
+                           len(parameters) - (1 if overload["variadic"] else 0))
+    first_default = next((
+        index for index, parameter in enumerate(parameters[:positional_count])
+        if parameter["has_default"]
+    ), None)
+    if first_default is None or not any(
+        not parameter["has_default"]
+        for parameter in parameters[first_default + 1:positional_count]
+    ):
+        return (overload,)
+
+    positional = dict(overload)
+    positional["parameters"] = tuple(
+        dict(parameter, has_default=False)
+        if index < positional_count and parameter["has_default"]
+        else parameter
+        for index, parameter in enumerate(parameters)
+    )
+    keyword_suffix = dict(overload)
+    keyword_suffix["positional_params"] = first_default
+    return positional, keyword_suffix
+
+
+def _render_stub_signature(overload: dict[str, Any]) -> str:
+    parameters = list(overload["parameters"])
+    variadic_parameter = parameters.pop() if overload["variadic"] and parameters else None
+    positional_count = min(overload["positional_params"], len(parameters))
+    used = {"self"}
+    rendered = [
+        _typing_parameter(parameter, used, index)
+        for index, parameter in enumerate(parameters[:positional_count])
+    ]
+    if variadic_parameter is not None:
+        name = _typing_parameter_name(variadic_parameter["name"], used) or "args"
+        rendered.append(f"*{name}: {_parameter_annotation(variadic_parameter)}")
+    elif positional_count < len(parameters):
+        rendered.append("*")
+    rendered.extend(
+        _typing_parameter(parameter, used, positional_count + index)
+        for index, parameter in enumerate(parameters[positional_count:])
+    )
+    if overload["has_kwargs"]:
+        rendered.append("**kwargs: _WiringPort | object")
+    return ", ".join(rendered)
+
+
+def _operator_class_name(name: str) -> str:
+    identifier = re.sub(r"\W", "_", name)
+    return f"_{identifier}_Operator"
 
 
 def render_operator_stub(inventory: dict[str, Any]) -> str:
-    operators = inventory["operators"]
-    shapes = sorted({_shape_key(operator) for operator in operators})
-    shape_names = {shape: f"_OperatorShape{index:03d}" for index, shape in enumerate(shapes)}
+    operators = [operator for operator in inventory["operators"] if not operator["explicit_root"]]
     lines = [
         '"""Generated typing declarations for operators exposed lazily by ``hgraph``.',
         "",
-        "Regenerate with ``tools/api_inventory.py``; runtime dispatch remains owned",
-        'by the native operator registry."""',
+        "Each overload, default, variadic tail, keyword-only boundary, and output",
+        "comes from native registry metadata. Regenerate with",
+        '``tools/api_inventory.py``; runtime dispatch remains registry-owned."""',
         "",
-        "from typing import Any, Protocol, Self",
+        "from __future__ import annotations",
+        '# mypy: disable-error-code="overload-cannot-match,overload-overlap"',
         "",
-        "from ._wiring import WiringPort",
+        "from datetime import (date as _date, datetime as _datetime, time as _time,",
+        "                      timedelta as _timedelta)",
+        "from typing import (Any as _Any, Callable as _Callable, Protocol as _Protocol,",
+        "                    Self as _Self, overload as _overload)",
+        "",
+        "from _hgraph import (AmbiguousTimePolicy as _AmbiguousTimePolicy,",
+        "                     CivilDateRange as _CivilDateRange,",
+        "                     CivilDateTime as _CivilDateTime, InstantRange as _InstantRange,",
+        "                     MonthEndPolicy as _MonthEndPolicy,",
+        "                     NonexistentTimePolicy as _NonexistentTimePolicy,",
+        "                     Period as _Period, ZoneId as _ZoneId,",
+        "                     ZonedDateTime as _ZonedDateTime)",
+        "from ._compat import CmpResult as _CmpResult, DivideByZero as _DivideByZero",
+        "from ._wiring import WiringPort as _WiringPort",
         "",
     ]
-    for shape in shapes:
-        names, variadic = shape
-        class_name = shape_names[shape]
-        parameters = [f"{name}: Any = ..." for name in names]
-        if variadic:
-            if parameters and names[-1] == "args":
-                parameters[-1] = "*args: Any"
-            else:
-                parameters.append("*args: Any")
-        if not parameters:
-            parameters.append("*args: Any")
-        parameters.append("**kwargs: Any")
+    for operator in operators:
+        class_name = _operator_class_name(operator["name"])
+        overloads = _unique_overloads(operator)
+        documentation = (
+            operator["documentation"]
+            or f'Wire ``{operator["name"]}`` through native overload resolution.'
+        ).splitlines()
         lines.extend([
-            f"class {class_name}(Protocol):",
-            f"    def __call__(self, {', '.join(parameters)}) -> WiringPort | None: ...",
-            "    def __getitem__(self, item: Any, /) -> Self: ...",
+            f"class {class_name}(_Protocol):",
+            '    """' + documentation[0],
+        ])
+        lines.extend(f"    {line}" if line else "" for line in documentation[1:])
+        lines.extend([
+            "",
+            "    Accepted native overloads:",
             "",
         ])
-    for operator in operators:
-        lines.append(f"{operator['name']}: {shape_names[_shape_key(operator)]}")
+        for overload_signature in overloads:
+            lines.append(
+                f"    - ``{_format_native_signature(operator['name'], overload_signature)}``"
+            )
+        lines.extend([
+            "",
+            "    Time-series parameters accept wiring ports and compatible plain",
+            '    values that can be lifted to constant sources."""',
+            "",
+        ])
+        stub_overloads = []
+        seen_stub_signatures = set()
+        for overload_signature in overloads:
+            for variant in _python_signature_variants(overload_signature):
+                rendered = _render_stub_signature(variant)
+                output = "_WiringPort" if variant["has_output"] else "None"
+                key = rendered, output
+                if key not in seen_stub_signatures:
+                    seen_stub_signatures.add(key)
+                    stub_overloads.append((rendered, output))
+        if not stub_overloads:
+            lines.append("    def __call__(self, *args: object, **kwargs: object) -> _WiringPort | None: ...")
+        else:
+            for parameters, output in stub_overloads:
+                if len(stub_overloads) > 1:
+                    lines.append("    @_overload")
+                separator = ", " if parameters else ""
+                lines.append(
+                    f"    def __call__(self{separator}{parameters}) -> {output}: ..."
+                )
+        lines.extend([
+            "    def __getitem__(self, item: _Any, /) -> _Self: ...",
+            "",
+            f"{operator['name']}: {class_name}",
+            "",
+        ])
     lines.extend(["", "__all__ = ("])
     lines.extend(f'    "{operator["name"]}",' for operator in operators)
     lines.extend([")", ""])
+    return "\n".join(lines)
+
+
+def render_operator_docs(inventory: dict[str, Any]) -> str:
+    lines = [
+        '"""Generated semantic documentation for native operator proxies.',
+        "",
+        "Source summaries live on the public C++ operator declarations; exact",
+        'accepted signatures come from the runtime registry."""',
+        "",
+        "OPERATOR_DOCS = {",
+    ]
+    for operator in inventory["operators"]:
+        if operator["documentation"]:
+            lines.append(f"    {operator['name']!r}: {operator['documentation']!r},")
+    lines.extend(["}", ""])
     return "\n".join(lines)
 
 
@@ -283,6 +548,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rst", type=Path, default=DEFAULT_RST)
     parser.add_argument("--stub", type=Path, default=DEFAULT_STUB)
+    parser.add_argument("--operator-docs", type=Path, default=DEFAULT_OPERATOR_DOCS)
     parser.add_argument("--check", action="store_true")
     arguments = parser.parse_args()
 
@@ -290,6 +556,7 @@ def main() -> int:
     outputs = {
         arguments.rst: render_rst(inventory),
         arguments.stub: render_operator_stub(inventory),
+        arguments.operator_docs: render_operator_docs(inventory),
     }
     stale = [path for path, content in outputs.items() if not _write_or_check(path, content, arguments.check)]
     if stale:

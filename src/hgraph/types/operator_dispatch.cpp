@@ -754,6 +754,47 @@ namespace hgraph
         return result;
     }
 
+    std::vector<OperatorOverloadSignature> OperatorRegistry::overload_signatures(std::string_view name) const
+    {
+        const auto found = overloads_.find(std::string{name});
+        if (found == overloads_.end()) { return {}; }
+
+        std::vector<OperatorOverloadSignature> signatures;
+        signatures.reserve(found->second.size());
+        for (const OperatorImpl &impl : found->second)
+        {
+            OperatorOverloadSignature signature;
+            signature.variadic = impl.variadic;
+            signature.has_kwargs = impl.has_kwargs;
+            signature.has_output = impl.has_output;
+            signature.parameters.reserve(impl.params.size());
+            for (const ParamPattern &parameter : impl.params)
+            {
+                signature.parameters.push_back(OperatorSignatureParameter{
+                    .name = parameter.name,
+                    .kind = parameter.kind,
+                    .type_pattern = parameter.kind == ParamPattern::Kind::Input
+                                        ? ts_pattern_to_string(parameter.ts)
+                                        : scalar_pattern_to_string(parameter.scalar),
+                    .has_default = parameter.default_value.has_value(),
+                });
+            }
+            const std::size_t non_variadic_count =
+                signature.parameters.size() - (signature.variadic && !signature.parameters.empty() ? 1 : 0);
+            signature.positional_params = std::min(impl.positional_params, non_variadic_count);
+            if (impl.has_kwargs && impl.has_kwargs_pattern)
+            {
+                signature.kwargs_pattern = ts_pattern_to_string(impl.kwargs_pattern);
+            }
+            if (impl.has_output)
+            {
+                signature.output_pattern = ts_pattern_to_string(impl.output);
+            }
+            signatures.push_back(std::move(signature));
+        }
+        return signatures;
+    }
+
     std::vector<std::string> OperatorRegistry::registered_names() const
     {
         std::vector<std::string> names;

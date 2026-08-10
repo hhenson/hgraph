@@ -45,12 +45,14 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``to_data_frame`` — snapshot each time-series tick as a typed frame. */
     struct to_data_frame : Operator<"to_data_frame", In<"ts", TsVar<"S">>, Scalar<"dt_col", Str>,
                                     Scalar<"key_col", Str>, Scalar<"value_col", Str>,
                                     Out<TsVar<"__out__">>>
     {
     };
 
+    /** ``group_by`` — partition a frame-valued time-series by one or more columns. */
     struct group_by
         : Operator<"group_by", In<"ts", TS<ScalarVar<"F">>>, Scalar<"by", ScalarVar<"B">>, Out<TsVar<"__out__">>>
     {
