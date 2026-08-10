@@ -8,6 +8,7 @@ import sys
 
 import _hgraph
 import hgraph
+from hgraph._operator_groups import OPERATOR_OVERRIDE_GROUPS, OPERATOR_OVERRIDE_NAMES
 from hgraph._operator_signature import PublicTypePatternFormatter
 
 from tools.api_inventory import (
@@ -65,6 +66,21 @@ def test_lazy_operators_are_typed_without_expanding_wildcard_imports():
     assert "add_:" in DEFAULT_STUB.read_text(encoding="utf-8")
 
 
+def test_registered_override_kernels_are_grouped_under_public_operators():
+    inventory = collect_inventory()
+    operators = {entry["name"]: entry for entry in inventory["operators"]}
+
+    assert OPERATOR_OVERRIDE_NAMES.isdisjoint(operators)
+    assert OPERATOR_OVERRIDE_NAMES.isdisjoint(dir(hgraph))
+    assert all(not hasattr(hgraph, name) for name in OPERATOR_OVERRIDE_NAMES)
+    assert OPERATOR_OVERRIDE_NAMES <= set(_hgraph.operator_names())
+    for public_name, expected_groups in OPERATOR_OVERRIDE_GROUPS.items():
+        actual_groups = operators[public_name]["grouped_overrides"]
+        assert tuple(
+            (group["group_label"], group["name"]) for group in actual_groups
+        ) == expected_groups
+
+
 def test_operator_inventory_preserves_complete_native_overloads():
     inventory = collect_inventory()
     assert all(operator["documentation"] for operator in inventory["operators"])
@@ -114,6 +130,11 @@ def test_operator_catalogue_exposes_every_operator_signature_and_documentation()
     assert "abs_(ts: TIME_SERIES_TYPE) -> OUT" in source
     assert "add_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]" in source
     assert "const(value: SCALAR) -> OUT" in source
+    assert "Grouped overrides" in source
+    assert "**Compound-scalar values**" in source
+    assert "(ts: TIME_SERIES_TYPE, __strict__: bool) -> OUT" in source
+    assert ".. _python-operator-combine_cs:" not in source
+    assert "``combine_cs``" not in source
     assert ".. _python-operator-to_window:" in source
     assert "Accepted native overloads" in source
     assert not re.search(r"(?m)^   .*~[A-Za-z_]", source)
@@ -205,7 +226,7 @@ def test_operator_stub_exposes_overloads_docs_and_every_public_operator():
     typed_lazy_names = {element.value for element in typing_all.value.elts}
     public_registry_names = {
         name for name in _hgraph.operator_names() if not name.startswith("__")
-    }
+    } - OPERATOR_OVERRIDE_NAMES
     explicitly_typed_names = public_registry_names & set(hgraph.__all__)
     assert typed_lazy_names | explicitly_typed_names == public_registry_names
     assert typed_lazy_names.isdisjoint(explicitly_typed_names)

@@ -371,7 +371,7 @@ Accepted native overloads
 ``combine``
 -----------
 
-``combine`` — combine several time-series into one collection time-series (variadic).
+``combine`` — build a typed composite time-series. Overloads cover temporal values, collections, structured values, mappings, keyed dictionaries, sets, and dynamic JSON.
 
 Python entry point: ``combine(*args, **kwargs)`` (explicit helper).
 
@@ -388,84 +388,66 @@ Accepted native overloads
    combine(ts: TIME_SERIES_TYPE) -> OUT
    combine(orig: TIME_SERIES_TYPE, delta: TIME_SERIES_TYPE_1) -> OUT
 
-.. _python-operator-combine_cs:
+Grouped overrides
+~~~~~~~~~~~~~~~~~
 
-``combine_cs``
---------------
+These native implementation groups provide overloads of ``combine``.
+Their registry dispatch names are intentionally not presented as
+separate Python operators.
 
-``combine_cs`` — assemble a compound-scalar (Bundle) value from field ports (the runtime half of ``combine[TS[CS]](field=...)``).
+**Compound-scalar values**
 
-Python exposure: lazy native operator proxy.
+Assemble the ``combine[TS[CompoundScalar]]`` grouping from field ports.
 
-Accepted native overloads
-
-.. code-block:: text
-
-   combine_cs(ts: TIME_SERIES_TYPE) -> OUT
-   combine_cs(ts: TIME_SERIES_TYPE, __strict__: bool) -> OUT
-
-.. _python-operator-combine_json:
-
-``combine_json``
-----------------
-
-Dynamic-JSON tree operators (design record: parity_matrix.rst, ruling 2026-07-06 — the tree is a C++ value; python is sugar).
-
-Python exposure: lazy native operator proxy.
-
-Accepted native overloads
+Native grouping contracts:
 
 .. code-block:: text
 
-   combine_json(**kwargs: time-series) -> OUT
+   (ts: TIME_SERIES_TYPE) -> OUT
+   (ts: TIME_SERIES_TYPE, __strict__: bool) -> OUT
 
-.. _python-operator-combine_map:
+**Dynamic JSON values**
 
-``combine_map``
----------------
+Build the ``combine[TS[JSON]]`` dynamic-JSON grouping from named value ports. The JSON tree remains a C++ value; Python is authoring sugar.
 
-``combine_map`` — build a mapping value from key and value time-series.
-
-Python exposure: lazy native operator proxy.
-
-Accepted native overloads
+Native grouping contracts:
 
 .. code-block:: text
 
-   combine_map(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1) -> OUT
+   (**kwargs: time-series) -> OUT
 
-.. _python-operator-combine_tsd:
+**Mapping values**
 
-``combine_tsd``
----------------
+Build the ``combine[TS[frozendict]]`` mapping grouping from key and value time-series.
 
-``combine_tsd`` — build a TSD from keys + element ports (hgraph's combine[TSD] family; TSD.from_ts wires this).
-
-Python exposure: lazy native operator proxy.
-
-Accepted native overloads
+Native grouping contracts:
 
 .. code-block:: text
 
-   combine_tsd(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1, __strict__: bool = ...) -> OUT
-   combine_tsd(keys: SCALAR, values: TIME_SERIES_TYPE, __strict__: bool = ...) -> OUT
-   combine_tsd(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1) -> OUT
-   combine_tsd(keys: SCALAR, *values: V, __strict__: bool = ...) -> OUT
+   (keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1) -> OUT
 
-.. _python-operator-combine_tss_from_tsl:
+**Keyed time-series dictionaries**
 
-``combine_tss_from_tsl``
-------------------------
+Build the ``combine[TSD]`` grouping from keys and element ports; ``TSD.from_ts`` wires this family.
 
-Packed-TSL kernel behind combine[TSS](a, b, ...).
-
-Python exposure: lazy native operator proxy.
-
-Accepted native overloads
+Native grouping contracts:
 
 .. code-block:: text
 
-   combine_tss_from_tsl(ts: TSL[TS[SCALAR], SIZE]) -> OUT
+   (keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1, __strict__: bool = ...) -> OUT
+   (keys: SCALAR, values: TIME_SERIES_TYPE, __strict__: bool = ...) -> OUT
+   (keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1) -> OUT
+   (keys: SCALAR, *values: V, __strict__: bool = ...) -> OUT
+
+**Time-series sets**
+
+Provide the ``combine[TSS](a, b, ...)`` set grouping from a packed TSL.
+
+Native grouping contracts:
+
+.. code-block:: text
+
+   (ts: TSL[TS[SCALAR], SIZE]) -> OUT
 
 .. _python-operator-compare:
 
@@ -995,6 +977,35 @@ Accepted native overloads
 
    filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE
 
+.. _python-operator-filter_by:
+
+``filter_by``
+-------------
+
+Keep TSD entries where ``expr(value, **kwargs)`` is true.
+
+``map_`` computes the per-key matches; the grouped native override applies
+those matches to the dictionary.
+
+Python entry point: ``filter_by(ts, expr, **kwargs)`` (explicit helper).
+
+Grouped overrides
+~~~~~~~~~~~~~~~~~
+
+These native implementation groups provide overloads of ``filter_by``.
+Their registry dispatch names are intentionally not presented as
+separate Python operators.
+
+**Keyed time-series dictionaries**
+
+Provide the keyed-dictionary ``filter_by`` grouping: keep entries whose per-key boolean match is true after ``map_`` evaluates the expression.
+
+Native grouping contracts:
+
+.. code-block:: text
+
+   (ts: TSD[K, V], matches: TSD[K, TS[bool]]) -> OUT
+
 .. _python-operator-filter_cs:
 
 ``filter_cs``
@@ -1026,21 +1037,6 @@ Accepted native overloads
 
    filter_frame(ts: TS[Frame[SCALAR]], predicate: TIME_SERIES_TYPE) -> TS[Frame[SCALAR]]
    filter_frame(ts: TS[Frame[SCALAR, SCALAR_1]], predicate: TIME_SERIES_TYPE) -> TS[Frame[SCALAR, SCALAR_1]]
-
-.. _python-operator-filter_tsd_by_matches:
-
-``filter_tsd_by_matches``
--------------------------
-
-``filter_tsd_by_matches`` — keep the TSD entries whose per-key boolean match is TRUE (the runtime half of ``filter_by``; the match dictionary is produced by ``map_`` over the caller's expression).
-
-Python exposure: lazy native operator proxy.
-
-Accepted native overloads
-
-.. code-block:: text
-
-   filter_tsd_by_matches(ts: TSD[K, V], matches: TSD[K, TS[bool]]) -> OUT
 
 .. _python-operator-flip:
 
@@ -1920,20 +1916,22 @@ Accepted native overloads
    max_(ts: TSL[TS[V], SIZE]) -> TS[V]
    max_(ts: TIME_SERIES_TYPE, default_value: SCALAR) -> OUT
 
-.. _python-operator-max_ts_list:
+Grouped overrides
+~~~~~~~~~~~~~~~~~
 
-``max_ts_list``
----------------
+These native implementation groups provide overloads of ``max_``.
+Their registry dispatch names are intentionally not presented as
+separate Python operators.
 
-``max_ts_list`` — internal packed-list maximum used by public ``max_`` overloads.
+**Packed time-series lists**
 
-Python exposure: lazy native operator proxy.
+Provide the LIST-valued ``max_`` grouping from a packed TSL.
 
-Accepted native overloads
+Native grouping contracts:
 
 .. code-block:: text
 
-   max_ts_list(tsl: TSL[TS[SCALAR], SIZE]) -> OUT
+   (tsl: TSL[TS[SCALAR], SIZE]) -> OUT
 
 .. _python-operator-mean:
 
@@ -1985,20 +1983,22 @@ Accepted native overloads
    merge(*tsl: TSD[K, V], disjoint: bool = ...) -> OUT
    merge(tsl: TIME_SERIES_TYPE) -> OUT
 
-.. _python-operator-merge_tsd_disjoint:
+Grouped overrides
+~~~~~~~~~~~~~~~~~
 
-``merge_tsd_disjoint``
-----------------------
+These native implementation groups provide overloads of ``merge``.
+Their registry dispatch names are intentionally not presented as
+separate Python operators.
 
-Runtime half of merge(disjoint=True): leftmost-wins reference merge over a packed TSL of dictionaries.
+**Disjoint keyed dictionaries**
 
-Python exposure: lazy native operator proxy.
+Provide the ``merge(disjoint=True)`` grouping: leftmost-wins reference merge over a packed TSL of dictionaries.
 
-Accepted native overloads
+Native grouping contracts:
 
 .. code-block:: text
 
-   merge_tsd_disjoint(tsl: TSL[TSD[K, V], SIZE]) -> OUT
+   (tsl: TSL[TSD[K, V], SIZE]) -> OUT
 
 .. _python-operator-mesh_:
 
@@ -2085,20 +2085,22 @@ Accepted native overloads
    min_(ts: TSL[TS[V], SIZE]) -> TS[V]
    min_(ts: TIME_SERIES_TYPE, default_value: SCALAR) -> OUT
 
-.. _python-operator-min_ts_list:
+Grouped overrides
+~~~~~~~~~~~~~~~~~
 
-``min_ts_list``
----------------
+These native implementation groups provide overloads of ``min_``.
+Their registry dispatch names are intentionally not presented as
+separate Python operators.
 
-Packed-TSL kernels behind the LIST-valued ``min_``/``max_`` overloads.
+**Packed time-series lists**
 
-Python exposure: lazy native operator proxy.
+Provide the LIST-valued ``min_`` grouping from a packed TSL.
 
-Accepted native overloads
+Native grouping contracts:
 
 .. code-block:: text
 
-   min_ts_list(tsl: TSL[TS[SCALAR], SIZE]) -> OUT
+   (tsl: TSL[TS[SCALAR], SIZE]) -> OUT
 
 .. _python-operator-minute:
 

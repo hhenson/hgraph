@@ -25,9 +25,8 @@ namespace hgraph::stdlib
      * ``all_`` / ``any_`` are variadic over their inputs.
      */
 
-    /** ``merge`` — forward the first of the inputs to tick this cycle (variadic). */
-    /** Runtime half of merge(disjoint=True): leftmost-wins reference merge
-        over a packed TSL of dictionaries. */
+    /** Provide the ``merge(disjoint=True)`` grouping: leftmost-wins reference
+        merge over a packed TSL of dictionaries. */
     struct merge_tsd_disjoint_marker
         : Operator<"merge_tsd_disjoint", In<"tsl", TsVar<"S">>, Out<TsVar<"O">>>
     {

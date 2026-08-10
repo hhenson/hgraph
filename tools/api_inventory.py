@@ -18,6 +18,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from hgraph._operator_groups import OPERATOR_OVERRIDE_GROUPS
 from hgraph._operator_signature import PublicTypePatternFormatter
 
 
@@ -175,7 +176,7 @@ def collect_inventory() -> dict[str, Any]:
     import hgraph
 
     operator_documentation = collect_operator_documentation()
-    operators: list[dict[str, Any]] = []
+    registry_operators: dict[str, dict[str, Any]] = {}
     for name in sorted(_hgraph.operator_names()):
         if name.startswith("__"):
             continue
@@ -205,7 +206,7 @@ def collect_inventory() -> dict[str, Any]:
                 python_signature = _signature_text(getattr(hgraph, name))
             except (TypeError, ValueError):
                 pass
-        operators.append({
+        registry_operators[name] = {
             "name": name,
             "overloads": tuple(overloads),
             "documentation": operator_documentation.get(name),
@@ -214,7 +215,32 @@ def collect_inventory() -> dict[str, Any]:
             # inside hgraph.__init__'s TYPE_CHECKING import.
             "explicit_root": explicit_root,
             "python_signature": python_signature,
-        })
+            "grouped_overrides": (),
+        }
+
+    for public_name, override_groups in OPERATOR_OVERRIDE_GROUPS.items():
+        public_operator = registry_operators.get(public_name)
+        if public_operator is None:
+            value = getattr(hgraph, public_name)
+            public_operator = {
+                "name": public_name,
+                "overloads": (),
+                "documentation": inspect.getdoc(value),
+                "explicit_root": public_name in hgraph.__all__,
+                "python_signature": _signature_text(value),
+                "grouped_overrides": (),
+            }
+            registry_operators[public_name] = public_operator
+
+        grouped_overrides = []
+        for label, override_name in override_groups:
+            override = registry_operators.pop(override_name)
+            grouped_overrides.append({**override, "group_label": label})
+        public_operator["grouped_overrides"] = tuple(grouped_overrides)
+
+    operators = tuple(
+        registry_operators[name] for name in sorted(registry_operators)
+    )
 
     modules = {
         module_name: tuple(sorted(dict.fromkeys(module_exports(module_name))))
@@ -222,7 +248,7 @@ def collect_inventory() -> dict[str, Any]:
     }
     return {
         "root": tuple(sorted(dict.fromkeys(hgraph.__all__))),
-        "operators": tuple(operators),
+        "operators": operators,
         "modules": modules,
     }
 
@@ -254,6 +280,11 @@ def collect_authoring_api() -> tuple[dict[str, Any], ...]:
 
 
 def _display_signature(operator: dict[str, Any]) -> str:
+    if operator["grouped_overrides"]:
+        group_count = len(operator["grouped_overrides"]) + bool(
+            _display_overload_signatures(operator)
+        )
+        return f"{group_count} overload group{'s' if group_count != 1 else ''}"
     signatures = _display_overload_signatures(operator)
     if not signatures:
         return f"{operator['name']}(*args, **kwargs)"
@@ -284,7 +315,8 @@ def render_rst(inventory: dict[str, Any]) -> str:
         "``hgraph.__all__`` describes wildcard imports, while the operator registry",
         "also supplies lazy module attributes such as ``add_`` and ``filter_``.",
         "Names beginning with two underscores are runtime implementation entries and",
-        "are omitted.",
+        "are omitted. Separately registered override kernels are grouped beneath the",
+        "public operator they implement rather than listed as top-level operators.",
         "",
         ".. list-table:: Inventory summary",
         "   :header-rows: 1",
@@ -294,7 +326,7 @@ def render_rst(inventory: dict[str, Any]) -> str:
         "     - Names",
         f"   * - ``hgraph.__all__``",
         f"     - {len(inventory['root'])}",
-        "   * - Public registry operators",
+        "   * - Public operator groups",
         f"     - {len(operators)}",
         "   * - Public submodules",
         f"     - {len(modules)}",
@@ -327,12 +359,22 @@ def render_rst(inventory: dict[str, Any]) -> str:
         "     - Coverage",
     ])
     for operator in operators:
-        overload_count = len(_display_overload_signatures(operator))
+        overload_count = len(_display_overload_signatures(operator)) + sum(
+            len(_display_overload_signatures(override, name=operator["name"]))
+            for override in operator["grouped_overrides"]
+        )
         exposure = "explicit helper" if operator["explicit_root"] else "lazy operator"
+        group_count = len(operator["grouped_overrides"]) + bool(
+            _display_overload_signatures(operator)
+        )
+        grouping = (
+            f" across {group_count} group{'s' if group_count != 1 else ''}"
+            if operator["grouped_overrides"] else ""
+        )
         lines.extend([
             f"   * - :ref:`{operator['name']} <python-operator-{operator['name']}>`",
             f"     - ``{_display_signature(operator)}``",
-            f"     - {overload_count} native overload{'s' if overload_count != 1 else ''}; {exposure}",
+            f"     - {overload_count} native overload{'s' if overload_count != 1 else ''}{grouping}; {exposure}",
         ])
 
     lines.extend(["", "Public submodules", "-----------------", ""])
@@ -394,17 +436,50 @@ def render_operator_catalogue(inventory: dict[str, Any]) -> str:
                 "Python exposure: lazy native operator proxy.",
                 "",
             ])
-        lines.extend([
-            "Accepted native overloads",
-            "",
-            ".. code-block:: text",
-            "",
-        ])
         if signatures:
+            lines.extend([
+                "Accepted native overloads",
+                "",
+                ".. code-block:: text",
+                "",
+            ])
             lines.extend(f"   {signature}" for signature in signatures)
-        else:
+            lines.append("")
+        elif not operator["grouped_overrides"]:
+            lines.extend([
+                "Accepted native overloads",
+                "",
+                ".. code-block:: text",
+                "",
+            ])
             lines.append(f"   {name}(*args, **kwargs)")
-        lines.append("")
+            lines.append("")
+        if operator["grouped_overrides"]:
+            lines.extend([
+                "Grouped overrides",
+                "~~~~~~~~~~~~~~~~~",
+                "",
+                f"These native implementation groups provide overloads of ``{name}``.",
+                "Their registry dispatch names are intentionally not presented as",
+                "separate Python operators.",
+                "",
+            ])
+            for override in operator["grouped_overrides"]:
+                lines.extend([
+                    f"**{override['group_label']}**",
+                    "",
+                    override["documentation"] or "Native implementation grouping.",
+                    "",
+                    "Native grouping contracts:",
+                    "",
+                    ".. code-block:: text",
+                    "",
+                ])
+                lines.extend(
+                    f"   {signature}"
+                    for signature in _display_overload_signatures(override, name="")
+                )
+                lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -518,10 +593,13 @@ def _format_public_signature(name: str, overload: dict[str, Any]) -> str:
     return f"{name}({', '.join(rendered)}) -> {output}"
 
 
-def _display_overload_signatures(operator: dict[str, Any]) -> tuple[str, ...]:
+def _display_overload_signatures(
+        operator: dict[str, Any], *, name: str | None = None) -> tuple[str, ...]:
     """Return distinct public renderings while retaining raw overload metadata."""
     return tuple(dict.fromkeys(
-        _format_public_signature(operator["name"], overload)
+        _format_public_signature(
+            operator["name"] if name is None else name, overload
+        )
         for overload in _unique_overloads(operator)
     ))
 
