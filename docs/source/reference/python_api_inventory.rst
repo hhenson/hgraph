@@ -8,7 +8,8 @@ native operator registry. It complements the curated reference pages:
 ``hgraph.__all__`` describes wildcard imports, while the operator registry
 also supplies lazy module attributes such as ``add_`` and ``filter_``.
 Names beginning with two underscores are runtime implementation entries and
-are omitted.
+are omitted. Separately registered override kernels are grouped beneath the
+public operator they implement rather than listed as top-level operators.
 
 .. list-table:: Inventory summary
    :header-rows: 1
@@ -18,8 +19,8 @@ are omitted.
      - Names
    * - ``hgraph.__all__``
      - 206
-   * - Public registry operators
-     - 212
+   * - Public operator groups
+     - 204
    * - Public submodules
      - 19
 
@@ -310,23 +311,8 @@ whose curated signatures remain authoritative.
      - ``3 overloads``
      - 3 native overloads; explicit helper
    * - :ref:`combine <python-operator-combine>`
-     - ``8 overloads``
-     - 8 native overloads; explicit helper
-   * - :ref:`combine_cs <python-operator-combine_cs>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
-   * - :ref:`combine_json <python-operator-combine_json>`
-     - ``combine_json(**kwargs: time-series) -> OUT``
-     - 1 native overload; lazy operator
-   * - :ref:`combine_map <python-operator-combine_map>`
-     - ``combine_map(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1) -> OUT``
-     - 1 native overload; lazy operator
-   * - :ref:`combine_tsd <python-operator-combine_tsd>`
-     - ``4 overloads``
-     - 4 native overloads; lazy operator
-   * - :ref:`combine_tss_from_tsl <python-operator-combine_tss_from_tsl>`
-     - ``combine_tss_from_tsl(ts: TSL[TS[SCALAR], SIZE]) -> OUT``
-     - 1 native overload; lazy operator
+     - ``6 overload groups``
+     - 17 native overloads across 6 groups; explicit helper
    * - :ref:`compare <python-operator-compare>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
@@ -417,15 +403,15 @@ whose curated signatures remain authoritative.
    * - :ref:`filter_ <python-operator-filter_>`
      - ``filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE``
      - 1 native overload; lazy operator
+   * - :ref:`filter_by <python-operator-filter_by>`
+     - ``1 overload group``
+     - 1 native overload across 1 group; explicit helper
    * - :ref:`filter_cs <python-operator-filter_cs>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`filter_frame <python-operator-filter_frame>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
-   * - :ref:`filter_tsd_by_matches <python-operator-filter_tsd_by_matches>`
-     - ``filter_tsd_by_matches(ts: TSD[K, V], matches: TSD[K, TS[bool]]) -> OUT``
-     - 1 native overload; lazy operator
    * - :ref:`flip <python-operator-flip>`
      - ``3 overloads``
      - 3 native overloads; lazy operator
@@ -574,20 +560,14 @@ whose curated signatures remain authoritative.
      - ``match_(pattern: TS[str], s: TS[str]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`max_ <python-operator-max_>`
-     - ``25 overloads``
-     - 25 native overloads; lazy operator
-   * - :ref:`max_ts_list <python-operator-max_ts_list>`
-     - ``max_ts_list(tsl: TSL[TS[SCALAR], SIZE]) -> OUT``
-     - 1 native overload; lazy operator
+     - ``2 overload groups``
+     - 26 native overloads across 2 groups; lazy operator
    * - :ref:`mean <python-operator-mean>`
      - ``18 overloads``
      - 18 native overloads; lazy operator
    * - :ref:`merge <python-operator-merge>`
-     - ``4 overloads``
-     - 4 native overloads; lazy operator
-   * - :ref:`merge_tsd_disjoint <python-operator-merge_tsd_disjoint>`
-     - ``merge_tsd_disjoint(tsl: TSL[TSD[K, V], SIZE]) -> OUT``
-     - 1 native overload; lazy operator
+     - ``2 overload groups``
+     - 5 native overloads across 2 groups; lazy operator
    * - :ref:`mesh_ <python-operator-mesh_>`
      - ``mesh_(func: fn, *args: TIME_SERIES_TYPE, __key_arg__: str = ..., __name__: str = ..., **kwargs: time-series) -> OUT``
      - 1 native overload; explicit helper
@@ -598,11 +578,8 @@ whose curated signatures remain authoritative.
      - ``microseconds(ts: TS[timedelta]) -> TS[int]``
      - 1 native overload; lazy operator
    * - :ref:`min_ <python-operator-min_>`
-     - ``25 overloads``
-     - 25 native overloads; lazy operator
-   * - :ref:`min_ts_list <python-operator-min_ts_list>`
-     - ``min_ts_list(tsl: TSL[TS[SCALAR], SIZE]) -> OUT``
-     - 1 native overload; lazy operator
+     - ``2 overload groups``
+     - 26 native overloads across 2 groups; lazy operator
    * - :ref:`minute <python-operator-minute>`
      - ``2 overloads``
      - 2 native overloads; lazy operator

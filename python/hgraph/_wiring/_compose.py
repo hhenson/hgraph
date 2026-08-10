@@ -345,8 +345,11 @@ class DebugContext:
 
 
 def filter_by(ts, expr, **kwargs):
-    """hgraph's filter_by: keep TSD entries where expr(value, **kwargs) is
-    true - map_ computes the per-key matches, the runtime node filters."""
+    """Keep TSD entries where ``expr(value, **kwargs)`` is true.
+
+    ``map_`` computes the per-key matches; the grouped native override applies
+    those matches to the dictionary.
+    """
     matches = map_(expr, ts, **kwargs)
     return wire("filter_tsd_by_matches", ts, matches)
 

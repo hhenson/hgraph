@@ -40,12 +40,14 @@ namespace hgraph::stdlib
     {
     };
 
-    /** ``combine`` — combine several time-series into one collection time-series (variadic). */
+    /** ``combine`` — build a typed composite time-series. Overloads cover
+        temporal values, collections, structured values, mappings, keyed
+        dictionaries, sets, and dynamic JSON. */
     struct combine : Operator<"combine", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** Packed-TSL kernel behind combine[TSS](a, b, ...). */
+    /** Provide the ``combine[TSS](a, b, ...)`` set grouping from a packed TSL. */
     struct combine_tss_from_tsl_marker
         : Operator<"combine_tss_from_tsl", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {

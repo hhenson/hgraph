@@ -97,16 +97,13 @@ namespace hgraph::stdlib
     {
     };
 
-    /** ``combine_map`` — build a TS[frozendict] from key/value time-series:
-        a single (key, value) pair, two same-length tuples, or two TSLs. */
-    /** ``combine_tsd`` — build a TSD from keys + element ports (hgraph's
-        combine[TSD] family; TSD.from_ts wires this). */
+    /** Build the ``combine[TSD]`` grouping from keys and element ports;
+        ``TSD.from_ts`` wires this family. */
     struct combine_tsd : Operator<"combine_tsd", In<"keys", TsVar<"A">>, In<"values", TsVar<"B">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``combine_cs`` — assemble a compound-scalar (Bundle) value from field
-        ports (the runtime half of ``combine[TS[CS]](field=...)``). */
+    /** Assemble the ``combine[TS[CompoundScalar]]`` grouping from field ports. */
     struct combine_cs : Operator<"combine_cs", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
@@ -124,17 +121,18 @@ namespace hgraph::stdlib
     {
     };
 
-    /** Packed-TSL kernels behind the LIST-valued ``min_``/``max_`` overloads. */
+    /** Provide the LIST-valued ``min_`` grouping from a packed TSL. */
     struct extremum_ts_list_marker : Operator<"min_ts_list", In<"tsl", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``max_ts_list`` — internal packed-list maximum used by public ``max_`` overloads. */
+    /** Provide the LIST-valued ``max_`` grouping from a packed TSL. */
     struct extremum_ts_list_max_marker : Operator<"max_ts_list", In<"tsl", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``combine_map`` — build a mapping value from key and value time-series. */
+    /** Build the ``combine[TS[frozendict]]`` mapping grouping from key and
+        value time-series. */
     struct combine_map : Operator<"combine_map", In<"keys", TsVar<"A">>, In<"values", TsVar<"B">>, Out<TsVar<"O">>>
     {
     };
@@ -149,10 +147,8 @@ namespace hgraph::stdlib
     {
     };
 
-    /** ``collapse_keys`` — collapse a nested ``TSD[K, TSD[K1, V]]`` to ``TSD[Tuple[K, K1], V]``. */
-    /** ``filter_tsd_by_matches`` — keep the TSD entries whose per-key
-        boolean match is TRUE (the runtime half of ``filter_by``; the match
-        dictionary is produced by ``map_`` over the caller's expression). */
+    /** Provide the keyed-dictionary ``filter_by`` grouping: keep entries whose
+        per-key boolean match is true after ``map_`` evaluates the expression. */
     struct filter_tsd_by_matches
         : Operator<"filter_tsd_by_matches", In<"ts", TsVar<"S">>, In<"matches", TsVar<"M">>, Out<TsVar<"O">>>
     {

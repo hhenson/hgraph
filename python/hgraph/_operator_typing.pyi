@@ -497,105 +497,6 @@ class _collapse_keys_Operator(_Protocol):
 
 collapse_keys: _collapse_keys_Operator
 
-class _combine_cs_Operator(_Protocol):
-    """``combine_cs`` — assemble a compound-scalar (Bundle) value from field ports (the runtime half of ``combine[TS[CS]](field=...)``).
-
-    Accepted native overloads:
-
-    - ``combine_cs(ts: TIME_SERIES_TYPE) -> OUT``
-    - ``combine_cs(ts: TIME_SERIES_TYPE, __strict__: bool) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    @_overload
-    def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
-    @_overload
-    def __call__(self, ts: _WiringPort | object, __strict__: bool) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-combine_cs: _combine_cs_Operator
-
-class _combine_json_Operator(_Protocol):
-    """Dynamic-JSON tree operators (design record: parity_matrix.rst, ruling 2026-07-06 — the tree is a C++ value; python is sugar).
-
-    Accepted native overloads:
-
-    - ``combine_json(**kwargs: time-series) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    def __call__(self, **kwargs: _WiringPort | object) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-combine_json: _combine_json_Operator
-
-class _combine_map_Operator(_Protocol):
-    """``combine_map`` — build a mapping value from key and value time-series.
-
-    Accepted native overloads:
-
-    - ``combine_map(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    def __call__(self, keys: _WiringPort | object, values: _WiringPort | object) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-combine_map: _combine_map_Operator
-
-class _combine_tsd_Operator(_Protocol):
-    """``combine_tsd`` — build a TSD from keys + element ports (hgraph's combine[TSD] family; TSD.from_ts wires this).
-
-    Accepted native overloads:
-
-    - ``combine_tsd(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1, __strict__: bool = ...) -> OUT``
-    - ``combine_tsd(keys: SCALAR, values: TIME_SERIES_TYPE, __strict__: bool = ...) -> OUT``
-    - ``combine_tsd(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1) -> OUT``
-    - ``combine_tsd(keys: SCALAR, *values: V, __strict__: bool = ...) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    @_overload
-    def __call__(self, keys: _WiringPort | object, values: _WiringPort | object, __strict__: bool = ...) -> _WiringPort: ...
-    @_overload
-    def __call__(self, keys: object, values: _WiringPort | object, __strict__: bool = ...) -> _WiringPort: ...
-    @_overload
-    def __call__(self, keys: _WiringPort | object, values: _WiringPort | object) -> _WiringPort: ...
-    @_overload
-    def __call__(self, keys: object, *values: _WiringPort | object, __strict__: bool = ...) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-combine_tsd: _combine_tsd_Operator
-
-class _combine_tss_from_tsl_Operator(_Protocol):
-    """Packed-TSL kernel behind combine[TSS](a, b, ...).
-
-    Accepted native overloads:
-
-    - ``combine_tss_from_tsl(ts: TSL[TS[SCALAR], SIZE]) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-combine_tss_from_tsl: _combine_tss_from_tsl_Operator
-
 class _compare_Operator(_Protocol):
     """``compare`` — the backtesting comparison sink (COMPARE mode): records per-tick equality of ``lhs`` vs ``rhs`` through the registered frame store (P6) under ``fq_recordable_id.__compare__``.
 
@@ -1221,23 +1122,6 @@ class _filter_frame_Operator(_Protocol):
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 filter_frame: _filter_frame_Operator
-
-class _filter_tsd_by_matches_Operator(_Protocol):
-    """``filter_tsd_by_matches`` — keep the TSD entries whose per-key boolean match is TRUE (the runtime half of ``filter_by``; the match dictionary is produced by ``map_`` over the caller's expression).
-
-    Accepted native overloads:
-
-    - ``filter_tsd_by_matches(ts: TSD[K, V], matches: TSD[K, TS[bool]]) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    def __call__(self, ts: _WiringPort | object, matches: _WiringPort | object) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-filter_tsd_by_matches: _filter_tsd_by_matches_Operator
 
 class _flip_Operator(_Protocol):
     """``flip`` — swap keys and values of a dictionary.
@@ -2371,23 +2255,6 @@ class _max__Operator(_Protocol):
 
 max_: _max__Operator
 
-class _max_ts_list_Operator(_Protocol):
-    """``max_ts_list`` — internal packed-list maximum used by public ``max_`` overloads.
-
-    Accepted native overloads:
-
-    - ``max_ts_list(tsl: TSL[TS[SCALAR], SIZE]) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    def __call__(self, tsl: _WiringPort | object) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-max_ts_list: _max_ts_list_Operator
-
 class _mean_Operator(_Protocol):
     """``mean`` — running / element-wise mean.
 
@@ -2465,23 +2332,6 @@ class _merge_Operator(_Protocol):
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 merge: _merge_Operator
-
-class _merge_tsd_disjoint_Operator(_Protocol):
-    """Runtime half of merge(disjoint=True): leftmost-wins reference merge over a packed TSL of dictionaries.
-
-    Accepted native overloads:
-
-    - ``merge_tsd_disjoint(tsl: TSL[TSD[K, V], SIZE]) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    def __call__(self, tsl: _WiringPort | object) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-merge_tsd_disjoint: _merge_tsd_disjoint_Operator
 
 class _microsecond_Operator(_Protocol):
     """``microsecond`` — the microsecond component of a datetime or time.
@@ -2590,23 +2440,6 @@ class _min__Operator(_Protocol):
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 min_: _min__Operator
-
-class _min_ts_list_Operator(_Protocol):
-    """Packed-TSL kernels behind the LIST-valued ``min_``/``max_`` overloads.
-
-    Accepted native overloads:
-
-    - ``min_ts_list(tsl: TSL[TS[SCALAR], SIZE]) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    def __call__(self, tsl: _WiringPort | object) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-min_ts_list: _min_ts_list_Operator
 
 class _minute_Operator(_Protocol):
     """``minute`` — the minute component of a datetime or time.
@@ -4743,11 +4576,6 @@ __all__ = (
     "clip",
     "cmp_",
     "collapse_keys",
-    "combine_cs",
-    "combine_json",
-    "combine_map",
-    "combine_tsd",
-    "combine_tss_from_tsl",
     "compare",
     "concat",
     "const",
@@ -4776,7 +4604,6 @@ __all__ = (
     "filter_",
     "filter_cs",
     "filter_frame",
-    "filter_tsd_by_matches",
     "flip",
     "flip_keys",
     "floordiv_",
@@ -4826,14 +4653,11 @@ __all__ = (
     "make_tsd",
     "match_",
     "max_",
-    "max_ts_list",
     "mean",
     "merge",
-    "merge_tsd_disjoint",
     "microsecond",
     "microseconds",
     "min_",
-    "min_ts_list",
     "minute",
     "mod_",
     "modified",

@@ -43,8 +43,8 @@ namespace hgraph::stdlib
     {
     };
 
-    /** Dynamic-JSON tree operators (design record: parity_matrix.rst,
-        ruling 2026-07-06 — the tree is a C++ value; python is sugar). */
+    /** Build the ``combine[TS[JSON]]`` dynamic-JSON grouping from named value
+        ports. The JSON tree remains a C++ value; Python is authoring sugar. */
     struct combine_json : Operator<"combine_json", In<"values", TsVar<"V">>, Out<TsVar<"O">>>
     {
     };

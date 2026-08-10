@@ -1,15 +1,17 @@
 """hgraph - the hgraph API over the C++ runtime.
 
 Mirrors the Python hgraph package surface: TS/TSS/TSD/TSL/TSB types, the
-@graph decorator, run_graph, eval_node, and every registered operator as a
+@graph decorator, run_graph, eval_node, and each public operator family as a
 module-level function (via PEP 562 - `from hgraph import add_, const,
-filter_, ...` all resolve through the C++ operator registry).
+filter_, ...` resolve through the C++ operator registry). Separately
+registered implementation kernels remain available only to internal wiring.
 
 Agreed divergences from Python hgraph are recorded in
 docs/source/developer_guide/parity_matrix.rst (e.g. REF is value-only)."""
 import _hgraph
 from typing import TYPE_CHECKING
 
+from ._operator_groups import OPERATOR_OVERRIDE_NAMES as _OPERATOR_OVERRIDE_NAMES
 from ._types import Series
 from ._types import (TS, TSS, TSD, TSL, TSB, Size, TimeSeriesSchema, CONTEXT, REQUIRED, SCALAR, SCALAR_1, SCALAR_2, TSW, KeyValue, AUTO_RESOLVE, with_signature,
                      KEYABLE_SCALAR, TIME_SERIES_TYPE, TIME_SERIES_TYPE_1, TIME_SERIES_TYPE_2, OUT, SIZE,
@@ -101,7 +103,10 @@ NonexistentTimePolicy = _hgraph.NonexistentTimePolicy
 Boundary = _hgraph.Boundary
 from . import temporal
 
-_OPERATOR_NAMES = frozenset(_hgraph.operator_names())
+_OPERATOR_NAMES = frozenset(
+    name for name in _hgraph.operator_names()
+    if name not in _OPERATOR_OVERRIDE_NAMES
+)
 drop_dups = operator_function("dedup")
 
 
@@ -156,8 +161,8 @@ default_path = ""   # hgraph's default service path sentinel
 # omitted from ``__all__`` while remaining directly importable, which made the
 # wildcard contract and generated API inventories disagree. Lazy native
 # operators stay separate: they are public through the registry and are
-# described to type checkers by ``_operator_typing.pyi`` without forcing more
-# than two hundred names into wildcard imports.
+# described to type checkers by ``_operator_typing.pyi`` without forcing the
+# full public operator catalogue into wildcard imports.
 __all__ += [
     "Array", "Series", "TSW", "REF", "CompoundScalar", "JSON", "KeyValue",
     "WindowSize", "AUTO_RESOLVE", "KEYABLE_SCALAR", "OUT", "SCALAR",
