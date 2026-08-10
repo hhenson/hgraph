@@ -18,6 +18,37 @@ nanobind_add_module(_hgraph ${_hgraph_nanobind_options}
     value_conversion.cpp
 )
 
+if(WIN32 AND HGRAPH_USE_PYARROW_ARROW)
+    # PyArrow's hashed MSVC support DLLs, staged into the wheel by the
+    # install() rules near the end of this file. They are loaded BY arrow.dll
+    # rather than linked, so they do not appear in TARGET_RUNTIME_DLLS below.
+    file(GLOB _hgraph_pyarrow_support_dlls
+        LIST_DIRECTORIES false
+        "${HGRAPH_PYARROW_LIBRARY_DIR}/../pyarrow.libs/*.dll"
+    )
+endif()
+if(WIN32 AND (HGRAPH_BUILD_SHARED OR HGRAPH_USE_PYARROW_ARROW))
+    # Stub generation below imports _hgraph at BUILD time. Windows has no rpath
+    # equivalent - the loader searches the directory holding the .pyd - so every
+    # DLL the extension links has to be staged beside it in the build tree. On
+    # the other platforms BUILD_RPATH and $ORIGIN cover this, which is why only
+    # Windows fails here, with "DLL load failed while importing _hgraph".
+    #
+    # TARGET_RUNTIME_DLLS is the linked set: the hgraph shared libraries,
+    # nanobind's shared ABI library, and PyArrow's Arrow DLLs (imported SHARED
+    # targets carrying IMPORTED_LOCATION). The support DLLs above are added
+    # explicitly because nothing links them.
+    add_custom_command(TARGET _hgraph POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "$<TARGET_RUNTIME_DLLS:_hgraph>"
+            ${_hgraph_pyarrow_support_dlls}
+            "$<TARGET_FILE_DIR:_hgraph>"
+        COMMAND_EXPAND_LISTS
+        COMMENT "Staging runtime DLLs beside _hgraph for build-tree imports"
+        VERBATIM
+    )
+endif()
+
 # Ship type information beside the private extension. The public Python
 # package is marked as typed below; its lazy operator declarations are
 # generated separately from the native registry by tools/api_inventory.py.
@@ -79,10 +110,8 @@ if(WIN32 AND HGRAPH_USE_PYARROW_ARROW)
     # Windows does not have an rpath equivalent. Keep the exact Arrow runtime
     # DLLs used at link time and PyArrow's hashed MSVC support DLLs beside the
     # extension so `import _hgraph` works before pyarrow itself is imported.
-    file(GLOB _hgraph_pyarrow_support_dlls
-        LIST_DIRECTORIES false
-        "${HGRAPH_PYARROW_LIBRARY_DIR}/../pyarrow.libs/*.dll"
-    )
+    # `_hgraph_pyarrow_support_dlls` is globbed alongside the build-tree staging
+    # near the top of this file.
     install(FILES
         "${HGRAPH_PYARROW_ARROW_RUNTIME}"
         "${HGRAPH_PYARROW_COMPUTE_RUNTIME}"
