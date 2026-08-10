@@ -29,3 +29,4 @@ workflow are defined by :doc:`rfc_0000`.
    rfc_0013_pooled_polymorphic_compound_scalars
    rfc_0014_request_reply_transport_planning
    rfc_0015_kafka_extension_api
+   rfc_0016_object_store_frame_persistence
