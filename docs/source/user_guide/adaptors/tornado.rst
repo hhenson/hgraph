@@ -54,10 +54,10 @@ or register an adaptor directly:
   ``websocket_server_adaptor_impl``.
 
 The WebSocket helper is a registration marker for manually wired handler
-graphs.  The C++ registry discovers their specialized graph-side clients and
-the shared implementation owns the route, so its Python representation is not
-the upstream implementation object's representation.  The public operation
-is stable: pass it to ``register_adaptor`` with the server port.
+graphs. The C++ registry discovers their specialised graph-side clients and
+the shared implementation owns the route. Pass the helper to
+``register_adaptor`` with the server port; do not depend on the marker's Python
+object representation.
 
 Transport managers and Tornado handlers are implementation details.  In
 particular, ``HttpAdaptorManager``, ``HttpHandler``,

@@ -1,13 +1,12 @@
 Typing System
 =============
 
-HGraph is a type-checked solution. That is, unlike standard Python, HGraph
-requires the user to provide fully defined types for all of it's functions.
-These types are checked to ensure that that edges (connections from an output
-to an input) are type checked. Additionally, at runtime the output will
-check to ensure the value been set is of the correct type. This check
-is a light weight instance of check, so contents of collection classes can
-still be in-correct (for example).
+HGraph checks graph types while wiring. Unlike ordinary Python execution,
+nodes and graphs declare the scalar and time-series types that cross their
+boundaries. Wiring rejects incompatible edges before the graph runs, and the
+runtime checks values as they enter typed storage. Collection checks are
+shallow at the boundary; their declared element types still determine wiring
+and conversion.
 
 It is possible to turn off type-checking in production to improve performance.
 But it is valuable to run in development, testing and UAT/PRE environments.
@@ -96,7 +95,9 @@ types.
 
 A detailed description of the time-series types can be found here: :doc:`time_series_types`.
 
-The typing system is represented by the class :class:`hgraph.HgTypeMetaData`.
+Python authors work with the public type expressions on this page. The native
+runtime owns their parsed metadata; the old ``HgTypeMetaData`` Python class is
+not part of the 0.8 public API.
 
 HGraph has strong type support for a limited set of types, but will support almost any type by mapping to
 Python object as the type. This is a catch-all type and is available to support arbitrary types.
@@ -106,10 +107,11 @@ language such as C++, whereas the python object support is intended to be limite
 Schema Based Types
 ------------------
 
-Besides the standard types listed above there are two special types that are derived from the ``AbstractSchema``
-type, namely: ``CompoundScalar`` and ``TimeSeriesSchema``. These types support the ability to define
-named collection types. ``CompoundScalar`` supports defining scalar values made up of simple types, including
-other ``CompoundScalar`` types.
+Two public base classes describe named records: ``CompoundScalar`` for scalar
+records and ``TimeSeriesSchema`` for bundles of time-series values. The 0.5
+``AbstractSchema`` implementation base is no longer a supported authoring
+type. Define one of the concrete public classes, or use a standard dataclass
+as a nominal scalar schema.
 
 This is an example of it's use:
 
@@ -200,7 +202,8 @@ attribute syntax.
 The use of this strategy also ensures that the type-system is able to track the type of each usage (for example, in the
 above example it can validate that the type of ``p2`` is ``TS[int]`` matching the expected return type of the graph).
 
-See the details of the schema properties here: :class:`hgraph.AbstractSchema`.
+See :doc:`time_series_types` for the collection type behaviours and
+:doc:`../python/tutorial/typing` for worked Python examples.
 
 Generics
 --------

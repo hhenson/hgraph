@@ -1,9 +1,10 @@
-Authoring in C++
-================
+Advanced native C++ authoring
+=============================
 
 Graphs and nodes can be authored, wired, tested, and executed entirely in C++
-against the native runtime API. No Python is required to build or run them —
-the Python bindings are an opt-in CMake option.
+against the native runtime API. This surface is intended primarily for library
+authors, native extensions and applications whose hot path requires maximum
+performance. Most end users should start with the Python package.
 
 Start with :doc:`quick_start` to go from a clean checkout to a first tested
 node. The authoring and testing pages are the full reference for the C++ API.

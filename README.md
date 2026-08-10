@@ -1,9 +1,10 @@
 # hgraph
 
-A clean-slate, **C++-first** implementation of the
-[hgraph](https://github.com/hhenson/hgraph) functional-reactive time-series
-runtime. The C++ runtime is the source of truth. Python provides wiring
-compatibility and supports Python-authored nodes running inside that runtime.
+HGraph is a functional-reactive time-series engine with a Python-first user
+experience and a native C++ runtime. Most users author and test graphs with the
+`hgraph` Python package; library authors can use the C++ API directly when they
+need native integration or maximum performance. Both paths wire and execute
+through the same runtime.
 
 ## Python package
 
@@ -13,11 +14,16 @@ The C++-backed runtime is published under the `hgraph` distribution name:
 python -m pip install hgraph
 ```
 
-The distribution exposes the `hgraph` import package and the native `_hgraph`
-extension. Version 0.8.0 replaces the Python-first runtime maintained on the
-`release/0.5` branch. One wheel per supported platform covers CPython 3.12 and
-later through the CPython stable ABI. The supported Python and platform policy is recorded in
-`docs/source/developer_guide/release_readiness.rst`.
+The distribution exposes the supported `hgraph` authoring package and its
+private native `_hgraph` extension. The 0.8 line replaces the Python runtime
+maintained on the `release/0.5` branch while retaining Python as the primary
+public API. One wheel per supported platform covers CPython 3.12 and later
+through the CPython stable ABI. The supported Python and platform policy is
+recorded in `docs/source/developer_guide/release_readiness.rst`.
+
+Start with [`docs/source/getting_started.rst`](docs/source/getting_started.rst)
+and use [`docs/source/reference/`](docs/source/reference/) for the supported
+Python types, decorators, operators and modules.
 
 ## Build & test
 
@@ -54,9 +60,12 @@ Sphinx docs live under `docs/source` (`uv sync --extra docs`, then
 - **Getting started** — `docs/source/getting_started.rst`: install the wheel and
   run a first graph in Python.
 - **User guide** — `docs/source/user_guide/`: the concepts the runtime
-  implements, then the Python authoring track (`python/`: quick start, tutorial,
-  programming model) or the C++ one (`cpp/`: authoring nodes, graphs, and the
-  `eval_node` harness).
+  implements and the primary Python authoring track (`python/`: quick start,
+  common tasks, tutorial, programming model). Native C++ authoring is an
+  advanced section for library authors.
+- **Python API reference** — `docs/source/reference/`: curated reference pages
+  plus a generated inventory of wildcard exports, lazy operators and public
+  submodules.
 - **Specification** — `docs/source/specification/`: a language-neutral
   definition of HGraph semantics.
 - **Developer guide** — the authoritative design records

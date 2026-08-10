@@ -42,7 +42,7 @@ long form of the above would be::
     my_add[SCALAR: int](...)
 
 Because we were passing the ``my_add`` as a function to the ``eval_node``, resolving the type-var's was required,
-the next example shows how this can be used in a more friendly manor.
+the next example shows how this can be used in a friendlier manner.
 
 .. testcode::
 
@@ -72,7 +72,7 @@ TIME_SERIES_TYPE
 ----------------
 
 Another frequently used type-var is ``TIME_SERIES_TYPE``, there are a number of addition named typed-vars with the
-same constraint such as: ``OUT``, ``TIME_SERIES_TYPE_``, ``TIME_SERIES_TYPE_2``, and ``V``.
+same constraint such as: ``OUT``, ``TIME_SERIES_TYPE_1``, ``TIME_SERIES_TYPE_2``, and ``V``.
 
 These represent an arbitrary time-series value. The various instances are to allow the specification of multiple
 different generic types. For example:
@@ -242,5 +242,3 @@ if the function has an ``TS[int]`` for type one, then the second one can only be
 
 The use of requires and resolvers do add additional cost to type resolution and as such should only be used when
 absolutely necessary.
-
-

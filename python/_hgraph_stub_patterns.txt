@@ -1,0 +1,45 @@
+# The functions below are private bridge plumbing whose nanobind signatures
+# cannot be represented in Python syntax: their positional ABI keeps a
+# required argument after a defaulted path argument, and a few use ``in`` as
+# the native parameter name. They are intentionally absent from the private
+# extension stub; the supported service API lives in ``hgraph``.
+_hgraph\.register_service_impl$:
+
+_hgraph\.service_impl_output$:
+
+_hgraph\.register_multi_service_impl$:
+
+_hgraph\.adaptor_client$:
+
+_hgraph\.adaptor_to_graph$:
+
+_hgraph\.register_adaptor_impl$:
+
+_hgraph\.service_adaptor_client$:
+
+_hgraph\.service_adaptor_client_from_graph$:
+
+_hgraph\.service_adaptor_client_to_graph$:
+
+_hgraph\.service_adaptor_to_graph$:
+
+_hgraph\.register_service_adaptor_impl$:
+
+# These bound declarations otherwise retain C++ implementation spellings in
+# forward references. Pattern replacements are nanobind's documented escape
+# hatch for annotations that differ from the actual C++ signature metadata.
+_hgraph\.CivilDateTime\.time$:
+    @property
+    def time(self) -> datetime.time: ...
+
+_hgraph\.Wiring\.service_client_paths$:
+    def service_client_paths(self) -> list[tuple[str, str]]: ...
+
+_hgraph\.Wiring\.built_service_paths$:
+    def built_service_paths(self) -> list[tuple[str, str]]: ...
+
+_hgraph\.RecordReplayScope\.__init__$:
+    def __init__(self, mode: int, recordable_id: str = '') -> None: ...
+
+_hgraph\.Scheduler\.has_tag$:
+    def has_tag(self, tag: str, /) -> bool: ...

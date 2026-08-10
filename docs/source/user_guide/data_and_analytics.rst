@@ -4,21 +4,26 @@ Data And Analytics
 Shaped arrays
 -------------
 
-``Array[T, Size[N], ...]`` is a native scalar schema. Each dimension is kept
-in the C++ type record and contributes to the planned value layout. For
-example, the C++ spelling of ``TS[Array[float, Size[2], Size[3]]]`` is
-``TS<ArrayOf<Float, 2, 3>>``. Fixed arrays use inline planned storage with a
-logical extent no larger than the declared leading-dimension capacity. This
-allows a fixed tick window's value to expose its shorter warm-up prefix without
-allocating a dynamic container. C++ writers set that extent with
-``MutableListView::resize`` before filling a newly constructed array;
-``Array[T]`` and ``Array[T, Size[-1]]`` describe an unbounded one-dimensional
-array backed by the compact list representation.
+``Array[T, Size[N], ...]`` describes a shaped scalar value. Python code sends
+and receives rectangular ``numpy.ndarray`` values:
 
-The Python boundary accepts rectangular ``numpy.ndarray`` values and returns
-an ndarray. Values larger than a declared dimension are rejected instead of
-being flattened or silently reinterpreted. The C++ runtime and operator kernels
-do not depend on NumPy.
+.. code-block:: python
+
+   from hgraph import Array, Size, TS
+
+   Matrix = TS[Array[float, Size[2], Size[3]]]
+
+Values larger than a declared dimension are rejected rather than flattened or
+silently reinterpreted. ``Array[T]`` and ``Array[T, Size[-1]]`` describe an
+unbounded one-dimensional array.
+
+The dimensions are retained in the native type record and planned value
+layout; the equivalent C++ spelling of the example is
+``TS<ArrayOf<Float, 2, 3>>``. Fixed arrays use inline storage with a logical
+extent no larger than the declared leading-dimension capacity. This lets a
+fixed tick window expose its shorter warm-up prefix without allocating a
+dynamic container. The native runtime and operator kernels do not depend on
+NumPy.
 
 Scientific operators (``hgraph.numpy_``)
 ----------------------------------------

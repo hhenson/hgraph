@@ -9,6 +9,7 @@ Agreed divergences from Python hgraph are recorded in
 docs/source/developer_guide/parity_matrix.rst (e.g. REF is value-only)."""
 import _hgraph
 from datetime import date, datetime, time, timedelta
+from typing import TYPE_CHECKING
 
 from ._types import Series
 from ._types import (TS, TSS, TSD, TSL, TSB, Size, TimeSeriesSchema, CONTEXT, REQUIRED, SCALAR, SCALAR_1, SCALAR_2, TSW, KeyValue, AUTO_RESOLVE, with_signature,
@@ -151,3 +152,24 @@ __all__ = [
 from ._wiring import set_delta, compute_set_delta
 from ._types import K_1
 default_path = ""   # hgraph's default service path sentinel
+
+# These are ordinary, supported top-level imports. They were historically
+# omitted from ``__all__`` while remaining directly importable, which made the
+# wildcard contract and generated API inventories disagree. Lazy native
+# operators stay separate: they are public through the registry and are
+# described to type checkers by ``_operator_typing.pyi`` without forcing more
+# than two hundred names into wildcard imports.
+__all__ += [
+    "Array", "Series", "TSW", "REF", "CompoundScalar", "JSON", "KeyValue",
+    "WindowSize", "AUTO_RESOLVE", "KEYABLE_SCALAR", "OUT", "SCALAR",
+    "SCALAR_1", "SCALAR_2", "TIME_SERIES_TYPE", "TIME_SERIES_TYPE_1",
+    "TIME_SERIES_TYPE_2", "K", "K_1", "V", "SCHEMA", "TS_SCHEMA", "SIZE",
+    "SIGNAL", "WINDOW_SIZE", "WINDOW_SIZE_MIN", "ENUM", "LOGGER",
+    "RECORDABLE_STATE", "TS_OUT", "DebugContext", "RecordReplayContext",
+    "cast_", "collect", "combine", "convert", "dispatch", "dispatch_",
+    "emit", "filter_by", "compound_scalar", "ts_schema", "with_signature",
+    "set_delta", "compute_set_delta", "set_record_replay_model",
+]
+
+if TYPE_CHECKING:
+    from ._operator_typing import *

@@ -77,6 +77,17 @@ def test_windows_wheel_installs_all_linked_pyarrow_runtimes():
     assert '"${HGRAPH_PYARROW_ACERO_RUNTIME}"' in python_cmake
 
 
+def test_wheel_installs_generated_native_stub_and_typed_package_marker():
+    python_cmake = (ROOT / "python/CMakeLists.txt").read_text()
+
+    assert "nanobind_add_stub(hgraph_python_native_stub" in python_cmake
+    assert 'MODULE _hgraph' in python_cmake
+    assert 'install(FILES "${_hgraph_stub}" DESTINATION .)' in python_cmake
+    assert 'hgraph/py.typed" DESTINATION hgraph' in python_cmake
+    assert (ROOT / "python/hgraph/py.typed").is_file()
+    assert (ROOT / "python/hgraph/_operator_typing.pyi").is_file()
+
+
 def test_supported_python_versions_are_declared():
     project = load_project()["project"]
 

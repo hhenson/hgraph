@@ -173,7 +173,7 @@ This is computed as wall-clock time minus the engine time.
 
 .. testcode::
 
-    from hgraph import compute_node, TS, EvaluationClock, MIN_TD
+    from hgraph import compute_node, TS, EvaluationClock
     from hgraph.test import eval_node
     from datetime import timedelta
 
@@ -181,7 +181,7 @@ This is computed as wall-clock time minus the engine time.
     def lag(ts: TS[int],  _clock: EvaluationClock = None) -> TS[timedelta]:
         return _clock.now - _clock.evaluation_time
 
-    assert eval_node(lag, [1])[0] > MIN_TD  # On a very fast computer this could fail
+    assert eval_node(lag, [1])[0] >= timedelta(0)
 
 Here we see the use of the clock's ``now`` property representing the wall clock and ``evaluation_time``
 representing the current evaluation time of the graph. This can be used to perform throttling operations as well
@@ -213,4 +213,3 @@ For more information see ``hgraph.EvaluationEngineApi``.
 
 There are a few other injectables, but they are intended more for framework developers or are currently
 more experimental in nature.
-
