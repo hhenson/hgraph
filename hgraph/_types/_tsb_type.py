@@ -140,6 +140,65 @@ class TimeSeriesSchema(AbstractSchema):
         )
 
     @staticmethod
+    def _dataclass_bundle_schema(schema) -> Type["TimeSeriesSchema"]:
+        """The derived bundle for a standard dataclass used as a nominal schema."""
+        from hgraph._types._scalar_type_meta_data import (
+            HgCompoundScalarType,
+            HgScalarTypeMetaData,
+            _dataclass_scalar_origin,
+        )
+        from hgraph._types._ts_type import TS
+
+        if tsc_schema := _DATACLASS_BUNDLE_SCHEMAS.get(schema):
+            return tsc_schema
+
+        origin = _dataclass_scalar_origin(schema)
+        parameters = getattr(schema, "__parameters__", ())
+        if origin is not schema and getattr(schema, "__args__", ()) and not parameters:
+            # A fully bound specialisation parameterises the origin's generic
+            # bundle rather than deriving an unrelated flat class. TSB[Box[int]]
+            # is then BoxBundle[int], so a node declared over TSB[Box] resolves
+            # from it. This is what the CompoundScalar path does with _root_cls.
+            #
+            # Only when nothing is left free: a partial specialisation can repeat
+            # a variable (Pair[T, T] has __args__ (T, T) but one parameter), and
+            # handing those raw args to the origin bundle would record
+            # __parameters__ as (T, T), after which resolving with [int] takes the
+            # partial-resolution path and leaves the fields unresolved. Those fall
+            # through to the derivation below, which builds the annotations from
+            # the alias itself and is generic over its real parameters.
+            tsc_schema = TimeSeriesSchema.from_scalar_schema(origin)[schema.__args__]
+            _DATACLASS_BUNDLE_SCHEMAS[schema] = tsc_schema
+            return tsc_schema
+
+        scalar_meta = HgScalarTypeMetaData.parse_type(schema)
+        assert isinstance(scalar_meta, HgCompoundScalarType)
+
+        schema_name = origin.__name__
+        if schema_args := getattr(schema, "__args__", ()):
+            schema_name += "_" + "_".join(
+                getattr(argument, "__name__", str(argument).replace(".", "_")) for argument in schema_args
+            )
+        namespace = {
+            "__annotations__": {k: TS[v.py_type] for k, v in scalar_meta.meta_data_schema.items()},
+            "__module__": origin.__module__,
+        }
+        bases = (TimeSeriesSchema,)
+        if parameters:
+            # An unparameterised generic dataclass - ``TSB[Price]`` where
+            # ``Price(Generic[NUMBER])`` - keeps its type variables in the field
+            # annotations, so the derived bundle has to be generic over the same
+            # variables. Without this it holds unresolved types while not being a
+            # generic class, which __build_schema__ rejects. This mirrors what the
+            # CompoundScalar path does.
+            bases += (Generic[parameters],)
+
+        tsc_schema = types.new_class(f"{schema_name}Bundle", bases, None, lambda ns: ns.update(namespace))
+        tsc_schema.__scalar_type__ = schema
+        _DATACLASS_BUNDLE_SCHEMAS[schema] = tsc_schema
+        return tsc_schema
+
+    @staticmethod
     def from_scalar_schema(schema: Type[AbstractSchema]) -> Type["TimeSeriesSchema"]:
         """
         Creates a new time-series schema from the scalar schema provided.
@@ -153,34 +212,7 @@ class TimeSeriesSchema(AbstractSchema):
         )
 
         if _is_dataclass_scalar_type(schema):
-            if tsc_schema := _DATACLASS_BUNDLE_SCHEMAS.get(schema):
-                return tsc_schema
-
-            scalar_meta = HgScalarTypeMetaData.parse_type(schema)
-            assert isinstance(scalar_meta, HgCompoundScalarType)
-
-            from hgraph._types._ts_type import TS
-
-            annotations = {k: TS[v.py_type] for k, v in scalar_meta.meta_data_schema.items()}
-            origin = _dataclass_scalar_origin(schema)
-            schema_name = origin.__name__
-            if schema_args := getattr(schema, "__args__", ()):
-                schema_name += "_" + "_".join(
-                    getattr(argument, "__name__", str(argument).replace(".", "_")) for argument in schema_args
-                )
-            namespace = {
-                "__annotations__": annotations,
-                "__module__": origin.__module__,
-            }
-            tsc_schema = types.new_class(
-                f"{schema_name}Bundle",
-                (TimeSeriesSchema,),
-                None,
-                lambda ns: ns.update(namespace),
-            )
-            tsc_schema.__scalar_type__ = schema
-            _DATACLASS_BUNDLE_SCHEMAS[schema] = tsc_schema
-            return tsc_schema
+            return TimeSeriesSchema._dataclass_bundle_schema(schema)
 
         if schema is CompoundScalar:
             return TimeSeriesSchema

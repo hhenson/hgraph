@@ -35,6 +35,7 @@ class Quote:
 
 
 VALUE = TypeVar("VALUE")
+OTHER = TypeVar("OTHER")
 
 
 @dataclass(frozen=True)
@@ -215,6 +216,54 @@ def test_dataclass_bundle_derivation_is_conservative_and_cached():
     assert direct_meta == explicit_meta
     assert direct_meta.bundle_schema_tp.py_type is first_schema
     assert first_schema.scalar_type() is ConservativeBundleShape
+
+
+def test_unparameterised_generic_dataclass_derives_a_generic_bundle():
+    # TSB[Box] leaves VALUE unbound, so the derived bundle keeps a type
+    # variable in its field annotations and has to be generic over it too.
+    # Otherwise schema construction rejects it for holding unresolved types
+    # while not being a generic class.
+    schema = TimeSeriesSchema.from_scalar_schema(Box)
+
+    assert schema.__parameters__ == (VALUE,)
+    assert fields(TSB[Box]) == {"value": TS[VALUE]}
+
+    # Binding the variable still resolves to the concrete bundle.
+    assert fields(TSB[Box[int]]) == {"value": TS[int]}
+
+
+def test_unparameterised_generic_dataclass_bundle_resolves_from_its_inputs():
+    # A node declared over the unparameterised bundle resolves VALUE from the
+    # concrete bundle it is wired to. This is the shape that regressed:
+    # TSB[Box] in a signature could not be constructed at all.
+    @compute_node
+    def unwrap(value: TSB[Box]) -> TS[VALUE]:
+        return value.value.value
+
+    @graph
+    def g(value: TS[int]) -> TS[int]:
+        return unwrap(combine[TSB[Box[int]]](value=value))
+
+    assert eval_node(g, [1, 2]) == [1, 2]
+
+
+def test_partial_specialisation_repeating_a_type_var_stays_resolvable():
+    # Pair[T, T] has __args__ (T, T) but only one parameter. Deriving the bundle
+    # from the origin with those raw args would record __parameters__ as (T, T),
+    # after which resolving with [int] takes the partial-resolution path and
+    # leaves the fields unresolved.
+    @dataclass(frozen=True)
+    class Pair(Generic[VALUE, OTHER]):
+        left: VALUE
+        right: OTHER
+
+    schema = TimeSeriesSchema.from_scalar_schema(Pair[VALUE, VALUE])
+
+    assert schema.__parameters__ == (VALUE,)
+    assert fields(TSB[schema[int]]) == {"left": TS[int], "right": TS[int]}
+
+    # A fully bound specialisation still binds each position independently.
+    assert fields(TSB[Pair[int, str]]) == {"left": TS[int], "right": TS[str]}
 
 
 def test_dataclass_bundle_rejects_non_scalar_and_unresolved_fields():
