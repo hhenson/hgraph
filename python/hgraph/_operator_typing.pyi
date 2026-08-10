@@ -2104,7 +2104,7 @@ class _explode_Operator(_Protocol):
 explode: _explode_Operator
 
 class _filter__Operator(_Protocol):
-    """Forward source ticks only while the latest ``condition`` value is true. A condition tick alone does not replay the source value.
+    """Forward source ticks only while the latest ``condition`` value is true. When the condition changes from false to true, the operator publishes the latest source value if the source changed while the gate was closed. A condition-only tick does not emit when there is no blocked change to replay.
 
     Parameters
     ~~~~~~~~~~
@@ -2121,7 +2121,7 @@ class _filter__Operator(_Protocol):
     Returns
     ~~~~~~~
 
-    Source ticks accepted while ``condition`` is true.
+    Source ticks accepted while ``condition`` is true, plus the latest blocked value when the condition reopens.
 
     Python example
     ~~~~~~~~~~~~~~
@@ -8868,7 +8868,7 @@ class _until_true_Operator(_Protocol):
 
     .. code-block:: python
 
-       reached_target = hg.until_true(price, lambda value: value >= target)
+       reached_target = hg.until_true(lambda value: value >= target, price)
 
     Accepted native overloads:
 

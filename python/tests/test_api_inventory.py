@@ -177,6 +177,9 @@ def test_operator_catalogue_exposes_every_operator_signature_and_documentation()
     assert "running_variance = hg.var(returns)" in source
     assert "additive_identity = hg.zero[TS[int]](hg.add_)" in source
     assert "all_symbols = hg.union(primary_symbols, secondary_symbols)" in source
+    assert "latest source value if the source changed while the gate was closed" in source
+    assert "condition reopens" in source
+    assert "hg.until_true(lambda value: value >= target, price)" in source
     assert "@param" not in source
     assert "@code" not in source
     assert not any(

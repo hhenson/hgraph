@@ -98,6 +98,13 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
         assert "add_(lhs: TS[int], rhs: TS[int]) -> TS[int]" in add_doc
         assert "compatible plain values" in add_doc
 
+        filter_doc = getdoc(hg.filter_)
+        assert "latest source value if the source changed while the gate was closed" in filter_doc
+        assert "condition reopens" in filter_doc
+
+        until_true_doc = getdoc(hg.until_true)
+        assert "hg.until_true(lambda value: value >= target, price)" in until_true_doc
+
         abs_doc = getdoc(hg.abs_)
         assert "absolute magnitude" in abs_doc
         assert "Parameters" in abs_doc

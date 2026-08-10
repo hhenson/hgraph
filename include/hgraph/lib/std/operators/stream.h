@@ -108,10 +108,13 @@ namespace hgraph::stdlib
     };
 
     /** Forward source ticks only while the latest ``condition`` value is true.
-        A condition tick alone does not replay the source value.
+        When the condition changes from false to true, the operator publishes the
+        latest source value if the source changed while the gate was closed. A
+        condition-only tick does not emit when there is no blocked change to replay.
         @param condition Boolean gate controlling whether source ticks pass.
         @param ts Stream to filter.
-        @return Source ticks accepted while ``condition`` is true.
+        @return Source ticks accepted while ``condition`` is true, plus the latest
+                blocked value when the condition reopens.
         @par Python example
         @code{.py}
         positive_prices = hg.filter_(price > 0.0, price)
@@ -142,7 +145,7 @@ namespace hgraph::stdlib
         @return A boolean stream ending with the first true result.
         @par Python example
         @code{.py}
-        reached_target = hg.until_true(price, lambda value: value >= target)
+        reached_target = hg.until_true(lambda value: value >= target, price)
         @endcode */
     struct until_true : Operator<"until_true", In<"ts", TsVar<"S">>, Out<TS<Bool>>>
     {
