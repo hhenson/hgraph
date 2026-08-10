@@ -23,20 +23,20 @@ from ._compat import CmpResult as _CmpResult, DivideByZero as _DivideByZero
 from ._wiring import WiringPort as _WiringPort
 
 class _abs__Operator(_Protocol):
-    """``abs_`` — the ``abs`` operator (``abs(ts) -> O``).
+    """``abs_`` — the ``abs`` operator (``abs(ts) -> OUT``).
 
     Accepted native overloads:
 
     - ``abs_(ts: TS[int]) -> TS[int]``
     - ``abs_(ts: TS[float]) -> TS[float]``
     - ``abs_(ts: TS[timedelta]) -> TS[timedelta]``
-    - ``abs_(ts: TSL[S, SIZE]) -> OUT``
-    - ``abs_(ts: S) -> OUT``
+    - ``abs_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT``
+    - ``abs_(ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | int) -> _WiringPort: ...
@@ -51,7 +51,7 @@ class _abs__Operator(_Protocol):
 abs_: _abs__Operator
 
 class _add__Operator(_Protocol):
-    """``add_`` — the ``+`` operator. Operands and result may all differ (``L + R -> O``).
+    """``add_`` — the ``+`` operator. Operands and result may all differ (``lhs + rhs -> OUT``).
 
     Accepted native overloads:
 
@@ -71,19 +71,19 @@ class _add__Operator(_Protocol):
     - ``add_(lhs: TS[timedelta], rhs: TS[zoned_datetime]) -> TS[zoned_datetime]``
     - ``add_(lhs: TS[date], rhs: TS[period], month_end_policy: month_end_policy = ...) -> TS[date]``
     - ``add_(lhs: TS[civil_datetime], rhs: TS[period], month_end_policy: month_end_policy = ...) -> TS[civil_datetime]``
-    - ``add_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``add_(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``add_(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``add_(lhs: L, rhs: R) -> OUT``
-    - ``add_(lhs: TS[T], rhs: TS[T]) -> TS[T]``
-    - ``add_(lhs: TS[T], rhs: TS[T], __strict__: bool = ...) -> OUT``
-    - ``add_(lhs: TS[T], rhs: TS[E]) -> OUT``
+    - ``add_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``add_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``add_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``add_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]``
+    - ``add_(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = ...) -> OUT``
+    - ``add_(lhs: TS[SCALAR], rhs: TS[SCALAR_1]) -> OUT``
     - ``add_(lhs: TSS[K], rhs: TS[K]) -> TSS[K]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -134,9 +134,9 @@ class _all__Operator(_Protocol):
     - ``all_(arg: TSD[K, TS[bool]]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, *args: _WiringPort | bool) -> _WiringPort: ...
@@ -151,7 +151,7 @@ class _and__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``and_(lhs: TS[T], rhs: TS[T]) -> TS[bool]``
+    - ``and_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
     - ``and_(lhs: TS[bool], rhs: TS[bool]) -> TS[bool]``
     - ``and_(lhs: TS[int], rhs: TS[int]) -> TS[bool]``
     - ``and_(lhs: TS[float], rhs: TS[float]) -> TS[bool]``
@@ -161,9 +161,9 @@ class _and__Operator(_Protocol):
     - ``and_(lhs: TSS[K], rhs: TSS[K]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
@@ -192,9 +192,9 @@ class _any__Operator(_Protocol):
     - ``any_(arg: TSD[K, TS[bool]]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, *args: _WiringPort | bool) -> _WiringPort: ...
@@ -209,12 +209,12 @@ class _apply_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``apply(fn: TS[callable], *args: S, **kwargs: time-series) -> OUT``
+    - ``apply(fn: TS[callable], *args: TIME_SERIES_TYPE, **kwargs: time-series) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, fn: _WiringPort | object, *args: _WiringPort | object, **kwargs: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -226,13 +226,14 @@ class _as_array_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``as_array(tsw: W) -> OUT``
-    - ``as_array(tsw: W, zero: Z) -> OUT``
+    - ``as_array(tsw: TIME_SERIES_TYPE) -> OUT``
+    - ``as_array(tsw: TIME_SERIES_TYPE, zero: TIME_SERIES_TYPE_1) -> OUT``
+    - ``as_array(tsw: TIME_SERIES_TYPE, zero: SCALAR) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, tsw: _WiringPort | object) -> _WiringPort: ...
@@ -250,12 +251,12 @@ class _assert__Operator(_Protocol):
     Accepted native overloads:
 
     - ``assert_(condition: TS[bool], error_msg: str) -> None``
-    - ``assert_(condition: TS[bool], error_msg: str, *args: B, **kwargs: time-series) -> None``
+    - ``assert_(condition: TS[bool], error_msg: str, *args: TIME_SERIES_TYPE, **kwargs: time-series) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, condition: _WiringPort | bool, error_msg: str) -> None: ...
@@ -273,9 +274,9 @@ class _at_zone_Operator(_Protocol):
     - ``at_zone(instant: TS[datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, instant: _WiringPort | _datetime, zone: _WiringPort | _ZoneId) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -287,12 +288,12 @@ class _batch_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``batch(condition: TS[bool], ts: S, delay: timedelta, buffer_length: int = ...) -> OUT``
+    - ``batch(condition: TS[bool], ts: TIME_SERIES_TYPE, delay: timedelta, buffer_length: int = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, condition: _WiringPort | bool, ts: _WiringPort | object, delay: _timedelta, buffer_length: int = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -300,24 +301,24 @@ class _batch_Operator(_Protocol):
 batch: _batch_Operator
 
 class _bit_and_Operator(_Protocol):
-    """``bit_and`` — the ``&`` operator (``L & R -> O``).
+    """``bit_and`` — the ``&`` operator (``lhs & rhs -> OUT``).
 
     Accepted native overloads:
 
-    - ``bit_and(lhs: TS[T], rhs: TS[T]) -> TS[T]``
+    - ``bit_and(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]``
     - ``bit_and(lhs: TS[int], rhs: TS[int]) -> TS[int]``
     - ``bit_and(lhs: TS[bool], rhs: TS[bool]) -> TS[bool]``
-    - ``bit_and(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``bit_and(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``bit_and(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``bit_and(lhs: L, rhs: R) -> OUT``
-    - ``bit_and(*ts: S) -> OUT``
+    - ``bit_and(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``bit_and(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``bit_and(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``bit_and(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``bit_and(*ts: TIME_SERIES_TYPE) -> OUT``
     - ``bit_and(lhs: TSD[K, V], rhs: TSD[K, V]) -> TSD[K, V]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
@@ -332,24 +333,24 @@ class _bit_and_Operator(_Protocol):
 bit_and: _bit_and_Operator
 
 class _bit_or_Operator(_Protocol):
-    """``bit_or`` — the ``|`` operator (``L | R -> O``).
+    """``bit_or`` — the ``|`` operator (``lhs | rhs -> OUT``).
 
     Accepted native overloads:
 
-    - ``bit_or(lhs: TS[T], rhs: TS[T]) -> TS[T]``
+    - ``bit_or(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]``
     - ``bit_or(lhs: TS[int], rhs: TS[int]) -> TS[int]``
     - ``bit_or(lhs: TS[bool], rhs: TS[bool]) -> TS[bool]``
-    - ``bit_or(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``bit_or(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``bit_or(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``bit_or(lhs: L, rhs: R) -> OUT``
-    - ``bit_or(*ts: S) -> OUT``
+    - ``bit_or(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``bit_or(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``bit_or(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``bit_or(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``bit_or(*ts: TIME_SERIES_TYPE) -> OUT``
     - ``bit_or(lhs: TSD[K, V], rhs: TSD[K, V]) -> TSD[K, V]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
@@ -364,24 +365,24 @@ class _bit_or_Operator(_Protocol):
 bit_or: _bit_or_Operator
 
 class _bit_xor_Operator(_Protocol):
-    """``bit_xor`` — the ``^`` operator (``L ^ R -> O``).
+    """``bit_xor`` — the ``^`` operator (``lhs ^ rhs -> OUT``).
 
     Accepted native overloads:
 
-    - ``bit_xor(lhs: TS[T], rhs: TS[T]) -> TS[T]``
+    - ``bit_xor(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]``
     - ``bit_xor(lhs: TS[int], rhs: TS[int]) -> TS[int]``
     - ``bit_xor(lhs: TS[bool], rhs: TS[bool]) -> TS[bool]``
-    - ``bit_xor(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``bit_xor(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``bit_xor(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``bit_xor(lhs: L, rhs: R) -> OUT``
-    - ``bit_xor(*ts: S) -> OUT``
+    - ``bit_xor(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``bit_xor(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``bit_xor(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``bit_xor(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``bit_xor(*ts: TIME_SERIES_TYPE) -> OUT``
     - ``bit_xor(lhs: TSD[K, V], rhs: TSD[K, V]) -> TSD[K, V]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
@@ -400,12 +401,12 @@ class _call_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``call(fn: TS[callable], *args: S, **kwargs: time-series) -> None``
+    - ``call(fn: TS[callable], *args: TIME_SERIES_TYPE, **kwargs: time-series) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, fn: _WiringPort | object, *args: _WiringPort | object, **kwargs: _WiringPort | object) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -421,9 +422,9 @@ class _clip_Operator(_Protocol):
     - ``clip(ts: TS[int], min: int, max: int) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | float, min: float, max: float) -> _WiringPort: ...
@@ -445,14 +446,14 @@ class _cmp__Operator(_Protocol):
     - ``cmp_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[CmpResult]``
     - ``cmp_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[CmpResult]``
     - ``cmp_(lhs: TS[bool], rhs: TS[bool]) -> TS[CmpResult]``
-    - ``cmp_(lhs: TS[T], rhs: TS[T]) -> TS[CmpResult]``
+    - ``cmp_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[CmpResult]``
     - ``cmp_(lhs: TS[int], rhs: TS[float]) -> TS[CmpResult]``
     - ``cmp_(lhs: TS[float], rhs: TS[int]) -> TS[CmpResult]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -483,13 +484,13 @@ class _collapse_keys_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``collapse_keys(ts: S) -> O``
+    - ``collapse_keys(ts: TIME_SERIES_TYPE) -> OUT``
     - ``collapse_keys(ts: TSD[K, V]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -501,13 +502,13 @@ class _combine_cs_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``combine_cs(ts: S) -> OUT``
-    - ``combine_cs(ts: S, __strict__: bool) -> OUT``
+    - ``combine_cs(ts: TIME_SERIES_TYPE) -> OUT``
+    - ``combine_cs(ts: TIME_SERIES_TYPE, __strict__: bool) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
@@ -525,9 +526,9 @@ class _combine_json_Operator(_Protocol):
     - ``combine_json(**kwargs: time-series) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, **kwargs: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -539,12 +540,12 @@ class _combine_map_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``combine_map(keys: A, values: B) -> O``
+    - ``combine_map(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, keys: _WiringPort | object, values: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -556,15 +557,15 @@ class _combine_tsd_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``combine_tsd(keys: A, values: B, __strict__: bool = ...) -> O``
-    - ``combine_tsd(keys: KS, values: B, __strict__: bool = ...) -> O``
-    - ``combine_tsd(keys: A, values: B) -> O``
-    - ``combine_tsd(keys: KS, *values: V, __strict__: bool = ...) -> OUT``
+    - ``combine_tsd(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1, __strict__: bool = ...) -> OUT``
+    - ``combine_tsd(keys: SCALAR, values: TIME_SERIES_TYPE, __strict__: bool = ...) -> OUT``
+    - ``combine_tsd(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1) -> OUT``
+    - ``combine_tsd(keys: SCALAR, *values: V, __strict__: bool = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, keys: _WiringPort | object, values: _WiringPort | object, __strict__: bool = ...) -> _WiringPort: ...
@@ -583,12 +584,12 @@ class _combine_tss_from_tsl_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``combine_tss_from_tsl(ts: TSL[TS[T], N]) -> OUT``
+    - ``combine_tss_from_tsl(ts: TSL[TS[SCALAR], SIZE]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -600,13 +601,13 @@ class _compare_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``compare(lhs: S, rhs: S, recordable_id: str) -> None``
-    - ``compare(lhs: S, rhs: S, recordable_id: str = ...) -> None``
+    - ``compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str) -> None``
+    - ``compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object, recordable_id: str) -> None: ...
@@ -621,13 +622,13 @@ class _concat_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``concat(ts1: TS[Frame[R]], ts2: TS[Frame[R]]) -> TS[Frame[R]]``
-    - ``concat(ts1: TS[Frame[R, M]], ts2: TS[Frame[R, M]]) -> TS[Frame[R, M]]``
+    - ``concat(ts1: TS[Frame[SCALAR]], ts2: TS[Frame[SCALAR]]) -> TS[Frame[SCALAR]]``
+    - ``concat(ts1: TS[Frame[SCALAR, SCALAR_1]], ts2: TS[Frame[SCALAR, SCALAR_1]]) -> TS[Frame[SCALAR, SCALAR_1]]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts1: _WiringPort | object, ts2: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -639,13 +640,13 @@ class _const_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``const(value: T) -> S``
-    - ``const(value: T, delay: timedelta) -> S``
+    - ``const(value: SCALAR) -> OUT``
+    - ``const(value: SCALAR, delay: timedelta) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, value: object) -> _WiringPort: ...
@@ -664,14 +665,13 @@ class _contains__Operator(_Protocol):
     - ``contains_(ts: TSS[K], item: TS[K]) -> TS[bool]``
     - ``contains_(ts: TSS[K], item: TSS[K]) -> TS[bool]``
     - ``contains_(ts: TSD[K, V], item: TS[K]) -> TS[bool]``
-    - ``contains_(ts: S, item: I) -> TS[bool]``
-    - ``contains_(ts: TS[T], item: TS[E]) -> TS[bool]``
-    - ``contains_(ts: TS[S], item: TS[I]) -> TS[bool]``
+    - ``contains_(ts: TIME_SERIES_TYPE, item: TIME_SERIES_TYPE_1) -> TS[bool]``
+    - ``contains_(ts: TS[SCALAR], item: TS[SCALAR_1]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | str, item: _WiringPort | str) -> _WiringPort: ...
@@ -689,9 +689,9 @@ class _convert_zone_Operator(_Protocol):
     - ``convert_zone(value: TS[zoned_datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, value: _WiringPort | _ZonedDateTime, zone: _WiringPort | _ZoneId) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -703,15 +703,15 @@ class _corrcoef_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``corrcoef(x: X) -> OUT``
-    - ``corrcoef(x: X, y: Y) -> OUT``
-    - ``corrcoef(x: X, rowvar: bool) -> OUT``
-    - ``corrcoef(x: X, y: Y, rowvar: bool) -> OUT``
+    - ``corrcoef(x: TIME_SERIES_TYPE) -> OUT``
+    - ``corrcoef(x: TIME_SERIES_TYPE, y: TIME_SERIES_TYPE_1) -> OUT``
+    - ``corrcoef(x: TIME_SERIES_TYPE, rowvar: bool) -> OUT``
+    - ``corrcoef(x: TIME_SERIES_TYPE, y: TIME_SERIES_TYPE_1, rowvar: bool) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, x: _WiringPort | object) -> _WiringPort: ...
@@ -734,9 +734,9 @@ class _count_Operator(_Protocol):
     - ``count(ts: SIGNAL, reset: SIGNAL) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort) -> _WiringPort: ...
@@ -751,13 +751,13 @@ class _cumsum_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``cumsum(a: A) -> OUT``
-    - ``cumsum(a: A, axis: int) -> OUT``
+    - ``cumsum(a: TIME_SERIES_TYPE) -> OUT``
+    - ``cumsum(a: TIME_SERIES_TYPE, axis: int) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, a: _WiringPort | object) -> _WiringPort: ...
@@ -776,9 +776,9 @@ class _day_Operator(_Protocol):
     - ``day(ts: TS[datetime]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | _date) -> _WiringPort: ...
@@ -797,9 +797,9 @@ class _day_of_month_Operator(_Protocol):
     - ``day_of_month(ts: TS[datetime]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | _date) -> _WiringPort: ...
@@ -817,9 +817,9 @@ class _days_Operator(_Protocol):
     - ``days(ts: TS[timedelta]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | _timedelta) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -831,12 +831,12 @@ class _debug_print_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``debug_print(label: str, ts: S, sample: int = ...) -> None``
+    - ``debug_print(label: str, ts: TIME_SERIES_TYPE, sample: int = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, label: str, ts: _WiringPort | object, sample: int = ...) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -848,17 +848,17 @@ class _dedup_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``dedup(ts: TS[T]) -> TS[T]``
+    - ``dedup(ts: TS[SCALAR]) -> TS[SCALAR]``
     - ``dedup(ts: TS[float], abs_tol: TS[float] = ...) -> TS[float]``
     - ``dedup(ts: TSD[K, V]) -> OUT``
     - ``dedup(ts: TSS[K]) -> TSS[K]``
-    - ``dedup(ts: TSL[S, SIZE]) -> OUT``
-    - ``dedup(ts: S) -> OUT``
+    - ``dedup(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT``
+    - ``dedup(ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
@@ -873,12 +873,12 @@ class _default_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``default(ts: S, default_value: S) -> OUT``
+    - ``default(ts: TIME_SERIES_TYPE, default_value: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, default_value: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -890,12 +890,12 @@ class _dereference_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``dereference(tsb: REF[S]) -> OUT``
+    - ``dereference(tsb: REF[TIME_SERIES_TYPE]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, tsb: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -911,9 +911,9 @@ class _diff_Operator(_Protocol):
     - ``diff(ts: TS[float]) -> TS[float]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | int) -> _WiringPort: ...
@@ -928,12 +928,12 @@ class _difference_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``difference(*ts: S) -> OUT``
+    - ``difference(*ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, *ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -941,7 +941,7 @@ class _difference_Operator(_Protocol):
 difference: _difference_Operator
 
 class _div__Operator(_Protocol):
-    """``div_`` — the ``/`` (true division) operator (``L / R -> O``). Implementations may take an optional ``Scalar<"divide_by_zero", DivideByZero>`` wiring-time policy.
+    """``div_`` — the ``/`` (true division) operator (``lhs / rhs -> OUT``). Implementations may take an optional ``Scalar<"divide_by_zero", DivideByZero>`` wiring-time policy.
 
     Accepted native overloads:
 
@@ -956,15 +956,15 @@ class _div__Operator(_Protocol):
     - ``div_(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero = ...) -> TS[float]``
     - ``div_(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero = ...) -> TS[float]``
     - ``div_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[float]``
-    - ``div_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``div_(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``div_(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``div_(lhs: L, rhs: R) -> OUT``
+    - ``div_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``div_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``div_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -1005,9 +1005,9 @@ class _divmod__Operator(_Protocol):
     - ``divmod_(lhs: TS[float], rhs: TS[int]) -> TSL[TS[float], 2]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -1026,12 +1026,12 @@ class _downcast__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``downcast_(ts: S) -> OUT``
+    - ``downcast_(ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1043,13 +1043,13 @@ class _drop_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``drop(ts: S, count: int) -> S``
-    - ``drop(ts: S, period: timedelta) -> S``
+    - ``drop(ts: TIME_SERIES_TYPE, count: int) -> TIME_SERIES_TYPE``
+    - ``drop(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object, count: int) -> _WiringPort: ...
@@ -1073,17 +1073,17 @@ class _eq__Operator(_Protocol):
     - ``eq_(lhs: TS[float], rhs: TS[float], epsilon: float = ...) -> TS[bool]``
     - ``eq_(lhs: TS[int], rhs: TS[float], epsilon: float = ...) -> TS[bool]``
     - ``eq_(lhs: TS[float], rhs: TS[int], epsilon: float = ...) -> TS[bool]``
-    - ``eq_(lhs: TSL[L, N], rhs: TSL[R, N]) -> TS[bool]``
-    - ``eq_(lhs: TS[T], rhs: TS[T]) -> TS[bool]``
-    - ``eq_(lhs: L, rhs: R) -> TS[bool]``
+    - ``eq_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> TS[bool]``
+    - ``eq_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
+    - ``eq_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> TS[bool]``
     - ``eq_(lhs: TSS[K], rhs: TSS[K]) -> TS[bool]``
     - ``eq_(lhs: TSD[K, V], rhs: TSD[K, V]) -> TS[bool]``
     - ``eq_(lhs: TSD[K, TS[float]], rhs: TSD[K, TS[float]], epsilon: TS[float]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | bool, rhs: _WiringPort | bool) -> _WiringPort: ...
@@ -1121,9 +1121,9 @@ class _evaluation_time_in_range_Operator(_Protocol):
     - ``evaluation_time_in_range(start_time: TS[time], end_time: TS[time]) -> TS[CmpResult]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, start_time: _WiringPort | _datetime, end_time: _WiringPort | _datetime) -> _WiringPort: ...
@@ -1143,9 +1143,9 @@ class _ewma_Operator(_Protocol):
     - ``ewma(ts: TS[float], alpha: float) -> TS[float]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | float, alpha: float) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1160,9 +1160,9 @@ class _explode_Operator(_Protocol):
     - ``explode(ts: TS[date]) -> TSL[TS[int], 3]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | _date) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1174,12 +1174,12 @@ class _filter__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``filter_(condition: TS[bool], ts: S) -> S``
+    - ``filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, condition: _WiringPort | bool, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1191,13 +1191,13 @@ class _filter_cs_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``filter_cs(ts: TS[Frame[R]], predicate: TS[P]) -> TS[Frame[R]]``
-    - ``filter_cs(ts: TS[Frame[R, M]], predicate: TS[P]) -> TS[Frame[R, M]]``
+    - ``filter_cs(ts: TS[Frame[SCALAR]], predicate: TS[SCALAR_1]) -> TS[Frame[SCALAR]]``
+    - ``filter_cs(ts: TS[Frame[SCALAR, SCALAR_1]], predicate: TS[SCALAR_2]) -> TS[Frame[SCALAR, SCALAR_1]]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, predicate: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1209,13 +1209,13 @@ class _filter_frame_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``filter_frame(ts: TS[Frame[R]], predicate: P) -> TS[Frame[R]]``
-    - ``filter_frame(ts: TS[Frame[R, M]], predicate: P) -> TS[Frame[R, M]]``
+    - ``filter_frame(ts: TS[Frame[SCALAR]], predicate: TIME_SERIES_TYPE) -> TS[Frame[SCALAR]]``
+    - ``filter_frame(ts: TS[Frame[SCALAR, SCALAR_1]], predicate: TIME_SERIES_TYPE) -> TS[Frame[SCALAR, SCALAR_1]]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, predicate: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1230,9 +1230,9 @@ class _filter_tsd_by_matches_Operator(_Protocol):
     - ``filter_tsd_by_matches(ts: TSD[K, V], matches: TSD[K, TS[bool]]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, matches: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1244,14 +1244,14 @@ class _flip_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``flip(ts: S) -> O``
-    - ``flip(ts: TSD[K, TS[K1]], unique: bool = ...) -> TSD[K1, TS[K]]``
-    - ``flip(ts: TSD[K, TS[K1]], unique: bool = ...) -> TSD[K1, TSS[K]]``
+    - ``flip(ts: TIME_SERIES_TYPE) -> OUT``
+    - ``flip(ts: TSD[K, TS[K_1]], unique: bool = ...) -> TSD[K_1, TS[K]]``
+    - ``flip(ts: TSD[K, TS[K_1]], unique: bool = ...) -> TSD[K_1, TSS[K]]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
@@ -1266,13 +1266,13 @@ class _flip_keys_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``flip_keys(ts: S) -> O``
+    - ``flip_keys(ts: TIME_SERIES_TYPE) -> OUT``
     - ``flip_keys(ts: TSD[K, V]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1280,7 +1280,7 @@ class _flip_keys_Operator(_Protocol):
 flip_keys: _flip_keys_Operator
 
 class _floordiv__Operator(_Protocol):
-    """``floordiv_`` — the ``//`` (floor division) operator (``L // R -> O``).
+    """``floordiv_`` — the ``//`` (floor division) operator (``lhs // rhs -> OUT``).
 
     Accepted native overloads:
 
@@ -1292,15 +1292,15 @@ class _floordiv__Operator(_Protocol):
     - ``floordiv_(lhs: TS[float], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]``
     - ``floordiv_(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]``
     - ``floordiv_(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero) -> TS[float]``
-    - ``floordiv_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``floordiv_(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``floordiv_(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``floordiv_(lhs: L, rhs: R) -> OUT``
+    - ``floordiv_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``floordiv_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``floordiv_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``floordiv_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -1329,12 +1329,12 @@ class _format__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``format_(arg0: TS[str], *args: A, __sample__: int = ..., __strict__: bool = ..., **kwargs: time-series) -> TS[str]``
+    - ``format_(arg0: TS[str], *args: TIME_SERIES_TYPE, __sample__: int = ..., __strict__: bool = ..., **kwargs: time-series) -> TS[str]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, arg0: _WiringPort | str, *args: _WiringPort | object, __sample__: int = ..., __strict__: bool = ..., **kwargs: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1346,14 +1346,14 @@ class _freeze_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``freeze(predicate: TS[bool], ts: S) -> S``
-    - ``freeze(predicate: callable, ts: S) -> OUT``
-    - ``freeze(predicate: fn, ts: S) -> OUT``
+    - ``freeze(predicate: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE``
+    - ``freeze(predicate: callable, ts: TIME_SERIES_TYPE) -> OUT``
+    - ``freeze(predicate: fn, ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, predicate: _WiringPort | bool, ts: _WiringPort | object) -> _WiringPort: ...
@@ -1370,12 +1370,12 @@ class _from_data_frame_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``from_data_frame(df: frame, dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> O``
+    - ``from_data_frame(df: frame, dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, df: object, dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: _timedelta = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1387,12 +1387,12 @@ class _from_data_frame_batches_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``from_data_frame_batches(frames: TS[frame], dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> O``
+    - ``from_data_frame_batches(frames: TS[frame], dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, frames: _WiringPort | object, dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: _timedelta = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1404,12 +1404,12 @@ class _from_json_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``from_json(ts: TS[str]) -> O``
+    - ``from_json(ts: TS[str]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | str) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1421,12 +1421,12 @@ class _from_table_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``from_table(ts: T) -> O``
+    - ``from_table(ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1438,12 +1438,12 @@ class _from_table_const_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``from_table_const(value: frame) -> O``
+    - ``from_table_const(value: frame) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, value: object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1455,12 +1455,12 @@ class _gate_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``gate(condition: TS[bool], ts: S, buffer_length: int = ...) -> S``
+    - ``gate(condition: TS[bool], ts: TIME_SERIES_TYPE, buffer_length: int = ...) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, condition: _WiringPort | bool, ts: _WiringPort | object, buffer_length: int = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1480,12 +1480,12 @@ class _ge__Operator(_Protocol):
     - ``ge_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
     - ``ge_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
     - ``ge_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
-    - ``ge_(lhs: TS[T], rhs: TS[T]) -> TS[bool]``
+    - ``ge_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -1514,12 +1514,12 @@ class _get_item_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``get_item(ts: A, idx: I) -> OUT``
+    - ``get_item(ts: TIME_SERIES_TYPE, idx: SCALAR) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, idx: object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1531,19 +1531,18 @@ class _getattr__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``getattr_(ts: REF[S], attr: str) -> OUT``
-    - ``getattr_(ts: S, attr: str) -> OUT``
-    - ``getattr_(ts: TSD[K, S], attr: str) -> OUT``
-    - ``getattr_(ts: TS[E], attr: str) -> OUT``
-    - ``getattr_(ts: TS[S], attr: str) -> OUT``
-    - ``getattr_(ts: TS[S], attr: str, default: D) -> OUT``
+    - ``getattr_(ts: REF[TIME_SERIES_TYPE], attr: str) -> OUT``
+    - ``getattr_(ts: TIME_SERIES_TYPE, attr: str) -> OUT``
+    - ``getattr_(ts: TSD[K, TIME_SERIES_TYPE], attr: str) -> OUT``
+    - ``getattr_(ts: TS[SCALAR], attr: str) -> OUT``
+    - ``getattr_(ts: TS[SCALAR], attr: str, default: SCALAR_1) -> OUT``
     - ``getattr_(ts: TS[Any], attr: str) -> TS[str]``
     - ``getattr_(ts: TS[COMPOUND_SCALAR], attr: str, default_value: TS[SCALAR] = ...) -> TS[SCALAR]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object, attr: str) -> _WiringPort: ...
@@ -1560,25 +1559,22 @@ class _getitem__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``getitem_(ts: TS[T], key: TS[K]) -> TS[E]``
+    - ``getitem_(ts: TS[SCALAR], key: TS[K]) -> TS[SCALAR_1]``
     - ``getitem_(ts: TS[str], key: TS[int]) -> TS[str]``
-    - ``getitem_(ts: TSL[E, N], key: TS[int]) -> REF[E]``
+    - ``getitem_(ts: TSL[TIME_SERIES_TYPE, SIZE], key: TS[int]) -> REF[TIME_SERIES_TYPE]``
     - ``getitem_(ts: TSD[K, V], key: TS[K]) -> REF[V]``
-    - ``getitem_(ts: REF[S], key: str) -> OUT``
-    - ``getitem_(ts: REF[S], key: int) -> OUT``
-    - ``getitem_(ts: S, key: str) -> OUT``
-    - ``getitem_(ts: S, key: int) -> OUT``
+    - ``getitem_(ts: REF[TIME_SERIES_TYPE], key: str) -> OUT``
+    - ``getitem_(ts: REF[TIME_SERIES_TYPE], key: int) -> OUT``
+    - ``getitem_(ts: TIME_SERIES_TYPE, key: str) -> OUT``
+    - ``getitem_(ts: TIME_SERIES_TYPE, key: int) -> OUT``
     - ``getitem_(ts: TSD[K, V], key: TSS[K]) -> OUT``
-    - ``getitem_(ts: TS[T], key: TS[int]) -> OUT``
-    - ``getitem_(ts: S, key: str) -> O``
-    - ``getitem_(ts: S, key: int) -> O``
-    - ``getitem_(ts: TS[S], key: TS[int]) -> O``
-    - ``getitem_(ts: TS[S], key: int) -> O``
+    - ``getitem_(ts: TS[SCALAR], key: TS[int]) -> OUT``
+    - ``getitem_(ts: TS[SCALAR], key: int) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object, key: _WiringPort | object) -> _WiringPort: ...
@@ -1599,12 +1595,12 @@ class _group_by_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``group_by(ts: TS[F], by: B) -> OUT``
+    - ``group_by(ts: TS[SCALAR], by: SCALAR_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, by: object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1624,12 +1620,12 @@ class _gt__Operator(_Protocol):
     - ``gt_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
     - ``gt_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
     - ``gt_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
-    - ``gt_(lhs: TS[T], rhs: TS[T]) -> TS[bool]``
+    - ``gt_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -1662,9 +1658,9 @@ class _hour_Operator(_Protocol):
     - ``hour(ts: TS[time]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | _datetime) -> _WiringPort: ...
@@ -1679,12 +1675,12 @@ class _if__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``if_(condition: TS[bool], ts: REF[S]) -> TSB[true: REF[S], false: REF[S]]``
+    - ``if_(condition: TS[bool], ts: REF[TIME_SERIES_TYPE]) -> TSB[true: REF[TIME_SERIES_TYPE], false: REF[TIME_SERIES_TYPE]]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, condition: _WiringPort | bool, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1696,12 +1692,12 @@ class _if_cmp_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``if_cmp(cmp: TS[CmpResult], lt: REF[O], eq: REF[O], gt: REF[O]) -> REF[O]``
+    - ``if_cmp(cmp: TS[CmpResult], lt: REF[OUT], eq: REF[OUT], gt: REF[OUT]) -> REF[OUT]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, cmp: _WiringPort | _CmpResult, lt: _WiringPort | object, eq: _WiringPort | object, gt: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1713,12 +1709,12 @@ class _if_then_else_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``if_then_else(condition: TS[bool], true_value: REF[S], false_value: REF[S]) -> REF[S]``
+    - ``if_then_else(condition: TS[bool], true_value: REF[TIME_SERIES_TYPE], false_value: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, condition: _WiringPort | bool, true_value: _WiringPort | object, false_value: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1733,9 +1729,9 @@ class _if_true_Operator(_Protocol):
     - ``if_true(condition: TS[bool], tick_once_only: bool = ...) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, condition: _WiringPort | bool, tick_once_only: bool = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1747,13 +1743,13 @@ class _index_of_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``index_of(ts: TSL[TS[T], N], item: TS[T]) -> TS[int]``
-    - ``index_of(ts: TS[T], item: TS[E]) -> TS[int]``
+    - ``index_of(ts: TSL[TS[SCALAR], SIZE], item: TS[SCALAR]) -> TS[int]``
+    - ``index_of(ts: TS[SCALAR], item: TS[SCALAR_1]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, item: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1765,12 +1761,12 @@ class _intersection_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``intersection(*ts: S) -> OUT``
+    - ``intersection(*ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, *ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1778,19 +1774,19 @@ class _intersection_Operator(_Protocol):
 intersection: _intersection_Operator
 
 class _invert__Operator(_Protocol):
-    """``invert_`` — the unary ``~`` (bitwise invert) operator (``~ts -> O``).
+    """``invert_`` — the unary ``~`` (bitwise invert) operator (``~ts -> OUT``).
 
     Accepted native overloads:
 
     - ``invert_(ts: TS[int]) -> TS[int]``
     - ``invert_(ts: TS[bool]) -> TS[int]``
-    - ``invert_(ts: TSL[S, SIZE]) -> OUT``
-    - ``invert_(ts: S) -> OUT``
+    - ``invert_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT``
+    - ``invert_(ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | int) -> _WiringPort: ...
@@ -1810,12 +1806,12 @@ class _is_empty_Operator(_Protocol):
     - ``is_empty(ts: TS[str]) -> TS[bool]``
     - ``is_empty(ts: TSS[K]) -> TS[bool]``
     - ``is_empty(ts: TSD[K, V]) -> TS[bool]``
-    - ``is_empty(ts: S) -> TS[bool]``
+    - ``is_empty(ts: TIME_SERIES_TYPE) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | str) -> _WiringPort: ...
@@ -1833,9 +1829,9 @@ class _isoformat_Operator(_Protocol):
     - ``isoformat(ts: TS[date]) -> TS[str]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | _date) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1851,9 +1847,9 @@ class _isoweekday_Operator(_Protocol):
     - ``isoweekday(ts: TS[datetime]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | _date) -> _WiringPort: ...
@@ -1870,15 +1866,15 @@ class _join_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``join(lhs: TS[Frame[L]], rhs: TS[Frame[R]], on: K, how: str = ..., suffix: str = ...) -> TS[Frame[O]]``
-    - ``join(strings: TSL[TS[str], N], separator: str, __strict__: bool = ...) -> TS[str]``
+    - ``join(lhs: TS[Frame[SCALAR]], rhs: TS[Frame[SCALAR_1]], on: K, how: str = ..., suffix: str = ...) -> TS[Frame[OUT]]``
+    - ``join(strings: TSL[TS[str], SIZE], separator: str, __strict__: bool = ...) -> TS[str]``
     - ``join(*ts: TS[str], separator: str, __strict__: bool = ...) -> OUT``
-    - ``join(ts: TS[T], separator: str, __strict__: bool = ...) -> TS[str]``
+    - ``join(ts: TS[SCALAR], separator: str, __strict__: bool = ...) -> TS[str]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object, on: object, how: str = ..., suffix: str = ...) -> _WiringPort: ...
@@ -1897,12 +1893,12 @@ class _json_as_bool_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``json_as_bool(ts: S) -> TS[bool]``
+    - ``json_as_bool(ts: TIME_SERIES_TYPE) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1914,12 +1910,12 @@ class _json_as_float_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``json_as_float(ts: S) -> TS[float]``
+    - ``json_as_float(ts: TIME_SERIES_TYPE) -> TS[float]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1931,12 +1927,12 @@ class _json_as_int_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``json_as_int(ts: S) -> TS[int]``
+    - ``json_as_int(ts: TIME_SERIES_TYPE) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1948,12 +1944,12 @@ class _json_as_str_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``json_as_str(ts: S) -> TS[str]``
+    - ``json_as_str(ts: TIME_SERIES_TYPE) -> TS[str]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -1965,13 +1961,13 @@ class _json_decode_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``json_decode(ts: TS[str]) -> O``
-    - ``json_decode(ts: TS[bytes]) -> O``
+    - ``json_decode(ts: TS[str]) -> OUT``
+    - ``json_decode(ts: TS[bytes]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | str) -> _WiringPort: ...
@@ -1986,13 +1982,13 @@ class _json_encode_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``json_encode(ts: S) -> TS[str]``
-    - ``json_encode(ts: S) -> TS[bytes]``
+    - ``json_encode(ts: TIME_SERIES_TYPE) -> TS[str]``
+    - ``json_encode(ts: TIME_SERIES_TYPE) -> TS[bytes]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2005,13 +2001,13 @@ class _keys__Operator(_Protocol):
     Accepted native overloads:
 
     - ``keys_(ts: TSD[K, V]) -> OUT``
-    - ``keys_(ts: TSD[K, V]) -> TS[S]``
-    - ``keys_(ts: S) -> O``
+    - ``keys_(ts: TSD[K, V]) -> TS[SCALAR]``
+    - ``keys_(ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2023,17 +2019,17 @@ class _lag_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``lag(ts: S, period: int) -> S``
-    - ``lag(ts: S, period: timedelta) -> S``
-    - ``lag(ts: S, period: int, proxy: SIGNAL) -> OUT``
+    - ``lag(ts: TIME_SERIES_TYPE, period: int) -> TIME_SERIES_TYPE``
+    - ``lag(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE``
+    - ``lag(ts: TIME_SERIES_TYPE, period: int, proxy: SIGNAL) -> OUT``
     - ``lag(ts: TSD[K, V], period: int, proxy: SIGNAL) -> OUT``
     - ``lag(ts: TSL[V, SIZE], period: int, proxy: SIGNAL) -> OUT``
-    - ``lag(ts: S, period: TS[timedelta]) -> S``
+    - ``lag(ts: TIME_SERIES_TYPE, period: TS[timedelta]) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object, period: int) -> _WiringPort: ...
@@ -2055,9 +2051,9 @@ class _last_modified_date_Operator(_Protocol):
     - ``last_modified_date(ts: SIGNAL) -> TS[date]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2072,9 +2068,9 @@ class _last_modified_time_Operator(_Protocol):
     - ``last_modified_time(ts: SIGNAL) -> TS[datetime]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2089,9 +2085,9 @@ class _last_modified_wall_clock_time_Operator(_Protocol):
     - ``last_modified_wall_clock_time(ts: SIGNAL) -> TS[datetime]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2111,12 +2107,12 @@ class _le__Operator(_Protocol):
     - ``le_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
     - ``le_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
     - ``le_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
-    - ``le_(lhs: TS[T], rhs: TS[T]) -> TS[bool]``
+    - ``le_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -2145,17 +2141,17 @@ class _len__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``len_(ts: TS[T]) -> TS[int]``
+    - ``len_(ts: TS[SCALAR]) -> TS[int]``
     - ``len_(ts: TS[str]) -> TS[int]``
     - ``len_(ts: TSS[K]) -> TS[int]``
     - ``len_(ts: TSD[K, V]) -> TS[int]``
-    - ``len_(ts: TSL[E, N]) -> TS[int]``
-    - ``len_(ts: S) -> TS[int]``
+    - ``len_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TS[int]``
+    - ``len_(ts: TIME_SERIES_TYPE) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
@@ -2173,9 +2169,9 @@ class _ln_Operator(_Protocol):
     - ``ln(ts: TS[float]) -> TS[float]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | float) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2187,12 +2183,12 @@ class _log__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``log_(fmt: TS[str], *args: B, level: int = ..., sample_count: int = ..., **kwargs: time-series) -> None``
+    - ``log_(fmt: TS[str], *args: TIME_SERIES_TYPE, level: int = ..., sample_count: int = ..., **kwargs: time-series) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, fmt: _WiringPort | str, *args: _WiringPort | object, level: int = ..., sample_count: int = ..., **kwargs: _WiringPort | object) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2200,20 +2196,20 @@ class _log__Operator(_Protocol):
 log_: _log__Operator
 
 class _lshift__Operator(_Protocol):
-    """``lshift_`` — the ``<<`` operator (``L << R -> O``).
+    """``lshift_`` — the ``<<`` operator (``lhs << rhs -> OUT``).
 
     Accepted native overloads:
 
     - ``lshift_(lhs: TS[int], rhs: TS[int]) -> TS[int]``
-    - ``lshift_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``lshift_(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``lshift_(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``lshift_(lhs: L, rhs: R) -> OUT``
+    - ``lshift_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``lshift_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``lshift_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``lshift_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -2236,12 +2232,12 @@ class _lt__Operator(_Protocol):
     - ``lt_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
     - ``lt_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
     - ``lt_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
-    - ``lt_(lhs: TS[T], rhs: TS[T]) -> TS[bool]``
+    - ``lt_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -2276,9 +2272,9 @@ class _make_tsd_Operator(_Protocol):
     - ``make_tsd(key: TS[K], value: V, remove_key: TS[bool]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, key: _WiringPort | object, value: _WiringPort | object) -> _WiringPort: ...
@@ -2293,12 +2289,12 @@ class _match__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``match_(pattern: TS[str], s: TS[str]) -> O``
+    - ``match_(pattern: TS[str], s: TS[str]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, pattern: _WiringPort | str, s: _WiringPort | str) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2310,12 +2306,12 @@ class _max__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``max_(ts: TS[T]) -> TS[E]``
-    - ``max_(ts: TS[T], default_value: TS[E]) -> TS[E]``
-    - ``max_(lhs: TS[T], rhs: TS[T]) -> TS[T]``
-    - ``max_(ts: TS[T]) -> TS[T]``
-    - ``max_(lhs: TS[T], rhs: TS[T], __strict__: bool = ...) -> TS[T]``
-    - ``max_(*ts: TS, __strict__: bool = ...) -> OUT``
+    - ``max_(ts: TS[SCALAR]) -> TS[SCALAR_1]``
+    - ``max_(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]``
+    - ``max_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]``
+    - ``max_(ts: TS[SCALAR]) -> TS[SCALAR]``
+    - ``max_(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = ...) -> TS[SCALAR]``
+    - ``max_(*ts: TIME_SERIES_TYPE, __strict__: bool = ...) -> OUT``
     - ``max_(lhs: TS[int], rhs: TS[int]) -> TS[int]``
     - ``max_(lhs: TS[float], rhs: TS[float]) -> TS[float]``
     - ``max_(lhs: TS[str], rhs: TS[str]) -> TS[str]``
@@ -2324,22 +2320,22 @@ class _max__Operator(_Protocol):
     - ``max_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]``
     - ``max_(lhs: TS[int], rhs: TS[float]) -> TS[float]``
     - ``max_(lhs: TS[float], rhs: TS[int]) -> TS[float]``
-    - ``max_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``max_(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``max_(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``max_(lhs: L, rhs: R) -> OUT``
-    - ``max_(*tsl: TS[T]) -> OUT``
-    - ``max_(ts: S) -> OUT``
+    - ``max_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``max_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``max_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``max_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``max_(*tsl: TS[SCALAR]) -> OUT``
+    - ``max_(ts: TIME_SERIES_TYPE) -> OUT``
     - ``max_(ts: TSS[K], default_value: TS[K]) -> TS[K]``
     - ``max_(ts: TSS[K]) -> TS[K]``
     - ``max_(ts: TSD[K, TS[V]]) -> TS[V]``
-    - ``max_(ts: TSL[TS[V], N]) -> TS[V]``
-    - ``max_(ts: S, default_value: D) -> OUT``
+    - ``max_(ts: TSL[TS[V], SIZE]) -> TS[V]``
+    - ``max_(ts: TIME_SERIES_TYPE, default_value: SCALAR) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
@@ -2380,12 +2376,12 @@ class _max_ts_list_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``max_ts_list(tsl: TSL[TS[T], N]) -> OUT``
+    - ``max_ts_list(tsl: TSL[TS[SCALAR], SIZE]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, tsl: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2397,29 +2393,29 @@ class _mean_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``mean(ts: TS[T]) -> TS[E]``
-    - ``mean(ts: TS[T], default_value: TS[E]) -> TS[E]``
+    - ``mean(ts: TS[SCALAR]) -> TS[SCALAR_1]``
+    - ``mean(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]``
     - ``mean(ts: TS[int]) -> TS[float]``
     - ``mean(ts: TS[float]) -> TS[float]``
-    - ``mean(*ts: TS) -> OUT``
-    - ``mean(ts: S) -> OUT``
+    - ``mean(*ts: TIME_SERIES_TYPE) -> OUT``
+    - ``mean(ts: TIME_SERIES_TYPE) -> OUT``
     - ``mean(ts: TSS[int]) -> TS[float]``
     - ``mean(ts: TSS[float]) -> TS[float]``
     - ``mean(ts: TSD[K, TS[int]]) -> TS[float]``
     - ``mean(ts: TSD[K, TS[float]]) -> TS[float]``
-    - ``mean(ts: TSL[TS[int], N]) -> TS[float]``
-    - ``mean(ts: TSL[TS[float], N]) -> TS[float]``
+    - ``mean(ts: TSL[TS[int], SIZE]) -> TS[float]``
+    - ``mean(ts: TSL[TS[float], SIZE]) -> TS[float]``
     - ``mean(lhs: TS[int], rhs: TS[int]) -> TS[float]``
     - ``mean(lhs: TS[float], rhs: TS[float]) -> TS[float]``
     - ``mean(lhs: TS[int], rhs: TS[float]) -> TS[float]``
     - ``mean(lhs: TS[float], rhs: TS[int]) -> TS[float]``
-    - ``mean(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``mean(lhs: L, rhs: R) -> OUT``
+    - ``mean(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``mean(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
@@ -2450,15 +2446,15 @@ class _merge_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``merge(*tsl: S) -> OUT``
+    - ``merge(*tsl: TIME_SERIES_TYPE) -> OUT``
     - ``merge(*tsl: TSD[K, V]) -> OUT``
     - ``merge(*tsl: TSD[K, V], disjoint: bool = ...) -> OUT``
-    - ``merge(tsl: S) -> OUT``
+    - ``merge(tsl: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, *tsl: _WiringPort | object) -> _WiringPort: ...
@@ -2475,12 +2471,12 @@ class _merge_tsd_disjoint_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``merge_tsd_disjoint(tsl: TSL[TSD[K, V], N]) -> OUT``
+    - ``merge_tsd_disjoint(tsl: TSL[TSD[K, V], SIZE]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, tsl: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2496,9 +2492,9 @@ class _microsecond_Operator(_Protocol):
     - ``microsecond(ts: TS[time]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | _datetime) -> _WiringPort: ...
@@ -2516,9 +2512,9 @@ class _microseconds_Operator(_Protocol):
     - ``microseconds(ts: TS[timedelta]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | _timedelta) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2530,36 +2526,36 @@ class _min__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``min_(ts: TS[T]) -> TS[E]``
-    - ``min_(ts: TS[T], default_value: TS[E]) -> TS[E]``
-    - ``min_(lhs: TS[T], rhs: TS[T]) -> TS[T]``
-    - ``min_(ts: TS[T]) -> TS[T]``
-    - ``min_(lhs: TS[T], rhs: TS[T], __strict__: bool = ...) -> TS[T]``
-    - ``min_(*ts: TS, __strict__: bool = ...) -> OUT``
+    - ``min_(ts: TS[SCALAR]) -> TS[SCALAR_1]``
+    - ``min_(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]``
+    - ``min_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]``
+    - ``min_(ts: TS[SCALAR]) -> TS[SCALAR]``
+    - ``min_(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = ...) -> TS[SCALAR]``
+    - ``min_(*ts: TIME_SERIES_TYPE, __strict__: bool = ...) -> OUT``
     - ``min_(lhs: TS[int], rhs: TS[int]) -> TS[int]``
     - ``min_(lhs: TS[float], rhs: TS[float]) -> TS[float]``
     - ``min_(lhs: TS[str], rhs: TS[str]) -> TS[str]``
     - ``min_(lhs: TS[date], rhs: TS[date]) -> TS[date]``
     - ``min_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[datetime]``
     - ``min_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]``
-    - ``min_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``min_(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``min_(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``min_(lhs: L, rhs: R) -> OUT``
+    - ``min_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``min_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``min_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``min_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
     - ``min_(lhs: TS[int], rhs: TS[float]) -> TS[float]``
     - ``min_(lhs: TS[float], rhs: TS[int]) -> TS[float]``
-    - ``min_(*tsl: TS[T]) -> OUT``
-    - ``min_(ts: S) -> OUT``
+    - ``min_(*tsl: TS[SCALAR]) -> OUT``
+    - ``min_(ts: TIME_SERIES_TYPE) -> OUT``
     - ``min_(ts: TSS[K]) -> TS[K]``
     - ``min_(ts: TSS[K], default_value: TS[K]) -> TS[K]``
     - ``min_(ts: TSD[K, TS[V]]) -> TS[V]``
-    - ``min_(ts: TSL[TS[V], N]) -> TS[V]``
-    - ``min_(ts: S, default_value: D) -> OUT``
+    - ``min_(ts: TSL[TS[V], SIZE]) -> TS[V]``
+    - ``min_(ts: TIME_SERIES_TYPE, default_value: SCALAR) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
@@ -2600,12 +2596,12 @@ class _min_ts_list_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``min_ts_list(tsl: TSL[TS[T], N]) -> OUT``
+    - ``min_ts_list(tsl: TSL[TS[SCALAR], SIZE]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, tsl: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2621,9 +2617,9 @@ class _minute_Operator(_Protocol):
     - ``minute(ts: TS[time]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | _datetime) -> _WiringPort: ...
@@ -2634,7 +2630,7 @@ class _minute_Operator(_Protocol):
 minute: _minute_Operator
 
 class _mod__Operator(_Protocol):
-    """``mod_`` — the ``%`` operator (``L % R -> O``).
+    """``mod_`` — the ``%`` operator (``lhs % rhs -> OUT``).
 
     Accepted native overloads:
 
@@ -2646,15 +2642,15 @@ class _mod__Operator(_Protocol):
     - ``mod_(lhs: TS[float], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]``
     - ``mod_(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]``
     - ``mod_(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero) -> TS[float]``
-    - ``mod_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``mod_(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``mod_(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``mod_(lhs: L, rhs: R) -> OUT``
+    - ``mod_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``mod_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``mod_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``mod_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -2686,9 +2682,9 @@ class _modified_Operator(_Protocol):
     - ``modified(ts: SIGNAL) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2704,9 +2700,9 @@ class _month_Operator(_Protocol):
     - ``month(ts: TS[datetime]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | _date) -> _WiringPort: ...
@@ -2725,9 +2721,9 @@ class _month_of_year_Operator(_Protocol):
     - ``month_of_year(ts: TS[datetime]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | _date) -> _WiringPort: ...
@@ -2738,7 +2734,7 @@ class _month_of_year_Operator(_Protocol):
 month_of_year: _month_of_year_Operator
 
 class _mul__Operator(_Protocol):
-    """``mul_`` — the ``*`` operator (``L * R -> O``). (Python takes an optional ``__strict__`` flag.)
+    """``mul_`` — the ``*`` operator (``lhs * rhs -> OUT``). (Python takes an optional ``__strict__`` flag.)
 
     Accepted native overloads:
 
@@ -2748,20 +2744,20 @@ class _mul__Operator(_Protocol):
     - ``mul_(lhs: TS[float], rhs: TS[int]) -> TS[float]``
     - ``mul_(lhs: TS[str], rhs: TS[int]) -> TS[str]``
     - ``mul_(lhs: TS[int], rhs: TS[str]) -> TS[str]``
-    - ``mul_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``mul_(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``mul_(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``mul_(lhs: L, rhs: R) -> OUT``
+    - ``mul_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``mul_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``mul_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``mul_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
     - ``mul_(lhs: TS[timedelta], rhs: TS[int]) -> TS[timedelta]``
     - ``mul_(lhs: TS[timedelta], rhs: TS[float]) -> TS[timedelta]``
     - ``mul_(lhs: TS[period], rhs: TS[int]) -> TS[period]``
     - ``mul_(lhs: TS[int], rhs: TS[period]) -> TS[period]``
-    - ``mul_(lhs: TS[T], rhs: TS[int]) -> OUT``
+    - ``mul_(lhs: TS[SCALAR], rhs: TS[int]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -2805,13 +2801,13 @@ class _ne__Operator(_Protocol):
     - ``ne_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
     - ``ne_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
     - ``ne_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
-    - ``ne_(lhs: TSL[L, N], rhs: TSL[R, N]) -> TS[bool]``
-    - ``ne_(lhs: TS[T], rhs: TS[T]) -> TS[bool]``
+    - ``ne_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> TS[bool]``
+    - ``ne_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | bool, rhs: _WiringPort | bool) -> _WiringPort: ...
@@ -2838,7 +2834,7 @@ class _ne__Operator(_Protocol):
 ne_: _ne__Operator
 
 class _neg__Operator(_Protocol):
-    """``neg_`` — the unary ``-`` operator (``-ts -> O``).
+    """``neg_`` — the unary ``-`` operator (``-ts -> OUT``).
 
     Accepted native overloads:
 
@@ -2846,13 +2842,13 @@ class _neg__Operator(_Protocol):
     - ``neg_(ts: TS[float]) -> TS[float]``
     - ``neg_(ts: TS[timedelta]) -> TS[timedelta]``
     - ``neg_(ts: TS[period]) -> TS[period]``
-    - ``neg_(ts: TSL[S, SIZE]) -> OUT``
-    - ``neg_(ts: S) -> OUT``
+    - ``neg_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT``
+    - ``neg_(ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | int) -> _WiringPort: ...
@@ -2881,9 +2877,9 @@ class _not__Operator(_Protocol):
     - ``not_(ts: TSD[K, V]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | bool) -> _WiringPort: ...
@@ -2904,12 +2900,12 @@ class _nothing_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``nothing() -> O``
+    - ``nothing() -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2921,13 +2917,13 @@ class _np_std_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``np_std(ts: A) -> TS[float]``
-    - ``np_std(ts: A, ddof: int) -> TS[float]``
+    - ``np_std(ts: TIME_SERIES_TYPE) -> TS[float]``
+    - ``np_std(ts: TIME_SERIES_TYPE, ddof: int) -> TS[float]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
@@ -2942,12 +2938,12 @@ class _null_sink_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``null_sink(ts: S) -> None``
+    - ``null_sink(ts: TIME_SERIES_TYPE) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2959,7 +2955,7 @@ class _or__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``or_(lhs: TS[T], rhs: TS[T]) -> TS[bool]``
+    - ``or_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
     - ``or_(lhs: TS[bool], rhs: TS[bool]) -> TS[bool]``
     - ``or_(lhs: TS[int], rhs: TS[int]) -> TS[bool]``
     - ``or_(lhs: TS[float], rhs: TS[float]) -> TS[bool]``
@@ -2969,9 +2965,9 @@ class _or__Operator(_Protocol):
     - ``or_(lhs: TSS[K], rhs: TSS[K]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
@@ -2996,13 +2992,13 @@ class _partition_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``partition(ts: S, partitions: P) -> O``
-    - ``partition(ts: TSD[K, V], partitions: TSD[K, TS[K1]]) -> TSD[K1, TSD[K, V]]``
+    - ``partition(ts: TIME_SERIES_TYPE, partitions: TIME_SERIES_TYPE_1) -> OUT``
+    - ``partition(ts: TSD[K, V], partitions: TSD[K, TS[K_1]]) -> TSD[K_1, TSD[K, V]]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, partitions: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3014,12 +3010,12 @@ class _pct_change_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``pct_change(ts: TS[T]) -> OUT``
+    - ``pct_change(ts: TS[SCALAR]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3027,20 +3023,20 @@ class _pct_change_Operator(_Protocol):
 pct_change: _pct_change_Operator
 
 class _pos__Operator(_Protocol):
-    """``pos_`` — the unary ``+`` operator (``+ts -> O``).
+    """``pos_`` — the unary ``+`` operator (``+ts -> OUT``).
 
     Accepted native overloads:
 
     - ``pos_(ts: TS[int]) -> TS[int]``
     - ``pos_(ts: TS[float]) -> TS[float]``
     - ``pos_(ts: TS[timedelta]) -> TS[timedelta]``
-    - ``pos_(ts: TSL[S, SIZE]) -> OUT``
-    - ``pos_(ts: S) -> OUT``
+    - ``pos_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT``
+    - ``pos_(ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | int) -> _WiringPort: ...
@@ -3055,7 +3051,7 @@ class _pos__Operator(_Protocol):
 pos_: _pos__Operator
 
 class _pow__Operator(_Protocol):
-    """``pow_`` — the ``**`` operator (``L ** R -> O``).
+    """``pow_`` — the ``**`` operator (``lhs ** rhs -> OUT``).
 
     Accepted native overloads:
 
@@ -3067,15 +3063,15 @@ class _pow__Operator(_Protocol):
     - ``pow_(lhs: TS[float], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]``
     - ``pow_(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]``
     - ``pow_(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero) -> TS[float]``
-    - ``pow_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``pow_(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``pow_(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``pow_(lhs: L, rhs: R) -> OUT``
+    - ``pow_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``pow_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``pow_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``pow_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -3104,12 +3100,12 @@ class _print__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``print_(fmt: TS[str], *args: B, __std_out__: bool = ..., **kwargs: time-series) -> None``
+    - ``print_(fmt: TS[str], *args: TIME_SERIES_TYPE, __std_out__: bool = ..., **kwargs: time-series) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, fmt: _WiringPort | str, *args: _WiringPort | object, __std_out__: bool = ..., **kwargs: _WiringPort | object) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3121,15 +3117,15 @@ class _quantile_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``quantile(a: A, q: TS[float], method: str, keepdims: bool) -> TS[float]``
-    - ``quantile(a: A, q: TS[float]) -> TS[float]``
-    - ``quantile(a: A, q: TS[float], method: str) -> TS[float]``
-    - ``quantile(a: A, q: TS[float], keepdims: bool) -> TS[float]``
+    - ``quantile(a: TIME_SERIES_TYPE, q: TS[float], method: str, keepdims: bool) -> TS[float]``
+    - ``quantile(a: TIME_SERIES_TYPE, q: TS[float]) -> TS[float]``
+    - ``quantile(a: TIME_SERIES_TYPE, q: TS[float], method: str) -> TS[float]``
+    - ``quantile(a: TIME_SERIES_TYPE, q: TS[float], keepdims: bool) -> TS[float]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, a: _WiringPort | object, q: _WiringPort | float, method: str, keepdims: bool) -> _WiringPort: ...
@@ -3148,12 +3144,12 @@ class _race_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``race(*ts: S) -> OUT``
+    - ``race(*ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, *ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3169,9 +3165,9 @@ class _range_adjacent_Operator(_Protocol):
     - ``range_adjacent(lhs: TS[civil_date_range], rhs: TS[civil_date_range]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | _InstantRange, rhs: _WiringPort | _InstantRange) -> _WiringPort: ...
@@ -3192,9 +3188,9 @@ class _range_contains_Operator(_Protocol):
     - ``range_contains(range: TS[civil_date_range], value: TS[civil_date_range]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, range: _WiringPort | _InstantRange, value: _WiringPort | _datetime) -> _WiringPort: ...
@@ -3217,9 +3213,9 @@ class _range_difference_Operator(_Protocol):
     - ``range_difference(lhs: TS[civil_date_range], rhs: TS[civil_date_range]) -> TS[civil_date_range_set]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | _InstantRange, rhs: _WiringPort | _InstantRange) -> _WiringPort: ...
@@ -3237,9 +3233,9 @@ class _range_extent_Operator(_Protocol):
     - ``range_extent(range: TS[instant_range]) -> TS[timedelta]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, range: _WiringPort | _InstantRange) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3255,9 +3251,9 @@ class _range_hull_Operator(_Protocol):
     - ``range_hull(lhs: TS[civil_date_range], rhs: TS[civil_date_range]) -> TS[civil_date_range]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | _InstantRange, rhs: _WiringPort | _InstantRange) -> _WiringPort: ...
@@ -3276,9 +3272,9 @@ class _range_intersection_Operator(_Protocol):
     - ``range_intersection(lhs: TS[civil_date_range], rhs: TS[civil_date_range]) -> TS[civil_date_range]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | _InstantRange, rhs: _WiringPort | _InstantRange) -> _WiringPort: ...
@@ -3297,9 +3293,9 @@ class _range_merge_Operator(_Protocol):
     - ``range_merge(lhs: TS[civil_date_range], rhs: TS[civil_date_range]) -> TS[civil_date_range]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | _InstantRange, rhs: _WiringPort | _InstantRange) -> _WiringPort: ...
@@ -3318,9 +3314,9 @@ class _range_mergeable_Operator(_Protocol):
     - ``range_mergeable(lhs: TS[civil_date_range], rhs: TS[civil_date_range]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | _InstantRange, rhs: _WiringPort | _InstantRange) -> _WiringPort: ...
@@ -3339,9 +3335,9 @@ class _range_overlaps_Operator(_Protocol):
     - ``range_overlaps(lhs: TS[civil_date_range], rhs: TS[civil_date_range]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | _InstantRange, rhs: _WiringPort | _InstantRange) -> _WiringPort: ...
@@ -3360,9 +3356,9 @@ class _range_shift_Operator(_Protocol):
     - ``range_shift(range: TS[civil_date_range], delta: TS[period], month_end_policy: month_end_policy = ...) -> TS[civil_date_range]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, range: _WiringPort | _InstantRange, delta: _WiringPort | _timedelta, month_end_policy: _MonthEndPolicy = ...) -> _WiringPort: ...
@@ -3381,9 +3377,9 @@ class _range_touches_Operator(_Protocol):
     - ``range_touches(lhs: TS[civil_date_range], rhs: TS[civil_date_range]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | _InstantRange, rhs: _WiringPort | _InstantRange) -> _WiringPort: ...
@@ -3402,9 +3398,9 @@ class _range_union_Operator(_Protocol):
     - ``range_union(lhs: TS[civil_date_range], rhs: TS[civil_date_range]) -> TS[civil_date_range_set]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | _InstantRange, rhs: _WiringPort | _InstantRange) -> _WiringPort: ...
@@ -3419,14 +3415,14 @@ class _record_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``record(ts: S, key: str = ..., sparse: bool = ...) -> None``
-    - ``record(ts: S, key: str = ..., recordable_id: str = ...) -> None``
-    - ``record(ts: S, key: str, recordable_id: str = ...) -> None``
+    - ``record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ...) -> None``
+    - ``record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ...) -> None``
+    - ``record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object, key: str = ..., sparse: bool = ...) -> None: ...
@@ -3443,12 +3439,12 @@ class _reduce_tsd_of_bundles_with_race_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``reduce_tsd_of_bundles_with_race(tsd: TSD[K, REF[S]]) -> OUT``
+    - ``reduce_tsd_of_bundles_with_race(tsd: TSD[K, REF[TIME_SERIES_TYPE]]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, tsd: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3460,12 +3456,12 @@ class _reduce_tsd_with_race_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``reduce_tsd_with_race(tsd: TSD[K, REF[S]]) -> OUT``
+    - ``reduce_tsd_with_race(tsd: TSD[K, REF[TIME_SERIES_TYPE]]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, tsd: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3477,14 +3473,14 @@ class _rekey_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``rekey(ts: S, new_keys: K) -> O``
-    - ``rekey(ts: TSD[K, V], new_keys: TSD[K, TS[K1]]) -> TSD[K1, V]``
-    - ``rekey(ts: TSD[K, V], new_keys: TSD[K, TSS[K1]]) -> TSD[K1, V]``
+    - ``rekey(ts: TIME_SERIES_TYPE, new_keys: K) -> OUT``
+    - ``rekey(ts: TSD[K, V], new_keys: TSD[K, TS[K_1]]) -> TSD[K_1, V]``
+    - ``rekey(ts: TSD[K, V], new_keys: TSD[K, TSS[K_1]]) -> TSD[K_1, V]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, new_keys: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3499,9 +3495,9 @@ class _replace_Operator(_Protocol):
     - ``replace(pattern: TS[str], repl: TS[str], s: TS[str]) -> TS[str]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, pattern: _WiringPort | str, repl: _WiringPort | str, s: _WiringPort | str) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3513,13 +3509,12 @@ class _replay_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``replay(key: str, recordable_id: str = ...) -> S``
-    - ``replay(key: str, recordable_id: str = ...) -> O``
+    - ``replay(key: str, recordable_id: str = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, key: str, recordable_id: str = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3531,12 +3526,12 @@ class _replay_const_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``replay_const(key: str, recordable_id: str = ..., tm: datetime = ...) -> O``
+    - ``replay_const(key: str, recordable_id: str = ..., tm: datetime = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, key: str, recordable_id: str = ..., tm: _datetime = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3548,12 +3543,12 @@ class _replay_data_frame_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``replay_data_frame(data_frame: frame, as_of_time: datetime = ...) -> O``
+    - ``replay_data_frame(data_frame: frame, as_of_time: datetime = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, data_frame: object, as_of_time: _datetime = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3568,9 +3563,9 @@ class _request_id_Operator(_Protocol):
     - ``request_id(hash: int) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, hash: int) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3582,12 +3577,12 @@ class _resample_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``resample(ts: S, period: timedelta) -> S``
+    - ``resample(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, period: _timedelta) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3602,9 +3597,9 @@ class _resolve_civil_Operator(_Protocol):
     - ``resolve_civil(local: TS[civil_datetime], zone: TS[zone_id], ambiguous: ambiguous_time_policy = ..., nonexistent: nonexistent_time_policy = ...) -> TS[zoned_datetime]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, local: _WiringPort | _CivilDateTime, zone: _WiringPort | _ZoneId, ambiguous: _AmbiguousTimePolicy = ..., nonexistent: _NonexistentTimePolicy = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3616,13 +3611,13 @@ class _rolling_average_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``rolling_average(ts: TS[T], period: int, min_window_period: int = ...) -> OUT``
-    - ``rolling_average(ts: TS[T], period: timedelta, min_window_period: timedelta = ...) -> OUT``
+    - ``rolling_average(ts: TS[SCALAR], period: int, min_window_period: int = ...) -> OUT``
+    - ``rolling_average(ts: TS[SCALAR], period: timedelta, min_window_period: timedelta = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object, period: int, min_window_period: int = ...) -> _WiringPort: ...
@@ -3637,12 +3632,12 @@ class _rolling_window_arrays_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``rolling_window_arrays(window: W) -> OUT``
+    - ``rolling_window_arrays(window: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, window: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3657,9 +3652,9 @@ class _round__Operator(_Protocol):
     - ``round_(ts: TS[float], n_digits: TS[int]) -> TS[float]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | float, n_digits: _WiringPort | int) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3671,12 +3666,12 @@ class _route_by_index_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``route_by_index(index: TS[int], ts: REF[S]) -> TSL[REF[S], N]``
+    - ``route_by_index(index: TS[int], ts: REF[TIME_SERIES_TYPE]) -> TSL[REF[TIME_SERIES_TYPE], SIZE]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, index: _WiringPort | int, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3684,20 +3679,20 @@ class _route_by_index_Operator(_Protocol):
 route_by_index: _route_by_index_Operator
 
 class _rshift__Operator(_Protocol):
-    """``rshift_`` — the ``>>`` operator (``L >> R -> O``).
+    """``rshift_`` — the ``>>`` operator (``lhs >> rhs -> OUT``).
 
     Accepted native overloads:
 
     - ``rshift_(lhs: TS[int], rhs: TS[int]) -> TS[int]``
-    - ``rshift_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``rshift_(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``rshift_(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``rshift_(lhs: L, rhs: R) -> OUT``
+    - ``rshift_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``rshift_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``rshift_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``rshift_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -3712,12 +3707,12 @@ class _sample_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``sample(signal: SIGNAL, ts: S) -> S``
+    - ``sample(signal: SIGNAL, ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, signal: _WiringPort, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3734,9 +3729,9 @@ class _schedule_Operator(_Protocol):
     - ``schedule(delay: TS[timedelta], start: TS[datetime], initial_delay: bool = ..., max_ticks: int = ...) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, delay: _timedelta, initial_delay: bool = ..., max_ticks: int = ...) -> _WiringPort: ...
@@ -3757,9 +3752,9 @@ class _second_Operator(_Protocol):
     - ``second(ts: TS[time]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | _datetime) -> _WiringPort: ...
@@ -3777,9 +3772,9 @@ class _seconds_Operator(_Protocol):
     - ``seconds(ts: TS[timedelta]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | _timedelta) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3791,12 +3786,12 @@ class _setattr__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``setattr_(ts: TS[S], attr: str, value: TS[V]) -> OUT``
+    - ``setattr_(ts: TS[SCALAR], attr: str, value: TS[V]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, attr: str, value: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3812,9 +3807,9 @@ class _sign_Operator(_Protocol):
     - ``sign(ts: TS[float]) -> TS[float]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | int) -> _WiringPort: ...
@@ -3829,12 +3824,12 @@ class _slice__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``slice_(ts: S, start: int, stop: int, step_size: int) -> S``
+    - ``slice_(ts: TIME_SERIES_TYPE, start: int, stop: int, step_size: int) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, start: int, stop: int, step_size: int) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3846,13 +3841,13 @@ class _sorted__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``sorted_(ts: TS[Frame[R]], by: str, descending: bool = ...) -> TS[Frame[R]]``
-    - ``sorted_(ts: TS[Frame[R, M]], by: str, descending: bool = ...) -> TS[Frame[R, M]]``
+    - ``sorted_(ts: TS[Frame[SCALAR]], by: str, descending: bool = ...) -> TS[Frame[SCALAR]]``
+    - ``sorted_(ts: TS[Frame[SCALAR, SCALAR_1]], by: str, descending: bool = ...) -> TS[Frame[SCALAR, SCALAR_1]]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, by: str, descending: bool = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3868,13 +3863,13 @@ class _split_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``split(s: TS[str], separator: str) -> TSL[TS[str], N]``
-    - ``split(s: TS[str], separator: str) -> O``
+    - ``split(s: TS[str], separator: str) -> TSL[TS[str], SIZE]``
+    - ``split(s: TS[str], separator: str) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, s: _WiringPort | str, separator: str) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3886,29 +3881,29 @@ class _std_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``std(ts: TS[T]) -> TS[E]``
-    - ``std(ts: TS[T], default_value: TS[E]) -> TS[E]``
+    - ``std(ts: TS[SCALAR]) -> TS[SCALAR_1]``
+    - ``std(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]``
     - ``std(ts: TS[int]) -> TS[float]``
     - ``std(ts: TS[float]) -> TS[float]``
-    - ``std(ts: S) -> OUT``
+    - ``std(ts: TIME_SERIES_TYPE) -> OUT``
     - ``std(ts: TSS[int]) -> TS[float]``
     - ``std(ts: TSS[float]) -> TS[float]``
     - ``std(ts: TSD[K, TS[int]]) -> TS[float]``
     - ``std(ts: TSD[K, TS[float]]) -> TS[float]``
-    - ``std(ts: TSL[TS[int], N]) -> TS[float]``
-    - ``std(ts: TSL[TS[float], N]) -> TS[float]``
+    - ``std(ts: TSL[TS[int], SIZE]) -> TS[float]``
+    - ``std(ts: TSL[TS[float], SIZE]) -> TS[float]``
     - ``std(lhs: TS[int], rhs: TS[int]) -> TS[float]``
     - ``std(lhs: TS[float], rhs: TS[float]) -> TS[float]``
     - ``std(lhs: TS[int], rhs: TS[float]) -> TS[float]``
     - ``std(lhs: TS[float], rhs: TS[int]) -> TS[float]``
-    - ``std(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``std(lhs: L, rhs: R) -> OUT``
-    - ``std(ts: S, ddof: int) -> OUT``
+    - ``std(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``std(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``std(ts: TIME_SERIES_TYPE, ddof: int) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
@@ -3939,12 +3934,12 @@ class _step_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``step(ts: S, step_size: int) -> S``
+    - ``step(ts: TIME_SERIES_TYPE, step_size: int) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, step_size: int) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3959,9 +3954,9 @@ class _stop_engine_Operator(_Protocol):
     - ``stop_engine(ts: SIGNAL, msg: str = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort, msg: str = ...) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3973,12 +3968,12 @@ class _str__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``str_(ts: S) -> TS[str]``
+    - ``str_(ts: TIME_SERIES_TYPE) -> TS[str]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3986,7 +3981,7 @@ class _str__Operator(_Protocol):
 str_: _str__Operator
 
 class _sub__Operator(_Protocol):
-    """``sub_`` — the ``-`` operator (``L - R -> O``).
+    """``sub_`` — the ``-`` operator (``lhs - rhs -> OUT``).
 
     Accepted native overloads:
 
@@ -4004,23 +3999,23 @@ class _sub__Operator(_Protocol):
     - ``sub_(lhs: TS[zoned_datetime], rhs: TS[timedelta]) -> TS[zoned_datetime]``
     - ``sub_(lhs: TS[date], rhs: TS[period], month_end_policy: month_end_policy = ...) -> TS[date]``
     - ``sub_(lhs: TS[civil_datetime], rhs: TS[period], month_end_policy: month_end_policy = ...) -> TS[civil_datetime]``
-    - ``sub_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``sub_(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``sub_(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``sub_(lhs: L, rhs: R) -> OUT``
-    - ``sub_(lhs: TS[T], rhs: TS[T]) -> TS[T]``
-    - ``sub_(lhs: TS[T], rhs: TS[E], cmp: callable = ...) -> TS[T]``
-    - ``sub_(lhs: TS[T], rhs: TS[E]) -> OUT``
+    - ``sub_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``sub_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``sub_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``sub_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``sub_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]``
+    - ``sub_(lhs: TS[SCALAR], rhs: TS[SCALAR_1], cmp: callable = ...) -> TS[SCALAR]``
+    - ``sub_(lhs: TS[SCALAR], rhs: TS[SCALAR_1]) -> OUT``
     - ``sub_(lhs: TS[str], rhs: TS[str]) -> OUT``
     - ``sub_(lhs: TSS[K], rhs: TS[K]) -> TSS[K]``
-    - ``sub_(*ts: S) -> OUT``
+    - ``sub_(*ts: TIME_SERIES_TYPE) -> OUT``
     - ``sub_(lhs: TSD[K, V], rhs: TSD[K, V]) -> TSD[K, V]``
     - ``sub_(lhs: TS[date], rhs: TS[timedelta]) -> TS[date]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | int) -> _WiringPort: ...
@@ -4072,9 +4067,9 @@ class _substr_Operator(_Protocol):
     - ``substr(s: TS[str], start: TS[int], end: TS[int]) -> TS[str]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, s: _WiringPort | str, start: _WiringPort | int, end: _WiringPort | int) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4086,29 +4081,29 @@ class _sum__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``sum_(ts: TS[T]) -> TS[E]``
-    - ``sum_(ts: TS[T], default_value: TS[E]) -> TS[E]``
+    - ``sum_(ts: TS[SCALAR]) -> TS[SCALAR_1]``
+    - ``sum_(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]``
     - ``sum_(ts: TS[int]) -> TS[int]``
     - ``sum_(ts: TS[float]) -> TS[float]``
     - ``sum_(ts: TS[int], reset: TS[bool]) -> TS[int]``
     - ``sum_(ts: TS[float], reset: TS[bool]) -> TS[float]``
-    - ``sum_(*ts: TS) -> OUT``
-    - ``sum_(ts: S) -> OUT``
+    - ``sum_(*ts: TIME_SERIES_TYPE) -> OUT``
+    - ``sum_(ts: TIME_SERIES_TYPE) -> OUT``
     - ``sum_(ts: TSS[int]) -> TS[int]``
     - ``sum_(ts: TSS[float]) -> TS[float]``
     - ``sum_(ts: TSD[K, TS[int]]) -> TS[int]``
     - ``sum_(ts: TSD[K, TS[float]]) -> TS[float]``
-    - ``sum_(ts: TSL[TS[int], N]) -> TS[int]``
-    - ``sum_(ts: TSL[TS[float], N]) -> TS[float]``
-    - ``sum_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``sum_(lhs: TSL[L, SIZE], rhs: R) -> OUT``
-    - ``sum_(lhs: L, rhs: TSL[R, SIZE]) -> OUT``
-    - ``sum_(lhs: L, rhs: R) -> OUT``
+    - ``sum_(ts: TSL[TS[int], SIZE]) -> TS[int]``
+    - ``sum_(ts: TSL[TS[float], SIZE]) -> TS[float]``
+    - ``sum_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``sum_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``sum_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``sum_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
@@ -4135,12 +4130,12 @@ class _symmetric_difference_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``symmetric_difference(*ts: S) -> OUT``
+    - ``symmetric_difference(*ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, *ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4152,13 +4147,13 @@ class _take_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``take(ts: S, count: int) -> S``
-    - ``take(ts: S, reset: SIGNAL, count: int) -> S``
+    - ``take(ts: TIME_SERIES_TYPE, count: int) -> TIME_SERIES_TYPE``
+    - ``take(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object, count: int) -> _WiringPort: ...
@@ -4176,9 +4171,9 @@ class _temporal_bucket_Operator(_Protocol):
     - ``temporal_bucket(value: TS[datetime], width: TS[timedelta], origin: datetime = ...) -> TS[instant_range]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, value: _WiringPort | _datetime, width: _WiringPort | _timedelta, origin: _datetime = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4194,9 +4189,9 @@ class _temporal_ceil_Operator(_Protocol):
     - ``temporal_ceil(value: TS[datetime], quantum: TS[timedelta], origin: datetime = ...) -> TS[datetime]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, value: _WiringPort | _timedelta, quantum: _WiringPort | _timedelta) -> _WiringPort: ...
@@ -4215,9 +4210,9 @@ class _temporal_floor_Operator(_Protocol):
     - ``temporal_floor(value: TS[datetime], quantum: TS[timedelta], origin: datetime = ...) -> TS[datetime]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, value: _WiringPort | _timedelta, quantum: _WiringPort | _timedelta) -> _WiringPort: ...
@@ -4236,9 +4231,9 @@ class _temporal_round_Operator(_Protocol):
     - ``temporal_round(value: TS[datetime], quantum: TS[timedelta], origin: datetime = ...) -> TS[datetime]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, value: _WiringPort | _timedelta, quantum: _WiringPort | _timedelta) -> _WiringPort: ...
@@ -4253,12 +4248,12 @@ class _throttle_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``throttle(ts: S, period: TS[timedelta], delay_first_tick: bool = ...) -> S``
+    - ``throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = ...) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, period: _WiringPort | _timedelta, delay_first_tick: bool = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4273,9 +4268,9 @@ class _timestamp_Operator(_Protocol):
     - ``timestamp(ts: TS[datetime]) -> TS[float]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | _datetime) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4290,9 +4285,9 @@ class _to_civil_Operator(_Protocol):
     - ``to_civil(value: TS[zoned_datetime]) -> TS[civil_datetime]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, value: _WiringPort | _ZonedDateTime) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4305,12 +4300,12 @@ class _to_data_frame_Operator(_Protocol):
     Accepted native overloads:
 
     - ``to_data_frame(ts: TSD[K, V], dt_col: str = ..., key_col: str = ..., value_col: str = ...) -> OUT``
-    - ``to_data_frame(ts: S, dt_col: str = ..., key_col: str = ..., value_col: str = ...) -> OUT``
+    - ``to_data_frame(ts: TIME_SERIES_TYPE, dt_col: str = ..., key_col: str = ..., value_col: str = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, dt_col: str = ..., key_col: str = ..., value_col: str = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4325,9 +4320,9 @@ class _to_instant_Operator(_Protocol):
     - ``to_instant(value: TS[zoned_datetime]) -> TS[datetime]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, value: _WiringPort | _ZonedDateTime) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4343,13 +4338,13 @@ class _to_json_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``to_json(ts: S, delta: bool = ...) -> TS[str]``
-    - ``to_json(ts: S, delta: bool) -> TS[str]``
+    - ``to_json(ts: TIME_SERIES_TYPE, delta: bool = ...) -> TS[str]``
+    - ``to_json(ts: TIME_SERIES_TYPE, delta: bool) -> TS[str]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object, delta: bool = ...) -> _WiringPort: ...
@@ -4366,12 +4361,12 @@ class _to_table_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``to_table(ts: S, mode: TS[M] = ...) -> OUT``
+    - ``to_table(ts: TIME_SERIES_TYPE, mode: TS[SCALAR] = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, mode: _WiringPort | object = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4383,15 +4378,15 @@ class _to_window_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``to_window(ts: TS[T], period: int, min_window_period: int = ...) -> OUT``
-    - ``to_window(ts: TS[T], period: int, min_window_period: int = ..., reset: SIGNAL) -> OUT``
-    - ``to_window(ts: TS[T], period: timedelta, min_window_period: timedelta = ...) -> OUT``
-    - ``to_window(ts: TS[T], period: timedelta, min_window_period: timedelta = ..., reset: SIGNAL) -> OUT``
+    - ``to_window(ts: TS[SCALAR], period: int, min_window_period: int = ...) -> OUT``
+    - ``to_window(ts: TS[SCALAR], period: int, min_window_period: int = ..., reset: SIGNAL) -> OUT``
+    - ``to_window(ts: TS[SCALAR], period: timedelta, min_window_period: timedelta = ...) -> OUT``
+    - ``to_window(ts: TS[SCALAR], period: timedelta, min_window_period: timedelta = ..., reset: SIGNAL) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object, period: int, min_window_period: int = ...) -> _WiringPort: ...
@@ -4417,9 +4412,9 @@ class _total_seconds_Operator(_Protocol):
     - ``total_seconds(ts: TS[timedelta]) -> TS[float]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | _timedelta) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4431,12 +4426,12 @@ class _type__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``type_(ts: S) -> TS[Any]``
+    - ``type_(ts: TIME_SERIES_TYPE) -> TS[Any]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4448,13 +4443,13 @@ class _uncollapse_keys_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``uncollapse_keys(ts: S) -> O``
+    - ``uncollapse_keys(ts: TIME_SERIES_TYPE) -> OUT``
     - ``uncollapse_keys(ts: TSD[K, V], remove_empty: bool = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
@@ -4471,13 +4466,13 @@ class _ungroup_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``ungroup(ts: S) -> TS[Frame[O]]``
-    - ``ungroup(ts: S, key_col: C) -> TS[Frame[O]]``
+    - ``ungroup(ts: TIME_SERIES_TYPE) -> TS[Frame[OUT]]``
+    - ``ungroup(ts: TIME_SERIES_TYPE, key_col: SCALAR) -> TS[Frame[OUT]]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
@@ -4492,12 +4487,12 @@ class _union_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``union(*ts: S) -> OUT``
+    - ``union(*ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, *ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4509,12 +4504,12 @@ class _unpartition_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``unpartition(ts: TSD[K1, TSD[K, V]]) -> TSD[K, V]``
+    - ``unpartition(ts: TSD[K_1, TSD[K, V]]) -> TSD[K, V]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4527,13 +4522,13 @@ class _until_true_Operator(_Protocol):
     Accepted native overloads:
 
     - ``until_true(ts: TS[bool]) -> TS[bool]``
-    - ``until_true(predicate: callable, ts: S) -> TS[bool]``
-    - ``until_true(predicate: fn, ts: S) -> OUT``
+    - ``until_true(predicate: callable, ts: TIME_SERIES_TYPE) -> TS[bool]``
+    - ``until_true(predicate: fn, ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | bool) -> _WiringPort: ...
@@ -4548,13 +4543,13 @@ class _valid_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``valid(ts: S) -> TS[bool]``
-    - ``valid(ts: REF[S]) -> OUT``
+    - ``valid(ts: TIME_SERIES_TYPE) -> TS[bool]``
+    - ``valid(ts: REF[TIME_SERIES_TYPE]) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4566,13 +4561,13 @@ class _values__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``values_(ts: TSD[K, V]) -> TSS[E]``
-    - ``values_(ts: S) -> O``
+    - ``values_(ts: TSD[K, V]) -> TSS[SCALAR]``
+    - ``values_(ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4584,27 +4579,27 @@ class _var_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``var(ts: TS[T]) -> TS[E]``
-    - ``var(ts: TS[T], default_value: TS[E]) -> TS[E]``
+    - ``var(ts: TS[SCALAR]) -> TS[SCALAR_1]``
+    - ``var(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]``
     - ``var(ts: TS[int]) -> TS[float]``
     - ``var(ts: TS[float]) -> TS[float]``
     - ``var(ts: TSS[int]) -> TS[float]``
     - ``var(ts: TSS[float]) -> TS[float]``
     - ``var(ts: TSD[K, TS[int]]) -> TS[float]``
     - ``var(ts: TSD[K, TS[float]]) -> TS[float]``
-    - ``var(ts: TSL[TS[int], N]) -> TS[float]``
-    - ``var(ts: TSL[TS[float], N]) -> TS[float]``
+    - ``var(ts: TSL[TS[int], SIZE]) -> TS[float]``
+    - ``var(ts: TSL[TS[float], SIZE]) -> TS[float]``
     - ``var(lhs: TS[int], rhs: TS[int]) -> TS[float]``
     - ``var(lhs: TS[float], rhs: TS[float]) -> TS[float]``
     - ``var(lhs: TS[int], rhs: TS[float]) -> TS[float]``
     - ``var(lhs: TS[float], rhs: TS[int]) -> TS[float]``
-    - ``var(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT``
-    - ``var(lhs: L, rhs: R) -> OUT``
+    - ``var(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``var(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
@@ -4637,9 +4632,9 @@ class _weekday_Operator(_Protocol):
     - ``weekday(ts: TS[datetime]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | _date) -> _WiringPort: ...
@@ -4654,13 +4649,13 @@ class _window_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``window(ts: TS[T], period: int, min_window_period: int = ...) -> OUT``
-    - ``window(ts: TS[T], period: timedelta, min_window_period: timedelta = ...) -> OUT``
+    - ``window(ts: TS[SCALAR], period: int, min_window_period: int = ...) -> OUT``
+    - ``window(ts: TS[SCALAR], period: timedelta, min_window_period: timedelta = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | object, period: int, min_window_period: int = ...) -> _WiringPort: ...
@@ -4675,13 +4670,13 @@ class _with_columns_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``with_columns(ts: TS[Frame[R]], columns: C) -> TS[Frame[O]]``
-    - ``with_columns(ts: TS[Frame[R, M]], columns: C) -> TS[Frame[O, M]]``
+    - ``with_columns(ts: TS[Frame[SCALAR]], columns: TIME_SERIES_TYPE) -> TS[Frame[OUT]]``
+    - ``with_columns(ts: TS[Frame[SCALAR, SCALAR_1]], columns: TIME_SERIES_TYPE) -> TS[Frame[OUT, SCALAR_1]]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, ts: _WiringPort | object, columns: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4697,9 +4692,9 @@ class _year_Operator(_Protocol):
     - ``year(ts: TS[datetime]) -> TS[int]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
     def __call__(self, ts: _WiringPort | _date) -> _WiringPort: ...
@@ -4720,9 +4715,9 @@ class _zero_Operator(_Protocol):
     - ``zero(op: fn) -> TSD[K, V]``
 
     Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Capitalized names
-    are wiring-time type variables; ``SIZE`` means any fixed TSL length
-    and ``OUT`` is an output inferred during wiring."""
+    values that can be lifted to constant sources. Generic names use
+    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
+    ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     def __call__(self, op: _Callable[..., object]) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...

@@ -5,11 +5,11 @@ serialized because the stack and native operator registry are process-wide;
 the serialization ends once the native executor has been built, so distinct
 executors may run concurrently. ``_wiring_stack`` is THE single list object:
 tests and C++ re-entry mutate it in place; nothing may rebind it."""
-import re
 import threading
 
 import _hgraph
 
+from .._operator_signature import PublicTypePatternFormatter
 from .._types import _TsExpr
 from ._sentinels import _REDUCE_ZERO
 
@@ -148,45 +148,42 @@ def _unique_operator_signatures(signatures):
     return tuple(dict.fromkeys(_operator_signature_key(signature) for signature in signatures))
 
 
-def _public_operator_type_pattern(pattern):
-    """Remove native registry notation from an end-user type pattern."""
-    def type_variable(match):
-        name = match.group(1).strip("_")
-        return name.upper() if name else "TYPE"
-
-    pattern = re.sub(r"~([A-Za-z_][A-Za-z0-9_]*)", type_variable, pattern)
-    # A zero TSL size is the native wildcard sentinel, not a zero-length list.
-    return pattern.replace(", 0]", ", SIZE]")
-
-
 def _format_operator_signature(name, signature_key):
     (raw_parameters, variadic, positional_params, has_kwargs,
      kwargs_pattern, has_output, output_pattern) = signature_key
     parameters = list(raw_parameters)
+    formatter = PublicTypePatternFormatter()
     variadic_parameter = parameters.pop() if variadic and parameters else None
     positional_count = min(positional_params, len(parameters))
     rendered = []
-    for index, (parameter_name, _, type_pattern, has_default) in enumerate(
+    for index, (parameter_name, is_time_series, type_pattern, has_default) in enumerate(
             parameters[:positional_count]):
         parameter_name = parameter_name or f"arg{index}"
-        type_pattern = _public_operator_type_pattern(type_pattern)
+        type_pattern = formatter.format(
+            type_pattern, category="time_series" if is_time_series else "scalar")
         rendered.append(f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}")
     if variadic_parameter is not None:
-        parameter_name, _, type_pattern, _ = variadic_parameter
+        parameter_name, is_time_series, type_pattern, _ = variadic_parameter
         parameter_name = parameter_name or "args"
-        type_pattern = _public_operator_type_pattern(type_pattern)
+        type_pattern = formatter.format(
+            type_pattern, category="time_series" if is_time_series else "scalar")
         rendered.append(f"*{parameter_name}: {type_pattern}")
     elif positional_count < len(parameters):
         rendered.append("*")
-    for index, (parameter_name, _, type_pattern, has_default) in enumerate(
+    for index, (parameter_name, is_time_series, type_pattern, has_default) in enumerate(
             parameters[positional_count:], start=positional_count):
         parameter_name = parameter_name or f"arg{index}"
-        type_pattern = _public_operator_type_pattern(type_pattern)
+        type_pattern = formatter.format(
+            type_pattern, category="time_series" if is_time_series else "scalar")
         rendered.append(f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}")
     if has_kwargs:
-        kwargs_pattern = _public_operator_type_pattern(kwargs_pattern or "time-series")
+        kwargs_pattern = formatter.format(
+            kwargs_pattern or "time-series", category="time_series")
         rendered.append(f"**kwargs: {kwargs_pattern}")
-    output = _public_operator_type_pattern(output_pattern) if has_output else "None"
+    output = (
+        formatter.format(output_pattern, category="time_series", output=True)
+        if has_output else "None"
+    )
     return f"{name}({', '.join(rendered)}) -> {output}"
 
 
@@ -215,8 +212,9 @@ def _operator_documentation(name, signatures):
         "",
         "Time-series parameters accept wiring ports and compatible plain values",
         "that can be lifted to constant sources.",
-        "Capitalized names are wiring-time type variables; SIZE means any fixed",
-        "TSL length and OUT is an output inferred during wiring.",
+        "Generic names use the public Python vocabulary: SCALAR for scalar",
+        "payloads, TIME_SERIES_TYPE for complete time-series types, SIZE for a",
+        "fixed TSL length, and OUT for an output inferred during wiring.",
     ])
     return "\n".join(lines)
 

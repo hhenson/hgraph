@@ -8,9 +8,10 @@ semantic documentation on the public C++ declarations. Each signature is
 an accepted native wiring overload. ``TS[...]`` parameters accept wiring
 ports and, where dispatch permits, compatible plain values that are lifted
 to constant sources. ``...`` marks a default supplied by the overload.
-Capitalized identifiers such as ``S`` and ``T`` are wiring-time type
-variables; ``SIZE`` means any fixed TSL length and ``OUT`` is an output
-inferred during wiring.
+Generic names use the public Python vocabulary: ``SCALAR`` for scalar
+payloads, ``TIME_SERIES_TYPE`` for complete time-series types, ``SIZE``
+for a fixed TSL length, and ``OUT`` for an inferred output. ``K`` and ``V``
+retain their conventional key/value relationships.
 
 Explicit helpers have a curated Python entry point in addition to their
 native overloads. Lazy operators are resolved from ``hgraph`` on first use.
@@ -24,7 +25,7 @@ native overloads. Lazy operators are resolved from ``hgraph`` on first use.
 ``abs_``
 --------
 
-``abs_`` — the ``abs`` operator (``abs(ts) -> O``).
+``abs_`` — the ``abs`` operator (``abs(ts) -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -35,15 +36,15 @@ Accepted native overloads
    abs_(ts: TS[int]) -> TS[int]
    abs_(ts: TS[float]) -> TS[float]
    abs_(ts: TS[timedelta]) -> TS[timedelta]
-   abs_(ts: TSL[S, SIZE]) -> OUT
-   abs_(ts: S) -> OUT
+   abs_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT
+   abs_(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-add_:
 
 ``add_``
 --------
 
-``add_`` — the ``+`` operator. Operands and result may all differ (``L + R -> O``).
+``add_`` — the ``+`` operator. Operands and result may all differ (``lhs + rhs -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -67,13 +68,13 @@ Accepted native overloads
    add_(lhs: TS[timedelta], rhs: TS[zoned_datetime]) -> TS[zoned_datetime]
    add_(lhs: TS[date], rhs: TS[period], month_end_policy: month_end_policy = ...) -> TS[date]
    add_(lhs: TS[civil_datetime], rhs: TS[period], month_end_policy: month_end_policy = ...) -> TS[civil_datetime]
-   add_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   add_(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   add_(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   add_(lhs: L, rhs: R) -> OUT
-   add_(lhs: TS[T], rhs: TS[T]) -> TS[T]
-   add_(lhs: TS[T], rhs: TS[T], __strict__: bool = ...) -> OUT
-   add_(lhs: TS[T], rhs: TS[E]) -> OUT
+   add_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   add_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   add_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
+   add_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]
+   add_(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = ...) -> OUT
+   add_(lhs: TS[SCALAR], rhs: TS[SCALAR_1]) -> OUT
    add_(lhs: TSS[K], rhs: TS[K]) -> TSS[K]
 
 .. _python-operator-all_:
@@ -105,7 +106,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   and_(lhs: TS[T], rhs: TS[T]) -> TS[bool]
+   and_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
    and_(lhs: TS[bool], rhs: TS[bool]) -> TS[bool]
    and_(lhs: TS[int], rhs: TS[int]) -> TS[bool]
    and_(lhs: TS[float], rhs: TS[float]) -> TS[bool]
@@ -143,7 +144,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   apply(fn: TS[callable], *args: S, **kwargs: time-series) -> OUT
+   apply(fn: TS[callable], *args: TIME_SERIES_TYPE, **kwargs: time-series) -> OUT
 
 .. _python-operator-as_array:
 
@@ -158,8 +159,9 @@ Accepted native overloads
 
 .. code-block:: text
 
-   as_array(tsw: W) -> OUT
-   as_array(tsw: W, zero: Z) -> OUT
+   as_array(tsw: TIME_SERIES_TYPE) -> OUT
+   as_array(tsw: TIME_SERIES_TYPE, zero: TIME_SERIES_TYPE_1) -> OUT
+   as_array(tsw: TIME_SERIES_TYPE, zero: SCALAR) -> OUT
 
 .. _python-operator-assert_:
 
@@ -175,7 +177,7 @@ Accepted native overloads
 .. code-block:: text
 
    assert_(condition: TS[bool], error_msg: str) -> None
-   assert_(condition: TS[bool], error_msg: str, *args: B, **kwargs: time-series) -> None
+   assert_(condition: TS[bool], error_msg: str, *args: TIME_SERIES_TYPE, **kwargs: time-series) -> None
 
 .. _python-operator-at_zone:
 
@@ -205,14 +207,14 @@ Accepted native overloads
 
 .. code-block:: text
 
-   batch(condition: TS[bool], ts: S, delay: timedelta, buffer_length: int = ...) -> OUT
+   batch(condition: TS[bool], ts: TIME_SERIES_TYPE, delay: timedelta, buffer_length: int = ...) -> OUT
 
 .. _python-operator-bit_and:
 
 ``bit_and``
 -----------
 
-``bit_and`` — the ``&`` operator (``L & R -> O``).
+``bit_and`` — the ``&`` operator (``lhs & rhs -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -220,14 +222,14 @@ Accepted native overloads
 
 .. code-block:: text
 
-   bit_and(lhs: TS[T], rhs: TS[T]) -> TS[T]
+   bit_and(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]
    bit_and(lhs: TS[int], rhs: TS[int]) -> TS[int]
    bit_and(lhs: TS[bool], rhs: TS[bool]) -> TS[bool]
-   bit_and(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   bit_and(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   bit_and(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   bit_and(lhs: L, rhs: R) -> OUT
-   bit_and(*ts: S) -> OUT
+   bit_and(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   bit_and(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   bit_and(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   bit_and(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
+   bit_and(*ts: TIME_SERIES_TYPE) -> OUT
    bit_and(lhs: TSD[K, V], rhs: TSD[K, V]) -> TSD[K, V]
 
 .. _python-operator-bit_or:
@@ -235,7 +237,7 @@ Accepted native overloads
 ``bit_or``
 ----------
 
-``bit_or`` — the ``|`` operator (``L | R -> O``).
+``bit_or`` — the ``|`` operator (``lhs | rhs -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -243,14 +245,14 @@ Accepted native overloads
 
 .. code-block:: text
 
-   bit_or(lhs: TS[T], rhs: TS[T]) -> TS[T]
+   bit_or(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]
    bit_or(lhs: TS[int], rhs: TS[int]) -> TS[int]
    bit_or(lhs: TS[bool], rhs: TS[bool]) -> TS[bool]
-   bit_or(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   bit_or(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   bit_or(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   bit_or(lhs: L, rhs: R) -> OUT
-   bit_or(*ts: S) -> OUT
+   bit_or(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   bit_or(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   bit_or(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   bit_or(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
+   bit_or(*ts: TIME_SERIES_TYPE) -> OUT
    bit_or(lhs: TSD[K, V], rhs: TSD[K, V]) -> TSD[K, V]
 
 .. _python-operator-bit_xor:
@@ -258,7 +260,7 @@ Accepted native overloads
 ``bit_xor``
 -----------
 
-``bit_xor`` — the ``^`` operator (``L ^ R -> O``).
+``bit_xor`` — the ``^`` operator (``lhs ^ rhs -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -266,14 +268,14 @@ Accepted native overloads
 
 .. code-block:: text
 
-   bit_xor(lhs: TS[T], rhs: TS[T]) -> TS[T]
+   bit_xor(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]
    bit_xor(lhs: TS[int], rhs: TS[int]) -> TS[int]
    bit_xor(lhs: TS[bool], rhs: TS[bool]) -> TS[bool]
-   bit_xor(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   bit_xor(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   bit_xor(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   bit_xor(lhs: L, rhs: R) -> OUT
-   bit_xor(*ts: S) -> OUT
+   bit_xor(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   bit_xor(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   bit_xor(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   bit_xor(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
+   bit_xor(*ts: TIME_SERIES_TYPE) -> OUT
    bit_xor(lhs: TSD[K, V], rhs: TSD[K, V]) -> TSD[K, V]
 
 .. _python-operator-call:
@@ -289,7 +291,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   call(fn: TS[callable], *args: S, **kwargs: time-series) -> None
+   call(fn: TS[callable], *args: TIME_SERIES_TYPE, **kwargs: time-series) -> None
 
 .. _python-operator-clip:
 
@@ -327,7 +329,7 @@ Accepted native overloads
    cmp_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[CmpResult]
    cmp_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[CmpResult]
    cmp_(lhs: TS[bool], rhs: TS[bool]) -> TS[CmpResult]
-   cmp_(lhs: TS[T], rhs: TS[T]) -> TS[CmpResult]
+   cmp_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[CmpResult]
    cmp_(lhs: TS[int], rhs: TS[float]) -> TS[CmpResult]
    cmp_(lhs: TS[float], rhs: TS[int]) -> TS[CmpResult]
 
@@ -344,7 +346,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   collapse_keys(ts: S) -> O
+   collapse_keys(ts: TIME_SERIES_TYPE) -> OUT
    collapse_keys(ts: TSD[K, V]) -> OUT
 
 .. _python-operator-collect:
@@ -360,9 +362,9 @@ Accepted native overloads
 
 .. code-block:: text
 
-   collect(ts: S, reset: TS[bool] = ...) -> OUT
-   collect(key: K, ts: S, reset: TS[bool] = ...) -> OUT
-   collect(ts: S, reset: TS[bool] = ..., exclude: E = ...) -> OUT
+   collect(ts: TIME_SERIES_TYPE, reset: TS[bool] = ...) -> OUT
+   collect(key: K, ts: TIME_SERIES_TYPE, reset: TS[bool] = ...) -> OUT
+   collect(ts: TIME_SERIES_TYPE, reset: TS[bool] = ..., exclude: TIME_SERIES_TYPE_1 = ...) -> OUT
 
 .. _python-operator-combine:
 
@@ -381,10 +383,10 @@ Accepted native overloads
    combine(weeks: TS[int], days: TS[int], hours: TS[int], minutes: TS[int], seconds: TS[int], milliseconds: TS[int], microseconds: TS[int]) -> TS[timedelta]
    combine(weeks: TS[int], days: TS[int], hours: TS[int], minutes: TS[int], seconds: TS[int], milliseconds: TS[int], microseconds: TS[int], __strict__: bool) -> TS[timedelta]
    combine(date: TS[date], time: TS[time]) -> TS[datetime]
-   combine(ts: S, __strict__: bool) -> OUT
-   combine(*ts: TS[T]) -> OUT
-   combine(ts: S) -> OUT
-   combine(orig: A, delta: B) -> O
+   combine(ts: TIME_SERIES_TYPE, __strict__: bool) -> OUT
+   combine(*ts: TS[SCALAR]) -> OUT
+   combine(ts: TIME_SERIES_TYPE) -> OUT
+   combine(orig: TIME_SERIES_TYPE, delta: TIME_SERIES_TYPE_1) -> OUT
 
 .. _python-operator-combine_cs:
 
@@ -399,8 +401,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   combine_cs(ts: S) -> OUT
-   combine_cs(ts: S, __strict__: bool) -> OUT
+   combine_cs(ts: TIME_SERIES_TYPE) -> OUT
+   combine_cs(ts: TIME_SERIES_TYPE, __strict__: bool) -> OUT
 
 .. _python-operator-combine_json:
 
@@ -430,7 +432,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   combine_map(keys: A, values: B) -> O
+   combine_map(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1) -> OUT
 
 .. _python-operator-combine_tsd:
 
@@ -445,10 +447,10 @@ Accepted native overloads
 
 .. code-block:: text
 
-   combine_tsd(keys: A, values: B, __strict__: bool = ...) -> O
-   combine_tsd(keys: KS, values: B, __strict__: bool = ...) -> O
-   combine_tsd(keys: A, values: B) -> O
-   combine_tsd(keys: KS, *values: V, __strict__: bool = ...) -> OUT
+   combine_tsd(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1, __strict__: bool = ...) -> OUT
+   combine_tsd(keys: SCALAR, values: TIME_SERIES_TYPE, __strict__: bool = ...) -> OUT
+   combine_tsd(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1) -> OUT
+   combine_tsd(keys: SCALAR, *values: V, __strict__: bool = ...) -> OUT
 
 .. _python-operator-combine_tss_from_tsl:
 
@@ -463,7 +465,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   combine_tss_from_tsl(ts: TSL[TS[T], N]) -> OUT
+   combine_tss_from_tsl(ts: TSL[TS[SCALAR], SIZE]) -> OUT
 
 .. _python-operator-compare:
 
@@ -478,8 +480,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   compare(lhs: S, rhs: S, recordable_id: str) -> None
-   compare(lhs: S, rhs: S, recordable_id: str = ...) -> None
+   compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str) -> None
+   compare(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE, recordable_id: str = ...) -> None
 
 .. _python-operator-concat:
 
@@ -494,8 +496,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   concat(ts1: TS[Frame[R]], ts2: TS[Frame[R]]) -> TS[Frame[R]]
-   concat(ts1: TS[Frame[R, M]], ts2: TS[Frame[R, M]]) -> TS[Frame[R, M]]
+   concat(ts1: TS[Frame[SCALAR]], ts2: TS[Frame[SCALAR]]) -> TS[Frame[SCALAR]]
+   concat(ts1: TS[Frame[SCALAR, SCALAR_1]], ts2: TS[Frame[SCALAR, SCALAR_1]]) -> TS[Frame[SCALAR, SCALAR_1]]
 
 .. _python-operator-const:
 
@@ -510,8 +512,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   const(value: T) -> S
-   const(value: T, delay: timedelta) -> S
+   const(value: SCALAR) -> OUT
+   const(value: SCALAR, delay: timedelta) -> OUT
 
 .. _python-operator-contains_:
 
@@ -530,9 +532,8 @@ Accepted native overloads
    contains_(ts: TSS[K], item: TS[K]) -> TS[bool]
    contains_(ts: TSS[K], item: TSS[K]) -> TS[bool]
    contains_(ts: TSD[K, V], item: TS[K]) -> TS[bool]
-   contains_(ts: S, item: I) -> TS[bool]
-   contains_(ts: TS[T], item: TS[E]) -> TS[bool]
-   contains_(ts: TS[S], item: TS[I]) -> TS[bool]
+   contains_(ts: TIME_SERIES_TYPE, item: TIME_SERIES_TYPE_1) -> TS[bool]
+   contains_(ts: TS[SCALAR], item: TS[SCALAR_1]) -> TS[bool]
 
 .. _python-operator-convert:
 
@@ -547,9 +548,9 @@ Accepted native overloads
 
 .. code-block:: text
 
-   convert(ts: S) -> OUT
-   convert(ts: S) -> TS[Any]
-   convert(ts: TS[Any]) -> O
+   convert(ts: TIME_SERIES_TYPE) -> OUT
+   convert(ts: TIME_SERIES_TYPE) -> TS[Any]
+   convert(ts: TS[Any]) -> OUT
    convert(ts: TS[int]) -> TS[float]
    convert(ts: TS[float]) -> TS[int]
    convert(ts: TS[int]) -> TS[bool]
@@ -561,16 +562,16 @@ Accepted native overloads
    convert(ts: TS[int]) -> TS[str]
    convert(ts: TS[float]) -> TS[str]
    convert(ts: TS[bool]) -> TS[str]
-   convert(ts: S) -> TS[str]
-   convert(ts: S) -> TS[bool]
+   convert(ts: TIME_SERIES_TYPE) -> TS[str]
+   convert(ts: TIME_SERIES_TYPE) -> TS[bool]
    convert(ts: TS[date]) -> TS[datetime]
    convert(ts: TS[datetime]) -> TS[date]
-   convert(ts: TS[S]) -> OUT
-   convert(key: K, ts: S) -> OUT
-   convert(ts: S, __strict__: bool) -> OUT
-   convert(ts: S, __strict__: bool = ...) -> OUT
-   convert(ts: S, keys: KS) -> OUT
-   convert(ts: S, mapping: M = ...) -> OUT
+   convert(ts: TS[SCALAR]) -> OUT
+   convert(key: K, ts: TIME_SERIES_TYPE) -> OUT
+   convert(ts: TIME_SERIES_TYPE, __strict__: bool) -> OUT
+   convert(ts: TIME_SERIES_TYPE, __strict__: bool = ...) -> OUT
+   convert(ts: TIME_SERIES_TYPE, keys: SCALAR) -> OUT
+   convert(ts: TIME_SERIES_TYPE, mapping: SCALAR = ...) -> OUT
 
 .. _python-operator-convert_zone:
 
@@ -600,10 +601,10 @@ Accepted native overloads
 
 .. code-block:: text
 
-   corrcoef(x: X) -> OUT
-   corrcoef(x: X, y: Y) -> OUT
-   corrcoef(x: X, rowvar: bool) -> OUT
-   corrcoef(x: X, y: Y, rowvar: bool) -> OUT
+   corrcoef(x: TIME_SERIES_TYPE) -> OUT
+   corrcoef(x: TIME_SERIES_TYPE, y: TIME_SERIES_TYPE_1) -> OUT
+   corrcoef(x: TIME_SERIES_TYPE, rowvar: bool) -> OUT
+   corrcoef(x: TIME_SERIES_TYPE, y: TIME_SERIES_TYPE_1, rowvar: bool) -> OUT
 
 .. _python-operator-count:
 
@@ -634,8 +635,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   cumsum(a: A) -> OUT
-   cumsum(a: A, axis: int) -> OUT
+   cumsum(a: TIME_SERIES_TYPE) -> OUT
+   cumsum(a: TIME_SERIES_TYPE, axis: int) -> OUT
 
 .. _python-operator-day:
 
@@ -697,7 +698,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   debug_print(label: str, ts: S, sample: int = ...) -> None
+   debug_print(label: str, ts: TIME_SERIES_TYPE, sample: int = ...) -> None
 
 .. _python-operator-dedup:
 
@@ -712,12 +713,12 @@ Accepted native overloads
 
 .. code-block:: text
 
-   dedup(ts: TS[T]) -> TS[T]
+   dedup(ts: TS[SCALAR]) -> TS[SCALAR]
    dedup(ts: TS[float], abs_tol: TS[float] = ...) -> TS[float]
    dedup(ts: TSD[K, V]) -> OUT
    dedup(ts: TSS[K]) -> TSS[K]
-   dedup(ts: TSL[S, SIZE]) -> OUT
-   dedup(ts: S) -> OUT
+   dedup(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT
+   dedup(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-default:
 
@@ -732,7 +733,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   default(ts: S, default_value: S) -> OUT
+   default(ts: TIME_SERIES_TYPE, default_value: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-dereference:
 
@@ -747,7 +748,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   dereference(tsb: REF[S]) -> OUT
+   dereference(tsb: REF[TIME_SERIES_TYPE]) -> OUT
 
 .. _python-operator-diff:
 
@@ -778,7 +779,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   difference(*ts: S) -> OUT
+   difference(*ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-dispatch_:
 
@@ -793,14 +794,14 @@ Accepted native overloads
 
 .. code-block:: text
 
-   dispatch_(cases: dispatch_cases, *ts: TS, **kwargs: time-series) -> OUT
+   dispatch_(cases: dispatch_cases, *ts: TIME_SERIES_TYPE, **kwargs: time-series) -> OUT
 
 .. _python-operator-div_:
 
 ``div_``
 --------
 
-``div_`` — the ``/`` (true division) operator (``L / R -> O``). Implementations may take an optional ``Scalar<"divide_by_zero", DivideByZero>`` wiring-time policy.
+``div_`` — the ``/`` (true division) operator (``lhs / rhs -> OUT``). Implementations may take an optional ``Scalar<"divide_by_zero", DivideByZero>`` wiring-time policy.
 
 Python exposure: lazy native operator proxy.
 
@@ -819,10 +820,10 @@ Accepted native overloads
    div_(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero = ...) -> TS[float]
    div_(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero = ...) -> TS[float]
    div_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[float]
-   div_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   div_(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   div_(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   div_(lhs: L, rhs: R) -> OUT
+   div_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   div_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   div_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
 
 .. _python-operator-divmod_:
 
@@ -855,7 +856,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   downcast_(ts: S) -> OUT
+   downcast_(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-downcast_ref:
 
@@ -870,7 +871,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   downcast_ref(ts: REF[S]) -> REF[O]
+   downcast_ref(ts: REF[TIME_SERIES_TYPE]) -> REF[OUT]
 
 .. _python-operator-drop:
 
@@ -885,8 +886,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   drop(ts: S, count: int) -> S
-   drop(ts: S, period: timedelta) -> S
+   drop(ts: TIME_SERIES_TYPE, count: int) -> TIME_SERIES_TYPE
+   drop(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE
 
 .. _python-operator-emit:
 
@@ -901,7 +902,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   emit(ts: S) -> OUT
+   emit(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-eq_:
 
@@ -925,9 +926,9 @@ Accepted native overloads
    eq_(lhs: TS[float], rhs: TS[float], epsilon: float = ...) -> TS[bool]
    eq_(lhs: TS[int], rhs: TS[float], epsilon: float = ...) -> TS[bool]
    eq_(lhs: TS[float], rhs: TS[int], epsilon: float = ...) -> TS[bool]
-   eq_(lhs: TSL[L, N], rhs: TSL[R, N]) -> TS[bool]
-   eq_(lhs: TS[T], rhs: TS[T]) -> TS[bool]
-   eq_(lhs: L, rhs: R) -> TS[bool]
+   eq_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> TS[bool]
+   eq_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
+   eq_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> TS[bool]
    eq_(lhs: TSS[K], rhs: TSS[K]) -> TS[bool]
    eq_(lhs: TSD[K, V], rhs: TSD[K, V]) -> TS[bool]
    eq_(lhs: TSD[K, TS[float]], rhs: TSD[K, TS[float]], epsilon: TS[float]) -> TS[bool]
@@ -992,7 +993,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   filter_(condition: TS[bool], ts: S) -> S
+   filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE
 
 .. _python-operator-filter_cs:
 
@@ -1007,8 +1008,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   filter_cs(ts: TS[Frame[R]], predicate: TS[P]) -> TS[Frame[R]]
-   filter_cs(ts: TS[Frame[R, M]], predicate: TS[P]) -> TS[Frame[R, M]]
+   filter_cs(ts: TS[Frame[SCALAR]], predicate: TS[SCALAR_1]) -> TS[Frame[SCALAR]]
+   filter_cs(ts: TS[Frame[SCALAR, SCALAR_1]], predicate: TS[SCALAR_2]) -> TS[Frame[SCALAR, SCALAR_1]]
 
 .. _python-operator-filter_frame:
 
@@ -1023,8 +1024,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   filter_frame(ts: TS[Frame[R]], predicate: P) -> TS[Frame[R]]
-   filter_frame(ts: TS[Frame[R, M]], predicate: P) -> TS[Frame[R, M]]
+   filter_frame(ts: TS[Frame[SCALAR]], predicate: TIME_SERIES_TYPE) -> TS[Frame[SCALAR]]
+   filter_frame(ts: TS[Frame[SCALAR, SCALAR_1]], predicate: TIME_SERIES_TYPE) -> TS[Frame[SCALAR, SCALAR_1]]
 
 .. _python-operator-filter_tsd_by_matches:
 
@@ -1054,9 +1055,9 @@ Accepted native overloads
 
 .. code-block:: text
 
-   flip(ts: S) -> O
-   flip(ts: TSD[K, TS[K1]], unique: bool = ...) -> TSD[K1, TS[K]]
-   flip(ts: TSD[K, TS[K1]], unique: bool = ...) -> TSD[K1, TSS[K]]
+   flip(ts: TIME_SERIES_TYPE) -> OUT
+   flip(ts: TSD[K, TS[K_1]], unique: bool = ...) -> TSD[K_1, TS[K]]
+   flip(ts: TSD[K, TS[K_1]], unique: bool = ...) -> TSD[K_1, TSS[K]]
 
 .. _python-operator-flip_keys:
 
@@ -1071,7 +1072,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   flip_keys(ts: S) -> O
+   flip_keys(ts: TIME_SERIES_TYPE) -> OUT
    flip_keys(ts: TSD[K, V]) -> OUT
 
 .. _python-operator-floordiv_:
@@ -1079,7 +1080,7 @@ Accepted native overloads
 ``floordiv_``
 -------------
 
-``floordiv_`` — the ``//`` (floor division) operator (``L // R -> O``).
+``floordiv_`` — the ``//`` (floor division) operator (``lhs // rhs -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -1095,10 +1096,10 @@ Accepted native overloads
    floordiv_(lhs: TS[float], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]
    floordiv_(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]
    floordiv_(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero) -> TS[float]
-   floordiv_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   floordiv_(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   floordiv_(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   floordiv_(lhs: L, rhs: R) -> OUT
+   floordiv_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   floordiv_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   floordiv_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   floordiv_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
 
 .. _python-operator-format_:
 
@@ -1113,7 +1114,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   format_(arg0: TS[str], *args: A, __sample__: int = ..., __strict__: bool = ..., **kwargs: time-series) -> TS[str]
+   format_(arg0: TS[str], *args: TIME_SERIES_TYPE, __sample__: int = ..., __strict__: bool = ..., **kwargs: time-series) -> TS[str]
 
 .. _python-operator-freeze:
 
@@ -1128,9 +1129,9 @@ Accepted native overloads
 
 .. code-block:: text
 
-   freeze(predicate: TS[bool], ts: S) -> S
-   freeze(predicate: callable, ts: S) -> OUT
-   freeze(predicate: fn, ts: S) -> OUT
+   freeze(predicate: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE
+   freeze(predicate: callable, ts: TIME_SERIES_TYPE) -> OUT
+   freeze(predicate: fn, ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-from_data_frame:
 
@@ -1147,7 +1148,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   from_data_frame(df: frame, dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> O
+   from_data_frame(df: frame, dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> OUT
 
 .. _python-operator-from_data_frame_batches:
 
@@ -1162,7 +1163,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   from_data_frame_batches(frames: TS[frame], dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> O
+   from_data_frame_batches(frames: TS[frame], dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> OUT
 
 .. _python-operator-from_json:
 
@@ -1177,7 +1178,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   from_json(ts: TS[str]) -> O
+   from_json(ts: TS[str]) -> OUT
 
 .. _python-operator-from_table:
 
@@ -1192,7 +1193,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   from_table(ts: T) -> O
+   from_table(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-from_table_const:
 
@@ -1207,7 +1208,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   from_table_const(value: frame) -> O
+   from_table_const(value: frame) -> OUT
 
 .. _python-operator-gate:
 
@@ -1222,7 +1223,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   gate(condition: TS[bool], ts: S, buffer_length: int = ...) -> S
+   gate(condition: TS[bool], ts: TIME_SERIES_TYPE, buffer_length: int = ...) -> TIME_SERIES_TYPE
 
 .. _python-operator-ge_:
 
@@ -1245,7 +1246,7 @@ Accepted native overloads
    ge_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
    ge_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
    ge_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
-   ge_(lhs: TS[T], rhs: TS[T]) -> TS[bool]
+   ge_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 
 .. _python-operator-get_item:
 
@@ -1260,7 +1261,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   get_item(ts: A, idx: I) -> OUT
+   get_item(ts: TIME_SERIES_TYPE, idx: SCALAR) -> OUT
 
 .. _python-operator-getattr_:
 
@@ -1275,12 +1276,11 @@ Accepted native overloads
 
 .. code-block:: text
 
-   getattr_(ts: REF[S], attr: str) -> OUT
-   getattr_(ts: S, attr: str) -> OUT
-   getattr_(ts: TSD[K, S], attr: str) -> OUT
-   getattr_(ts: TS[E], attr: str) -> OUT
-   getattr_(ts: TS[S], attr: str) -> OUT
-   getattr_(ts: TS[S], attr: str, default: D) -> OUT
+   getattr_(ts: REF[TIME_SERIES_TYPE], attr: str) -> OUT
+   getattr_(ts: TIME_SERIES_TYPE, attr: str) -> OUT
+   getattr_(ts: TSD[K, TIME_SERIES_TYPE], attr: str) -> OUT
+   getattr_(ts: TS[SCALAR], attr: str) -> OUT
+   getattr_(ts: TS[SCALAR], attr: str, default: SCALAR_1) -> OUT
    getattr_(ts: TS[Any], attr: str) -> TS[str]
    getattr_(ts: TS[COMPOUND_SCALAR], attr: str, default_value: TS[SCALAR] = ...) -> TS[SCALAR]
 
@@ -1297,20 +1297,17 @@ Accepted native overloads
 
 .. code-block:: text
 
-   getitem_(ts: TS[T], key: TS[K]) -> TS[E]
+   getitem_(ts: TS[SCALAR], key: TS[K]) -> TS[SCALAR_1]
    getitem_(ts: TS[str], key: TS[int]) -> TS[str]
-   getitem_(ts: TSL[E, N], key: TS[int]) -> REF[E]
+   getitem_(ts: TSL[TIME_SERIES_TYPE, SIZE], key: TS[int]) -> REF[TIME_SERIES_TYPE]
    getitem_(ts: TSD[K, V], key: TS[K]) -> REF[V]
-   getitem_(ts: REF[S], key: str) -> OUT
-   getitem_(ts: REF[S], key: int) -> OUT
-   getitem_(ts: S, key: str) -> OUT
-   getitem_(ts: S, key: int) -> OUT
+   getitem_(ts: REF[TIME_SERIES_TYPE], key: str) -> OUT
+   getitem_(ts: REF[TIME_SERIES_TYPE], key: int) -> OUT
+   getitem_(ts: TIME_SERIES_TYPE, key: str) -> OUT
+   getitem_(ts: TIME_SERIES_TYPE, key: int) -> OUT
    getitem_(ts: TSD[K, V], key: TSS[K]) -> OUT
-   getitem_(ts: TS[T], key: TS[int]) -> OUT
-   getitem_(ts: S, key: str) -> O
-   getitem_(ts: S, key: int) -> O
-   getitem_(ts: TS[S], key: TS[int]) -> O
-   getitem_(ts: TS[S], key: int) -> O
+   getitem_(ts: TS[SCALAR], key: TS[int]) -> OUT
+   getitem_(ts: TS[SCALAR], key: int) -> OUT
 
 .. _python-operator-group_by:
 
@@ -1325,7 +1322,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   group_by(ts: TS[F], by: B) -> OUT
+   group_by(ts: TS[SCALAR], by: SCALAR_1) -> OUT
 
 .. _python-operator-gt_:
 
@@ -1348,7 +1345,7 @@ Accepted native overloads
    gt_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
    gt_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
    gt_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
-   gt_(lhs: TS[T], rhs: TS[T]) -> TS[bool]
+   gt_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 
 .. _python-operator-hour:
 
@@ -1379,7 +1376,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   if_(condition: TS[bool], ts: REF[S]) -> TSB[true: REF[S], false: REF[S]]
+   if_(condition: TS[bool], ts: REF[TIME_SERIES_TYPE]) -> TSB[true: REF[TIME_SERIES_TYPE], false: REF[TIME_SERIES_TYPE]]
 
 .. _python-operator-if_cmp:
 
@@ -1394,7 +1391,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   if_cmp(cmp: TS[CmpResult], lt: REF[O], eq: REF[O], gt: REF[O]) -> REF[O]
+   if_cmp(cmp: TS[CmpResult], lt: REF[OUT], eq: REF[OUT], gt: REF[OUT]) -> REF[OUT]
 
 .. _python-operator-if_then_else:
 
@@ -1409,7 +1406,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   if_then_else(condition: TS[bool], true_value: REF[S], false_value: REF[S]) -> REF[S]
+   if_then_else(condition: TS[bool], true_value: REF[TIME_SERIES_TYPE], false_value: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]
 
 .. _python-operator-if_true:
 
@@ -1439,8 +1436,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   index_of(ts: TSL[TS[T], N], item: TS[T]) -> TS[int]
-   index_of(ts: TS[T], item: TS[E]) -> TS[int]
+   index_of(ts: TSL[TS[SCALAR], SIZE], item: TS[SCALAR]) -> TS[int]
+   index_of(ts: TS[SCALAR], item: TS[SCALAR_1]) -> TS[int]
 
 .. _python-operator-intersection:
 
@@ -1455,14 +1452,14 @@ Accepted native overloads
 
 .. code-block:: text
 
-   intersection(*ts: S) -> OUT
+   intersection(*ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-invert_:
 
 ``invert_``
 -----------
 
-``invert_`` — the unary ``~`` (bitwise invert) operator (``~ts -> O``).
+``invert_`` — the unary ``~`` (bitwise invert) operator (``~ts -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -1472,8 +1469,8 @@ Accepted native overloads
 
    invert_(ts: TS[int]) -> TS[int]
    invert_(ts: TS[bool]) -> TS[int]
-   invert_(ts: TSL[S, SIZE]) -> OUT
-   invert_(ts: S) -> OUT
+   invert_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT
+   invert_(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-is_empty:
 
@@ -1491,7 +1488,7 @@ Accepted native overloads
    is_empty(ts: TS[str]) -> TS[bool]
    is_empty(ts: TSS[K]) -> TS[bool]
    is_empty(ts: TSD[K, V]) -> TS[bool]
-   is_empty(ts: S) -> TS[bool]
+   is_empty(ts: TIME_SERIES_TYPE) -> TS[bool]
 
 .. _python-operator-isoformat:
 
@@ -1539,10 +1536,10 @@ Accepted native overloads
 
 .. code-block:: text
 
-   join(lhs: TS[Frame[L]], rhs: TS[Frame[R]], on: K, how: str = ..., suffix: str = ...) -> TS[Frame[O]]
-   join(strings: TSL[TS[str], N], separator: str, __strict__: bool = ...) -> TS[str]
+   join(lhs: TS[Frame[SCALAR]], rhs: TS[Frame[SCALAR_1]], on: K, how: str = ..., suffix: str = ...) -> TS[Frame[OUT]]
+   join(strings: TSL[TS[str], SIZE], separator: str, __strict__: bool = ...) -> TS[str]
    join(*ts: TS[str], separator: str, __strict__: bool = ...) -> OUT
-   join(ts: TS[T], separator: str, __strict__: bool = ...) -> TS[str]
+   join(ts: TS[SCALAR], separator: str, __strict__: bool = ...) -> TS[str]
 
 .. _python-operator-json_as_bool:
 
@@ -1557,7 +1554,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   json_as_bool(ts: S) -> TS[bool]
+   json_as_bool(ts: TIME_SERIES_TYPE) -> TS[bool]
 
 .. _python-operator-json_as_float:
 
@@ -1572,7 +1569,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   json_as_float(ts: S) -> TS[float]
+   json_as_float(ts: TIME_SERIES_TYPE) -> TS[float]
 
 .. _python-operator-json_as_int:
 
@@ -1587,7 +1584,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   json_as_int(ts: S) -> TS[int]
+   json_as_int(ts: TIME_SERIES_TYPE) -> TS[int]
 
 .. _python-operator-json_as_str:
 
@@ -1602,7 +1599,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   json_as_str(ts: S) -> TS[str]
+   json_as_str(ts: TIME_SERIES_TYPE) -> TS[str]
 
 .. _python-operator-json_decode:
 
@@ -1617,8 +1614,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   json_decode(ts: TS[str]) -> O
-   json_decode(ts: TS[bytes]) -> O
+   json_decode(ts: TS[str]) -> OUT
+   json_decode(ts: TS[bytes]) -> OUT
 
 .. _python-operator-json_encode:
 
@@ -1633,8 +1630,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   json_encode(ts: S) -> TS[str]
-   json_encode(ts: S) -> TS[bytes]
+   json_encode(ts: TIME_SERIES_TYPE) -> TS[str]
+   json_encode(ts: TIME_SERIES_TYPE) -> TS[bytes]
 
 .. _python-operator-keys_:
 
@@ -1650,8 +1647,8 @@ Accepted native overloads
 .. code-block:: text
 
    keys_(ts: TSD[K, V]) -> OUT
-   keys_(ts: TSD[K, V]) -> TS[S]
-   keys_(ts: S) -> O
+   keys_(ts: TSD[K, V]) -> TS[SCALAR]
+   keys_(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-lag:
 
@@ -1666,12 +1663,12 @@ Accepted native overloads
 
 .. code-block:: text
 
-   lag(ts: S, period: int) -> S
-   lag(ts: S, period: timedelta) -> S
-   lag(ts: S, period: int, proxy: SIGNAL) -> OUT
+   lag(ts: TIME_SERIES_TYPE, period: int) -> TIME_SERIES_TYPE
+   lag(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE
+   lag(ts: TIME_SERIES_TYPE, period: int, proxy: SIGNAL) -> OUT
    lag(ts: TSD[K, V], period: int, proxy: SIGNAL) -> OUT
    lag(ts: TSL[V, SIZE], period: int, proxy: SIGNAL) -> OUT
-   lag(ts: S, period: TS[timedelta]) -> S
+   lag(ts: TIME_SERIES_TYPE, period: TS[timedelta]) -> TIME_SERIES_TYPE
 
 .. _python-operator-last_modified_date:
 
@@ -1739,7 +1736,7 @@ Accepted native overloads
    le_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
    le_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
    le_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
-   le_(lhs: TS[T], rhs: TS[T]) -> TS[bool]
+   le_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 
 .. _python-operator-len_:
 
@@ -1754,12 +1751,12 @@ Accepted native overloads
 
 .. code-block:: text
 
-   len_(ts: TS[T]) -> TS[int]
+   len_(ts: TS[SCALAR]) -> TS[int]
    len_(ts: TS[str]) -> TS[int]
    len_(ts: TSS[K]) -> TS[int]
    len_(ts: TSD[K, V]) -> TS[int]
-   len_(ts: TSL[E, N]) -> TS[int]
-   len_(ts: S) -> TS[int]
+   len_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> TS[int]
+   len_(ts: TIME_SERIES_TYPE) -> TS[int]
 
 .. _python-operator-ln:
 
@@ -1789,14 +1786,14 @@ Accepted native overloads
 
 .. code-block:: text
 
-   log_(fmt: TS[str], *args: B, level: int = ..., sample_count: int = ..., **kwargs: time-series) -> None
+   log_(fmt: TS[str], *args: TIME_SERIES_TYPE, level: int = ..., sample_count: int = ..., **kwargs: time-series) -> None
 
 .. _python-operator-lshift_:
 
 ``lshift_``
 -----------
 
-``lshift_`` — the ``<<`` operator (``L << R -> O``).
+``lshift_`` — the ``<<`` operator (``lhs << rhs -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -1805,10 +1802,10 @@ Accepted native overloads
 .. code-block:: text
 
    lshift_(lhs: TS[int], rhs: TS[int]) -> TS[int]
-   lshift_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   lshift_(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   lshift_(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   lshift_(lhs: L, rhs: R) -> OUT
+   lshift_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   lshift_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   lshift_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   lshift_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
 
 .. _python-operator-lt_:
 
@@ -1831,7 +1828,7 @@ Accepted native overloads
    lt_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
    lt_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
    lt_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
-   lt_(lhs: TS[T], rhs: TS[T]) -> TS[bool]
+   lt_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 
 .. _python-operator-make_tsd:
 
@@ -1866,8 +1863,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   map_(func: fn, *args: B, __key_arg__: str = ..., **kwargs: time-series) -> OUT
-   map_(func: fn, *args: B, __key_arg__: str = ..., **kwargs: time-series) -> None
+   map_(func: fn, *args: TIME_SERIES_TYPE, __key_arg__: str = ..., **kwargs: time-series) -> OUT
+   map_(func: fn, *args: TIME_SERIES_TYPE, __key_arg__: str = ..., **kwargs: time-series) -> None
 
 .. _python-operator-match_:
 
@@ -1882,7 +1879,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   match_(pattern: TS[str], s: TS[str]) -> O
+   match_(pattern: TS[str], s: TS[str]) -> OUT
 
 .. _python-operator-max_:
 
@@ -1897,12 +1894,12 @@ Accepted native overloads
 
 .. code-block:: text
 
-   max_(ts: TS[T]) -> TS[E]
-   max_(ts: TS[T], default_value: TS[E]) -> TS[E]
-   max_(lhs: TS[T], rhs: TS[T]) -> TS[T]
-   max_(ts: TS[T]) -> TS[T]
-   max_(lhs: TS[T], rhs: TS[T], __strict__: bool = ...) -> TS[T]
-   max_(*ts: TS, __strict__: bool = ...) -> OUT
+   max_(ts: TS[SCALAR]) -> TS[SCALAR_1]
+   max_(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]
+   max_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]
+   max_(ts: TS[SCALAR]) -> TS[SCALAR]
+   max_(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = ...) -> TS[SCALAR]
+   max_(*ts: TIME_SERIES_TYPE, __strict__: bool = ...) -> OUT
    max_(lhs: TS[int], rhs: TS[int]) -> TS[int]
    max_(lhs: TS[float], rhs: TS[float]) -> TS[float]
    max_(lhs: TS[str], rhs: TS[str]) -> TS[str]
@@ -1911,17 +1908,17 @@ Accepted native overloads
    max_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]
    max_(lhs: TS[int], rhs: TS[float]) -> TS[float]
    max_(lhs: TS[float], rhs: TS[int]) -> TS[float]
-   max_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   max_(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   max_(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   max_(lhs: L, rhs: R) -> OUT
-   max_(*tsl: TS[T]) -> OUT
-   max_(ts: S) -> OUT
+   max_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   max_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   max_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   max_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
+   max_(*tsl: TS[SCALAR]) -> OUT
+   max_(ts: TIME_SERIES_TYPE) -> OUT
    max_(ts: TSS[K], default_value: TS[K]) -> TS[K]
    max_(ts: TSS[K]) -> TS[K]
    max_(ts: TSD[K, TS[V]]) -> TS[V]
-   max_(ts: TSL[TS[V], N]) -> TS[V]
-   max_(ts: S, default_value: D) -> OUT
+   max_(ts: TSL[TS[V], SIZE]) -> TS[V]
+   max_(ts: TIME_SERIES_TYPE, default_value: SCALAR) -> OUT
 
 .. _python-operator-max_ts_list:
 
@@ -1936,7 +1933,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   max_ts_list(tsl: TSL[TS[T], N]) -> OUT
+   max_ts_list(tsl: TSL[TS[SCALAR], SIZE]) -> OUT
 
 .. _python-operator-mean:
 
@@ -1951,24 +1948,24 @@ Accepted native overloads
 
 .. code-block:: text
 
-   mean(ts: TS[T]) -> TS[E]
-   mean(ts: TS[T], default_value: TS[E]) -> TS[E]
+   mean(ts: TS[SCALAR]) -> TS[SCALAR_1]
+   mean(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]
    mean(ts: TS[int]) -> TS[float]
    mean(ts: TS[float]) -> TS[float]
-   mean(*ts: TS) -> OUT
-   mean(ts: S) -> OUT
+   mean(*ts: TIME_SERIES_TYPE) -> OUT
+   mean(ts: TIME_SERIES_TYPE) -> OUT
    mean(ts: TSS[int]) -> TS[float]
    mean(ts: TSS[float]) -> TS[float]
    mean(ts: TSD[K, TS[int]]) -> TS[float]
    mean(ts: TSD[K, TS[float]]) -> TS[float]
-   mean(ts: TSL[TS[int], N]) -> TS[float]
-   mean(ts: TSL[TS[float], N]) -> TS[float]
+   mean(ts: TSL[TS[int], SIZE]) -> TS[float]
+   mean(ts: TSL[TS[float], SIZE]) -> TS[float]
    mean(lhs: TS[int], rhs: TS[int]) -> TS[float]
    mean(lhs: TS[float], rhs: TS[float]) -> TS[float]
    mean(lhs: TS[int], rhs: TS[float]) -> TS[float]
    mean(lhs: TS[float], rhs: TS[int]) -> TS[float]
-   mean(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   mean(lhs: L, rhs: R) -> OUT
+   mean(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   mean(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
 
 .. _python-operator-merge:
 
@@ -1983,10 +1980,10 @@ Accepted native overloads
 
 .. code-block:: text
 
-   merge(*tsl: S) -> OUT
+   merge(*tsl: TIME_SERIES_TYPE) -> OUT
    merge(*tsl: TSD[K, V]) -> OUT
    merge(*tsl: TSD[K, V], disjoint: bool = ...) -> OUT
-   merge(tsl: S) -> OUT
+   merge(tsl: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-merge_tsd_disjoint:
 
@@ -2001,7 +1998,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   merge_tsd_disjoint(tsl: TSL[TSD[K, V], N]) -> OUT
+   merge_tsd_disjoint(tsl: TSL[TSD[K, V], SIZE]) -> OUT
 
 .. _python-operator-mesh_:
 
@@ -2016,7 +2013,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   mesh_(func: fn, *args: B, __key_arg__: str = ..., __name__: str = ..., **kwargs: time-series) -> OUT
+   mesh_(func: fn, *args: TIME_SERIES_TYPE, __key_arg__: str = ..., __name__: str = ..., **kwargs: time-series) -> OUT
 
 .. _python-operator-microsecond:
 
@@ -2062,31 +2059,31 @@ Accepted native overloads
 
 .. code-block:: text
 
-   min_(ts: TS[T]) -> TS[E]
-   min_(ts: TS[T], default_value: TS[E]) -> TS[E]
-   min_(lhs: TS[T], rhs: TS[T]) -> TS[T]
-   min_(ts: TS[T]) -> TS[T]
-   min_(lhs: TS[T], rhs: TS[T], __strict__: bool = ...) -> TS[T]
-   min_(*ts: TS, __strict__: bool = ...) -> OUT
+   min_(ts: TS[SCALAR]) -> TS[SCALAR_1]
+   min_(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]
+   min_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]
+   min_(ts: TS[SCALAR]) -> TS[SCALAR]
+   min_(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = ...) -> TS[SCALAR]
+   min_(*ts: TIME_SERIES_TYPE, __strict__: bool = ...) -> OUT
    min_(lhs: TS[int], rhs: TS[int]) -> TS[int]
    min_(lhs: TS[float], rhs: TS[float]) -> TS[float]
    min_(lhs: TS[str], rhs: TS[str]) -> TS[str]
    min_(lhs: TS[date], rhs: TS[date]) -> TS[date]
    min_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[datetime]
    min_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]
-   min_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   min_(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   min_(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   min_(lhs: L, rhs: R) -> OUT
+   min_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   min_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   min_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   min_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
    min_(lhs: TS[int], rhs: TS[float]) -> TS[float]
    min_(lhs: TS[float], rhs: TS[int]) -> TS[float]
-   min_(*tsl: TS[T]) -> OUT
-   min_(ts: S) -> OUT
+   min_(*tsl: TS[SCALAR]) -> OUT
+   min_(ts: TIME_SERIES_TYPE) -> OUT
    min_(ts: TSS[K]) -> TS[K]
    min_(ts: TSS[K], default_value: TS[K]) -> TS[K]
    min_(ts: TSD[K, TS[V]]) -> TS[V]
-   min_(ts: TSL[TS[V], N]) -> TS[V]
-   min_(ts: S, default_value: D) -> OUT
+   min_(ts: TSL[TS[V], SIZE]) -> TS[V]
+   min_(ts: TIME_SERIES_TYPE, default_value: SCALAR) -> OUT
 
 .. _python-operator-min_ts_list:
 
@@ -2101,7 +2098,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   min_ts_list(tsl: TSL[TS[T], N]) -> OUT
+   min_ts_list(tsl: TSL[TS[SCALAR], SIZE]) -> OUT
 
 .. _python-operator-minute:
 
@@ -2124,7 +2121,7 @@ Accepted native overloads
 ``mod_``
 --------
 
-``mod_`` — the ``%`` operator (``L % R -> O``).
+``mod_`` — the ``%`` operator (``lhs % rhs -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -2140,10 +2137,10 @@ Accepted native overloads
    mod_(lhs: TS[float], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]
    mod_(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]
    mod_(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero) -> TS[float]
-   mod_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   mod_(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   mod_(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   mod_(lhs: L, rhs: R) -> OUT
+   mod_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   mod_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   mod_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   mod_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
 
 .. _python-operator-modified:
 
@@ -2197,7 +2194,7 @@ Accepted native overloads
 ``mul_``
 --------
 
-``mul_`` — the ``*`` operator (``L * R -> O``). (Python takes an optional ``__strict__`` flag.)
+``mul_`` — the ``*`` operator (``lhs * rhs -> OUT``). (Python takes an optional ``__strict__`` flag.)
 
 Python exposure: lazy native operator proxy.
 
@@ -2211,15 +2208,15 @@ Accepted native overloads
    mul_(lhs: TS[float], rhs: TS[int]) -> TS[float]
    mul_(lhs: TS[str], rhs: TS[int]) -> TS[str]
    mul_(lhs: TS[int], rhs: TS[str]) -> TS[str]
-   mul_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   mul_(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   mul_(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   mul_(lhs: L, rhs: R) -> OUT
+   mul_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   mul_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   mul_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   mul_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
    mul_(lhs: TS[timedelta], rhs: TS[int]) -> TS[timedelta]
    mul_(lhs: TS[timedelta], rhs: TS[float]) -> TS[timedelta]
    mul_(lhs: TS[period], rhs: TS[int]) -> TS[period]
    mul_(lhs: TS[int], rhs: TS[period]) -> TS[period]
-   mul_(lhs: TS[T], rhs: TS[int]) -> OUT
+   mul_(lhs: TS[SCALAR], rhs: TS[int]) -> OUT
 
 .. _python-operator-ne_:
 
@@ -2243,15 +2240,15 @@ Accepted native overloads
    ne_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
    ne_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
    ne_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
-   ne_(lhs: TSL[L, N], rhs: TSL[R, N]) -> TS[bool]
-   ne_(lhs: TS[T], rhs: TS[T]) -> TS[bool]
+   ne_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> TS[bool]
+   ne_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 
 .. _python-operator-neg_:
 
 ``neg_``
 --------
 
-``neg_`` — the unary ``-`` operator (``-ts -> O``).
+``neg_`` — the unary ``-`` operator (``-ts -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -2263,8 +2260,8 @@ Accepted native overloads
    neg_(ts: TS[float]) -> TS[float]
    neg_(ts: TS[timedelta]) -> TS[timedelta]
    neg_(ts: TS[period]) -> TS[period]
-   neg_(ts: TSL[S, SIZE]) -> OUT
-   neg_(ts: S) -> OUT
+   neg_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT
+   neg_(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-not_:
 
@@ -2299,7 +2296,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   nothing() -> O
+   nothing() -> OUT
 
 .. _python-operator-np_std:
 
@@ -2314,8 +2311,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   np_std(ts: A) -> TS[float]
-   np_std(ts: A, ddof: int) -> TS[float]
+   np_std(ts: TIME_SERIES_TYPE) -> TS[float]
+   np_std(ts: TIME_SERIES_TYPE, ddof: int) -> TS[float]
 
 .. _python-operator-null_sink:
 
@@ -2330,7 +2327,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   null_sink(ts: S) -> None
+   null_sink(ts: TIME_SERIES_TYPE) -> None
 
 .. _python-operator-or_:
 
@@ -2345,7 +2342,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   or_(lhs: TS[T], rhs: TS[T]) -> TS[bool]
+   or_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
    or_(lhs: TS[bool], rhs: TS[bool]) -> TS[bool]
    or_(lhs: TS[int], rhs: TS[int]) -> TS[bool]
    or_(lhs: TS[float], rhs: TS[float]) -> TS[bool]
@@ -2367,8 +2364,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   partition(ts: S, partitions: P) -> O
-   partition(ts: TSD[K, V], partitions: TSD[K, TS[K1]]) -> TSD[K1, TSD[K, V]]
+   partition(ts: TIME_SERIES_TYPE, partitions: TIME_SERIES_TYPE_1) -> OUT
+   partition(ts: TSD[K, V], partitions: TSD[K, TS[K_1]]) -> TSD[K_1, TSD[K, V]]
 
 .. _python-operator-pct_change:
 
@@ -2383,14 +2380,14 @@ Accepted native overloads
 
 .. code-block:: text
 
-   pct_change(ts: TS[T]) -> OUT
+   pct_change(ts: TS[SCALAR]) -> OUT
 
 .. _python-operator-pos_:
 
 ``pos_``
 --------
 
-``pos_`` — the unary ``+`` operator (``+ts -> O``).
+``pos_`` — the unary ``+`` operator (``+ts -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -2401,15 +2398,15 @@ Accepted native overloads
    pos_(ts: TS[int]) -> TS[int]
    pos_(ts: TS[float]) -> TS[float]
    pos_(ts: TS[timedelta]) -> TS[timedelta]
-   pos_(ts: TSL[S, SIZE]) -> OUT
-   pos_(ts: S) -> OUT
+   pos_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT
+   pos_(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-pow_:
 
 ``pow_``
 --------
 
-``pow_`` — the ``**`` operator (``L ** R -> O``).
+``pow_`` — the ``**`` operator (``lhs ** rhs -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -2425,10 +2422,10 @@ Accepted native overloads
    pow_(lhs: TS[float], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]
    pow_(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]
    pow_(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero) -> TS[float]
-   pow_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   pow_(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   pow_(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   pow_(lhs: L, rhs: R) -> OUT
+   pow_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   pow_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   pow_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   pow_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
 
 .. _python-operator-print_:
 
@@ -2443,7 +2440,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   print_(fmt: TS[str], *args: B, __std_out__: bool = ..., **kwargs: time-series) -> None
+   print_(fmt: TS[str], *args: TIME_SERIES_TYPE, __std_out__: bool = ..., **kwargs: time-series) -> None
 
 .. _python-operator-quantile:
 
@@ -2458,10 +2455,10 @@ Accepted native overloads
 
 .. code-block:: text
 
-   quantile(a: A, q: TS[float], method: str, keepdims: bool) -> TS[float]
-   quantile(a: A, q: TS[float]) -> TS[float]
-   quantile(a: A, q: TS[float], method: str) -> TS[float]
-   quantile(a: A, q: TS[float], keepdims: bool) -> TS[float]
+   quantile(a: TIME_SERIES_TYPE, q: TS[float], method: str, keepdims: bool) -> TS[float]
+   quantile(a: TIME_SERIES_TYPE, q: TS[float]) -> TS[float]
+   quantile(a: TIME_SERIES_TYPE, q: TS[float], method: str) -> TS[float]
+   quantile(a: TIME_SERIES_TYPE, q: TS[float], keepdims: bool) -> TS[float]
 
 .. _python-operator-race:
 
@@ -2476,7 +2473,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   race(*ts: S) -> OUT
+   race(*ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-range_adjacent:
 
@@ -2684,9 +2681,9 @@ Accepted native overloads
 
 .. code-block:: text
 
-   record(ts: S, key: str = ..., sparse: bool = ...) -> None
-   record(ts: S, key: str = ..., recordable_id: str = ...) -> None
-   record(ts: S, key: str, recordable_id: str = ...) -> None
+   record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ...) -> None
+   record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ...) -> None
+   record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ...) -> None
 
 .. _python-operator-reduce:
 
@@ -2706,13 +2703,13 @@ Accepted native overloads
 .. code-block:: text
 
    reduce(func: fn, ts: TSL[V, SIZE]) -> OUT
-   reduce(func: fn, ts: TSL[TS[T], SIZE]) -> OUT
-   reduce(func: fn, ts: TSL[V, SIZE], zero: Z) -> OUT
-   reduce(func: fn, ts: TSL[E, SIZE], zero: V, is_associative: bool) -> OUT
+   reduce(func: fn, ts: TSL[TS[SCALAR], SIZE]) -> OUT
+   reduce(func: fn, ts: TSL[V, SIZE], zero: SCALAR) -> OUT
+   reduce(func: fn, ts: TSL[TIME_SERIES_TYPE, SIZE], zero: V, is_associative: bool) -> OUT
    reduce(func: fn, ts: TSD[K, V]) -> OUT
    reduce(func: fn, ts: TSD[K, V], zero: V) -> OUT
-   reduce(func: fn, ts: TSD[K, V], zero: Z) -> OUT
-   reduce(func: fn, ts: TSD[int, E], zero: V, is_associative: bool) -> OUT
+   reduce(func: fn, ts: TSD[K, V], zero: SCALAR) -> OUT
+   reduce(func: fn, ts: TSD[int, TIME_SERIES_TYPE], zero: V, is_associative: bool) -> OUT
    reduce(func: fn, ts: TSL[V, SIZE], zero: V) -> OUT
 
 .. _python-operator-reduce_tsd_of_bundles_with_race:
@@ -2728,7 +2725,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   reduce_tsd_of_bundles_with_race(tsd: TSD[K, REF[S]]) -> OUT
+   reduce_tsd_of_bundles_with_race(tsd: TSD[K, REF[TIME_SERIES_TYPE]]) -> OUT
 
 .. _python-operator-reduce_tsd_with_race:
 
@@ -2743,7 +2740,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   reduce_tsd_with_race(tsd: TSD[K, REF[S]]) -> OUT
+   reduce_tsd_with_race(tsd: TSD[K, REF[TIME_SERIES_TYPE]]) -> OUT
 
 .. _python-operator-rekey:
 
@@ -2758,9 +2755,9 @@ Accepted native overloads
 
 .. code-block:: text
 
-   rekey(ts: S, new_keys: K) -> O
-   rekey(ts: TSD[K, V], new_keys: TSD[K, TS[K1]]) -> TSD[K1, V]
-   rekey(ts: TSD[K, V], new_keys: TSD[K, TSS[K1]]) -> TSD[K1, V]
+   rekey(ts: TIME_SERIES_TYPE, new_keys: K) -> OUT
+   rekey(ts: TSD[K, V], new_keys: TSD[K, TS[K_1]]) -> TSD[K_1, V]
+   rekey(ts: TSD[K, V], new_keys: TSD[K, TSS[K_1]]) -> TSD[K_1, V]
 
 .. _python-operator-replace:
 
@@ -2790,8 +2787,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   replay(key: str, recordable_id: str = ...) -> S
-   replay(key: str, recordable_id: str = ...) -> O
+   replay(key: str, recordable_id: str = ...) -> OUT
 
 .. _python-operator-replay_const:
 
@@ -2806,7 +2802,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   replay_const(key: str, recordable_id: str = ..., tm: datetime = ...) -> O
+   replay_const(key: str, recordable_id: str = ..., tm: datetime = ...) -> OUT
 
 .. _python-operator-replay_data_frame:
 
@@ -2821,7 +2817,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   replay_data_frame(data_frame: frame, as_of_time: datetime = ...) -> O
+   replay_data_frame(data_frame: frame, as_of_time: datetime = ...) -> OUT
 
 .. _python-operator-request_id:
 
@@ -2851,7 +2847,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   resample(ts: S, period: timedelta) -> S
+   resample(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE
 
 .. _python-operator-resolve_civil:
 
@@ -2881,8 +2877,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   rolling_average(ts: TS[T], period: int, min_window_period: int = ...) -> OUT
-   rolling_average(ts: TS[T], period: timedelta, min_window_period: timedelta = ...) -> OUT
+   rolling_average(ts: TS[SCALAR], period: int, min_window_period: int = ...) -> OUT
+   rolling_average(ts: TS[SCALAR], period: timedelta, min_window_period: timedelta = ...) -> OUT
 
 .. _python-operator-rolling_window_arrays:
 
@@ -2897,7 +2893,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   rolling_window_arrays(window: W) -> OUT
+   rolling_window_arrays(window: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-round_:
 
@@ -2927,14 +2923,14 @@ Accepted native overloads
 
 .. code-block:: text
 
-   route_by_index(index: TS[int], ts: REF[S]) -> TSL[REF[S], N]
+   route_by_index(index: TS[int], ts: REF[TIME_SERIES_TYPE]) -> TSL[REF[TIME_SERIES_TYPE], SIZE]
 
 .. _python-operator-rshift_:
 
 ``rshift_``
 -----------
 
-``rshift_`` — the ``>>`` operator (``L >> R -> O``).
+``rshift_`` — the ``>>`` operator (``lhs >> rhs -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -2943,10 +2939,10 @@ Accepted native overloads
 .. code-block:: text
 
    rshift_(lhs: TS[int], rhs: TS[int]) -> TS[int]
-   rshift_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   rshift_(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   rshift_(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   rshift_(lhs: L, rhs: R) -> OUT
+   rshift_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   rshift_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   rshift_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   rshift_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
 
 .. _python-operator-sample:
 
@@ -2961,7 +2957,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   sample(signal: SIGNAL, ts: S) -> S
+   sample(signal: SIGNAL, ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE
 
 .. _python-operator-schedule:
 
@@ -3024,7 +3020,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   setattr_(ts: TS[S], attr: str, value: TS[V]) -> OUT
+   setattr_(ts: TS[SCALAR], attr: str, value: TS[V]) -> OUT
 
 .. _python-operator-sign:
 
@@ -3055,7 +3051,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   slice_(ts: S, start: int, stop: int, step_size: int) -> S
+   slice_(ts: TIME_SERIES_TYPE, start: int, stop: int, step_size: int) -> TIME_SERIES_TYPE
 
 .. _python-operator-sorted_:
 
@@ -3070,8 +3066,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   sorted_(ts: TS[Frame[R]], by: str, descending: bool = ...) -> TS[Frame[R]]
-   sorted_(ts: TS[Frame[R, M]], by: str, descending: bool = ...) -> TS[Frame[R, M]]
+   sorted_(ts: TS[Frame[SCALAR]], by: str, descending: bool = ...) -> TS[Frame[SCALAR]]
+   sorted_(ts: TS[Frame[SCALAR, SCALAR_1]], by: str, descending: bool = ...) -> TS[Frame[SCALAR, SCALAR_1]]
 
 .. _python-operator-split:
 
@@ -3090,8 +3086,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   split(s: TS[str], separator: str) -> TSL[TS[str], N]
-   split(s: TS[str], separator: str) -> O
+   split(s: TS[str], separator: str) -> TSL[TS[str], SIZE]
+   split(s: TS[str], separator: str) -> OUT
 
 .. _python-operator-std:
 
@@ -3106,24 +3102,24 @@ Accepted native overloads
 
 .. code-block:: text
 
-   std(ts: TS[T]) -> TS[E]
-   std(ts: TS[T], default_value: TS[E]) -> TS[E]
+   std(ts: TS[SCALAR]) -> TS[SCALAR_1]
+   std(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]
    std(ts: TS[int]) -> TS[float]
    std(ts: TS[float]) -> TS[float]
-   std(ts: S) -> OUT
+   std(ts: TIME_SERIES_TYPE) -> OUT
    std(ts: TSS[int]) -> TS[float]
    std(ts: TSS[float]) -> TS[float]
    std(ts: TSD[K, TS[int]]) -> TS[float]
    std(ts: TSD[K, TS[float]]) -> TS[float]
-   std(ts: TSL[TS[int], N]) -> TS[float]
-   std(ts: TSL[TS[float], N]) -> TS[float]
+   std(ts: TSL[TS[int], SIZE]) -> TS[float]
+   std(ts: TSL[TS[float], SIZE]) -> TS[float]
    std(lhs: TS[int], rhs: TS[int]) -> TS[float]
    std(lhs: TS[float], rhs: TS[float]) -> TS[float]
    std(lhs: TS[int], rhs: TS[float]) -> TS[float]
    std(lhs: TS[float], rhs: TS[int]) -> TS[float]
-   std(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   std(lhs: L, rhs: R) -> OUT
-   std(ts: S, ddof: int) -> OUT
+   std(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   std(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
+   std(ts: TIME_SERIES_TYPE, ddof: int) -> OUT
 
 .. _python-operator-step:
 
@@ -3138,7 +3134,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   step(ts: S, step_size: int) -> S
+   step(ts: TIME_SERIES_TYPE, step_size: int) -> TIME_SERIES_TYPE
 
 .. _python-operator-stop_engine:
 
@@ -3168,14 +3164,14 @@ Accepted native overloads
 
 .. code-block:: text
 
-   str_(ts: S) -> TS[str]
+   str_(ts: TIME_SERIES_TYPE) -> TS[str]
 
 .. _python-operator-sub_:
 
 ``sub_``
 --------
 
-``sub_`` — the ``-`` operator (``L - R -> O``).
+``sub_`` — the ``-`` operator (``lhs - rhs -> OUT``).
 
 Python exposure: lazy native operator proxy.
 
@@ -3197,16 +3193,16 @@ Accepted native overloads
    sub_(lhs: TS[zoned_datetime], rhs: TS[timedelta]) -> TS[zoned_datetime]
    sub_(lhs: TS[date], rhs: TS[period], month_end_policy: month_end_policy = ...) -> TS[date]
    sub_(lhs: TS[civil_datetime], rhs: TS[period], month_end_policy: month_end_policy = ...) -> TS[civil_datetime]
-   sub_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   sub_(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   sub_(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   sub_(lhs: L, rhs: R) -> OUT
-   sub_(lhs: TS[T], rhs: TS[T]) -> TS[T]
-   sub_(lhs: TS[T], rhs: TS[E], cmp: callable = ...) -> TS[T]
-   sub_(lhs: TS[T], rhs: TS[E]) -> OUT
+   sub_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   sub_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   sub_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   sub_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
+   sub_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]
+   sub_(lhs: TS[SCALAR], rhs: TS[SCALAR_1], cmp: callable = ...) -> TS[SCALAR]
+   sub_(lhs: TS[SCALAR], rhs: TS[SCALAR_1]) -> OUT
    sub_(lhs: TS[str], rhs: TS[str]) -> OUT
    sub_(lhs: TSS[K], rhs: TS[K]) -> TSS[K]
-   sub_(*ts: S) -> OUT
+   sub_(*ts: TIME_SERIES_TYPE) -> OUT
    sub_(lhs: TSD[K, V], rhs: TSD[K, V]) -> TSD[K, V]
    sub_(lhs: TS[date], rhs: TS[timedelta]) -> TS[date]
 
@@ -3238,24 +3234,24 @@ Accepted native overloads
 
 .. code-block:: text
 
-   sum_(ts: TS[T]) -> TS[E]
-   sum_(ts: TS[T], default_value: TS[E]) -> TS[E]
+   sum_(ts: TS[SCALAR]) -> TS[SCALAR_1]
+   sum_(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]
    sum_(ts: TS[int]) -> TS[int]
    sum_(ts: TS[float]) -> TS[float]
    sum_(ts: TS[int], reset: TS[bool]) -> TS[int]
    sum_(ts: TS[float], reset: TS[bool]) -> TS[float]
-   sum_(*ts: TS) -> OUT
-   sum_(ts: S) -> OUT
+   sum_(*ts: TIME_SERIES_TYPE) -> OUT
+   sum_(ts: TIME_SERIES_TYPE) -> OUT
    sum_(ts: TSS[int]) -> TS[int]
    sum_(ts: TSS[float]) -> TS[float]
    sum_(ts: TSD[K, TS[int]]) -> TS[int]
    sum_(ts: TSD[K, TS[float]]) -> TS[float]
-   sum_(ts: TSL[TS[int], N]) -> TS[int]
-   sum_(ts: TSL[TS[float], N]) -> TS[float]
-   sum_(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   sum_(lhs: TSL[L, SIZE], rhs: R) -> OUT
-   sum_(lhs: L, rhs: TSL[R, SIZE]) -> OUT
-   sum_(lhs: L, rhs: R) -> OUT
+   sum_(ts: TSL[TS[int], SIZE]) -> TS[int]
+   sum_(ts: TSL[TS[float], SIZE]) -> TS[float]
+   sum_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   sum_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
+   sum_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   sum_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
 
 .. _python-operator-switch_:
 
@@ -3274,8 +3270,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   switch_(key: TS[K], cases: switch_cases, *ts: TS, **kwargs: time-series) -> OUT
-   switch_(key: TS[K], cases: switch_cases, *ts: TS, **kwargs: time-series) -> None
+   switch_(key: TS[K], cases: switch_cases, *ts: TIME_SERIES_TYPE, **kwargs: time-series) -> OUT
+   switch_(key: TS[K], cases: switch_cases, *ts: TIME_SERIES_TYPE, **kwargs: time-series) -> None
 
 .. _python-operator-symmetric_difference:
 
@@ -3290,7 +3286,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   symmetric_difference(*ts: S) -> OUT
+   symmetric_difference(*ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-take:
 
@@ -3305,8 +3301,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   take(ts: S, count: int) -> S
-   take(ts: S, reset: SIGNAL, count: int) -> S
+   take(ts: TIME_SERIES_TYPE, count: int) -> TIME_SERIES_TYPE
+   take(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int) -> TIME_SERIES_TYPE
 
 .. _python-operator-temporal_bucket:
 
@@ -3384,7 +3380,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   throttle(ts: S, period: TS[timedelta], delay_first_tick: bool = ...) -> S
+   throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = ...) -> TIME_SERIES_TYPE
 
 .. _python-operator-timestamp:
 
@@ -3430,7 +3426,7 @@ Accepted native overloads
 .. code-block:: text
 
    to_data_frame(ts: TSD[K, V], dt_col: str = ..., key_col: str = ..., value_col: str = ...) -> OUT
-   to_data_frame(ts: S, dt_col: str = ..., key_col: str = ..., value_col: str = ...) -> OUT
+   to_data_frame(ts: TIME_SERIES_TYPE, dt_col: str = ..., key_col: str = ..., value_col: str = ...) -> OUT
 
 .. _python-operator-to_instant:
 
@@ -3464,8 +3460,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   to_json(ts: S, delta: bool = ...) -> TS[str]
-   to_json(ts: S, delta: bool) -> TS[str]
+   to_json(ts: TIME_SERIES_TYPE, delta: bool = ...) -> TS[str]
+   to_json(ts: TIME_SERIES_TYPE, delta: bool) -> TS[str]
 
 .. _python-operator-to_table:
 
@@ -3482,7 +3478,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   to_table(ts: S, mode: TS[M] = ...) -> OUT
+   to_table(ts: TIME_SERIES_TYPE, mode: TS[SCALAR] = ...) -> OUT
 
 .. _python-operator-to_window:
 
@@ -3497,10 +3493,10 @@ Accepted native overloads
 
 .. code-block:: text
 
-   to_window(ts: TS[T], period: int, min_window_period: int = ...) -> OUT
-   to_window(ts: TS[T], period: int, min_window_period: int = ..., reset: SIGNAL) -> OUT
-   to_window(ts: TS[T], period: timedelta, min_window_period: timedelta = ...) -> OUT
-   to_window(ts: TS[T], period: timedelta, min_window_period: timedelta = ..., reset: SIGNAL) -> OUT
+   to_window(ts: TS[SCALAR], period: int, min_window_period: int = ...) -> OUT
+   to_window(ts: TS[SCALAR], period: int, min_window_period: int = ..., reset: SIGNAL) -> OUT
+   to_window(ts: TS[SCALAR], period: timedelta, min_window_period: timedelta = ...) -> OUT
+   to_window(ts: TS[SCALAR], period: timedelta, min_window_period: timedelta = ..., reset: SIGNAL) -> OUT
 
 .. _python-operator-total_seconds:
 
@@ -3530,7 +3526,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   try_except(func: fn, *args: A, __trace_back_depth__: int = ..., __capture_values__: bool = ..., **kwargs: time-series) -> OUT
+   try_except(func: fn, *args: TIME_SERIES_TYPE, __trace_back_depth__: int = ..., __capture_values__: bool = ..., **kwargs: time-series) -> OUT
 
 .. _python-operator-type_:
 
@@ -3545,7 +3541,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   type_(ts: S) -> TS[Any]
+   type_(ts: TIME_SERIES_TYPE) -> TS[Any]
 
 .. _python-operator-uncollapse_keys:
 
@@ -3560,7 +3556,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   uncollapse_keys(ts: S) -> O
+   uncollapse_keys(ts: TIME_SERIES_TYPE) -> OUT
    uncollapse_keys(ts: TSD[K, V], remove_empty: bool = ...) -> OUT
 
 .. _python-operator-ungroup:
@@ -3578,8 +3574,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   ungroup(ts: S) -> TS[Frame[O]]
-   ungroup(ts: S, key_col: C) -> TS[Frame[O]]
+   ungroup(ts: TIME_SERIES_TYPE) -> TS[Frame[OUT]]
+   ungroup(ts: TIME_SERIES_TYPE, key_col: SCALAR) -> TS[Frame[OUT]]
 
 .. _python-operator-union:
 
@@ -3594,7 +3590,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   union(*ts: S) -> OUT
+   union(*ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-unpartition:
 
@@ -3609,7 +3605,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   unpartition(ts: TSD[K1, TSD[K, V]]) -> TSD[K, V]
+   unpartition(ts: TSD[K_1, TSD[K, V]]) -> TSD[K, V]
 
 .. _python-operator-until_true:
 
@@ -3625,8 +3621,8 @@ Accepted native overloads
 .. code-block:: text
 
    until_true(ts: TS[bool]) -> TS[bool]
-   until_true(predicate: callable, ts: S) -> TS[bool]
-   until_true(predicate: fn, ts: S) -> OUT
+   until_true(predicate: callable, ts: TIME_SERIES_TYPE) -> TS[bool]
+   until_true(predicate: fn, ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-valid:
 
@@ -3641,8 +3637,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   valid(ts: S) -> TS[bool]
-   valid(ts: REF[S]) -> OUT
+   valid(ts: TIME_SERIES_TYPE) -> TS[bool]
+   valid(ts: REF[TIME_SERIES_TYPE]) -> OUT
 
 .. _python-operator-values_:
 
@@ -3657,8 +3653,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   values_(ts: TSD[K, V]) -> TSS[E]
-   values_(ts: S) -> O
+   values_(ts: TSD[K, V]) -> TSS[SCALAR]
+   values_(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-var:
 
@@ -3673,22 +3669,22 @@ Accepted native overloads
 
 .. code-block:: text
 
-   var(ts: TS[T]) -> TS[E]
-   var(ts: TS[T], default_value: TS[E]) -> TS[E]
+   var(ts: TS[SCALAR]) -> TS[SCALAR_1]
+   var(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]
    var(ts: TS[int]) -> TS[float]
    var(ts: TS[float]) -> TS[float]
    var(ts: TSS[int]) -> TS[float]
    var(ts: TSS[float]) -> TS[float]
    var(ts: TSD[K, TS[int]]) -> TS[float]
    var(ts: TSD[K, TS[float]]) -> TS[float]
-   var(ts: TSL[TS[int], N]) -> TS[float]
-   var(ts: TSL[TS[float], N]) -> TS[float]
+   var(ts: TSL[TS[int], SIZE]) -> TS[float]
+   var(ts: TSL[TS[float], SIZE]) -> TS[float]
    var(lhs: TS[int], rhs: TS[int]) -> TS[float]
    var(lhs: TS[float], rhs: TS[float]) -> TS[float]
    var(lhs: TS[int], rhs: TS[float]) -> TS[float]
    var(lhs: TS[float], rhs: TS[int]) -> TS[float]
-   var(lhs: TSL[L, SIZE], rhs: TSL[R, SIZE]) -> OUT
-   var(lhs: L, rhs: R) -> OUT
+   var(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
+   var(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
 
 .. _python-operator-weekday:
 
@@ -3719,8 +3715,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   window(ts: TS[T], period: int, min_window_period: int = ...) -> OUT
-   window(ts: TS[T], period: timedelta, min_window_period: timedelta = ...) -> OUT
+   window(ts: TS[SCALAR], period: int, min_window_period: int = ...) -> OUT
+   window(ts: TS[SCALAR], period: timedelta, min_window_period: timedelta = ...) -> OUT
 
 .. _python-operator-with_columns:
 
@@ -3735,8 +3731,8 @@ Accepted native overloads
 
 .. code-block:: text
 
-   with_columns(ts: TS[Frame[R]], columns: C) -> TS[Frame[O]]
-   with_columns(ts: TS[Frame[R, M]], columns: C) -> TS[Frame[O, M]]
+   with_columns(ts: TS[Frame[SCALAR]], columns: TIME_SERIES_TYPE) -> TS[Frame[OUT]]
+   with_columns(ts: TS[Frame[SCALAR, SCALAR_1]], columns: TIME_SERIES_TYPE) -> TS[Frame[OUT, SCALAR_1]]
 
 .. _python-operator-year:
 

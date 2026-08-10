@@ -18,6 +18,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from hgraph._operator_signature import PublicTypePatternFormatter
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RST = ROOT / "docs/source/reference/python_api_inventory.rst"
@@ -310,8 +312,9 @@ def render_rst(inventory: dict[str, Any]) -> str:
         "The call shapes below come from the complete native overload metadata.",
         "The generated typing declarations and runtime operator docstrings list the",
         "individual accepted signatures, including defaults and keyword-only inputs.",
-        "Capitalized identifiers are wiring-time type variables; ``SIZE`` means any",
-        "fixed TSL length and ``OUT`` is an output inferred during wiring.",
+        "Generic names use the public Python vocabulary: ``SCALAR`` for scalar",
+        "payloads, ``TIME_SERIES_TYPE`` for complete time-series types, ``SIZE``",
+        "for a fixed TSL length, and ``OUT`` for an inferred output.",
         "The coverage column distinguishes lazy proxies from explicit Python helpers",
         "whose curated signatures remain authoritative.",
         "",
@@ -353,9 +356,10 @@ def render_operator_catalogue(inventory: dict[str, Any]) -> str:
         "an accepted native wiring overload. ``TS[...]`` parameters accept wiring",
         "ports and, where dispatch permits, compatible plain values that are lifted",
         "to constant sources. ``...`` marks a default supplied by the overload.",
-        "Capitalized identifiers such as ``S`` and ``T`` are wiring-time type",
-        "variables; ``SIZE`` means any fixed TSL length and ``OUT`` is an output",
-        "inferred during wiring.",
+        "Generic names use the public Python vocabulary: ``SCALAR`` for scalar",
+        "payloads, ``TIME_SERIES_TYPE`` for complete time-series types, ``SIZE``",
+        "for a fixed TSL length, and ``OUT`` for an inferred output. ``K`` and ``V``",
+        "retain their conventional key/value relationships.",
         "",
         "Explicit helpers have a curated Python entry point in addition to their",
         "native overloads. Lazy operators are resolved from ``hgraph`` on first use.",
@@ -468,43 +472,47 @@ def _unique_overloads(operator: dict[str, Any]) -> list[dict[str, Any]]:
     return list(unique.values())
 
 
-def _public_type_pattern(pattern: str) -> str:
-    """Remove native registry notation from an end-user type pattern."""
-    def type_variable(match: re.Match[str]) -> str:
-        name = match.group(1).strip("_")
-        return name.upper() if name else "TYPE"
-
-    pattern = re.sub(r"~([A-Za-z_][A-Za-z0-9_]*)", type_variable, pattern)
-    # A zero TSL size is the native wildcard sentinel, not a zero-length list.
-    return pattern.replace(", 0]", ", SIZE]")
-
-
 def _format_public_signature(name: str, overload: dict[str, Any]) -> str:
     parameters = list(overload["parameters"])
+    formatter = PublicTypePatternFormatter()
     variadic_parameter = parameters.pop() if overload["variadic"] and parameters else None
     positional_count = min(overload["positional_params"], len(parameters))
     rendered = []
     for index, parameter in enumerate(parameters[:positional_count]):
         parameter_name = parameter["name"] or f"arg{index}"
         default = " = ..." if parameter["has_default"] else ""
-        pattern = _public_type_pattern(parameter["type_pattern"])
+        pattern = formatter.format(
+            parameter["type_pattern"],
+            category="time_series" if parameter["kind"] == "time-series" else "scalar",
+        )
         rendered.append(f"{parameter_name}: {pattern}{default}")
     if variadic_parameter is not None:
         parameter_name = variadic_parameter["name"] or "args"
-        pattern = _public_type_pattern(variadic_parameter["type_pattern"])
+        pattern = formatter.format(
+            variadic_parameter["type_pattern"],
+            category=(
+                "time_series" if variadic_parameter["kind"] == "time-series"
+                else "scalar"
+            ),
+        )
         rendered.append(f"*{parameter_name}: {pattern}")
     elif positional_count < len(parameters):
         rendered.append("*")
     for index, parameter in enumerate(parameters[positional_count:], start=positional_count):
         parameter_name = parameter["name"] or f"arg{index}"
         default = " = ..." if parameter["has_default"] else ""
-        pattern = _public_type_pattern(parameter["type_pattern"])
+        pattern = formatter.format(
+            parameter["type_pattern"],
+            category="time_series" if parameter["kind"] == "time-series" else "scalar",
+        )
         rendered.append(f"{parameter_name}: {pattern}{default}")
     if overload["has_kwargs"]:
-        pattern = _public_type_pattern(overload["kwargs_pattern"] or "time-series")
+        pattern = formatter.format(
+            overload["kwargs_pattern"] or "time-series", category="time_series")
         rendered.append(f"**kwargs: {pattern}")
     output = (
-        _public_type_pattern(overload["output_pattern"])
+        formatter.format(
+            overload["output_pattern"], category="time_series", output=True)
         if overload["has_output"] else "None"
     )
     return f"{name}({', '.join(rendered)}) -> {output}"
@@ -682,9 +690,9 @@ def render_operator_stub(inventory: dict[str, Any]) -> str:
         lines.extend([
             "",
             "    Time-series parameters accept wiring ports and compatible plain",
-            "    values that can be lifted to constant sources. Capitalized names",
-            "    are wiring-time type variables; ``SIZE`` means any fixed TSL length",
-            '    and ``OUT`` is an output inferred during wiring."""',
+            "    values that can be lifted to constant sources. Generic names use",
+            "    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,",
+            '    ``SIZE``, ``OUT``, ``K`` and ``V``."""',
             "",
         ])
         stub_overloads = []

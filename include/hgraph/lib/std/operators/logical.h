@@ -29,32 +29,32 @@ namespace hgraph::stdlib
     {
     };
 
-    /** ``invert_`` — the unary ``~`` (bitwise invert) operator (``~ts -> O``). */
+    /** ``invert_`` — the unary ``~`` (bitwise invert) operator (``~ts -> OUT``). */
     struct invert_ : Operator<"invert_", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``bit_and`` — the ``&`` operator (``L & R -> O``). */
+    /** ``bit_and`` — the ``&`` operator (``lhs & rhs -> OUT``). */
     struct bit_and : Operator<"bit_and", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``bit_or`` — the ``|`` operator (``L | R -> O``). */
+    /** ``bit_or`` — the ``|`` operator (``lhs | rhs -> OUT``). */
     struct bit_or : Operator<"bit_or", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``bit_xor`` — the ``^`` operator (``L ^ R -> O``). */
+    /** ``bit_xor`` — the ``^`` operator (``lhs ^ rhs -> OUT``). */
     struct bit_xor : Operator<"bit_xor", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``lshift_`` — the ``<<`` operator (``L << R -> O``). */
+    /** ``lshift_`` — the ``<<`` operator (``lhs << rhs -> OUT``). */
     struct lshift_ : Operator<"lshift_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``rshift_`` — the ``>>`` operator (``L >> R -> O``). */
+    /** ``rshift_`` — the ``>>`` operator (``lhs >> rhs -> OUT``). */
     struct rshift_ : Operator<"rshift_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };

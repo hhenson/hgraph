@@ -99,8 +99,9 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
         assert "compatible plain values" in add_doc
 
         abs_doc = getdoc(hg.abs_)
-        assert "abs_(ts: TSL[S, SIZE]) -> OUT" in abs_doc
-        assert "abs_(ts: S) -> OUT" in abs_doc
+        assert "abs(ts) -> OUT" in abs_doc
+        assert "abs_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT" in abs_doc
+        assert "abs_(ts: TIME_SERIES_TYPE) -> OUT" in abs_doc
         assert "~" not in abs_doc
         assert ", 0]" not in abs_doc
         assert "__out__" not in abs_doc
