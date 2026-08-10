@@ -19,26 +19,32 @@ nanobind_add_module(_hgraph ${_hgraph_nanobind_options}
 )
 
 if(WIN32 AND HGRAPH_USE_PYARROW_ARROW)
-    # PyArrow's runtime DLLs, staged into the wheel by the install() rules near
-    # the end of this file.
+    # PyArrow's hashed MSVC support DLLs, staged into the wheel by the
+    # install() rules near the end of this file. They are loaded BY arrow.dll
+    # rather than linked, so they do not appear in TARGET_RUNTIME_DLLS below.
     file(GLOB _hgraph_pyarrow_support_dlls
         LIST_DIRECTORIES false
         "${HGRAPH_PYARROW_LIBRARY_DIR}/../pyarrow.libs/*.dll"
     )
-    # The same DLLs also have to sit beside the extension IN THE BUILD TREE.
-    # Stub generation below imports _hgraph, and Windows has no rpath: on the
-    # other platforms BUILD_RPATH points the build-tree module at pyarrow, but
-    # here the loader only looks next to the .pyd. Without this the import
-    # fails and the wheel build stops at the stub step. It also makes the build
-    # tree runnable, which the ctest targets below rely on.
+endif()
+if(WIN32 AND (HGRAPH_BUILD_SHARED OR HGRAPH_USE_PYARROW_ARROW))
+    # Stub generation below imports _hgraph at BUILD time. Windows has no rpath
+    # equivalent - the loader searches the directory holding the .pyd - so every
+    # DLL the extension links has to be staged beside it in the build tree. On
+    # the other platforms BUILD_RPATH and $ORIGIN cover this, which is why only
+    # Windows fails here, with "DLL load failed while importing _hgraph".
+    #
+    # TARGET_RUNTIME_DLLS is the linked set: the hgraph shared libraries,
+    # nanobind's shared ABI library, and PyArrow's Arrow DLLs (imported SHARED
+    # targets carrying IMPORTED_LOCATION). The support DLLs above are added
+    # explicitly because nothing links them.
     add_custom_command(TARGET _hgraph POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "${HGRAPH_PYARROW_ARROW_RUNTIME}"
-            "${HGRAPH_PYARROW_COMPUTE_RUNTIME}"
-            "${HGRAPH_PYARROW_ACERO_RUNTIME}"
+            "$<TARGET_RUNTIME_DLLS:_hgraph>"
             ${_hgraph_pyarrow_support_dlls}
             "$<TARGET_FILE_DIR:_hgraph>"
-        COMMENT "Staging the Arrow runtime beside _hgraph for build-tree imports"
+        COMMAND_EXPAND_LISTS
+        COMMENT "Staging runtime DLLs beside _hgraph for build-tree imports"
         VERBATIM
     )
 endif()
