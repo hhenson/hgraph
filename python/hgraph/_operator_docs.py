@@ -119,7 +119,7 @@ OPERATOR_DOCS = {
     'microsecond': '``microsecond`` — the microsecond component of a datetime or time.',
     'microseconds': '``microseconds`` — the non-negative microsecond remainder of a timedelta.',
     'min_': '``min_`` — binary element-wise minimum. Collection / variadic forms are separate overloads.',
-    'min_ts_list': 'Packed-TSL kernels behind the LIST-valued min_/max_ overloads.',
+    'min_ts_list': 'Packed-TSL kernels behind the LIST-valued ``min_``/``max_`` overloads.',
     'minute': '``minute`` — the minute component of a datetime or time.',
     'mod_': '``mod_`` — the ``%`` operator (``L % R -> O``).',
     'modified': '``modified`` — ``True`` in the cycle ``ts`` is modified (a live, ticking property).',

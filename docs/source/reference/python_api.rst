@@ -31,7 +31,10 @@ first access through ``hgraph.__getattr__`` and then cached:
 
 This distinction keeps ``from hgraph import *`` manageable without making the
 dynamic operator names private. The :doc:`python_api_inventory` combines both
-sources and is regenerated from a built wheel. Standard-library values are not
+sources and is regenerated from a built wheel. Use the
+:doc:`operator_catalogue` for every exact native overload and
+:doc:`authoring_api` for the callable signatures and parameter descriptions of
+the primary Python authoring interface. Standard-library values are not
 re-exported merely because the implementation uses them; import values such as
 ``datetime`` and ``timedelta`` from their defining modules.
 
@@ -73,7 +76,8 @@ Operators implemented as explicit Python helpers, including ``map_``,
 ``reduce`` and ``switch_``, keep their handwritten public signatures; generated
 lazy declarations do not replace them during type checking.
 
-Regenerate and check the inventory from an installed development wheel with:
+Regenerate and check these reference artifacts from an installed development
+wheel with:
 
 .. code-block:: bash
 

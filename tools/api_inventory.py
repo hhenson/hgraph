@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib
+import inspect
 import keyword
 import re
 from pathlib import Path
@@ -20,6 +21,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RST = ROOT / "docs/source/reference/python_api_inventory.rst"
+DEFAULT_OPERATOR_CATALOGUE = ROOT / "docs/source/reference/operator_catalogue.rst"
+DEFAULT_AUTHORING_API = ROOT / "docs/source/reference/authoring_api.rst"
 DEFAULT_STUB = ROOT / "python/hgraph/_operator_typing.pyi"
 DEFAULT_OPERATOR_DOCS = ROOT / "python/hgraph/_operator_docs.py"
 OPERATOR_HEADERS = ROOT / "include/hgraph/lib/std/operators"
@@ -44,6 +47,37 @@ PUBLIC_MODULES = (
     "hgraph.adaptors.run_graph_on_thread",
     "hgraph.adaptors.sql",
     "hgraph.adaptors.tornado",
+)
+
+AUTHORING_API = (
+    ("Authoring decorators", (
+        ("hgraph", "graph"),
+        ("hgraph", "compute_node"),
+        ("hgraph", "sink_node"),
+        ("hgraph", "generator"),
+        ("hgraph", "push_queue"),
+        ("hgraph", "operator"),
+        ("hgraph", "dispatch"),
+        ("hgraph", "component"),
+    )),
+    ("Execution and testing", (
+        ("hgraph", "run_graph"),
+        ("hgraph", "evaluate_graph"),
+        ("hgraph", "GraphConfiguration"),
+        ("hgraph.test", "eval_node"),
+    )),
+    ("Services and adaptors", (
+        ("hgraph", "reference_service"),
+        ("hgraph", "subscription_service"),
+        ("hgraph", "request_reply_service"),
+        ("hgraph", "service_impl"),
+        ("hgraph", "register_service"),
+        ("hgraph", "adaptor"),
+        ("hgraph", "adaptor_impl"),
+        ("hgraph", "service_adaptor"),
+        ("hgraph", "service_adaptor_impl"),
+        ("hgraph", "register_adaptor"),
+    )),
 )
 
 _DOCUMENTED_OPERATOR = re.compile(
@@ -128,6 +162,12 @@ def module_exports(module_name: str) -> tuple[str, ...]:
     return tuple(getattr(module, "__all__", ()))
 
 
+def _signature_text(value: Any) -> str:
+    """Return an inspect signature with process-specific sentinel reprs hidden."""
+    signature = str(inspect.signature(value))
+    return re.sub(r"<object object at 0x[0-9a-fA-F]+>", "...", signature)
+
+
 def collect_inventory() -> dict[str, Any]:
     import _hgraph
     import hgraph
@@ -156,6 +196,13 @@ def collect_inventory() -> dict[str, Any]:
                 "has_output": bool(has_output),
                 "output_pattern": output_pattern,
             })
+        explicit_root = name in hgraph.__all__
+        python_signature = None
+        if explicit_root:
+            try:
+                python_signature = _signature_text(getattr(hgraph, name))
+            except (TypeError, ValueError):
+                pass
         operators.append({
             "name": name,
             "overloads": tuple(overloads),
@@ -163,7 +210,8 @@ def collect_inventory() -> dict[str, Any]:
             # Explicit top-level helpers already carry their own annotations.
             # Generated declarations must not replace those richer contracts
             # inside hgraph.__init__'s TYPE_CHECKING import.
-            "explicit_root": name in hgraph.__all__,
+            "explicit_root": explicit_root,
+            "python_signature": python_signature,
         })
 
     modules = {
@@ -175,6 +223,32 @@ def collect_inventory() -> dict[str, Any]:
         "operators": tuple(operators),
         "modules": modules,
     }
+
+
+def collect_authoring_api() -> tuple[dict[str, Any], ...]:
+    """Collect curated Python authoring callables from their public modules."""
+    groups = []
+    for heading, entries in AUTHORING_API:
+        callables = []
+        for module_name, name in entries:
+            module = importlib.import_module(module_name)
+            value = getattr(module, name)
+            try:
+                signature = _signature_text(value)
+                parameters = tuple(inspect.signature(value).parameters)
+            except (TypeError, ValueError):
+                signature = "(*args, **kwargs)"
+                parameters = ("args", "kwargs")
+            callables.append({
+                "name": name,
+                "qualified_name": f"{module_name}.{name}",
+                "signature": signature,
+                "parameters": parameters,
+                "documentation": inspect.getdoc(value) or "",
+                "kind": "class" if inspect.isclass(value) else "function",
+            })
+        groups.append({"heading": heading, "callables": tuple(callables)})
+    return tuple(groups)
 
 
 def _display_signature(operator: dict[str, Any]) -> str:
@@ -251,7 +325,7 @@ def render_rst(inventory: dict[str, Any]) -> str:
         overload_count = len(_unique_overloads(operator))
         exposure = "explicit helper" if operator["explicit_root"] else "lazy operator"
         lines.extend([
-            f"   * - ``{operator['name']}``",
+            f"   * - :ref:`{operator['name']} <python-operator-{operator['name']}>`",
             f"     - ``{_display_signature(operator)}``",
             f"     - {overload_count} native overload{'s' if overload_count != 1 else ''}; {exposure}",
         ])
@@ -261,6 +335,104 @@ def render_rst(inventory: dict[str, Any]) -> str:
         lines.extend([module_name, "~" * len(module_name), ""])
         lines.extend(_hlist(exports))
         lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_operator_catalogue(inventory: dict[str, Any]) -> str:
+    """Render every public operator and its exact native overloads."""
+    lines = [
+        "Operator catalogue",
+        "==================",
+        "",
+        ".. This file is generated by tools/api_inventory.py. Do not edit it by hand.",
+        "",
+        "This catalogue is generated from the native operator registry and the",
+        "semantic documentation on the public C++ declarations. Each signature is",
+        "an accepted native wiring overload. ``TS[...]`` parameters accept wiring",
+        "ports and, where dispatch permits, compatible plain values that are lifted",
+        "to constant sources. ``...`` marks a default supplied by the overload.",
+        "",
+        "Explicit helpers have a curated Python entry point in addition to their",
+        "native overloads. Lazy operators are resolved from ``hgraph`` on first use.",
+        "",
+        ".. contents:: Operators",
+        "   :local:",
+        "   :depth: 1",
+        "",
+    ]
+    for operator in inventory["operators"]:
+        name = operator["name"]
+        overloads = _unique_overloads(operator)
+        lines.extend([
+            f".. _python-operator-{name}:",
+            "",
+            f"``{name}``",
+            "-" * (len(name) + 4),
+            "",
+            operator["documentation"] or (
+                f"Wire ``{name}`` through native overload resolution."
+            ),
+            "",
+        ])
+        if operator["explicit_root"]:
+            signature = operator["python_signature"] or "(*args, **kwargs)"
+            lines.extend([
+                f"Python entry point: ``{name}{signature}`` (explicit helper).",
+                "",
+            ])
+        else:
+            lines.extend([
+                "Python exposure: lazy native operator proxy.",
+                "",
+            ])
+        lines.extend([
+            "Accepted native overloads",
+            "",
+            ".. code-block:: text",
+            "",
+        ])
+        if overloads:
+            lines.extend(
+                f"   {_format_native_signature(name, overload)}"
+                for overload in overloads
+            )
+        else:
+            lines.append(f"   {name}(*args, **kwargs)")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _indent_rst(documentation: str, prefix: str = "   ") -> list[str]:
+    return [f"{prefix}{line}" if line else "" for line in documentation.splitlines()]
+
+
+def render_authoring_api(groups: tuple[dict[str, Any], ...]) -> str:
+    """Render public Python authoring signatures without Sphinx autodoc."""
+    lines = [
+        "Authoring API detail",
+        "====================",
+        "",
+        ".. This file is generated by tools/api_inventory.py. Do not edit it by hand.",
+        "",
+        "These are the primary Python entry points for authoring, running and testing",
+        "graphs. Signatures and descriptions are captured from the public package so",
+        "the checked-in page can be built without importing the native extension.",
+        "",
+    ]
+    for group in groups:
+        heading = group["heading"]
+        lines.extend([heading, "-" * len(heading), ""])
+        for entry in group["callables"]:
+            directive = "py:class" if entry["kind"] == "class" else "py:function"
+            lines.extend([
+                f".. {directive}:: {entry['qualified_name']}{entry['signature']}",
+                "",
+            ])
+            if entry["documentation"]:
+                lines.extend(_indent_rst(entry["documentation"]))
+            else:
+                lines.append("   No public description is available.")
+            lines.extend(["", ""])
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -547,14 +719,19 @@ def _write_or_check(path: Path, content: str, check: bool) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rst", type=Path, default=DEFAULT_RST)
+    parser.add_argument("--operator-catalogue", type=Path, default=DEFAULT_OPERATOR_CATALOGUE)
+    parser.add_argument("--authoring-api", type=Path, default=DEFAULT_AUTHORING_API)
     parser.add_argument("--stub", type=Path, default=DEFAULT_STUB)
     parser.add_argument("--operator-docs", type=Path, default=DEFAULT_OPERATOR_DOCS)
     parser.add_argument("--check", action="store_true")
     arguments = parser.parse_args()
 
     inventory = collect_inventory()
+    authoring_api = collect_authoring_api()
     outputs = {
         arguments.rst: render_rst(inventory),
+        arguments.operator_catalogue: render_operator_catalogue(inventory),
+        arguments.authoring_api: render_authoring_api(authoring_api),
         arguments.stub: render_operator_stub(inventory),
         arguments.operator_docs: render_operator_docs(inventory),
     }

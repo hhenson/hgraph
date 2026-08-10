@@ -55,6 +55,27 @@ class GraphConfiguration:
 
     The public shape matches Python hgraph and adapts each option to the native
     wiring and execution engines.
+
+    :param run_mode: ``EvaluationMode.SIMULATION`` or
+        ``EvaluationMode.REAL_TIME``.
+    :param start_time: Optional first evaluation time.
+    :param end_time: Run bound, or a :class:`~datetime.timedelta`
+        relative to the effective start time.
+    :param trace: ``False``, ``True``, an ``EvaluationTrace``, or keyword
+        options used to construct one.
+    :param profile: ``False``, ``True``, an ``EvaluationProfiler``, or keyword
+        options used to construct one.
+    :param life_cycle_observers: Native execution lifecycle observers.
+    :param trace_wiring: Enable native wiring trace events.
+    :param wiring_observers: Observers notified while the graph is wired.
+    :param graph_logger: Logger-like destination for graph diagnostics.
+    :param trace_back_depth: Non-negative number of wiring frames retained for
+        diagnostics.
+    :param capture_values: Capture live values in diagnostic graph views.
+    :param default_log_level: Logging level applied to ``graph_logger``.
+    :param logger_formatter: Optional callable that formats graph log messages.
+    :param cleanup_on_error: Stop and release a partially run graph after an
+        evaluation error.
     """
 
     def __init__(
@@ -157,7 +178,15 @@ def _log_evaluation_profile(logger, snapshot):
 
 
 def evaluate_graph(graph, config=None, *args, **kwargs):
-    """Run ``fn`` under a :class:`GraphConfiguration`."""
+    """Wire and run a graph under an explicit :class:`GraphConfiguration`.
+
+    :param graph: Decorated graph, node, or operator to evaluate.
+    :param config: Execution configuration. A default configuration is created
+        when omitted.
+    :param args: Positional wiring-time arguments passed to ``graph``.
+    :param kwargs: Keyword wiring-time arguments passed to ``graph``.
+    :return: Output ticks as ``(time, value)`` pairs, or ``None`` for a sink.
+    """
     fn = graph
     return _evaluate_graph(fn, config or GraphConfiguration(), args, kwargs)
 
@@ -191,12 +220,30 @@ def run_graph(
         __trace_back_depth__=1,
         __capture_values__=False,
         **kwargs):
-    """Wire and evaluate ``graph_fn`` in simulation. Returns hgraph's
-    evaluate_graph shape - [(time, value), ...] of the graph output ticks -
-    or None for sink graphs. ``end_time`` bounds the run (REQUIRED for
-    self-perpetuating graphs, e.g. bound feedback loops). NOTE
-    (divergence): the simulation clock is cycle-aligned from MIN_ST in
-    MIN_TD steps."""
+    """Wire and evaluate a graph with convenient configuration arguments.
+
+    Returns ``[(time, value), ...]`` for graph output ticks, or ``None`` for a
+    sink. ``end_time`` is required for self-perpetuating graphs such as bound
+    feedback loops. The simulation clock is cycle-aligned from ``MIN_ST`` in
+    ``MIN_TD`` steps.
+
+    :param graph: Decorated graph, node, or operator to evaluate.
+    :param args: Positional wiring-time arguments passed to ``graph``.
+    :param run_mode: Simulation or real-time evaluation mode.
+    :param start_time: First evaluation time.
+    :param end_time: Run bound, or a duration relative to the start.
+    :param print_progress: Compatibility option; progress rendering is not
+        performed by the runtime.
+    :param life_cycle_observers: Native execution lifecycle observers.
+    :param __trace__: Enable evaluation tracing, or supply trace options.
+    :param __profile__: Enable evaluation profiling, or supply profile options.
+    :param __trace_wiring__: Enable wiring tracing.
+    :param __logger__: Logger-like destination for graph diagnostics.
+    :param __trace_back_depth__: Wiring traceback depth retained for errors.
+    :param __capture_values__: Capture live values in diagnostic graph views.
+    :param kwargs: Keyword wiring-time arguments passed to ``graph``.
+    :return: Output ticks as ``(time, value)`` pairs, or ``None`` for a sink.
+    """
     graph_fn = graph
     del print_progress  # progress rendering is a presentation concern
     config = GraphConfiguration(
@@ -446,13 +493,29 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
               __trace__=False, __trace_wiring__=False, __observers__=None,
               __start_time__=None, __end_time__=None, __scalars__=None,
               __elide__=False, **kwargs):
-    """Drive a @graph/composition ``fn`` with vectors of per-cycle values
-    (None = no tick), mirroring hgraph's eval_node test util. Time-series
-    input types come from ``fn``'s annotations. The run is unbounded by
-    default (MAX_ET, as always) - a graph ends when nothing remains
-    scheduled. ``__end_time__`` (Python-hgraph parity) bounds a run
-    explicitly; a test that cannot quiesce (e.g. a bound feedback loop
-    until per-edge passive support lands) must set it and say why."""
+    """Evaluate a graph or node against per-cycle test input vectors.
+
+    ``None`` in a vector means no tick for that cycle. Time-series input types
+    come from the callable annotations. The run ends when nothing remains
+    scheduled unless ``__end_time__`` supplies an explicit bound.
+
+    :param node: Decorated graph, node, or operator under test.
+    :param args: Positional per-cycle input vectors, in signature order.
+    :param output_type: Explicit output time-series type when it cannot be
+        inferred.
+    :param resolution_dict: Mapping from time-series parameter names to
+        concrete types for generic inputs.
+    :param __trace__: Enable evaluation tracing, or supply trace options.
+    :param __trace_wiring__: Enable wiring tracing.
+    :param __observers__: Additional native lifecycle observers.
+    :param __start_time__: First simulated evaluation time.
+    :param __end_time__: Explicit evaluation bound.
+    :param __scalars__: Mapping of wiring-time scalar arguments.
+    :param __elide__: Return only cycles in which the output ticks.
+    :param kwargs: Named per-cycle input vectors or wiring-time scalar values.
+    :return: One output value per simulated cycle, using ``None`` for cycles
+        without an output tick; sink nodes return ``None``.
+    """
     # Upstream-compatible parameter names (node, *args) are the public
     # contract; the implementation keeps its internal vocabulary.
     fn, inputs = node, args
