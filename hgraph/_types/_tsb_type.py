@@ -156,6 +156,16 @@ class TimeSeriesSchema(AbstractSchema):
             if tsc_schema := _DATACLASS_BUNDLE_SCHEMAS.get(schema):
                 return tsc_schema
 
+            origin = _dataclass_scalar_origin(schema)
+            if origin is not schema and (schema_args := getattr(schema, "__args__", ())):
+                # Parameterise the origin's generic bundle rather than deriving an
+                # unrelated flat class per parameterisation. TSB[Box[int]] is then
+                # BoxBundle[int], so a node declared over TSB[Box] resolves from it.
+                # This is what the CompoundScalar path below does with _root_cls.
+                tsc_schema = TimeSeriesSchema.from_scalar_schema(origin)[schema_args]
+                _DATACLASS_BUNDLE_SCHEMAS[schema] = tsc_schema
+                return tsc_schema
+
             scalar_meta = HgScalarTypeMetaData.parse_type(schema)
             assert isinstance(scalar_meta, HgCompoundScalarType)
 
@@ -172,9 +182,18 @@ class TimeSeriesSchema(AbstractSchema):
                 "__annotations__": annotations,
                 "__module__": origin.__module__,
             }
+            bases = (TimeSeriesSchema,)
+            if parameters := getattr(schema, "__parameters__", ()):
+                # An unparameterised generic dataclass - ``TSB[Price]`` where
+                # ``Price(Generic[NUMBER])`` - keeps its type variables in the
+                # field annotations, so the generated bundle has to be generic
+                # over the same variables. Without this it holds unresolved
+                # types while not being a generic class, which __build_schema__
+                # rejects. This mirrors what the CompoundScalar path below does.
+                bases += (Generic[parameters],)
             tsc_schema = types.new_class(
                 f"{schema_name}Bundle",
-                (TimeSeriesSchema,),
+                bases,
                 None,
                 lambda ns: ns.update(namespace),
             )
