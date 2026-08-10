@@ -18,6 +18,31 @@ nanobind_add_module(_hgraph ${_hgraph_nanobind_options}
     value_conversion.cpp
 )
 
+if(WIN32 AND HGRAPH_USE_PYARROW_ARROW)
+    # PyArrow's runtime DLLs, staged into the wheel by the install() rules near
+    # the end of this file.
+    file(GLOB _hgraph_pyarrow_support_dlls
+        LIST_DIRECTORIES false
+        "${HGRAPH_PYARROW_LIBRARY_DIR}/../pyarrow.libs/*.dll"
+    )
+    # The same DLLs also have to sit beside the extension IN THE BUILD TREE.
+    # Stub generation below imports _hgraph, and Windows has no rpath: on the
+    # other platforms BUILD_RPATH points the build-tree module at pyarrow, but
+    # here the loader only looks next to the .pyd. Without this the import
+    # fails and the wheel build stops at the stub step. It also makes the build
+    # tree runnable, which the ctest targets below rely on.
+    add_custom_command(TARGET _hgraph POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${HGRAPH_PYARROW_ARROW_RUNTIME}"
+            "${HGRAPH_PYARROW_COMPUTE_RUNTIME}"
+            "${HGRAPH_PYARROW_ACERO_RUNTIME}"
+            ${_hgraph_pyarrow_support_dlls}
+            "$<TARGET_FILE_DIR:_hgraph>"
+        COMMENT "Staging the Arrow runtime beside _hgraph for build-tree imports"
+        VERBATIM
+    )
+endif()
+
 # Ship type information beside the private extension. The public Python
 # package is marked as typed below; its lazy operator declarations are
 # generated separately from the native registry by tools/api_inventory.py.
@@ -79,10 +104,8 @@ if(WIN32 AND HGRAPH_USE_PYARROW_ARROW)
     # Windows does not have an rpath equivalent. Keep the exact Arrow runtime
     # DLLs used at link time and PyArrow's hashed MSVC support DLLs beside the
     # extension so `import _hgraph` works before pyarrow itself is imported.
-    file(GLOB _hgraph_pyarrow_support_dlls
-        LIST_DIRECTORIES false
-        "${HGRAPH_PYARROW_LIBRARY_DIR}/../pyarrow.libs/*.dll"
-    )
+    # `_hgraph_pyarrow_support_dlls` is globbed alongside the build-tree staging
+    # near the top of this file.
     install(FILES
         "${HGRAPH_PYARROW_ARROW_RUNTIME}"
         "${HGRAPH_PYARROW_COMPUTE_RUNTIME}"
