@@ -2383,7 +2383,7 @@ class _min__Operator(_Protocol):
 min_: _min__Operator
 
 class _min_ts_list_Operator(_Protocol):
-    """Packed-TSL kernels behind the LIST-valued min_/max_ overloads.
+    """Packed-TSL kernels behind the LIST-valued ``min_``/``max_`` overloads.
 
     Accepted native overloads:
 

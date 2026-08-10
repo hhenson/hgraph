@@ -79,9 +79,18 @@ class _Operator:
 
 
 def operator(fn=None, deprecated=False):
-    """hgraph's @operator decorator. ``deprecated`` accepts upstream's flag:
-    a truthy value (True or a message string) emits a DeprecationWarning
-    when the operator is wired."""
+    """Declare an overloadable Python authoring contract.
+
+    The decorated callable supplies the public signature; implementations are
+    registered with ``overloads=contract`` or ``@contract.overload`` and are
+    selected during wiring.
+
+    :param fn: Signature callable to decorate. Omit it when configuring the
+        decorator.
+    :param deprecated: ``True`` or a message string to emit a
+        :class:`DeprecationWarning` when the operator is wired.
+    :return: An operator decorator or the declared operator.
+    """
     if fn is None:
         if deprecated:
             def _decorate(inner):
@@ -696,7 +705,17 @@ class _Dispatch(_Operator):
 
 
 def dispatch(fn=None, *, on=None):
-    """hgraph's @dispatch decorator (single/multiple runtime dispatch)."""
+    """Declare a graph that selects an implementation by a time-series value.
+
+    Dispatch creates and manages the keyed nested graphs in the native runtime.
+    The selected value may be one time series or a tuple of time-series inputs.
+
+    :param fn: Dispatched callable to decorate. Omit it when configuring the
+        decorator.
+    :param on: Name of the dispatch input, or names for multiple dispatch.
+        When omitted, the first time-series parameter is used.
+    :return: A dispatch decorator or the decorated dispatch graph.
+    """
     if fn is None:
         return lambda f: dispatch(f, on=on)
     return _Dispatch(fn, on=on)

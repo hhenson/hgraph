@@ -30,6 +30,10 @@ Authoring decorators
 Decorated Python callables are adapters into the native wiring and execution
 path. They do not create a second Python graph engine.
 
+The :doc:`authoring_api` lists the exact callable signatures and parameter
+descriptions for these decorators and the execution, testing, service and
+adaptor entry points below.
+
 Running and testing
 -------------------
 

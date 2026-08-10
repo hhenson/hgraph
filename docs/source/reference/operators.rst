@@ -54,5 +54,6 @@ inferred from inputs:
    assert eval_node(typed_constant) == [1]
 
 The selected overload, scalar options and input schemas determine the final
-signature. The exhaustive registry call shapes are in
-:doc:`python_api_inventory`.
+signature. Browse every accepted native overload, along with its semantic
+description, in the :doc:`operator_catalogue`. The compact
+:doc:`python_api_inventory` summarizes how those names are exposed.

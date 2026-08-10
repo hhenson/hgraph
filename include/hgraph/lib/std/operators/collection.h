@@ -124,7 +124,7 @@ namespace hgraph::stdlib
     {
     };
 
-    /** Packed-TSL kernels behind the LIST-valued min_/max_ overloads. */
+    /** Packed-TSL kernels behind the LIST-valued ``min_``/``max_`` overloads. */
     struct extremum_ts_list_marker : Operator<"min_ts_list", In<"tsl", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };

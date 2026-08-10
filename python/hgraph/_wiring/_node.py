@@ -927,7 +927,7 @@ def _make_py_node(fn, *, has_output, active, valid, all_valid, resolvers,
 def compute_node(fn=None, /, node_impl=None, active=None, valid=None, all_valid=None,
                  overloads=None, resolvers=None, requires=None, label=None,
                  deprecated=False):
-    """Python runtime compute node.
+    """Decorate a Python callable as a native-runtime compute node.
 
     ``active`` names the inputs that drive invocation; ``valid`` names the
     inputs required to be valid; and ``all_valid`` requires every child of a
@@ -938,6 +938,25 @@ def compute_node(fn=None, /, node_impl=None, active=None, valid=None, all_valid=
 
     ``node_impl`` selects an implementation class from the retired Python
     runtime and is intentionally unavailable in the C++-first runtime.
+
+    :param fn: Callable to decorate. Omit it when configuring the decorator.
+    :param node_impl: Retired Python-runtime extension point; only ``None`` is
+        supported.
+    :param active: Input names, or a wiring-time callable returning them, that
+        schedule evaluation when modified.
+    :param valid: Input names, or a wiring-time callable returning them, that
+        must be valid before evaluation.
+    :param all_valid: Structured input names whose children must all be valid.
+    :param overloads: Operator contract whose overload set should include this
+        node.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :param requires: Wiring-time predicate selecting this overload. Return
+        ``True`` to accept it, or ``False``/a message string to reject it.
+    :param label: Diagnostic label used in the wired graph.
+    :param deprecated: ``True`` or a message string to emit a deprecation
+        warning when the node is wired.
+    :return: A compute-node decorator or the decorated node.
     """
     if node_impl is not None:
         raise NotImplementedError(
@@ -957,6 +976,30 @@ def compute_node(fn=None, /, node_impl=None, active=None, valid=None, all_valid=
 def sink_node(fn=None, /, node_impl=None, active=None, valid=None, all_valid=None,
               overloads=None, resolvers=None, requires=None, label=None,
               deprecated=False):
+    """Decorate a side-effecting Python callable as a native-runtime sink node.
+
+    Sink nodes use the same activation, validity, overload and type-resolution
+    rules as :func:`hgraph.compute_node`, but have no output.
+
+    :param fn: Callable to decorate. Omit it when configuring the decorator.
+    :param node_impl: Retired Python-runtime extension point; only ``None`` is
+        supported.
+    :param active: Input names, or a wiring-time callable returning them, that
+        schedule evaluation when modified.
+    :param valid: Input names, or a wiring-time callable returning them, that
+        must be valid before evaluation.
+    :param all_valid: Structured input names whose children must all be valid.
+    :param overloads: Operator contract whose overload set should include this
+        node.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :param requires: Wiring-time predicate selecting this overload. Return
+        ``True`` to accept it, or ``False``/a message string to reject it.
+    :param label: Diagnostic label used in the wired graph.
+    :param deprecated: ``True`` or a message string to emit a deprecation
+        warning when the node is wired.
+    :return: A sink-node decorator or the decorated node.
+    """
     if node_impl is not None:
         raise NotImplementedError(
             "sink_node(node_impl=...) is a legacy Python-runtime extension; "
@@ -1168,6 +1211,25 @@ class _Generator:
 
 def generator(fn=None, overloads=None, resolvers=None, requires=None, label=None,
               deprecated=False):
+    """Decorate a Python generator that emits absolute-time output ticks.
+
+    The decorated callable yields ``(datetime, value)`` pairs and must declare
+    a ``TS[...]`` return annotation. Wiring-time arguments are captured per
+    call. A stop hook may be registered with ``@source.stop``.
+
+    :param fn: Generator callable to decorate. Omit it when configuring the
+        decorator.
+    :param overloads: Operator contract whose overload set should include this
+        source.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :param requires: Wiring-time predicate selecting this overload. Return
+        ``True`` to accept it, or ``False``/a message string to reject it.
+    :param label: Diagnostic label used in the wired graph.
+    :param deprecated: ``True`` or a message string to emit a deprecation
+        warning when the source is wired.
+    :return: A generator decorator or the decorated source.
+    """
     def _make(f):
         wrapped = _Generator(
             f, resolvers=resolvers, requires=requires, label=label,
@@ -1247,6 +1309,26 @@ class _PushQueue:
 
 def push_queue(tp, overloads=None, resolvers=None, requires=None, label=None,
                deprecated=False, *, conflate=False):
+    """Decorate an external callback source for real-time graph execution.
+
+    The decorated start hook receives a thread-safe ``sender(value)`` callable
+    as its first argument. It may retain that sender and invoke it from any
+    Python thread while the graph is running.
+
+    :param tp: Output time-series type, such as ``TS[int]``.
+    :param overloads: Operator contract whose overload set should include this
+        source.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :param requires: Wiring-time predicate selecting this overload. Return
+        ``True`` to accept it, or ``False``/a message string to reject it.
+    :param label: Diagnostic label used in the wired graph.
+    :param deprecated: ``True`` or a message string to emit a deprecation
+        warning when the source is wired.
+    :param conflate: Retain only the latest pending value when producers run
+        ahead of graph evaluation.
+    :return: A push-queue decorator.
+    """
     def decorator(fn):
         wrapped = _PushQueue(
             fn, tp, conflate, resolvers=resolvers, requires=requires,

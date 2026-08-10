@@ -11,6 +11,8 @@ these pages when you need the supported surface and its exact names.
    python_api
    types
    authoring
+   authoring_api
    operators
+   operator_catalogue
    modules
    python_api_inventory

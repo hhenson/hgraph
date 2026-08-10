@@ -343,6 +343,21 @@ class _Component:
 
 def component(fn=None, *, recordable_id=None, resolvers=None, label=None,
               deprecated=False):
+    """Decorate a graph as a record/replay-aware component boundary.
+
+    A component still composes native nodes, but its boundary gives record and
+    replay tooling a stable identity.
+
+    :param fn: Callable to decorate. Omit it when configuring the decorator.
+    :param recordable_id: Stable record/replay identifier. The callable name is
+        used when this is omitted.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :param label: Diagnostic label used in the wired graph.
+    :param deprecated: ``True`` or a message string to emit a deprecation
+        warning when the component is wired.
+    :return: A component decorator or the decorated component.
+    """
     if fn is None:
         return lambda f: _Component(
             f, recordable_id, resolvers=resolvers, label=label,
@@ -548,6 +563,24 @@ class _GraphFn:
 
 def graph(fn=None, overloads=None, resolvers=None, requires=None, label=None,
           deprecated=False):
+    """Decorate a Python callable that composes an hgraph graph.
+
+    The callable runs at wiring time and must return a wiring port (or
+    ``None`` for a sink graph). It does not become a Python execution engine;
+    the resulting graph is evaluated by the native runtime.
+
+    :param fn: Callable to decorate. Omit it when configuring the decorator.
+    :param overloads: Operator contract whose overload set should include this
+        graph.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :param requires: Wiring-time predicate selecting this overload. Return
+        ``True`` to accept it, or ``False``/a message string to reject it.
+    :param label: Diagnostic label used in the wired graph.
+    :param deprecated: ``True`` or a message string to emit a deprecation
+        warning when the graph is wired.
+    :return: A graph decorator or the decorated graph.
+    """
     def _make(f):
         wrapped = _GraphFn(
             f, resolvers=resolvers, requires=requires, label=label,

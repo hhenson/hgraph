@@ -9,8 +9,11 @@ import _hgraph
 import hgraph
 
 from tools.api_inventory import (
+    DEFAULT_AUTHORING_API,
+    DEFAULT_OPERATOR_CATALOGUE,
     DEFAULT_RST,
     DEFAULT_STUB,
+    collect_authoring_api,
     collect_inventory,
 )
 
@@ -86,6 +89,35 @@ def test_operator_inventory_preserves_complete_native_overloads():
         and overload["parameters"][-2]["has_default"]
         for overload in to_window["overloads"]
     )
+
+
+def test_operator_catalogue_exposes_every_operator_signature_and_documentation():
+    inventory = collect_inventory()
+    source = DEFAULT_OPERATOR_CATALOGUE.read_text(encoding="utf-8")
+
+    assert source.count(".. _python-operator-") == len(inventory["operators"])
+    assert "add_(lhs: TS[int], rhs: TS[int]) -> TS[int]" in source
+    assert ".. _python-operator-to_window:" in source
+    assert "Accepted native overloads" in source
+    for operator in inventory["operators"]:
+        assert operator["documentation"] in source
+
+
+def test_authoring_reference_has_exact_signatures_and_parameter_docs():
+    groups = collect_authoring_api()
+    source = DEFAULT_AUTHORING_API.read_text(encoding="utf-8")
+    entries = [entry for group in groups for entry in group["callables"]]
+
+    assert ".. py:function:: hgraph.graph(fn=None, overloads=None" in source
+    assert ".. py:class:: hgraph.GraphConfiguration(" in source
+    assert ".. py:function:: hgraph.test.eval_node(" in source
+    for entry in entries:
+        assert entry["documentation"]
+        assert all(
+            f":param {parameter}:" in entry["documentation"]
+            for parameter in entry["parameters"]
+        )
+        assert f"{entry['qualified_name']}{entry['signature']}" in source
 
 
 def test_operator_stub_exposes_overloads_docs_and_every_public_operator():

@@ -869,24 +869,52 @@ class _ServiceStub:
 
 
 def reference_service(fn=None, resolvers=None):
-    """The service interface stub for a reference service: the return
-    annotation is the shared output type; calling the stub wires a client."""
+    """Declare a service that publishes one shared reference output.
+
+    The interface callable's return annotation defines the shared output type;
+    calling the decorated stub wires a client to the registered service.
+
+    :param fn: Interface callable to decorate. Omit it when configuring the
+        decorator.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :return: A reference-service decorator or interface stub.
+    """
     if fn is None:
         return lambda f: _ServiceStub(f, "reference", resolvers=resolvers)
     return _ServiceStub(fn, "reference", resolvers=resolvers)
 
 
 def subscription_service(fn=None, resolvers=None):
-    """Subscription-service stub: first TS param = the subscription key,
-    return annotation = the per-key value; call with the key time-series."""
+    """Declare a keyed subscription service.
+
+    The first time-series parameter is the subscription key and the return
+    annotation is the per-key output. Calling the decorated stub wires a
+    client subscription.
+
+    :param fn: Interface callable to decorate. Omit it when configuring the
+        decorator.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :return: A subscription-service decorator or interface stub.
+    """
     if fn is None:
         return lambda f: _ServiceStub(f, "subscription", resolvers=resolvers)
     return _ServiceStub(fn, "subscription", resolvers=resolvers)
 
 
 def request_reply_service(fn=None, resolvers=None):
-    """Request/reply stub: first TS param = the request, return annotation
-    = the response; call with the request time-series."""
+    """Declare a request/reply service.
+
+    The time-series parameters define the request and the return annotation
+    defines the response. Calling the decorated stub wires one client request.
+
+    :param fn: Interface callable to decorate. Omit it when configuring the
+        decorator.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :return: A request/reply-service decorator or interface stub.
+    """
     if fn is None:
         return lambda f: _ServiceStub(f, "request_reply", resolvers=resolvers)
     return _ServiceStub(fn, "request_reply", resolvers=resolvers)
@@ -1097,6 +1125,17 @@ class _AdaptorStub(_AdaptorClientStub):
 
 
 def adaptor(fn=None, resolvers=None):
+    """Declare an adaptor interface used to cross a graph boundary.
+
+    Calling the decorated stub wires its request and response through the
+    implementation registered for the selected path.
+
+    :param fn: Interface callable to decorate. Omit it when configuring the
+        decorator.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :return: An adaptor decorator or interface stub.
+    """
     if fn is None:
         return lambda f: _AdaptorStub(f, resolvers=resolvers)
     return _AdaptorStub(fn, resolvers=resolvers)
@@ -1303,6 +1342,17 @@ class _AdaptorImplGroup:
 
 
 def service_adaptor(fn=None, resolvers=None):
+    """Declare a keyed service-adaptor interface.
+
+    A service adaptor preserves per-client request/response identity while the
+    registered implementation processes clients as a group.
+
+    :param fn: Interface callable to decorate. Omit it when configuring the
+        decorator.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :return: A service-adaptor decorator or interface stub.
+    """
     if fn is None:
         return lambda f: _ServiceAdaptorStub(f, resolvers=resolvers)
     return _ServiceAdaptorStub(fn, resolvers=resolvers)
@@ -1349,7 +1399,18 @@ def to_graph(stub, out, path=""):
 
 
 def register_adaptor(path, implementation, resolution_dict=None, **kwargs):
-    """Bind an adaptor or service-adaptor implementation to ``path``."""
+    """Bind an adaptor or service-adaptor implementation to a path.
+
+    Call this while wiring the application graph.
+
+    :param path: Client-visible adaptor path.
+    :param implementation: Callable decorated with :func:`adaptor_impl` or
+        :func:`service_adaptor_impl`.
+    :param resolution_dict: Concrete type-variable bindings for a generic
+        interface.
+    :param kwargs: Wiring-time scalar or time-series configuration passed to
+        the implementation.
+    """
     registration = getattr(implementation, "_register_adaptor", None)
     if registration is not None:
         registration(path, resolution_dict=resolution_dict, **kwargs)
@@ -1541,8 +1602,20 @@ def _registration_inputs(implementation, config):
 
 def adaptor_impl(fn=None, *, interfaces=None, resolvers=None,
                  deprecated=False):
-    """@adaptor_impl: declares the adaptor interfaces an implementation
-    supports; the impl takes no wired inputs - it calls from_graph/to_graph."""
+    """Declare an implementation of one or more adaptor interfaces.
+
+    The implementation takes no interface ports directly; it uses
+    ``from_graph`` and ``to_graph`` to consume requests and publish responses.
+
+    :param fn: Implementation graph to decorate. Omit it when configuring the
+        decorator.
+    :param interfaces: Adaptor interface stub, or iterable of supported stubs.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :param deprecated: ``True`` or a message string to emit a deprecation
+        warning when the implementation is wired.
+    :return: An adaptor-implementation decorator or decorated implementation.
+    """
     if fn is None:
         return lambda f: _ServiceImpl(
             f, interfaces, resolvers=resolvers, deprecated=deprecated)
@@ -1552,8 +1625,22 @@ def adaptor_impl(fn=None, *, interfaces=None, resolvers=None,
 
 def service_adaptor_impl(fn=None, *, interfaces=None, resolvers=None,
                          label=None, deprecated=False):
-    """Implementation of a service adaptor. A single-interface implementation
-    consumes and returns dictionaries keyed by the native client id."""
+    """Declare an implementation of one or more service adaptors.
+
+    A single-interface implementation consumes and returns dictionaries keyed
+    by the native client identifier.
+
+    :param fn: Implementation graph to decorate. Omit it when configuring the
+        decorator.
+    :param interfaces: Service-adaptor stub, or iterable of supported stubs.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :param label: Diagnostic label used in the wired graph.
+    :param deprecated: ``True`` or a message string to emit a deprecation
+        warning when the implementation is wired.
+    :return: A service-adaptor-implementation decorator or decorated
+        implementation.
+    """
     if fn is None:
         return lambda f: _ServiceImpl(
             f, interfaces, resolvers=resolvers, label=label,
@@ -1699,10 +1786,22 @@ class _ServiceImpl:
 
 def service_impl(fn=None, *, interfaces=None, resolvers=None,
                  deprecated=False):
-    """hgraph's @service_impl: declares (and validates) the interfaces an
-    implementation supports; register with ``register_service(path, impl)``.
-    Interfaces may be stubs or the NAMES of C++-defined interfaces (the
-    ruled direction: Python impls for C++ stubs)."""
+    """Declare an implementation of one or more service interfaces.
+
+    Register the result with :func:`register_service`. Interfaces may be
+    Python stubs or the names of C++-defined interfaces, allowing a Python
+    implementation to satisfy a native public contract.
+
+    :param fn: Implementation graph to decorate. Omit it when configuring the
+        decorator.
+    :param interfaces: Service interface stub/name, or iterable of supported
+        stubs/names.
+    :param resolvers: Mapping of type variables to wiring-time resolver
+        callables.
+    :param deprecated: ``True`` or a message string to emit a deprecation
+        warning when the implementation is wired.
+    :return: A service-implementation decorator or decorated implementation.
+    """
     if fn is None:
         return lambda f: _ServiceImpl(
             f, interfaces, resolvers=resolvers, deprecated=deprecated)
@@ -2388,10 +2487,19 @@ def _register_resolved_service(path, implementation, kwargs, *, wiring=None):
 
 
 def register_service(path, implementation, resolution_dict=None, **kwargs):
-    """Bind ``implementation`` (an @service_impl) to ``path`` (hgraph's
-    signature: path first). A SINGLE-interface impl wires with its input
-    supplied and output captured automatically; a MULTI-interface impl
-    takes no wired inputs and uses impl_input/impl_output per interface."""
+    """Bind a service implementation to a client-visible path.
+
+    A single-interface implementation receives its request and publishes its
+    response automatically. A multi-interface implementation uses
+    ``impl_input`` and ``impl_output`` for each interface.
+
+    :param path: Client-visible service path.
+    :param implementation: Callable decorated with :func:`service_impl`.
+    :param resolution_dict: Concrete type-variable bindings for a generic
+        interface.
+    :param kwargs: Wiring-time scalar or time-series configuration passed to
+        the implementation.
+    """
     if not isinstance(implementation, _ServiceImpl):
         raise WiringError("register_service requires an @service_impl-decorated implementation")
     unresolved = tuple(
