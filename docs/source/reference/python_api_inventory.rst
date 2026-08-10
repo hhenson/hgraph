@@ -242,6 +242,9 @@ Operator registry
 The call shapes below come from the complete native overload metadata.
 The generated typing declarations and runtime operator docstrings list the
 individual accepted signatures, including defaults and keyword-only inputs.
+Generic names use the public Python vocabulary: ``SCALAR`` for scalar
+payloads, ``TIME_SERIES_TYPE`` for complete time-series types, ``SIZE``
+for a fixed TSL length, and ``OUT`` for an inferred output.
 The coverage column distinguishes lazy proxies from explicit Python helpers
 whose curated signatures remain authoritative.
 
@@ -268,7 +271,7 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`apply <python-operator-apply>`
-     - ``apply(fn: TS[callable], *args: ~S, **kwargs: time-series) -> ~__out__``
+     - ``apply(fn: TS[callable], *args: TIME_SERIES_TYPE, **kwargs: time-series) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`as_array <python-operator-as_array>`
      - ``3 overloads``
@@ -280,7 +283,7 @@ whose curated signatures remain authoritative.
      - ``at_zone(instant: TS[datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
      - 1 native overload; lazy operator
    * - :ref:`batch <python-operator-batch>`
-     - ``batch(condition: TS[bool], ts: ~S, delay: timedelta, buffer_length: int = ...) -> ~__out__``
+     - ``batch(condition: TS[bool], ts: TIME_SERIES_TYPE, delay: timedelta, buffer_length: int = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`bit_and <python-operator-bit_and>`
      - ``9 overloads``
@@ -292,7 +295,7 @@ whose curated signatures remain authoritative.
      - ``9 overloads``
      - 9 native overloads; lazy operator
    * - :ref:`call <python-operator-call>`
-     - ``call(fn: TS[callable], *args: ~S, **kwargs: time-series) -> None``
+     - ``call(fn: TS[callable], *args: TIME_SERIES_TYPE, **kwargs: time-series) -> None``
      - 1 native overload; lazy operator
    * - :ref:`clip <python-operator-clip>`
      - ``2 overloads``
@@ -313,16 +316,16 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`combine_json <python-operator-combine_json>`
-     - ``combine_json(**kwargs: time-series) -> ~__out__``
+     - ``combine_json(**kwargs: time-series) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`combine_map <python-operator-combine_map>`
-     - ``combine_map(keys: ~A, values: ~B) -> ~O``
+     - ``combine_map(keys: TIME_SERIES_TYPE, values: TIME_SERIES_TYPE_1) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`combine_tsd <python-operator-combine_tsd>`
      - ``4 overloads``
      - 4 native overloads; lazy operator
    * - :ref:`combine_tss_from_tsl <python-operator-combine_tss_from_tsl>`
-     - ``combine_tss_from_tsl(ts: TSL[TS[~T], ~N]) -> ~__out__``
+     - ``combine_tss_from_tsl(ts: TSL[TS[SCALAR], SIZE]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`compare <python-operator-compare>`
      - ``2 overloads``
@@ -334,8 +337,8 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`contains_ <python-operator-contains_>`
-     - ``7 overloads``
-     - 7 native overloads; lazy operator
+     - ``6 overloads``
+     - 6 native overloads; lazy operator
    * - :ref:`convert <python-operator-convert>`
      - ``24 overloads``
      - 24 native overloads; explicit helper
@@ -361,25 +364,25 @@ whose curated signatures remain authoritative.
      - ``days(ts: TS[timedelta]) -> TS[int]``
      - 1 native overload; lazy operator
    * - :ref:`debug_print <python-operator-debug_print>`
-     - ``debug_print(label: str, ts: ~S, sample: int = ...) -> None``
+     - ``debug_print(label: str, ts: TIME_SERIES_TYPE, sample: int = ...) -> None``
      - 1 native overload; lazy operator
    * - :ref:`dedup <python-operator-dedup>`
      - ``6 overloads``
      - 6 native overloads; lazy operator
    * - :ref:`default <python-operator-default>`
-     - ``default(ts: ~S, default_value: ~S) -> ~__out__``
+     - ``default(ts: TIME_SERIES_TYPE, default_value: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`dereference <python-operator-dereference>`
-     - ``dereference(tsb: REF[~S]) -> ~__out__``
+     - ``dereference(tsb: REF[TIME_SERIES_TYPE]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`diff <python-operator-diff>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`difference <python-operator-difference>`
-     - ``difference(*ts: ~S) -> ~__out__``
+     - ``difference(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`dispatch_ <python-operator-dispatch_>`
-     - ``dispatch_(cases: dispatch_cases, *ts: ~TS, **kwargs: time-series) -> ~__out__``
+     - ``dispatch_(cases: dispatch_cases, *ts: TIME_SERIES_TYPE, **kwargs: time-series) -> OUT``
      - 1 native overload; explicit helper
    * - :ref:`div_ <python-operator-div_>`
      - ``15 overloads``
@@ -388,16 +391,16 @@ whose curated signatures remain authoritative.
      - ``4 overloads``
      - 4 native overloads; lazy operator
    * - :ref:`downcast_ <python-operator-downcast_>`
-     - ``downcast_(ts: ~S) -> ~__out__``
+     - ``downcast_(ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`downcast_ref <python-operator-downcast_ref>`
-     - ``downcast_ref(ts: REF[~S]) -> REF[~O]``
+     - ``downcast_ref(ts: REF[TIME_SERIES_TYPE]) -> REF[OUT]``
      - 1 native overload; explicit helper
    * - :ref:`drop <python-operator-drop>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`emit <python-operator-emit>`
-     - ``emit(ts: ~S) -> ~__out__``
+     - ``emit(ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; explicit helper
    * - :ref:`eq_ <python-operator-eq_>`
      - ``15 overloads``
@@ -412,7 +415,7 @@ whose curated signatures remain authoritative.
      - ``explode(ts: TS[date]) -> TSL[TS[int], 3]``
      - 1 native overload; lazy operator
    * - :ref:`filter_ <python-operator-filter_>`
-     - ``filter_(condition: TS[bool], ts: ~S) -> ~S``
+     - ``filter_(condition: TS[bool], ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE``
      - 1 native overload; lazy operator
    * - :ref:`filter_cs <python-operator-filter_cs>`
      - ``2 overloads``
@@ -421,7 +424,7 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`filter_tsd_by_matches <python-operator-filter_tsd_by_matches>`
-     - ``filter_tsd_by_matches(ts: TSD[~K, ~V], matches: TSD[~K, TS[bool]]) -> ~__out__``
+     - ``filter_tsd_by_matches(ts: TSD[K, V], matches: TSD[K, TS[bool]]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`flip <python-operator-flip>`
      - ``3 overloads``
@@ -433,43 +436,43 @@ whose curated signatures remain authoritative.
      - ``12 overloads``
      - 12 native overloads; lazy operator
    * - :ref:`format_ <python-operator-format_>`
-     - ``format_(arg0: TS[str], *args: ~A, __sample__: int = ..., __strict__: bool = ..., **kwargs: time-series) -> TS[str]``
+     - ``format_(arg0: TS[str], *args: TIME_SERIES_TYPE, __sample__: int = ..., __strict__: bool = ..., **kwargs: time-series) -> TS[str]``
      - 1 native overload; lazy operator
    * - :ref:`freeze <python-operator-freeze>`
      - ``3 overloads``
      - 3 native overloads; lazy operator
    * - :ref:`from_data_frame <python-operator-from_data_frame>`
-     - ``from_data_frame(df: frame, dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> ~O``
+     - ``from_data_frame(df: frame, dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`from_data_frame_batches <python-operator-from_data_frame_batches>`
-     - ``from_data_frame_batches(frames: TS[frame], dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> ~O``
+     - ``from_data_frame_batches(frames: TS[frame], dt_col: str = ..., key_col: str = ..., value_col: str = ..., offset: timedelta = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`from_json <python-operator-from_json>`
-     - ``from_json(ts: TS[str]) -> ~O``
+     - ``from_json(ts: TS[str]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`from_table <python-operator-from_table>`
-     - ``from_table(ts: ~T) -> ~O``
+     - ``from_table(ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`from_table_const <python-operator-from_table_const>`
-     - ``from_table_const(value: frame) -> ~O``
+     - ``from_table_const(value: frame) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`gate <python-operator-gate>`
-     - ``gate(condition: TS[bool], ts: ~S, buffer_length: int = ...) -> ~S``
+     - ``gate(condition: TS[bool], ts: TIME_SERIES_TYPE, buffer_length: int = ...) -> TIME_SERIES_TYPE``
      - 1 native overload; lazy operator
    * - :ref:`ge_ <python-operator-ge_>`
      - ``9 overloads``
      - 9 native overloads; lazy operator
    * - :ref:`get_item <python-operator-get_item>`
-     - ``get_item(ts: ~A, idx: ~I) -> ~__out__``
+     - ``get_item(ts: TIME_SERIES_TYPE, idx: SCALAR) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`getattr_ <python-operator-getattr_>`
-     - ``8 overloads``
-     - 8 native overloads; lazy operator
+     - ``7 overloads``
+     - 7 native overloads; lazy operator
    * - :ref:`getitem_ <python-operator-getitem_>`
-     - ``14 overloads``
-     - 14 native overloads; lazy operator
+     - ``11 overloads``
+     - 11 native overloads; lazy operator
    * - :ref:`group_by <python-operator-group_by>`
-     - ``group_by(ts: TS[~F], by: ~B) -> ~__out__``
+     - ``group_by(ts: TS[SCALAR], by: SCALAR_1) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`gt_ <python-operator-gt_>`
      - ``9 overloads``
@@ -478,13 +481,13 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`if_ <python-operator-if_>`
-     - ``if_(condition: TS[bool], ts: REF[~S]) -> TSB[true: REF[~S], false: REF[~S]]``
+     - ``if_(condition: TS[bool], ts: REF[TIME_SERIES_TYPE]) -> TSB[true: REF[TIME_SERIES_TYPE], false: REF[TIME_SERIES_TYPE]]``
      - 1 native overload; lazy operator
    * - :ref:`if_cmp <python-operator-if_cmp>`
-     - ``if_cmp(cmp: TS[CmpResult], lt: REF[~O], eq: REF[~O], gt: REF[~O]) -> REF[~O]``
+     - ``if_cmp(cmp: TS[CmpResult], lt: REF[OUT], eq: REF[OUT], gt: REF[OUT]) -> REF[OUT]``
      - 1 native overload; lazy operator
    * - :ref:`if_then_else <python-operator-if_then_else>`
-     - ``if_then_else(condition: TS[bool], true_value: REF[~S], false_value: REF[~S]) -> REF[~S]``
+     - ``if_then_else(condition: TS[bool], true_value: REF[TIME_SERIES_TYPE], false_value: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]``
      - 1 native overload; lazy operator
    * - :ref:`if_true <python-operator-if_true>`
      - ``if_true(condition: TS[bool], tick_once_only: bool = ...) -> TS[bool]``
@@ -493,7 +496,7 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`intersection <python-operator-intersection>`
-     - ``intersection(*ts: ~S) -> ~__out__``
+     - ``intersection(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`invert_ <python-operator-invert_>`
      - ``4 overloads``
@@ -511,16 +514,16 @@ whose curated signatures remain authoritative.
      - ``4 overloads``
      - 4 native overloads; lazy operator
    * - :ref:`json_as_bool <python-operator-json_as_bool>`
-     - ``json_as_bool(ts: ~S) -> TS[bool]``
+     - ``json_as_bool(ts: TIME_SERIES_TYPE) -> TS[bool]``
      - 1 native overload; lazy operator
    * - :ref:`json_as_float <python-operator-json_as_float>`
-     - ``json_as_float(ts: ~S) -> TS[float]``
+     - ``json_as_float(ts: TIME_SERIES_TYPE) -> TS[float]``
      - 1 native overload; lazy operator
    * - :ref:`json_as_int <python-operator-json_as_int>`
-     - ``json_as_int(ts: ~S) -> TS[int]``
+     - ``json_as_int(ts: TIME_SERIES_TYPE) -> TS[int]``
      - 1 native overload; lazy operator
    * - :ref:`json_as_str <python-operator-json_as_str>`
-     - ``json_as_str(ts: ~S) -> TS[str]``
+     - ``json_as_str(ts: TIME_SERIES_TYPE) -> TS[str]``
      - 1 native overload; lazy operator
    * - :ref:`json_decode <python-operator-json_decode>`
      - ``2 overloads``
@@ -553,7 +556,7 @@ whose curated signatures remain authoritative.
      - ``ln(ts: TS[float]) -> TS[float]``
      - 1 native overload; lazy operator
    * - :ref:`log_ <python-operator-log_>`
-     - ``log_(fmt: TS[str], *args: ~B, level: int = ..., sample_count: int = ..., **kwargs: time-series) -> None``
+     - ``log_(fmt: TS[str], *args: TIME_SERIES_TYPE, level: int = ..., sample_count: int = ..., **kwargs: time-series) -> None``
      - 1 native overload; lazy operator
    * - :ref:`lshift_ <python-operator-lshift_>`
      - ``5 overloads``
@@ -568,13 +571,13 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; explicit helper
    * - :ref:`match_ <python-operator-match_>`
-     - ``match_(pattern: TS[str], s: TS[str]) -> ~O``
+     - ``match_(pattern: TS[str], s: TS[str]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`max_ <python-operator-max_>`
      - ``25 overloads``
      - 25 native overloads; lazy operator
    * - :ref:`max_ts_list <python-operator-max_ts_list>`
-     - ``max_ts_list(tsl: TSL[TS[~T], ~N]) -> ~__out__``
+     - ``max_ts_list(tsl: TSL[TS[SCALAR], SIZE]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`mean <python-operator-mean>`
      - ``18 overloads``
@@ -583,10 +586,10 @@ whose curated signatures remain authoritative.
      - ``4 overloads``
      - 4 native overloads; lazy operator
    * - :ref:`merge_tsd_disjoint <python-operator-merge_tsd_disjoint>`
-     - ``merge_tsd_disjoint(tsl: TSL[TSD[~K, ~V], ~N]) -> ~__out__``
+     - ``merge_tsd_disjoint(tsl: TSL[TSD[K, V], SIZE]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`mesh_ <python-operator-mesh_>`
-     - ``mesh_(func: fn, *args: ~B, __key_arg__: str = ..., __name__: str = ..., **kwargs: time-series) -> ~__out__``
+     - ``mesh_(func: fn, *args: TIME_SERIES_TYPE, __key_arg__: str = ..., __name__: str = ..., **kwargs: time-series) -> OUT``
      - 1 native overload; explicit helper
    * - :ref:`microsecond <python-operator-microsecond>`
      - ``2 overloads``
@@ -598,7 +601,7 @@ whose curated signatures remain authoritative.
      - ``25 overloads``
      - 25 native overloads; lazy operator
    * - :ref:`min_ts_list <python-operator-min_ts_list>`
-     - ``min_ts_list(tsl: TSL[TS[~T], ~N]) -> ~__out__``
+     - ``min_ts_list(tsl: TSL[TS[SCALAR], SIZE]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`minute <python-operator-minute>`
      - ``2 overloads``
@@ -628,13 +631,13 @@ whose curated signatures remain authoritative.
      - ``6 overloads``
      - 6 native overloads; lazy operator
    * - :ref:`nothing <python-operator-nothing>`
-     - ``nothing() -> ~O``
+     - ``nothing() -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`np_std <python-operator-np_std>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`null_sink <python-operator-null_sink>`
-     - ``null_sink(ts: ~S) -> None``
+     - ``null_sink(ts: TIME_SERIES_TYPE) -> None``
      - 1 native overload; lazy operator
    * - :ref:`or_ <python-operator-or_>`
      - ``8 overloads``
@@ -643,7 +646,7 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`pct_change <python-operator-pct_change>`
-     - ``pct_change(ts: TS[~T]) -> ~__out__``
+     - ``pct_change(ts: TS[SCALAR]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`pos_ <python-operator-pos_>`
      - ``5 overloads``
@@ -652,13 +655,13 @@ whose curated signatures remain authoritative.
      - ``12 overloads``
      - 12 native overloads; lazy operator
    * - :ref:`print_ <python-operator-print_>`
-     - ``print_(fmt: TS[str], *args: ~B, __std_out__: bool = ..., **kwargs: time-series) -> None``
+     - ``print_(fmt: TS[str], *args: TIME_SERIES_TYPE, __std_out__: bool = ..., **kwargs: time-series) -> None``
      - 1 native overload; lazy operator
    * - :ref:`quantile <python-operator-quantile>`
      - ``4 overloads``
      - 4 native overloads; lazy operator
    * - :ref:`race <python-operator-race>`
-     - ``race(*ts: ~S) -> ~__out__``
+     - ``race(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`range_adjacent <python-operator-range_adjacent>`
      - ``2 overloads``
@@ -703,10 +706,10 @@ whose curated signatures remain authoritative.
      - ``9 overloads``
      - 9 native overloads; explicit helper
    * - :ref:`reduce_tsd_of_bundles_with_race <python-operator-reduce_tsd_of_bundles_with_race>`
-     - ``reduce_tsd_of_bundles_with_race(tsd: TSD[~K, REF[~S]]) -> ~__out__``
+     - ``reduce_tsd_of_bundles_with_race(tsd: TSD[K, REF[TIME_SERIES_TYPE]]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`reduce_tsd_with_race <python-operator-reduce_tsd_with_race>`
-     - ``reduce_tsd_with_race(tsd: TSD[~K, REF[~S]]) -> ~__out__``
+     - ``reduce_tsd_with_race(tsd: TSD[K, REF[TIME_SERIES_TYPE]]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`rekey <python-operator-rekey>`
      - ``3 overloads``
@@ -715,19 +718,19 @@ whose curated signatures remain authoritative.
      - ``replace(pattern: TS[str], repl: TS[str], s: TS[str]) -> TS[str]``
      - 1 native overload; lazy operator
    * - :ref:`replay <python-operator-replay>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
+     - ``replay(key: str, recordable_id: str = ...) -> OUT``
+     - 1 native overload; lazy operator
    * - :ref:`replay_const <python-operator-replay_const>`
-     - ``replay_const(key: str, recordable_id: str = ..., tm: datetime = ...) -> ~O``
+     - ``replay_const(key: str, recordable_id: str = ..., tm: datetime = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`replay_data_frame <python-operator-replay_data_frame>`
-     - ``replay_data_frame(data_frame: frame, as_of_time: datetime = ...) -> ~O``
+     - ``replay_data_frame(data_frame: frame, as_of_time: datetime = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`request_id <python-operator-request_id>`
      - ``request_id(hash: int) -> TS[int]``
      - 1 native overload; lazy operator
    * - :ref:`resample <python-operator-resample>`
-     - ``resample(ts: ~S, period: timedelta) -> ~S``
+     - ``resample(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE``
      - 1 native overload; lazy operator
    * - :ref:`resolve_civil <python-operator-resolve_civil>`
      - ``resolve_civil(local: TS[civil_datetime], zone: TS[zone_id], ambiguous: ambiguous_time_policy = ..., nonexistent: nonexistent_time_policy = ...) -> TS[zoned_datetime]``
@@ -736,19 +739,19 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`rolling_window_arrays <python-operator-rolling_window_arrays>`
-     - ``rolling_window_arrays(window: ~W) -> ~__out__``
+     - ``rolling_window_arrays(window: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`round_ <python-operator-round_>`
      - ``round_(ts: TS[float], n_digits: TS[int]) -> TS[float]``
      - 1 native overload; lazy operator
    * - :ref:`route_by_index <python-operator-route_by_index>`
-     - ``route_by_index(index: TS[int], ts: REF[~S]) -> TSL[REF[~S], ~N]``
+     - ``route_by_index(index: TS[int], ts: REF[TIME_SERIES_TYPE]) -> TSL[REF[TIME_SERIES_TYPE], SIZE]``
      - 1 native overload; lazy operator
    * - :ref:`rshift_ <python-operator-rshift_>`
      - ``5 overloads``
      - 5 native overloads; lazy operator
    * - :ref:`sample <python-operator-sample>`
-     - ``sample(signal: SIGNAL, ts: ~S) -> ~S``
+     - ``sample(signal: SIGNAL, ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE``
      - 1 native overload; lazy operator
    * - :ref:`schedule <python-operator-schedule>`
      - ``3 overloads``
@@ -760,13 +763,13 @@ whose curated signatures remain authoritative.
      - ``seconds(ts: TS[timedelta]) -> TS[int]``
      - 1 native overload; lazy operator
    * - :ref:`setattr_ <python-operator-setattr_>`
-     - ``setattr_(ts: TS[~S], attr: str, value: TS[~V]) -> ~__out__``
+     - ``setattr_(ts: TS[SCALAR], attr: str, value: TS[V]) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`sign <python-operator-sign>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`slice_ <python-operator-slice_>`
-     - ``slice_(ts: ~S, start: int, stop: int, step_size: int) -> ~S``
+     - ``slice_(ts: TIME_SERIES_TYPE, start: int, stop: int, step_size: int) -> TIME_SERIES_TYPE``
      - 1 native overload; lazy operator
    * - :ref:`sorted_ <python-operator-sorted_>`
      - ``2 overloads``
@@ -778,13 +781,13 @@ whose curated signatures remain authoritative.
      - ``18 overloads``
      - 18 native overloads; lazy operator
    * - :ref:`step <python-operator-step>`
-     - ``step(ts: ~S, step_size: int) -> ~S``
+     - ``step(ts: TIME_SERIES_TYPE, step_size: int) -> TIME_SERIES_TYPE``
      - 1 native overload; lazy operator
    * - :ref:`stop_engine <python-operator-stop_engine>`
      - ``stop_engine(ts: SIGNAL, msg: str = ...) -> None``
      - 1 native overload; lazy operator
    * - :ref:`str_ <python-operator-str_>`
-     - ``str_(ts: ~S) -> TS[str]``
+     - ``str_(ts: TIME_SERIES_TYPE) -> TS[str]``
      - 1 native overload; lazy operator
    * - :ref:`sub_ <python-operator-sub_>`
      - ``26 overloads``
@@ -799,7 +802,7 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; explicit helper
    * - :ref:`symmetric_difference <python-operator-symmetric_difference>`
-     - ``symmetric_difference(*ts: ~S) -> ~__out__``
+     - ``symmetric_difference(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`take <python-operator-take>`
      - ``2 overloads``
@@ -817,7 +820,7 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`throttle <python-operator-throttle>`
-     - ``throttle(ts: ~S, period: TS[timedelta], delay_first_tick: bool = ...) -> ~S``
+     - ``throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = ...) -> TIME_SERIES_TYPE``
      - 1 native overload; lazy operator
    * - :ref:`timestamp <python-operator-timestamp>`
      - ``timestamp(ts: TS[datetime]) -> TS[float]``
@@ -835,7 +838,7 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`to_table <python-operator-to_table>`
-     - ``to_table(ts: ~S, mode: TS[~M] = ...) -> ~__out__``
+     - ``to_table(ts: TIME_SERIES_TYPE, mode: TS[SCALAR] = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`to_window <python-operator-to_window>`
      - ``4 overloads``
@@ -844,10 +847,10 @@ whose curated signatures remain authoritative.
      - ``total_seconds(ts: TS[timedelta]) -> TS[float]``
      - 1 native overload; lazy operator
    * - :ref:`try_except <python-operator-try_except>`
-     - ``try_except(func: fn, *args: ~A, __trace_back_depth__: int = ..., __capture_values__: bool = ..., **kwargs: time-series) -> ~__out__``
+     - ``try_except(func: fn, *args: TIME_SERIES_TYPE, __trace_back_depth__: int = ..., __capture_values__: bool = ..., **kwargs: time-series) -> OUT``
      - 1 native overload; explicit helper
    * - :ref:`type_ <python-operator-type_>`
-     - ``type_(ts: ~S) -> TS[Any]``
+     - ``type_(ts: TIME_SERIES_TYPE) -> TS[Any]``
      - 1 native overload; lazy operator
    * - :ref:`uncollapse_keys <python-operator-uncollapse_keys>`
      - ``2 overloads``
@@ -856,10 +859,10 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`union <python-operator-union>`
-     - ``union(*ts: ~S) -> ~__out__``
+     - ``union(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`unpartition <python-operator-unpartition>`
-     - ``unpartition(ts: TSD[~K1, TSD[~K, ~V]]) -> TSD[~K, ~V]``
+     - ``unpartition(ts: TSD[K_1, TSD[K, V]]) -> TSD[K, V]``
      - 1 native overload; lazy operator
    * - :ref:`until_true <python-operator-until_true>`
      - ``3 overloads``

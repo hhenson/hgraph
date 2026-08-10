@@ -17,7 +17,7 @@ namespace hgraph::stdlib
      * Python ``hgraph`` arithmetic operators (``release/0.5:hgraph/_operators/_operators.py``).
      *
      * The operator signature is a *suggestion*: binary operators declare independent
-     * type variables for ``lhs`` / ``rhs`` / the result so a single name spans
+     * type variables for ``lhs`` / ``rhs`` / ``OUT`` so a single name spans
      * homogeneous (``int + int``), mixed (``int + float``) and heterogeneous
      * (``DateTime + TimeDelta``) cases. Matching is driven by each implementation's own
      * signature, not by these abstract ones.
@@ -51,33 +51,33 @@ namespace hgraph::static_schema_detail
 
 namespace hgraph::stdlib
 {
-    /** ``add_`` — the ``+`` operator. Operands and result may all differ (``L + R -> O``). */
+    /** ``add_`` — the ``+`` operator. Operands and result may all differ (``lhs + rhs -> OUT``). */
     struct add_ : Operator<"add_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``sub_`` — the ``-`` operator (``L - R -> O``). */
+    /** ``sub_`` — the ``-`` operator (``lhs - rhs -> OUT``). */
     struct sub_ : Operator<"sub_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``mul_`` — the ``*`` operator (``L * R -> O``). (Python takes an optional ``__strict__`` flag.) */
+    /** ``mul_`` — the ``*`` operator (``lhs * rhs -> OUT``). (Python takes an optional ``__strict__`` flag.) */
     struct mul_ : Operator<"mul_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``div_`` — the ``/`` (true division) operator (``L / R -> O``). Implementations may take an
+    /** ``div_`` — the ``/`` (true division) operator (``lhs / rhs -> OUT``). Implementations may take an
         optional ``Scalar<"divide_by_zero", DivideByZero>`` wiring-time policy. */
     struct div_ : Operator<"div_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``floordiv_`` — the ``//`` (floor division) operator (``L // R -> O``). */
+    /** ``floordiv_`` — the ``//`` (floor division) operator (``lhs // rhs -> OUT``). */
     struct floordiv_ : Operator<"floordiv_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``mod_`` — the ``%`` operator (``L % R -> O``). */
+    /** ``mod_`` — the ``%`` operator (``lhs % rhs -> OUT``). */
     struct mod_ : Operator<"mod_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
@@ -87,7 +87,7 @@ namespace hgraph::stdlib
     {
     };
 
-    /** ``pow_`` — the ``**`` operator (``L ** R -> O``). */
+    /** ``pow_`` — the ``**`` operator (``lhs ** rhs -> OUT``). */
     struct pow_ : Operator<"pow_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
@@ -98,17 +98,17 @@ namespace hgraph::stdlib
     {
     };
 
-    /** ``neg_`` — the unary ``-`` operator (``-ts -> O``). */
+    /** ``neg_`` — the unary ``-`` operator (``-ts -> OUT``). */
     struct neg_ : Operator<"neg_", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``pos_`` — the unary ``+`` operator (``+ts -> O``). */
+    /** ``pos_`` — the unary ``+`` operator (``+ts -> OUT``). */
     struct pos_ : Operator<"pos_", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``abs_`` — the ``abs`` operator (``abs(ts) -> O``). */
+    /** ``abs_`` — the ``abs`` operator (``abs(ts) -> OUT``). */
     struct abs_ : Operator<"abs_", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };

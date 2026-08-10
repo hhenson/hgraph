@@ -2,11 +2,13 @@
 
 import ast
 from pathlib import Path
+import re
 import subprocess
 import sys
 
 import _hgraph
 import hgraph
+from hgraph._operator_signature import PublicTypePatternFormatter
 
 from tools.api_inventory import (
     DEFAULT_AUTHORING_API,
@@ -91,14 +93,37 @@ def test_operator_inventory_preserves_complete_native_overloads():
     )
 
 
+def test_public_operator_patterns_use_python_generic_names_by_kind():
+    formatter = PublicTypePatternFormatter()
+
+    assert formatter.format("TS[~S]", category="time_series") == "TS[SCALAR]"
+    assert formatter.format("TSL[~T, 0]", category="time_series") == \
+        "TSL[TIME_SERIES_TYPE, SIZE]"
+    assert formatter.format("TSD[~K, ~V]", category="time_series") == "TSD[K, V]"
+    assert formatter.format("~O", category="time_series") == "OUT"
+    assert formatter.format("~RESULT", category="time_series", output=True) == "OUT"
+
+
 def test_operator_catalogue_exposes_every_operator_signature_and_documentation():
     inventory = collect_inventory()
     source = DEFAULT_OPERATOR_CATALOGUE.read_text(encoding="utf-8")
 
     assert source.count(".. _python-operator-") == len(inventory["operators"])
     assert "add_(lhs: TS[int], rhs: TS[int]) -> TS[int]" in source
+    assert "abs_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT" in source
+    assert "abs_(ts: TIME_SERIES_TYPE) -> OUT" in source
+    assert "add_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]" in source
+    assert "const(value: SCALAR) -> OUT" in source
     assert ".. _python-operator-to_window:" in source
     assert "Accepted native overloads" in source
+    assert not re.search(r"(?m)^   .*~[A-Za-z_]", source)
+    assert ", 0]" not in source
+    assert "__out__" not in source
+    signature_lines = "\n".join(
+        line for line in source.splitlines()
+        if line.startswith("   ") and "(" in line and " -> " in line
+    )
+    assert not re.search(r"(?<![A-Z_])(?:O|S|T)(?![A-Z_])", signature_lines)
     for operator in inventory["operators"]:
         assert operator["documentation"] in source
 
@@ -153,6 +178,14 @@ def test_operator_stub_exposes_overloads_docs_and_every_public_operator():
         for call in add_calls
     )
     assert "add_(lhs: TS[int], rhs: TS[int]) -> TS[int]" in ast.get_docstring(add)
+
+    abs_operator = classes["_abs__Operator"]
+    abs_documentation = ast.get_docstring(abs_operator)
+    assert "abs_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT" in abs_documentation
+    assert "abs_(ts: TIME_SERIES_TYPE) -> OUT" in abs_documentation
+    assert not re.search(r"~[A-Za-z_]", abs_documentation)
+    assert ", 0]" not in abs_documentation
+    assert "__out__" not in abs_documentation
 
     to_window = classes["_to_window_Operator"]
     assert any(

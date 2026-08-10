@@ -9,6 +9,7 @@ import threading
 
 import _hgraph
 
+from .._operator_signature import PublicTypePatternFormatter
 from .._types import _TsExpr
 from ._sentinels import _REDUCE_ZERO
 
@@ -151,30 +152,38 @@ def _format_operator_signature(name, signature_key):
     (raw_parameters, variadic, positional_params, has_kwargs,
      kwargs_pattern, has_output, output_pattern) = signature_key
     parameters = list(raw_parameters)
+    formatter = PublicTypePatternFormatter()
     variadic_parameter = parameters.pop() if variadic and parameters else None
     positional_count = min(positional_params, len(parameters))
     rendered = []
-    for index, (parameter_name, _, type_pattern, has_default) in enumerate(
+    for index, (parameter_name, is_time_series, type_pattern, has_default) in enumerate(
             parameters[:positional_count]):
         parameter_name = parameter_name or f"arg{index}"
-        rendered.append(
-            f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}"
-        )
+        type_pattern = formatter.format(
+            type_pattern, category="time_series" if is_time_series else "scalar")
+        rendered.append(f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}")
     if variadic_parameter is not None:
-        parameter_name, _, type_pattern, _ = variadic_parameter
+        parameter_name, is_time_series, type_pattern, _ = variadic_parameter
         parameter_name = parameter_name or "args"
+        type_pattern = formatter.format(
+            type_pattern, category="time_series" if is_time_series else "scalar")
         rendered.append(f"*{parameter_name}: {type_pattern}")
     elif positional_count < len(parameters):
         rendered.append("*")
-    for index, (parameter_name, _, type_pattern, has_default) in enumerate(
+    for index, (parameter_name, is_time_series, type_pattern, has_default) in enumerate(
             parameters[positional_count:], start=positional_count):
         parameter_name = parameter_name or f"arg{index}"
-        rendered.append(
-            f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}"
-        )
+        type_pattern = formatter.format(
+            type_pattern, category="time_series" if is_time_series else "scalar")
+        rendered.append(f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}")
     if has_kwargs:
-        rendered.append(f"**kwargs: {kwargs_pattern or 'time-series'}")
-    output = output_pattern if has_output else "None"
+        kwargs_pattern = formatter.format(
+            kwargs_pattern or "time-series", category="time_series")
+        rendered.append(f"**kwargs: {kwargs_pattern}")
+    output = (
+        formatter.format(output_pattern, category="time_series", output=True)
+        if has_output else "None"
+    )
     return f"{name}({', '.join(rendered)}) -> {output}"
 
 
@@ -193,13 +202,19 @@ def _operator_documentation(name, signatures):
         "",
     ]
     if signature_keys:
-        lines.extend(f"- {_format_operator_signature(name, signature)}" for signature in signature_keys)
+        rendered_signatures = dict.fromkeys(
+            _format_operator_signature(name, signature) for signature in signature_keys
+        )
+        lines.extend(f"- {signature}" for signature in rendered_signatures)
     else:
         lines.append(f"- {name}(*args, **kwargs)")
     lines.extend([
         "",
         "Time-series parameters accept wiring ports and compatible plain values",
         "that can be lifted to constant sources.",
+        "Generic names use the public Python vocabulary: SCALAR for scalar",
+        "payloads, TIME_SERIES_TYPE for complete time-series types, SIZE for a",
+        "fixed TSL length, and OUT for an output inferred during wiring.",
     ])
     return "\n".join(lines)
 
