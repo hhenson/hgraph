@@ -65,9 +65,25 @@ anything that reads Arrow — Spark, DuckDB, polars, pandas — without hgraph i
 the loop. That constrains the format to Parquet or Arrow IPC, both of which are
 already available through the linked Arrow build.
 
-**Frames that travel with their meaning.** :doc:`rfc_0001_typed_frame_metadata`
-puts frame-level identity, as-of time and provenance into the Arrow schema
-metadata rather than into rows or a side object. Persistence must not lose it.
+**Frames that record how they were produced.**
+:doc:`rfc_0001_typed_frame_metadata` puts frame-level values into the Arrow
+schema metadata rather than into rows or a side object. The intended content is
+not only identity — as-of, revision — but **provenance**: the query that
+generated the frame. Dataset, date range, universe, filters, and whatever else
+determined the result:
+
+.. code-block:: text
+
+    b'hgraph.metadata.field.dataset'  -> b'eod_prices'
+    b'hgraph.metadata.field.start'    -> b'2026-01-01'
+    b'hgraph.metadata.field.universe' -> b'["CL", "NG", "HO"]'
+    b'hgraph.metadata.field.filters'  -> b'{"venue": "NYMEX"}'
+
+A stored frame then answers *what produced this?* on its own, which is what
+makes a persisted result auditable and reproducible rather than merely
+retrievable. Persistence must not lose it, and a store that kept this
+description anywhere but inside the object would break the property the moment
+an outside tool read the file.
 
 Ownership boundary
 ------------------
@@ -354,6 +370,17 @@ differs from the current in-memory store, which overwrites silently; the change
 is deliberate and applies to every backend so behaviour does not vary by
 environment.
 
+When metadata records the query that produced a frame, the key is often derived
+from those same parameters, so that asking for a result and finding it are the
+same operation. That pattern and immutability meet as follows: the caller tests
+``contains(key)`` and either reads the existing frame or computes and writes
+it. The second run of an identical query is then a read, not a rejected write.
+A caller that writes unconditionally gets an error instead of silently
+discarding the earlier result, which is the safer failure. The store needs no
+API for this — key derivation is the caller's business — but the interaction is
+recorded because immutable-by-default makes the ``contains``-first shape the
+expected one rather than an optimisation.
+
 **Keys map transparently to paths, with validation.** A key is the object-path
 suffix and ``/`` nests, so a bucket browses as a tree and prefix listing works.
 Write-time validation rejects ``..``, leading and trailing ``/``, empty
@@ -405,9 +432,10 @@ None outstanding on the store contract itself.
 One sizing consideration is recorded rather than left to be discovered. Arrow
 schema metadata lives in the file footer and is read whenever the object is
 opened, so it suits values that describe the frame, not values that *are* the
-data. A mapping of tens or hundreds of entries is unremarkable; one of hundreds
-of thousands belongs in its own keyed frame, because every reader would
-otherwise pay for it on every open even when only the columns are wanted. This
+data. A query's parameters — a date range, a filter map, a universe of tens or
+hundreds of symbols — are unremarkable. A universe of hundreds of thousands
+belongs in its own keyed frame, because every reader would otherwise pay for it
+on every open even when only the columns are wanted. This
 is a guideline, not a limit enforced by the store.
 
 Acceptance criteria and test plan
