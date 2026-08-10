@@ -28,6 +28,26 @@ _hgraph\.register_service_adaptor_impl$:
 # These bound declarations otherwise retain C++ implementation spellings in
 # forward references. Pattern replacements are nanobind's documented escape
 # hatch for annotations that differ from the actual C++ signature metadata.
+_hgraph\.TimeSeries\.value$:
+    @property
+    def value(self) -> object:
+        \doc
+
+_hgraph\.TimeSeries\.delta_value$:
+    @property
+    def delta_value(self) -> object:
+        \doc
+
+_hgraph\.TimeSeries\.modified$:
+    @property
+    def modified(self) -> bool:
+        \doc
+
+_hgraph\.TimeSeries\.valid$:
+    @property
+    def valid(self) -> bool:
+        \doc
+
 _hgraph\.CivilDateTime\.time$:
     @property
     def time(self) -> datetime.time: ...
