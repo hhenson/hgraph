@@ -820,33 +820,55 @@ namespace hgraph::python_bridge
         return nb::cast<PyWiredFn &>(source).fn;
     };
 
-    nb::class_<PyRun>(m, "Run").def("recorded", &PyRun::recorded, nb::arg("key"), nb::arg("sparse") = false);
-    m.def("operator_names", [] { return OperatorRegistry::instance().registered_names(); });
+    nb::class_<PyRun>(
+        m, "Run",
+        "The completed result of a native graph execution.\n\n"
+        "Use recorded() to retrieve values captured through the runner's "
+        "record/replay support.")
+        .def("recorded", &PyRun::recorded, nb::arg("key"),
+             nb::arg("sparse") = false,
+             "Return values recorded under key. Sparse mode preserves only "
+             "ticks; dense mode aligns values to evaluation cycles.");
+    m.def("operator_names", [] { return OperatorRegistry::instance().registered_names(); },
+          "Return the names currently registered in the native operator registry.");
 
-    nb::class_<EvaluationTrace>(m, "EvaluationTrace")
+    nb::class_<EvaluationTrace>(
+        m, "EvaluationTrace",
+        "Configure textual tracing for graph and node lifecycle events.\n\n"
+        "Pass an instance as GraphConfiguration.trace. The optional filter "
+        "limits output to matching graph and node paths.")
         .def(nb::init<std::optional<std::string>, bool, bool, bool, bool, bool>(),
              nb::arg("filter").none() = nb::none(), nb::arg("start") = true,
              nb::arg("eval") = true, nb::arg("stop") = true,
              nb::arg("node") = true, nb::arg("graph") = true)
         .def_static("set_print_all_values", &EvaluationTrace::set_print_all_values,
-                    nb::arg("value"))
+                    nb::arg("value"),
+                    "Globally enable or disable full value rendering in traces.")
         .def_static("set_use_logger", &EvaluationTrace::set_use_logger,
-                    nb::arg("value"));
+                    nb::arg("value"),
+                    "Globally select logging instead of direct trace output.");
 
-    nb::class_<EvaluationProfilePhase>(m, "EvaluationProfilePhase")
+    nb::class_<EvaluationProfilePhase>(
+        m, "EvaluationProfilePhase",
+        "Aggregated timing and failure counts for one lifecycle phase.")
         .def_ro("count", &EvaluationProfilePhase::count)
         .def_ro("failures", &EvaluationProfilePhase::failures)
         .def_ro("total_time", &EvaluationProfilePhase::total_time)
         .def_ro("max_time", &EvaluationProfilePhase::max_time)
         .def_ro("recent_time", &EvaluationProfilePhase::recent_time);
-    nb::class_<EvaluationProfileEntry>(m, "EvaluationProfileEntry")
+    nb::class_<EvaluationProfileEntry>(
+        m, "EvaluationProfileEntry",
+        "A profiler entry for one graph or node path, split into start, "
+        "evaluation, and stop phases.")
         .def_ro("path", &EvaluationProfileEntry::path)
         .def_ro("label", &EvaluationProfileEntry::label)
         .def_ro("graph", &EvaluationProfileEntry::graph)
         .def_ro("start", &EvaluationProfileEntry::start)
         .def_ro("evaluation", &EvaluationProfileEntry::evaluation)
         .def_ro("stop", &EvaluationProfileEntry::stop);
-    nb::class_<EvaluationProfileSnapshot>(m, "EvaluationProfileSnapshot")
+    nb::class_<EvaluationProfileSnapshot>(
+        m, "EvaluationProfileSnapshot",
+        "An immutable point-in-time summary captured by EvaluationProfiler.")
         .def_ro("graph_cycles", &EvaluationProfileSnapshot::graph_cycles)
         .def_ro("wall_time", &EvaluationProfileSnapshot::wall_time)
         .def_ro("root_evaluation_time", &EvaluationProfileSnapshot::root_evaluation_time)
@@ -855,31 +877,51 @@ namespace hgraph::python_bridge
         .def_ro("scheduling_lag_samples", &EvaluationProfileSnapshot::scheduling_lag_samples)
         .def_ro("runtime_load", &EvaluationProfileSnapshot::runtime_load)
         .def_ro("entries", &EvaluationProfileSnapshot::entries);
-    nb::class_<EvaluationProfiler>(m, "EvaluationProfiler")
+    nb::class_<EvaluationProfiler>(
+        m, "EvaluationProfiler",
+        "Collect graph and node lifecycle timing without retaining runtime "
+        "objects.\n\n"
+        "Pass an instance as GraphConfiguration.profile. snapshot() is safe "
+        "after the run completes.")
         .def(nb::init<bool, bool, bool, bool, bool, std::size_t>(),
              nb::arg("start") = true, nb::arg("eval") = true,
              nb::arg("stop") = true, nb::arg("node") = true,
              nb::arg("graph") = true, nb::arg("recent_window") = 100)
-        .def("snapshot", &EvaluationProfiler::snapshot)
-        .def("reset", &EvaluationProfiler::reset);
+        .def("snapshot", &EvaluationProfiler::snapshot,
+             "Return an immutable snapshot of the currently collected metrics.")
+        .def("reset", &EvaluationProfiler::reset,
+             "Clear all collected counts and timings.");
 
-    nb::enum_<GraphDiagnosticEntityKind>(m, "GraphDiagnosticEntityKind")
+    nb::enum_<GraphDiagnosticEntityKind>(
+        m, "GraphDiagnosticEntityKind",
+        "Whether a diagnostics entry describes a graph or a node.")
         .value("GRAPH", GraphDiagnosticEntityKind::Graph)
         .value("NODE", GraphDiagnosticEntityKind::Node);
-    nb::class_<NodeStorageMetrics>(m, "NodeStorageMetrics")
+    nb::class_<NodeStorageMetrics>(
+        m, "NodeStorageMetrics",
+        "Static, nested-graph, and dynamic storage metrics for one node.")
         .def_ro("static_bytes", &NodeStorageMetrics::static_bytes)
         .def_ro("nested_graph_count", &NodeStorageMetrics::nested_graph_count)
         .def_ro("nested_graph_capacity", &NodeStorageMetrics::nested_graph_capacity)
         .def_ro("nested_graph_blocks", &NodeStorageMetrics::nested_graph_blocks)
         .def_ro("dynamic_live_bytes", &NodeStorageMetrics::dynamic_live_bytes)
         .def_ro("dynamic_reserved_bytes", &NodeStorageMetrics::dynamic_reserved_bytes);
-    nb::class_<NodeInspectionMetrics>(m, "NodeInspectionMetrics")
+    nb::class_<NodeInspectionMetrics>(
+        m, "NodeInspectionMetrics",
+        "Optional cold-path inspection metrics reported by a node.")
         .def_ro("pending_items", &NodeInspectionMetrics::pending_items);
-    nb::class_<GraphDiagnosticTarget>(m, "GraphDiagnosticTarget")
+    nb::class_<GraphDiagnosticTarget>(
+        m, "GraphDiagnosticTarget",
+        "A resolved connection from a source time-series path to a target "
+        "node input path.")
         .def_ro("source_path", &GraphDiagnosticTarget::source_path)
         .def_ro("node_id", &GraphDiagnosticTarget::node_id)
         .def_ro("target_path", &GraphDiagnosticTarget::target_path);
-    nb::class_<GraphDiagnosticValue>(m, "GraphDiagnosticValue")
+    nb::class_<GraphDiagnosticValue>(
+        m, "GraphDiagnosticValue",
+        "A serialized diagnostic view of an input, output, or scalar value.\n\n"
+        "Value capture is optional. Check available before reading json or "
+        "frame; error and table_error explain failed conversions.")
         .def_ro("available", &GraphDiagnosticValue::available)
         .def_ro("valid", &GraphDiagnosticValue::valid)
         .def_ro("last_modified", &GraphDiagnosticValue::last_modified)
@@ -898,7 +940,10 @@ namespace hgraph::python_bridge
         .def_ro("target_node_ids", &GraphDiagnosticValue::target_node_ids)
         .def_ro("targets", &GraphDiagnosticValue::targets)
         .def_ro("bound_targets", &GraphDiagnosticValue::bound_targets);
-    nb::class_<GraphDiagnosticEntry>(m, "GraphDiagnosticEntry")
+    nb::class_<GraphDiagnosticEntry>(
+        m, "GraphDiagnosticEntry",
+        "One graph or node in a GraphDiagnosticsSnapshot, including "
+        "lifecycle, storage, connection, and optional value information.")
         .def_ro("id", &GraphDiagnosticEntry::id)
         .def_ro("parent_id", &GraphDiagnosticEntry::parent_id)
         .def_ro("children", &GraphDiagnosticEntry::children)
@@ -922,7 +967,11 @@ namespace hgraph::python_bridge
         .def_ro("start", &GraphDiagnosticEntry::start)
         .def_ro("evaluation", &GraphDiagnosticEntry::evaluation)
         .def_ro("stop", &GraphDiagnosticEntry::stop);
-    nb::class_<GraphDiagnosticsSnapshot>(m, "GraphDiagnosticsSnapshot")
+    nb::class_<GraphDiagnosticsSnapshot>(
+        m, "GraphDiagnosticsSnapshot",
+        "An immutable graph-wide diagnostics snapshot.\n\n"
+        "Entries use stable numeric identifiers and do not retain live graph "
+        "or node objects, so a snapshot remains safe after execution.")
         .def_ro("graph_cycles", &GraphDiagnosticsSnapshot::graph_cycles)
         .def_ro("wall_time", &GraphDiagnosticsSnapshot::wall_time)
         .def_ro("root_evaluation_time", &GraphDiagnosticsSnapshot::root_evaluation_time)
@@ -936,7 +985,12 @@ namespace hgraph::python_bridge
         .def_ro("peak_dynamic_live_bytes", &GraphDiagnosticsSnapshot::peak_dynamic_live_bytes)
         .def_ro("peak_dynamic_reserved_bytes", &GraphDiagnosticsSnapshot::peak_dynamic_reserved_bytes)
         .def_ro("entries", &GraphDiagnosticsSnapshot::entries);
-    nb::class_<GraphDiagnostics>(m, "GraphDiagnostics")
+    nb::class_<GraphDiagnostics>(
+        m, "GraphDiagnostics",
+        "Collect graph structure, lifecycle, storage, and optional values.\n\n"
+        "Pass this observer through GraphConfiguration.life_cycle_observers. "
+        "capture_values=True serializes runtime values and may add "
+        "substantial diagnostic cost.")
         .def("__init__",
              [](nb::pointer_and_handle<GraphDiagnostics> self,
                 std::size_t recent_window, bool capture_values) {
@@ -947,9 +1001,13 @@ namespace hgraph::python_bridge
              },
              nb::arg("recent_window") = 100,
              nb::arg("capture_values") = false)
-        .def("snapshot", &GraphDiagnostics::snapshot)
-        .def("reset", &GraphDiagnostics::reset);
-    nb::class_<RuntimeRegistrySnapshot>(m, "RuntimeRegistrySnapshot")
+        .def("snapshot", &GraphDiagnostics::snapshot,
+             "Return an immutable snapshot of the collected diagnostics.")
+        .def("reset", &GraphDiagnostics::reset,
+             "Clear collected diagnostics and peak counters.");
+    nb::class_<RuntimeRegistrySnapshot>(
+        m, "RuntimeRegistrySnapshot",
+        "Process-lifetime cardinalities for native runtime registries.")
         .def_ro("node_runtime_types", &RuntimeRegistrySnapshot::node_runtime_types)
         .def_ro("graph_programs", &RuntimeRegistrySnapshot::graph_programs)
         .def_ro("graph_runtime_types", &RuntimeRegistrySnapshot::graph_runtime_types)
@@ -958,14 +1016,19 @@ namespace hgraph::python_bridge
     m.def("runtime_registry_snapshot", &runtime_registry_snapshot,
           "Capture cold-path process-lifetime runtime registry cardinalities.");
 
-    nb::class_<WiringTracer>(m, "WiringTracer")
+    nb::class_<WiringTracer>(
+        m, "WiringTracer",
+        "Capture graph and node wiring events as formatted text lines.\n\n"
+        "Supply the tracer through GraphConfiguration.wiring_observers or "
+        "trace_wiring. The optional filter matches wiring paths.")
         .def(nb::init<std::string, bool, bool>(), nb::arg("filter") = "",
              nb::arg("graph") = true, nb::arg("node") = true)
         .def_prop_ro("lines", [](const WiringTracer &tracer) {
             return std::vector<std::string>{tracer.lines().begin(),
                                             tracer.lines().end()};
         })
-        .def("clear", &WiringTracer::clear);
+        .def("clear", &WiringTracer::clear,
+             "Remove every captured wiring line.");
     nb::class_<WiringObservationScope>(m, "_WiringObservationScope")
         .def("__enter__", [](WiringObservationScope &self) -> WiringObservationScope & {
             return self;
