@@ -157,12 +157,22 @@ class TimeSeriesSchema(AbstractSchema):
                 return tsc_schema
 
             origin = _dataclass_scalar_origin(schema)
-            if origin is not schema and (schema_args := getattr(schema, "__args__", ())):
-                # Parameterise the origin's generic bundle rather than deriving an
-                # unrelated flat class per parameterisation. TSB[Box[int]] is then
-                # BoxBundle[int], so a node declared over TSB[Box] resolves from it.
-                # This is what the CompoundScalar path below does with _root_cls.
-                tsc_schema = TimeSeriesSchema.from_scalar_schema(origin)[schema_args]
+            free_parameters = getattr(schema, "__parameters__", ())
+            if origin is not schema and getattr(schema, "__args__", ()) and not free_parameters:
+                # A fully bound specialisation parameterises the origin's generic
+                # bundle rather than deriving an unrelated flat class. TSB[Box[int]]
+                # is then BoxBundle[int], so a node declared over TSB[Box] resolves
+                # from it. This is what the CompoundScalar path below does with
+                # _root_cls.
+                #
+                # Only when nothing is left free: a partial specialisation can repeat
+                # a variable (Pair[T, T] has __args__ (T, T) but one parameter), and
+                # handing those raw args to the origin bundle would record
+                # __parameters__ as (T, T), after which resolving with [int] takes the
+                # partial-resolution path and leaves the fields unresolved. Those fall
+                # through to the derivation below, which builds the annotations from
+                # the alias itself and is generic over its real parameters.
+                tsc_schema = TimeSeriesSchema.from_scalar_schema(origin)[schema.__args__]
                 _DATACLASS_BUNDLE_SCHEMAS[schema] = tsc_schema
                 return tsc_schema
 

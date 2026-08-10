@@ -35,6 +35,7 @@ class Quote:
 
 
 VALUE = TypeVar("VALUE")
+OTHER = TypeVar("OTHER")
 
 
 @dataclass(frozen=True)
@@ -244,6 +245,25 @@ def test_unparameterised_generic_dataclass_bundle_resolves_from_its_inputs():
         return unwrap(combine[TSB[Box[int]]](value=value))
 
     assert eval_node(g, [1, 2]) == [1, 2]
+
+
+def test_partial_specialisation_repeating_a_type_var_stays_resolvable():
+    # Pair[T, T] has __args__ (T, T) but only one parameter. Deriving the bundle
+    # from the origin with those raw args would record __parameters__ as (T, T),
+    # after which resolving with [int] takes the partial-resolution path and
+    # leaves the fields unresolved.
+    @dataclass(frozen=True)
+    class Pair(Generic[VALUE, OTHER]):
+        left: VALUE
+        right: OTHER
+
+    schema = TimeSeriesSchema.from_scalar_schema(Pair[VALUE, VALUE])
+
+    assert schema.__parameters__ == (VALUE,)
+    assert fields(TSB[schema[int]]) == {"left": TS[int], "right": TS[int]}
+
+    # A fully bound specialisation still binds each position independently.
+    assert fields(TSB[Pair[int, str]]) == {"left": TS[int], "right": TS[str]}
 
 
 def test_dataclass_bundle_rejects_non_scalar_and_unresolved_fields():
