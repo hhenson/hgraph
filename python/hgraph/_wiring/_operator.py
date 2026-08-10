@@ -7,7 +7,8 @@ import inspect
 
 import _hgraph
 
-from .._types import _ContextExpr, _TsExpr, _type_var_name
+from .._types import (_ContextExpr, _TsExpr, _type_var_name,
+                      wiring_signature_of as _wiring_signature_of)
 from ._core import (WiringError, WiringPort, _OperatorFunction, _unwrap,
                     _wiring_stack, wire)
 from ._markers import (LOGGER, _INJECTABLE_MARKERS, _RecordableStateExpr,
@@ -253,7 +254,8 @@ def _register_overload(target, impl, requires=None):
     # the ORIGINAL wiring signature: star-group nodes rewrite fn's code
     # object to keyword-only params (upstream parity), so fn's live
     # signature no longer shows *args/**kwargs.
-    sig = getattr(impl, "_wiring_signature", None) or inspect.signature(fn, eval_str=True)
+    sig = (getattr(impl, "_wiring_signature", None)
+           or _wiring_signature_of(fn)[0])
     param_options, variadic, has_kwargs = [], False, False
     kwargs_pattern = None
     positional = None

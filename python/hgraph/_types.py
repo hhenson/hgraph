@@ -2794,40 +2794,58 @@ class DEFAULT(metaclass=_DefaultMeta):
     """
 
 
+def _unwrap_default(value):
+    return value.type_var if isinstance(value, _DefaultTypeArg) else value
+
+
 def default_type_var_of(signature):
     """Return ``(cleaned_signature, default_type_var_name)``.
 
     Strips every ``DEFAULT[X]`` marker out of ``signature`` - whether it
     appears as a parameter annotation, a parameter default, or the return
-    annotation - and reports the name of the type variable it marked.
+    annotation - and reports the name of the type variable it marked. A
+    signature with no marker is returned unchanged.
+    """
+    marked = [
+        value
+        for parameter in signature.parameters.values()
+        for value in (parameter.annotation, parameter.default)
+        if isinstance(value, _DefaultTypeArg)
+    ]
+    if isinstance(signature.return_annotation, _DefaultTypeArg):
+        marked.append(signature.return_annotation)
+    if not marked:
+        return signature, None
+
+    names = {_type_var_name(entry.type_var) for entry in marked}
+    if len(names) > 1:
+        rendered = ", ".join(sorted(names))
+        raise TypeError(
+            f"DEFAULT is declared on more than one type variable ({rendered}); "
+            "a signature has at most one default type argument")
+
+    parameters = [
+        parameter.replace(annotation=_unwrap_default(parameter.annotation),
+                          default=_unwrap_default(parameter.default))
+        for parameter in signature.parameters.values()
+    ]
+    return (signature.replace(
+        parameters=parameters,
+        return_annotation=_unwrap_default(signature.return_annotation)),
+        next(iter(names)))
+
+
+def wiring_signature_of(fn):
+    """The hgraph wiring signature of ``fn``: ``(signature, default_type_var)``.
+
+    Every decorator that reads a user function's signature goes through this,
+    so ``DEFAULT[...]`` is stripped exactly once and in one place. Reading
+    ``inspect.signature`` directly leaves the marker in the annotations, where
+    it reaches pattern lowering and fails.
     """
     import inspect as _inspect
 
-    name = None
-
-    def unwrap(value):
-        nonlocal name
-        if isinstance(value, _DefaultTypeArg):
-            marked = value.type_var
-            resolved = _type_var_name(marked)
-            if name is not None and name != resolved:
-                raise TypeError(
-                    f"DEFAULT is declared twice, on {name} and on {resolved}; "
-                    "a signature has at most one default type argument")
-            name = resolved
-            return marked
-        return value
-
-    parameters = [
-        parameter.replace(annotation=unwrap(parameter.annotation),
-                          default=unwrap(parameter.default))
-        for parameter in signature.parameters.values()
-    ]
-    return_annotation = unwrap(signature.return_annotation)
-    if name is None:
-        return signature, None
-    return (signature.replace(parameters=parameters,
-                              return_annotation=return_annotation), name)
+    return default_type_var_of(_inspect.signature(fn, eval_str=True))
 
 
 class _KeyValueMeta(type):

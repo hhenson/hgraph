@@ -9,6 +9,7 @@ from functools import partial
 import _hgraph
 
 from .._types import (default_type_var_of as _default_type_var_of,
+                      wiring_signature_of as _wiring_signature_of,
                       _ContextExpr, _GenericTsExpr, _Required, _TsExpr,
                       _TypeVarSentinel, _evaluated_annotations,
                       _type_var_is_scalar, _type_var_name)
@@ -45,15 +46,15 @@ def _annotation_type_vars(annotation):
         # `to: Type[SCALAR_1]` - a scalar parameter naming a type variable.
         args = typing.get_args(annotation)
         if args and isinstance(args[0], (_TypeVarSentinel, typing.TypeVar)):
-            return (_type_var_name(args[0]),)
-        return ()
+            return [_type_var_name(args[0])]
+        return []
     for lower in (_pattern_of, _scalar_pattern):
         try:
             pattern = lower(annotation)
         except Exception:
             continue
-        return tuple(getattr(pattern, "variables", ()) or ())
-    return ()
+        return list(getattr(pattern, "variables", ()) or ())
+    return []
 
 
 def _is_time_series_annotation(annotation):
@@ -218,7 +219,7 @@ class _PyNode:
 
     def _set_lifecycle(self, phase, fn):
         eval_names = {p.name for p in self._params}
-        for param in inspect.signature(fn, eval_str=True).parameters.values():
+        for param in _wiring_signature_of(fn)[0].parameters.values():
             if param.name == "_output":
                 raise TypeError(
                     f"@{self.__name__}.{phase} supports wiring-time scalars and injectables only"
@@ -324,14 +325,14 @@ class _PyNode:
         bound explicitly, and are never filled by position.
         """
         if not entries:
-            return ()
-        remaining = tuple(name for name in self._ordered_type_vars()
-                          if name not in named)
+            return []
+        remaining = [name for name in self._ordered_type_vars()
+                     if name not in named]
         if len(entries) == 1:
             if len(remaining) == 1:
                 return remaining
             if self._default_type_var is not None and self._default_type_var not in named:
-                return (self._default_type_var,)
+                return [self._default_type_var]
         elif len(entries) <= len(remaining):
             return remaining[:len(entries)]
         rendered = ", ".join(remaining) if remaining else "none"
@@ -978,7 +979,7 @@ def lift(fn, inputs=None, output=None, active=None, valid=None, all_valid=None,
     values in this bridge, so the wrapped callable is the function itself."""
     from .._types import TS
 
-    sig = inspect.signature(fn, eval_str=True)
+    sig, _ = _wiring_signature_of(fn)
 
     def _scalar(arg):
         # python nodes receive live TimeSeries VIEWS; the lifted fn is a
@@ -1041,7 +1042,8 @@ class _Generator:
                  deprecated=False):
         self.fn = fn
         self.__name__ = fn.__name__
-        self._out_tp = inspect.signature(fn, eval_str=True).return_annotation
+        signature, self._default_type_var = _wiring_signature_of(fn)
+        self._out_tp = signature.return_annotation
         self._resolvers = dict(resolvers) if resolvers else None
         self._requires = requires
         self._label = label
@@ -1058,7 +1060,7 @@ class _Generator:
         return parameter.annotation
 
     def stop(self, fn):
-        for parameter in inspect.signature(fn, eval_str=True).parameters.values():
+        for parameter in _wiring_signature_of(fn)[0].parameters.values():
             annotation = self._stop_annotation(parameter)
             injectable = (
                 annotation in _INJECTABLE_MARKERS

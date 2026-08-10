@@ -6,7 +6,8 @@ import typing
 
 import _hgraph
 
-from .._types import (_GenericTsExpr, _TsExpr, _TypeVarSentinel,
+from .._types import (wiring_signature_of as _wiring_signature_of,
+                      _GenericTsExpr, _TsExpr, _TypeVarSentinel,
                       TSB, TimeSeriesSchema, _pattern_of,
                       _type_var_is_scalar, _type_var_name, _value_type)
 from ._core import (
@@ -422,7 +423,7 @@ def _inferred_specialization(fn, request_annotation, request, resolvers=None):
         raise TypeError(
             f"generic adaptor '{fn.__name__}' request does not match its type pattern")
     resolution = _resolve_service_signature(
-        inspect.signature(fn, eval_str=True), resolvers,
+        _wiring_signature_of(fn)[0], resolvers,
         resolution=resolution)
     specialization = _specialization_label(resolution)
     if not specialization:
@@ -642,7 +643,7 @@ class _ServiceStub:
         self._registered_resolutions = (
             registered_resolutions if registered_resolutions is not None else []
         )
-        self._signature = inspect.signature(fn, eval_str=True)
+        self._signature, self._default_type_var = _wiring_signature_of(fn)
         self._request_params = tuple(
             p for p in self._signature.parameters.values()
             if _is_ts_annotation(p.annotation)
@@ -985,7 +986,7 @@ class _AdaptorStub(_AdaptorClientStub):
             pending_registrations if pending_registrations is not None else [])
         self._registered_resolutions = (
             registered_resolutions if registered_resolutions is not None else [])
-        sig = inspect.signature(fn, eval_str=True)
+        sig, self._default_type_var = _wiring_signature_of(fn)
         self.__signature__ = sig
         params = [p for p in sig.parameters.values() if _is_ts_annotation(p.annotation)]
         self._signature = sig
@@ -1122,7 +1123,7 @@ class _ServiceAdaptorStub(_AdaptorClientStub):
             pending_registrations if pending_registrations is not None else [])
         self._registered_resolutions = (
             registered_resolutions if registered_resolutions is not None else [])
-        sig = inspect.signature(fn, eval_str=True)
+        sig, self._default_type_var = _wiring_signature_of(fn)
         self.__signature__ = sig
         params = [p for p in sig.parameters.values() if _is_ts_annotation(p.annotation)]
         if not params:

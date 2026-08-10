@@ -11,6 +11,9 @@ it matches what the overload matcher unifies against.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Generic, TypeVar
+
 import pytest
 from frozendict import frozendict as fd
 
@@ -28,11 +31,20 @@ from hgraph import (
     TSB,
     V,
     WiringError,
+    CompoundScalar,
     compute_node,
     graph,
 )
 from hgraph._types import _pattern_of
 from hgraph.test import eval_node
+
+_T = TypeVar("_T")
+
+
+@dataclass(frozen=True)
+class Crate(CompoundScalar, Generic[_T]):
+    item: _T
+
 
 
 def test_pattern_variables_follow_declaration_order():
@@ -124,3 +136,43 @@ def test_too_many_unnamed_items_raises():
 
     with pytest.raises(WiringError):
         one_var[int, str]
+
+
+def test_default_marker_is_stripped_for_every_decorator_that_reads_a_signature():
+    # DEFAULT[X] used to be transparent (it returned X), so it reached every
+    # signature consumer harmlessly. Now that it is a real marker, each of them
+    # has to strip it or the marker leaks into pattern lowering.
+    from hgraph import MIN_ST, generator, operator, sink_node
+
+    @operator
+    def produce(value: SCALAR) -> OUT: ...
+
+    @generator(overloads=produce)
+    def produce_impl(value: SCALAR) -> DEFAULT[OUT]:
+        yield MIN_ST, value
+
+    @graph
+    def g(value: TS[int]) -> TS[int]:
+        return value
+
+    assert eval_node(g, [1]) == [1]
+
+    @sink_node
+    def consume(ts: TS[SCALAR], marker: DEFAULT[SCALAR] = None) -> None:
+        pass
+
+    assert consume is not None
+
+
+def test_synthetic_bundle_variables_are_not_positional_targets():
+    # A generic nominal bundle binds its schema to a manufactured variable
+    # (__bundle__<origin>). Only the author's own variable should be
+    # positionally bindable.
+    assert list(_pattern_of(TS[Crate[_T]]).variables) == ["_T"]
+
+    @compute_node
+    def unpack(box: TS[Crate[_T]]) -> TS[bool]:
+        return True
+
+    # _T is the sole declared variable, so the unnamed form is unambiguous.
+    assert unpack[int] is not None
