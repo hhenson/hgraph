@@ -896,7 +896,8 @@ namespace hgraph::python_bridge
                      "Elapsed wall time since the current cycle began.")
         .def_prop_ro("next_cycle_evaluation_time",
                      [](const PyEvalClock &clock) { return clock.next_cycle_evaluation_time(); },
-                     "The earliest evaluation time currently scheduled for the next cycle.");
+                     "The logical time immediately following this evaluation "
+                     "cycle (evaluation_time + MIN_TD).");
     nb::class_<PyEvaluationEngineApi>(
         m, "EvaluationEngineApi",
         "A callback-scoped control view for the running graph executor.\n\n"

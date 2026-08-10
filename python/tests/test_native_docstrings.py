@@ -36,7 +36,10 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
             ("CivilDateTime", "weekday", "Monday=0"),
             ("TimeSeries", "make_passive", "Stop this input"),
             ("OutputView", "invalidate", "Invalidate the output"),
+            ("InstantRange", "touches", "finite upper endpoint equals"),
+            ("InstantRange", "adjacent", "exactly one meeting boundary"),
             ("EvaluationEngineApi", "request_engine_stop", "graceful stop"),
+            ("EvaluationTrace", "set_print_all_values", "valid input values that did not tick"),
             ("EvaluationProfiler", "snapshot", "immutable snapshot"),
             ("GraphDiagnostics", "reset", "Clear collected diagnostics"),
             ("Scheduler", "reset", "Cancel every outstanding schedule"),
@@ -51,6 +54,7 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
             ("TimeSeries", "active", "currently schedule its node"),
             ("OutputView", "value", "Assigning publishes a value"),
             ("RecordableStateView", "value", "current persistent value"),
+            ("EvaluationClock", "next_cycle_evaluation_time", "immediately following this evaluation cycle"),
             ("EvaluationEngineApi", "evaluation_mode", "active execution mode"),
             ("Graph", "nodes", "callback-scoped views"),
             ("Node", "node_index", "zero-based index"),
@@ -86,6 +90,7 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
             documentation = getdoc(value)
             assert documentation is not None, value
             assert summary in documentation, value
+        assert "immediately following possible evaluation cycle" in getdoc(hg.CLOCK)
 
         stub_path = Path(_hgraph.__file__).parent / "_hgraph.pyi"
         stub = stub_path.read_text()

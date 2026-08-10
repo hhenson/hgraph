@@ -24,13 +24,16 @@ first access through ``hgraph.__getattr__`` and then cached:
    import hgraph as hg
 
    assert "TS" in hg.__all__
+   assert "datetime" not in hg.__all__
    assert "add_" not in hg.__all__
    assert callable(hg.add_)
    assert hg.add_ is hg.add_
 
 This distinction keeps ``from hgraph import *`` manageable without making the
 dynamic operator names private. The :doc:`python_api_inventory` combines both
-sources and is regenerated from a built wheel.
+sources and is regenerated from a built wheel. Standard-library values are not
+re-exported merely because the implementation uses them; import values such as
+``datetime`` and ``timedelta`` from their defining modules.
 
 Private boundary
 ----------------

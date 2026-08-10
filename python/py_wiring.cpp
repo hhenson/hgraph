@@ -843,7 +843,8 @@ namespace hgraph::python_bridge
              nb::arg("node") = true, nb::arg("graph") = true)
         .def_static("set_print_all_values", &EvaluationTrace::set_print_all_values,
                     nb::arg("value"),
-                    "Globally enable or disable full value rendering in traces.")
+                    "Globally include or omit valid input values that did not "
+                    "tick in node trace output.")
         .def_static("set_use_logger", &EvaluationTrace::set_use_logger,
                     nb::arg("value"),
                     "Globally select logging instead of direct trace output.");
