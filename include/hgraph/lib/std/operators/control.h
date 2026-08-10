@@ -32,64 +32,153 @@ namespace hgraph::stdlib
     {
     };
 
-    /** ``merge`` — forward the first input that ticks in the current cycle. */
+    /** Forward the first input modified in each evaluation cycle.
+        Input order is the tie-breaker when several streams tick together. For keyed
+        dictionaries, distinct keys from all ticking inputs are combined; the leftmost
+        input wins a same-key conflict.
+        @param tsl Ordered input streams.
+        @param disjoint When true, selects the faster TSD path and promises that input
+                        dictionaries have no overlapping keys.
+        @return A stream containing the cycle's first modified value, or merged TSD delta.
+        @par Python example
+        @code{.py}
+        preferred_tick = hg.merge(primary, secondary)
+        combined_books = hg.merge(bids, asks, disjoint=True)
+        @endcode */
     struct merge : Operator<"merge", VarIn<"tsl", TsVar<"S">>, Out<TsVar<"S">>>
     {
     };
 
-    /** ``race`` — forward the first *valid* of the inputs, falling through as they invalidate. */
-    /** ``reduce_tsd_with_race(tsd=TSD<K, REF<OUT>>) -> REF<OUT>`` — keyed race
-        (hgraph parity; ``reduce_tsd_of_bundles_with_race`` is the same erased
-        implementation registered under the bundle-flavoured name). */
+    /** Select the first valid referenced value in key iteration order.
+        The output falls through when the selected entry is removed or invalidated.
+        @param tsd Keyed references considered in deterministic key order.
+        @return A reference to the first currently valid entry.
+        @par Python example
+        @code{.py}
+        active = hg.reduce_tsd_with_race(candidates)
+        @endcode */
     struct reduce_tsd_with_race
         : Operator<"reduce_tsd_with_race", In<"tsd", TSD<ScalarVar<"K">, REF<TsVar<"S">>>>, Out<REF<TsVar<"S">>>>
     {
     };
 
-    /** ``reduce_tsd_of_bundles_with_race`` — bundle-flavoured keyed race reduction. */
+    /** Bundle-specialized keyed race reduction with the same first-valid and fall-through
+        semantics as ``reduce_tsd_with_race``.
+        @param tsd Keyed bundle references considered in deterministic key order.
+        @return A reference to the first currently valid bundle.
+        @par Python example
+        @code{.py}
+        active_bundle = hg.reduce_tsd_of_bundles_with_race(candidates)
+        @endcode */
     struct reduce_tsd_of_bundles_with_race
         : Operator<"reduce_tsd_of_bundles_with_race", In<"tsd", TSD<ScalarVar<"K">, REF<TsVar<"S">>>>,
                    Out<REF<TsVar<"S">>>>
     {
     };
 
-    /** ``race`` — forward the first valid input, falling through when it invalidates. */
+    /** Expose the first valid input in argument order, independently of which input ticks.
+        If the selected input invalidates, the output falls through to the next valid input.
+        @param ts Ordered candidate streams.
+        @return The first currently valid candidate.
+        @par Python example
+        @code{.py}
+        effective_price = hg.race(live_price, cached_price, fallback_price)
+        @endcode */
     struct race : Operator<"race", VarIn<"ts", TsVar<"S">>, Out<TsVar<"S">>>
     {
     };
 
-    /** ``all_`` — graph ``all``: ``True`` when every boolean input is ``True`` (variadic). */
+    /** Return true when every supplied boolean value is true.
+        Variadic and keyed-dictionary forms recompute when any member changes.
+        @param args Boolean inputs to test.
+        @param arg Keyed boolean collection accepted by collection overloads.
+        @return Boolean conjunction of all current inputs.
+        @par Python example
+        @code{.py}
+        ready = hg.all_(has_price, has_quantity, is_open)
+        @endcode */
     struct all_ : Operator<"all_", VarIn<"args", TS<Bool>>, Out<TS<Bool>>>
     {
     };
 
-    /** ``any_`` — graph ``any``: ``True`` when any boolean input is ``True`` (variadic). */
+    /** Return true when at least one supplied boolean value is true.
+        Variadic and keyed-dictionary forms recompute when any member changes.
+        @param args Boolean inputs to test.
+        @param arg Keyed boolean collection accepted by collection overloads.
+        @return Boolean disjunction of all current inputs.
+        @par Python example
+        @code{.py}
+        has_alert = hg.any_(price_alert, risk_alert)
+        @endcode */
     struct any_ : Operator<"any_", VarIn<"args", TS<Bool>>, Out<TS<Bool>>>
     {
     };
 
-    /** ``if_`` — route ``ts`` to a ``true`` / ``false`` bundle output by ``condition``. */
+    /** Route each source tick to the ``true`` or ``false`` field of a bundle according
+        to the latest condition. The non-selected output does not receive that tick.
+        @param condition Boolean route selector.
+        @param ts Stream to route.
+        @return A two-field bundle containing the mutually exclusive routed outputs.
+        @par Python example
+        @code{.py}
+        routed = hg.if_(is_buy, order)
+        buys, sells = routed.true, routed.false
+        @endcode */
     struct if_ : Operator<"if_", In<"condition", TS<Bool>>, In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``route_by_index`` — forward ``ts`` to the ``index``-th of a list of outputs. */
+    /** Route each source tick to one element of an output list.
+        @param index Zero-based destination selected by its latest value.
+        @param ts Stream to route.
+        @return A time-series list whose selected element receives each source tick.
+        @par Python example
+        @code{.py}
+        partitions = hg.route_by_index(destination, event)
+        @endcode */
     struct route_by_index : Operator<"route_by_index", In<"index", TS<Int>>, In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``if_true`` — tick ``True`` when ``condition`` ticks ``True`` (optional ``tick_once_only``). */
+    /** Emit true whenever ``condition`` ticks with a true value.
+        False values are suppressed rather than emitted. One-shot mode passivates the
+        input after the first true tick.
+        @param condition Boolean stream to observe.
+        @param tick_once_only When true, emit at most one tick.
+        @return A true-valued signal for qualifying condition ticks.
+        @par Python example
+        @code{.py}
+        first_ready = hg.if_true(is_ready, tick_once_only=True)
+        @endcode */
     struct if_true : Operator<"if_true", In<"condition", TS<Bool>>, Scalar<"tick_once_only", Bool>, Out<TS<Bool>>>
     {
     };
 
-    /** ``if_then_else`` — select ``true_value`` or ``false_value`` per ``condition``. */
+    /** Select between two value streams using the latest boolean condition.
+        A tick from the active branch is forwarded; a tick from the inactive branch is not.
+        @param condition Boolean selector.
+        @param true_value Value exposed while ``condition`` is true.
+        @param false_value Value exposed while ``condition`` is false.
+        @return The currently selected branch.
+        @par Python example
+        @code{.py}
+        effective = hg.if_then_else(use_live, live_value, fallback_value)
+        @endcode */
     struct if_then_else : Operator<"if_then_else", In<"condition", TS<Bool>>, In<"true_value", TsVar<"S">>,
                                    In<"false_value", TsVar<"S">>, Out<TsVar<"S">>>
     {
     };
 
-    /** ``if_cmp`` — select ``lt`` / ``eq`` / ``gt`` according to a ``CmpResult``. */
+    /** Select one of three value streams from a three-way comparison result.
+        @param cmp ``LT``, ``EQ``, or ``GT`` selector, typically produced by ``cmp_``.
+        @param lt Value selected for ``LT``.
+        @param eq Value selected for ``EQ``.
+        @param gt Value selected for ``GT``.
+        @return The branch selected by ``cmp``.
+        @par Python example
+        @code{.py}
+        label = hg.if_cmp(hg.cmp_(lhs, rhs), "low", "equal", "high")
+        @endcode */
     struct if_cmp : Operator<"if_cmp", In<"cmp", TS<CmpResult>>, In<"lt", TsVar<"O">>, In<"eq", TsVar<"O">>,
                              In<"gt", TsVar<"O">>, Out<TsVar<"O">>>
     {

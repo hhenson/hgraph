@@ -39,6 +39,16 @@ namespace hgraph::stdlib
      * parsed value as the tick's delta:
      * ``wire<from_json, TS<MySchema>>(w, ts)``.
      */
+    /** Serialize each time-series tick as JSON text.
+        Full-value mode encodes the current value; delta mode encodes the canonical
+        per-tick delta used by record/replay and preserves removals explicitly.
+        @param ts Value or structure to encode.
+        @param delta When true, encode only the current tick's canonical delta.
+        @return JSON text for each source tick.
+        @par Python example
+        @code{.py}
+        payload = hg.to_json(prices, delta=True)
+        @endcode */
     struct to_json : Operator<"to_json", In<"ts", TsVar<"S">>, Scalar<"delta", Bool>, Out<TS<Str>>>
     {
     };
@@ -54,37 +64,81 @@ namespace hgraph::stdlib
     {
     };
 
-    /** ``json_encode`` — encode a dynamic JSON-tree value as JSON text. */
+    /** Encode a dynamic JSON-tree value as standards-compliant JSON text.
+        @param ts Dynamic JSON value.
+        @return Compact JSON string.
+        @par Python example
+        @code{.py}
+        text = hg.json_encode(json_value)
+        @endcode */
     struct json_encode : Operator<"json_encode", In<"ts", TsVar<"S">>, Out<TS<Str>>>
     {
     };
 
-    /** ``json_decode`` — parse JSON text into the dynamic JSON-tree value type. */
+    /** Parse JSON text into hgraph's dynamic JSON-tree value.
+        @param ts JSON text.
+        @return Dynamic JSON value preserving object, array, scalar, and null structure.
+        @par Python example
+        @code{.py}
+        json_value = hg.json_decode(text)
+        @endcode */
     struct json_decode : Operator<"json_decode", In<"ts", TS<Str>>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``json_as_int`` — coerce a dynamic JSON leaf to an integer. */
+    /** Coerce a dynamic JSON scalar leaf to an integer.
+        @param ts JSON scalar value.
+        @return Integer representation, raising for incompatible JSON shapes or values.
+        @par Python example
+        @code{.py}
+        count = hg.json_as_int(json_value)
+        @endcode */
     struct json_as_int : Operator<"json_as_int", In<"ts", TsVar<"S">>, Out<TS<Int>>>
     {
     };
 
-    /** ``json_as_float`` — coerce a dynamic JSON leaf to a floating-point value. */
+    /** Coerce a dynamic JSON scalar leaf to floating point.
+        @param ts JSON scalar value.
+        @return Floating-point representation.
+        @par Python example
+        @code{.py}
+        price = hg.json_as_float(json_value)
+        @endcode */
     struct json_as_float : Operator<"json_as_float", In<"ts", TsVar<"S">>, Out<TS<Float>>>
     {
     };
 
-    /** ``json_as_str`` — coerce a dynamic JSON leaf to a string. */
+    /** Coerce a dynamic JSON scalar leaf to a string.
+        @param ts JSON scalar value.
+        @return String representation.
+        @par Python example
+        @code{.py}
+        label = hg.json_as_str(json_value)
+        @endcode */
     struct json_as_str : Operator<"json_as_str", In<"ts", TsVar<"S">>, Out<TS<Str>>>
     {
     };
 
-    /** ``json_as_bool`` — coerce a dynamic JSON leaf to a boolean. */
+    /** Coerce a dynamic JSON scalar leaf to a boolean.
+        @param ts JSON scalar value.
+        @return Boolean representation.
+        @par Python example
+        @code{.py}
+        enabled = hg.json_as_bool(json_value)
+        @endcode */
     struct json_as_bool : Operator<"json_as_bool", In<"ts", TsVar<"S">>, Out<TS<Bool>>>
     {
     };
 
-    /** ``from_json`` — parse JSON text as the explicitly selected output schema. */
+    /** Parse JSON text directly into an explicitly selected time-series schema.
+        Each parsed value is applied as that tick's delta, so collection removals and
+        structural updates follow the target type's normal delta semantics.
+        @param ts JSON text.
+        @return Parsed values in the selected output schema.
+        @par Python example
+        @code{.py}
+        prices = hg.from_json[TSD[str, TS[float]]](payload)
+        @endcode */
     struct from_json : Operator<"from_json", In<"ts", TS<Str>>, Out<TsVar<"O">>>
     {
     };

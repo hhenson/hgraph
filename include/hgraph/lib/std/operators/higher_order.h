@@ -54,6 +54,17 @@ namespace hgraph::stdlib
      *   folds statically; a contiguous ``TSD[int, E]`` uses the live ``zero``
      *   input as its initial accumulator and permits an accumulator type that
      *   differs from ``E``.
+     *
+     * @param func Binary graph combining two values into one accumulator.
+     * @param ts Collection whose live elements are reduced.
+     * @param zero Optional empty-collection result. In associative mode it is
+     *             not injected into reductions containing two or more live values.
+     * @param is_associative True for tree reduction; false for deterministic ordered left fold.
+     * @return The current reduction of the live collection elements.
+     * @par Python example
+     * @code{.py}
+     * total = hg.reduce(hg.add_, values, zero=0)
+     * @endcode
      */
     struct reduce_ : Operator<"reduce",
                               Scalar<"func", WiredFn>,
@@ -129,6 +140,17 @@ namespace hgraph::stdlib
      *   named ``key``;
      * - the time-series arguments are variadic (``*ts``): branches bind them
      *   positionally, optionally preceded by the key.
+     *
+     * @param key Live branch selector.
+     * @param cases Mapping from selector values to graph callables; ``DEFAULT`` supplies fallback.
+     * @param ts Positional inputs forwarded to the selected branch.
+     * @param kwargs Named inputs forwarded to the selected branch.
+     * @param reload_on_ticked Rebuild the branch on every key tick even when its value is unchanged.
+     * @return The active child graph's output, repointed when the branch changes.
+     * @par Python example
+     * @code{.py}
+     * selected = hg.switch_(mode, {"live": live_graph, "cached": cached_graph}, source)
+     * @endcode
      */
     struct switch_ : Operator<"switch_",
                               In<"key", TS<ScalarVar<"K">>>,
@@ -230,6 +252,15 @@ namespace hgraph::stdlib
      * leaf types of one or more ``TS[Bundle]`` arguments. The small native
      * selector feeds the existing ``switch_`` runtime; branch arguments are
      * checked-downcast to their declared case types inside the child graph.
+     * @param overloaded Operator or dispatch function whose registered implementations form the cases.
+     * @param ts Runtime values whose concrete types select the implementation.
+     * @param kwargs Named runtime values forwarded to the implementation.
+     * @param __on__ Optional names restricting which typed parameters participate in dispatch.
+     * @return The output of the implementation selected from the current concrete types.
+     * @par Python example
+     * @code{.py}
+     * result = hg.dispatch_(price_operator, instrument, market)
+     * @endcode
      */
     struct dispatch_ : Operator<"dispatch_",
                                 Scalar<"cases", DispatchCases>,
@@ -254,7 +285,19 @@ namespace hgraph::stdlib
         [[nodiscard]] bool operator==(const TryExceptCallConfig &) const noexcept = default;
     };
 
-    /** ``try_except`` — run one child graph and expose captured node errors alongside its output. */
+    /** Run one child graph behind an exception boundary.
+        Value-producing graphs return a bundle with ``out`` and ``exception`` fields;
+        sink graphs return the exception stream alone.
+        @param func Graph callable to protect.
+        @param args Positional time-series inputs forwarded to ``func``.
+        @param kwargs Named time-series inputs forwarded to ``func``.
+        @param __trace_back_depth__ Maximum captured graph traceback depth.
+        @param __capture_values__ Include current input values in captured node errors when true.
+        @return Protected output together with any captured ``NodeError``.
+        @par Python example
+        @code{.py}
+        attempted = hg.try_except(parse_message, payload)
+        @endcode */
     struct try_except : Operator<"try_except",
                                  Scalar<"func", WiredFn>,
                                  VarIn<"args", TsVar<"A">>,
@@ -349,7 +392,20 @@ namespace hgraph::stdlib
         }
     };
 
-    /** ``map_`` — apply a child graph independently to each keyed or list element. */
+    /** Apply a child graph independently to every live keyed or list element.
+        Multiplexed inputs supply one element per child while ordinary inputs broadcast
+        whole. TSD children are created and destroyed with the effective key set; fixed
+        lists expand at wiring time and dynamic lists allocate stable children by index.
+        @param func Graph callable instantiated for each key or index.
+        @param args Positional multiplexed or broadcast inputs.
+        @param kwargs Named multiplexed or broadcast inputs.
+        @param __keys__ Optional explicit key set controlling TSD child lifetime.
+        @param __key_arg__ Name of the child key/index argument, or an empty string to omit it.
+        @return A collection with one child result per active key or index.
+        @par Python example
+        @code{.py}
+        notionals = hg.map_(multiply, prices, quantities)
+        @endcode */
     struct map_ : Operator<"map_",
                            Scalar<"func", WiredFn>,
                            VarIn<"args", TsVar<"A">>,         // *args — multiplexed / broadcast inputs (positional)
@@ -375,6 +431,17 @@ namespace hgraph::stdlib
      * developer guide *Mesh*. TSD argument classification, including generic
      * whole-time-series inputs and ``pass_through`` / ``no_key`` tags, follows
      * ``map_`` exactly; mesh does not implement map's TSL kernels.
+     * @param func Per-key graph callable; it may access peers through the named mesh.
+     * @param args Positional multiplexed or broadcast TSD inputs.
+     * @param kwargs Named multiplexed or broadcast inputs.
+     * @param __name__ Optional mesh name used by cross-instance references.
+     * @param __keys__ Optional explicit key set controlling child lifetime.
+     * @param __key_arg__ Name of the child key argument, or empty to omit it.
+     * @return A keyed dictionary of per-instance outputs.
+     * @par Python example
+     * @code{.py}
+     * ranked = hg.mesh_(rank_with_peers, scores, __name__="scores")
+     * @endcode
      */
     struct mesh_ : Operator<"mesh_",
                             Scalar<"func", WiredFn>,

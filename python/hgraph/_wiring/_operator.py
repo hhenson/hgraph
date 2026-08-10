@@ -518,8 +518,27 @@ def _dispatch_branch(op, impl, root_signature, branch_signature, scalar_argument
 
 
 def dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs):
-    """Dispatch to the overload matching the RUNTIME types of the dispatch
-    arguments: key utility + enumerated switch_ (the recorded design)."""
+    """Dispatch to an operator implementation by current runtime value types.
+
+    This is dynamic dispatch for ``TS[BaseClass]`` values: wiring-time overload
+    resolution first defines the closed set of implementations, then a native
+    selector routes each concrete runtime leaf type through ``switch_``. Branch
+    inputs are checked-downcast to their declared implementation types.
+
+    :param overloaded: ``@operator`` or ``@dispatch`` target whose overloads
+        form the runtime cases.
+    :param args: Positional arguments supplied to the selected implementation.
+    :param __on__: Optional iterable of parameter names that participate in
+        runtime dispatch. By default every class-typed TS parameter participates.
+    :param __output_type: Explicit output type when the operator annotation
+        cannot determine it.
+    :param kwargs: Named arguments supplied to the selected implementation.
+    :return: Output from the implementation matching the current concrete types.
+
+    Example::
+
+        result = dispatch_(price_operator, instrument, market)
+    """
     from ._compose import switch_
     from ._graph import _as_wired
 

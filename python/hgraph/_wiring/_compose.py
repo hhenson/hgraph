@@ -11,12 +11,29 @@ from ._markers import _unbounded_tuple_kind
 from ._sentinels import _REDUCE_ZERO
 
 def map_(func, *args, __label__=None, __keys__=None, __key_arg__=None, **kwargs):
-    """hgraph's map_. ``func`` may be a native operator or a Python-authored
-    graph/node; outputless functions create keyed sink child graphs.
+    """Apply a graph independently to each keyed or list element.
 
-    Upstream-parity kwargs: ``__keys__`` supplies an explicit key set,
-    ``__key_arg__`` names the parameter receiving the key, and
-    ``__label__`` labels the mapped scope for debugging/tracing.
+    Multiplexed arguments supply one element to each child graph; ordinary
+    inputs are broadcast whole. For ``TSD`` inputs, children follow the
+    effective key set. Fixed ``TSL`` inputs expand at wiring time and dynamic
+    lists allocate stable children by index. An outputless ``func`` creates
+    child sink graphs without allocating a result collection.
+
+    :param func: Native operator or Python-authored graph/node instantiated for
+        each key or index.
+    :param args: Positional multiplexed or broadcast inputs.
+    :param __label__: Optional mapped-scope label used by diagnostics.
+    :param __keys__: Optional explicit ``TSS`` controlling TSD child lifetime;
+        otherwise keys are inferred from multiplexed inputs.
+    :param __key_arg__: Child parameter that receives the key/index. ``None``
+        uses the conventional name and ``""`` disables key injection.
+    :param kwargs: Named multiplexed or broadcast inputs.
+    :return: A collection containing one child result per active key/index, or
+        ``None`` when ``func`` is a sink.
+
+    Example::
+
+        notionals = map_(multiply, prices, quantities)
     """
     label = __label__
     if __keys__ is not None:
@@ -81,10 +98,26 @@ def get_mesh(fn_or_name):
 
 
 def mesh_(func, *args, __name__=None, __keys__=None, __key_arg__=None, **kwargs):
-    """Map a graph over a TSD, or reference the enclosing mesh with no inputs.
+    """Apply a graph per TSD key while allowing children to reference peers.
 
-    ``mesh_(func, inputs...)`` constructs a mesh. Inside its function,
-    ``mesh_(func)[key]`` (or ``get_mesh(func)[key]``) reads a sibling output.
+    ``mesh_(func, inputs...)`` constructs the mesh. Inside ``func``,
+    ``mesh_(func)[key]`` or ``get_mesh(func)[key]`` reads another instance's
+    output. Dependencies are ranked within each cycle and missing peer keys may
+    create instances on demand.
+
+    :param func: Per-key graph callable.
+    :param args: Positional multiplexed or broadcast TSD inputs.
+    :param __name__: Stable mesh name used for peer lookup; defaults to the
+        callable name.
+    :param __keys__: Optional explicit key set controlling child lifetime.
+    :param __key_arg__: Child parameter receiving the key, or ``""`` to omit it.
+    :param kwargs: Named multiplexed or broadcast inputs.
+    :return: A keyed dictionary of child outputs. With no inputs, returns a
+        reference to an enclosing mesh of the requested name.
+
+    Example::
+
+        ranked = mesh_(rank_with_peers, scores, __name__="scores")
     """
     if not args and not kwargs and __keys__ is None:
         return get_mesh(__name__ or func)
@@ -122,6 +155,19 @@ def reduce(func, ts, zero=_REDUCE_ZERO, is_associative=True, **kwargs):
     an empty collection and combined with a singleton; it is ignored when two
     or more live values are present. Ordered reduction uses its required zero
     as the initial accumulator.
+
+    :param func: Binary graph combining two elements or accumulator values.
+    :param ts: ``TSD`` or ``TSL`` whose live elements are reduced.
+    :param zero: Optional empty/singleton identity for associative reduction.
+        Ordered reduction requires a live time-series initial accumulator.
+    :param is_associative: ``True`` permits tree reduction; ``False`` performs
+        a deterministic ordered left fold.
+    :param kwargs: Additional wiring options forwarded to native reduction.
+    :return: The current reduction of the collection's live values.
+
+    Example::
+
+        total = reduce(add_, values, zero=0)
     """
     if zero is None:
         zero = _reduce_nothing(ts)
@@ -303,7 +349,26 @@ def combine(*args, __output_type__=None, **kwargs):
 
 
 class _Combine:
-    """The combine callable: instance-level subscript (combine[TSB[S]])."""
+    """Build one composite time-series value from component ports.
+
+    Use ``combine[OUTPUT_TYPE](...)`` when the desired shape is not implied by
+    argument structure. Positional ports build a structural list; named ports
+    build a bundle; selected output types add tuple, mapping, TSD, TSS,
+    compound-scalar, temporal, and JSON behaviours.
+
+    ``__strict__=True`` suppresses structural output until all required
+    components are valid. It is a wiring-time choice and does not add per-tick
+    policy dispatch.
+
+    :param args: Positional component ports or liftable values.
+    :param kwargs: Named component ports plus supported wiring-time options.
+    :return: A composite wiring port of the inferred or selected type.
+
+    Example::
+
+        point = combine[TSB[Point]](x=x, y=y)
+        values = combine(a, b, c)
+    """
 
     def __getitem__(self, item):
         def _build(*args, **kwargs):
@@ -345,10 +410,20 @@ class DebugContext:
 
 
 def filter_by(ts, expr, **kwargs):
-    """Keep TSD entries where ``expr(value, **kwargs)`` is true.
+    """Keep keyed entries for which ``expr(value, **kwargs)`` is true.
 
-    ``map_`` computes the per-key matches; the grouped native override applies
-    those matches to the dictionary.
+    One predicate child is mapped over each active key. Additional named inputs
+    are passed to every child using normal ``map_`` multiplex/broadcast rules;
+    the native grouping then applies the live match dictionary to ``ts``.
+
+    :param ts: Keyed time-series dictionary to filter.
+    :param expr: Predicate graph receiving each value (and optionally its key).
+    :param kwargs: Additional predicate inputs.
+    :return: A TSD containing only keys whose current predicate is true.
+
+    Example::
+
+        expensive = hg.filter_by(prices, above_limit, limit=limit)
     """
     matches = map_(expr, ts, **kwargs)
     return wire("filter_tsd_by_matches", ts, matches)
@@ -404,8 +479,24 @@ def _bind_switch_scalar_args(branch, args, kwargs):
 
 
 def switch_(key, cases, *args, reload_on_ticked=False, **kwargs):
-    """hgraph's switch_ - cases is {key_value: operator-name-or-WiredFn};
-    a None key is the default branch."""
+    """Run one child graph selected by the current key.
+
+    A key change stops and destroys the old branch, builds the selected branch,
+    and repoints the output to it. Use ``DEFAULT`` as a fallback case. A branch
+    whose first parameter is named ``key`` receives the selector value.
+
+    :param key: Live branch selector.
+    :param cases: Mapping from selector values to graph callables; ``DEFAULT``
+        supplies the fallback.
+    :param args: Positional inputs forwarded to the active branch.
+    :param reload_on_ticked: Rebuild even when the key ticks with the same value.
+    :param kwargs: Named inputs forwarded to the active branch.
+    :return: The active child graph output, or ``None`` for sink branches.
+
+    Example::
+
+        selected = switch_(mode, {"live": live_graph, DEFAULT: cached_graph}, source)
+    """
     from .._types import DEFAULT
 
     has_scalar_args = any(not isinstance(value, WiringPort) for value in args)

@@ -213,7 +213,7 @@ sample(trigger: TS[bool], ts: TS[T]) -> TS[T]
 | `tsd.keys()` | Get all keys |
 | `len_(tsd)` | Number of entries |
 | `contains_(tsd, key)` | Check key existence |
-| `merge_(tsd1, tsd2)` | Merge dictionaries |
+| `merge(tsd1, tsd2)` | Merge dictionaries |
 
 ### 6.2 TSL (List) Operations
 
@@ -222,7 +222,7 @@ sample(trigger: TS[bool], ts: TS[T]) -> TS[T]
 | `tsl[index]` | Get element at index |
 | `len_(tsl)` | Number of elements |
 | `sum_(tsl)` | Sum all elements |
-| `mean_(tsl)` | Average of elements |
+| `mean(tsl)` | Average of elements |
 
 ### 6.3 TSS (Set) Operations
 
@@ -230,9 +230,9 @@ sample(trigger: TS[bool], ts: TS[T]) -> TS[T]
 |----------|-------------|
 | `contains_(tss, item)` | Check membership |
 | `len_(tss)` | Number of items |
-| `union_(tss1, tss2)` | Set union |
-| `intersection_(tss1, tss2)` | Set intersection |
-| `difference_(tss1, tss2)` | Set difference |
+| `union(tss1, tss2)` | Set union |
+| `intersection(tss1, tss2)` | Set intersection |
+| `difference(tss1, tss2)` | Set difference |
 
 ### 6.4 Map Operations
 
@@ -276,11 +276,10 @@ window(ts: TS[T], size: int) -> TSW[T, Size]
 | Function | Description |
 |----------|-------------|
 | `sum_(window)` | Sum of window values |
-| `mean_(window)` | Mean of window values |
+| `mean(window)` | Mean of window values |
 | `min_(window)` | Minimum value |
 | `max_(window)` | Maximum value |
-| `std_(window)` | Standard deviation |
-| `var_(window)` | Variance |
+| `std(window)` | Standard deviation |
 
 ### 7.3 Example
 
@@ -288,7 +287,7 @@ window(ts: TS[T], size: int) -> TSW[T, Size]
 @graph
 def moving_average(price: TS[float], period: int) -> TS[float]:
     w = window(price, period)
-    return mean_(w)
+    return mean(w)
 ```
 
 ---
@@ -302,7 +301,7 @@ def moving_average(price: TS[float], period: int) -> TS[float]:
 | `now()` | Current evaluation time |
 | `delay(ts, periods)` | Delay by N ticks |
 | `lag(ts, time)` | Delay by time duration |
-| `diff_(ts)` | Difference from previous |
+| `diff(ts)` | Difference from previous |
 | `ticked(ts)` | True when ts modified |
 
 ### 8.2 Scheduling Functions
@@ -332,17 +331,17 @@ def rate_of_change(price: TS[float]) -> TS[float]:
 | Function | Description |
 |----------|-------------|
 | `sum_(...)` | Sum values |
-| `mean_(...)` | Average values |
+| `mean(...)` | Average values |
 | `min_(...)` | Minimum value |
 | `max_(...)` | Maximum value |
-| `count_(...)` | Count items |
+| `count(...)` | Count items |
 
 ### 9.2 Statistical Aggregations
 
 | Function | Description |
 |----------|-------------|
-| `std_(...)` | Standard deviation |
-| `var_(...)` | Variance |
+| `std(...)` | Standard deviation |
+| `var(...)` | Variance |
 | `median_(...)` | Median value |
 | `percentile_(...)` | Percentile calculation |
 
@@ -365,11 +364,11 @@ vwap_(price: TS[float], volume: TS[float]) -> TS[float]
 | Function | Description |
 |----------|-------------|
 | `format_(template, *args)` | String formatting |
-| `concat_(a, b)` | String concatenation |
-| `split_(s, sep)` | Split string |
-| `join_(sep, strings)` | Join strings |
+| `concat(a, b)` | String concatenation |
+| `split(s, sep)` | Split string |
+| `join(sep, strings)` | Join strings |
 | `upper_(s)` | Uppercase |
-| `lower_(s)` | Lowercase |
+| `lower(s)` | Lowercase |
 | `strip_(s)` | Remove whitespace |
 
 ### 10.2 Example
@@ -425,7 +424,7 @@ def format_message(symbol: TS[str], price: TS[float]) -> TS[str]:
 
 | Function | Description |
 |----------|-------------|
-| `default_(ts, value)` | Use value if ts invalid |
+| `default(ts, value)` | Use value if ts invalid |
 | `coalesce_(ts1, ts2, ...)` | First valid value |
 
 ### 12.3 Debugging
@@ -670,4 +669,3 @@ HGraph's operator system provides:
 4. **Collection support** for TSD, TSL, TSS, TSW
 5. **Higher-order functions** for functional programming
 6. **Extensibility** through the `@operator` decorator
-

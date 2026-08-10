@@ -25,74 +25,188 @@ namespace hgraph::stdlib
 
     // ---- Aggregations / reductions ----
 
-    /** ``sum_`` — running / element-wise sum. */
+    /** Sum numeric values according to input shape and arity.
+        Unary scalar input produces a running sum; unary collection input reduces its
+        current members; multiple inputs are added element by element. An optional reset
+        clears running state before admitting a same-cycle source tick.
+        @param ts Value, collection, or variadic inputs to sum.
+        @param reset Optional signal that resets a running sum to its identity.
+        @param __strict__ When true, require every variadic input to be valid.
+        @return The running, reduced, or element-wise sum selected by overload resolution.
+        @par Python example
+        @code{.py}
+        running_total = hg.sum_(amount, reset=session_start)
+        basket_total = hg.sum_(prices)
+        @endcode */
     struct sum_ : Operator<"sum_", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``mean`` — running / element-wise mean. */
+    /** Calculate a mean according to input shape and arity.
+        Unary scalar input produces a running mean; unary collection input averages its
+        current members; multiple inputs are averaged element by element.
+        @param ts Value, collection, or variadic inputs to average.
+        @param default_value Fallback used when a collection has no values to average.
+        @return The overload-selected mean, promoted to floating point where required.
+        @par Python example
+        @code{.py}
+        running_average = hg.mean(price)
+        cross_sectional_average = hg.mean(prices_by_symbol)
+        @endcode */
     struct mean : Operator<"mean", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``std_`` — running / element-wise standard deviation.
-        Window overloads accept ``ddof`` to use an ``N - ddof`` divisor. */
+    /** Calculate standard deviation according to input shape and arity.
+        Unary scalar input is running; unary collection input reduces current members;
+        multiple inputs are evaluated element by element.
+        @param ts Value, collection, window, or variadic inputs.
+        @param ddof Delta degrees of freedom: the variance divisor is ``N - ddof``.
+        @param default_value Fallback used when the selected sample cannot produce a result.
+        @return Standard deviation using the overload-selected numeric schema.
+        @par Python example
+        @code{.py}
+        sample_volatility = hg.std(returns_window, ddof=1)
+        @endcode */
     struct std_
         : Operator<"std", In<"ts", TsVar<"S">>, Scalar<"ddof", Int>,
                    Out<TsVar<"O">>>
     {
     };
 
-    /** ``var_`` — running / element-wise variance. */
+    /** Calculate variance according to the selected input shape.
+        A numeric ``TS`` produces the running population variance of all values observed
+        so far. A collection-valued ``TS``, ``TSS``, ``TSD``, or ``TSL`` produces the
+        sample variance of its current valid elements (dividing by ``N - 1``), with
+        zero for fewer than two elements. Binary inputs calculate the sample variance
+        between the current values; fixed-list inputs are handled element by element.
+        Unlike ``std``, ``var`` has no ``ddof`` parameter.
+        @param ts Numeric series or a numeric collection whose variance is required.
+        @param default_value Compatibility input accepted by container overloads; numeric
+                             variance still publishes zero when fewer than two elements
+                             are present.
+        @param lhs Left input for a binary or element-wise variance.
+        @param rhs Right input for a binary or element-wise variance.
+        @return Running population variance or current sample variance, according to the
+                selected overload.
+        @par Python example
+        @code{.py}
+        running_variance = hg.var(returns)
+        @endcode */
     struct var_ : Operator<"var", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
     // ---- Set operations (variadic over the inputs) ----
 
-    /** ``union_`` — set union of the inputs. */
+    /** Combine all members present in any input set.
+        @param ts Set-valued or variadic set inputs.
+        @return A set containing each distinct member from any input.
+        @par Python example
+        @code{.py}
+        all_symbols = hg.union(primary_symbols, secondary_symbols)
+        @endcode */
     struct union_ : Operator<"union", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``intersection_`` — set intersection of the inputs. */
+    /** Keep members present in every input set.
+        @param ts Set-valued or variadic set inputs.
+        @return The common members of all inputs.
+        @par Python example
+        @code{.py}
+        common_symbols = hg.intersection(listed, liquid)
+        @endcode */
     struct intersection_ : Operator<"intersection", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``difference_`` — set difference (``lhs`` minus the rest). */
+    /** Remove every member of the later sets from the first set.
+        @param ts Ordered set inputs; the first is the minuend.
+        @param lhs First set for binary overloads.
+        @param rhs Members removed from ``lhs``.
+        @return Members present only in the first input.
+        @par Python example
+        @code{.py}
+        available = hg.difference(all_symbols, suspended_symbols)
+        @endcode */
     struct difference_ : Operator<"difference", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``symmetric_difference_`` — set symmetric difference of the inputs. */
+    /** Keep members present in an odd number of input sets, excluding shared members.
+        @param ts Set-valued or variadic set inputs.
+        @return The symmetric difference of the inputs.
+        @par Python example
+        @code{.py}
+        changed_membership = hg.symmetric_difference(before, after)
+        @endcode */
     struct symmetric_difference_ : Operator<"symmetric_difference", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
     // ---- TSD / dictionary re-shaping ----
 
-    /** ``keys_`` — the keys of a dictionary (as a ``TSS`` / set). */
+    /** Project the current keys of a mapping or keyed time-series dictionary.
+        Key additions and removals are emitted incrementally for ``TSD`` inputs.
+        @param ts Mapping or keyed dictionary.
+        @return Its keys as a set-valued time series.
+        @par Python example
+        @code{.py}
+        symbols = hg.keys_(prices)
+        @endcode */
     struct keys_ : Operator<"keys_", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``values_`` — the values of a dictionary. */
+    /** Project dictionary values in the representation selected by the overload.
+        @param ts Mapping or keyed time-series dictionary.
+        @return A tuple, list, or keyed value collection corresponding to ``ts``.
+        @par Python example
+        @code{.py}
+        current_prices = hg.values_(prices)
+        @endcode */
     struct values_ : Operator<"values_", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``rekey`` — re-key the input dictionary using a mapping time-series. */
+    /** Replace input dictionary keys according to a live key mapping.
+        Entries without a usable target key are omitted; mapping changes move the
+        corresponding current value to its new key.
+        @param ts Keyed values to transform.
+        @param new_keys Mapping from each existing key to its replacement.
+        @return The same values indexed by their mapped keys.
+        @par Python example
+        @code{.py}
+        by_identifier = hg.rekey(by_symbol, symbol_to_id)
+        @endcode */
     struct rekey : Operator<"rekey", In<"ts", TsVar<"S">>, In<"new_keys", TsVar<"K">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``flip`` — swap keys and values of a dictionary. */
+    /** Invert a keyed dictionary so each value becomes a key.
+        Duplicate values require ``unique=False``, which collects their original keys in
+        a time-series set instead of choosing one arbitrarily.
+        @param ts Keyed scalar values to invert.
+        @param unique Assert values are unique when true; collect duplicates when false.
+        @return An inverted keyed dictionary.
+        @par Python example
+        @code{.py}
+        symbols_by_sector = hg.flip(sector_by_symbol, unique=False)
+        @endcode */
     struct flip : Operator<"flip", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``partition`` — split a ``TSD[K, V]`` into ``TSD[K1, TSD[K, V]]`` using a mapping. */
+    /** Partition a keyed dictionary into nested dictionaries using a live key-to-group map.
+        Mapping changes move an entry between partitions without changing its inner key.
+        @param ts Keyed values to partition.
+        @param partitions Mapping from each input key to its outer partition key.
+        @return ``TSD[K1, TSD[K, V]]`` grouped by the mapped partition.
+        @par Python example
+        @code{.py}
+        prices_by_sector = hg.partition(prices, sector_by_symbol)
+        @endcode */
     struct partition : Operator<"partition", In<"ts", TsVar<"S">>, In<"partitions", TsVar<"P">>, Out<TsVar<"O">>>
     {
     };
@@ -108,7 +222,16 @@ namespace hgraph::stdlib
     {
     };
 
-    /** Build/update one keyed TSD entry from a key and arbitrary time-series value. */
+    /** Build a keyed dictionary from a live key and one arbitrary time-series value.
+        A key change removes the old entry and publishes the current value under the new key.
+        @param key Key under which the value is exposed.
+        @param value Time-series value stored at that key.
+        @param remove_key Optional boolean stream that removes the active key when true.
+        @return A keyed dictionary containing at most the active entry.
+        @par Python example
+        @code{.py}
+        one_price = hg.make_tsd(symbol, price)
+        @endcode */
     struct make_tsd : Operator<"make_tsd", In<"key", TS<ScalarVar<"K">>>, In<"value", TsVar<"V">>,
                                Out<TsVar<"O">>>
     {
@@ -137,12 +260,26 @@ namespace hgraph::stdlib
     {
     };
 
-    /** ``unpartition`` — merge a nested ``TSD[K1, TSD[K, V]]`` back into ``TSD[K, V]``. */
+    /** Flatten partitioned dictionaries by removing the outer partition key.
+        Inner keys are expected to be unique across partitions; conflicting updates follow
+        the selected overload's deterministic ordering.
+        @param ts Nested partitioned dictionary.
+        @return The merged inner keyed dictionary.
+        @par Python example
+        @code{.py}
+        prices = hg.unpartition(prices_by_sector)
+        @endcode */
     struct unpartition : Operator<"unpartition", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``flip_keys`` — invert the outer/inner keys of a nested ``TSD[K, TSD[K1, V]]``. */
+    /** Swap outer and inner keys of a nested keyed dictionary while preserving values.
+        @param ts ``TSD[K, TSD[K1, V]]`` input.
+        @return ``TSD[K1, TSD[K, V]]`` with both key levels inverted.
+        @par Python example
+        @code{.py}
+        by_metric_then_symbol = hg.flip_keys(by_symbol_then_metric)
+        @endcode */
     struct flip_keys : Operator<"flip_keys", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
@@ -154,12 +291,25 @@ namespace hgraph::stdlib
     {
     };
 
-    /** ``collapse_keys`` — flatten nested TSD keys into tuple keys. */
+    /** Flatten both key levels of a nested dictionary into tuple keys.
+        @param ts ``TSD[K, TSD[K1, V]]`` input.
+        @return ``TSD[tuple[K, K1], V]``.
+        @par Python example
+        @code{.py}
+        flat = hg.collapse_keys(nested)
+        @endcode */
     struct collapse_keys : Operator<"collapse_keys", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``uncollapse_keys`` — the inverse of ``collapse_keys`` (optional ``remove_empty`` flag). */
+    /** Expand tuple keys into the two levels of a nested keyed dictionary.
+        @param ts ``TSD[tuple[K, K1], V]`` input.
+        @param remove_empty When true, remove an outer entry after its last inner key is removed.
+        @return ``TSD[K, TSD[K1, V]]``.
+        @par Python example
+        @code{.py}
+        nested = hg.uncollapse_keys(flat, remove_empty=True)
+        @endcode */
     struct uncollapse_keys : Operator<"uncollapse_keys", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
     {
     };

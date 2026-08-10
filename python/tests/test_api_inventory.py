@@ -16,6 +16,7 @@ from tools.api_inventory import (
     DEFAULT_OPERATOR_CATALOGUE,
     DEFAULT_RST,
     DEFAULT_STUB,
+    _parse_doxygen,
     collect_authoring_api,
     collect_inventory,
 )
@@ -120,6 +121,33 @@ def test_public_operator_patterns_use_python_generic_names_by_kind():
     assert formatter.format("~RESULT", category="time_series", output=True) == "OUT"
 
 
+def test_structured_doxygen_operator_documentation_is_preserved():
+    documentation = _parse_doxygen(
+        """
+        Add two live values.
+
+        The selected overload controls promotion.
+        @param lhs Left-hand input.
+        @param rhs Right-hand input.
+        @return The promoted sum.
+        @par Python example
+        @code{.py}
+        total = lhs + rhs
+        @endcode
+        """
+    )
+
+    assert documentation.description == (
+        "Add two live values.\n\nThe selected overload controls promotion."
+    )
+    assert dict(documentation.parameters) == {
+        "lhs": "Left-hand input.",
+        "rhs": "Right-hand input.",
+    }
+    assert documentation.returns == "The promoted sum."
+    assert documentation.examples == ("total = lhs + rhs",)
+
+
 def test_operator_catalogue_exposes_every_operator_signature_and_documentation():
     inventory = collect_inventory()
     source = DEFAULT_OPERATOR_CATALOGUE.read_text(encoding="utf-8")
@@ -137,7 +165,24 @@ def test_operator_catalogue_exposes_every_operator_signature_and_documentation()
     assert "``combine_cs``" not in source
     assert ".. _python-operator-to_window:" in source
     assert "Accepted native overloads" in source
-    assert not re.search(r"(?m)^   .*~[A-Za-z_]", source)
+    assert source.count("\nReturns\n~~~~~~~\n") == len(inventory["operators"])
+    assert source.count("\nPython example\n~~~~~~~~~~~~~~\n") == len(inventory["operators"])
+    assert source.count("\nParameters\n~~~~~~~~~~\n") >= len(inventory["operators"]) - 1
+    assert "Left-hand value. A tick triggers a new result" in source
+    assert "total = lhs + rhs  # equivalent to hg.add_(lhs, rhs)" in source
+    assert "When true, wait until both operands are valid" in source
+    assert "``var_`` —" not in source
+    assert "``zero_`` —" not in source
+    assert "``union_`` —" not in source
+    assert "running_variance = hg.var(returns)" in source
+    assert "additive_identity = hg.zero[TS[int]](hg.add_)" in source
+    assert "all_symbols = hg.union(primary_symbols, secondary_symbols)" in source
+    assert "@param" not in source
+    assert "@code" not in source
+    assert not any(
+        re.search(r"~[A-Za-z_]", line)
+        for line in source.splitlines() if " -> " in line
+    )
     assert ", 0]" not in source
     assert "__out__" not in source
     signature_lines = "\n".join(
@@ -199,6 +244,9 @@ def test_operator_stub_exposes_overloads_docs_and_every_public_operator():
         for call in add_calls
     )
     assert "add_(lhs: TS[int], rhs: TS[int]) -> TS[int]" in ast.get_docstring(add)
+    assert "Parameters\n~~~~~~~~~~" in ast.get_docstring(add)
+    assert "Left-hand value. A tick triggers a new result" in ast.get_docstring(add)
+    assert "total = lhs + rhs" in ast.get_docstring(add)
 
     abs_operator = classes["_abs__Operator"]
     abs_documentation = ast.get_docstring(abs_operator)
