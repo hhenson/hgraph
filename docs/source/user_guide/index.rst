@@ -6,8 +6,8 @@ framework is, the concepts it is built on, and how to author, wire, and test
 graphs.
 
 If you are new here, read :doc:`what_is_hgraph`, then follow
-:doc:`../getting_started` for the Python surface or :doc:`cpp/quick_start` for
-the C++ one.
+:doc:`../getting_started` and the Python guide. The native C++ section is for
+library authors and performance-sensitive integrations.
 
 .. toctree::
    :maxdepth: 1
@@ -23,10 +23,9 @@ the C++ one.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Authoring
+   :caption: Python authoring
 
    python/index
-   cpp/index
 
 .. toctree::
    :maxdepth: 2
@@ -41,3 +40,9 @@ the C++ one.
    :caption: Compatibility
 
    python_compatibility
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Advanced native C++
+
+   cpp/index

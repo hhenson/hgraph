@@ -34,8 +34,8 @@ state — whether it is valid, whether it was modified in the current evaluation
 step, when it was last modified, and how it participates in propagation.
 
 **Evaluation.** Evaluation happens in time order, and that ordering is
-preserved across both real-time and simulation modes, so causality is
-reasonable about and look-ahead cannot happen by accident.
+preserved across both real-time and simulation modes, so causality can be
+reasoned about and look-ahead cannot happen by accident.
 
 Each of those gets a full page below.
 

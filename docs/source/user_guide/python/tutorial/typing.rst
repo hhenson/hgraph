@@ -373,7 +373,7 @@ Collection types can be dereferenced in graph code as well, for example:
 This code is the same as the node implementation. Since we are at graph level, the ``+`` operator results in the
 following equivalent code::
 
-     @graph
+    @graph
     def my_compute_node(tsl: TSL[TS[int], Size[2]]) -> TS[int]:
         return add_(tsl[0], tsl[1])
 
@@ -386,10 +386,11 @@ Another often used data type is the ``set``, the time-series equivalent is the t
 This is a collection time-series type as well, but behaves more closely to the TS type as it can only contain
 scalar values.
 
-The type supports tracking the contents of a set over time and can provide the changes made in the form of the
-``SetDelta`` protocol class. The delta contains the items added and removed. The type itself contains the current
-state (accessible via the ``value`` property). The ``SetDelta`` is obtained from the ``delta_value`` property on
-the time-series instance.
+The type tracks both its current value and the change for the current engine
+cycle. Read the current ``frozenset`` through ``value``; use ``added()`` and
+``removed()`` to inspect the delta. Return ``set_delta(added=..., removed=...)``
+from a node when the additions and removals must be stated explicitly. The old
+public ``SetDelta`` protocol class is not part of the 0.8 authoring surface.
 
 Here is an example of the ``TSS`` used in a compute node.
 
@@ -533,4 +534,3 @@ The ``TSD`` has a number of useful features that can be accessed in graph mode, 
 
 ``key_set``
     Returns a reference to the key-set of the time-series dictionary.
-

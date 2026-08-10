@@ -17,6 +17,18 @@ nanobind_add_module(_hgraph ${_hgraph_nanobind_options}
     py_wiring.cpp
     value_conversion.cpp
 )
+
+# Ship type information beside the private extension. The public Python
+# package is marked as typed below; its lazy operator declarations are
+# generated separately from the native registry by tools/api_inventory.py.
+set(_hgraph_stub "${CMAKE_CURRENT_BINARY_DIR}/_hgraph.pyi")
+nanobind_add_stub(hgraph_python_native_stub
+    MODULE _hgraph
+    OUTPUT "${_hgraph_stub}"
+    PYTHON_PATH "$<TARGET_FILE_DIR:_hgraph>"
+    DEPENDS _hgraph
+    PATTERN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/_hgraph_stub_patterns.txt"
+)
 target_link_libraries(_hgraph PRIVATE hgraph_core hgraph::options)
 if(HGRAPH_BUILD_SHARED)
     target_link_libraries(_hgraph PRIVATE hgraph_private_dependencies)
@@ -61,6 +73,8 @@ install(TARGETS _hgraph
     LIBRARY DESTINATION .
     RUNTIME DESTINATION .
 )
+install(FILES "${_hgraph_stub}" DESTINATION .)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/hgraph/py.typed" DESTINATION hgraph)
 if(WIN32 AND HGRAPH_USE_PYARROW_ARROW)
     # Windows does not have an rpath equivalent. Keep the exact Arrow runtime
     # DLLs used at link time and PyArrow's hashed MSVC support DLLs beside the

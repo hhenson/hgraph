@@ -15,6 +15,10 @@ Install it with ``pip install hgraph`` and work through
     The same ground at working depth: program structure, testing, compute
     nodes, injectables, typing, generics, operators and graphs.
 
+:doc:`tasks/index`
+    Recipes for running, testing, diagnosing, working with collections, and
+    connecting services or adaptors.
+
 :doc:`programming_model/index`
     How to *think* in HGraph, and how to organise a codebase once a program
     outgrows a single file.
@@ -26,5 +30,6 @@ runtime, see :doc:`../python_compatibility`.
     :maxdepth: 2
 
     quick_start/index
+    tasks/index
     tutorial/index
     programming_model/index

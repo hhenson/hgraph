@@ -1168,7 +1168,7 @@ References
 * `Apache Kafka consumer API and threading model
   <https://kafka.apache.org/42/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html>`_.
 * `Apache Kafka delivery semantics
-  <https://kafka.apache.org/42/design/design/#messagesemantics>`_.
+  <https://kafka.apache.org/41/design/design/>`_.
 * `librdkafka introduction
   <https://github.com/confluentinc/librdkafka/blob/master/INTRODUCTION.md>`_.
 * `librdkafka FAQ

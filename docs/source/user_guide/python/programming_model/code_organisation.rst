@@ -66,7 +66,7 @@ So now we can extend the description of the problem as follows:
         return rank(combined)
 
     @graph
-    def compute_returns(market_data: TSD[str, TS[float]) -> TSD[str, TS[float]]:
+    def compute_returns(market_data: TSD[str, TS[float]]) -> TSD[str, TS[float]]:
         ...
 
     @graph
@@ -133,7 +133,7 @@ Now we have the rank defined, we need to write a test pack for the node.
 
 .. note:: The testing approach is suitable for node's as well as graph components.
 
-For node testing, HGrpah provides a simple testing wrapper called ``eval_node``.
+For node testing, HGraph provides a simple testing wrapper called ``eval_node``.
 
 To use this with pytest, do the following:
 
@@ -246,6 +246,4 @@ When constructing back-test or integration testing it is possible to collect
 multiple graphs into a single process, and in production split the processes up
 into multiple processes. This approach insures deployment is decoupled from
 the business logic implementation.
-
-
 

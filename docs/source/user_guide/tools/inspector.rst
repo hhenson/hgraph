@@ -31,7 +31,8 @@ running:
         PerspectiveTablesManager.set_current(PerspectiveTablesManager(host_server_tables=False))
 
 
-When started the graph will print out the URL to the inspector (http://<hostname>:8080/inspector/view). You can use this
+When started the graph will print the inspector URL
+(``http://<hostname>:8080/inspector/view``). You can use this
 URL to connect a browser to the graph and inspect the state of the graph.
 
 The first time you connect to the inspector, you will see an empty page. Right click on the page and select `Add Table`

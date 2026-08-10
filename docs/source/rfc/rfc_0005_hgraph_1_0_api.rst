@@ -1246,8 +1246,7 @@ Comparative-survey sources:
 
 * Wingfoil: https://github.com/wingfoil-io/wingfoil (feature-flagged
   adapters in ``wingfoil/Cargo.toml``; curated Python subset in
-  ``wingfoil-python/README.md``); version history via
-  https://crates.io/crates/wingfoil.
+  ``wingfoil-python/README.md``).
 * csp: https://github.com/Point72/csp (``pyproject.toml`` wheel matrix and
   extras; ``csp/adapters/slack.py`` re-export shim;
   https://github.com/Point72/csp/releases for the 0.14.1 ABI yank);

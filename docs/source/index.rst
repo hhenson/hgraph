@@ -6,9 +6,10 @@ time. Programs are described as forward propagation graphs over time-series
 values, and the same description runs in simulation or against a live event
 stream.
 
-Version 0.8 is a C++ runtime with two authoring surfaces. The ``hgraph`` Python
-package provides the DSL and is the compatibility commitment for the release
-line; the native C++ API authors graphs with no Python involved at all. Both
+Version 0.8 uses a C++ runtime with Python as the primary end-user authoring
+interface. The ``hgraph`` package provides the supported DSL and compatibility
+commitment for the release line. A native C++ authoring API is also available
+for library authors and applications that need maximum performance; both paths
 describe the same graphs and obey the same evaluation semantics.
 
 .. code-block:: bash
@@ -27,11 +28,15 @@ describe the same graphs and obey the same evaluation semantics.
 
 :doc:`getting_started` expands that into a working program.
 
-The documentation is organised into four tracks:
+The documentation is organised into five tracks:
 
 User Guide
-    The programming model, the concepts the runtime implements, and how to
-    author, wire and test graphs in Python or C++.
+    The programming model and how to author, wire, test and diagnose graphs in
+    Python. Advanced native C++ authoring is included as a separate section.
+
+Python API Reference
+    The supported types, decorators, operators, modules and generated public
+    inventory.
 
 Specification
     A precise, language-neutral definition of HGraph semantics, written so a
@@ -51,6 +56,7 @@ RFCs
 
    getting_started
    user_guide/index
+   reference/index
    specification/index
    developer_guide/index
    rfc/index
