@@ -87,13 +87,22 @@ class _StateExpr:
 
 
 class SCHEDULER:
-    """Injectable: the node scheduler - .schedule(datetime) /
-    .schedule_delta(timedelta). Annotate a parameter with SCHEDULER."""
+    """Annotation marker for injecting the current node's scheduler.
+
+    The callback receives a scheduler whose ``schedule`` method accepts an
+    absolute ``datetime`` or relative ``timedelta`` and an optional replacement
+    tag. ``reset`` cancels every outstanding schedule for the node. The object
+    is callback-scoped and must not be retained.
+    """
 
 
 class CLOCK:
-    """Injectable: the evaluation clock - .evaluation_time. Annotate a
-    parameter with CLOCK."""
+    """Annotation marker for injecting the graph evaluation clock.
+
+    The callback receives an ``EvaluationClock`` exposing logical evaluation
+    time, mode-dependent current time, cycle duration, and the earliest time
+    scheduled for the next cycle. The object is callback-scoped.
+    """
 
 
 class LOGGER:
@@ -160,7 +169,12 @@ def _tsw_kind():
 _TSW_KIND = None
 
 class _RecordableStateMarker:
-    """RECORDABLE_STATE[Schema]: a C++ hidden output-backed node state."""
+    """Persistent output-backed node state selected as RECORDABLE_STATE[Schema].
+
+    The callback receives a mutable view whose writes participate in the
+    configured record/replay model. The view is callback-scoped and must not
+    be retained.
+    """
 
     def __getitem__(self, item):
         return _RecordableStateExpr(item)
@@ -180,7 +194,13 @@ RECORDABLE_STATE = _RecordableStateMarker()
 
 
 class _TsOutMarker:
-    """TS_OUT[X]: output-backed state field, represented by TS[X]."""
+    """Annotate ``_output`` as TS_OUT[X] to inspect or mutate its native output.
+
+    The callback receives a mutable, callback-scoped output view. Returning a
+    value remains the usual publication path; the view is useful for checking
+    the existing value, suppressing duplicate ticks, and mutating collection
+    outputs in place.
+    """
 
     def __getitem__(self, item):
         from .._types import TS, _TsExpr, _GenericTsExpr

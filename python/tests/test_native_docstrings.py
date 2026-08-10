@@ -12,6 +12,7 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
         from pathlib import Path
 
         import _hgraph
+        import hgraph as hg
 
         types = [
             ("CivilDateTime", "timezone-free calendar date"),
@@ -45,12 +46,56 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
             assert documentation is not None, f"{owner}.{member}"
             assert summary in documentation, f"{owner}.{member}"
 
+        properties = [
+            ("TimeSeries", "value", "current Python value"),
+            ("TimeSeries", "active", "currently schedule its node"),
+            ("OutputView", "value", "Assigning publishes a value"),
+            ("RecordableStateView", "value", "current persistent value"),
+            ("EvaluationEngineApi", "evaluation_mode", "active execution mode"),
+            ("Graph", "nodes", "callback-scoped views"),
+            ("Node", "node_index", "zero-based index"),
+            ("Scheduler", "is_scheduled", "outstanding schedule"),
+        ]
+        for owner, member, summary in properties:
+            documentation = getdoc(getattr(getattr(_hgraph, owner), member))
+            assert documentation is not None, f"{owner}.{member}"
+            assert summary in documentation, f"{owner}.{member}"
+
+        enum_values = [
+            (_hgraph.MonthEndPolicy.PRESERVE_END_OF_MONTH, "source month-end"),
+            (_hgraph.AmbiguousTimePolicy.EARLIEST, "earlier of the two"),
+            (_hgraph.NonexistentTimePolicy.NEXT_VALID, "after the transition gap"),
+            (_hgraph.Boundary.CLOSED, "Include the endpoint"),
+        ]
+        for value, summary in enum_values:
+            documentation = getdoc(value)
+            assert documentation is not None, value
+            assert summary in documentation, value
+
+        public_types = [
+            (hg.TimeSeries, "callback-scoped native time-series input view"),
+            (hg.Graph, "callback-scoped view of a running graph"),
+            (hg.Node, "callback-scoped view of the currently running node"),
+            (hg.GlobalState, "Graph-scoped configuration"),
+            (hg.SCHEDULER, "current node's scheduler"),
+            (hg.CLOCK, "graph evaluation clock"),
+            (hg.TS_OUT, "inspect or mutate its native output"),
+            (hg.RECORDABLE_STATE, "Persistent output-backed node state"),
+        ]
+        for value, summary in public_types:
+            documentation = getdoc(value)
+            assert documentation is not None, value
+            assert summary in documentation, value
+
         stub_path = Path(_hgraph.__file__).parent / "_hgraph.pyi"
         stub = stub_path.read_text()
         assert "A calendar-relative duration measured in years" in stub
         assert "A read-only, callback-scoped native time-series input view" in stub
         assert "Collect graph and node lifecycle timing" in stub
         assert "A callback-scoped scheduler for the current node" in stub
+        assert "The current Python value, or None when the input is invalid" in stub
+        assert "The node's zero-based index within its graph" in stub
+        assert "Select the earlier of the two matching instants" in stub
         """
     )
 

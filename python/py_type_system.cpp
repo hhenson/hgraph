@@ -52,29 +52,39 @@ namespace hgraph::python_bridge
         m, "MonthEndPolicy",
         "Policy for calendar-period arithmetic when the target month does "
         "not contain the original day.")
-        .value("REJECT", MonthEndPolicy::Reject)
-        .value("CLAMP", MonthEndPolicy::Clamp)
+        .value("REJECT", MonthEndPolicy::Reject,
+               "Raise when the target month does not contain the source day.")
+        .value("CLAMP", MonthEndPolicy::Clamp,
+               "Clamp an invalid target day to the target month's final day.")
         .value("PRESERVE_END_OF_MONTH",
-               MonthEndPolicy::PreserveEndOfMonth);
+               MonthEndPolicy::PreserveEndOfMonth,
+               "Map a source month-end to the target month-end; otherwise "
+               "clamp only when the source day is invalid in the target month.");
     nb::enum_<AmbiguousTimePolicy>(
         m, "AmbiguousTimePolicy",
         "Policy for resolving a local civil time that occurs twice during "
         "a time-zone transition.")
-        .value("REJECT", AmbiguousTimePolicy::Reject)
-        .value("EARLIEST", AmbiguousTimePolicy::Earliest)
-        .value("LATEST", AmbiguousTimePolicy::Latest);
+        .value("REJECT", AmbiguousTimePolicy::Reject,
+               "Raise when the local civil time identifies two instants.")
+        .value("EARLIEST", AmbiguousTimePolicy::Earliest,
+               "Select the earlier of the two matching instants.")
+        .value("LATEST", AmbiguousTimePolicy::Latest,
+               "Select the later of the two matching instants.");
     nb::enum_<NonexistentTimePolicy>(
         m, "NonexistentTimePolicy",
         "Policy for resolving a local civil time skipped by a time-zone "
         "transition.")
-        .value("REJECT", NonexistentTimePolicy::Reject)
-        .value("NEXT_VALID", NonexistentTimePolicy::NextValid)
-        .value("PREVIOUS_VALID", NonexistentTimePolicy::PreviousValid);
+        .value("REJECT", NonexistentTimePolicy::Reject,
+               "Raise when the local civil time falls inside a transition gap.")
+        .value("NEXT_VALID", NonexistentTimePolicy::NextValid,
+               "Select the first valid instant after the transition gap.")
+        .value("PREVIOUS_VALID", NonexistentTimePolicy::PreviousValid,
+               "Select the final valid instant before the transition gap.");
     nb::enum_<Boundary>(
         m, "Boundary",
         "Whether a temporal range includes or excludes one endpoint.")
-        .value("OPEN", Boundary::Open)
-        .value("CLOSED", Boundary::Closed);
+        .value("OPEN", Boundary::Open, "Exclude the endpoint from the range.")
+        .value("CLOSED", Boundary::Closed, "Include the endpoint in the range.");
 
     nb::class_<CivilDateTime>(
         m, "CivilDateTime",

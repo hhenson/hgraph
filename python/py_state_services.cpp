@@ -576,6 +576,8 @@ namespace hgraph::python_bridge
         .def("is_reference", &PyOutput::is_reference,
              "Return whether this is a reference-valued output.")
         .def_prop_rw("value", &PyOutput::value, &PyOutput::set_value,
+                     "The current output value. Assigning publishes a value; "
+                     "assigning None invalidates the output.",
                      nb::for_setter(nb::arg("value").none()))
         .def("can_apply_result", &PyOutput::can_apply_result,
              "Return whether the Python value can be applied to this output.")
@@ -616,11 +618,16 @@ namespace hgraph::python_bridge
         "Values written through this view participate in the configured "
         "record/replay model. The view expires when the node callback returns "
         "and must not be retained.")
-        .def_prop_ro("valid", &PyRecordableState::valid)
-        .def_prop_ro("modified", &PyRecordableState::modified)
+        .def_prop_ro("valid", &PyRecordableState::valid,
+                     "Whether the state currently has a value.")
+        .def_prop_ro("modified", &PyRecordableState::modified,
+                     "Whether the state changed in the current cycle.")
         .def_prop_rw("value", &PyRecordableState::value,
-                     &PyRecordableState::set_value)
-        .def("__getitem__", &PyRecordableState::child)
+                     &PyRecordableState::set_value,
+                     "The current persistent value. Assigning records a new "
+                     "state value through the native output.")
+        .def("__getitem__", &PyRecordableState::child,
+             "Return a statically addressed child state view.")
         .def("__getattr__",
              [](const PyRecordableState &self, const std::string &name) {
                  return self.child(nb::str(name.c_str()));
@@ -724,10 +731,15 @@ namespace hgraph::python_bridge
                   value, delta, time_zone_provider(view));
           });
     static PyGetSetDef py_ts_getset[] = {
-        {"value", &py_ts_raw_get<&PyTimeSeries::value>, nullptr, nullptr, nullptr},
-        {"delta_value", &py_ts_raw_get<&PyTimeSeries::delta_value>, nullptr, nullptr, nullptr},
-        {"modified", &py_ts_raw_get<&PyTimeSeries::modified>, nullptr, nullptr, nullptr},
-        {"valid", &py_ts_raw_get<&PyTimeSeries::valid>, nullptr, nullptr, nullptr},
+        {"value", &py_ts_raw_get<&PyTimeSeries::value>, nullptr,
+         "The current Python value, or None when the input is invalid.",
+         nullptr},
+        {"delta_value", &py_ts_raw_get<&PyTimeSeries::delta_value>, nullptr,
+         "The change observed in the current evaluation cycle.", nullptr},
+        {"modified", &py_ts_raw_get<&PyTimeSeries::modified>, nullptr,
+         "Whether the input ticked in the current evaluation cycle.", nullptr},
+        {"valid", &py_ts_raw_get<&PyTimeSeries::valid>, nullptr,
+         "Whether the input currently has a usable value.", nullptr},
         {nullptr, nullptr, nullptr, nullptr, nullptr},
     };
     static PyType_Slot py_ts_slots[] = {
@@ -742,8 +754,10 @@ namespace hgraph::python_bridge
         "Collection views expose child and change-oriented methods. The view "
         "expires when the node callback returns and must not be retained.")
         .def_prop_ro("_kind", [](const PyTimeSeries &self) { return static_cast<int>(self.kind()); })
-        .def_prop_ro("owning_node", &PyTimeSeries::owning_node)
-        .def_prop_ro("owning_graph", &PyTimeSeries::owning_graph)
+        .def_prop_ro("owning_node", &PyTimeSeries::owning_node,
+                     "The node consuming this input.")
+        .def_prop_ro("owning_graph", &PyTimeSeries::owning_graph,
+                     "The graph containing the consuming node.")
         .def("is_reference", &PyTimeSeries::is_reference,
              "Return whether this input carries a time-series reference.")
         // hgraph's runtime activity control: a node may passivate/reactivate
@@ -767,7 +781,8 @@ namespace hgraph::python_bridge
                      [](const PyTimeSeries &self) {
                          self.require_alive();
                          return self.view.active();
-                     })
+                     },
+                     "Whether ticks on this input currently schedule its node.")
         // value/delta_value/modified/valid are raw tp_getset slots above —
         // a def_prop_ro here would REPLACE the raw descriptor in the type
         // dictionary and silently restore the vectorcall path.
@@ -782,7 +797,8 @@ namespace hgraph::python_bridge
                              throw nb::attribute_error("has_removed_value");
                          }
                          return view.as_window().has_removed_value();
-                     })
+                     },
+                     "Whether a window value was evicted in the current cycle.")
         .def_prop_ro("removed_value",
                      [](const PyTimeSeries &self) -> nb::object {
                          const auto &view = self.checked();
@@ -792,7 +808,8 @@ namespace hgraph::python_bridge
                          }
                          auto window = view.as_window();
                          return window.has_removed_value() ? value_to_py(window.removed_value()) : nb::none();
-                     })
+                     },
+                     "The window value evicted in the current cycle, or None.")
         .def_prop_ro("last_modified_time", &PyTimeSeries::last_modified_time,
                      "The evaluation time of the most recent tick.")
         .def("added", &PyTimeSeries::added,
@@ -904,14 +921,17 @@ namespace hgraph::python_bridge
              "Run a callable once after the current graph evaluation cycle.")
         .def_prop_ro("evaluation_mode", [](const PyEvaluationEngineApi &self) {
             return self.checked().mode() == GraphExecutorMode::RealTime ? "real_time" : "simulation";
-        })
-        .def_prop_ro("start_time", [](const PyEvaluationEngineApi &self) { return self.checked().start_time(); })
-        .def_prop_ro("end_time", [](const PyEvaluationEngineApi &self) { return self.checked().end_time(); })
+        }, "The active execution mode: 'simulation' or 'real_time'.")
+        .def_prop_ro("start_time", [](const PyEvaluationEngineApi &self) { return self.checked().start_time(); },
+                     "The inclusive start of the configured run interval.")
+        .def_prop_ro("end_time", [](const PyEvaluationEngineApi &self) { return self.checked().end_time(); },
+                     "The exclusive end of the configured run interval.")
         .def_prop_ro("evaluation_clock", [](const PyEvaluationEngineApi &self) {
             return PyEvalClock{self.checked().evaluation_clock(), self.lease};
-        })
+        }, "The callback-scoped clock for the running graph.")
         .def_prop_ro("is_stop_requested",
-                     [](const PyEvaluationEngineApi &self) { return self.checked().stop_requested(); })
+                     [](const PyEvaluationEngineApi &self) { return self.checked().stop_requested(); },
+                     "Whether a graceful graph stop has been requested.")
         .def("request_engine_stop", [](const PyEvaluationEngineApi &self) { self.checked().request_stop(); },
              "Request a graceful stop after the current evaluation cycle.");
     nb::enum_<NodeKind>(m, "NodeType",
@@ -940,29 +960,29 @@ namespace hgraph::python_bridge
                 }
             }
             return result;
-        })
+        }, "The hierarchical numeric path identifying this graph.")
         .def_prop_ro("label", [](const PyGraph &self) {
             const GraphView graph = self.checked();
             const auto *schema = graph.schema();
             return schema != nullptr && schema->display_name != nullptr
                        ? std::string{schema->display_name}
                        : std::string{};
-        })
+        }, "The graph's diagnostic display name.")
         .def_prop_ro("started", [](const PyGraph &self) {
             return self.checked().started();
-        })
+        }, "Whether graph start has completed.")
         .def_prop_ro("evaluating", [](const PyGraph &self) {
             return self.checked().evaluating();
-        })
+        }, "Whether the graph is currently evaluating a cycle.")
         .def_prop_ro("evaluation_clock", [](const PyGraph &self) {
             return PyEvalClock{self.checked().executor().evaluation_clock(), self.lease};
-        })
+        }, "The callback-scoped clock shared by this graph's executor.")
         .def_prop_ro("parent_node", [](const PyGraph &self) -> nb::object {
             const GraphView graph = self.checked();
             if (!graph.is_nested()) { return nb::none(); }
             const NodeView parent = graph.as_nested().parent_node();
             return nb::cast(PyNode{parent.pointer(), NodeScheduler{}, self.lease});
-        })
+        }, "The node owning this nested graph, or None for the root graph.")
         .def_prop_ro("nodes", [](const PyGraph &self) {
             const GraphView graph = self.checked();
             nb::list result;
@@ -973,15 +993,17 @@ namespace hgraph::python_bridge
                     PyNode{node.pointer(), NodeScheduler{}, self.lease}));
             }
             return result;
-        });
+        }, "A snapshot list of callback-scoped views over this graph's nodes.");
     nb::class_<PyNode>(
         m, "Node",
         "A callback-scoped view of the currently running node.\n\n"
         "Inject with NODE to inspect identity or request scheduling. Runtime "
         "topology and lifecycle remain executor-owned, and this view must not "
         "be retained beyond the callback.")
-        .def_prop_ro("node_ndx", [](const PyNode &self) { return self.checked().node_index(); })
-        .def_prop_ro("node_index", [](const PyNode &self) { return self.checked().node_index(); })
+        .def_prop_ro("node_ndx", [](const PyNode &self) { return self.checked().node_index(); },
+                     "Compatibility alias for node_index.")
+        .def_prop_ro("node_index", [](const PyNode &self) { return self.checked().node_index(); },
+                     "The node's zero-based index within its graph.")
         .def_prop_ro("node_id", [](const PyNode &self) {
             const auto id = self.node_id();
             nb::tuple result = nb::steal<nb::tuple>(PyTuple_New(static_cast<Py_ssize_t>(id.size())));
@@ -994,7 +1016,7 @@ namespace hgraph::python_bridge
                 }
             }
             return result;
-        })
+        }, "The hierarchical numeric path identifying this node.")
         .def_prop_ro("owning_graph_id", [](const PyNode &self) {
             const auto id = self.node_id();
             const std::size_t size = id.empty() ? 0 : id.size() - 1;
@@ -1008,16 +1030,21 @@ namespace hgraph::python_bridge
                 }
             }
             return result;
-        })
-        .def_prop_ro("label", [](const PyNode &self) { return std::string{self.checked().label()}; })
+        }, "The hierarchical numeric path identifying the containing graph.")
+        .def_prop_ro("label", [](const PyNode &self) { return std::string{self.checked().label()}; },
+                     "The node's diagnostic display name.")
         .def_prop_ro("graph", [](const PyNode &self) {
             const GraphView graph = self.checked().graph();
             return PyGraph{graph.pointer(), self.lease};
-        })
-        .def_prop_ro("node_type", [](const PyNode &self) { return self.checked().node_kind(); })
-        .def_prop_ro("started", [](const PyNode &self) { return self.checked().started(); })
-        .def_prop_ro("has_input", [](const PyNode &self) { return self.checked().has_input(); })
-        .def_prop_ro("has_output", [](const PyNode &self) { return self.checked().has_output(); })
+        }, "The callback-scoped view of the containing graph.")
+        .def_prop_ro("node_type", [](const PyNode &self) { return self.checked().node_kind(); },
+                     "The runtime role of this node.")
+        .def_prop_ro("started", [](const PyNode &self) { return self.checked().started(); },
+                     "Whether node start has completed.")
+        .def_prop_ro("has_input", [](const PyNode &self) { return self.checked().has_input(); },
+                     "Whether the node owns an input time-series tree.")
+        .def_prop_ro("has_output", [](const PyNode &self) { return self.checked().has_output(); },
+                     "Whether the node owns an output time-series tree.")
         .def("notify", &PyNode::notify,
              "Schedule this node at the supplied evaluation time.")
         .def("notify_next_cycle", &PyNode::notify_next_cycle,
@@ -1048,7 +1075,9 @@ namespace hgraph::python_bridge
              "Cancel every outstanding schedule for this node.")
         .def("has_tag", [](const PyScheduler &self, std::string_view tag) { return self.scheduler.has_tag(tag); },
              "Return whether an event is currently scheduled under the tag.")
-        .def_prop_ro("is_scheduled", [](const PyScheduler &self) { return self.scheduler.is_scheduled(); })
-        .def_prop_ro("is_scheduled_now", [](const PyScheduler &self) { return self.scheduler.is_scheduled_now(); });
+        .def_prop_ro("is_scheduled", [](const PyScheduler &self) { return self.scheduler.is_scheduled(); },
+                     "Whether this node has any outstanding schedule.")
+        .def_prop_ro("is_scheduled_now", [](const PyScheduler &self) { return self.scheduler.is_scheduled_now(); },
+                     "Whether this node is scheduled for the current cycle.");
     }
 }  // namespace hgraph::python_bridge

@@ -81,8 +81,82 @@ execution begins.
 Node-facing runtime views
 -------------------------
 
-Inside a node, an input exposes ``value``, ``valid``, ``modified``,
-``delta_value`` and ``last_modified_time``. Collection views add structural
-access such as fields, keys and modified items. ``STATE``, ``SCHEDULER``,
-``CLOCK``, ``LOGGER`` and ``EvaluationEngineApi`` are injectable parameters,
-not time-series edges.
+Python node inputs are lazy, callback-scoped ``TimeSeries`` views over native
+runtime storage. Reading ``value`` converts the current value to Python;
+``delta_value`` converts only the current change. Use ``valid`` before relying
+on an optional input, ``modified`` to detect a tick in the current cycle, and
+``last_modified_time`` when the tick time matters. ``make_passive`` and
+``make_active`` change whether future input ticks schedule the node.
+
+Collection types add shape-specific access:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Input kind
+     - Additional runtime access
+   * - ``TSS``
+     - ``added()``, ``removed()``, membership and length
+   * - ``TSD``
+     - keys, child lookup, ``modified_items()`` and ``removed_keys()``
+   * - ``TSL`` / ``TSB``
+     - child lookup, values, and named-field access for bundles
+   * - ``TSW``
+     - ``has_removed_value`` and ``removed_value`` for window eviction
+
+Input, output, node, graph, clock and engine views expire when the callback
+returns. Do not retain them in ``STATE`` or pass them to another thread.
+
+Output and state views
+~~~~~~~~~~~~~~~~~~~~~~
+
+Returning a non-``None`` value is the ordinary way to publish a node output.
+Annotate the parameter named ``_output`` with ``TS_OUT[T]`` when the callback
+also needs its existing output or must mutate a collection output directly:
+
+.. testcode::
+
+   from hgraph import TS, TS_OUT, compute_node
+   from hgraph.test import eval_node
+
+   @compute_node
+   def change_only(value: TS[int],
+                   _output: TS_OUT[int] = None) -> TS[int]:
+       if _output.valid and _output.value == value.value:
+           return None
+       return value.value
+
+   assert eval_node(change_only, [1, 1, 2]) == [1, None, 2]
+
+``STATE`` preserves ordinary Python state for one node instance.
+``RECORDABLE_STATE[Schema]`` instead supplies a native output-backed view whose
+writes participate in record/replay. Both are distinct from graph-scoped
+``GlobalState``.
+
+Injectable parameters
+~~~~~~~~~~~~~~~~~~~~~
+
+Injectables are runtime services rather than time-series edges. Declare them
+as parameters with a ``None`` default; graph callers do not supply them.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 72
+
+   * - Annotation
+     - Callback value
+   * - ``STATE`` / ``STATE[T]``
+     - Per-node Python namespace or one lazily constructed ``T`` instance
+   * - ``SCHEDULER``
+     - Current node scheduler for absolute, relative and tagged events
+   * - ``CLOCK`` / ``EvaluationClock``
+     - Logical evaluation time and cycle timing
+   * - ``EvaluationEngineApi``
+     - Run interval, execution mode, cycle notifications and graceful stop
+   * - ``GlobalState``
+     - Guarded mapping over the graph's copied-in native state
+   * - ``LOGGER``
+     - Logger selected for this graph run
+   * - ``NODE``
+     - Current node identity, graph view and explicit notification methods

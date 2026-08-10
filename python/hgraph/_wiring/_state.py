@@ -94,7 +94,12 @@ class _MemoryRecording(list):
 
 
 class GlobalState:
-    """Python seed/result owner for the C++ graph GlobalState copy lifecycle."""
+    """Graph-scoped configuration copied into and back from native execution.
+
+    Use ``GlobalContext`` (or this object as a context manager) to select the
+    state while wiring and running a graph. Inside a node callback, declare a
+    ``GlobalState`` injectable instead of calling ``GlobalState.instance()``.
+    """
 
     def __init__(self, **kwargs):
         self._impl = _hgraph._GlobalState()
@@ -184,7 +189,10 @@ class GlobalState:
 
 
 class GlobalContext:
-    """Select one Python GlobalState seed for wiring and result copy-back."""
+    """Select one GlobalState seed for graph wiring and result copy-back.
+
+    Contexts cannot be nested. Entering returns the selected ``GlobalState``.
+    """
 
     def __init__(self, state=None):
         self.state = state if state is not None else GlobalState.instance()
