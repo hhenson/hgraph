@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+from dataclasses import dataclass
 import importlib
 import inspect
 import keyword
@@ -90,7 +91,17 @@ _DOCUMENTED_OPERATOR = re.compile(
 )
 
 
-def _clean_doxygen(documentation: str) -> str:
+@dataclass(frozen=True)
+class OperatorDocumentation:
+    """Structured documentation recovered from one public C++ declaration."""
+
+    description: str
+    parameters: tuple[tuple[str, str], ...] = ()
+    returns: str | None = None
+    examples: tuple[str, ...] = ()
+
+
+def _doxygen_lines(documentation: str) -> list[str]:
     lines = []
     for raw_line in documentation.splitlines():
         line = re.sub(r"^\s*\* ?", "", raw_line).rstrip()
@@ -99,6 +110,22 @@ def _clean_doxygen(documentation: str) -> str:
         lines.pop(0)
     while lines and not lines[-1]:
         lines.pop()
+    if lines:
+        lines[0] = lines[0].lstrip()
+    continuation_indents = [
+        len(line) - len(line.lstrip())
+        for line in lines[1:] if line
+    ]
+    base_indent = min(continuation_indents, default=0)
+    if base_indent:
+        lines[1:] = [
+            line[base_indent:] if line else line for line in lines[1:]
+        ]
+    return lines
+
+
+def _join_prose(lines: list[str]) -> str:
+    """Join wrapped Doxygen prose while preserving paragraph boundaries."""
 
     paragraphs = []
     current = []
@@ -113,18 +140,176 @@ def _clean_doxygen(documentation: str) -> str:
     return "\n\n".join(paragraphs)
 
 
-def collect_operator_documentation() -> dict[str, str]:
-    """Read semantic summaries from the public C++ operator declarations."""
-    collected: dict[str, list[str]] = {}
+def _parse_doxygen(documentation: str) -> OperatorDocumentation:
+    """Parse the small, standard Doxygen subset used by operator declarations.
+
+    ``@param`` and ``@return`` carry behavioural reference text. A Python
+    example uses Doxygen's ``@par Python example`` followed by a
+    ``@code{.py}`` / ``@endcode`` block. Untagged comments remain valid and
+    become the operator description.
+    """
+    description: list[str] = []
+    parameters: dict[str, list[str]] = {}
+    returns: list[str] = []
+    examples: list[str] = []
+    active: tuple[str, str | None] = ("description", None)
+    code: list[str] | None = None
+
+    def append(line: str) -> None:
+        section, name = active
+        if section == "description":
+            description.append(line)
+        elif section == "parameter" and name is not None:
+            parameters[name].append(line)
+        elif section == "returns":
+            returns.append(line)
+
+    for line in _doxygen_lines(documentation):
+        if line.startswith("@param "):
+            match = re.match(r"@param\s+(?:\[[^]]+\]\s*)?(\S+)\s*(.*)", line)
+            if match is None:
+                raise ValueError(f"invalid operator @param tag: {line}")
+            name, text = match.groups()
+            parameters.setdefault(name, [])
+            active = ("parameter", name)
+            if text:
+                parameters[name].append(text)
+            continue
+        if line.startswith(("@return ", "@returns ")):
+            text = line.split(maxsplit=1)[1]
+            active = ("returns", None)
+            returns.append(text)
+            continue
+        if line == "@par Python example":
+            active = ("example", None)
+            continue
+        if line.startswith("@code"):
+            code = []
+            continue
+        if line == "@endcode":
+            if code is None:
+                raise ValueError("operator documentation has @endcode without @code")
+            example = "\n".join(code).strip("\n")
+            if example:
+                examples.append(example)
+            code = None
+            active = ("description", None)
+            continue
+        if code is not None:
+            code.append(line)
+        elif active[0] != "example":
+            append(line)
+
+    if code is not None:
+        raise ValueError("operator documentation has an unterminated @code block")
+    return OperatorDocumentation(
+        description=_join_prose(description),
+        parameters=tuple(
+            (name, _join_prose(lines)) for name, lines in parameters.items()
+        ),
+        returns=_join_prose(returns) or None,
+        examples=tuple(examples),
+    )
+
+
+def _combine_documentation(
+        entries: list[OperatorDocumentation]) -> OperatorDocumentation:
+    descriptions = tuple(dict.fromkeys(
+        entry.description for entry in entries if entry.description
+    ))
+    parameters: dict[str, str] = {}
+    returns = []
+    examples = []
+    for entry in entries:
+        for name, documentation in entry.parameters:
+            parameters.setdefault(name, documentation)
+        if entry.returns and entry.returns not in returns:
+            returns.append(entry.returns)
+        for example in entry.examples:
+            if example not in examples:
+                examples.append(example)
+    return OperatorDocumentation(
+        description="\n\n".join(descriptions),
+        parameters=tuple(parameters.items()),
+        returns="\n\n".join(returns) or None,
+        examples=tuple(examples),
+    )
+
+
+def _parse_python_documentation(documentation: str) -> OperatorDocumentation:
+    """Parse Sphinx-style fields and an ``Example::`` block from a helper docstring."""
+    description = []
+    parameters: dict[str, list[str]] = {}
+    returns = []
+    example = []
+    active: tuple[str, str | None] = ("description", None)
+    in_example = False
+    for line in documentation.splitlines():
+        stripped = line.strip()
+        parameter = re.match(r":param\s+(\S+):\s*(.*)", stripped)
+        if parameter:
+            name, text = parameter.groups()
+            parameters.setdefault(name, [])
+            active = ("parameter", name)
+            if text:
+                parameters[name].append(text)
+            in_example = False
+            continue
+        if stripped.startswith(":return:"):
+            active = ("returns", None)
+            text = stripped.removeprefix(":return:").strip()
+            if text:
+                returns.append(text)
+            in_example = False
+            continue
+        if stripped == "Example::":
+            active = ("example", None)
+            in_example = True
+            continue
+        if in_example:
+            if not stripped and not example:
+                continue
+            if not line.startswith("    ") and stripped:
+                in_example = False
+                active = ("description", None)
+            else:
+                example.append(line[4:] if line.startswith("    ") else "")
+                continue
+
+        section, name = active
+        if section == "description":
+            description.append(line)
+        elif section == "parameter" and name is not None:
+            parameters[name].append(stripped)
+        elif section == "returns":
+            returns.append(stripped)
+
+    rendered_example = "\n".join(example).strip("\n")
+    return OperatorDocumentation(
+        description=_join_prose(description),
+        parameters=tuple(
+            (name, _join_prose(lines)) for name, lines in parameters.items()
+        ),
+        returns=_join_prose(returns) or None,
+        examples=(rendered_example,) if rendered_example else (),
+    )
+
+
+def collect_operator_documentation() -> dict[str, OperatorDocumentation]:
+    """Read semantic reference material from public C++ declarations."""
+    collected: dict[str, list[OperatorDocumentation]] = {}
     for header in sorted(OPERATOR_HEADERS.glob("*.h")):
         source = header.read_text(encoding="utf-8")
         for match in _DOCUMENTED_OPERATOR.finditer(source):
-            documentation = _clean_doxygen(match.group("documentation"))
-            if documentation:
+            documentation = _parse_doxygen(match.group("documentation"))
+            if documentation.description:
                 entries = collected.setdefault(match.group("name"), [])
                 if documentation not in entries:
                     entries.append(documentation)
-    return {name: "\n\n".join(entries) for name, entries in collected.items()}
+    return {
+        name: _combine_documentation(entries)
+        for name, entries in collected.items()
+    }
 
 
 def _literal_all(module_name: str) -> tuple[str, ...]:
@@ -180,6 +365,7 @@ def collect_inventory() -> dict[str, Any]:
     for name in sorted(_hgraph.operator_names()):
         if name.startswith("__"):
             continue
+        semantic_documentation = operator_documentation.get(name)
         overloads = []
         for raw_overload in _hgraph.operator_overload_signatures(name):
             (raw_parameters, variadic, positional_params, has_kwargs,
@@ -201,20 +387,44 @@ def collect_inventory() -> dict[str, Any]:
             })
         explicit_root = name in hgraph.__all__
         python_signature = None
+        python_parameters = ()
         if explicit_root:
             try:
-                python_signature = _signature_text(getattr(hgraph, name))
+                value = getattr(hgraph, name)
+                signature = inspect.signature(value)
+                python_signature = _signature_text(value)
+                python_parameters = tuple({
+                    "name": parameter.name,
+                    "kind": parameter.kind.name,
+                    "has_default": parameter.default is not inspect.Parameter.empty,
+                } for parameter in signature.parameters.values())
             except (TypeError, ValueError):
                 pass
         registry_operators[name] = {
             "name": name,
             "overloads": tuple(overloads),
-            "documentation": operator_documentation.get(name),
+            "documentation": (
+                semantic_documentation.description
+                if semantic_documentation is not None else None
+            ),
+            "parameter_documentation": dict(
+                semantic_documentation.parameters
+                if semantic_documentation is not None else ()
+            ),
+            "return_documentation": (
+                semantic_documentation.returns
+                if semantic_documentation is not None else None
+            ),
+            "examples": (
+                semantic_documentation.examples
+                if semantic_documentation is not None else ()
+            ),
             # Explicit top-level helpers already carry their own annotations.
             # Generated declarations must not replace those richer contracts
             # inside hgraph.__init__'s TYPE_CHECKING import.
             "explicit_root": explicit_root,
             "python_signature": python_signature,
+            "python_parameters": python_parameters,
             "grouped_overrides": (),
         }
 
@@ -222,12 +432,29 @@ def collect_inventory() -> dict[str, Any]:
         public_operator = registry_operators.get(public_name)
         if public_operator is None:
             value = getattr(hgraph, public_name)
+            helper_documentation = _parse_python_documentation(
+                inspect.getdoc(value) or "")
+            try:
+                signature = inspect.signature(value)
+                python_signature = _signature_text(value)
+                python_parameters = tuple({
+                    "name": parameter.name,
+                    "kind": parameter.kind.name,
+                    "has_default": parameter.default is not inspect.Parameter.empty,
+                } for parameter in signature.parameters.values())
+            except (TypeError, ValueError):
+                python_signature = "(*args, **kwargs)"
+                python_parameters = ()
             public_operator = {
                 "name": public_name,
                 "overloads": (),
-                "documentation": inspect.getdoc(value),
+                "documentation": helper_documentation.description,
+                "parameter_documentation": dict(helper_documentation.parameters),
+                "return_documentation": helper_documentation.returns,
+                "examples": helper_documentation.examples,
                 "explicit_root": public_name in hgraph.__all__,
-                "python_signature": _signature_text(value),
+                "python_signature": python_signature,
+                "python_parameters": python_parameters,
                 "grouped_overrides": (),
             }
             registry_operators[public_name] = public_operator
@@ -405,6 +632,10 @@ def render_operator_catalogue(inventory: dict[str, Any]) -> str:
         "",
         "Explicit helpers have a curated Python entry point in addition to their",
         "native overloads. Lazy operators are resolved from ``hgraph`` on first use.",
+        "Examples assume ``import hgraph as hg``. Names such as ``price`` or ``ts``",
+        "represent wiring ports inside a graph; compatible literals may be lifted to",
+        "constant sources. The examples emphasize normal Python authoring rather than",
+        "the equivalent C++ ``wire`` spelling.",
         "",
         ".. contents:: Operators",
         "   :local:",
@@ -436,6 +667,10 @@ def render_operator_catalogue(inventory: dict[str, Any]) -> str:
                 "Python exposure: lazy native operator proxy.",
                 "",
             ])
+        lines.extend([
+            _operator_semantic_documentation(operator, include_description=False),
+            "",
+        ])
         if signatures:
             lines.extend([
                 "Accepted native overloads",
@@ -604,6 +839,266 @@ def _display_overload_signatures(
     ))
 
 
+_COMMON_PARAMETER_DOCUMENTATION = {
+    "ts": "The primary time-series input.",
+    "ts1": "The first time-series input.",
+    "ts2": "The second time-series input.",
+    "tsl": "The collection or variadic sequence of time-series inputs.",
+    "tsd": "The keyed time-series dictionary input.",
+    "tsw": "The time-series window input.",
+    "lhs": "The left-hand operand.",
+    "rhs": "The right-hand operand.",
+    "args": "Additional positional time-series inputs.",
+    "kwargs": "Additional named time-series inputs.",
+    "condition": "Boolean time series that controls whether the operation is active.",
+    "predicate": "Value or time series used to decide which values are selected.",
+    "signal": "Trigger signal; only its tick timing is significant.",
+    "reset": "Optional signal that clears the operator's accumulated state when it ticks.",
+    "value": "Value used to construct or update the output.",
+    "values": "Values used to construct or update the output.",
+    "key": "Key selecting the affected entry.",
+    "keys": "Keys associated with the supplied values.",
+    "item": "Item to locate or test.",
+    "index": "Index selecting the requested item or output.",
+    "idx": "Index selecting the requested item.",
+    "default": "Fallback used when no more specific value is available.",
+    "default_value": "Value emitted when the primary input has no usable value.",
+    "period": "Tick count or elapsed interval controlling the temporal operation.",
+    "delay": "Delay applied before scheduling or releasing a value.",
+    "count": "Number of ticks or values affected by the operation.",
+    "buffer_length": "Maximum number of values retained while buffering.",
+    "min_window_period": "Minimum populated window size required before the output becomes valid.",
+    "start": "Inclusive starting position or boundary.",
+    "stop": "Exclusive stopping position or boundary.",
+    "step_size": "Stride between forwarded input ticks.",
+    "fn": "Callable invoked by the operator.",
+    "func": "Graph or callable applied by the operator.",
+    "expr": "Predicate expression applied to each candidate value.",
+    "op": "Operator whose identity or zero value is requested.",
+    "__strict__": (
+        "Validity policy. When true, all required inputs must be valid; "
+        "non-strict overloads may use the valid subset."
+    ),
+    "divide_by_zero": "Policy controlling the result when the divisor is zero.",
+    "tick_once_only": "When true, passivates after the first qualifying tick.",
+    "disjoint": (
+        "When true, selects the faster path that assumes keyed inputs do not "
+        "contain overlapping keys."
+    ),
+    "unique": "Controls whether duplicate values are represented by one key or a set of keys.",
+    "ddof": "Delta degrees of freedom subtracted from the sample count in the divisor.",
+    "alpha": "Exponential smoothing factor; larger values weight recent ticks more strongly.",
+    "n_digits": "Number of digits retained after the decimal point.",
+    "separator": "String inserted between items or used to divide the input.",
+    "fmt": "Python-style format string applied to the supplied values.",
+    "__sample__": "Emit only every nth formatted value; one emits every value.",
+    "attr": "Attribute name selected at wiring time.",
+    "error_msg": "Message used when the assertion fails.",
+    "label": "Diagnostic label prefixed to emitted output.",
+    "level": "Logging severity used for the formatted message.",
+    "recordable_id": "Stable identifier used to locate recorded data.",
+    "zone": "Time zone used to interpret or display the temporal value.",
+    "month_end_policy": "Policy for dates whose day does not exist in the target month.",
+    "ambiguous": "Policy for local times that occur twice during a daylight-saving transition.",
+    "nonexistent": "Policy for local times skipped by a daylight-saving transition.",
+}
+
+
+def _humanize_parameter(name: str) -> str:
+    return name.strip("_").replace("_", " ") or "argument"
+
+
+def _operator_parameter_entries(operator: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    """Combine native overload metadata into one user-facing parameter list."""
+    entries: dict[str, dict[str, Any]] = {}
+    formatter = PublicTypePatternFormatter()
+    for overload in _unique_overloads(operator):
+        parameters = overload["parameters"]
+        for index, parameter in enumerate(parameters):
+            name = parameter["name"] or f"arg{index}"
+            entry = entries.setdefault(name, {
+                "name": name,
+                "patterns": [],
+                "categories": [],
+                "default": False,
+                "prefix": "",
+            })
+            category = parameter["kind"]
+            pattern = formatter.format(
+                parameter["type_pattern"],
+                category="time_series" if category == "time-series" else "scalar",
+            )
+            if pattern not in entry["patterns"]:
+                entry["patterns"].append(pattern)
+            if category not in entry["categories"]:
+                entry["categories"].append(category)
+            entry["default"] |= parameter["has_default"]
+            if overload["variadic"] and index == len(parameters) - 1:
+                entry["prefix"] = "*"
+        if overload["has_kwargs"]:
+            entry = entries.setdefault("kwargs", {
+                "name": "kwargs",
+                "patterns": [],
+                "categories": ["time-series"],
+                "default": False,
+                "prefix": "**",
+            })
+            pattern = formatter.format(
+                overload["kwargs_pattern"] or "time-series", category="time_series")
+            if pattern not in entry["patterns"]:
+                entry["patterns"].append(pattern)
+
+    for parameter in operator.get("python_parameters", ()):
+        name = parameter["name"]
+        if name in entries:
+            continue
+        kind = parameter["kind"]
+        entries[name] = {
+            "name": name,
+            "patterns": ["object"],
+            "categories": ["Python argument"],
+            "default": parameter["has_default"],
+            "prefix": "*" if kind == "VAR_POSITIONAL" else "**" if kind == "VAR_KEYWORD" else "",
+        }
+    return tuple(entries.values())
+
+
+def _operator_return_patterns(operator: dict[str, Any]) -> tuple[str, ...]:
+    patterns = []
+    formatter = PublicTypePatternFormatter()
+    groups = (operator, *operator["grouped_overrides"])
+    for group in groups:
+        for overload in _unique_overloads(group):
+            pattern = (
+                formatter.format(
+                    overload["output_pattern"], category="time_series", output=True)
+                if overload["has_output"] else "None"
+            )
+            if pattern not in patterns:
+                patterns.append(pattern)
+    return tuple(patterns)
+
+
+def _example_overload(operator: dict[str, Any]) -> dict[str, Any] | None:
+    overloads = _unique_overloads(operator)
+    if not overloads:
+        for group in operator["grouped_overrides"]:
+            overloads.extend(_unique_overloads(group))
+    if not overloads:
+        return None
+
+    def rank(overload: dict[str, Any]) -> tuple[int, int, int]:
+        required = sum(
+            not parameter["has_default"] for parameter in overload["parameters"])
+        return required, len(overload["parameters"]), bool(overload["variadic"])
+
+    return min(overloads, key=rank)
+
+
+def _generated_python_example(operator: dict[str, Any]) -> str:
+    name = operator["name"]
+    python_parameters = operator.get("python_parameters", ())
+    use_python_signature = operator["explicit_root"] and any(
+        parameter["kind"] not in {"VAR_POSITIONAL", "VAR_KEYWORD"}
+        for parameter in python_parameters
+    )
+    arguments = []
+    if use_python_signature:
+        for parameter in python_parameters:
+            kind = parameter["kind"]
+            if parameter["has_default"]:
+                continue
+            if kind == "VAR_POSITIONAL":
+                arguments.append("ts")
+            elif kind == "VAR_KEYWORD":
+                continue
+            elif kind == "KEYWORD_ONLY":
+                arguments.append(f"{parameter['name']}={parameter['name']}")
+            else:
+                arguments.append(parameter["name"])
+    else:
+        overload = _example_overload(operator)
+        if overload is not None:
+            parameters = overload["parameters"]
+            positional_count = min(overload["positional_params"], len(parameters))
+            for index, parameter in enumerate(parameters):
+                if parameter["has_default"]:
+                    continue
+                if overload["variadic"] and index == len(parameters) - 1:
+                    arguments.extend(("first", "second"))
+                elif index < positional_count:
+                    arguments.append(parameter["name"] or f"arg{index}")
+                else:
+                    parameter_name = parameter["name"] or f"arg{index}"
+                    arguments.append(f"{parameter_name}={parameter_name}")
+    call = f"hg.{name}({', '.join(arguments)})"
+    return_patterns = _operator_return_patterns(operator)
+    return call if return_patterns == ("None",) else f"result = {call}"
+
+
+def _operator_semantic_documentation(
+        operator: dict[str, Any], *, include_description: bool = True) -> str:
+    """Render semantic sections shared by Sphinx, runtime help and the stub."""
+    lines = []
+    if include_description:
+        lines.extend([
+            operator["documentation"]
+            or f"Wire ``{operator['name']}`` through native overload resolution.",
+            "",
+        ])
+
+    parameter_entries = _operator_parameter_entries(operator)
+    if parameter_entries:
+        lines.extend([
+            "Parameters",
+            "~~~~~~~~~~",
+            "",
+            "Time-series inputs are live graph edges. Wiring-time scalar choices",
+            "are fixed when the graph is built.",
+            "",
+        ])
+        documented = operator.get("parameter_documentation", {})
+        for entry in parameter_entries:
+            name = entry["name"]
+            display_name = f"{entry['prefix']}{name}"
+            categories = ", ".join(entry["categories"])
+            patterns = ", ".join(f"``{pattern}``" for pattern in entry["patterns"])
+            description = documented.get(name) or _COMMON_PARAMETER_DOCUMENTATION.get(name)
+            if description is None:
+                description = (
+                    f"The {_humanize_parameter(name)} value used by the selected overload."
+                )
+            if entry["default"]:
+                description += " Optional in overloads that show ``= ...``."
+            lines.extend([
+                f"``{display_name}`` : {categories}; {patterns}",
+                f"   {description}",
+                "",
+            ])
+
+    return_patterns = _operator_return_patterns(operator)
+    lines.extend(["Returns", "~~~~~~~", ""])
+    return_documentation = operator.get("return_documentation")
+    if return_documentation:
+        lines.append(return_documentation)
+    elif return_patterns == ("None",):
+        lines.append("No output. This operator is a sink.")
+    elif return_patterns:
+        rendered = ", ".join(f"``{pattern}``" for pattern in return_patterns)
+        lines.append(
+            f"A wired output with one of the overload-selected shapes: {rendered}."
+        )
+    else:
+        lines.append("The output selected by Python helper and native overload resolution.")
+    lines.extend(["", "Python example", "~~~~~~~~~~~~~~", "", ".. code-block:: python", ""])
+    examples = operator.get("examples") or (_generated_python_example(operator),)
+    for example_index, example in enumerate(examples):
+        if example_index:
+            lines.extend(["", ".. code-block:: python", ""])
+        lines.extend(f"   {line}" for line in example.splitlines())
+    return "\n".join(lines).rstrip()
+
+
 _SCALAR_ANNOTATIONS = {
     "bool": "bool",
     "int": "int",
@@ -718,6 +1213,11 @@ def _operator_class_name(name: str) -> str:
     return f"_{identifier}_Operator"
 
 
+def _stub_docstring_line(line: str) -> str:
+    """Escape source-sensitive text without changing the parsed stub docstring."""
+    return line.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
+
+
 def render_operator_stub(inventory: dict[str, Any]) -> str:
     operators = [operator for operator in inventory["operators"] if not operator["explicit_root"]]
     lines = [
@@ -749,15 +1249,15 @@ def render_operator_stub(inventory: dict[str, Any]) -> str:
     for operator in operators:
         class_name = _operator_class_name(operator["name"])
         overloads = _unique_overloads(operator)
-        documentation = (
-            operator["documentation"]
-            or f'Wire ``{operator["name"]}`` through native overload resolution.'
-        ).splitlines()
+        documentation = _operator_semantic_documentation(operator).splitlines()
         lines.extend([
             f"class {class_name}(_Protocol):",
-            '    """' + documentation[0],
+            '    """' + _stub_docstring_line(documentation[0]),
         ])
-        lines.extend(f"    {line}" if line else "" for line in documentation[1:])
+        lines.extend(
+            f"    {_stub_docstring_line(line)}" if line else ""
+            for line in documentation[1:]
+        )
         lines.extend([
             "",
             "    Accepted native overloads:",
@@ -816,7 +1316,8 @@ def render_operator_docs(inventory: dict[str, Any]) -> str:
     ]
     for operator in inventory["operators"]:
         if operator["documentation"]:
-            lines.append(f"    {operator['name']!r}: {operator['documentation']!r},")
+            documentation = _operator_semantic_documentation(operator)
+            lines.append(f"    {operator['name']!r}: {documentation!r},")
     lines.extend(["}", ""])
     return "\n".join(lines)
 

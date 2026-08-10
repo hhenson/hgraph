@@ -282,10 +282,27 @@ def try_except(
     __capture_values__=False,
     **kwargs,
 ):
-    """Run one wired function as a protected native child graph.
+    """Run a graph behind an exception boundary.
 
-    ``map_`` uses its keyed native error output so each child retains an
-    independent ``NodeError`` until that key is erased.
+    A value-producing graph returns a bundle with ``out`` and ``exception``
+    fields. A sink returns the exception stream. ``map_`` uses keyed error
+    output so every child retains its own ``NodeError`` until that key is
+    removed.
+
+    :param func: Graph, node, or ``map_`` call to protect.
+    :param args: Positional inputs forwarded to ``func``.
+    :param __trace_back_depth__: Maximum graph traceback depth captured in each
+        ``NodeError``.
+    :param __capture_values__: Include current input values in captured errors.
+    :param kwargs: Named inputs forwarded to ``func``.
+    :return: Protected output paired with captured errors, or an error stream
+        for a sink.
+
+    Example::
+
+        attempted = try_except(parse_message, payload)
+        parsed = attempted.out
+        errors = attempted.exception
     """
     from ._wiring import _PyNode, _as_wired, combine, map_, wire
 

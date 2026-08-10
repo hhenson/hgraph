@@ -15,6 +15,10 @@ retain their conventional key/value relationships.
 
 Explicit helpers have a curated Python entry point in addition to their
 native overloads. Lazy operators are resolved from ``hgraph`` on first use.
+Examples assume ``import hgraph as hg``. Names such as ``price`` or ``ts``
+represent wiring ports inside a graph; compatible literals may be lifted to
+constant sources. The examples emphasize normal Python authoring rather than
+the equivalent C++ ``wire`` spelling.
 
 .. contents:: Operators
    :local:
@@ -25,9 +29,30 @@ native overloads. Lazy operators are resolved from ``hgraph`` on first use.
 ``abs_``
 --------
 
-``abs_`` — the ``abs`` operator (``abs(ts) -> OUT``).
+Return the absolute magnitude of a numeric value, duration, or compatible collection. Python's ``abs(ts)`` syntax wires this operator.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+   Input whose sign is removed.
+
+Returns
+~~~~~~~
+
+The non-negative magnitude with the overload-selected schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   magnitude = abs(change)
 
 Accepted native overloads
 
@@ -44,9 +69,39 @@ Accepted native overloads
 ``add_``
 --------
 
-``add_`` — the ``+`` operator. Operands and result may all differ (``lhs + rhs -> OUT``).
+Add two time-series values using the overload selected for their schemas. Supports numeric promotion, string concatenation, temporal arithmetic, collection broadcasting, and keyed-set insertion. Python's ``lhs + rhs`` syntax wires this operator.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[SCALAR]``, ``TSS[K]``
+   Left-hand value. A tick triggers a new result once the overload's validity requirements are met.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[period]``, ``TS[time]``, ``TS[zoned_datetime]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[K]``
+   Right-hand value; compatible plain values are lifted to constants.
+
+``month_end_policy`` : scalar; ``month_end_policy``
+   Policy used when adding a calendar period to a date whose day does not exist in the target month. Optional in overloads that show ``= ...``.
+
+``__strict__`` : scalar; ``bool``
+   When true, wait until both operands are valid. Non-strict overloads may forward the valid operand when the other is absent. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+The sum, with its schema selected from both operand schemas.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   total = lhs + rhs  # equivalent to hg.add_(lhs, rhs)
 
 Accepted native overloads
 
@@ -82,9 +137,33 @@ Accepted native overloads
 ``all_``
 --------
 
-``all_`` — graph ``all``: ``True`` when every boolean input is ``True`` (variadic).
+Return true when every supplied boolean value is true. Variadic and keyed-dictionary forms recompute when any member changes.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``*args`` : time-series; ``TS[bool]``
+   Boolean inputs to test.
+
+``arg`` : time-series; ``TSD[K, TS[bool]]``
+   Keyed boolean collection accepted by collection overloads.
+
+Returns
+~~~~~~~
+
+Boolean conjunction of all current inputs.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   ready = hg.all_(has_price, has_quantity, is_open)
 
 Accepted native overloads
 
@@ -98,9 +177,33 @@ Accepted native overloads
 ``and_``
 --------
 
-``and_`` — the ``and`` operator (truthy combination), yielding ``TS<Bool>``.
+Return the boolean conjunction of two current values using their truth semantics. This is an eager graph operator: both ports are wired, unlike Python's scalar short-circuit ``and``.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[SCALAR]``, ``TS[bool]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSS[K]``
+   Left-hand truth-valued input.
+
+``rhs`` : time-series; ``TS[SCALAR]``, ``TS[bool]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSS[K]``
+   Right-hand truth-valued input.
+
+Returns
+~~~~~~~
+
+True only when both values are truthy.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   ready = hg.and_(has_data, market_open)
 
 Accepted native overloads
 
@@ -120,9 +223,33 @@ Accepted native overloads
 ``any_``
 --------
 
-``any_`` — graph ``any``: ``True`` when any boolean input is ``True`` (variadic).
+Return true when at least one supplied boolean value is true. Variadic and keyed-dictionary forms recompute when any member changes.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``*args`` : time-series; ``TS[bool]``
+   Boolean inputs to test.
+
+``arg`` : time-series; ``TSD[K, TS[bool]]``
+   Keyed boolean collection accepted by collection overloads.
+
+Returns
+~~~~~~~
+
+Boolean disjunction of all current inputs.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   has_alert = hg.any_(price_alert, risk_alert)
 
 Accepted native overloads
 
@@ -136,9 +263,36 @@ Accepted native overloads
 ``apply``
 ---------
 
-``apply`` — invoke a ticking runtime callable and publish its result.
+Invoke the latest runtime callable when it or one of its inputs ticks. This differs from higher-order graph operators: ``fn`` is a value available at runtime, not a graph callable compiled at wiring time.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``fn`` : time-series; ``TS[callable]``
+   Time series carrying the callable.
+
+``*args`` : time-series; ``TIME_SERIES_TYPE``
+   Positional values supplied to the callable.
+
+``**kwargs`` : time-series; ``time-series``
+   Named values supplied to the callable.
+
+Returns
+~~~~~~~
+
+The callable's result.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.apply(runtime_function, lhs, rhs)
 
 Accepted native overloads
 
@@ -155,6 +309,30 @@ Convert a fixed tick window into a shaped array, optionally padding with ``zero`
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``tsw`` : time-series; ``TIME_SERIES_TYPE``
+   The time-series window input.
+
+``zero`` : time-series, scalar; ``TIME_SERIES_TYPE_1``, ``SCALAR``
+   The zero value used by the selected overload.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``OUT``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.as_array(tsw)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -168,9 +346,39 @@ Accepted native overloads
 ``assert_``
 -----------
 
-``assert_`` — assert ``condition`` holds, raising ``error_msg`` otherwise (a sink).
+Raise ``AssertionError`` when a ticking condition is false. Additional overloads format the error message from live arguments.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``condition`` : time-series; ``TS[bool]``
+   Boolean stream to enforce.
+
+``error_msg`` : scalar; ``str``
+   Wiring-time error message or format string.
+
+``*args`` : time-series; ``TIME_SERIES_TYPE``
+   Values used to format the message.
+
+``**kwargs`` : time-series; ``time-series``
+   Named values used to format the message.
+
+Returns
+~~~~~~~
+
+No output.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   hg.assert_(quantity >= 0, "quantity must be non-negative")
 
 Accepted native overloads
 
@@ -184,9 +392,33 @@ Accepted native overloads
 ``at_zone``
 -----------
 
-``at_zone`` — represent an instant in the supplied time zone.
+Represent an absolute instant in a time zone without changing that instant.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``instant`` : time-series; ``TS[datetime]``
+   Absolute UTC-line timestamp.
+
+``zone`` : time-series; ``TS[zone_id]``
+   IANA time-zone identifier used for local representation.
+
+Returns
+~~~~~~~
+
+A zoned datetime carrying both instant and zone.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   local_view = hg.at_zone(instant, hg.ZoneId("Europe/London"))
 
 Accepted native overloads
 
@@ -199,9 +431,39 @@ Accepted native overloads
 ``batch``
 ---------
 
-``batch`` — like ``gate`` but releases queued ticks in batches with ``delay`` between them.
+Queue ticks while ``condition`` is false, then drain them in batches separated by ``delay``. Raises if a positive ``buffer_length`` is exceeded.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``condition`` : time-series; ``TS[bool]``
+   False to buffer and true to begin draining.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Stream to buffer.
+
+``delay`` : scalar; ``timedelta``
+   Engine-time interval between released batches.
+
+``buffer_length`` : scalar; ``int``
+   Maximum number of queued values. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+Buffered values released in delayed batches.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   paced = hg.batch(is_ready, updates, timedelta(milliseconds=10), buffer_length=1000)
 
 Accepted native overloads
 
@@ -214,9 +476,36 @@ Accepted native overloads
 ``bit_and``
 -----------
 
-``bit_and`` — the ``&`` operator (``lhs & rhs -> OUT``).
+Apply bitwise AND or the corresponding structural collection operation.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TSD[K, V]``
+   Left-hand input.
+
+``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, V]``
+   Right-hand input.
+
+``*ts`` : time-series; ``TIME_SERIES_TYPE_2``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+``lhs & rhs`` with overload-selected structure.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   common_flags = flags & allowed
 
 Accepted native overloads
 
@@ -237,9 +526,36 @@ Accepted native overloads
 ``bit_or``
 ----------
 
-``bit_or`` — the ``|`` operator (``lhs | rhs -> OUT``).
+Apply bitwise OR or the corresponding structural collection operation.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TSD[K, V]``
+   Left-hand input.
+
+``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, V]``
+   Right-hand input.
+
+``*ts`` : time-series; ``TIME_SERIES_TYPE_2``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+``lhs | rhs`` with overload-selected structure.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   combined_flags = flags | defaults
 
 Accepted native overloads
 
@@ -260,9 +576,36 @@ Accepted native overloads
 ``bit_xor``
 -----------
 
-``bit_xor`` — the ``^`` operator (``lhs ^ rhs -> OUT``).
+Apply bitwise exclusive OR or the corresponding structural operation.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TSD[K, V]``
+   Left-hand input.
+
+``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, V]``
+   Right-hand input.
+
+``*ts`` : time-series; ``TIME_SERIES_TYPE_2``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+``lhs ^ rhs`` with overload-selected structure.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   changed_flags = before ^ after
 
 Accepted native overloads
 
@@ -283,9 +626,36 @@ Accepted native overloads
 ``call``
 --------
 
-``call`` — invoke a ticking runtime callable for side effects.
+Invoke a runtime callable for side effects and discard its return value.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``fn`` : time-series; ``TS[callable]``
+   Time series carrying the callable.
+
+``*args`` : time-series; ``TIME_SERIES_TYPE``
+   Positional values supplied to the callable.
+
+``**kwargs`` : time-series; ``time-series``
+   Named values supplied to the callable.
+
+Returns
+~~~~~~~
+
+No output.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   hg.call(runtime_callback, event)
 
 Accepted native overloads
 
@@ -298,9 +668,36 @@ Accepted native overloads
 ``clip``
 --------
 
-``clip`` — clip ``ts`` into the ``[min, max]`` range.
+Constrain each numeric value to the inclusive ``[min, max]`` interval.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[float]``, ``TS[int]``
+   Numeric stream to constrain.
+
+``min`` : scalar; ``float``, ``int``
+   Lower bound.
+
+``max`` : scalar; ``float``, ``int``
+   Upper bound.
+
+Returns
+~~~~~~~
+
+``min`` below the range, ``max`` above it, otherwise ``ts``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   bounded = hg.clip(ratio, 0.0, 1.0)
 
 Accepted native overloads
 
@@ -314,9 +711,33 @@ Accepted native overloads
 ``cmp_``
 --------
 
-``cmp_`` — three-way comparison; returns ``LT`` / ``EQ`` / ``GT`` in one step.
+Compare two values once and classify the result as ``LT``, ``EQ``, or ``GT``. This is useful with ``if_cmp`` when three branches must share one comparison.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[bool]``, ``TS[SCALAR]``
+   Left-hand value.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[bool]``, ``TS[SCALAR]``
+   Right-hand value.
+
+Returns
+~~~~~~~
+
+A ``CmpResult`` classification.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   ordering = hg.cmp_(lhs, rhs)
 
 Accepted native overloads
 
@@ -338,9 +759,30 @@ Accepted native overloads
 ``collapse_keys``
 -----------------
 
-``collapse_keys`` — flatten nested TSD keys into tuple keys.
+Flatten both key levels of a nested dictionary into tuple keys.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TSD[K, V]``
+   ``TSD[K, TSD[K1, V]]`` input.
+
+Returns
+~~~~~~~
+
+``TSD[tuple[K, K1], V]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   flat = hg.collapse_keys(nested)
 
 Accepted native overloads
 
@@ -354,9 +796,46 @@ Accepted native overloads
 ``collect``
 -----------
 
-``collect`` — accumulate ``ts`` into a collection time-series (output type via ``OUT``).
+Accumulate successive input ticks into a collection-valued time series. The required output subscript chooses tuple, mapping, set, or keyed collection semantics. Key/value collection forms update the entry named by each key tick.
 
 Python entry point: ``collect(*ports, reset=None, exclude=None, **kwargs)`` (explicit helper).
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Value stream to accumulate.
+
+``reset`` : time-series; ``TS[bool]``
+   Optional signal that clears the accumulated collection. Optional in overloads that show ``= ...``.
+
+``key`` : time-series; ``K``
+   Key stream used by mapping and keyed-dictionary overloads.
+
+``exclude`` : time-series; ``TIME_SERIES_TYPE_1``
+   The exclude value used by the selected overload. Optional in overloads that show ``= ...``.
+
+``*ports`` : Python argument; ``object``
+   The ports value used by the selected overload.
+
+``**kwargs`` : Python argument; ``object``
+   Additional named time-series inputs.
+
+Returns
+~~~~~~~
+
+The selected collection type, updated as input ticks arrive.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   history = hg.collect[TS[tuple[int, ...]]](value)
+   by_name = hg.collect[TS[dict[str, int]]](key=name, value=value)
 
 Accepted native overloads
 
@@ -371,9 +850,82 @@ Accepted native overloads
 ``combine``
 -----------
 
-``combine`` — build a typed composite time-series. Overloads cover temporal values, collections, structured values, mappings, keyed dictionaries, sets, and dynamic JSON.
+Build one composite time-series value from component ports. The selected output type determines whether inputs become tuple/list elements, bundle fields, mapping entries, set members, temporal components, or JSON fields. Strict structural forms wait for every required component to become valid.
 
 Python entry point: ``combine(*args, **kwargs)`` (explicit helper).
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``year`` : time-series; ``TS[int]``
+   The year value used by the selected overload.
+
+``month`` : time-series; ``TS[int]``
+   The month value used by the selected overload.
+
+``day`` : time-series; ``TS[int]``
+   The day value used by the selected overload.
+
+``weeks`` : time-series; ``TS[int]``
+   The weeks value used by the selected overload.
+
+``days`` : time-series; ``TS[int]``
+   The days value used by the selected overload.
+
+``hours`` : time-series; ``TS[int]``
+   The hours value used by the selected overload.
+
+``minutes`` : time-series; ``TS[int]``
+   The minutes value used by the selected overload.
+
+``seconds`` : time-series; ``TS[int]``
+   The seconds value used by the selected overload.
+
+``milliseconds`` : time-series; ``TS[int]``
+   The milliseconds value used by the selected overload.
+
+``microseconds`` : time-series; ``TS[int]``
+   The microseconds value used by the selected overload.
+
+``__strict__`` : scalar; ``bool``
+   When true, suppress output until every required component is valid.
+
+``date`` : time-series; ``TS[date]``
+   The date value used by the selected overload.
+
+``time`` : time-series; ``TS[time]``
+   The time value used by the selected overload.
+
+``*ts`` : time-series; ``TIME_SERIES_TYPE``, ``TS[SCALAR]``
+   Positional component ports used by collection and structural overloads.
+
+``orig`` : time-series; ``TIME_SERIES_TYPE_1``
+   The orig value used by the selected overload.
+
+``delta`` : time-series; ``TIME_SERIES_TYPE_2``
+   The delta value used by the selected overload.
+
+``*args`` : Python argument; ``object``
+   Positional component ports accepted by the Python helper.
+
+``**kwargs`` : Python argument; ``object``
+   Named fields accepted by bundle, compound-scalar, and JSON forms.
+
+Returns
+~~~~~~~
+
+A composite port of the explicitly selected or structurally inferred type.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   point = hg.combine[TSB[Point]](x=x, y=y)
+   values = hg.combine(a, b, c)
 
 Accepted native overloads
 
@@ -454,9 +1006,36 @@ Native grouping contracts:
 ``compare``
 -----------
 
-``compare`` — the backtesting comparison sink (COMPARE mode): records per-tick equality of ``lhs`` vs ``rhs`` through the registered frame store (P6) under ``fq_recordable_id.__compare__``.
+Compare two streams during backtesting and record their per-tick equality result. This sink is active in compare mode and stores results beneath the recordable id.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TIME_SERIES_TYPE``
+   Actual or newly computed stream.
+
+``rhs`` : time-series; ``TIME_SERIES_TYPE``
+   Expected or reference stream.
+
+``recordable_id`` : scalar; ``str``
+   Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+No output.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   hg.compare(actual, expected, recordable_id="pricing")
 
 Accepted native overloads
 
@@ -470,9 +1049,33 @@ Accepted native overloads
 ``concat``
 ----------
 
-``concat(ts1, ts2)`` — append rows from two frames with the same schema.
+Append rows from two frames with the same row schema.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts1`` : time-series; ``TS[Frame[SCALAR]]``, ``TS[Frame[SCALAR, SCALAR_1]]``
+   First frame.
+
+``ts2`` : time-series; ``TS[Frame[SCALAR]]``, ``TS[Frame[SCALAR, SCALAR_1]]``
+   Frame appended after ``ts1``.
+
+Returns
+~~~~~~~
+
+The vertically concatenated frame.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   all_rows = hg.concat(primary_rows, secondary_rows)
 
 Accepted native overloads
 
@@ -486,9 +1089,34 @@ Accepted native overloads
 ``const``
 ---------
 
-``const_`` — a source that emits a configured ``value`` once at the start cycle, or ``delay`` after it. The output type is the registered ``TS`` of the value's type, or an explicit output schema at the wiring site (``wire<const_, TSS<Int>>(w, set_value)``). Two arities: ``const(value)`` (tick at start) and ``const(value, delay)`` (tick at ``start_time + delay``).
+Create a source that emits one configured value and then becomes passive. With no delay it ticks at graph start; otherwise it ticks at ``start_time + delay``. Subscript ``const`` when the output shape cannot be inferred from the Python value.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``value`` : scalar; ``SCALAR``
+   Python value adapted to the selected time-series schema.
+
+``delay`` : scalar; ``timedelta``
+   Optional engine-time delay before the single tick.
+
+Returns
+~~~~~~~
+
+A source of the inferred or explicitly selected output type.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   answer = hg.const[TS[int]](42)
+   delayed = hg.const("ready", delay=timedelta(seconds=1))
 
 Accepted native overloads
 
@@ -502,9 +1130,33 @@ Accepted native overloads
 ``contains_``
 -------------
 
-``contains_`` — the ``in`` operator: ``item in ts`` -> ``TS<Bool>``.
+Test membership of an item in the current collection value. Call the operator directly because Python's ``in`` syntax coerces its result to a scalar boolean and cannot represent a wiring port.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``, ``TIME_SERIES_TYPE``, ``TS[SCALAR]``, ``TS[SCALAR_2]``
+   Collection or mapping to search.
+
+``item`` : time-series; ``TS[str]``, ``TS[K]``, ``TSS[K]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_1]``, ``TS[SCALAR_3]``
+   Candidate member or key.
+
+Returns
+~~~~~~~
+
+True while ``item`` is contained in ``ts``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   subscribed = hg.contains_(subscriptions, symbol)
 
 Accepted native overloads
 
@@ -522,9 +1174,51 @@ Accepted native overloads
 ``convert``
 -----------
 
-``convert`` — convert the incoming time-series to the requested output type.
+Convert a time series to an explicitly selected output shape. Use the subscripted form when input types alone cannot determine the target; conversion preserves tick timing while adapting each delta or value.
 
 Python entry point: ``convert(ts=None, *ports, to=None, **kwargs)`` (explicit helper).
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TS[Any]``, ``TS[int]``, ``TS[float]``, ``TS[bool]``, ``TS[str]``, ``TS[bytes]``, ``TS[date]``, ``TS[datetime]``, ``TS[SCALAR]``
+   Input time series to convert.
+
+``key`` : time-series; ``K``
+   Key selecting the affected entry.
+
+``__strict__`` : scalar; ``bool``
+   Validity policy. When true, all required inputs must be valid; non-strict overloads may use the valid subset. Optional in overloads that show ``= ...``.
+
+``keys`` : scalar; ``SCALAR_1``
+   Keys associated with the supplied values.
+
+``mapping`` : scalar; ``SCALAR_2``
+   The mapping value used by the selected overload. Optional in overloads that show ``= ...``.
+
+``*ports`` : Python argument; ``object``
+   The ports value used by the selected overload.
+
+``to`` : Python argument; ``object``
+   The to value used by the selected overload. Optional in overloads that show ``= ...``.
+
+``**kwargs`` : Python argument; ``object``
+   Additional named time-series inputs.
+
+Returns
+~~~~~~~
+
+The same logical stream represented by the selected output schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   tuple_values = hg.convert[TS[tuple[str, ...]]](set_values)
 
 Accepted native overloads
 
@@ -560,9 +1254,33 @@ Accepted native overloads
 ``convert_zone``
 ----------------
 
-``convert_zone`` — view a zoned datetime in another zone without changing its instant.
+Change the display zone of a zoned datetime while preserving its absolute instant.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``value`` : time-series; ``TS[zoned_datetime]``
+   Zoned datetime to convert.
+
+``zone`` : time-series; ``TS[zone_id]``
+   Destination IANA time zone.
+
+Returns
+~~~~~~~
+
+The same instant represented in ``zone``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   new_york_time = hg.convert_zone(london_time, hg.ZoneId("America/New_York"))
 
 Accepted native overloads
 
@@ -579,6 +1297,33 @@ Native correlation coefficients, with an optional second array.
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``x`` : time-series; ``TIME_SERIES_TYPE``
+   The x value used by the selected overload.
+
+``y`` : time-series; ``TIME_SERIES_TYPE_1``
+   The y value used by the selected overload.
+
+``rowvar`` : scalar; ``bool``
+   The rowvar value used by the selected overload.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``OUT``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.corrcoef(x)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -593,9 +1338,33 @@ Accepted native overloads
 ``count``
 ---------
 
-``count`` — a running count of the ticks of ``ts`` (optional ``reset`` signal).
+Count input ticks cumulatively, restarting when an optional reset signal ticks.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``SIGNAL``
+   Signal or stream whose ticks are counted; values are ignored.
+
+``reset`` : time-series; ``SIGNAL``
+   Optional signal that resets the count before processing a same-cycle tick.
+
+Returns
+~~~~~~~
+
+Running integer tick count.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   session_count = hg.count(updates, reset=session_start)
 
 Accepted native overloads
 
@@ -613,6 +1382,30 @@ Native cumulative sum. The optional scalar axis is supplied as a second argument
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``a`` : time-series; ``TIME_SERIES_TYPE``
+   The a value used by the selected overload.
+
+``axis`` : scalar; ``int``
+   The axis value used by the selected overload.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``OUT``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.cumsum(a)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -628,6 +1421,27 @@ Accepted native overloads
 ``day`` — the day-of-month attribute of a date or datetime.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.day(ts)
 
 Accepted native overloads
 
@@ -645,6 +1459,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.day_of_month(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -661,6 +1496,27 @@ hgraph's timedelta ATTRIBUTES (port.days / .seconds / .microseconds) and ``total
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[timedelta]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.days(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -672,9 +1528,36 @@ Accepted native overloads
 ``debug_print``
 ---------------
 
-``debug_print`` — print ``label: value`` on each tick of ``ts`` (a diagnostic sink). (Python also takes ``print_delta`` / ``sample`` — not yet modelled.)
+Print a labelled representation of each source tick for graph diagnostics.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``label`` : scalar; ``str``
+   Wiring-time prefix identifying the stream.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Value printed when it ticks.
+
+``sample`` : scalar; ``int``
+   Emit one diagnostic line for every nth source tick. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+No output; this is a diagnostic sink.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   hg.debug_print("price", price)
 
 Accepted native overloads
 
@@ -687,9 +1570,33 @@ Accepted native overloads
 ``dedup``
 ---------
 
-``dedup`` — drop consecutive duplicate values.
+Suppress an input tick when its value compares equal to the last emitted value. The first valid value always passes through.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[SCALAR]``, ``TS[float]``, ``TSD[K, V]``, ``TSS[K]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+   Stream to de-duplicate.
+
+``abs_tol`` : time-series; ``TS[float]``
+   The abs tol value used by the selected overload. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+``ts`` with consecutive equal values removed.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   changes_only = hg.dedup(status)
 
 Accepted native overloads
 
@@ -707,9 +1614,33 @@ Accepted native overloads
 ``default``
 -----------
 
-``default_`` — pass ``ts`` through, substituting ``default_value`` while ``ts`` is invalid.
+Forward ``ts`` when it is valid and otherwise expose ``default_value``. Once the primary input becomes valid it takes precedence; later invalidation makes the fallback visible again.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Preferred input.
+
+``default_value`` : time-series; ``TIME_SERIES_TYPE``
+   Fallback input used while ``ts`` is invalid.
+
+Returns
+~~~~~~~
+
+A port that is valid whenever either input supplies a value.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   price_or_zero = hg.default(price, 0.0)
 
 Accepted native overloads
 
@@ -722,9 +1653,30 @@ Accepted native overloads
 ``dereference``
 ---------------
 
-``dereference`` — materialize ``REF[TSB[...]]`` or ``REF[TSL[...]]`` as the same container shape whose children reference the corresponding children of the referenced container.
+Materialize a reference to a structured time series as a structural port. Fields or list elements remain references to the original sources rather than copied scalar snapshots.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``tsb`` : time-series; ``REF[TIME_SERIES_TYPE]``
+   Reference to a bundle or fixed time-series list.
+
+Returns
+~~~~~~~
+
+A structural port whose children preserve reference semantics.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   live_bundle = hg.dereference(bundle_ref)
 
 Accepted native overloads
 
@@ -737,9 +1689,30 @@ Accepted native overloads
 ``diff``
 --------
 
-``diff`` — the difference between the current and previous value of ``ts``.
+Subtract the immediately preceding value from the current value.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[int]``, ``TS[float]``
+   Numeric, temporal, or otherwise subtractable stream.
+
+Returns
+~~~~~~~
+
+Successive differences; the first value has no output.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   change = hg.diff(price)
 
 Accepted native overloads
 
@@ -753,9 +1726,30 @@ Accepted native overloads
 ``difference``
 --------------
 
-``difference_`` — set difference (``lhs`` minus the rest).
+Remove every member of the later sets from the first set.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``*ts`` : time-series; ``TIME_SERIES_TYPE``
+   Ordered set inputs; the first is the minuend.
+
+Returns
+~~~~~~~
+
+Members present only in the first input.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   available = hg.difference(all_symbols, suspended_symbols)
 
 Accepted native overloads
 
@@ -772,6 +1766,45 @@ Accepted native overloads
 
 Python entry point: ``dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs)`` (explicit helper).
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``cases`` : scalar; ``dispatch_cases``
+   The cases value used by the selected overload.
+
+``*ts`` : time-series; ``TIME_SERIES_TYPE``
+   Runtime values whose concrete types select the implementation.
+
+``**kwargs`` : time-series; ``time-series``
+   Named runtime values forwarded to the implementation.
+
+``overloaded`` : Python argument; ``object``
+   Operator or dispatch function whose registered implementations form the cases.
+
+``*args`` : Python argument; ``object``
+   Additional positional time-series inputs.
+
+``__on__`` : Python argument; ``object``
+   Optional names restricting which typed parameters participate in dispatch. Optional in overloads that show ``= ...``.
+
+``__output_type`` : Python argument; ``object``
+   The output type value used by the selected overload. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+The output of the implementation selected from the current concrete types.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.dispatch_(price_operator, instrument, market)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -783,9 +1816,36 @@ Accepted native overloads
 ``div_``
 --------
 
-``div_`` — the ``/`` (true division) operator (``lhs / rhs -> OUT``). Implementations may take an optional ``Scalar<"divide_by_zero", DivideByZero>`` wiring-time policy.
+Divide ``lhs`` by ``rhs`` using true-division semantics. The scalar ``divide_by_zero`` choice is fixed at wiring time, so the selected behaviour adds no per-tick policy dispatch.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+   Dividend.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+   Divisor.
+
+``divide_by_zero`` : scalar; ``DivideByZero``
+   Behaviour for a zero divisor: raise, emit NaN or infinity, emit zero or one, or suppress the tick. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+The quotient, normally promoted to a floating-point schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   ratio = hg.div_(numerator, denominator, divide_by_zero=hg.DivideByZero.NAN)
 
 Accepted native overloads
 
@@ -812,9 +1872,33 @@ Accepted native overloads
 ``divmod_``
 -----------
 
-``divmod_`` — the ``divmod`` operator. Result is a 2-element list ``(quotient, remainder)``.
+Compute floor quotient and remainder together.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``
+   Dividend.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``
+   Divisor.
+
+Returns
+~~~~~~~
+
+A two-element time-series list containing quotient then remainder.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   quotient_and_remainder = hg.divmod_(items, batch_size)
 
 Accepted native overloads
 
@@ -830,9 +1914,30 @@ Accepted native overloads
 ``downcast_``
 -------------
 
-``downcast_`` — downcast a ``TS`` value to a (checked) derived type.
+Downcast values to an explicitly selected derived type with runtime checking.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Base-typed input.
+
+Returns
+~~~~~~~
+
+The same values viewed through the selected derived schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   derived = hg.downcast_[TS[Derived]](base)
 
 Accepted native overloads
 
@@ -845,9 +1950,33 @@ Accepted native overloads
 ``downcast_ref``
 ----------------
 
-``downcast_ref`` — downcast a ``REF`` to a derived type (fast, unchecked).
+Downcast a time-series reference to an explicitly selected derived schema. This is an unchecked reference conversion; use it only when the referenced runtime value is known to satisfy the target contract.
 
 Python entry point: ``downcast_ref(tp, ts)`` (explicit helper).
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``
+   Reference to the base-typed time series.
+
+``tp`` : Python argument; ``object``
+   The tp value used by the selected overload.
+
+Returns
+~~~~~~~
+
+A reference with the selected derived schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   derived_ref = hg.downcast_ref[REF[TS[Derived]]](base_ref)
 
 Accepted native overloads
 
@@ -860,9 +1989,36 @@ Accepted native overloads
 ``drop``
 --------
 
-``drop`` — drop the first ``count`` ticks of ``ts``, then forward the rest.
+Suppress the first ``count`` source ticks and forward every later tick.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Stream whose prefix is removed.
+
+``count`` : scalar; ``int``
+   Non-negative number of ticks to discard, fixed at wiring time.
+
+``period`` : scalar; ``timedelta``
+   Tick count or elapsed interval controlling the temporal operation.
+
+Returns
+~~~~~~~
+
+``ts`` without its first ``count`` ticks.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   after_warmup = hg.drop(updates, 10)
 
 Accepted native overloads
 
@@ -876,9 +2032,33 @@ Accepted native overloads
 ``emit``
 --------
 
-``emit`` — stream a collection's elements out as individual ticks.
+Expand each collection-valued input tick into a sequence of element ticks. Elements are scheduled in collection iteration order over successive engine cycles.
 
 Python entry point: ``emit(ts, **kwargs)`` (explicit helper).
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Collection-valued time series to expand.
+
+``**kwargs`` : Python argument; ``object``
+   Additional named time-series inputs.
+
+Returns
+~~~~~~~
+
+A stream whose individual ticks are the collection's elements.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   element = hg.emit(hg.const((1, 2, 3)))
 
 Accepted native overloads
 
@@ -891,9 +2071,36 @@ Accepted native overloads
 ``eq_``
 -------
 
-``eq_`` — the ``==`` operator.
+Compare two current values for equality. Python's ``lhs == rhs`` syntax wires this operator, including structural overloads for hgraph collections.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[bool]``, ``TS[int]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TS[SCALAR]``, ``TIME_SERIES_TYPE``, ``TSS[K]``, ``TSD[K, V]``, ``TSD[K, TS[float]]``
+   Left-hand value.
+
+``rhs`` : time-series; ``TS[bool]``, ``TS[int]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TS[SCALAR]``, ``TIME_SERIES_TYPE_1``, ``TSS[K]``, ``TSD[K, V]``, ``TSD[K, TS[float]]``
+   Right-hand value.
+
+``epsilon`` : scalar, time-series; ``float``, ``TS[float]``
+   The epsilon value used by the selected overload. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+True when the values compare equal.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   unchanged = current == previous
 
 Accepted native overloads
 
@@ -924,6 +2131,30 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``start_time`` : time-series; ``TS[datetime]``, ``TS[date]``, ``TS[time]``
+   The start time value used by the selected overload.
+
+``end_time`` : time-series; ``TS[datetime]``, ``TS[date]``, ``TS[time]``
+   The end time value used by the selected overload.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[CmpResult]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.evaluation_time_in_range(start_time, end_time)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -937,9 +2168,33 @@ Accepted native overloads
 ``ewma``
 --------
 
-``ewma`` — an exponential moving average of ``ts`` with smoothing ``alpha``.
+Compute an exponentially weighted moving average.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[float]``
+   Numeric stream.
+
+``alpha`` : scalar; ``float``
+   Smoothing factor in ``(0, 1]``; larger values respond faster to new ticks.
+
+Returns
+~~~~~~~
+
+Running exponentially weighted average with the resolved numeric schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   smoothed = hg.ewma(price, alpha=0.2)
 
 Accepted native overloads
 
@@ -956,6 +2211,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[date]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TSL[TS[int], 3]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.explode(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -967,9 +2243,33 @@ Accepted native overloads
 ``filter_``
 -----------
 
-``filter_`` — suppress ticks of ``ts`` while ``condition`` is ``False``.
+Forward source ticks only while the latest ``condition`` value is true. When the condition changes from false to true, the operator publishes the latest source value if the source changed while the gate was closed. A condition-only tick does not emit when there is no blocked change to replay.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``condition`` : time-series; ``TS[bool]``
+   Boolean gate controlling whether source ticks pass.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Stream to filter.
+
+Returns
+~~~~~~~
+
+Source ticks accepted while ``condition`` is true, plus the latest blocked value when the condition reopens.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   positive_prices = hg.filter_(price > 0.0, price)
 
 Accepted native overloads
 
@@ -982,12 +2282,38 @@ Accepted native overloads
 ``filter_by``
 -------------
 
-Keep TSD entries where ``expr(value, **kwargs)`` is true.
+Keep keyed entries for which ``expr(value, **kwargs)`` is true.
 
-``map_`` computes the per-key matches; the grouped native override applies
-those matches to the dictionary.
+One predicate child is mapped over each active key. Additional named inputs are passed to every child using normal ``map_`` multiplex/broadcast rules; the native grouping then applies the live match dictionary to ``ts``.
 
 Python entry point: ``filter_by(ts, expr, **kwargs)`` (explicit helper).
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : Python argument; ``object``
+   Keyed time-series dictionary to filter.
+
+``expr`` : Python argument; ``object``
+   Predicate graph receiving each value (and optionally its key).
+
+``**kwargs`` : Python argument; ``object``
+   Additional predicate inputs.
+
+Returns
+~~~~~~~
+
+A TSD containing only keys whose current predicate is true.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   expensive = hg.filter_by(prices, above_limit, limit=limit)
 
 Grouped overrides
 ~~~~~~~~~~~~~~~~~
@@ -1011,9 +2337,33 @@ Native grouping contracts:
 ``filter_cs``
 -------------
 
-Filter a frame by the set fields of one compound scalar value.
+Keep frame rows matching the populated fields of one compound-scalar predicate.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[Frame[SCALAR]]``, ``TS[Frame[SCALAR, SCALAR_2]]``
+   Frame-valued input.
+
+``predicate`` : time-series; ``TS[SCALAR_1]``
+   Compound scalar whose populated fields define equality filters.
+
+Returns
+~~~~~~~
+
+The matching rows with the original frame schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   matching = hg.filter_cs(rows, filter_value)
 
 Accepted native overloads
 
@@ -1027,9 +2377,33 @@ Accepted native overloads
 ``filter_frame``
 ----------------
 
-Filter a frame by the currently valid fields of a structural TSB.
+Keep frame rows matching every currently valid field of a structural predicate. Invalid predicate fields are ignored rather than compared.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[Frame[SCALAR]]``, ``TS[Frame[SCALAR, SCALAR_1]]``
+   Frame-valued input.
+
+``predicate`` : time-series; ``TIME_SERIES_TYPE``
+   Structural bundle of column equality filters.
+
+Returns
+~~~~~~~
+
+The matching rows with the original frame schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   matching = hg.filter_frame(rows, filters)
 
 Accepted native overloads
 
@@ -1043,9 +2417,33 @@ Accepted native overloads
 ``flip``
 --------
 
-``flip`` — swap keys and values of a dictionary.
+Invert a keyed dictionary so each value becomes a key. Duplicate values require ``unique=False``, which collects their original keys in a time-series set instead of choosing one arbitrarily.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TSD[K, TS[K_1]]``
+   Keyed scalar values to invert.
+
+``unique`` : scalar; ``bool``
+   Assert values are unique when true; collect duplicates when false. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+An inverted keyed dictionary.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   symbols_by_sector = hg.flip(sector_by_symbol, unique=False)
 
 Accepted native overloads
 
@@ -1060,9 +2458,30 @@ Accepted native overloads
 ``flip_keys``
 -------------
 
-``flip_keys`` — invert the outer/inner keys of a nested ``TSD[K, TSD[K1, V]]``.
+Swap outer and inner keys of a nested keyed dictionary while preserving values.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TSD[K, V]``
+   ``TSD[K, TSD[K1, V]]`` input.
+
+Returns
+~~~~~~~
+
+``TSD[K1, TSD[K, V]]`` with both key levels inverted.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   by_metric_then_symbol = hg.flip_keys(by_symbol_then_metric)
 
 Accepted native overloads
 
@@ -1076,9 +2495,36 @@ Accepted native overloads
 ``floordiv_``
 -------------
 
-``floordiv_`` — the ``//`` (floor division) operator (``lhs // rhs -> OUT``).
+Divide ``lhs`` by ``rhs`` and round the quotient toward negative infinity. Python's ``lhs // rhs`` syntax wires this operator.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+   Dividend.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+   Divisor.
+
+``divide_by_zero`` : scalar; ``DivideByZero``
+   Policy controlling the result when the divisor is zero.
+
+Returns
+~~~~~~~
+
+The floor-division quotient.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   whole_batches = items // batch_size
 
 Accepted native overloads
 
@@ -1102,9 +2548,42 @@ Accepted native overloads
 ``format_``
 -----------
 
-``format_`` — format the supplied time-series values into a string using ``fmt`` (variadic args).
+Format positional and named time-series values with a Python-style format string. ``__sample__`` can reduce output frequency, while ``__strict__`` controls whether every referenced input must be valid before formatting.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``arg0`` : time-series; ``TS[str]``
+   The arg0 value used by the selected overload.
+
+``__sample__`` : scalar; ``int``
+   Emit every nth formatted tick; one emits every tick. Optional in overloads that show ``= ...``.
+
+``__strict__`` : scalar; ``bool``
+   When true, wait for every supplied value to be valid. Optional in overloads that show ``= ...``.
+
+``*args`` : time-series; ``TIME_SERIES_TYPE``
+   Positional values used by the format string.
+
+``**kwargs`` : time-series; ``time-series``
+   Named values used by the format string.
+
+Returns
+~~~~~~~
+
+The formatted string.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   message = hg.format_("{symbol}: {price:.2f}", symbol=symbol, price=price)
 
 Accepted native overloads
 
@@ -1117,9 +2596,33 @@ Accepted native overloads
 ``freeze``
 ----------
 
-``freeze`` — forward ``ts`` until ``predicate`` first holds, then passivate ``ts`` (stop forwarding).
+Forward source ticks until ``predicate`` first ticks true, then retain the last value and passivate the source permanently.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``predicate`` : time-series, scalar; ``TS[bool]``, ``callable``, ``fn``
+   Boolean stream that freezes the output when true.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Stream to forward until frozen.
+
+Returns
+~~~~~~~
+
+The source stream up to the freeze point, retaining its last value.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   final_price = hg.freeze(done, price)
 
 Accepted native overloads
 
@@ -1134,11 +2637,42 @@ Accepted native overloads
 ``from_data_frame``
 -------------------
 
-Data-frame convenience operators (design record: *Record/replay, tables and const_fn*, step 6): the same layout/codec machinery as ``to_table`` with a plain ``date`` column and no ``as_of``.
-
-``from_data_frame[OUT](df, dt_col="date", key_col="key", value_col="value", offset=0)`` replays a frame VALUE by its date column (a pull source; TSD forms take the key from ``key_col``). ``to_data_frame(ts, ...)`` snapshots the time-series per tick into a one-tick frame whose columns come from the requested output ``Frame[Schema]``. ``group_by(ts, by)`` partitions a Frame-valued TS into ``TSD[key, TS[Frame]]`` by column name(s).
+Replay rows from a wiring-time frame according to a timestamp column. Scalar output reads ``value_col``; keyed output additionally uses ``key_col``.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``df`` : scalar; ``frame``
+   Frame containing replay rows.
+
+``dt_col`` : scalar; ``str``
+   Timestamp column controlling tick times. Optional in overloads that show ``= ...``.
+
+``key_col`` : scalar; ``str``
+   Key column used by keyed output schemas. Optional in overloads that show ``= ...``.
+
+``value_col`` : scalar; ``str``
+   Value column used by scalar output schemas. Optional in overloads that show ``= ...``.
+
+``offset`` : scalar; ``timedelta``
+   Duration added to every replay timestamp. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A source of the explicitly selected time-series schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   prices = hg.from_data_frame[TSD[str, TS[float]]](frame, dt_col="date", key_col="symbol")
 
 Accepted native overloads
 
@@ -1151,9 +2685,42 @@ Accepted native overloads
 ``from_data_frame_batches``
 ---------------------------
 
-Replay successively supplied frame batches without concatenating the source. Each batch must arrive no later than its first retained row.
+Replay successively supplied frame batches without concatenating the source. Each batch must arrive no later than its first retained row, preserving bounded memory while maintaining global timestamp order.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``frames`` : time-series; ``TS[frame]``
+   Stream of frame batches.
+
+``dt_col`` : scalar; ``str``
+   Timestamp column controlling tick times. Optional in overloads that show ``= ...``.
+
+``key_col`` : scalar; ``str``
+   Key column used by keyed output schemas. Optional in overloads that show ``= ...``.
+
+``value_col`` : scalar; ``str``
+   Value column used by scalar output schemas. Optional in overloads that show ``= ...``.
+
+``offset`` : scalar; ``timedelta``
+   Duration added to every replay timestamp. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A source of the explicitly selected time-series schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   prices = hg.from_data_frame_batches[TSD[str, TS[float]]](batches, dt_col="date")
 
 Accepted native overloads
 
@@ -1166,9 +2733,30 @@ Accepted native overloads
 ``from_json``
 -------------
 
-``from_json`` — parse JSON text as the explicitly selected output schema.
+Parse JSON text directly into an explicitly selected time-series schema. Each parsed value is applied as that tick's delta, so collection removals and structural updates follow the target type's normal delta semantics.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[str]``
+   JSON text.
+
+Returns
+~~~~~~~
+
+Parsed values in the selected output schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   prices = hg.from_json[TSD[str, TS[float]]](payload)
 
 Accepted native overloads
 
@@ -1185,6 +2773,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``OUT``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.from_table(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -1200,6 +2809,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``value`` : scalar; ``frame``
+   Value used to construct or update the output.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``OUT``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.from_table_const(value)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -1211,9 +2841,36 @@ Accepted native overloads
 ``gate``
 --------
 
-``gate`` — queue ticks while ``condition`` is ``False``, releasing them once it is ``True``.
+Queue source ticks while ``condition`` is false and release them in order after it becomes true. A positive ``buffer_length`` raises on overflow; ``-1`` keeps only the most recent gated value.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``condition`` : time-series; ``TS[bool]``
+   False to buffer and true to release/forward.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Stream passing through the gate.
+
+``buffer_length`` : scalar; ``int``
+   Maximum queued ticks, or ``-1`` for last-value mode. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+The original ticks, delayed while the gate is closed.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   released = hg.gate(is_ready, updates, buffer_length=1000)
 
 Accepted native overloads
 
@@ -1226,9 +2883,33 @@ Accepted native overloads
 ``ge_``
 -------
 
-``ge_`` — the ``>=`` operator.
+Test whether ``lhs`` sorts after or equals ``rhs``.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+   Left-hand value.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+   Right-hand value.
+
+Returns
+~~~~~~~
+
+The result of ``lhs >= rhs``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   reached_limit = value >= limit
 
 Accepted native overloads
 
@@ -1253,6 +2934,30 @@ Apply a wiring-time integer or integer-tuple index to a shaped array.
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   The primary time-series input.
+
+``idx`` : scalar; ``SCALAR``
+   Index selecting the requested item.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``OUT``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.get_item(ts, idx)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -1264,9 +2969,39 @@ Accepted native overloads
 ``getattr_``
 ------------
 
-``getattr_`` — the ``.`` (attribute access) operator: ``ts.attr``. ``attr`` is a wiring-time string; an optional ``default_value`` may be supplied by an implementation.
+Project a named field or attribute from a structured time-series value. Attribute selection is a wiring-time operation because it determines the output schema; normal ``port.field`` syntax delegates to this operator.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
+   Structured input.
+
+``attr`` : scalar; ``str``
+   Field name fixed when the graph is wired.
+
+``default`` : scalar; ``SCALAR_2``
+   Fallback used when no more specific value is available.
+
+``default_value`` : time-series; ``TS[SCALAR]``
+   Optional fallback for overloads that support missing attributes. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A port carrying the selected field or fallback.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   price = quote.price  # equivalent to hg.getattr_(quote, "price")
 
 Accepted native overloads
 
@@ -1285,9 +3020,33 @@ Accepted native overloads
 ``getitem_``
 ------------
 
-``getitem_`` — the ``[]`` operator: ``ts[key]``.
+Select an item from a collection-valued time series. Python's ``ts[key]`` syntax wires this operator; live keys retarget the output when they change.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_1]``
+   Collection, mapping, list, bundle, or other indexable input.
+
+``key`` : time-series, scalar; ``TS[K]``, ``TS[int]``, ``str``, ``int``, ``TSS[K]``
+   Index, key, or slice selector supported by the chosen overload.
+
+Returns
+~~~~~~~
+
+The selected item as a time-series port.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   selected_price = prices[symbol]
 
 Accepted native overloads
 
@@ -1310,9 +3069,33 @@ Accepted native overloads
 ``group_by``
 ------------
 
-``group_by`` — partition a frame-valued time-series by one or more columns.
+Partition each frame into a keyed dictionary of frames by one or more columns.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[SCALAR]``
+   Frame-valued input.
+
+``by`` : scalar; ``SCALAR_1``
+   Wiring-time column name or tuple of column names forming the key.
+
+Returns
+~~~~~~~
+
+A keyed dictionary whose values contain rows for each distinct key.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   by_symbol = hg.group_by(rows, by="symbol")
 
 Accepted native overloads
 
@@ -1325,9 +3108,33 @@ Accepted native overloads
 ``gt_``
 -------
 
-``gt_`` — the ``>`` operator.
+Test whether ``lhs`` sorts after ``rhs``.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+   Left-hand value.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+   Right-hand value.
+
+Returns
+~~~~~~~
+
+The result of ``lhs > rhs``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   above_limit = value > limit
 
 Accepted native overloads
 
@@ -1352,6 +3159,27 @@ hgraph's datetime / time ATTRIBUTES (port.hour / .minute / .second / .microsecon
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[datetime]``, ``TS[time]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.hour(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -1364,9 +3192,34 @@ Accepted native overloads
 ``if_``
 -------
 
-``if_`` — route ``ts`` to a ``true`` / ``false`` bundle output by ``condition``.
+Route each source tick to the ``true`` or ``false`` field of a bundle according to the latest condition. The non-selected output does not receive that tick.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``condition`` : time-series; ``TS[bool]``
+   Boolean route selector.
+
+``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``
+   Stream to route.
+
+Returns
+~~~~~~~
+
+A two-field bundle containing the mutually exclusive routed outputs.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   routed = hg.if_(is_buy, order)
+   buys, sells = routed.true, routed.false
 
 Accepted native overloads
 
@@ -1379,9 +3232,39 @@ Accepted native overloads
 ``if_cmp``
 ----------
 
-``if_cmp`` — select ``lt`` / ``eq`` / ``gt`` according to a ``CmpResult``.
+Select one of three value streams from a three-way comparison result.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``cmp`` : time-series; ``TS[CmpResult]``
+   ``LT``, ``EQ``, or ``GT`` selector, typically produced by ``cmp_``.
+
+``lt`` : time-series; ``REF[OUT]``
+   Value selected for ``LT``.
+
+``eq`` : time-series; ``REF[OUT]``
+   Value selected for ``EQ``.
+
+``gt`` : time-series; ``REF[OUT]``
+   Value selected for ``GT``.
+
+Returns
+~~~~~~~
+
+The branch selected by ``cmp``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   label = hg.if_cmp(hg.cmp_(lhs, rhs), "low", "equal", "high")
 
 Accepted native overloads
 
@@ -1394,9 +3277,36 @@ Accepted native overloads
 ``if_then_else``
 ----------------
 
-``if_then_else`` — select ``true_value`` or ``false_value`` per ``condition``.
+Select between two value streams using the latest boolean condition. A tick from the active branch is forwarded; a tick from the inactive branch is not.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``condition`` : time-series; ``TS[bool]``
+   Boolean selector.
+
+``true_value`` : time-series; ``REF[TIME_SERIES_TYPE]``
+   Value exposed while ``condition`` is true.
+
+``false_value`` : time-series; ``REF[TIME_SERIES_TYPE]``
+   Value exposed while ``condition`` is false.
+
+Returns
+~~~~~~~
+
+The currently selected branch.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   effective = hg.if_then_else(use_live, live_value, fallback_value)
 
 Accepted native overloads
 
@@ -1409,9 +3319,33 @@ Accepted native overloads
 ``if_true``
 -----------
 
-``if_true`` — tick ``True`` when ``condition`` ticks ``True`` (optional ``tick_once_only``).
+Emit true whenever ``condition`` ticks with a true value. False values are suppressed rather than emitted. One-shot mode passivates the input after the first true tick.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``condition`` : time-series; ``TS[bool]``
+   Boolean stream to observe.
+
+``tick_once_only`` : scalar; ``bool``
+   When true, emit at most one tick. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A true-valued signal for qualifying condition ticks.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   first_ready = hg.if_true(is_ready, tick_once_only=True)
 
 Accepted native overloads
 
@@ -1424,9 +3358,33 @@ Accepted native overloads
 ``index_of``
 ------------
 
-``index_of`` — the index of ``item`` within ``ts`` -> ``TS<Int>``.
+Locate an item within an ordered collection.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TSL[TS[SCALAR], SIZE]``, ``TS[SCALAR]``
+   Ordered collection to search.
+
+``item`` : time-series; ``TS[SCALAR]``, ``TS[SCALAR_1]``
+   Value whose position is requested.
+
+Returns
+~~~~~~~
+
+Zero-based index according to the selected overload's missing-item policy.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   position = hg.index_of(priority_order, symbol)
 
 Accepted native overloads
 
@@ -1440,9 +3398,30 @@ Accepted native overloads
 ``intersection``
 ----------------
 
-``intersection_`` — set intersection of the inputs.
+Keep members present in every input set.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``*ts`` : time-series; ``TIME_SERIES_TYPE``
+   Set-valued or variadic set inputs.
+
+Returns
+~~~~~~~
+
+The common members of all inputs.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   common_symbols = hg.intersection(listed, liquid)
 
 Accepted native overloads
 
@@ -1455,9 +3434,30 @@ Accepted native overloads
 ``invert_``
 -----------
 
-``invert_`` — the unary ``~`` (bitwise invert) operator (``~ts -> OUT``).
+Apply bitwise or collection inversion selected by the input schema. Python's ``~ts`` syntax wires this operator.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+   Integer, boolean, or compatible collection input.
+
+Returns
+~~~~~~~
+
+The overload-selected inverted value.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   inverted_mask = ~mask
 
 Accepted native overloads
 
@@ -1473,9 +3473,30 @@ Accepted native overloads
 ``is_empty``
 ------------
 
-``is_empty`` — whether the time-series value is considered empty -> ``TS<Bool>``.
+Test the selected type's empty-value semantics.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``, ``TIME_SERIES_TYPE``
+   Collection, string, mapping, or other supported value.
+
+Returns
+~~~~~~~
+
+True when the current value contains no elements or content.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   no_orders = hg.is_empty(active_orders)
 
 Accepted native overloads
 
@@ -1495,6 +3516,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[date]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[str]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.isoformat(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -1510,6 +3552,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.isoweekday(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -1522,11 +3585,62 @@ Accepted native overloads
 ``join``
 --------
 
-Arrow-native equi-join. The namespace avoids colliding with the string join marker; both remain overloads in the public family.
+Join two frames by equality of one or more key columns. This is part of the public ``join`` overload family alongside string joining.
 
-``join`` — join several string time-series with ``separator`` (variadic).
+Join current string inputs with a fixed separator.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[Frame[SCALAR]]``
+   Left frame.
+
+``rhs`` : time-series; ``TS[Frame[SCALAR_1]]``
+   Right frame.
+
+``on`` : scalar; ``K``
+   Wiring-time join column or columns.
+
+``how`` : scalar; ``str``
+   Join policy such as inner, left, right, or full where supported. Optional in overloads that show ``= ...``.
+
+``suffix`` : scalar; ``str``
+   Suffix applied to colliding right-hand column names. Optional in overloads that show ``= ...``.
+
+``strings`` : time-series; ``TSL[TS[str], SIZE]``
+   Collection or variadic string inputs, kept in argument order.
+
+``separator`` : scalar; ``str``
+   Wiring-time text inserted between adjacent values.
+
+``__strict__`` : scalar; ``bool``
+   Validity policy. When true, all required inputs must be valid; non-strict overloads may use the valid subset. Optional in overloads that show ``= ...``.
+
+``*ts`` : time-series; ``TS[str]``, ``TS[SCALAR_2]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A frame with the explicitly resolved joined row schema.
+
+The joined string, updated when an input changes.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   enriched = hg.join(trades, instruments, on="instrument_id", how="left")
+
+.. code-block:: python
+
+   full_name = hg.join(first_name, last_name, separator=" ")
 
 Accepted native overloads
 
@@ -1542,9 +3656,30 @@ Accepted native overloads
 ``json_as_bool``
 ----------------
 
-``json_as_bool`` — coerce a dynamic JSON leaf to a boolean.
+Coerce a dynamic JSON scalar leaf to a boolean.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   JSON scalar value.
+
+Returns
+~~~~~~~
+
+Boolean representation.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   enabled = hg.json_as_bool(json_value)
 
 Accepted native overloads
 
@@ -1557,9 +3692,30 @@ Accepted native overloads
 ``json_as_float``
 -----------------
 
-``json_as_float`` — coerce a dynamic JSON leaf to a floating-point value.
+Coerce a dynamic JSON scalar leaf to floating point.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   JSON scalar value.
+
+Returns
+~~~~~~~
+
+Floating-point representation.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   price = hg.json_as_float(json_value)
 
 Accepted native overloads
 
@@ -1572,9 +3728,30 @@ Accepted native overloads
 ``json_as_int``
 ---------------
 
-``json_as_int`` — coerce a dynamic JSON leaf to an integer.
+Coerce a dynamic JSON scalar leaf to an integer.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   JSON scalar value.
+
+Returns
+~~~~~~~
+
+Integer representation, raising for incompatible JSON shapes or values.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   count = hg.json_as_int(json_value)
 
 Accepted native overloads
 
@@ -1587,9 +3764,30 @@ Accepted native overloads
 ``json_as_str``
 ---------------
 
-``json_as_str`` — coerce a dynamic JSON leaf to a string.
+Coerce a dynamic JSON scalar leaf to a string.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   JSON scalar value.
+
+Returns
+~~~~~~~
+
+String representation.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   label = hg.json_as_str(json_value)
 
 Accepted native overloads
 
@@ -1602,9 +3800,30 @@ Accepted native overloads
 ``json_decode``
 ---------------
 
-``json_decode`` — parse JSON text into the dynamic JSON-tree value type.
+Parse JSON text into hgraph's dynamic JSON-tree value.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[str]``, ``TS[bytes]``
+   JSON text.
+
+Returns
+~~~~~~~
+
+Dynamic JSON value preserving object, array, scalar, and null structure.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   json_value = hg.json_decode(text)
 
 Accepted native overloads
 
@@ -1618,9 +3837,30 @@ Accepted native overloads
 ``json_encode``
 ---------------
 
-``json_encode`` — encode a dynamic JSON-tree value as JSON text.
+Encode a dynamic JSON-tree value as standards-compliant JSON text.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Dynamic JSON value.
+
+Returns
+~~~~~~~
+
+Compact JSON string.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   text = hg.json_encode(json_value)
 
 Accepted native overloads
 
@@ -1634,9 +3874,30 @@ Accepted native overloads
 ``keys_``
 ---------
 
-``keys_`` — the keys of a dictionary (as a ``TSS`` / set).
+Project the current keys of a mapping or keyed time-series dictionary. Key additions and removals are emitted incrementally for ``TSD`` inputs.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TSD[K, V]``, ``TIME_SERIES_TYPE``
+   Mapping or keyed dictionary.
+
+Returns
+~~~~~~~
+
+Its keys as a set-valued time series.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   symbols = hg.keys_(prices)
 
 Accepted native overloads
 
@@ -1651,9 +3912,37 @@ Accepted native overloads
 ``lag``
 -------
 
-``lag`` — delay delivery of ``ts`` by ``period`` ticks (or a time-delta).
+Delay every input tick by a tick count or elapsed duration. Tick-count lag replays the value after that many later source ticks; duration lag schedules it for ``input_time + period``.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TSD[K, V]``, ``TSL[V, SIZE]``
+   Stream to delay.
+
+``period`` : scalar, time-series; ``int``, ``timedelta``, ``TS[timedelta]``
+   Positive tick count or duration selected at wiring time.
+
+``proxy`` : time-series; ``SIGNAL``
+   Optional proxy stream whose count defines progress for proxy-lag overloads.
+
+Returns
+~~~~~~~
+
+The original values with delayed tick times.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   previous = hg.lag(price, 1)
+   delayed = hg.lag(price, timedelta(seconds=5))
 
 Accepted native overloads
 
@@ -1675,6 +3964,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``SIGNAL``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[date]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.last_modified_date(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -1686,9 +3996,30 @@ Accepted native overloads
 ``last_modified_time``
 ----------------------
 
-``last_modified_time`` — the evaluation time ``ts`` was last modified.
+Report the engine evaluation time of each source modification.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``SIGNAL``
+   Signal whose modification time is observed.
+
+Returns
+~~~~~~~
+
+The current graph evaluation timestamp whenever ``ts`` ticks.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   event_time = hg.last_modified_time(price)
 
 Accepted native overloads
 
@@ -1701,9 +4032,30 @@ Accepted native overloads
 ``last_modified_wall_clock_time``
 ---------------------------------
 
-``last_modified_wall_clock_time`` — the wall-clock time ``ts`` was last modified.
+Report wall-clock time when each source modification is evaluated. Unlike ``last_modified_time``, this observes real elapsed time rather than the graph's logical evaluation clock.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``SIGNAL``
+   Signal whose modification time is observed.
+
+Returns
+~~~~~~~
+
+Wall-clock timestamp for each source tick.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   received_at = hg.last_modified_wall_clock_time(price)
 
 Accepted native overloads
 
@@ -1716,9 +4068,33 @@ Accepted native overloads
 ``le_``
 -------
 
-``le_`` — the ``<=`` operator.
+Test whether ``lhs`` sorts before or equals ``rhs``.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+   Left-hand value.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+   Right-hand value.
+
+Returns
+~~~~~~~
+
+The result of ``lhs <= rhs``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   within_limit = value <= limit
 
 Accepted native overloads
 
@@ -1739,9 +4115,30 @@ Accepted native overloads
 ``len_``
 --------
 
-``len_`` — the ``len`` operator -> ``TS<Int>``.
+Return the current number of elements in a collection-valued input.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE_1``
+   Collection, mapping, string, or supported structural value.
+
+Returns
+~~~~~~~
+
+An integer that updates when collection length changes.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   active_count = hg.len_(active_orders)
 
 Accepted native overloads
 
@@ -1759,9 +4156,30 @@ Accepted native overloads
 ``ln``
 ------
 
-``ln`` — the natural logarithm of a ``TS<Float>`` value.
+Compute the natural logarithm of a floating-point time-series value.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[float]``
+   Positive floating-point input.
+
+Returns
+~~~~~~~
+
+The base-e logarithm of ``ts``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   log_price = hg.ln(price)
 
 Accepted native overloads
 
@@ -1774,9 +4192,42 @@ Accepted native overloads
 ``log_``
 --------
 
-``log_`` — format and log the supplied values at ``level`` (a sink, with positional and named time-series arguments).
+Format time-series values and send them to the configured logger.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``fmt`` : time-series; ``TS[str]``
+   Python-style format string.
+
+``level`` : scalar; ``int``
+   Wiring-time logging severity. Optional in overloads that show ``= ...``.
+
+``sample_count`` : scalar; ``int``
+   Emit one message for every ``sample_count`` qualifying ticks. Optional in overloads that show ``= ...``.
+
+``*args`` : time-series; ``TIME_SERIES_TYPE``
+   Positional and packed named values used by the format string.
+
+``**kwargs`` : time-series; ``time-series``
+   Additional named time-series inputs.
+
+Returns
+~~~~~~~
+
+No output.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   hg.log_("price={:.2f}", price, level=logging.INFO)
 
 Accepted native overloads
 
@@ -1789,9 +4240,33 @@ Accepted native overloads
 ``lshift_``
 -----------
 
-``lshift_`` — the ``<<`` operator (``lhs << rhs -> OUT``).
+Shift integer bits left by the current right-hand value.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+   Integer value to shift.
+
+``rhs`` : time-series; ``TS[int]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+   Non-negative shift distance.
+
+Returns
+~~~~~~~
+
+``lhs << rhs``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   mask = value << bit_count
 
 Accepted native overloads
 
@@ -1808,9 +4283,33 @@ Accepted native overloads
 ``lt_``
 -------
 
-``lt_`` — the ``<`` operator.
+Test whether ``lhs`` sorts before ``rhs`` using the selected value semantics.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+   Left-hand value.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TS[SCALAR]``
+   Right-hand value.
+
+Returns
+~~~~~~~
+
+The result of ``lhs < rhs``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   below_limit = value < limit
 
 Accepted native overloads
 
@@ -1831,11 +4330,38 @@ Accepted native overloads
 ``make_tsd``
 ------------
 
-Build/update one keyed TSD entry from a key and arbitrary time-series value.
+Build a keyed dictionary from a live key and one arbitrary time-series value. A key change removes the old entry and publishes the current value under the new key.
 
 Three-input C++ wiring form with an explicit remove signal.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``key`` : time-series; ``TS[K]``
+   Key under which the value is exposed.
+
+``value`` : time-series; ``V``
+   Time-series value stored at that key.
+
+``remove_key`` : time-series; ``TS[bool]``
+   Optional boolean stream that removes the active key when true.
+
+Returns
+~~~~~~~
+
+A keyed dictionary containing at most the active entry.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   one_price = hg.make_tsd(symbol, price)
 
 Accepted native overloads
 
@@ -1849,11 +4375,47 @@ Accepted native overloads
 ``map_``
 --------
 
-``map_`` — apply a child graph independently to each keyed or list element.
+Apply a child graph independently to every live keyed or list element. Multiplexed inputs supply one element per child while ordinary inputs broadcast whole. TSD children are created and destroyed with the effective key set; fixed lists expand at wiring time and dynamic lists allocate stable children by index.
 
 Outputless keyed map. Resolves through the same ``map_`` registry name.
 
 Python entry point: ``map_(func, *args, __label__=None, __keys__=None, __key_arg__=None, **kwargs)`` (explicit helper).
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``func`` : scalar; ``fn``
+   Graph callable instantiated for each key or index.
+
+``__key_arg__`` : scalar; ``str``
+   Name of the child key/index argument, or an empty string to omit it. Optional in overloads that show ``= ...``.
+
+``*args`` : time-series; ``TIME_SERIES_TYPE``
+   Positional multiplexed or broadcast inputs.
+
+``**kwargs`` : time-series; ``time-series``
+   Named multiplexed or broadcast inputs.
+
+``__label__`` : Python argument; ``object``
+   The label value used by the selected overload. Optional in overloads that show ``= ...``.
+
+``__keys__`` : Python argument; ``object``
+   Optional explicit key set controlling TSD child lifetime. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A collection with one child result per active key or index.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   notionals = hg.map_(multiply, prices, quantities)
 
 Accepted native overloads
 
@@ -1867,9 +4429,33 @@ Accepted native overloads
 ``match_``
 ----------
 
-``match_`` — match a regex ``pattern`` against ``s``; result is a bundle (``is_match`` / ``groups``).
+Match each string against a regular expression and expose both success and captures.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``pattern`` : time-series; ``TS[str]``
+   Regular-expression pattern; changing it recompiles the active match.
+
+``s`` : time-series; ``TS[str]``
+   String to test.
+
+Returns
+~~~~~~~
+
+A bundle containing ``is_match`` and the captured ``groups``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   match = hg.match_(r"([A-Z]+)-(\d+)", code)
 
 Accepted native overloads
 
@@ -1882,9 +4468,46 @@ Accepted native overloads
 ``max_``
 --------
 
-``max_`` — binary element-wise maximum. Collection / variadic forms are separate overloads.
+Select maxima according to input shape and arity. Unary scalar input produces a running maximum; unary collection input reduces its current values; multiple inputs select element-wise maxima. A reset restarts running state and ``default_value`` covers empty collections.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``*ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``, ``TIME_SERIES_TYPE_3``, ``TSS[K]``, ``TSD[K, TS[V]]``, ``TSL[TS[V], SIZE]``
+   Scalar, collection, or variadic values.
+
+``default_value`` : time-series, scalar; ``TS[SCALAR_1]``, ``TS[K]``, ``SCALAR_2``
+   Value used when an input collection is empty.
+
+``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+   Left-hand value in binary overloads.
+
+``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_2, SIZE]``, ``TIME_SERIES_TYPE_2``
+   Right-hand value in binary overloads.
+
+``__strict__`` : scalar; ``bool``
+   When true, every variadic input must be valid. Optional in overloads that show ``= ...``.
+
+``*tsl`` : time-series; ``TS[SCALAR]``
+   The collection or variadic sequence of time-series inputs.
+
+Returns
+~~~~~~~
+
+The running, reduced, or element-wise maximum.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   running_high = hg.max_(price, reset=session_start)
+   highest_price = hg.max_(prices_by_venue)
 
 Accepted native overloads
 
@@ -1938,9 +4561,40 @@ Native grouping contracts:
 ``mean``
 --------
 
-``mean`` — running / element-wise mean.
+Calculate a mean according to input shape and arity. Unary scalar input produces a running mean; unary collection input averages its current members; multiple inputs are averaged element by element.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``*ts`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TIME_SERIES_TYPE``, ``TIME_SERIES_TYPE_1``, ``TSS[int]``, ``TSS[float]``, ``TSD[K, TS[int]]``, ``TSD[K, TS[float]]``, ``TSL[TS[int], SIZE]``, ``TSL[TS[float], SIZE]``
+   Value, collection, or variadic inputs to average.
+
+``default_value`` : time-series; ``TS[SCALAR_1]``
+   Fallback used when a collection has no values to average.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_2, SIZE]``, ``TIME_SERIES_TYPE_2``
+   The left-hand operand.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_3, SIZE]``, ``TIME_SERIES_TYPE_3``
+   The right-hand operand.
+
+Returns
+~~~~~~~
+
+The overload-selected mean, promoted to floating point where required.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   running_average = hg.mean(price)
+   cross_sectional_average = hg.mean(prices_by_symbol)
 
 Accepted native overloads
 
@@ -1970,9 +4624,34 @@ Accepted native overloads
 ``merge``
 ---------
 
-``merge`` — forward the first input that ticks in the current cycle.
+Forward the first input modified in each evaluation cycle. Input order is the tie-breaker when several streams tick together. For keyed dictionaries, distinct keys from all ticking inputs are combined; the leftmost input wins a same-key conflict.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``*tsl`` : time-series; ``TIME_SERIES_TYPE``, ``TSD[K, V]``
+   Ordered input streams.
+
+``disjoint`` : scalar; ``bool``
+   When true, selects the faster TSD path and promises that input dictionaries have no overlapping keys. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A stream containing the cycle's first modified value, or merged TSD delta.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   preferred_tick = hg.merge(primary, secondary)
+   combined_books = hg.merge(bids, asks, disjoint=True)
 
 Accepted native overloads
 
@@ -2009,6 +4688,42 @@ Native grouping contracts:
 
 Python entry point: ``mesh_(func, *args, __name__=None, __keys__=None, __key_arg__=None, **kwargs)`` (explicit helper).
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``func`` : scalar; ``fn``
+   Per-key graph callable; it may access peers through the named mesh.
+
+``__key_arg__`` : scalar; ``str``
+   Name of the child key argument, or empty to omit it. Optional in overloads that show ``= ...``.
+
+``__name__`` : scalar; ``str``
+   Optional mesh name used by cross-instance references. Optional in overloads that show ``= ...``.
+
+``*args`` : time-series; ``TIME_SERIES_TYPE``
+   Positional multiplexed or broadcast TSD inputs.
+
+``**kwargs`` : time-series; ``time-series``
+   Named multiplexed or broadcast inputs.
+
+``__keys__`` : Python argument; ``object``
+   Optional explicit key set controlling child lifetime. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A keyed dictionary of per-instance outputs.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   ranked = hg.mesh_(rank_with_peers, scores, __name__="scores")
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2023,6 +4738,27 @@ Accepted native overloads
 ``microsecond`` — the microsecond component of a datetime or time.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[datetime]``, ``TS[time]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.microsecond(ts)
 
 Accepted native overloads
 
@@ -2040,6 +4776,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[timedelta]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.microseconds(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2051,9 +4808,46 @@ Accepted native overloads
 ``min_``
 --------
 
-``min_`` — binary element-wise minimum. Collection / variadic forms are separate overloads.
+Select minima according to input shape and arity. Unary scalar input produces a running minimum; unary collection input reduces its current values; multiple inputs select element-wise minima. A reset restarts running state and ``default_value`` covers empty collections.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``*ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``, ``TIME_SERIES_TYPE_3``, ``TSS[K]``, ``TSD[K, TS[V]]``, ``TSL[TS[V], SIZE]``
+   Scalar, collection, or variadic values.
+
+``default_value`` : time-series, scalar; ``TS[SCALAR_1]``, ``TS[K]``, ``SCALAR_2``
+   Value used when an input collection is empty.
+
+``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+   Left-hand value in binary overloads.
+
+``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_2, SIZE]``, ``TIME_SERIES_TYPE_2``
+   Right-hand value in binary overloads.
+
+``__strict__`` : scalar; ``bool``
+   When true, every variadic input must be valid. Optional in overloads that show ``= ...``.
+
+``*tsl`` : time-series; ``TS[SCALAR]``
+   The collection or variadic sequence of time-series inputs.
+
+Returns
+~~~~~~~
+
+The running, reduced, or element-wise minimum.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   running_low = hg.min_(price, reset=session_start)
+   lowest_price = hg.min_(prices_by_venue)
 
 Accepted native overloads
 
@@ -2111,6 +4905,27 @@ Native grouping contracts:
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[datetime]``, ``TS[time]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.minute(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2123,9 +4938,36 @@ Accepted native overloads
 ``mod_``
 --------
 
-``mod_`` — the ``%`` operator (``lhs % rhs -> OUT``).
+Return the remainder paired with floor division of ``lhs`` by ``rhs``. Python's ``lhs % rhs`` syntax wires this operator.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+   Dividend.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+   Divisor.
+
+``divide_by_zero`` : scalar; ``DivideByZero``
+   Policy controlling the result when the divisor is zero.
+
+Returns
+~~~~~~~
+
+The remainder, with the divisor's sign under Python semantics.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   bucket_offset = sequence % bucket_count
 
 Accepted native overloads
 
@@ -2149,9 +4991,30 @@ Accepted native overloads
 ``modified``
 ------------
 
-``modified`` — ``True`` in the cycle ``ts`` is modified (a live, ticking property).
+Produce a live boolean pulse describing source modification in the current cycle.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``SIGNAL``
+   Signal whose tick timing is observed; its value is ignored.
+
+Returns
+~~~~~~~
+
+True in a modification cycle and false in subsequent evaluation cycles.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   price_ticked = hg.modified(price)
 
 Accepted native overloads
 
@@ -2167,6 +5030,27 @@ Accepted native overloads
 hgraph's date ATTRIBUTES (port.month / .day / .weekday / .isoweekday).
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.month(ts)
 
 Accepted native overloads
 
@@ -2184,6 +5068,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.month_of_year(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2196,9 +5101,33 @@ Accepted native overloads
 ``mul_``
 --------
 
-``mul_`` — the ``*`` operator (``lhs * rhs -> OUT``). (Python takes an optional ``__strict__`` flag.)
+Multiply two values, including numeric promotion and collection broadcasting. Python's ``lhs * rhs`` syntax uses the normal strict overload. Call ``mul_`` directly to select non-strict validity behaviour where it is supported.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[period]``, ``TS[SCALAR]``
+   Left-hand multiplicand.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[period]``
+   Right-hand multiplicand.
+
+Returns
+~~~~~~~
+
+The product selected from the operand schemas.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   scaled = hg.mul_(price, quantity, __strict__=True)
 
 Accepted native overloads
 
@@ -2225,9 +5154,33 @@ Accepted native overloads
 ``ne_``
 -------
 
-``ne_`` — the ``!=`` operator.
+Compare two current values for inequality. Python's ``lhs != rhs`` syntax wires it.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[bool]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TS[SCALAR]``
+   Left-hand value.
+
+``rhs`` : time-series; ``TS[bool]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TS[SCALAR]``
+   Right-hand value.
+
+Returns
+~~~~~~~
+
+True when the values do not compare equal.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   changed = current != previous
 
 Accepted native overloads
 
@@ -2250,9 +5203,30 @@ Accepted native overloads
 ``neg_``
 --------
 
-``neg_`` — the unary ``-`` operator (``-ts -> OUT``).
+Negate each input value. Python's ``-ts`` syntax wires this operator.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TS[period]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+   Numeric, duration, or compatible collection input.
+
+Returns
+~~~~~~~
+
+The additive inverse of ``ts``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   debit = -credit
 
 Accepted native overloads
 
@@ -2270,9 +5244,30 @@ Accepted native overloads
 ``not_``
 --------
 
-``not_`` — the unary ``not`` operator, yielding ``TS<Bool>``.
+Negate the truth value of each input tick.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[bool]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``
+   Truth-valued input.
+
+Returns
+~~~~~~~
+
+Boolean logical negation.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   closed = hg.not_(market_open)
 
 Accepted native overloads
 
@@ -2290,9 +5285,21 @@ Accepted native overloads
 ``nothing``
 -----------
 
-``nothing`` — a source that never ticks, of the requested output type.
+Create an invalid source of an explicitly selected type that never ticks. This is useful as an empty branch or optional graph input without inventing a value.
 
 Python exposure: lazy native operator proxy.
+
+Returns
+~~~~~~~
+
+A permanently invalid port of the selected type.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   absent = hg.nothing[TS[int]]()
 
 Accepted native overloads
 
@@ -2309,6 +5316,30 @@ Population/sample standard deviation over a numeric shaped array.
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   The primary time-series input.
+
+``ddof`` : scalar; ``int``
+   Delta degrees of freedom subtracted from the sample count in the divisor.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[float]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.np_std(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2321,9 +5352,30 @@ Accepted native overloads
 ``null_sink``
 -------------
 
-``null_sink`` — consume ``ts`` and do nothing (a terminal sink).
+Consume a stream without producing output or side effects. Use this to make an otherwise unused branch part of the executable graph.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Stream to keep connected and active.
+
+Returns
+~~~~~~~
+
+No output.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   hg.null_sink(background_updates)
 
 Accepted native overloads
 
@@ -2336,9 +5388,33 @@ Accepted native overloads
 ``or_``
 -------
 
-``or_`` — the ``or`` operator, yielding ``TS<Bool>``.
+Return the boolean disjunction of two current values using their truth semantics. Both input ports remain wired and active.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[SCALAR]``, ``TS[bool]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSS[K]``
+   Left-hand truth-valued input.
+
+``rhs`` : time-series; ``TS[SCALAR]``, ``TS[bool]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSS[K]``
+   Right-hand truth-valued input.
+
+Returns
+~~~~~~~
+
+True when either value is truthy.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   alert = hg.or_(price_alert, risk_alert)
 
 Accepted native overloads
 
@@ -2358,9 +5434,33 @@ Accepted native overloads
 ``partition``
 -------------
 
-``partition`` — split a ``TSD[K, V]`` into ``TSD[K1, TSD[K, V]]`` using a mapping.
+Partition a keyed dictionary into nested dictionaries using a live key-to-group map. Mapping changes move an entry between partitions without changing its inner key.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TSD[K, V]``
+   Keyed values to partition.
+
+``partitions`` : time-series; ``TIME_SERIES_TYPE_1``, ``TSD[K, TS[K_1]]``
+   Mapping from each input key to its outer partition key.
+
+Returns
+~~~~~~~
+
+``TSD[K1, TSD[K, V]]`` grouped by the mapped partition.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   prices_by_sector = hg.partition(prices, sector_by_symbol)
 
 Accepted native overloads
 
@@ -2374,9 +5474,30 @@ Accepted native overloads
 ``pct_change``
 --------------
 
-Fractional change from the immediately preceding value.
+Compute fractional change from the immediately preceding valid value. The first value does not have a prior observation and therefore produces no change.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[SCALAR]``
+   Numeric stream.
+
+Returns
+~~~~~~~
+
+``(current - previous) / previous`` as a floating-point stream.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   returns = hg.pct_change(price)
 
 Accepted native overloads
 
@@ -2389,9 +5510,30 @@ Accepted native overloads
 ``pos_``
 --------
 
-``pos_`` — the unary ``+`` operator (``+ts -> OUT``).
+Apply unary plus to each input value. Python's ``+ts`` syntax wires this operator and preserves the resolved value schema.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+   Numeric or compatible collection input.
+
+Returns
+~~~~~~~
+
+The positive form of ``ts``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   normalized = +value
 
 Accepted native overloads
 
@@ -2408,9 +5550,36 @@ Accepted native overloads
 ``pow_``
 --------
 
-``pow_`` — the ``**`` operator (``lhs ** rhs -> OUT``).
+Raise ``lhs`` to the power ``rhs``. Python's ``lhs ** rhs`` syntax wires this operator; overloads select integer or floating-point result semantics.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+   Base value.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+   Exponent.
+
+``divide_by_zero`` : scalar; ``DivideByZero``
+   Policy used by overloads where a negative exponent would divide by a zero base.
+
+Returns
+~~~~~~~
+
+``lhs`` raised to ``rhs``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   squared = values ** 2
 
 Accepted native overloads
 
@@ -2434,9 +5603,39 @@ Accepted native overloads
 ``print_``
 ----------
 
-``print_`` — format and write the supplied values to std-out (a sink, variadic args).
+Format time-series values and write a line to standard output when they tick.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``fmt`` : time-series; ``TS[str]``
+   Python-style format string, supplied as a port or liftable value.
+
+``__std_out__`` : scalar; ``bool``
+   The std out value used by the selected overload. Optional in overloads that show ``= ...``.
+
+``*args`` : time-series; ``TIME_SERIES_TYPE``
+   Positional and packed named values referenced by the format string.
+
+``**kwargs`` : time-series; ``time-series``
+   Additional named time-series inputs.
+
+Returns
+~~~~~~~
+
+No output.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   hg.print_("{}: {:.2f}", symbol, price)
 
 Accepted native overloads
 
@@ -2453,6 +5652,36 @@ Native scalar quantile over an array or time-series window.
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``a`` : time-series; ``TIME_SERIES_TYPE``
+   The a value used by the selected overload.
+
+``q`` : time-series; ``TS[float]``
+   The q value used by the selected overload.
+
+``method`` : scalar; ``str``
+   The method value used by the selected overload.
+
+``keepdims`` : scalar; ``bool``
+   The keepdims value used by the selected overload.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[float]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.quantile(a, q)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2467,9 +5696,30 @@ Accepted native overloads
 ``race``
 --------
 
-``race`` — forward the first valid input, falling through when it invalidates.
+Expose the first valid input in argument order, independently of which input ticks. If the selected input invalidates, the output falls through to the next valid input.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``*ts`` : time-series; ``TIME_SERIES_TYPE``
+   Ordered candidate streams.
+
+Returns
+~~~~~~~
+
+The first currently valid candidate.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   effective_price = hg.race(live_price, cached_price, fallback_price)
 
 Accepted native overloads
 
@@ -2486,6 +5736,30 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The left-hand operand.
+
+``rhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The right-hand operand.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[bool]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.range_adjacent(lhs, rhs)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2501,6 +5775,30 @@ Accepted native overloads
 ``range_contains`` — test whether a temporal range contains a value or another range.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``range`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The range value used by the selected overload.
+
+``value`` : time-series; ``TS[datetime]``, ``TS[date]``, ``TS[instant_range]``, ``TS[civil_date_range]``
+   Value used to construct or update the output.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[bool]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.range_contains(range, value)
 
 Accepted native overloads
 
@@ -2520,6 +5818,30 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The left-hand operand.
+
+``rhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The right-hand operand.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[instant_range_set]``, ``TS[civil_date_range_set]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.range_difference(lhs, rhs)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2536,6 +5858,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``range`` : time-series; ``TS[instant_range]``
+   The range value used by the selected overload.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[timedelta]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.range_extent(range)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2550,6 +5893,30 @@ Accepted native overloads
 ``range_hull`` — return the smallest range spanning both inputs.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The left-hand operand.
+
+``rhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The right-hand operand.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[instant_range]``, ``TS[civil_date_range]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.range_hull(lhs, rhs)
 
 Accepted native overloads
 
@@ -2567,6 +5934,30 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The left-hand operand.
+
+``rhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The right-hand operand.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[instant_range]``, ``TS[civil_date_range]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.range_intersection(lhs, rhs)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2582,6 +5973,30 @@ Accepted native overloads
 ``range_merge`` — merge two mergeable ranges into one range.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The left-hand operand.
+
+``rhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The right-hand operand.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[instant_range]``, ``TS[civil_date_range]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.range_merge(lhs, rhs)
 
 Accepted native overloads
 
@@ -2599,6 +6014,30 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The left-hand operand.
+
+``rhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The right-hand operand.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[bool]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.range_mergeable(lhs, rhs)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2615,6 +6054,30 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The left-hand operand.
+
+``rhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The right-hand operand.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[bool]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.range_overlaps(lhs, rhs)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2627,9 +6090,36 @@ Accepted native overloads
 ``range_shift``
 ---------------
 
-``range_shift`` — move both range boundaries by a duration or calendar period.
+Move both finite range boundaries by a duration or calendar period. Open/closed boundary flags and unbounded endpoints are preserved.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``range`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   Temporal range to move.
+
+``delta`` : time-series; ``TS[timedelta]``, ``TS[period]``
+   Fixed duration or calendar-relative period added to each finite endpoint.
+
+``month_end_policy`` : scalar; ``month_end_policy``
+   Policy for calendar shifts whose target month lacks the source day. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+The shifted range.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   next_month = hg.range_shift(window, hg.Period(months=1))
 
 Accepted native overloads
 
@@ -2647,6 +6137,30 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The left-hand operand.
+
+``rhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The right-hand operand.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[bool]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.range_touches(lhs, rhs)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2663,6 +6177,30 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The left-hand operand.
+
+``rhs`` : time-series; ``TS[instant_range]``, ``TS[civil_date_range]``
+   The right-hand operand.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[instant_range_set]``, ``TS[civil_date_range_set]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.range_union(lhs, rhs)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2675,9 +6213,39 @@ Accepted native overloads
 ``record``
 ----------
 
-``record`` — record ``ts`` under ``key`` (a sink).
+Persist source ticks through the active record/replay backend. The effective location combines graph recordable context with ``key``.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Stream to record.
+
+``key`` : scalar; ``str``
+   Wiring-time name within the current recordable context. Optional in overloads that show ``= ...``.
+
+``sparse`` : scalar; ``bool``
+   The sparse value used by the selected overload. Optional in overloads that show ``= ...``.
+
+``recordable_id`` : scalar; ``str``
+   Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+No output.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   hg.record(price, key="price")
 
 Accepted native overloads
 
@@ -2700,6 +6268,39 @@ Accepted native overloads
 
 Python entry point: ``reduce(func, ts, zero=..., is_associative=True, **kwargs)`` (explicit helper).
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``func`` : scalar; ``fn``
+   Binary graph combining two values into one accumulator.
+
+``ts`` : time-series; ``TSL[V, SIZE]``, ``TSL[TS[SCALAR], SIZE]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``TSD[int, TIME_SERIES_TYPE]``
+   Collection whose live elements are reduced.
+
+``zero`` : scalar, time-series; ``SCALAR_1``, ``V``
+   Optional empty-collection result. In associative mode it is not injected into reductions containing two or more live values.
+
+``is_associative`` : scalar; ``bool``
+   True for tree reduction; false for deterministic ordered left fold.
+
+``**kwargs`` : Python argument; ``object``
+   Additional named time-series inputs.
+
+Returns
+~~~~~~~
+
+The current reduction of the live collection elements.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   total = hg.reduce(hg.add_, values, zero=0)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2719,9 +6320,30 @@ Accepted native overloads
 ``reduce_tsd_of_bundles_with_race``
 -----------------------------------
 
-``reduce_tsd_of_bundles_with_race`` — bundle-flavoured keyed race reduction.
+Bundle-specialized keyed race reduction with the same first-valid and fall-through semantics as ``reduce_tsd_with_race``.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``tsd`` : time-series; ``TSD[K, REF[TIME_SERIES_TYPE]]``
+   Keyed bundle references considered in deterministic key order.
+
+Returns
+~~~~~~~
+
+A reference to the first currently valid bundle.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   active_bundle = hg.reduce_tsd_of_bundles_with_race(candidates)
 
 Accepted native overloads
 
@@ -2734,9 +6356,30 @@ Accepted native overloads
 ``reduce_tsd_with_race``
 ------------------------
 
-``reduce_tsd_with_race(tsd=TSD<K, REF<OUT>>) -> REF<OUT>`` — keyed race (hgraph parity; ``reduce_tsd_of_bundles_with_race`` is the same erased implementation registered under the bundle-flavoured name).
+Select the first valid referenced value in key iteration order. The output falls through when the selected entry is removed or invalidated.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``tsd`` : time-series; ``TSD[K, REF[TIME_SERIES_TYPE]]``
+   Keyed references considered in deterministic key order.
+
+Returns
+~~~~~~~
+
+A reference to the first currently valid entry.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   active = hg.reduce_tsd_with_race(candidates)
 
 Accepted native overloads
 
@@ -2749,9 +6392,33 @@ Accepted native overloads
 ``rekey``
 ---------
 
-``rekey`` — re-key the input dictionary using a mapping time-series.
+Replace input dictionary keys according to a live key mapping. Entries without a usable target key are omitted; mapping changes move the corresponding current value to its new key.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TSD[K, V]``
+   Keyed values to transform.
+
+``new_keys`` : time-series; ``K``, ``TSD[K, TS[K_1]]``, ``TSD[K, TSS[K_1]]``
+   Mapping from each existing key to its replacement.
+
+Returns
+~~~~~~~
+
+The same values indexed by their mapped keys.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   by_identifier = hg.rekey(by_symbol, symbol_to_id)
 
 Accepted native overloads
 
@@ -2766,9 +6433,36 @@ Accepted native overloads
 ``replace``
 -----------
 
-``replace`` — replace ``pattern`` with ``repl`` in ``s``.
+Replace regular-expression matches in each input string.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``pattern`` : time-series; ``TS[str]``
+   Pattern whose matches are replaced.
+
+``repl`` : time-series; ``TS[str]``
+   Replacement string, including supported capture references.
+
+``s`` : time-series; ``TS[str]``
+   Source string.
+
+Returns
+~~~~~~~
+
+The transformed string.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   normalized = hg.replace(r"\s+", "_", label)
 
 Accepted native overloads
 
@@ -2781,9 +6475,33 @@ Accepted native overloads
 ``replay``
 ----------
 
-``replay`` — replay a recorded series for ``key`` as the requested output type (a source).
+Replay stored ticks for a key as an explicitly selected output type. Replay timing and availability follow the active record/replay mode and backend.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``key`` : scalar; ``str``
+   Wiring-time name within the current recordable context.
+
+``recordable_id`` : scalar; ``str``
+   Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A source reproducing the recorded stream.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   price = hg.replay[TS[float]](key="price")
 
 Accepted native overloads
 
@@ -2796,9 +6514,36 @@ Accepted native overloads
 ``replay_const``
 ----------------
 
-``replay_const`` — replay the const value(s) at/under ``key`` valid up to the start time.
+Read the latest value recorded at or before graph start and emit it as a constant.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``key`` : scalar; ``str``
+   Wiring-time name within the current recordable context.
+
+``recordable_id`` : scalar; ``str``
+   Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
+
+``tm`` : scalar; ``datetime``
+   The tm value used by the selected overload. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A single value representing recorded state at graph start.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   opening_price = hg.replay_const[TS[float]](key="price")
 
 Accepted native overloads
 
@@ -2811,9 +6556,33 @@ Accepted native overloads
 ``replay_data_frame``
 ---------------------
 
-Replay a canonical bitemporal table frame through the native table protocol, selecting the latest as-of revision per partition.
+Replay a canonical bitemporal table frame, selecting the latest as-of revision for each partition before applying event-time deltas.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``data_frame`` : scalar; ``frame``
+   Canonical table frame to replay.
+
+``as_of_time`` : scalar; ``datetime``
+   Revision cutoff fixed at wiring time. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A source of the explicitly selected table-compatible schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   positions = hg.replay_data_frame[TSD[str, TS[float]]](frame, as_of_time=cutoff)
 
 Accepted native overloads
 
@@ -2826,9 +6595,30 @@ Accepted native overloads
 ``request_id``
 --------------
 
-``request_id`` — a process-unique identifier allocated at node start.
+Allocate a process-unique integer identifier when the node starts.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``hash`` : scalar; ``int``
+   Required wiring-time namespace discriminator retained for service compatibility.
+
+Returns
+~~~~~~~
+
+A single identifier tick suitable for correlating request/reply flows.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   correlation_id = hg.request_id(1)
 
 Accepted native overloads
 
@@ -2841,9 +6631,33 @@ Accepted native overloads
 ``resample``
 ------------
 
-``resample`` — re-tick ``ts`` at ``period``, even when the input does not tick.
+Retick the latest valid input value on a regular engine-time schedule. Unlike ``throttle``, this continues to emit at the requested period even when no new source tick has arrived.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Input whose latest value is repeated.
+
+``period`` : scalar; ``timedelta``
+   Positive resampling interval fixed at wiring time.
+
+Returns
+~~~~~~~
+
+``ts`` observed on the regular schedule.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   every_five_seconds = hg.resample(price, timedelta(seconds=5))
 
 Accepted native overloads
 
@@ -2856,9 +6670,40 @@ Accepted native overloads
 ``resolve_civil``
 -----------------
 
-``resolve_civil`` — resolve a local civil time using explicit daylight-saving policies.
+Resolve a timezone-free local civil datetime to an absolute zoned instant. Daylight-saving overlaps and gaps require explicit, fixed wiring-time policies so ambiguous data cannot silently select an instant.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``local`` : time-series; ``TS[civil_datetime]``
+   Local date and time without an offset.
+
+``zone`` : time-series; ``TS[zone_id]``
+   IANA zone whose transition rules interpret ``local``.
+
+``ambiguous`` : scalar; ``ambiguous_time_policy``
+   Policy for a local time that occurs twice. Optional in overloads that show ``= ...``.
+
+``nonexistent`` : scalar; ``nonexistent_time_policy``
+   Policy for a local time skipped by a clock transition. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+The resolved zoned datetime.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   resolved = hg.resolve_civil(local, zone, ambiguous=hg.AmbiguousTimePolicy.EARLIEST,
+                               nonexistent=hg.NonexistentTimePolicy.NEXT_VALID)
 
 Accepted native overloads
 
@@ -2871,9 +6716,36 @@ Accepted native overloads
 ``rolling_average``
 -------------------
 
-``rolling_average`` — the trailing average of ``ts`` by tick count or duration (hgraph's window helper: ``(sum(ts) - sum(lag(ts, period)))`` over the covered tick count).
+Compute the mean over a trailing tick-count or duration horizon.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[SCALAR]``
+   Numeric stream.
+
+``period`` : scalar; ``int``, ``timedelta``
+   Number of ticks or elapsed duration included in the average.
+
+``min_window_period`` : scalar; ``int``, ``timedelta``
+   Minimum populated window size required before the output becomes valid. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+Floating-point trailing mean.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   moving_average = hg.rolling_average(price, 20)
 
 Accepted native overloads
 
@@ -2891,6 +6763,27 @@ Materialize a window's values and evaluation timestamps as shaped arrays.
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``window`` : time-series; ``TIME_SERIES_TYPE``
+   The window value used by the selected overload.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``OUT``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.rolling_window_arrays(window)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -2902,9 +6795,33 @@ Accepted native overloads
 ``round_``
 ----------
 
-``round_`` — round a float to ``n_digits`` decimal places (python's correctly-rounded decimal semantics).
+Round a floating-point value to ``n_digits`` decimal places using Python-compatible rounding semantics.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[float]``
+   Values to round.
+
+``n_digits`` : time-series; ``TS[int]``
+   Decimal precision; this may itself vary as a time series.
+
+Returns
+~~~~~~~
+
+The rounded floating-point value.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   display_price = hg.round_(price, 2)
 
 Accepted native overloads
 
@@ -2917,9 +6834,33 @@ Accepted native overloads
 ``route_by_index``
 ------------------
 
-``route_by_index`` — forward ``ts`` to the ``index``-th of a list of outputs.
+Route each source tick to one element of an output list.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``index`` : time-series; ``TS[int]``
+   Zero-based destination selected by its latest value.
+
+``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``
+   Stream to route.
+
+Returns
+~~~~~~~
+
+A time-series list whose selected element receives each source tick.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   partitions = hg.route_by_index(destination, event)
 
 Accepted native overloads
 
@@ -2932,9 +6873,33 @@ Accepted native overloads
 ``rshift_``
 -----------
 
-``rshift_`` — the ``>>`` operator (``lhs >> rhs -> OUT``).
+Shift integer bits right by the current right-hand value.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+   Integer value to shift.
+
+``rhs`` : time-series; ``TS[int]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+   Non-negative shift distance.
+
+Returns
+~~~~~~~
+
+``lhs >> rhs``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   bucket = value >> bit_count
 
 Accepted native overloads
 
@@ -2951,9 +6916,33 @@ Accepted native overloads
 ``sample``
 ----------
 
-``sample`` — snap ``ts`` on each tick of ``signal``.
+Sample the latest valid value of ``ts`` whenever ``signal`` ticks. Ticks from ``ts`` alone update the value available to sample but do not produce output.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``signal`` : time-series; ``SIGNAL``
+   Trigger whose tick timing controls output; its value is ignored.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Input whose latest value is sampled.
+
+Returns
+~~~~~~~
+
+``ts`` reticked at the signal's times.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   snapshot = hg.sample(clock, price)
 
 Accepted native overloads
 
@@ -2966,9 +6955,39 @@ Accepted native overloads
 ``schedule``
 ------------
 
-``schedule`` — a source ticking ``True`` every ``delay``.
+Create a periodic ``True`` signal driven by engine time.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``delay`` : scalar, time-series; ``timedelta``, ``TS[timedelta]``
+   Positive interval between ticks; time-series overloads allow it to change.
+
+``initial_delay`` : scalar; ``bool``
+   When true, wait one ``delay`` before the first tick; when false, tick at graph start. Optional in overloads that show ``= ...``.
+
+``max_ticks`` : scalar; ``int``
+   Optional upper bound after which the source becomes passive. Optional in overloads that show ``= ...``.
+
+``start`` : time-series; ``TS[datetime]``
+   Optional time-series start instant that re-bases the schedule grid.
+
+Returns
+~~~~~~~
+
+A boolean signal ticking at the requested schedule.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   every_second = hg.schedule(timedelta(seconds=1))
 
 Accepted native overloads
 
@@ -2987,6 +7006,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[datetime]``, ``TS[time]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.second(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -3003,6 +7043,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[timedelta]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.seconds(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -3014,9 +7075,36 @@ Accepted native overloads
 ``setattr_``
 ------------
 
-``setattr_`` — sets ``ts.attr`` to ``value`` and returns the updated bundle.
+Return a structured value with one field replaced by another time-series value.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[SCALAR]``
+   Original structured input.
+
+``attr`` : scalar; ``str``
+   Field name fixed at wiring time.
+
+``value`` : time-series; ``TS[V]``
+   Replacement field value.
+
+Returns
+~~~~~~~
+
+A structure with the same schema and updated field.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   repriced = hg.setattr_(quote, "price", new_price)
 
 Accepted native overloads
 
@@ -3029,9 +7117,30 @@ Accepted native overloads
 ``sign``
 --------
 
-``sign`` — Python-compatible numeric sign: ``-1`` for negative values, ``+1`` otherwise.
+Classify the sign of a numeric time-series value.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[int]``, ``TS[float]``
+   Numeric input.
+
+Returns
+~~~~~~~
+
+``-1`` for a negative value and ``+1`` otherwise, including zero.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   direction = hg.sign(change)
 
 Accepted native overloads
 
@@ -3045,9 +7154,39 @@ Accepted native overloads
 ``slice_``
 ----------
 
-``slice_`` — ``drop`` + ``take`` + ``step`` combined over ``[start, stop)`` by ``step_size``.
+Slice a stream by tick position, combining prefix removal, truncation, and stride.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Stream to slice.
+
+``start`` : scalar; ``int``
+   Zero-based inclusive first tick position.
+
+``stop`` : scalar; ``int``
+   Zero-based exclusive stop position.
+
+``step_size`` : scalar; ``int``
+   Positive stride between forwarded ticks.
+
+Returns
+~~~~~~~
+
+Ticks at positions described by ``slice(start, stop, step_size)``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   middle_even_ticks = hg.slice_(updates, start=2, stop=10, step_size=2)
 
 Accepted native overloads
 
@@ -3060,9 +7199,36 @@ Accepted native overloads
 ``sorted_``
 -----------
 
-``sorted_(ts, by, descending=false)`` — order a typed frame by one column.
+Order rows in each frame by one column.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[Frame[SCALAR]]``, ``TS[Frame[SCALAR, SCALAR_1]]``
+   Frame-valued input.
+
+``by`` : scalar; ``str``
+   Wiring-time sort column.
+
+``descending`` : scalar; ``bool``
+   Reverse the ascending order when true. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A frame with the same row schema in sorted order.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   ranked = hg.sorted_(rows, by="price", descending=True)
 
 Accepted native overloads
 
@@ -3084,6 +7250,30 @@ Fixed TSL output size is an output type decision, not an input-derived fact. Cal
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``s`` : time-series; ``TS[str]``
+   String to split.
+
+``separator`` : scalar; ``str``
+   Wiring-time separator; it is fixed for the graph's lifetime.
+
+Returns
+~~~~~~~
+
+The explicitly selected tuple, list, set, or other supported string collection.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   fields = hg.split[TS[tuple[str, ...]]](line, separator=",")
+
 Accepted native overloads
 
 .. code-block:: text
@@ -3096,9 +7286,42 @@ Accepted native overloads
 ``std``
 -------
 
-``std_`` — running / element-wise standard deviation. Window overloads accept ``ddof`` to use an ``N - ddof`` divisor.
+Calculate standard deviation according to input shape and arity. Unary scalar input is running; unary collection input reduces current members; multiple inputs are evaluated element by element.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TIME_SERIES_TYPE``, ``TSS[int]``, ``TSS[float]``, ``TSD[K, TS[int]]``, ``TSD[K, TS[float]]``, ``TSL[TS[int], SIZE]``, ``TSL[TS[float], SIZE]``
+   Value, collection, window, or variadic inputs.
+
+``default_value`` : time-series; ``TS[SCALAR_1]``
+   Fallback used when the selected sample cannot produce a result.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+   The left-hand operand.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_2, SIZE]``, ``TIME_SERIES_TYPE_2``
+   The right-hand operand.
+
+``ddof`` : scalar; ``int``
+   Delta degrees of freedom: the variance divisor is ``N - ddof``.
+
+Returns
+~~~~~~~
+
+Standard deviation using the overload-selected numeric schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   sample_volatility = hg.std(returns_window, ddof=1)
 
 Accepted native overloads
 
@@ -3128,9 +7351,33 @@ Accepted native overloads
 ``step``
 --------
 
-``step`` — forward every ``step_size``-th tick of ``ts``.
+Forward one source tick for each ``step_size`` input ticks.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Stream to subsample.
+
+``step_size`` : scalar; ``int``
+   Positive stride fixed at wiring time.
+
+Returns
+~~~~~~~
+
+Every ``step_size``-th tick of ``ts``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   every_tenth = hg.step(updates, 10)
 
 Accepted native overloads
 
@@ -3143,9 +7390,33 @@ Accepted native overloads
 ``stop_engine``
 ---------------
 
-``stop_engine`` — request an orderly engine stop after this cycle.
+Request a graceful graph-engine stop when the trigger ticks. The current evaluation cycle completes before execution terminates.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``SIGNAL``
+   Trigger signal; its value is ignored.
+
+``msg`` : scalar; ``str``
+   Optional diagnostic reason attached to the stop request. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+No output.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   hg.stop_engine(done, msg="processing complete")
 
 Accepted native overloads
 
@@ -3158,9 +7429,30 @@ Accepted native overloads
 ``str_``
 --------
 
-``str_`` — convert the incoming time-series to its ``TS<Str>`` representation.
+Convert each valid input value to its string representation.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Values to render.
+
+Returns
+~~~~~~~
+
+A ``TS[str]`` that ticks when ``ts`` ticks.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   label = hg.str_(value)
 
 Accepted native overloads
 
@@ -3173,9 +7465,42 @@ Accepted native overloads
 ``sub_``
 --------
 
-``sub_`` — the ``-`` operator (``lhs - rhs -> OUT``).
+Subtract ``rhs`` from ``lhs`` using the overload selected for their schemas. Numeric, temporal, collection, and keyed-set forms are supported; Python's ``lhs - rhs`` syntax wires this operator.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[SCALAR]``, ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``
+   Value from which ``rhs`` is subtracted.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[str]``, ``TS[K]``, ``TSD[K, V]``
+   Value to subtract; compatible plain values are lifted to constants.
+
+``month_end_policy`` : scalar; ``month_end_policy``
+   Policy used when subtracting a calendar period near month end. Optional in overloads that show ``= ...``.
+
+``cmp`` : scalar; ``callable``
+   The cmp value used by the selected overload. Optional in overloads that show ``= ...``.
+
+``*ts`` : time-series; ``TIME_SERIES_TYPE_2``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+The difference, with its schema selected from both operand schemas.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   change = lhs - rhs  # equivalent to hg.sub_(lhs, rhs)
 
 Accepted native overloads
 
@@ -3213,9 +7538,36 @@ Accepted native overloads
 ``substr``
 ----------
 
-``substr`` — extract a substring of ``s`` between ``start`` and ``end``.
+Extract the slice ``s[start:end]`` using live start and end positions.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``s`` : time-series; ``TS[str]``
+   Source string.
+
+``start`` : time-series; ``TS[int]``
+   Inclusive starting index.
+
+``end`` : time-series; ``TS[int]``
+   Exclusive ending index.
+
+Returns
+~~~~~~~
+
+The selected substring.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   prefix = hg.substr(code, 0, 3)
 
 Accepted native overloads
 
@@ -3228,9 +7580,43 @@ Accepted native overloads
 ``sum_``
 --------
 
-``sum_`` — running / element-wise sum.
+Sum numeric values according to input shape and arity. Unary scalar input produces a running sum; unary collection input reduces its current members; multiple inputs are added element by element. An optional reset clears running state before admitting a same-cycle source tick.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``*ts`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TIME_SERIES_TYPE``, ``TIME_SERIES_TYPE_1``, ``TSS[int]``, ``TSS[float]``, ``TSD[K, TS[int]]``, ``TSD[K, TS[float]]``, ``TSL[TS[int], SIZE]``, ``TSL[TS[float], SIZE]``
+   Value, collection, or variadic inputs to sum.
+
+``default_value`` : time-series; ``TS[SCALAR_1]``
+   Value emitted when the primary input has no usable value.
+
+``reset`` : time-series; ``TS[bool]``
+   Optional signal that resets a running sum to its identity.
+
+``lhs`` : time-series; ``TSL[TIME_SERIES_TYPE_2, SIZE]``, ``TIME_SERIES_TYPE_2``
+   The left-hand operand.
+
+``rhs`` : time-series; ``TSL[TIME_SERIES_TYPE_3, SIZE]``, ``TIME_SERIES_TYPE_3``
+   The right-hand operand.
+
+Returns
+~~~~~~~
+
+The running, reduced, or element-wise sum selected by overload resolution.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   running_total = hg.sum_(amount, reset=session_start)
+   basket_total = hg.sum_(prices)
 
 Accepted native overloads
 
@@ -3268,6 +7654,42 @@ The outputless form of ``switch_``. Both markers resolve through the same operat
 
 Python entry point: ``switch_(key, cases, *args, reload_on_ticked=False, **kwargs)`` (explicit helper).
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``key`` : time-series; ``TS[K]``
+   Live branch selector.
+
+``cases`` : scalar; ``switch_cases``
+   Mapping from selector values to graph callables; ``DEFAULT`` supplies fallback.
+
+``*ts`` : time-series; ``TIME_SERIES_TYPE``
+   Positional inputs forwarded to the selected branch.
+
+``**kwargs`` : time-series; ``time-series``
+   Named inputs forwarded to the selected branch.
+
+``*args`` : Python argument; ``object``
+   Additional positional time-series inputs.
+
+``reload_on_ticked`` : Python argument; ``object``
+   Rebuild the branch on every key tick even when its value is unchanged. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+The active child graph's output, repointed when the branch changes.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   selected = hg.switch_(mode, {"live": live_graph, "cached": cached_graph}, source)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -3280,9 +7702,30 @@ Accepted native overloads
 ``symmetric_difference``
 ------------------------
 
-``symmetric_difference_`` — set symmetric difference of the inputs.
+Keep members present in an odd number of input sets, excluding shared members.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``*ts`` : time-series; ``TIME_SERIES_TYPE``
+   Set-valued or variadic set inputs.
+
+Returns
+~~~~~~~
+
+The symmetric difference of the inputs.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   changed_membership = hg.symmetric_difference(before, after)
 
 Accepted native overloads
 
@@ -3295,9 +7738,36 @@ Accepted native overloads
 ``take``
 --------
 
-``take`` — forward only the first ``count`` ticks of ``ts``.
+Forward the first ``count`` source ticks, then passivate the input.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Stream to truncate.
+
+``count`` : scalar; ``int``
+   Non-negative number of ticks to forward, fixed at wiring time.
+
+``reset`` : time-series; ``SIGNAL``
+   Optional signal that clears the operator's accumulated state when it ticks.
+
+Returns
+~~~~~~~
+
+At most the first ``count`` ticks of ``ts``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   first_ten = hg.take(updates, 10)
 
 Accepted native overloads
 
@@ -3311,9 +7781,36 @@ Accepted native overloads
 ``temporal_bucket``
 -------------------
 
-``temporal_bucket`` — return the fixed-width instant range containing a value.
+Return the half-open fixed-width range containing an instant.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``value`` : time-series; ``TS[datetime]``
+   Instant to classify.
+
+``width`` : time-series; ``TS[timedelta]``
+   Positive bucket duration.
+
+``origin`` : scalar; ``datetime``
+   Optional origin anchoring bucket boundaries. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+The containing ``[start, end)`` instant range.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   minute_bucket = hg.temporal_bucket(instant, timedelta(minutes=1))
 
 Accepted native overloads
 
@@ -3326,9 +7823,36 @@ Accepted native overloads
 ``temporal_ceil``
 -----------------
 
-``temporal_ceil`` — round a temporal value up to a quantum boundary.
+Round a temporal value up to the following fixed-duration boundary. An exact boundary remains unchanged.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``value`` : time-series; ``TS[timedelta]``, ``TS[datetime]``
+   Instant or supported temporal value to round.
+
+``quantum`` : time-series; ``TS[timedelta]``
+   Positive fixed duration defining the boundary grid.
+
+``origin`` : scalar; ``datetime``
+   Optional origin from which boundaries are measured. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+The least boundary not before ``value``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   next_minute = hg.temporal_ceil(instant, timedelta(minutes=1))
 
 Accepted native overloads
 
@@ -3342,9 +7866,36 @@ Accepted native overloads
 ``temporal_floor``
 ------------------
 
-``temporal_floor`` — round a temporal value down to a quantum boundary.
+Round a temporal value down to the preceding fixed-duration boundary.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``value`` : time-series; ``TS[timedelta]``, ``TS[datetime]``
+   Instant or supported temporal value to round.
+
+``quantum`` : time-series; ``TS[timedelta]``
+   Positive fixed duration defining the boundary grid.
+
+``origin`` : scalar; ``datetime``
+   Optional origin from which boundaries are measured. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+The greatest boundary not after ``value``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   minute = hg.temporal_floor(instant, timedelta(minutes=1))
 
 Accepted native overloads
 
@@ -3358,9 +7909,36 @@ Accepted native overloads
 ``temporal_round``
 ------------------
 
-``temporal_round`` — round a temporal value to its nearest quantum boundary.
+Round a temporal value to the nearest fixed-duration boundary.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``value`` : time-series; ``TS[timedelta]``, ``TS[datetime]``
+   Instant or supported temporal value to round.
+
+``quantum`` : time-series; ``TS[timedelta]``
+   Positive fixed duration defining the boundary grid.
+
+``origin`` : scalar; ``datetime``
+   Optional origin from which boundaries are measured. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+The nearest boundary using the selected tie behaviour.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   nearest_minute = hg.temporal_round(instant, timedelta(minutes=1))
 
 Accepted native overloads
 
@@ -3374,9 +7952,36 @@ Accepted native overloads
 ``throttle``
 ------------
 
-``throttle`` — limit the tick rate of ``ts`` to ``period``.
+Limit output frequency while preserving the latest pending source value. Unlike ``resample``, no output is produced during an interval with no source tick.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Stream whose tick rate is limited.
+
+``period`` : time-series; ``TS[timedelta]``
+   Minimum elapsed time between output ticks; it may vary at runtime.
+
+``delay_first_tick`` : scalar; ``bool``
+   The delay first tick value used by the selected overload. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A rate-limited stream of the latest source values.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   limited = hg.throttle(updates, timedelta(milliseconds=100))
 
 Accepted native overloads
 
@@ -3393,6 +7998,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[datetime]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[float]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.timestamp(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -3408,6 +8034,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``value`` : time-series; ``TS[zoned_datetime]``
+   Value used to construct or update the output.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[civil_datetime]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.to_civil(value)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -3419,9 +8066,39 @@ Accepted native overloads
 ``to_data_frame``
 -----------------
 
-``to_data_frame`` — snapshot each time-series tick as a typed frame.
+Snapshot each input tick into a typed one-tick frame. The explicitly selected ``Frame`` schema determines column types and names.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TSD[K, V]``, ``TIME_SERIES_TYPE``
+   Stream to snapshot.
+
+``dt_col`` : scalar; ``str``
+   Optional evaluation-time column name. Optional in overloads that show ``= ...``.
+
+``key_col`` : scalar; ``str``
+   Key column name for keyed inputs. Optional in overloads that show ``= ...``.
+
+``value_col`` : scalar; ``str``
+   Value column name for scalar inputs. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A frame-valued time series representing each input delta.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   rows = hg.to_data_frame[TS[Frame[PriceRow]]](prices, key_col="symbol")
 
 Accepted native overloads
 
@@ -3439,6 +8116,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``value`` : time-series; ``TS[zoned_datetime]``
+   Value used to construct or update the output.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[datetime]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.to_instant(value)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -3450,13 +8148,33 @@ Accepted native overloads
 ``to_json``
 -----------
 
-JSON serialization operators (design record: *Record/replay, tables and const_fn*, step 1). The wire format is the Python one — see ``types/value/json_codec.h``.
-
-``to_json(ts, delta=false)`` serialises the time-series VALUE per tick; with ``delta=true`` it serialises the canonical per-tick delta value (``capture_delta``) instead — the canonical delta *is* the recorded delta wire form.
-
-``from_json`` parses into the resolved output type and applies the parsed value as the tick's delta: ``wire<from_json, TS<MySchema>>(w, ts)``.
+Serialize each time-series tick as JSON text. Full-value mode encodes the current value; delta mode encodes the canonical per-tick delta used by record/replay and preserves removals explicitly.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Value or structure to encode.
+
+``delta`` : scalar; ``bool``
+   When true, encode only the current tick's canonical delta. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+JSON text for each source tick.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   payload = hg.to_json(prices, delta=True)
 
 Accepted native overloads
 
@@ -3476,6 +8194,30 @@ Table serialization operators (design record: *Record/replay, tables and const_f
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   The primary time-series input.
+
+``mode`` : time-series; ``TS[SCALAR]``
+   The mode value used by the selected overload. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``OUT``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.to_table(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -3487,9 +8229,39 @@ Accepted native overloads
 ``to_window``
 -------------
 
-``to_window`` — convert ``ts`` into a ``TSW`` time-series window of ``period`` ticks, valid once ``min_window_period`` ticks arrived. An optional ``reset`` SIGNAL overload clears retained ticks before admitting a source tick from the same evaluation cycle.
+Convert a stream into a typed trailing ``TSW`` window. The output becomes valid after ``min_window_period`` values. When ``reset`` and the source tick together, retained values are cleared before the new tick is added.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[SCALAR]``
+   Values admitted to the window.
+
+``period`` : scalar; ``int``, ``timedelta``
+   Maximum number of retained ticks, fixed at wiring time.
+
+``min_window_period`` : scalar; ``int``, ``timedelta``
+   Minimum retained count required for validity. Optional in overloads that show ``= ...``.
+
+``reset`` : time-series; ``SIGNAL``
+   Optional signal that clears retained ticks.
+
+Returns
+~~~~~~~
+
+A typed time-series window over the most recent values.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   recent = hg.to_window(price, period=20, min_window_period=5, reset=session_start)
 
 Accepted native overloads
 
@@ -3509,6 +8281,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[timedelta]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[float]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.total_seconds(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -3520,9 +8313,42 @@ Accepted native overloads
 ``try_except``
 --------------
 
-``try_except`` — run one child graph and expose captured node errors alongside its output.
+Run one child graph behind an exception boundary. Value-producing graphs return a bundle with ``out`` and ``exception`` fields; sink graphs return the exception stream alone.
 
 Python entry point: ``try_except(func, *args, __trace_back_depth__=1, __capture_values__=False, **kwargs)`` (explicit helper).
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``func`` : scalar; ``fn``
+   Graph callable to protect.
+
+``__trace_back_depth__`` : scalar; ``int``
+   Maximum captured graph traceback depth. Optional in overloads that show ``= ...``.
+
+``__capture_values__`` : scalar; ``bool``
+   Include current input values in captured node errors when true. Optional in overloads that show ``= ...``.
+
+``*args`` : time-series; ``TIME_SERIES_TYPE``
+   Positional time-series inputs forwarded to ``func``.
+
+``**kwargs`` : time-series; ``time-series``
+   Named time-series inputs forwarded to ``func``.
+
+Returns
+~~~~~~~
+
+Protected output together with any captured ``NodeError``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   attempted = hg.try_except(parse_message, payload)
 
 Accepted native overloads
 
@@ -3535,9 +8361,30 @@ Accepted native overloads
 ``type_``
 ---------
 
-``type_`` — the (python) type of the time-series value.
+Report the Python runtime type of each input value.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Values to inspect.
+
+Returns
+~~~~~~~
+
+A time series of Python type objects.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   value_type = hg.type_(value)
 
 Accepted native overloads
 
@@ -3550,9 +8397,33 @@ Accepted native overloads
 ``uncollapse_keys``
 -------------------
 
-``uncollapse_keys`` — the inverse of ``collapse_keys`` (optional ``remove_empty`` flag).
+Expand tuple keys into the two levels of a nested keyed dictionary.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TSD[K, V]``
+   ``TSD[tuple[K, K1], V]`` input.
+
+``remove_empty`` : scalar; ``bool``
+   When true, remove an outer entry after its last inner key is removed. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+``TSD[K, TSD[K1, V]]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   nested = hg.uncollapse_keys(flat, remove_empty=True)
 
 Accepted native overloads
 
@@ -3566,11 +8437,35 @@ Accepted native overloads
 ``ungroup``
 -----------
 
-Concatenate the valid values of a keyed frame collection.
+Concatenate every currently valid frame in a keyed collection.
 
 Ungroup while materializing a scalar or tuple key into columns.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``
+   Keyed collection of same-schema frames.
+
+``key_col`` : scalar; ``SCALAR``
+   The key col value used by the selected overload.
+
+Returns
+~~~~~~~
+
+One frame containing rows from all valid keyed values.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   rows = hg.ungroup(rows_by_symbol)
 
 Accepted native overloads
 
@@ -3584,9 +8479,30 @@ Accepted native overloads
 ``union``
 ---------
 
-``union_`` — set union of the inputs.
+Combine all members present in any input set.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``*ts`` : time-series; ``TIME_SERIES_TYPE``
+   Set-valued or variadic set inputs.
+
+Returns
+~~~~~~~
+
+A set containing each distinct member from any input.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   all_symbols = hg.union(primary_symbols, secondary_symbols)
 
 Accepted native overloads
 
@@ -3599,9 +8515,30 @@ Accepted native overloads
 ``unpartition``
 ---------------
 
-``unpartition`` — merge a nested ``TSD[K1, TSD[K, V]]`` back into ``TSD[K, V]``.
+Flatten partitioned dictionaries by removing the outer partition key. Inner keys are expected to be unique across partitions; conflicting updates follow the selected overload's deterministic ordering.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TSD[K_1, TSD[K, V]]``
+   Nested partitioned dictionary.
+
+Returns
+~~~~~~~
+
+The merged inner keyed dictionary.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   prices = hg.unpartition(prices_by_sector)
 
 Accepted native overloads
 
@@ -3614,9 +8551,33 @@ Accepted native overloads
 ``until_true``
 --------------
 
-``until_true`` — emit ``False`` until ``predicate`` first holds, then ``True`` (and passivate ``ts``).
+Evaluate a predicate until it first succeeds, emitting false for failed ticks and true for the first successful tick before passivating the input.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[bool]``, ``TIME_SERIES_TYPE``
+   Input tested by the selected predicate overload.
+
+``predicate`` : scalar; ``callable``, ``fn``
+   Predicate callable or expression used by applicable overloads.
+
+Returns
+~~~~~~~
+
+A boolean stream ending with the first true result.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   reached_target = hg.until_true(lambda value: value >= target, price)
 
 Accepted native overloads
 
@@ -3631,9 +8592,30 @@ Accepted native overloads
 ``valid``
 ---------
 
-``valid`` — ``True`` while ``ts`` is valid, ``False`` otherwise.
+Track whether an input currently has a usable value. This emits on validity transitions rather than mirroring every source tick.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TIME_SERIES_TYPE``, ``REF[TIME_SERIES_TYPE]``
+   Input whose validity is observed.
+
+Returns
+~~~~~~~
+
+True while valid and false while invalid.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   has_price = hg.valid(price)
 
 Accepted native overloads
 
@@ -3647,9 +8629,30 @@ Accepted native overloads
 ``values_``
 -----------
 
-``values_`` — the values of a dictionary.
+Project dictionary values in the representation selected by the overload.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TSD[K, V]``, ``TIME_SERIES_TYPE``
+   Mapping or keyed time-series dictionary.
+
+Returns
+~~~~~~~
+
+A tuple, list, or keyed value collection corresponding to ``ts``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   current_prices = hg.values_(prices)
 
 Accepted native overloads
 
@@ -3663,9 +8666,39 @@ Accepted native overloads
 ``var``
 -------
 
-``var_`` — running / element-wise variance.
+Calculate variance according to the selected input shape. A numeric ``TS`` produces the running population variance of all values observed so far. A collection-valued ``TS``, ``TSS``, ``TSD``, or ``TSL`` produces the sample variance of its current valid elements (dividing by ``N - 1``), with zero for fewer than two elements. Binary inputs calculate the sample variance between the current values; fixed-list inputs are handled element by element. Unlike ``std``, ``var`` has no ``ddof`` parameter.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TSS[int]``, ``TSS[float]``, ``TSD[K, TS[int]]``, ``TSD[K, TS[float]]``, ``TSL[TS[int], SIZE]``, ``TSL[TS[float], SIZE]``
+   Numeric series or a numeric collection whose variance is required.
+
+``default_value`` : time-series; ``TS[SCALAR_1]``
+   Compatibility input accepted by container overloads; numeric variance still publishes zero when fewer than two elements are present.
+
+``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+   Left input for a binary or element-wise variance.
+
+``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+   Right input for a binary or element-wise variance.
+
+Returns
+~~~~~~~
+
+Running population variance or current sample variance, according to the selected overload.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   running_variance = hg.var(returns)
 
 Accepted native overloads
 
@@ -3697,6 +8730,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.weekday(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -3709,9 +8763,36 @@ Accepted native overloads
 ``window``
 ----------
 
-``window`` — buffer the last ``period`` values; result is a bundle (buffer + timestamps).
+Retain a trailing tick-count or time-duration buffer and expose both values and their evaluation timestamps. Tick windows use a circular buffer; duration windows evict entries older than the requested horizon.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[SCALAR]``
+   Values to retain.
+
+``period`` : scalar; ``int``, ``timedelta``
+   Maximum tick count or elapsed horizon.
+
+``min_window_period`` : scalar; ``int``, ``timedelta``
+   Optional minimum population before output becomes valid. Optional in overloads that show ``= ...``.
+
+Returns
+~~~~~~~
+
+A bundle containing the trailing values and corresponding timestamps.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   recent = hg.window(price, 20)
 
 Accepted native overloads
 
@@ -3725,9 +8806,33 @@ Accepted native overloads
 ``with_columns``
 ----------------
 
-Replace/add structural columns and project to the output row schema.
+Replace or add columns from a structural input and project to the requested row schema.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[Frame[SCALAR]]``, ``TS[Frame[SCALAR, SCALAR_1]]``
+   Original frame.
+
+``columns`` : time-series; ``TIME_SERIES_TYPE``
+   Bundle or mapping of replacement column values.
+
+Returns
+~~~~~~~
+
+A frame with the explicitly selected output row schema.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   enriched = hg.with_columns[TS[Frame[EnrichedRow]]](rows, columns)
 
 Accepted native overloads
 
@@ -3745,6 +8850,27 @@ Accepted native overloads
 
 Python exposure: lazy native operator proxy.
 
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``ts`` : time-series; ``TS[date]``, ``TS[datetime]``
+   The primary time-series input.
+
+Returns
+~~~~~~~
+
+A wired output with one of the overload-selected shapes: ``TS[int]``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   result = hg.year(ts)
+
 Accepted native overloads
 
 .. code-block:: text
@@ -3757,9 +8883,30 @@ Accepted native overloads
 ``zero``
 --------
 
-``zero_`` — the zero source for a requested output type and operation (mirrors Python ``zero(tp, op)``: the value depends on both — e.g. ``add_`` -> 0 but ``mul_`` -> 1). ``op`` is the wired function (``fn<add_>()``).
+Produce the identity value for an operator and explicitly selected output type. For example addition uses zero while multiplication uses one; collection overloads choose the corresponding empty or identity value.
 
 Python exposure: lazy native operator proxy.
+
+Parameters
+~~~~~~~~~~
+
+Time-series inputs are live graph edges. Wiring-time scalar choices
+are fixed when the graph is built.
+
+``op`` : scalar; ``fn``
+   Operator whose identity is required. This choice is fixed at wiring time.
+
+Returns
+~~~~~~~
+
+A constant source of the selected type's identity for ``op``.
+
+Python example
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   additive_identity = hg.zero[TS[int]](hg.add_)
 
 Accepted native overloads
 

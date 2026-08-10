@@ -38,47 +38,128 @@ namespace hgraph::static_schema_detail
 
 namespace hgraph::stdlib
 {
-    /** ``eq_`` — the ``==`` operator. */
+    /** Compare two current values for equality. Python's ``lhs == rhs`` syntax wires
+        this operator, including structural overloads for hgraph collections.
+        @param lhs Left-hand value.
+        @param rhs Right-hand value.
+        @return True when the values compare equal.
+        @par Python example
+        @code{.py}
+        unchanged = current == previous
+        @endcode */
     struct eq_ : Operator<"eq_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
     {
     };
 
-    /** ``ne_`` — the ``!=`` operator. */
+    /** Compare two current values for inequality. Python's ``lhs != rhs`` syntax wires it.
+        @param lhs Left-hand value.
+        @param rhs Right-hand value.
+        @return True when the values do not compare equal.
+        @par Python example
+        @code{.py}
+        changed = current != previous
+        @endcode */
     struct ne_ : Operator<"ne_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
     {
     };
 
-    /** ``lt_`` — the ``<`` operator. */
+    /** Test whether ``lhs`` sorts before ``rhs`` using the selected value semantics.
+        @param lhs Left-hand value.
+        @param rhs Right-hand value.
+        @return The result of ``lhs < rhs``.
+        @par Python example
+        @code{.py}
+        below_limit = value < limit
+        @endcode */
     struct lt_ : Operator<"lt_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
     {
     };
 
-    /** ``le_`` — the ``<=`` operator. */
+    /** Test whether ``lhs`` sorts before or equals ``rhs``.
+        @param lhs Left-hand value.
+        @param rhs Right-hand value.
+        @return The result of ``lhs <= rhs``.
+        @par Python example
+        @code{.py}
+        within_limit = value <= limit
+        @endcode */
     struct le_ : Operator<"le_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
     {
     };
 
-    /** ``gt_`` — the ``>`` operator. */
+    /** Test whether ``lhs`` sorts after ``rhs``.
+        @param lhs Left-hand value.
+        @param rhs Right-hand value.
+        @return The result of ``lhs > rhs``.
+        @par Python example
+        @code{.py}
+        above_limit = value > limit
+        @endcode */
     struct gt_ : Operator<"gt_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
     {
     };
 
-    /** ``ge_`` — the ``>=`` operator. */
+    /** Test whether ``lhs`` sorts after or equals ``rhs``.
+        @param lhs Left-hand value.
+        @param rhs Right-hand value.
+        @return The result of ``lhs >= rhs``.
+        @par Python example
+        @code{.py}
+        reached_limit = value >= limit
+        @endcode */
     struct ge_ : Operator<"ge_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<Bool>>>
     {
     };
 
-    /** ``cmp_`` — three-way comparison; returns ``LT`` / ``EQ`` / ``GT`` in one step. */
+    /** Compare two values once and classify the result as ``LT``, ``EQ``, or ``GT``.
+        This is useful with ``if_cmp`` when three branches must share one comparison.
+        @param lhs Left-hand value.
+        @param rhs Right-hand value.
+        @return A ``CmpResult`` classification.
+        @par Python example
+        @code{.py}
+        ordering = hg.cmp_(lhs, rhs)
+        @endcode */
     struct cmp_ : Operator<"cmp_", In<"lhs", TsVar<"S">>, In<"rhs", TsVar<"S">>, Out<TS<CmpResult>>>
     {
     };
 
-    /** ``min_`` — binary element-wise minimum. Collection / variadic forms are separate overloads. */
+    /** Select minima according to input shape and arity.
+        Unary scalar input produces a running minimum; unary collection input reduces its
+        current values; multiple inputs select element-wise minima. A reset restarts
+        running state and ``default_value`` covers empty collections.
+        @param ts Scalar, collection, or variadic values.
+        @param lhs Left-hand value in binary overloads.
+        @param rhs Right-hand value in binary overloads.
+        @param reset Optional signal that clears running state.
+        @param default_value Value used when an input collection is empty.
+        @param __strict__ When true, every variadic input must be valid.
+        @return The running, reduced, or element-wise minimum.
+        @par Python example
+        @code{.py}
+        running_low = hg.min_(price, reset=session_start)
+        lowest_price = hg.min_(prices_by_venue)
+        @endcode */
     struct min_ : Operator<"min_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
 
-    /** ``max_`` — binary element-wise maximum. Collection / variadic forms are separate overloads. */
+    /** Select maxima according to input shape and arity.
+        Unary scalar input produces a running maximum; unary collection input reduces its
+        current values; multiple inputs select element-wise maxima. A reset restarts
+        running state and ``default_value`` covers empty collections.
+        @param ts Scalar, collection, or variadic values.
+        @param lhs Left-hand value in binary overloads.
+        @param rhs Right-hand value in binary overloads.
+        @param reset Optional signal that clears running state.
+        @param default_value Value used when an input collection is empty.
+        @param __strict__ When true, every variadic input must be valid.
+        @return The running, reduced, or element-wise maximum.
+        @par Python example
+        @code{.py}
+        running_high = hg.max_(price, reset=session_start)
+        highest_price = hg.max_(prices_by_venue)
+        @endcode */
     struct max_ : Operator<"max_", In<"lhs", TsVar<"L">>, In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };

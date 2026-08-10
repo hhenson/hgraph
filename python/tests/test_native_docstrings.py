@@ -98,11 +98,21 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
         assert "add_(lhs: TS[int], rhs: TS[int]) -> TS[int]" in add_doc
         assert "compatible plain values" in add_doc
 
+        filter_doc = getdoc(hg.filter_)
+        assert "latest source value if the source changed while the gate was closed" in filter_doc
+        assert "condition reopens" in filter_doc
+
+        until_true_doc = getdoc(hg.until_true)
+        assert "hg.until_true(lambda value: value >= target, price)" in until_true_doc
+
         abs_doc = getdoc(hg.abs_)
-        assert "abs(ts) -> OUT" in abs_doc
+        assert "absolute magnitude" in abs_doc
+        assert "Parameters" in abs_doc
+        assert "Input whose sign is removed" in abs_doc
+        assert "magnitude = abs(change)" in abs_doc
         assert "abs_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT" in abs_doc
         assert "abs_(ts: TIME_SERIES_TYPE) -> OUT" in abs_doc
-        assert "~" not in abs_doc
+        assert all(generic not in abs_doc for generic in ("~S", "~T", "~O"))
         assert ", 0]" not in abs_doc
         assert "__out__" not in abs_doc
 
