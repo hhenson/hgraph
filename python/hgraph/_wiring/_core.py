@@ -5,6 +5,7 @@ serialized because the stack and native operator registry are process-wide;
 the serialization ends once the native executor has been built, so distinct
 executors may run concurrently. ``_wiring_stack`` is THE single list object:
 tests and C++ re-entry mutate it in place; nothing may rebind it."""
+import re
 import threading
 
 import _hgraph
@@ -147,6 +148,17 @@ def _unique_operator_signatures(signatures):
     return tuple(dict.fromkeys(_operator_signature_key(signature) for signature in signatures))
 
 
+def _public_operator_type_pattern(pattern):
+    """Remove native registry notation from an end-user type pattern."""
+    def type_variable(match):
+        name = match.group(1).strip("_")
+        return name.upper() if name else "TYPE"
+
+    pattern = re.sub(r"~([A-Za-z_][A-Za-z0-9_]*)", type_variable, pattern)
+    # A zero TSL size is the native wildcard sentinel, not a zero-length list.
+    return pattern.replace(", 0]", ", SIZE]")
+
+
 def _format_operator_signature(name, signature_key):
     (raw_parameters, variadic, positional_params, has_kwargs,
      kwargs_pattern, has_output, output_pattern) = signature_key
@@ -157,24 +169,24 @@ def _format_operator_signature(name, signature_key):
     for index, (parameter_name, _, type_pattern, has_default) in enumerate(
             parameters[:positional_count]):
         parameter_name = parameter_name or f"arg{index}"
-        rendered.append(
-            f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}"
-        )
+        type_pattern = _public_operator_type_pattern(type_pattern)
+        rendered.append(f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}")
     if variadic_parameter is not None:
         parameter_name, _, type_pattern, _ = variadic_parameter
         parameter_name = parameter_name or "args"
+        type_pattern = _public_operator_type_pattern(type_pattern)
         rendered.append(f"*{parameter_name}: {type_pattern}")
     elif positional_count < len(parameters):
         rendered.append("*")
     for index, (parameter_name, _, type_pattern, has_default) in enumerate(
             parameters[positional_count:], start=positional_count):
         parameter_name = parameter_name or f"arg{index}"
-        rendered.append(
-            f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}"
-        )
+        type_pattern = _public_operator_type_pattern(type_pattern)
+        rendered.append(f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}")
     if has_kwargs:
-        rendered.append(f"**kwargs: {kwargs_pattern or 'time-series'}")
-    output = output_pattern if has_output else "None"
+        kwargs_pattern = _public_operator_type_pattern(kwargs_pattern or "time-series")
+        rendered.append(f"**kwargs: {kwargs_pattern}")
+    output = _public_operator_type_pattern(output_pattern) if has_output else "None"
     return f"{name}({', '.join(rendered)}) -> {output}"
 
 
@@ -193,13 +205,18 @@ def _operator_documentation(name, signatures):
         "",
     ]
     if signature_keys:
-        lines.extend(f"- {_format_operator_signature(name, signature)}" for signature in signature_keys)
+        rendered_signatures = dict.fromkeys(
+            _format_operator_signature(name, signature) for signature in signature_keys
+        )
+        lines.extend(f"- {signature}" for signature in rendered_signatures)
     else:
         lines.append(f"- {name}(*args, **kwargs)")
     lines.extend([
         "",
         "Time-series parameters accept wiring ports and compatible plain values",
         "that can be lifted to constant sources.",
+        "Capitalized names are wiring-time type variables; SIZE means any fixed",
+        "TSL length and OUT is an output inferred during wiring.",
     ])
     return "\n".join(lines)
 

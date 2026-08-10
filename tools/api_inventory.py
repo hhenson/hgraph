@@ -252,12 +252,12 @@ def collect_authoring_api() -> tuple[dict[str, Any], ...]:
 
 
 def _display_signature(operator: dict[str, Any]) -> str:
-    overloads = _unique_overloads(operator)
-    if not overloads:
+    signatures = _display_overload_signatures(operator)
+    if not signatures:
         return f"{operator['name']}(*args, **kwargs)"
-    if len(overloads) == 1:
-        return _format_native_signature(operator["name"], overloads[0])
-    return f"{len(overloads)} overloads"
+    if len(signatures) == 1:
+        return signatures[0]
+    return f"{len(signatures)} overloads"
 
 
 def _hlist(names: tuple[str, ...], indent: str = "") -> list[str]:
@@ -310,6 +310,8 @@ def render_rst(inventory: dict[str, Any]) -> str:
         "The call shapes below come from the complete native overload metadata.",
         "The generated typing declarations and runtime operator docstrings list the",
         "individual accepted signatures, including defaults and keyword-only inputs.",
+        "Capitalized identifiers are wiring-time type variables; ``SIZE`` means any",
+        "fixed TSL length and ``OUT`` is an output inferred during wiring.",
         "The coverage column distinguishes lazy proxies from explicit Python helpers",
         "whose curated signatures remain authoritative.",
         "",
@@ -322,7 +324,7 @@ def render_rst(inventory: dict[str, Any]) -> str:
         "     - Coverage",
     ])
     for operator in operators:
-        overload_count = len(_unique_overloads(operator))
+        overload_count = len(_display_overload_signatures(operator))
         exposure = "explicit helper" if operator["explicit_root"] else "lazy operator"
         lines.extend([
             f"   * - :ref:`{operator['name']} <python-operator-{operator['name']}>`",
@@ -351,6 +353,9 @@ def render_operator_catalogue(inventory: dict[str, Any]) -> str:
         "an accepted native wiring overload. ``TS[...]`` parameters accept wiring",
         "ports and, where dispatch permits, compatible plain values that are lifted",
         "to constant sources. ``...`` marks a default supplied by the overload.",
+        "Capitalized identifiers such as ``S`` and ``T`` are wiring-time type",
+        "variables; ``SIZE`` means any fixed TSL length and ``OUT`` is an output",
+        "inferred during wiring.",
         "",
         "Explicit helpers have a curated Python entry point in addition to their",
         "native overloads. Lazy operators are resolved from ``hgraph`` on first use.",
@@ -362,7 +367,7 @@ def render_operator_catalogue(inventory: dict[str, Any]) -> str:
     ]
     for operator in inventory["operators"]:
         name = operator["name"]
-        overloads = _unique_overloads(operator)
+        signatures = _display_overload_signatures(operator)
         lines.extend([
             f".. _python-operator-{name}:",
             "",
@@ -391,11 +396,8 @@ def render_operator_catalogue(inventory: dict[str, Any]) -> str:
             ".. code-block:: text",
             "",
         ])
-        if overloads:
-            lines.extend(
-                f"   {_format_native_signature(name, overload)}"
-                for overload in overloads
-            )
+        if signatures:
+            lines.extend(f"   {signature}" for signature in signatures)
         else:
             lines.append(f"   {name}(*args, **kwargs)")
         lines.append("")
@@ -466,7 +468,18 @@ def _unique_overloads(operator: dict[str, Any]) -> list[dict[str, Any]]:
     return list(unique.values())
 
 
-def _format_native_signature(name: str, overload: dict[str, Any]) -> str:
+def _public_type_pattern(pattern: str) -> str:
+    """Remove native registry notation from an end-user type pattern."""
+    def type_variable(match: re.Match[str]) -> str:
+        name = match.group(1).strip("_")
+        return name.upper() if name else "TYPE"
+
+    pattern = re.sub(r"~([A-Za-z_][A-Za-z0-9_]*)", type_variable, pattern)
+    # A zero TSL size is the native wildcard sentinel, not a zero-length list.
+    return pattern.replace(", 0]", ", SIZE]")
+
+
+def _format_public_signature(name: str, overload: dict[str, Any]) -> str:
     parameters = list(overload["parameters"])
     variadic_parameter = parameters.pop() if overload["variadic"] and parameters else None
     positional_count = min(overload["positional_params"], len(parameters))
@@ -474,21 +487,35 @@ def _format_native_signature(name: str, overload: dict[str, Any]) -> str:
     for index, parameter in enumerate(parameters[:positional_count]):
         parameter_name = parameter["name"] or f"arg{index}"
         default = " = ..." if parameter["has_default"] else ""
-        rendered.append(f"{parameter_name}: {parameter['type_pattern']}{default}")
+        pattern = _public_type_pattern(parameter["type_pattern"])
+        rendered.append(f"{parameter_name}: {pattern}{default}")
     if variadic_parameter is not None:
         parameter_name = variadic_parameter["name"] or "args"
-        rendered.append(f"*{parameter_name}: {variadic_parameter['type_pattern']}")
+        pattern = _public_type_pattern(variadic_parameter["type_pattern"])
+        rendered.append(f"*{parameter_name}: {pattern}")
     elif positional_count < len(parameters):
         rendered.append("*")
     for index, parameter in enumerate(parameters[positional_count:], start=positional_count):
         parameter_name = parameter["name"] or f"arg{index}"
         default = " = ..." if parameter["has_default"] else ""
-        rendered.append(f"{parameter_name}: {parameter['type_pattern']}{default}")
+        pattern = _public_type_pattern(parameter["type_pattern"])
+        rendered.append(f"{parameter_name}: {pattern}{default}")
     if overload["has_kwargs"]:
-        pattern = overload["kwargs_pattern"] or "time-series"
+        pattern = _public_type_pattern(overload["kwargs_pattern"] or "time-series")
         rendered.append(f"**kwargs: {pattern}")
-    output = overload["output_pattern"] if overload["has_output"] else "None"
+    output = (
+        _public_type_pattern(overload["output_pattern"])
+        if overload["has_output"] else "None"
+    )
     return f"{name}({', '.join(rendered)}) -> {output}"
+
+
+def _display_overload_signatures(operator: dict[str, Any]) -> tuple[str, ...]:
+    """Return distinct public renderings while retaining raw overload metadata."""
+    return tuple(dict.fromkeys(
+        _format_public_signature(operator["name"], overload)
+        for overload in _unique_overloads(operator)
+    ))
 
 
 _SCALAR_ANNOTATIONS = {
@@ -650,14 +677,14 @@ def render_operator_stub(inventory: dict[str, Any]) -> str:
             "    Accepted native overloads:",
             "",
         ])
-        for overload_signature in overloads:
-            lines.append(
-                f"    - ``{_format_native_signature(operator['name'], overload_signature)}``"
-            )
+        for signature in _display_overload_signatures(operator):
+            lines.append(f"    - ``{signature}``")
         lines.extend([
             "",
             "    Time-series parameters accept wiring ports and compatible plain",
-            '    values that can be lifted to constant sources."""',
+            "    values that can be lifted to constant sources. Capitalized names",
+            "    are wiring-time type variables; ``SIZE`` means any fixed TSL length",
+            '    and ``OUT`` is an output inferred during wiring."""',
             "",
         ])
         stub_overloads = []

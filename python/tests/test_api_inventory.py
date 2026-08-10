@@ -2,6 +2,7 @@
 
 import ast
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -97,8 +98,13 @@ def test_operator_catalogue_exposes_every_operator_signature_and_documentation()
 
     assert source.count(".. _python-operator-") == len(inventory["operators"])
     assert "add_(lhs: TS[int], rhs: TS[int]) -> TS[int]" in source
+    assert "abs_(ts: TSL[S, SIZE]) -> OUT" in source
+    assert "abs_(ts: S) -> OUT" in source
     assert ".. _python-operator-to_window:" in source
     assert "Accepted native overloads" in source
+    assert not re.search(r"(?m)^   .*~[A-Za-z_]", source)
+    assert ", 0]" not in source
+    assert "__out__" not in source
     for operator in inventory["operators"]:
         assert operator["documentation"] in source
 
@@ -153,6 +159,14 @@ def test_operator_stub_exposes_overloads_docs_and_every_public_operator():
         for call in add_calls
     )
     assert "add_(lhs: TS[int], rhs: TS[int]) -> TS[int]" in ast.get_docstring(add)
+
+    abs_operator = classes["_abs__Operator"]
+    abs_documentation = ast.get_docstring(abs_operator)
+    assert "abs_(ts: TSL[S, SIZE]) -> OUT" in abs_documentation
+    assert "abs_(ts: S) -> OUT" in abs_documentation
+    assert not re.search(r"~[A-Za-z_]", abs_documentation)
+    assert ", 0]" not in abs_documentation
+    assert "__out__" not in abs_documentation
 
     to_window = classes["_to_window_Operator"]
     assert any(

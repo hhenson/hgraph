@@ -98,6 +98,13 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
         assert "add_(lhs: TS[int], rhs: TS[int]) -> TS[int]" in add_doc
         assert "compatible plain values" in add_doc
 
+        abs_doc = getdoc(hg.abs_)
+        assert "abs_(ts: TSL[S, SIZE]) -> OUT" in abs_doc
+        assert "abs_(ts: S) -> OUT" in abs_doc
+        assert "~" not in abs_doc
+        assert ", 0]" not in abs_doc
+        assert "__out__" not in abs_doc
+
         overloads = _hgraph.operator_overload_signatures("add_")
         assert len(overloads) > 1
         assert any(
