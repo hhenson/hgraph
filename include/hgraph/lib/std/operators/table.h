@@ -29,6 +29,7 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``from_table`` — apply bitemporal tuple rows as deltas of the selected output schema. */
     struct from_table : Operator<"from_table", In<"ts", TsVar<"T">>, Out<TsVar<"O">>>
     {
     };

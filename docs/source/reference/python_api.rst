@@ -57,11 +57,21 @@ rather than parsing rendered ``__doc__`` text. HGraph augments that result with
 the native operator registry because lazy operators are Python proxy objects,
 not nanobind functions.
 
-Operator overload selection still happens while the graph is wired. The typing
-declarations therefore provide discovery and the common parameter names; the
-resolved time-series and return types may depend on the chosen overload. The
-runtime remains authoritative when a type checker cannot express a generic
-wiring relationship.
+Operator overload selection still happens while the graph is wired, but the
+typing declarations are not reduced to a common ``(*args, **kwargs)`` shape.
+They contain every distinct native overload, including parameter names,
+required and defaulted arguments, variadic and keyword-only boundaries, scalar
+types, and whether the overload returns a wiring port or is a sink. Semantic
+summaries come from the Doxygen comments on the public C++ operator
+declarations, and every lazy operator has a runtime docstring combining that
+summary with the native time-series patterns used for dispatch. Python's
+``WiringPort`` is not yet schema-generic to static type checkers, so
+relationships such as ``TS[T] + TS[T] -> TS[T]`` remain documented in those
+native patterns while the runtime registry enforces them.
+
+Operators implemented as explicit Python helpers, including ``map_``,
+``reduce`` and ``switch_``, keep their handwritten public signatures; generated
+lazy declarations do not replace them during type checking.
 
 Regenerate and check the inventory from an installed development wheel with:
 

@@ -254,6 +254,7 @@ namespace hgraph::stdlib
         [[nodiscard]] bool operator==(const TryExceptCallConfig &) const noexcept = default;
     };
 
+    /** ``try_except`` — run one child graph and expose captured node errors alongside its output. */
     struct try_except : Operator<"try_except",
                                  Scalar<"func", WiredFn>,
                                  VarIn<"args", TsVar<"A">>,
@@ -348,6 +349,7 @@ namespace hgraph::stdlib
         }
     };
 
+    /** ``map_`` — apply a child graph independently to each keyed or list element. */
     struct map_ : Operator<"map_",
                            Scalar<"func", WiredFn>,
                            VarIn<"args", TsVar<"A">>,         // *args — multiplexed / broadcast inputs (positional)

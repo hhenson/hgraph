@@ -92,7 +92,23 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
             assert summary in documentation, value
         assert "immediately following possible evaluation cycle" in getdoc(hg.CLOCK)
 
-        stub_path = Path(_hgraph.__file__).parent / "_hgraph.pyi"
+        add_doc = getdoc(hg.add_)
+        assert add_doc is not None
+        assert "Accepted native overloads" in add_doc
+        assert "add_(lhs: TS[int], rhs: TS[int]) -> TS[int]" in add_doc
+        assert "compatible plain values" in add_doc
+
+        overloads = _hgraph.operator_overload_signatures("add_")
+        assert len(overloads) > 1
+        assert any(
+            [(name, pattern, has_default)
+             for name, _, pattern, has_default in parameters]
+            == [("lhs", "TS[int]", False), ("rhs", "TS[int]", False)]
+            and has_output and output_pattern == "TS[int]"
+            for (parameters, _, _, _, _, has_output, output_pattern) in overloads
+        )
+
+        stub_path = Path(_hgraph.__file__).with_name("_hgraph.pyi")
         stub = stub_path.read_text()
         assert "A calendar-relative duration measured in years" in stub
         assert "A read-only, callback-scoped native time-series input view" in stub
@@ -101,6 +117,7 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
         assert "The current Python value, or None when the input is invalid" in stub
         assert "The node's zero-based index within its graph" in stub
         assert "Select the earlier of the two matching instants" in stub
+        assert "def operator_overload_signatures(name: str) -> list:" in stub
         """
     )
 

@@ -39,14 +39,17 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``day`` — the day-of-month attribute of a date or datetime. */
     struct day : Operator<"day", In<"ts", TS<Date>>, Out<TS<Int>>>
     {
     };
 
+    /** ``weekday`` — the day of the week using Monday as zero. */
     struct weekday : Operator<"weekday", In<"ts", TS<Date>>, Out<TS<Int>>>
     {
     };
 
+    /** ``isoweekday`` — the ISO day of the week using Monday as one. */
     struct isoweekday : Operator<"isoweekday", In<"ts", TS<Date>>, Out<TS<Int>>>
     {
     };
@@ -59,14 +62,17 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``seconds`` — the non-negative whole-second remainder of a timedelta. */
     struct seconds : Operator<"seconds", In<"ts", TS<TimeDelta>>, Out<TS<Int>>>
     {
     };
 
+    /** ``microseconds`` — the non-negative microsecond remainder of a timedelta. */
     struct microseconds : Operator<"microseconds", In<"ts", TS<TimeDelta>>, Out<TS<Int>>>
     {
     };
 
+    /** ``total_seconds`` — convert a timedelta to fractional seconds. */
     struct total_seconds : Operator<"total_seconds", In<"ts", TS<TimeDelta>>, Out<TS<Float>>>
     {
     };
@@ -80,14 +86,17 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``minute`` — the minute component of a datetime or time. */
     struct minute : Operator<"minute", In<"ts", TS<DateTime>>, Out<TS<Int>>>
     {
     };
 
+    /** ``second`` — the second component of a datetime or time. */
     struct second : Operator<"second", In<"ts", TS<DateTime>>, Out<TS<Int>>>
     {
     };
 
+    /** ``microsecond`` — the microsecond component of a datetime or time. */
     struct microsecond : Operator<"microsecond", In<"ts", TS<DateTime>>, Out<TS<Int>>>
     {
     };
@@ -109,10 +118,12 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``isoformat`` — format a date, datetime, or time as an ISO 8601 string. */
     struct isoformat : Operator<"isoformat", In<"ts", TS<Date>>, Out<TS<Str>>>
     {
     };
 
+    /** ``explode`` — split a date into a fixed list of year, month, and day. */
     struct explode : Operator<"explode", In<"ts", TS<Date>>, Out<TsVar<"O">>>
     {
     };
@@ -145,12 +156,14 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``at_zone`` — represent an instant in the supplied time zone. */
     struct at_zone
         : Operator<"at_zone", In<"instant", TS<Instant>>,
                    In<"zone", TS<ZoneId>>, Out<TS<ZonedDateTime>>>
     {
     };
 
+    /** ``resolve_civil`` — resolve a local civil time using explicit daylight-saving policies. */
     struct resolve_civil
         : Operator<"resolve_civil", In<"local", TS<CivilDateTime>>,
                    In<"zone", TS<ZoneId>>,
@@ -160,84 +173,98 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``convert_zone`` — view a zoned datetime in another zone without changing its instant. */
     struct convert_zone
         : Operator<"convert_zone", In<"value", TS<ZonedDateTime>>,
                    In<"zone", TS<ZoneId>>, Out<TS<ZonedDateTime>>>
     {
     };
 
+    /** ``to_instant`` — extract the absolute instant from a zoned datetime. */
     struct to_instant
         : Operator<"to_instant", In<"value", TS<ZonedDateTime>>,
                    Out<TS<Instant>>>
     {
     };
 
+    /** ``to_civil`` — extract the local civil date and time from a zoned datetime. */
     struct to_civil
         : Operator<"to_civil", In<"value", TS<ZonedDateTime>>,
                    Out<TS<CivilDateTime>>>
     {
     };
 
+    /** ``range_contains`` — test whether a temporal range contains a value or another range. */
     struct range_contains
         : Operator<"range_contains", In<"range", TsVar<"R">>,
                    In<"value", TsVar<"V">>, Out<TS<Bool>>>
     {
     };
 
+    /** ``range_intersection`` — return the common portion of two temporal ranges. */
     struct range_intersection
         : Operator<"range_intersection", In<"lhs", TsVar<"R">>,
                    In<"rhs", TsVar<"R">>, Out<TsVar<"R">>>
     {
     };
 
+    /** ``range_overlaps`` — test whether two temporal ranges share any included instant. */
     struct range_overlaps
         : Operator<"range_overlaps", In<"lhs", TsVar<"R">>,
                    In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
     {
     };
 
+    /** ``range_touches`` — test whether finite endpoint values coincide, regardless of openness. */
     struct range_touches
         : Operator<"range_touches", In<"lhs", TsVar<"R">>,
                    In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
     {
     };
 
+    /** ``range_adjacent`` — test whether endpoints coincide with exactly one of them closed. */
     struct range_adjacent
         : Operator<"range_adjacent", In<"lhs", TsVar<"R">>,
                    In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
     {
     };
 
+    /** ``range_mergeable`` — test whether two ranges overlap or are adjacent. */
     struct range_mergeable
         : Operator<"range_mergeable", In<"lhs", TsVar<"R">>,
                    In<"rhs", TsVar<"R">>, Out<TS<Bool>>>
     {
     };
 
+    /** ``range_difference`` — subtract the right-hand range from the left-hand range. */
     struct range_difference
         : Operator<"range_difference", In<"lhs", TsVar<"R">>,
                    In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
 
+    /** ``range_union`` — return the normalized union of two temporal ranges. */
     struct range_union
         : Operator<"range_union", In<"lhs", TsVar<"R">>,
                    In<"rhs", TsVar<"R">>, Out<TsVar<"O">>>
     {
     };
 
+    /** ``range_merge`` — merge two mergeable ranges into one range. */
     struct range_merge
         : Operator<"range_merge", In<"lhs", TsVar<"R">>,
                    In<"rhs", TsVar<"R">>, Out<TsVar<"R">>>
     {
     };
 
+    /** ``range_hull`` — return the smallest range spanning both inputs. */
     struct range_hull
         : Operator<"range_hull", In<"lhs", TsVar<"R">>,
                    In<"rhs", TsVar<"R">>, Out<TsVar<"R">>>
     {
     };
 
+    /** ``range_shift`` — move both range boundaries by a duration or calendar period. */
     struct range_shift
         : Operator<"range_shift", In<"range", TsVar<"R">>,
                    In<"delta", TsVar<"D">>,
@@ -246,30 +273,35 @@ namespace hgraph::stdlib
     {
     };
 
+    /** ``range_extent`` — return the duration between an instant range's boundaries. */
     struct range_extent
         : Operator<"range_extent", In<"range", TS<InstantRange>>,
                    Out<TS<Duration>>>
     {
     };
 
+    /** ``temporal_floor`` — round a temporal value down to a quantum boundary. */
     struct temporal_floor
         : Operator<"temporal_floor", In<"value", TsVar<"T">>,
                    In<"quantum", TS<Duration>>, Out<TsVar<"T">>>
     {
     };
 
+    /** ``temporal_ceil`` — round a temporal value up to a quantum boundary. */
     struct temporal_ceil
         : Operator<"temporal_ceil", In<"value", TsVar<"T">>,
                    In<"quantum", TS<Duration>>, Out<TsVar<"T">>>
     {
     };
 
+    /** ``temporal_round`` — round a temporal value to its nearest quantum boundary. */
     struct temporal_round
         : Operator<"temporal_round", In<"value", TsVar<"T">>,
                    In<"quantum", TS<Duration>>, Out<TsVar<"T">>>
     {
     };
 
+    /** ``temporal_bucket`` — return the fixed-width instant range containing a value. */
     struct temporal_bucket
         : Operator<"temporal_bucket", In<"value", TS<Instant>>,
                    In<"width", TS<Duration>>, Out<TS<InstantRange>>>

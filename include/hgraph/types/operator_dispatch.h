@@ -300,6 +300,37 @@ namespace hgraph
         bool                                variadic{false};
     };
 
+    /** One parameter in a data-only, language-bridge-safe operator signature view. */
+    struct OperatorSignatureParameter
+    {
+        std::string        name{};
+        ParamPattern::Kind kind{ParamPattern::Kind::Input};
+        /** Human-readable native type pattern (for example ``TS[int]`` or ``T``). */
+        std::string        type_pattern{};
+        bool               has_default{false};
+    };
+
+    /**
+     * One registered overload's complete public call shape for documentation
+     * and language tooling. This deliberately copies strings and flags rather
+     * than exposing ``OperatorImpl`` or its representation-specific hooks.
+     *
+     * When ``variadic`` is true, the last entry in ``parameters`` is the
+     * variadic time-series parameter. Parameters from ``positional_params``
+     * up to that final entry are keyword-only. ``positional_params`` is
+     * clamped to the number of non-variadic parameters.
+     */
+    struct OperatorOverloadSignature
+    {
+        std::vector<OperatorSignatureParameter> parameters{};
+        bool                                    variadic{false};
+        std::size_t                             positional_params{0};
+        bool                                    has_kwargs{false};
+        std::optional<std::string>              kwargs_pattern{};
+        bool                                    has_output{false};
+        std::optional<std::string>              output_pattern{};
+    };
+
     /**
      * The outcome of overload selection: the winning candidate, its resolved
      * type variables, and the **normalised** call — arguments in declared
@@ -380,6 +411,10 @@ namespace hgraph
 
         /** Common parameter prefix for tooling which must prepare a call. */
         [[nodiscard]] std::optional<OperatorParameterListShape> parameter_shape(
+            std::string_view name) const;
+
+        /** Complete overload signatures for generated docs and language bindings. */
+        [[nodiscard]] std::vector<OperatorOverloadSignature> overload_signatures(
             std::string_view name) const;
 
         [[nodiscard]] Value evaluate_const(std::string_view name,

@@ -95,6 +95,190 @@ def wire(name, *args, __output_type__=None, **kwargs):
     return WiringPort(result) if result is not None else None
 
 
+class _OperatorDefault:
+    def __repr__(self):
+        return "..."
+
+
+_OPERATOR_DEFAULT = _OperatorDefault()
+
+
+def _operator_overload_signatures(name):
+    try:
+        raw_signatures = _hgraph.operator_overload_signatures(name)
+    except AttributeError:
+        # Allows source imports against an older extension while rebuilding.
+        return ()
+    signatures = []
+    for raw in raw_signatures:
+        (parameters, variadic, positional_params, has_kwargs,
+         kwargs_pattern, has_output, output_pattern) = raw
+        signatures.append({
+            "parameters": tuple({
+                "name": parameter_name,
+                "is_time_series": bool(is_time_series),
+                "type_pattern": type_pattern,
+                "has_default": bool(has_default),
+            } for parameter_name, is_time_series, type_pattern, has_default in parameters),
+            "variadic": bool(variadic),
+            "positional_params": int(positional_params),
+            "has_kwargs": bool(has_kwargs),
+            "kwargs_pattern": kwargs_pattern,
+            "has_output": bool(has_output),
+            "output_pattern": output_pattern,
+        })
+    return tuple(signatures)
+
+
+def _operator_signature_key(signature):
+    return (
+        tuple((parameter["name"], parameter["is_time_series"], parameter["type_pattern"],
+               parameter["has_default"]) for parameter in signature["parameters"]),
+        signature["variadic"],
+        signature["positional_params"],
+        signature["has_kwargs"],
+        signature["kwargs_pattern"],
+        signature["has_output"],
+        signature["output_pattern"],
+    )
+
+
+def _unique_operator_signatures(signatures):
+    return tuple(dict.fromkeys(_operator_signature_key(signature) for signature in signatures))
+
+
+def _format_operator_signature(name, signature_key):
+    (raw_parameters, variadic, positional_params, has_kwargs,
+     kwargs_pattern, has_output, output_pattern) = signature_key
+    parameters = list(raw_parameters)
+    variadic_parameter = parameters.pop() if variadic and parameters else None
+    positional_count = min(positional_params, len(parameters))
+    rendered = []
+    for index, (parameter_name, _, type_pattern, has_default) in enumerate(
+            parameters[:positional_count]):
+        parameter_name = parameter_name or f"arg{index}"
+        rendered.append(
+            f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}"
+        )
+    if variadic_parameter is not None:
+        parameter_name, _, type_pattern, _ = variadic_parameter
+        parameter_name = parameter_name or "args"
+        rendered.append(f"*{parameter_name}: {type_pattern}")
+    elif positional_count < len(parameters):
+        rendered.append("*")
+    for index, (parameter_name, _, type_pattern, has_default) in enumerate(
+            parameters[positional_count:], start=positional_count):
+        parameter_name = parameter_name or f"arg{index}"
+        rendered.append(
+            f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}"
+        )
+    if has_kwargs:
+        rendered.append(f"**kwargs: {kwargs_pattern or 'time-series'}")
+    output = output_pattern if has_output else "None"
+    return f"{name}({', '.join(rendered)}) -> {output}"
+
+
+def _operator_documentation(name, signatures):
+    signature_keys = _unique_operator_signatures(signatures)
+    try:
+        from .._operator_docs import OPERATOR_DOCS
+    except ImportError:
+        # Bootstrap while regenerating the checked documentation module.
+        OPERATOR_DOCS = {}
+
+    lines = [
+        OPERATOR_DOCS.get(name, f"Wire ``{name}`` through native overload resolution."),
+        "",
+        "Accepted native overloads:",
+        "",
+    ]
+    if signature_keys:
+        lines.extend(f"- {_format_operator_signature(name, signature)}" for signature in signature_keys)
+    else:
+        lines.append(f"- {name}(*args, **kwargs)")
+    lines.extend([
+        "",
+        "Time-series parameters accept wiring ports and compatible plain values",
+        "that can be lifted to constant sources.",
+    ])
+    return "\n".join(lines)
+
+
+def _operator_runtime_signature(signatures):
+    import inspect
+    import keyword
+
+    if not signatures:
+        return None
+
+    def structural_key(signature):
+        parameters = signature["parameters"]
+        return (
+            tuple((parameter["name"], parameter["has_default"])
+                  for parameter in parameters),
+            signature["variadic"],
+            signature["positional_params"],
+            signature["has_kwargs"],
+        )
+
+    if len({structural_key(signature) for signature in signatures}) != 1:
+        return None
+
+    first = signatures[0]
+    declared = list(first["parameters"])
+    variadic_parameter = declared.pop() if first["variadic"] and declared else None
+    positional_count = min(first["positional_params"], len(declared))
+    parameters = []
+    names = [parameter["name"] for parameter in declared]
+    if variadic_parameter is not None:
+        names.append(variadic_parameter["name"])
+    if (
+        any(not name or not name.isidentifier() or keyword.iskeyword(name) for name in names)
+        or len(names) != len(set(names))
+    ):
+        return None
+
+    def annotation_at(index):
+        candidates = [signature["parameters"][index] for signature in signatures]
+        is_time_series = candidates[0]["is_time_series"]
+        if not all(candidate["is_time_series"] == is_time_series for candidate in candidates):
+            return object
+        return WiringPort | object if is_time_series else object
+
+    for index, parameter in enumerate(declared):
+        kind = (inspect.Parameter.POSITIONAL_OR_KEYWORD
+                if index < positional_count else inspect.Parameter.KEYWORD_ONLY)
+        parameters.append(inspect.Parameter(
+            parameter["name"],
+            kind,
+            default=_OPERATOR_DEFAULT if parameter["has_default"] else inspect.Parameter.empty,
+            annotation=annotation_at(index),
+        ))
+    if variadic_parameter is not None:
+        variadic_index = len(first["parameters"]) - 1
+        parameters.insert(positional_count, inspect.Parameter(
+            variadic_parameter["name"],
+            inspect.Parameter.VAR_POSITIONAL,
+            annotation=annotation_at(variadic_index),
+        ))
+    if first["has_kwargs"]:
+        parameters.append(inspect.Parameter(
+            "kwargs", inspect.Parameter.VAR_KEYWORD, annotation=WiringPort | object
+        ))
+    outputs = {signature["has_output"] for signature in signatures}
+    return_annotation = (
+        WiringPort if outputs == {True}
+        else None if outputs == {False}
+        else WiringPort | None
+    )
+    try:
+        return inspect.Signature(parameters, return_annotation=return_annotation)
+    except ValueError:
+        # Native normalisation can express call layouts which one Python
+        # Signature cannot (notably a default before a later required input).
+        return None
+
+
 class _OperatorFunction:
     def __rshift__(self, other):
         # arrow-chain sugar: (eval_ | op >> assert_) - uplift into the arrow
@@ -113,7 +297,7 @@ class _OperatorFunction:
     hgraph's SUBSCRIPT form ``op[TYPE](...)`` - the type becomes the
     requested output type of the call."""
 
-    __slots__ = ("__name__", "__qualname__", "__signature__", "_output_type",
+    __slots__ = ("__dict__", "__name__", "__qualname__", "__signature__", "_output_type",
                  "_sizes", "_ts_hint", "_resolutions")
 
     def __init__(self, name, output_type=None, sizes=None, ts_hint=None,
@@ -122,11 +306,14 @@ class _OperatorFunction:
 
         self.__name__ = name
         self.__qualname__ = name
+        signatures = _operator_overload_signatures(name)
         self.__signature__ = (
             inspect.signature(signature)
             if callable(signature)
-            else signature
+            else signature if signature is not None
+            else _operator_runtime_signature(signatures)
         )
+        self.__doc__ = _operator_documentation(name, signatures)
         self._output_type = output_type
         self._sizes = sizes
         self._ts_hint = ts_hint
@@ -245,11 +432,13 @@ class _OperatorFunction:
 
 
 def operator_function(name, signature=None):
-    """Return a native operator callable with an optional public signature.
+    """Return a documented native operator callable with a public signature.
 
     ``signature`` may be an :class:`inspect.Signature` or a callable whose
-    signature describes the user-facing contract.  Native dispatch and
-    subscripted type selection remain unchanged.
+    signature describes the user-facing contract. Otherwise a signature is
+    derived when every native overload has the same structural call shape.
+    The callable's docstring always lists the complete native overload set.
+    Native dispatch and subscripted type selection remain unchanged.
     """
     return _OperatorFunction(name, signature=signature)
 

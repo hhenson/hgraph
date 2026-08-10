@@ -50,6 +50,22 @@ def test_shared_callable_signatures_match_python_authoring_surface():
         "path", "implementation", "resolution_dict")
 
 
+def test_lazy_operator_runtime_signatures_use_native_registry_metadata():
+    assert _parameters(hg.filter_) == ("condition", "ts")
+    signature = inspect.signature(hg.filter_)
+    assert all(
+        parameter.default is inspect.Parameter.empty
+        for parameter in signature.parameters.values()
+    )
+    assert signature.return_annotation is hg.WiringPort
+
+    # A Python inspect.Signature cannot represent an overload set whose call
+    # structures differ. Those operators retain a truthful catch-all runtime
+    # signature and document every concrete overload instead.
+    assert _parameters(hg.add_) == ("args", "kwargs")
+    assert "add_(lhs: TS[int], rhs: TS[int]) -> TS[int]" in inspect.getdoc(hg.add_)
+
+
 def test_compute_node_all_valid_uses_native_structural_validity():
     @hg.compute_node(all_valid=("tsl",))
     def all_children(tsl: hg.TSL[hg.TS[int], hg.Size[2]]) -> hg.TS[bool]:
