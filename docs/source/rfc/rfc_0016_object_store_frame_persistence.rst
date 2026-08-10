@@ -24,6 +24,22 @@ Nothing here requires a new third-party dependency. hgraph already links
 ``Arrow::arrow_shared``, and pyarrow's bundled ``libarrow`` exports the
 filesystem layer this builds on.
 
+Scope
+-----
+
+This is **new functionality on the 0.8 line**. Availability on the
+Python-first ``release/0.5`` line is an explicit **non-goal**: the seam it
+builds on (``record_replay::FrameStoreOps``) and the value type it moves
+(``Frame``, and ``Frame[Rows, Metadata]`` under RFC 0001) are C++-runtime
+constructs with no 0.5 counterpart, so there is nothing to keep at parity.
+
+The distinction matters because it is the opposite of the rule that applies to
+*existing* behaviour. A capability both lines already claim to have must stay
+at parity, and a divergence there is a bug to fix on 0.5. A capability only 0.8
+has is simply a reason to be on 0.8. Nothing in this RFC should be read as
+creating an obligation to back-port, and code written against it is 0.8-only by
+construction.
+
 Motivation
 ----------
 
@@ -345,18 +361,137 @@ matters. Fixing either would push the other into a bespoke store.
 Unresolved questions
 --------------------
 
-* Must a grouped read resolve through the manifest, or may a reader address
-  members directly and accept the risk of a partial view? The stricter rule is
-  safer; the looser one is friendlier to external tools.
-* Should ``immutable`` be the default? Recordings are usually write-once, and
-  accidental overwrite is a real hazard — but replay-driven regeneration is a
-  legitimate workflow that immutability makes awkward.
-* Key-to-object-path mapping: how are ``/`` and other separators in a key
-  treated? Transparent nesting is natural for humans browsing a bucket; strict
-  escaping is unambiguous.
-* Does the group manifest deserve a declared metadata schema under RFC 0001,
-  rather than being an implementation detail of the store?
-* Should compression be exposed per write, or only per store?
+Each carries its options and a recommendation. None is blocking; all change
+observable behaviour, so they are decided here rather than in the
+implementation.
+
+Q1 — must a grouped read resolve through the manifest?
+......................................................
+
+A group publishes its members plus a manifest naming them. What is a reader
+entitled to do?
+
+**A. Manifest-only.** Group members live under a prefix that is not a
+documented address; the manifest is the only supported way in.
+
+  A partial group is unreachable by construction, and member layout stays free
+  to change. But an external tool — a Spark job, a ``SELECT`` in DuckDB — must
+  read and interpret the manifest before it can find anything, and members are
+  awkward to glob.
+
+**B. Direct addressing permitted.** Members are at predictable keys; the
+manifest is the *consistent* view, not the only one.
+
+  Any Arrow-aware tool can point at the prefix and read. The cost is that a
+  reader which ignores the manifest can observe a half-written group, and
+  member layout becomes a compatibility surface.
+
+**C. Direct addressing permitted, with the manifest naming a content hash per
+member.** B, plus enough in the manifest to detect a partial or mismatched read.
+
+  Keeps external readability, makes silent partial reads detectable by a
+  reader that opts in. Costs a hash per member on write.
+
+*Recommendation: B.* Interoperability is a stated motivation, and A undermines
+it for a guarantee only hgraph-aware readers benefit from. C is the natural
+upgrade if partial reads turn out to bite in practice, and B → C is additive.
+
+Q2 — should ``immutable`` default on?
+.....................................
+
+**A. Default off (overwrite allowed).** A repeated run overwrites its previous
+output.
+
+  Matches the in-memory store today, and matches iterative development, where
+  re-recording after a change is the normal loop. Risk: a mis-set key silently
+  destroys a prior recording, and on S3 the old version is usually gone.
+
+**B. Default on (overwrite rejected).** A write to an existing key raises;
+overwriting is opt-in per store.
+
+  Recordings are usually write-once, and a durable store makes accidental
+  overwrite expensive. Risk: the develop-and-re-record loop needs a flag, or
+  a ``clear`` between runs, which is friction in exactly the case that is
+  hardest to get wrong anyway (local files, cheap to delete).
+
+**C. Default by location.** Off for memory and local, on for S3.
+
+  Cheap-to-recreate stores stay frictionless; the expensive, shared one is
+  protected. Costs a rule users must know: the same code behaves differently
+  by environment, which is precisely what the rest of this design tries to
+  avoid.
+
+*Recommendation: A, with the caveat that this is the weakest of the five.* It
+is consistent with today's behaviour and with the environment-parity goal, and
+it can be revisited without breaking anyone; B cannot be adopted later without
+breaking existing writers. C should be rejected outright — behaviour that
+varies by environment defeats the purpose of a configured store.
+
+Q3 — how do keys map to object paths?
+.....................................
+
+Keys such as ``calc.lhs`` or ``run/2026-08-10/prices`` have to become object
+paths.
+
+**A. Transparent.** The key is the path suffix; ``/`` nests.
+
+  A bucket browses like a directory tree, and prefix listing works naturally.
+  But keys become path-shaped: ``..``, leading ``/``, and empty segments need
+  rejecting, and two distinct keys must not collide after normalisation.
+
+**B. Escaped.** Separators are percent-encoded, so one key is exactly one flat
+object name.
+
+  Unambiguous and injective. The bucket becomes unbrowsable, which matters
+  because operators do browse buckets when something is wrong.
+
+**C. Transparent with a validated charset.** A, plus an explicit rule: reject
+``..``, leading and trailing ``/``, and empty segments at write time.
+
+  Keeps browsability and closes the ambiguity, at the cost of rejecting some
+  keys that the in-memory store accepts today — a real behavioural difference
+  between backends.
+
+*Recommendation: C*, and the divergence it introduces should be documented
+rather than smoothed over: a key legal in memory but illegal on S3 is better
+found at the first local run than in production.
+
+Q4 — is the group manifest a declared RFC 0001 schema?
+......................................................
+
+**A. Implementation detail.** An internal object, shape owned by the store.
+
+  Free to evolve. Nothing outside hgraph can interpret a group, and the
+  manifest cannot carry group-level metadata in a typed way.
+
+**B. Declared metadata schema.** The manifest is a ``Frame[Rows, Metadata]``
+with a named schema: members as rows, group-level identity as metadata.
+
+  A group becomes self-describing to any Arrow reader and reuses RFC 0001
+  rather than inventing a parallel encoding — which matters directly for the
+  co-ordinated-frames use, where the group *is* the unit of meaning. The cost
+  is a public schema to version.
+
+*Recommendation: B.* The co-ordinated-frame requirement is about frames that
+travel with their meaning; a manifest that is opaque re-creates at the group
+level exactly the problem RFC 0001 solved at the frame level.
+
+Q5 — is compression per store or per write?
+...........................................
+
+**A. Per store.** One setting for every write.
+
+  Simple, and matches how the rest of the configuration behaves.
+
+**B. Per store, overridable per write.** A default with an optional override at
+the call.
+
+  Lets a large cold frame compress hard while a hot small one stays cheap. It
+  puts a storage concern into the writing code, which is the coupling the store
+  exists to remove.
+
+*Recommendation: A* until a workload demonstrates the need. A → B is additive;
+B → A is not.
 
 Acceptance criteria and test plan
 ---------------------------------
