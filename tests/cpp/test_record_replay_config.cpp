@@ -47,10 +47,13 @@ TEST_CASE("record/replay config: configuration belongs to the seeded GlobalState
 
     CHECK(config(state).model == std::string{IN_MEMORY});
     CHECK(config(state).date_key == "__date_time__");
+    CHECK(config(state).as_of_key == "__as_of__");
     CHECK(model_is(state, IN_MEMORY));
 
     set_config(state, Config{.model = "Arrow", .date_key = "dt", .as_of_key = "asof", .as_of = MIN_ST});
     CHECK(config(state).model == "Arrow");
+    CHECK(config(state).date_key == "dt");
+    CHECK(config(state).as_of_key == "asof");
     CHECK(model_is(state, "Arrow"));
     CHECK_FALSE(model_is(state, IN_MEMORY));
     CHECK(config(state).as_of == MIN_ST);

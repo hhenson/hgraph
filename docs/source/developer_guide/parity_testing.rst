@@ -222,8 +222,9 @@ events, tick lengths, and feature pairs.  They also compare the template
 catalogue with the runtime's public operator inventory, so unsupported
 generation surface remains visible.
 
-The catalogue is deliberately targeted at the compatibility-issue classes
-production triage has actually produced (the 2026-07 batch, issues #74-#92):
+The catalogue is deliberately targeted at compatibility-issue classes found
+through production triage, starting with the 2026-07 batch (issues #74-#92)
+and extending as new regressions are identified:
 
 - ``scalar_expression`` const arguments exercise scalar auto-const overload
   selection (the #74/#78 exact-matching class);
@@ -246,7 +247,10 @@ production triage has actually produced (the 2026-07 batch, issues #74-#92):
 - ``data_frame_recording`` records through the DATA_FRAME model and emits
   the frame a ``DataFrameStorage`` hands back to user code — column names,
   **timezone presentation**, and row values — so a tz-aware engine column or
-  a changed frame surface is a trace difference (the PR #92 class);
+  a changed frame surface is a trace difference (the PR #92 class). It varies
+  between the default bitemporal names and names configured through
+  ``set_table_schema_date_key``/``set_table_schema_as_of_key`` (the #417
+  class);
 - ``postponed_annotations`` is a generation MODE on the source-built
   templates: the generated module opts into PEP 563, so string annotations
   exercise signature resolution on both distributions (the #83 class);

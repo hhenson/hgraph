@@ -1707,7 +1707,8 @@ def test_generator_covers_the_2026_07_compat_issue_classes():
     # The nightly generator must keep producing recipes in the spaces where
     # the 2026-07 compatibility issues lived: temporal accessors (#82),
     # collection sizes (#81), lifecycle signature spellings (#79), the
-    # recorded-frame surface (PR #92), and postponed annotations (#83).
+    # recorded-frame surface and configured names (PR #92 and #417), and
+    # postponed annotations (#83).
     from hypothesis import find, settings
 
     from tools.parity.generate import (
@@ -1744,6 +1745,17 @@ def test_generator_covers_the_2026_07_compat_issue_classes():
     )
     assert postponed["parameters"]["postponed_annotations"]
 
+    configured_frame = find(
+        recipe_payload_strategy(
+            min_ticks=8,
+            max_ticks=32,
+            templates=("data_frame_recording",),
+        ),
+        lambda payload: payload["parameters"].get("column_names") == "configured",
+        settings=settings(database=None, deadline=None),
+    )
+    assert "configuration:custom-table-column-names" in configured_frame["features"]
+
 
 def test_coverage_corpus_recipes_execute_on_the_candidate():
     from tools.parity.runner import run_recipe
@@ -1755,6 +1767,7 @@ def test_coverage_corpus_recipes_execute_on_the_candidate():
         "coverage-collection-sizes",
         "coverage-lifecycle-spellings",
         "coverage-frame-recording",
+        "coverage-frame-recording-custom-columns",
         "coverage-postponed-annotations",
         "coverage-nested-adaptor-pipeline",
         "coverage-nested-outer-switch",
@@ -1770,6 +1783,17 @@ def test_coverage_corpus_recipes_execute_on_the_candidate():
     frame = dict(run_recipe(raw)["trace"]["$map"])["frame"]
     columns = dict(frame["$map"])["columns"]
     assert all(dict(column["$map"])["tz"] is None for column in columns)
+
+    raw = json.loads(
+        (CORPUS / "coverage-frame-recording-custom-columns.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    frame = dict(run_recipe(raw)["trace"]["$map"])["frame"]
+    columns = dict(frame["$map"])["columns"]
+    assert [dict(column["$map"])["name"] for column in columns] == [
+        "event_time", "observed_at", "value",
+    ]
 
 
 def test_no_change_elision_relation_bounds_the_ruled_deviation():
@@ -1916,6 +1940,14 @@ def test_new_template_validators_reject_malformed_recipes():
             "parameters": {"as_of_offset": 0},
         },
         "as_of_offset",
+    )
+    rejects(
+        {
+            "template": "data_frame_recording",
+            "inputs": {"ts": [1]},
+            "parameters": {"column_names": "custom"},
+        },
+        "column_names",
     )
     rejects(
         {

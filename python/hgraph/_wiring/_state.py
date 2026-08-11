@@ -228,6 +228,10 @@ def _enter_runtime():
     _global_state_local.runtime_active = True
 
 
+def _is_runtime_active():
+    return getattr(_global_state_local, "runtime_active", False)
+
+
 def _exit_runtime():
     if getattr(_global_state_local, "runtime_active", False):
         del _global_state_local.runtime_active

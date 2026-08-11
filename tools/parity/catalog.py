@@ -955,8 +955,8 @@ def _nested_higher_order(hg, recipe):
 
 
 # --------------------------------------------------------------------------
-# Data-frame recording surface (issue #92 class): the frames the recorder
-# frameworks hand back to user code — column timezone presentation included.
+# Data-frame recording surface (issues #92/#417): the frames the recorder
+# frameworks hand back to user code — configured names and timezone included.
 
 
 def _validate_data_frame_recording(recipe):
@@ -966,6 +966,13 @@ def _validate_data_frame_recording(recipe):
     if (not isinstance(as_of_offset, int) or isinstance(as_of_offset, bool)
             or not 1 <= as_of_offset <= 10_000):
         raise RecipeError("data_frame_recording as_of_offset must be a bounded integer")
+    column_names = recipe.parameters.get("column_names", "default")
+    if not isinstance(column_names, str) or column_names not in {
+        "default", "configured"
+    }:
+        raise RecipeError(
+            "data_frame_recording column_names must be 'default' or 'configured'"
+        )
 
 
 def _canonical_frame_surface(frame):
@@ -1007,8 +1014,12 @@ def _data_frame_recording(hg, recipe):
     )
 
     as_of_offset = recipe.parameters.get("as_of_offset", 30)
+    column_names = recipe.parameters.get("column_names", "default")
     inputs = decoded_inputs(hg, recipe)
     with hg.GlobalState(), MemoryDataFrameStorage() as storage:
+        if column_names == "configured":
+            hg.set_table_schema_date_key("event_time")
+            hg.set_table_schema_as_of_key("observed_at")
         hg.set_record_replay_model(DATA_FRAME_RECORD_REPLAY)
         hg.set_as_of(hg.MIN_ST + hg.MIN_TD * as_of_offset)
         eval_node(hg.record[hg.TS[int]], ts=inputs["ts"], key="ts",

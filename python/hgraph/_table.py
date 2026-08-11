@@ -57,9 +57,12 @@ def _tp_key(tp):
         return repr(tp)
 
 
-def _config_keys():
+def _config_keys(global_state=None):
     # The bitemporal column names live on the C++ record_replay config
     # (set via set_table_schema_date_key/_as_of_key in _wiring).
+    if global_state is not None:
+        return _hgraph._table_schema_keys(global_state)
+
     from ._wiring import GlobalState
 
     if GlobalState.has_instance():
@@ -67,12 +70,22 @@ def _config_keys():
     return "__date_time__", "__as_of__"
 
 
-def get_table_schema_date_key() -> str:
-    return _config_keys()[0]
+def get_table_schema_date_key(global_state=None) -> str:
+    """Return the configured evaluation-time column name.
+
+    Inside a node callback, pass its ``GlobalState`` injectable rather than
+    consulting the wiring-time state.
+    """
+    return _config_keys(global_state)[0]
 
 
-def get_table_schema_as_of_key() -> str:
-    return _config_keys()[1]
+def get_table_schema_as_of_key(global_state=None) -> str:
+    """Return the configured revision-time column name.
+
+    Inside a node callback, pass its ``GlobalState`` injectable rather than
+    consulting the wiring-time state.
+    """
+    return _config_keys(global_state)[1]
 
 
 def make_table_schema(

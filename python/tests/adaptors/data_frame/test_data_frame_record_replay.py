@@ -74,6 +74,98 @@ def test_upstream_style_storage_subclass_hooks_are_supported():
     assert storage.schemas["values"] == ("__date_time__", "__as_of__")
 
 
+def test_storage_fallback_uses_configured_bitemporal_column_names():
+    first_time = datetime(2026, 1, 1)
+    second_time = datetime(2026, 1, 2)
+    first_revision = datetime(2026, 1, 3)
+    second_revision = datetime(2026, 1, 4)
+    frame = pa.table(
+        {
+            "event_time": [first_time, second_time],
+            "observed_at": [first_revision, second_revision],
+            "value": [1, 2],
+        }
+    )
+
+    with hg.GlobalContext(hg.GlobalState()):
+        hg.set_table_schema_date_key("event_time")
+        hg.set_table_schema_as_of_key("observed_at")
+        storage = MemoryDataFrameStorage()
+        storage.write_frame("values", frame)
+
+        assert storage._get_schema_info("values") == ("event_time", "observed_at")
+        assert storage.read_frame(
+            "values", start_time=first_time, as_of=first_revision
+        ).equals(frame.slice(0, 1))
+
+
+def test_runtime_storage_write_uses_injected_schema_configuration():
+    seen_keys = []
+
+    @hg.sink_node
+    def write_frame(value: hg.TS[int], global_state: hg.GlobalState = None):
+        date_key = hg.get_table_schema_date_key(global_state)
+        as_of_key = hg.get_table_schema_as_of_key(global_state)
+        seen_keys.append((date_key, as_of_key))
+        storage = MemoryDataFrameStorage.instance(global_state)
+        storage.write_frame(
+            "runtime",
+            pa.table(
+                {
+                    date_key: [hg.MIN_ST],
+                    as_of_key: [hg.MIN_ST],
+                    "value": [value.value],
+                }
+            ),
+            global_state=global_state,
+        )
+
+    with hg.GlobalState():
+        hg.set_table_schema_date_key("event_time")
+        hg.set_table_schema_as_of_key("observed_at")
+        with MemoryDataFrameStorage() as storage:
+            assert hg.eval_node(write_frame, [7]) is None
+            assert seen_keys == [("event_time", "observed_at")]
+            assert storage.read_frame("runtime", as_of=hg.MIN_ST).equals(
+                pa.table(
+                    {
+                        "event_time": [hg.MIN_ST],
+                        "observed_at": [hg.MIN_ST],
+                        "value": [7],
+                    }
+                )
+            )
+
+
+def test_runtime_storage_write_preserves_default_names_without_state_lookup():
+    storage = MemoryDataFrameStorage()
+
+    @hg.sink_node
+    def write_frame(value: hg.TS[int]):
+        storage.write_frame(
+            "runtime-default",
+            pa.table(
+                {
+                    "__date_time__": [hg.MIN_ST],
+                    "__as_of__": [hg.MIN_ST],
+                    "value": [value.value],
+                }
+            ),
+        )
+
+    with hg.GlobalState():
+        assert hg.eval_node(write_frame, [7]) is None
+        assert storage.read_frame("runtime-default", as_of=hg.MIN_ST).equals(
+            pa.table(
+                {
+                    "__date_time__": [hg.MIN_ST],
+                    "__as_of__": [hg.MIN_ST],
+                    "value": [7],
+                }
+            )
+        )
+
+
 def test_file_storage_schema_metadata_is_upstream_interoperable(tmp_path):
     storage = FileBasedDataFrameStorage(tmp_path)
     storage.set_schema_info("values", "when", "revision")
