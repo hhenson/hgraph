@@ -12,8 +12,8 @@ What remains supported
 
 The following authoring patterns remain part of the public Python surface:
 
-* ``TS``, ``TSS``, ``TSD``, ``TSL``, ``TSB``, ``TSW`` and ``REF`` type
-  expressions;
+* ``TS``, ``TSS``, ``TSD``, ``TSL``, ``TSB``, ``TSW``, ``REF`` and
+  ``SIGNAL`` type expressions;
 * ``graph``, ``compute_node``, ``sink_node``, ``generator`` and ``push_queue``;
 * operator syntax, subscripted type resolution, ``map_``, ``reduce``, ``mesh_``
   and ``switch_``;

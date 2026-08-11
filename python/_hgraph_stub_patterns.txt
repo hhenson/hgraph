@@ -48,6 +48,125 @@ _hgraph\.TimeSeries\.valid$:
     def valid(self) -> bool:
         \doc
 
+# TimeSeries is one native runtime-view class whose collection/window surface
+# dispatches by the schema kind.  Describe the public Python contract rather
+# than leaking nanobind's erased ``object`` return types into editor support.
+_hgraph\.TimeSeries\.(size|min_size)$:
+    @property
+    def \1(self) -> int | datetime.timedelta:
+        \doc
+
+_hgraph\.TimeSeries\.value_times$:
+    \import numpy
+    @property
+    def value_times(self) -> numpy.ndarray:
+        \doc
+
+_hgraph\.TimeSeries\.(keys|modified_keys|valid_keys|added_keys|removed_keys)$:
+    def \1(self) -> list[object]:
+        \doc
+
+_hgraph\.TimeSeries\.values$:
+    def values(self) -> list[TimeSeries | object]:
+        \doc
+
+_hgraph\.TimeSeries\.(modified_values|valid_values|added_values|removed_values)$:
+    def \1(self) -> list[TimeSeries]:
+        \doc
+
+_hgraph\.TimeSeries\.(items|modified_items|valid_items|added_items|removed_items)$:
+    def \1(self) -> list[tuple[object, TimeSeries]]:
+        \doc
+
+_hgraph\.TimeSeries\.(added|removed)$:
+    def \1(self) -> frozenset[object]:
+        \doc
+
+_hgraph\.TimeSeries\.get$:
+    def get(self, key: object) -> TimeSeries | None:
+        \doc
+
+_hgraph\.TimeSeries\.key_from_value$:
+    def key_from_value(self, value: TimeSeries) -> object | None:
+        \doc
+
+_hgraph\.TimeSeries\.__getitem__$:
+    def __getitem__(self, key: object) -> TimeSeries: ...
+
+_hgraph\.TimeSeries\.__iter__$:
+    def __iter__(self) -> Iterator[object]: ...
+
+_hgraph\.TimeSeries\.as_schema$:
+    @property
+    def as_schema(self) -> TimeSeries:
+        \doc
+
+_hgraph\.TimeSeries\.__getattr__$:
+    def __getattr__(self, name: str) -> TimeSeries: ...
+
+_hgraph\.OutputView\.(size|min_size)$:
+    @property
+    def \1(self) -> int | datetime.timedelta:
+        \doc
+
+_hgraph\.OutputView\.value_times$:
+    \import numpy
+    @property
+    def value_times(self) -> numpy.ndarray:
+        \doc
+
+_hgraph\.OutputView\.(keys|modified_keys|valid_keys|added_keys|removed_keys)$:
+    def \1(self) -> list[object]:
+        \doc
+
+_hgraph\.OutputView\.values$:
+    def values(self) -> list[OutputView | object]:
+        \doc
+
+_hgraph\.OutputView\.(modified_values|valid_values|added_values|removed_values)$:
+    def \1(self) -> list[OutputView]:
+        \doc
+
+_hgraph\.OutputView\.(items|modified_items|valid_items|added_items|removed_items)$:
+    def \1(self) -> list[tuple[object, OutputView]]:
+        \doc
+
+_hgraph\.OutputView\.(added|removed)$:
+    def \1(self) -> frozenset[object]:
+        \doc
+
+_hgraph\.OutputView\.get$:
+    def get(self, key: object) -> OutputView | None:
+        \doc
+
+_hgraph\.OutputView\.pop$:
+    def pop(self, key: object) -> OutputView | None:
+        \doc
+
+_hgraph\.OutputView\.key_from_value$:
+    def key_from_value(self, value: OutputView) -> object | None:
+        \doc
+
+_hgraph\.OutputView\.__getitem__$:
+    def __getitem__(self, key: object) -> OutputView: ...
+
+_hgraph\.OutputView\.__setitem__$:
+    def __setitem__(self, key: object, value: object) -> None: ...
+
+_hgraph\.OutputView\.__delitem__$:
+    def __delitem__(self, key: object) -> None: ...
+
+_hgraph\.OutputView\.__iter__$:
+    def __iter__(self) -> Iterator[object]: ...
+
+_hgraph\.OutputView\.as_schema$:
+    @property
+    def as_schema(self) -> OutputView:
+        \doc
+
+_hgraph\.OutputView\.__getattr__$:
+    def __getattr__(self, name: str) -> OutputView: ...
+
 _hgraph\.CivilDateTime\.time$:
     @property
     def time(self) -> datetime.time: ...

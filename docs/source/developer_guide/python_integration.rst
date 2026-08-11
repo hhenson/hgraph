@@ -549,14 +549,16 @@ Recorded divergences / gaps (the morning-summary list):
   ``.all_valid`` / ``.last_modified_time`` / ``.owning_node`` /
   ``.owning_graph`` / ``.is_reference()``. Mutable ``_output`` views expose
   the same generic interrogation properties while retaining their native
-  mutation API. Kind-dispatched: TSS
-  ``added()``/``removed()``; TSD ``[]``/``keys()``/``modified_keys()``/
-  ``modified_items()``/``removed_keys()``/``in``; TSL ``[i]``/``len``;
-  TSB ``.field`` / ``[]``. Child access returns child views sharing the
-  parent's lifetime guard: a view stored past its node's evaluation
-  raises rather than dangling. ``delta_value`` builds hgraph's friendly
-  shapes natively from the dict/set views (no canonical-delta
-  intermediate). Python does not reproduce the old engine's endpoint topology
+  mutation API. Kind-dispatched: TSS exposes current/add/remove set views and
+  membership; TSD exposes complete, modified, valid, added and removed
+  key/value/item ranges plus its zero-copy ``key_set``; TSL and TSB expose
+  complete, modified and valid ranges plus ``key_from_value``; TSW exposes its
+  configured bounds, current occupancy, eviction state, and NumPy-compatible
+  value/time buffers. Child access returns child views sharing the parent's
+  lifetime guard: a view stored past its node's evaluation raises rather than
+  dangling. ``delta_value`` builds hgraph's friendly shapes natively from the
+  dict/set views (no canonical-delta intermediate). Python does not reproduce
+  the old engine's endpoint topology
   mutation hooks: ``bind_output`` / ``un_bind_output``, their ``do_*``
   implementation hooks, ``re_parent``, direct parent/bound-output traversal,
   and subscription management remain native runtime responsibilities.

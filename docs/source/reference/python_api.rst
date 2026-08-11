@@ -58,7 +58,12 @@ for native values, and generated declarations for lazy operators. Nanobind
 reads structured binding signatures (including captured binding docstrings)
 rather than parsing rendered ``__doc__`` text. HGraph augments that result with
 the native operator registry because lazy operators are Python proxy objects,
-not nanobind functions.
+not nanobind functions. The native declaration describes the guarded
+``TimeSeries`` and ``OutputView`` contracts as well: keyed lookup returns a
+child view or ``None``, collection ranges identify their child-view types, and
+``TSW.value_times`` is declared as ``numpy.ndarray``. The runtime value and
+time buffers are NumPy-compatible one-dimensional arrays; window times use
+``datetime64[us]``.
 
 Operator overload selection still happens while the graph is wired, but the
 typing declarations are not reduced to a common ``(*args, **kwargs)`` shape.

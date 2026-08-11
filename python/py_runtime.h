@@ -79,6 +79,23 @@ namespace hgraph::python_bridge
         return result;
     }
 
+    /** Copy a window's evaluation timestamps into the value layer's standard
+        NumPy-compatible one-dimensional buffer.  The scalar binding owns the
+        dtype conversion (DateTime -> datetime64[us]); the window remains the
+        C++ source of ordering and contents. */
+    [[nodiscard]] inline nb::object materialize_window_times(TSWDataView &window)
+    {
+        const ValueTypeRef binding = window.layout().time_binding;
+        const ValueArraySource source{
+            .owner = &window,
+            .size = window.size(),
+            .element_at = [](const void *owner, std::size_t index) -> const void * {
+                return static_cast<const TSWDataView *>(owner)->time_value_at(index).data();
+            },
+        };
+        return binding.ops_ref().to_python_buffer(binding, source);
+    }
+
     /**
      * ONE compute/sink operator for ANY arity (Howard's review: per-arity
      * stubs do not scale): the argument ports pack into a STRUCTURAL
@@ -464,11 +481,25 @@ namespace hgraph::python_bridge
         DateTime       now{};
         NodeScheduler  scheduler;
         PyTsLease      lease;
+        /** Parent-relative identity retained for ``key_from_value`` when an
+            invalid structural output child has no resolved data pointer. */
+        nb::object     collection_key{};
+        const void    *collection_identity{nullptr};
 
         [[nodiscard]] TSOutputView checked() const
         {
             lease.require_alive("an output view was accessed outside its node's evaluation");
             return handle.view(now);
+        }
+
+        [[nodiscard]] PyOutput collection_child(TSOutputHandle child,
+                                                nb::object key) const
+        {
+            PyOutput result{
+                std::move(child), now, scheduler, lease};
+            result.collection_key      = std::move(key);
+            result.collection_identity = checked().data_view().data();
+            return result;
         }
 
         [[nodiscard]] bool valid() const
@@ -560,19 +591,27 @@ namespace hgraph::python_bridge
                     {
                         throw nb::key_error("output key not found");
                     }
-                    return PyOutput{dict.at(key_value.view()).handle(), now, scheduler, lease};
+                    return collection_child(
+                        dict.at(key_value.view()).handle(),
+                        nb::borrow<nb::object>(key));
                 }
                 case TSTypeKind::TSL: {
                     auto list = view.as_list();
-                    return PyOutput{
-                        list.at(nb::cast<std::size_t>(key)).handle(), now, scheduler, lease};
+                    const auto index = nb::cast<std::size_t>(key);
+                    return collection_child(list.at(index).handle(), nb::cast(index));
                 }
                 case TSTypeKind::TSB: {
                     auto bundle = view.as_bundle();
-                    TSOutputView result = nb::isinstance<nb::str>(key)
-                                              ? bundle.field(nb::cast<std::string>(key))
-                                              : bundle.at(nb::cast<std::size_t>(key));
-                    return PyOutput{result.handle(), now, scheduler, lease};
+                    if (nb::isinstance<nb::str>(key))
+                    {
+                        return collection_child(
+                            bundle.field(nb::cast<std::string>(key)).handle(),
+                            nb::borrow<nb::object>(key));
+                    }
+                    const auto index = nb::cast<std::size_t>(key);
+                    const auto &field = view.schema()->fields()[index];
+                    return collection_child(
+                        bundle.at(index).handle(), nb::str(field.name));
                 }
                 default: throw nb::type_error("this output kind has no children");
             }
@@ -588,8 +627,8 @@ namespace hgraph::python_bridge
             Value key_value = py_to_value_as(key, view.schema()->key_type());
             auto  mutation  = view.as_dict().begin_mutation(now);
             auto  child     = mutation.at(key_value.view());
-            return PyOutput{
-                TSOutputHandle{view.output(), child}, now, scheduler, lease};
+            return collection_child(
+                TSOutputHandle{view.output(), child}, nb::borrow<nb::object>(key));
         }
 
         void erase(nb::handle key) const
@@ -601,6 +640,28 @@ namespace hgraph::python_bridge
             }
             Value key_value = py_to_value_as(key, view.schema()->key_type());
             static_cast<void>(view.as_dict().begin_mutation(now).erase(key_value.view()));
+        }
+
+        void set_child_value(nb::handle key, nb::object value) const
+        {
+            child(key).set_value(std::move(value));
+        }
+
+        [[nodiscard]] nb::object pop(nb::handle key) const
+        {
+            auto view = checked();
+            if (view.schema()->kind != TSTypeKind::TSD)
+            {
+                throw nb::type_error("pop(): not a keyed output");
+            }
+            Value key_value = py_to_value_as(key, view.schema()->key_type());
+            auto  dict      = view.as_dict();
+            if (!dict.contains(key_value.view())) { return nb::none(); }
+            PyOutput removed = collection_child(
+                TSOutputHandle{dict.at(key_value.view())},
+                nb::borrow<nb::object>(key));
+            static_cast<void>(dict.begin_mutation(now).erase(key_value.view()));
+            return nb::cast(std::move(removed));
         }
 
         void clear() const
@@ -644,8 +705,306 @@ namespace hgraph::python_bridge
                 case TSTypeKind::TSS: return view.as_set().size();
                 case TSTypeKind::TSL: return view.as_list().size();
                 case TSTypeKind::TSB: return view.as_bundle().size();
+                case TSTypeKind::TSW: return view.as_window().size();
                 default: throw nb::type_error("this output kind has no size");
             }
+        }
+
+        [[nodiscard]] nb::object get(nb::handle key) const
+        {
+            auto view = checked();
+            if (view.schema()->kind != TSTypeKind::TSD)
+            {
+                throw nb::type_error("get(): not a keyed output");
+            }
+            Value key_value = py_to_value_as(key, view.schema()->key_type());
+            auto  dict      = view.as_dict();
+            return dict.contains(key_value.view())
+                       ? nb::cast(collection_child(
+                             TSOutputHandle{dict.at(key_value.view())},
+                             nb::borrow<nb::object>(key)))
+                       : nb::none();
+        }
+
+        [[nodiscard]] PyOutput key_set() const
+        {
+            auto view = checked();
+            if (view.schema()->kind != TSTypeKind::TSD)
+            {
+                throw nb::attribute_error("key_set");
+            }
+            return PyOutput{
+                TSOutputHandle{view.as_dict().key_set()}, now, scheduler, lease};
+        }
+
+        [[nodiscard]] nb::list keys() const
+        {
+            nb::list result;
+            auto view = checked();
+            switch (view.schema()->kind)
+            {
+                case TSTypeKind::TSD: {
+                    for (const ValueView &key : view.as_dict().keys())
+                    {
+                        result.append(value_to_py(key));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSL: {
+                    const auto length = view.as_list().size();
+                    for (std::size_t index = 0; index < length; ++index) { result.append(index); }
+                    return result;
+                }
+                case TSTypeKind::TSB: {
+                    auto bundle = view.as_bundle();
+                    for (std::string_view key : bundle.keys())
+                    {
+                        result.append(nb::str(key.data(), key.size()));
+                    }
+                    return result;
+                }
+                default: throw nb::type_error("keys(): not an indexed output");
+            }
+        }
+
+        [[nodiscard]] nb::list values() const
+        {
+            nb::list result;
+            auto view = checked();
+            switch (view.schema()->kind)
+            {
+                case TSTypeKind::TSD: {
+                    auto dict = view.as_dict();
+                    for (auto &&[key, child] : dict.items())
+                    {
+                        result.append(collection_child(
+                            TSOutputHandle{std::move(child)}, value_to_py(key)));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSL: {
+                    auto list = view.as_list();
+                    for (auto &&[index, child] : list.items())
+                    {
+                        result.append(collection_child(
+                            TSOutputHandle{std::move(child)}, nb::cast(index)));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSB: {
+                    auto bundle = view.as_bundle();
+                    for (auto &&[key, child] : bundle.items())
+                    {
+                        result.append(collection_child(
+                            TSOutputHandle{std::move(child)},
+                            nb::str(key.data(), key.size())));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSS: {
+                    auto set = view.as_set();
+                    for (const ValueView &element : set.values())
+                    {
+                        result.append(value_to_py(element));
+                    }
+                    return result;
+                }
+                default: throw nb::type_error("values(): not a collection output");
+            }
+        }
+
+        [[nodiscard]] nb::list items() const
+        {
+            nb::list result;
+            auto view = checked();
+            switch (view.schema()->kind)
+            {
+                case TSTypeKind::TSD: {
+                    auto dict = view.as_dict();
+                    for (auto &&[key, child] : dict.items())
+                    {
+                        nb::object py_key = value_to_py(key);
+                        result.append(nb::make_tuple(
+                            py_key,
+                            collection_child(TSOutputHandle{std::move(child)}, py_key)));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSL: {
+                    auto list = view.as_list();
+                    for (auto &&[index, child] : list.items())
+                    {
+                        result.append(nb::make_tuple(
+                            index,
+                            collection_child(
+                                TSOutputHandle{std::move(child)}, nb::cast(index))));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSB: {
+                    auto bundle = view.as_bundle();
+                    for (auto &&[key, child] : bundle.items())
+                    {
+                        nb::object py_key = nb::str(key.data(), key.size());
+                        result.append(nb::make_tuple(
+                            py_key,
+                            collection_child(TSOutputHandle{std::move(child)}, py_key)));
+                    }
+                    return result;
+                }
+                default: throw nb::type_error("items(): not an indexed output");
+            }
+        }
+
+        [[nodiscard]] nb::list modified_keys() const
+        {
+            nb::list result;
+            for (nb::handle item : modified_items()) { result.append(item[0]); }
+            return result;
+        }
+
+        [[nodiscard]] nb::list modified_values() const
+        {
+            nb::list result;
+            for (nb::handle item : modified_items()) { result.append(item[1]); }
+            return result;
+        }
+
+        [[nodiscard]] nb::list modified_items() const
+        {
+            nb::list result;
+            auto view = checked();
+            switch (view.schema()->kind)
+            {
+                case TSTypeKind::TSD: {
+                    auto dict = view.as_dict();
+                    for (auto &&[key, child] : dict.modified_items())
+                    {
+                        nb::object py_key = value_to_py(key);
+                        result.append(nb::make_tuple(
+                            py_key,
+                            collection_child(TSOutputHandle{std::move(child)}, py_key)));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSL: {
+                    auto list = view.as_list();
+                    for (auto &&[index, child] : list.modified_items())
+                    {
+                        result.append(nb::make_tuple(
+                            index,
+                            collection_child(
+                                TSOutputHandle{std::move(child)}, nb::cast(index))));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSB: {
+                    auto bundle = view.as_bundle();
+                    for (auto &&[key, child] : bundle.modified_items())
+                    {
+                        nb::object py_key = nb::str(key.data(), key.size());
+                        result.append(nb::make_tuple(
+                            py_key,
+                            collection_child(TSOutputHandle{std::move(child)}, py_key)));
+                    }
+                    return result;
+                }
+                default: throw nb::type_error("modified_items(): not an indexed output");
+            }
+        }
+
+        [[nodiscard]] nb::list valid_keys() const
+        {
+            nb::list result;
+            for (nb::handle item : valid_items()) { result.append(item[0]); }
+            return result;
+        }
+
+        [[nodiscard]] nb::list valid_values() const
+        {
+            nb::list result;
+            for (nb::handle item : valid_items()) { result.append(item[1]); }
+            return result;
+        }
+
+        [[nodiscard]] nb::list valid_items() const
+        {
+            nb::list result;
+            auto view = checked();
+            switch (view.schema()->kind)
+            {
+                case TSTypeKind::TSD: {
+                    auto dict = view.as_dict();
+                    for (auto &&[key, child] : dict.valid_items())
+                    {
+                        nb::object py_key = value_to_py(key);
+                        result.append(nb::make_tuple(
+                            py_key,
+                            collection_child(TSOutputHandle{std::move(child)}, py_key)));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSL: {
+                    auto list = view.as_list();
+                    for (auto &&[index, child] : list.valid_items())
+                    {
+                        result.append(nb::make_tuple(
+                            index,
+                            collection_child(
+                                TSOutputHandle{std::move(child)}, nb::cast(index))));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSB: {
+                    auto bundle = view.as_bundle();
+                    for (auto &&[key, child] : bundle.valid_items())
+                    {
+                        nb::object py_key = nb::str(key.data(), key.size());
+                        result.append(nb::make_tuple(
+                            py_key,
+                            collection_child(TSOutputHandle{std::move(child)}, py_key)));
+                    }
+                    return result;
+                }
+                default: throw nb::type_error("valid_items(): not an indexed output");
+            }
+        }
+
+        [[nodiscard]] nb::list added_keys() const
+        {
+            nb::list result;
+            auto view = checked();
+            auto dict = view.as_dict();
+            for (const ValueView &key : dict.added_keys()) { result.append(value_to_py(key)); }
+            return result;
+        }
+
+        [[nodiscard]] nb::list added_values() const
+        {
+            nb::list result;
+            auto view = checked();
+            auto dict = view.as_dict();
+            for (auto &&[key, child] : dict.added_items())
+            {
+                result.append(collection_child(
+                    TSOutputHandle{std::move(child)}, value_to_py(key)));
+            }
+            return result;
+        }
+
+        [[nodiscard]] nb::list added_items() const
+        {
+            nb::list result;
+            auto view = checked();
+            auto dict = view.as_dict();
+            for (auto &&[key, child] : dict.added_items())
+            {
+                nb::object py_key = value_to_py(key);
+                result.append(nb::make_tuple(
+                    py_key,
+                    collection_child(TSOutputHandle{std::move(child)}, py_key)));
+            }
+            return result;
         }
 
         [[nodiscard]] nb::list removed_keys() const
@@ -655,6 +1014,186 @@ namespace hgraph::python_bridge
             auto     dict = view.as_dict();
             for (const ValueView &key : dict.removed_keys()) { result.append(value_to_py(key)); }
             return result;
+        }
+
+        [[nodiscard]] nb::list removed_values() const
+        {
+            nb::list result;
+            auto view = checked();
+            auto dict = view.as_dict();
+            for (auto &&[key, child] : dict.removed_items())
+            {
+                result.append(collection_child(
+                    TSOutputHandle{std::move(child)}, value_to_py(key)));
+            }
+            return result;
+        }
+
+        [[nodiscard]] nb::list removed_items() const
+        {
+            nb::list result;
+            auto view = checked();
+            auto dict = view.as_dict();
+            for (auto &&[key, child] : dict.removed_items())
+            {
+                nb::object py_key = value_to_py(key);
+                result.append(nb::make_tuple(
+                    py_key,
+                    collection_child(TSOutputHandle{std::move(child)}, py_key)));
+            }
+            return result;
+        }
+
+        [[nodiscard]] nb::object set_added() const
+        {
+            nb::list items;
+            auto view = checked();
+            auto set  = view.as_set();
+            for (const ValueView &element : set.added())
+            {
+                items.append(value_to_py(element));
+            }
+            return nb::steal(PyFrozenSet_New(items.ptr()));
+        }
+
+        [[nodiscard]] nb::object set_removed() const
+        {
+            nb::list items;
+            auto view = checked();
+            auto set  = view.as_set();
+            for (const ValueView &element : set.removed())
+            {
+                items.append(value_to_py(element));
+            }
+            return nb::steal(PyFrozenSet_New(items.ptr()));
+        }
+
+        [[nodiscard]] bool was_added(nb::handle item) const
+        {
+            nb::object changes = set_added();
+            const int result = PySequence_Contains(changes.ptr(), item.ptr());
+            if (result < 0) { nb::raise_python_error(); }
+            return result != 0;
+        }
+
+        [[nodiscard]] bool was_removed(nb::handle item) const
+        {
+            nb::object changes = set_removed();
+            const int result = PySequence_Contains(changes.ptr(), item.ptr());
+            if (result < 0) { nb::raise_python_error(); }
+            return result != 0;
+        }
+
+        [[nodiscard]] nb::object key_from_value(const PyOutput &value) const
+        {
+            const auto identity = checked().data_view().data();
+            if (value.collection_identity == identity &&
+                value.collection_key.is_valid())
+            {
+                return nb::borrow<nb::object>(value.collection_key);
+            }
+            const auto target = value.checked().data_view().data();
+            auto view = checked();
+            if (view.schema()->kind == TSTypeKind::TSL)
+            {
+                auto list = view.as_list();
+                for (std::size_t index = 0; index < list.size(); ++index)
+                {
+                    if (list[index].data_view().data() == target) { return nb::cast(index); }
+                }
+                return nb::none();
+            }
+            if (view.schema()->kind == TSTypeKind::TSB)
+            {
+                auto bundle = view.as_bundle();
+                for (auto &&[key, child] : bundle.items())
+                {
+                    if (child.data_view().data() == target)
+                    {
+                        return nb::str(key.data(), key.size());
+                    }
+                }
+                return nb::none();
+            }
+            if (view.schema()->kind == TSTypeKind::TSD)
+            {
+                auto dict = view.as_dict();
+                for (auto &&[key, child] : dict.items())
+                {
+                    if (child.data_view().data() == target) { return value_to_py(key); }
+                }
+                return nb::none();
+            }
+            throw nb::type_error("key_from_value(): not an indexed output");
+        }
+
+        [[nodiscard]] nb::object window_size() const
+        {
+            auto view   = checked();
+            if (view.schema()->kind != TSTypeKind::TSW)
+            {
+                throw nb::attribute_error("size");
+            }
+            auto window = view.as_window();
+            return window.duration_based() ? nb::cast(window.time_range())
+                                           : nb::cast(window.period());
+        }
+
+        [[nodiscard]] nb::object window_min_size() const
+        {
+            auto view   = checked();
+            if (view.schema()->kind != TSTypeKind::TSW)
+            {
+                throw nb::attribute_error("min_size");
+            }
+            auto window = view.as_window();
+            return window.duration_based() ? nb::cast(window.min_time_range())
+                                           : nb::cast(window.min_period());
+        }
+
+        [[nodiscard]] nb::object value_times() const
+        {
+            auto view   = checked();
+            if (view.schema()->kind != TSTypeKind::TSW)
+            {
+                throw nb::attribute_error("value_times");
+            }
+            auto window = view.as_window().data_view();
+            return materialize_window_times(window);
+        }
+
+        [[nodiscard]] DateTime first_modified_time() const
+        {
+            auto view   = checked();
+            if (view.schema()->kind != TSTypeKind::TSW)
+            {
+                throw nb::attribute_error("first_modified_time");
+            }
+            auto window = view.as_window();
+            return window.first_modified_time();
+        }
+
+        [[nodiscard]] bool has_removed_value() const
+        {
+            auto view   = checked();
+            if (view.schema()->kind != TSTypeKind::TSW)
+            {
+                throw nb::attribute_error("has_removed_value");
+            }
+            auto window = view.as_window().data_view();
+            return window.has_removed_value(now);
+        }
+
+        [[nodiscard]] nb::object removed_value() const
+        {
+            auto view   = checked();
+            if (view.schema()->kind != TSTypeKind::TSW)
+            {
+                throw nb::attribute_error("removed_value");
+            }
+            auto window = view.as_window().data_view();
+            return window.has_removed_value(now) ? value_to_py(window.removed_value(now))
+                                                 : nb::none();
         }
 
         [[nodiscard]] bool add(nb::handle value) const
@@ -761,6 +1300,16 @@ namespace hgraph::python_bridge
         PyTsLease         lease;
         TSDataStorageRef<> evaluation_data{};
         const TSDataOps   *python_value_ops{nullptr};
+        /** ``TSD.key_set`` is a zero-copy observational projection over the
+            parent input.  Keeping the parent TSInputView preserves ownership,
+            sampled-transition and callback-lifetime behaviour while the
+            public kind and set methods dispatch to its native key-set view. */
+        bool               key_set_projection{false};
+        /** Parent-relative identity retained for ``key_from_value`` even when
+            a structural child is currently invalid and therefore has no
+            resolved target-data pointer. */
+        nb::object         collection_key{};
+        const void        *collection_identity{nullptr};
 
         void refresh_evaluation_data(TSDataStorageRef<> storage,
                                      bool has_current_value)
@@ -787,9 +1336,39 @@ namespace hgraph::python_bridge
             return view;
         }
 
-        [[nodiscard]] TSTypeKind kind() const { return checked().schema()->kind; }
+        [[nodiscard]] TSTypeKind kind() const
+        {
+            return key_set_projection ? TSTypeKind::TSS : checked().schema()->kind;
+        }
 
-        [[nodiscard]] bool is_reference() const { return checked().is_reference(); }
+        [[nodiscard]] bool is_reference() const
+        {
+            return !key_set_projection && checked().is_reference();
+        }
+
+        [[nodiscard]] TSDInputView projected_dict() const
+        {
+            if (!key_set_projection)
+            {
+                throw nb::type_error("this time-series is not a dictionary key-set projection");
+            }
+            return checked().as_dict();
+        }
+
+        [[nodiscard]] static nb::object python_set(nb::list items, bool frozen)
+        {
+            return frozen ? nb::steal(PyFrozenSet_New(items.ptr()))
+                          : nb::steal(PySet_New(items.ptr()));
+        }
+
+        [[nodiscard]] PyTimeSeries collection_child(TSInputView child,
+                                                    nb::object key) const
+        {
+            PyTimeSeries result{std::move(child), lease};
+            result.collection_key      = std::move(key);
+            result.collection_identity = checked().data_view().data();
+            return result;
+        }
 
         [[nodiscard]] nb::object owning_node() const
         {
@@ -814,6 +1393,16 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] nb::object value() const
         {
+            if (key_set_projection)
+            {
+                nb::list items;
+                auto dict = projected_dict();
+                for (const ValueView &key : dict.keys())
+                {
+                    items.append(value_to_py(key));
+                }
+                return python_set(std::move(items), false);
+            }
             if (python_value_ops != nullptr)
             {
                 // The argument assembler already proved that this atomic TS
@@ -895,6 +1484,14 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] nb::object delta_value() const
         {
+            if (key_set_projection)
+            {
+                nb::dict canonical;
+                canonical["added"]   = added();
+                canonical["removed"] = removed();
+                nb::object &shape = delta_shaper_slot();
+                return shape.is_valid() ? shape(canonical) : std::move(canonical);
+            }
             const auto &ts = checked();
             if (ts.schema() != nullptr && ts.schema()->kind == TSTypeKind::REF)
             {
@@ -915,26 +1512,80 @@ namespace hgraph::python_bridge
             return shape.is_valid() ? shape(delta) : delta;
         }
 
-        [[nodiscard]] bool modified() const { return checked().modified(); }
-        [[nodiscard]] bool valid() const { return checked().valid(); }
-        [[nodiscard]] bool all_valid() const { return checked().all_valid(); }
-        [[nodiscard]] DateTime last_modified_time() const { return checked().last_modified_time(); }
+        [[nodiscard]] bool modified() const
+        {
+            return key_set_projection ? projected_dict().structure_modified()
+                                      : checked().modified();
+        }
+        [[nodiscard]] bool valid() const
+        {
+            if (!key_set_projection) { return checked().valid(); }
+            auto data = projected_dict().data_view().key_set().base();
+            return data.has_current_value();
+        }
+        [[nodiscard]] bool all_valid() const
+        {
+            return key_set_projection ? valid() : checked().all_valid();
+        }
+        [[nodiscard]] DateTime last_modified_time() const
+        {
+            if (!key_set_projection) { return checked().last_modified_time(); }
+            return projected_dict().data_view().key_set().base().last_modified_time();
+        }
 
         // --- TSS ---
         [[nodiscard]] nb::object added() const
         {
             nb::list items;
-            auto set = checked().as_set();
-            for (const ValueView &element : set.added()) { items.append(value_to_py(element)); }
-            return nb::steal(PyFrozenSet_New(nb::list(items).ptr()));
+            if (key_set_projection)
+            {
+                auto dict = projected_dict();
+                for (const ValueView &element : dict.added_keys())
+                {
+                    items.append(value_to_py(element));
+                }
+            }
+            else
+            {
+                auto set = checked().as_set();
+                for (const ValueView &element : set.added()) { items.append(value_to_py(element)); }
+            }
+            return python_set(std::move(items), true);
         }
 
         [[nodiscard]] nb::object removed() const
         {
             nb::list items;
-            auto set = checked().as_set();
-            for (const ValueView &element : set.removed()) { items.append(value_to_py(element)); }
-            return nb::steal(PyFrozenSet_New(nb::list(items).ptr()));
+            if (key_set_projection)
+            {
+                auto dict = projected_dict();
+                for (const ValueView &element : dict.removed_keys())
+                {
+                    items.append(value_to_py(element));
+                }
+            }
+            else
+            {
+                auto set = checked().as_set();
+                for (const ValueView &element : set.removed()) { items.append(value_to_py(element)); }
+            }
+            return python_set(std::move(items), true);
+        }
+
+        [[nodiscard]] bool was_added(nb::handle item) const
+        {
+            nb::object changes = added();
+            const int result = PySequence_Contains(changes.ptr(), item.ptr());
+            if (result < 0) { nb::raise_python_error(); }
+            return result != 0;
+        }
+
+        [[nodiscard]] bool was_removed(nb::handle item) const
+        {
+            nb::object changes = removed();
+            const int result = PySequence_Contains(changes.ptr(), item.ptr());
+            if (result < 0) { nb::raise_python_error(); }
+            return result != 0;
         }
 
         // --- TSD / TSL / TSB children (share the guard) ---
@@ -945,27 +1596,64 @@ namespace hgraph::python_bridge
             {
                 case TSTypeKind::TSD: {
                     Value key_value = py_to_value_as(key, ts.schema()->key_type());
-                    return PyTimeSeries{ts.as_dict().at(key_value.view()), lease};
+                    auto dict = ts.as_dict();
+                    if (!dict.contains(key_value.view()))
+                    {
+                        throw nb::key_error("time-series key not found");
+                    }
+                    return collection_child(
+                        dict.at(key_value.view()), nb::borrow<nb::object>(key));
                 }
                 case TSTypeKind::TSL: {
                     auto list = ts.as_list();
-                    return PyTimeSeries{list[nb::cast<std::size_t>(key)], lease};
+                    const auto index = nb::cast<std::size_t>(key);
+                    return collection_child(list[index], nb::cast(index));
                 }
                 case TSTypeKind::TSB: {
                     auto bundle = ts.as_bundle();
                     if (nb::isinstance<nb::str>(key))
                     {
-                        return PyTimeSeries{
-                            bundle.field(nb::cast<std::string>(key)), lease};
+                        return collection_child(
+                            bundle.field(nb::cast<std::string>(key)),
+                            nb::borrow<nb::object>(key));
                     }
-                    return PyTimeSeries{bundle[nb::cast<std::size_t>(key)], lease};
+                    const auto index = nb::cast<std::size_t>(key);
+                    const auto &field = ts.schema()->fields()[index];
+                    return collection_child(
+                        bundle[index], nb::str(field.name));
                 }
                 default: throw nb::type_error("this time-series kind has no children");
             }
         }
 
+        [[nodiscard]] nb::object get(nb::handle key) const
+        {
+            const auto &ts = checked();
+            if (ts.schema()->kind != TSTypeKind::TSD)
+            {
+                throw nb::type_error("get(): not a keyed time-series");
+            }
+            Value key_value = py_to_value_as(key, ts.schema()->key_type());
+            auto  dict      = ts.as_dict();
+            return dict.contains(key_value.view())
+                       ? nb::cast(collection_child(
+                             dict.at(key_value.view()), nb::borrow<nb::object>(key)))
+                       : nb::none();
+        }
+
+        [[nodiscard]] PyTimeSeries key_set() const
+        {
+            const auto &ts = checked();
+            if (ts.schema()->kind != TSTypeKind::TSD)
+            {
+                throw nb::attribute_error("key_set");
+            }
+            return PyTimeSeries{ts.borrowed_ref(), lease, {}, nullptr, true};
+        }
+
         [[nodiscard]] std::size_t size() const
         {
+            if (key_set_projection) { return projected_dict().size(); }
             const auto &ts = checked();
             switch (ts.schema()->kind)
             {
@@ -973,6 +1661,7 @@ namespace hgraph::python_bridge
                 case TSTypeKind::TSL: return ts.as_list().size();
                 case TSTypeKind::TSB: return ts.as_bundle().size();
                 case TSTypeKind::TSS: return ts.as_set().size();
+                case TSTypeKind::TSW: return ts.as_window().size();
                 default: throw nb::type_error("this time-series kind has no size");
             }
         }
@@ -980,47 +1669,151 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::list keys() const
         {
             nb::list result;
-            auto dict = checked().as_dict();
-            for (const ValueView &key : dict.keys()) { result.append(value_to_py(key)); }
-            return result;
+            const auto &ts = checked();
+            switch (ts.schema()->kind)
+            {
+                case TSTypeKind::TSD: {
+                    auto dict = ts.as_dict();
+                    for (const ValueView &key : dict.keys()) { result.append(value_to_py(key)); }
+                    return result;
+                }
+                case TSTypeKind::TSL: {
+                    const auto length = ts.as_list().size();
+                    for (std::size_t index = 0; index < length; ++index) { result.append(index); }
+                    return result;
+                }
+                case TSTypeKind::TSB: {
+                    auto bundle = ts.as_bundle();
+                    for (std::string_view key : bundle.keys()) { result.append(nb::str(key.data(), key.size())); }
+                    return result;
+                }
+                default: throw nb::type_error("keys(): not an indexed time-series");
+            }
         }
 
         [[nodiscard]] nb::list modified_keys() const
         {
             nb::list result;
-            auto dict = checked().as_dict();
-            for (const auto &[key, child] : dict.modified_items()) { result.append(value_to_py(key)); }
-            return result;
+            const auto &ts = checked();
+            switch (ts.schema()->kind)
+            {
+                case TSTypeKind::TSD: {
+                    auto dict = ts.as_dict();
+                    for (const ValueView &key : dict.modified_keys()) { result.append(value_to_py(key)); }
+                    return result;
+                }
+                case TSTypeKind::TSL: {
+                    auto list = ts.as_list();
+                    for (auto &&[index, child] : list.modified_items())
+                    {
+                        static_cast<void>(child);
+                        result.append(index);
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSB: {
+                    auto bundle = ts.as_bundle();
+                    for (auto &&[key, child] : bundle.modified_items())
+                    {
+                        static_cast<void>(child);
+                        result.append(nb::str(key.data(), key.size()));
+                    }
+                    return result;
+                }
+                default: throw nb::type_error("modified_keys(): not an indexed time-series");
+            }
         }
 
         [[nodiscard]] nb::list modified_items() const
         {
             nb::list result;
-            auto dict = checked().as_dict();
-            for (auto &&[key, child] : dict.modified_items())
+            const auto &ts = checked();
+            switch (ts.schema()->kind)
             {
-                result.append(nb::make_tuple(
-                    value_to_py(key), PyTimeSeries{std::move(child), lease}));
+                case TSTypeKind::TSD: {
+                    auto dict = ts.as_dict();
+                    for (auto &&[key, child] : dict.modified_items())
+                    {
+                        result.append(nb::make_tuple(
+                            value_to_py(key),
+                            collection_child(std::move(child), value_to_py(key))));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSL: {
+                    auto list = ts.as_list();
+                    for (auto &&[index, child] : list.modified_items())
+                    {
+                        result.append(nb::make_tuple(
+                            index, collection_child(std::move(child), nb::cast(index))));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSB: {
+                    auto bundle = ts.as_bundle();
+                    for (auto &&[key, child] : bundle.modified_items())
+                    {
+                        nb::object py_key = nb::str(key.data(), key.size());
+                        result.append(nb::make_tuple(
+                            py_key,
+                            collection_child(std::move(child), py_key)));
+                    }
+                    return result;
+                }
+                default: throw nb::type_error("modified_items(): not an indexed time-series");
             }
-            return result;
         }
 
         [[nodiscard]] nb::list modified_values() const
         {
             nb::list result;
-            auto dict = checked().as_dict();
-            for (auto &&[key, child] : dict.modified_items())
+            const auto &ts = checked();
+            switch (ts.schema()->kind)
             {
-                static_cast<void>(key);
-                result.append(PyTimeSeries{std::move(child), lease});
+                case TSTypeKind::TSD: {
+                    auto dict = ts.as_dict();
+                    for (auto &&[key, child] : dict.modified_items())
+                    {
+                        result.append(collection_child(
+                            std::move(child), value_to_py(key)));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSL: {
+                    auto list = ts.as_list();
+                    for (auto &&[index, child] : list.modified_items())
+                    {
+                        result.append(collection_child(
+                            std::move(child), nb::cast(index)));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSB: {
+                    auto bundle = ts.as_bundle();
+                    for (auto &&[key, child] : bundle.modified_items())
+                    {
+                        result.append(collection_child(
+                            std::move(child), nb::str(key.data(), key.size())));
+                    }
+                    return result;
+                }
+                default: throw nb::type_error("modified_values(): not an indexed time-series");
             }
-            return result;
         }
 
         /** Child views in order (TSB fields / TSD entries / TSL elements). */
         [[nodiscard]] nb::list values() const
         {
             nb::list    result;
+            if (key_set_projection)
+            {
+                auto dict = projected_dict();
+                for (const ValueView &key : dict.keys())
+                {
+                    result.append(value_to_py(key));
+                }
+                return result;
+            }
             const auto &ts = checked();
             switch (ts.schema()->kind)
             {
@@ -1028,7 +1821,7 @@ namespace hgraph::python_bridge
                     auto dict = ts.as_dict();
                     for (const ValueView &key : dict.keys())
                     {
-                        result.append(nb::cast(PyTimeSeries{dict.at(key), lease}));
+                        result.append(collection_child(dict.at(key), value_to_py(key)));
                     }
                     return result;
                 }
@@ -1036,7 +1829,8 @@ namespace hgraph::python_bridge
                     auto bundle = ts.as_bundle();
                     for (std::size_t index = 0; index < bundle.size(); ++index)
                     {
-                        result.append(nb::cast(PyTimeSeries{bundle[index], lease}));
+                        result.append(collection_child(
+                            bundle[index], nb::str(ts.schema()->fields()[index].name)));
                     }
                     return result;
                 }
@@ -1044,12 +1838,203 @@ namespace hgraph::python_bridge
                     auto list = ts.as_list();
                     for (std::size_t index = 0; index < list.size(); ++index)
                     {
-                        result.append(nb::cast(PyTimeSeries{list[index], lease}));
+                        result.append(collection_child(list[index], nb::cast(index)));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSS: {
+                    auto set = ts.as_set();
+                    for (const ValueView &element : set.values())
+                    {
+                        result.append(value_to_py(element));
                     }
                     return result;
                 }
                 default: throw nb::type_error("values(): not a container time-series");
             }
+        }
+
+        [[nodiscard]] nb::list items() const
+        {
+            nb::list result;
+            const auto &ts = checked();
+            switch (ts.schema()->kind)
+            {
+                case TSTypeKind::TSD: {
+                    auto dict = ts.as_dict();
+                    for (auto &&[key, child] : dict.items())
+                    {
+                        nb::object py_key = value_to_py(key);
+                        result.append(nb::make_tuple(
+                            py_key,
+                            collection_child(std::move(child), py_key)));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSL: {
+                    auto list = ts.as_list();
+                    for (auto &&[index, child] : list.items())
+                    {
+                        result.append(nb::make_tuple(
+                            index, collection_child(std::move(child), nb::cast(index))));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSB: {
+                    auto bundle = ts.as_bundle();
+                    for (auto &&[key, child] : bundle.items())
+                    {
+                        nb::object py_key = nb::str(key.data(), key.size());
+                        result.append(nb::make_tuple(
+                            py_key,
+                            collection_child(std::move(child), py_key)));
+                    }
+                    return result;
+                }
+                default: throw nb::type_error("items(): not an indexed time-series");
+            }
+        }
+
+        [[nodiscard]] nb::list valid_keys() const
+        {
+            nb::list result;
+            const auto &ts = checked();
+            switch (ts.schema()->kind)
+            {
+                case TSTypeKind::TSD: {
+                    auto dict = ts.as_dict();
+                    for (const ValueView &key : dict.valid_keys()) { result.append(value_to_py(key)); }
+                    return result;
+                }
+                case TSTypeKind::TSL: {
+                    auto list = ts.as_list();
+                    for (auto &&[index, child] : list.valid_items())
+                    {
+                        static_cast<void>(child);
+                        result.append(index);
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSB: {
+                    auto bundle = ts.as_bundle();
+                    for (auto &&[key, child] : bundle.valid_items())
+                    {
+                        static_cast<void>(child);
+                        result.append(nb::str(key.data(), key.size()));
+                    }
+                    return result;
+                }
+                default: throw nb::type_error("valid_keys(): not an indexed time-series");
+            }
+        }
+
+        [[nodiscard]] nb::list valid_values() const
+        {
+            nb::list result;
+            const auto &ts = checked();
+            switch (ts.schema()->kind)
+            {
+                case TSTypeKind::TSD: {
+                    auto dict = ts.as_dict();
+                    for (auto &&[key, child] : dict.valid_items())
+                    {
+                        result.append(collection_child(
+                            std::move(child), value_to_py(key)));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSL: {
+                    auto list = ts.as_list();
+                    for (auto &&[index, child] : list.valid_items())
+                    {
+                        result.append(collection_child(
+                            std::move(child), nb::cast(index)));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSB: {
+                    auto bundle = ts.as_bundle();
+                    for (auto &&[key, child] : bundle.valid_items())
+                    {
+                        result.append(collection_child(
+                            std::move(child), nb::str(key.data(), key.size())));
+                    }
+                    return result;
+                }
+                default: throw nb::type_error("valid_values(): not an indexed time-series");
+            }
+        }
+
+        [[nodiscard]] nb::list valid_items() const
+        {
+            nb::list result;
+            const auto &ts = checked();
+            switch (ts.schema()->kind)
+            {
+                case TSTypeKind::TSD: {
+                    auto dict = ts.as_dict();
+                    for (auto &&[key, child] : dict.valid_items())
+                    {
+                        nb::object py_key = value_to_py(key);
+                        result.append(nb::make_tuple(
+                            py_key,
+                            collection_child(std::move(child), py_key)));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSL: {
+                    auto list = ts.as_list();
+                    for (auto &&[index, child] : list.valid_items())
+                    {
+                        result.append(nb::make_tuple(
+                            index, collection_child(std::move(child), nb::cast(index))));
+                    }
+                    return result;
+                }
+                case TSTypeKind::TSB: {
+                    auto bundle = ts.as_bundle();
+                    for (auto &&[key, child] : bundle.valid_items())
+                    {
+                        nb::object py_key = nb::str(key.data(), key.size());
+                        result.append(nb::make_tuple(
+                            py_key,
+                            collection_child(std::move(child), py_key)));
+                    }
+                    return result;
+                }
+                default: throw nb::type_error("valid_items(): not an indexed time-series");
+            }
+        }
+
+        [[nodiscard]] nb::list added_keys() const
+        {
+            nb::list result;
+            auto dict = checked().as_dict();
+            for (const ValueView &key : dict.added_keys()) { result.append(value_to_py(key)); }
+            return result;
+        }
+
+        [[nodiscard]] nb::list added_values() const
+        {
+            nb::list result;
+            auto dict = checked().as_dict();
+            for (auto &&child : dict.added_values())
+            {
+                result.append(PyTimeSeries{std::move(child), lease});
+            }
+            return result;
+        }
+
+        [[nodiscard]] nb::list added_items() const
+        {
+            nb::list result;
+            auto dict = checked().as_dict();
+            for (auto &&[key, child] : dict.added_items())
+            {
+                result.append(nb::make_tuple(
+                    value_to_py(key), PyTimeSeries{std::move(child), lease}));
+            }
+            return result;
         }
 
         [[nodiscard]] nb::list removed_keys() const
@@ -1060,13 +2045,155 @@ namespace hgraph::python_bridge
             return result;
         }
 
+        [[nodiscard]] nb::list removed_values() const
+        {
+            nb::list result;
+            auto dict = checked().as_dict();
+            for (auto &&child : dict.removed_values())
+            {
+                result.append(PyTimeSeries{std::move(child), lease});
+            }
+            return result;
+        }
+
+        [[nodiscard]] nb::list removed_items() const
+        {
+            nb::list result;
+            auto dict = checked().as_dict();
+            for (auto &&[key, child] : dict.removed_items())
+            {
+                result.append(nb::make_tuple(
+                    value_to_py(key), PyTimeSeries{std::move(child), lease}));
+            }
+            return result;
+        }
+
+        [[nodiscard]] nb::object key_from_value(const PyTimeSeries &value) const
+        {
+            const auto identity = checked().data_view().data();
+            if (value.collection_identity == identity &&
+                value.collection_key.is_valid())
+            {
+                return nb::borrow<nb::object>(value.collection_key);
+            }
+            const auto target = value.checked().data_view().data();
+            const auto &ts = checked();
+            if (ts.schema()->kind == TSTypeKind::TSL)
+            {
+                auto list = ts.as_list();
+                for (std::size_t index = 0; index < list.size(); ++index)
+                {
+                    if (list[index].data_view().data() == target) { return nb::cast(index); }
+                }
+                return nb::none();
+            }
+            if (ts.schema()->kind == TSTypeKind::TSB)
+            {
+                auto bundle = ts.as_bundle();
+                for (auto &&[key, child] : bundle.items())
+                {
+                    if (child.data_view().data() == target)
+                    {
+                        return nb::str(key.data(), key.size());
+                    }
+                }
+                return nb::none();
+            }
+            if (ts.schema()->kind == TSTypeKind::TSD)
+            {
+                auto dict = ts.as_dict();
+                for (auto &&[key, child] : dict.items())
+                {
+                    if (child.data_view().data() == target) { return value_to_py(key); }
+                }
+                return nb::none();
+            }
+            throw nb::type_error("key_from_value(): not an indexed time-series");
+        }
+
+        [[nodiscard]] nb::object window_size() const
+        {
+            const auto &ts = checked();
+            if (ts.schema()->kind != TSTypeKind::TSW)
+            {
+                throw nb::attribute_error("size");
+            }
+            auto window = ts.as_window();
+            return window.duration_based() ? nb::cast(window.time_range())
+                                           : nb::cast(window.period());
+        }
+
+        [[nodiscard]] nb::object window_min_size() const
+        {
+            const auto &ts = checked();
+            if (ts.schema()->kind != TSTypeKind::TSW)
+            {
+                throw nb::attribute_error("min_size");
+            }
+            auto window = ts.as_window();
+            return window.duration_based() ? nb::cast(window.min_time_range())
+                                           : nb::cast(window.min_period());
+        }
+
+        [[nodiscard]] nb::object value_times() const
+        {
+            const auto &ts = checked();
+            if (ts.schema()->kind != TSTypeKind::TSW)
+            {
+                throw nb::attribute_error("value_times");
+            }
+            auto window = ts.as_window().data_view();
+            return materialize_window_times(window);
+        }
+
+        [[nodiscard]] DateTime first_modified_time() const
+        {
+            const auto &ts = checked();
+            if (ts.schema()->kind != TSTypeKind::TSW)
+            {
+                throw nb::attribute_error("first_modified_time");
+            }
+            return ts.as_window().first_modified_time();
+        }
+
+        [[nodiscard]] bool has_removed_value() const
+        {
+            const auto &ts = checked();
+            if (ts.schema()->kind != TSTypeKind::TSW)
+            {
+                throw nb::attribute_error("has_removed_value");
+            }
+            return ts.as_window().has_removed_value();
+        }
+
+        [[nodiscard]] nb::object removed_value() const
+        {
+            const auto &ts = checked();
+            if (ts.schema()->kind != TSTypeKind::TSW)
+            {
+                throw nb::attribute_error("removed_value");
+            }
+            auto window = ts.as_window();
+            return window.has_removed_value() ? value_to_py(window.removed_value()) : nb::none();
+        }
+
         [[nodiscard]] bool contains(nb::handle key) const
         {
+            if (key_set_projection)
+            {
+                Value key_value = py_to_value_as(key, checked().schema()->key_type());
+                return projected_dict().contains(key_value.view());
+            }
             const auto &ts = checked();
             if (ts.schema()->kind == TSTypeKind::TSD)
             {
                 Value key_value = py_to_value_as(key, ts.schema()->key_type());
                 return ts.as_dict().contains(key_value.view());
+            }
+            if (ts.schema()->kind == TSTypeKind::TSS)
+            {
+                Value element = py_to_value_as(key, ts.schema()->value_schema->element_type);
+                return ts.as_set().contains(element.view());
             }
             throw nb::type_error("contains: not a keyed time-series");
         }

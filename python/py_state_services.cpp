@@ -571,6 +571,18 @@ namespace hgraph::python_bridge
                      "Whether the output ticks in the current cycle.")
         .def_prop_ro("last_modified_time", &PyOutput::last_modified_time,
                      "The evaluation time of the most recent output tick.")
+        .def_prop_ro("size", &PyOutput::window_size,
+                     "The configured tick count or duration of a window output.")
+        .def_prop_ro("min_size", &PyOutput::window_min_size,
+                     "The configured minimum tick count or duration of a window output.")
+        .def_prop_ro("value_times", &PyOutput::value_times,
+                     "A NumPy-compatible datetime64 buffer containing window evaluation times.")
+        .def_prop_ro("first_modified_time", &PyOutput::first_modified_time,
+                     "The evaluation time of the oldest value retained by a window output.")
+        .def_prop_ro("has_removed_value", &PyOutput::has_removed_value,
+                     "Whether a window value was evicted in the current cycle.")
+        .def_prop_ro("removed_value", &PyOutput::removed_value,
+                     "The window value evicted in the current cycle, or None.")
         .def_prop_ro("delta_value", &PyOutput::delta_value,
                      "The change published in the current cycle.")
         .def("is_reference", &PyOutput::is_reference,
@@ -579,24 +591,93 @@ namespace hgraph::python_bridge
                      "The current output value. Assigning publishes a value; "
                      "assigning None invalidates the output.",
                      nb::for_setter(nb::arg("value").none()))
-        .def("can_apply_result", &PyOutput::can_apply_result,
+        .def("can_apply_result", &PyOutput::can_apply_result, nb::arg("result"),
              "Return whether the Python value can be applied to this output.")
-        .def("get_or_create", &PyOutput::get_or_create,
+        .def("get_or_create", &PyOutput::get_or_create, nb::arg("key"),
              "Return the keyed child output, creating it when absent.")
+        .def("get", &PyOutput::get, nb::arg("key"),
+             "Return a keyed child output, or None when the key is absent.")
+        .def("pop", &PyOutput::pop, nb::arg("key"),
+             "Remove a dictionary child output and return it, or None when absent.")
+        .def_prop_ro("key_set", &PyOutput::key_set,
+                     "A zero-copy set output over the keys of a dictionary output.")
+        .def("keys", &PyOutput::keys,
+             "Return collection indices, keys, or bundle field names.")
+        .def("values", &PyOutput::values,
+             "Return current child outputs, or scalar values for a set output.")
+        .def("items", &PyOutput::items,
+             "Return current collection key/child-output pairs.")
+        .def("modified_keys", &PyOutput::modified_keys,
+             "Return collection keys modified in the current cycle.")
+        .def("modified_values", &PyOutput::modified_values,
+             "Return child outputs modified in the current cycle.")
+        .def("modified_items", &PyOutput::modified_items,
+             "Return collection key/child-output pairs modified in the current cycle.")
+        .def("valid_keys", &PyOutput::valid_keys,
+             "Return collection keys whose child outputs are valid.")
+        .def("valid_values", &PyOutput::valid_values,
+             "Return valid child outputs.")
+        .def("valid_items", &PyOutput::valid_items,
+             "Return collection key/child-output pairs whose children are valid.")
+        .def("added_keys", &PyOutput::added_keys,
+             "Return dictionary keys added in the current cycle.")
+        .def("added_values", &PyOutput::added_values,
+             "Return dictionary child outputs added in the current cycle.")
+        .def("added_items", &PyOutput::added_items,
+             "Return dictionary key/child-output pairs added in the current cycle.")
         .def("clear", &PyOutput::clear,
              "Clear the current collection value and publish removals.")
         .def("invalidate", &PyOutput::invalidate,
              "Invalidate the output without assigning a replacement value.")
         .def("removed_keys", &PyOutput::removed_keys,
              "Return keys removed in the current cycle.")
-        .def("add", &PyOutput::add,
+        .def("removed_values", &PyOutput::removed_values,
+             "Return dictionary child outputs removed in the current cycle.")
+        .def("removed_items", &PyOutput::removed_items,
+             "Return dictionary key/child-output pairs removed in the current cycle.")
+        .def("added", &PyOutput::set_added,
+             "Return values added to a set output in the current cycle.")
+        .def("removed", &PyOutput::set_removed,
+             "Return values removed from a set output in the current cycle.")
+        .def("was_added", &PyOutput::was_added, nb::arg("item"),
+             "Return whether a set value was added in the current cycle.")
+        .def("was_removed", &PyOutput::was_removed, nb::arg("item"),
+             "Return whether a set value was removed in the current cycle.")
+        .def("key_from_value", &PyOutput::key_from_value, nb::arg("value"),
+             "Return the dictionary key, list index, or bundle field name for a child output.")
+        .def("add", &PyOutput::add, nb::arg("value"),
              "Add a value to a set output and return whether it changed.")
-        .def("remove", &PyOutput::remove,
+        .def("remove", &PyOutput::remove, nb::arg("value"),
              "Remove a value from a set output and return whether it changed.")
-        .def("__getitem__", &PyOutput::child)
-        .def("__delitem__", &PyOutput::erase)
-        .def("__contains__", &PyOutput::contains)
+        .def("__getitem__", &PyOutput::child, nb::arg("key"))
+        .def("__setitem__", &PyOutput::set_child_value,
+             nb::arg("key"), nb::arg("value"))
+        .def("__delitem__", &PyOutput::erase, nb::arg("key"))
+        .def("__contains__", &PyOutput::contains, nb::arg("key"))
         .def("__len__", &PyOutput::size)
+        .def("__iter__", [](const PyOutput &self) -> nb::object {
+            auto view = self.checked();
+            nb::object source;
+            switch (view.schema()->kind)
+            {
+                case TSTypeKind::TSD: source = self.keys(); break;
+                case TSTypeKind::TSL:
+                case TSTypeKind::TSB:
+                case TSTypeKind::TSS: source = self.values(); break;
+                default: throw nb::type_error("this output kind is not iterable");
+            }
+            PyObject *iterator = PyObject_GetIter(source.ptr());
+            if (iterator == nullptr) { nb::raise_python_error(); }
+            return nb::steal(iterator);
+        })
+        .def_prop_ro("as_schema", [](nb::object self_obj) -> nb::object {
+            auto &self = nb::cast<PyOutput &>(self_obj);
+            if (self.checked().schema()->kind != TSTypeKind::TSB)
+            {
+                throw nb::attribute_error("as_schema");
+            }
+            return self_obj;
+        }, "The same bundle output viewed through its declared schema.")
         .def("__getattr__",
              [](const PyOutput &self, const std::string &name) -> PyOutput {
                  if (self.checked().schema()->kind != TSTypeKind::TSB)
@@ -788,27 +869,17 @@ namespace hgraph::python_bridge
         // dictionary and silently restore the vectorcall path.
         .def_prop_ro("all_valid", &PyTimeSeries::all_valid,
                      "Whether every direct child currently has a value.")
-        // TSW eviction surface (hgraph's removed_value pair).
-        .def_prop_ro("has_removed_value",
-                     [](const PyTimeSeries &self) {
-                         const auto &view = self.checked();
-                         if (view.schema()->kind != TSTypeKind::TSW)
-                         {
-                             throw nb::attribute_error("has_removed_value");
-                         }
-                         return view.as_window().has_removed_value();
-                     },
+        .def_prop_ro("size", &PyTimeSeries::window_size,
+                     "The configured tick count or duration of a window input.")
+        .def_prop_ro("min_size", &PyTimeSeries::window_min_size,
+                     "The configured minimum tick count or duration of a window input.")
+        .def_prop_ro("value_times", &PyTimeSeries::value_times,
+                     "A NumPy-compatible datetime64 buffer containing window evaluation times.")
+        .def_prop_ro("first_modified_time", &PyTimeSeries::first_modified_time,
+                     "The evaluation time of the oldest value retained by a window input.")
+        .def_prop_ro("has_removed_value", &PyTimeSeries::has_removed_value,
                      "Whether a window value was evicted in the current cycle.")
-        .def_prop_ro("removed_value",
-                     [](const PyTimeSeries &self) -> nb::object {
-                         const auto &view = self.checked();
-                         if (view.schema()->kind != TSTypeKind::TSW)
-                         {
-                             throw nb::attribute_error("removed_value");
-                         }
-                         auto window = view.as_window();
-                         return window.has_removed_value() ? value_to_py(window.removed_value()) : nb::none();
-                     },
+        .def_prop_ro("removed_value", &PyTimeSeries::removed_value,
                      "The window value evicted in the current cycle, or None.")
         .def_prop_ro("last_modified_time", &PyTimeSeries::last_modified_time,
                      "The evaluation time of the most recent tick.")
@@ -816,19 +887,55 @@ namespace hgraph::python_bridge
              "Return values added to a set in the current cycle.")
         .def("removed", &PyTimeSeries::removed,
              "Return values removed from a set in the current cycle.")
+        .def("was_added", &PyTimeSeries::was_added, nb::arg("item"),
+             "Return whether a set value was added in the current cycle.")
+        .def("was_removed", &PyTimeSeries::was_removed, nb::arg("item"),
+             "Return whether a set value was removed in the current cycle.")
         .def("keys", &PyTimeSeries::keys,
              "Return the current keys or field names of a collection input.")
+        .def("items", &PyTimeSeries::items,
+             "Return the current key/child-input pairs of a collection input.")
         .def("modified_keys", &PyTimeSeries::modified_keys,
              "Return collection keys modified in the current cycle.")
         .def("modified_items", &PyTimeSeries::modified_items,
              "Return key/value pairs modified in the current cycle.")
         .def("modified_values", &PyTimeSeries::modified_values,
              "Return collection values modified in the current cycle.")
+        .def("valid_keys", &PyTimeSeries::valid_keys,
+             "Return collection keys whose child inputs are valid.")
+        .def("valid_items", &PyTimeSeries::valid_items,
+             "Return collection key/child-input pairs whose children are valid.")
+        .def("valid_values", &PyTimeSeries::valid_values,
+             "Return valid collection child inputs.")
+        .def("added_keys", &PyTimeSeries::added_keys,
+             "Return dictionary keys added in the current cycle.")
+        .def("added_items", &PyTimeSeries::added_items,
+             "Return dictionary key/child-input pairs added in the current cycle.")
+        .def("added_values", &PyTimeSeries::added_values,
+             "Return dictionary child inputs added in the current cycle.")
         .def("values", &PyTimeSeries::values,
              "Return the current child values of a collection input.")
         .def("removed_keys", &PyTimeSeries::removed_keys,
              "Return dictionary keys removed in the current cycle.")
-        .def("__getitem__", &PyTimeSeries::child_at)
+        .def("removed_items", &PyTimeSeries::removed_items,
+             "Return dictionary key/child-input pairs removed in the current cycle.")
+        .def("removed_values", &PyTimeSeries::removed_values,
+             "Return dictionary child inputs removed in the current cycle.")
+        .def("get", &PyTimeSeries::get, nb::arg("key"),
+             "Return a dictionary child input, or None when the key is absent.")
+        .def_prop_ro("key_set", &PyTimeSeries::key_set,
+                     "A zero-copy set view over the keys of a dictionary input.")
+        .def("key_from_value", &PyTimeSeries::key_from_value, nb::arg("value"),
+             "Return the dictionary key, list index, or bundle field name for a child input.")
+        .def("__getitem__", &PyTimeSeries::child_at, nb::arg("key"))
+        .def_prop_ro("as_schema", [](nb::object self_obj) -> nb::object {
+            auto &self = nb::cast<PyTimeSeries &>(self_obj);
+            if (self.kind() != TSTypeKind::TSB)
+            {
+                throw nb::attribute_error("as_schema");
+            }
+            return self_obj;
+        }, "The same bundle input viewed through its declared schema.")
         .def("__getattr__", [](nb::object self_obj, const std::string &name) -> nb::object {
             auto &self = nb::cast<PyTimeSeries &>(self_obj);
             if (self.kind() != TSTypeKind::TSB) { throw nb::attribute_error(name.c_str()); }
@@ -845,8 +952,22 @@ namespace hgraph::python_bridge
                 throw nb::attribute_error(name.c_str());
             }
         })
-        .def("__contains__", &PyTimeSeries::contains)
+        .def("__contains__", &PyTimeSeries::contains, nb::arg("key"))
         .def("__len__", &PyTimeSeries::size)
+        .def("__iter__", [](const PyTimeSeries &self) -> nb::object {
+            nb::object source;
+            switch (self.kind())
+            {
+                case TSTypeKind::TSD: source = self.keys(); break;
+                case TSTypeKind::TSL:
+                case TSTypeKind::TSB:
+                case TSTypeKind::TSS: source = self.values(); break;
+                default: throw nb::type_error("this time-series kind is not iterable");
+            }
+            PyObject *iterator = PyObject_GetIter(source.ptr());
+            if (iterator == nullptr) { nb::raise_python_error(); }
+            return nb::steal(iterator);
+        })
         .def("__str__", [](const PyTimeSeries &self) { return nb::str(self.value()); })
         .def("__repr__", [](const PyTimeSeries &self) { return nb::str("TimeSeries({})").format(self.value()); });
     m.def("_set_cmp_result_enum", [](nb::object enum_class) { cmp_result_enum_slot() = std::move(enum_class); });

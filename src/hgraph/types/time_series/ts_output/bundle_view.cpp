@@ -37,6 +37,15 @@ namespace hgraph
             return static_cast<const TSBOutputView *>(context)->at(index).valid();
         }
 
+        [[nodiscard]] std::string_view tsb_output_project_key(
+            const void *context,
+            const void *,
+            std::size_t index)
+        {
+            const auto *view = static_cast<const TSBOutputView *>(context);
+            return field_name_at(view->schema(), index);
+        }
+
         [[nodiscard]] bool tsb_output_modified_child(const void *context, const void *, std::size_t index)
         {
             return static_cast<const TSBOutputView *>(context)->at(index).modified();
@@ -86,7 +95,14 @@ namespace hgraph
 
     Range<std::string_view> TSBOutputView::keys() const
     {
-        return data_view().keys();
+        // The returned range retains its context.  Do not delegate through a
+        // temporary TSBDataView here: that would leave the range pointing at a
+        // destroyed view as soon as keys() returned.
+        return Range<std::string_view>{.context = this,
+                                       .memory = nullptr,
+                                       .limit = size(),
+                                       .predicate = nullptr,
+                                       .projector = &tsb_output_project_key};
     }
 
     Range<TSOutputView> TSBOutputView::values() const
