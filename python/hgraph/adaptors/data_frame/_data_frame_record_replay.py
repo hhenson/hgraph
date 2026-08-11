@@ -13,6 +13,8 @@ from hgraph import (
     OUT,
     Frame,
     GlobalState,
+    get_table_schema_as_of_key,
+    get_table_schema_date_key,
     graph,
     operator_function,
     table_schema,
@@ -194,7 +196,11 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
             raise RuntimeError("WriteMode.MERGE is not supported")
         frame = _as_arrow(df)
         if self._get_schema_info(path) == (None, None):
-            self.set_schema_info(path, "__date_time__", "__as_of__")
+            self.set_schema_info(
+                path,
+                get_table_schema_date_key(),
+                get_table_schema_as_of_key(),
+            )
         if mode is WriteMode.EXTEND and self._exists(path):
             previous = self._read(path)
             frame = pa.concat_tables([previous, frame], promote_options="default")

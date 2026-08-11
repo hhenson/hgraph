@@ -74,6 +74,31 @@ def test_upstream_style_storage_subclass_hooks_are_supported():
     assert storage.schemas["values"] == ("__date_time__", "__as_of__")
 
 
+def test_storage_fallback_uses_configured_bitemporal_column_names():
+    first_time = datetime(2026, 1, 1)
+    second_time = datetime(2026, 1, 2)
+    first_revision = datetime(2026, 1, 3)
+    second_revision = datetime(2026, 1, 4)
+    frame = pa.table(
+        {
+            "event_time": [first_time, second_time],
+            "observed_at": [first_revision, second_revision],
+            "value": [1, 2],
+        }
+    )
+
+    with hg.GlobalContext(hg.GlobalState()):
+        hg.set_table_schema_date_key("event_time")
+        hg.set_table_schema_as_of_key("observed_at")
+        storage = MemoryDataFrameStorage()
+        storage.write_frame("values", frame)
+
+        assert storage._get_schema_info("values") == ("event_time", "observed_at")
+        assert storage.read_frame(
+            "values", start_time=first_time, as_of=first_revision
+        ).equals(frame.slice(0, 1))
+
+
 def test_file_storage_schema_metadata_is_upstream_interoperable(tmp_path):
     storage = FileBasedDataFrameStorage(tmp_path)
     storage.set_schema_info("values", "when", "revision")

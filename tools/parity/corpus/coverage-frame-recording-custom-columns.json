@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "coverage-frame-recording-custom-columns",
+  "description": "The #417 class: DataFrame record/replay preserves bitemporal column names configured through the public schema-key setters.",
+  "template": "data_frame_recording",
+  "inputs": {
+    "ts": [1, null, 2, 3]
+  },
+  "parameters": {
+    "as_of_offset": 30,
+    "column_names": "configured"
+  },
+  "features": [
+    "shape:TS",
+    "type:int",
+    "boundary:python-owned",
+    "domain:frame-surface",
+    "topology:record-replay",
+    "configuration:custom-table-column-names"
+  ],
+  "source_issue": "https://github.com/hhenson/hgraph/issues/417"
+}

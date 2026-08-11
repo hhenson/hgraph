@@ -822,13 +822,23 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         small = st.integers(min_value=-20, max_value=20)
         values = [draw(small)] + [
             draw(st.one_of(st.none(), small)) for _ in range(count - 1)]
+        as_of_offset = draw(st.integers(min_value=1, max_value=100))
+        column_names = "configured" if as_of_offset % 2 else "default"
         return {
             "template": "data_frame_recording",
             "inputs": {"ts": values},
             "parameters": {
-                "as_of_offset": draw(st.integers(min_value=1, max_value=100)),
+                "as_of_offset": as_of_offset,
+                "column_names": column_names,
             },
-            "features": [*CATALOG["data_frame_recording"].features],
+            "features": [
+                *CATALOG["data_frame_recording"].features,
+                *(
+                    ("configuration:custom-table-column-names",)
+                    if column_names == "configured"
+                    else ()
+                ),
+            ],
         }
 
     # (name, factory) pairs for discovery. The service strategies exercise

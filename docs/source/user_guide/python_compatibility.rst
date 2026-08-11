@@ -194,6 +194,29 @@ The old test-only ``record_to_memory``, ``replay_from_memory`` and
 * seed focused node tests with ``hgraph.test.eval_node``; and
 * use ``Wiring.set_replay`` only in advanced custom harnesses.
 
+DataFrame bitemporal column names
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+DataFrame record/replay uses ``__date_time__`` for evaluation time and
+``__as_of__`` for revision time by default, as in 0.5. Configure both names
+before wiring or directly writing a frame when an external schema requires
+different columns:
+
+.. testcode::
+
+   import hgraph as hg
+
+   with hg.GlobalState():
+       hg.set_table_schema_date_key("event_time")
+       hg.set_table_schema_as_of_key("observed_at")
+       assert hg.get_table_schema_date_key() == "event_time"
+       assert hg.get_table_schema_as_of_key() == "observed_at"
+
+The names are scoped to the current ``GlobalState`` and are used by table
+conversion and DataFrame storage metadata. The separate ``lower()`` frame-call
+interface defaults to ``date`` and ``as_of``; pass its ``date_col`` and
+``as_of_col`` arguments when those frames use another convention.
+
 Diagnostics
 -----------
 
