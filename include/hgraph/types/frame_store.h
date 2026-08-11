@@ -121,6 +121,16 @@ namespace hgraph::store
     /** Throws ``std::invalid_argument`` when ``validate_key`` rejects the key. */
     HGRAPH_EXPORT void require_valid_key(std::string_view key);
 
+    /**
+     * Shut the S3 layer down. Call before process exit when S3 has been used.
+     *
+     * Arrow requires a matching finalize for its process-global S3 init, and
+     * it cannot be automated: running it from std::atexit or a static
+     * destructor happens after Arrow's own statics are gone and terminates the
+     * process. Safe to call when S3 was never used, and safe to call twice.
+     */
+    HGRAPH_EXPORT void finalize_s3() noexcept;
+
     /** True when this build links a Parquet implementation. */
     [[nodiscard]] HGRAPH_EXPORT bool parquet_available() noexcept;
 

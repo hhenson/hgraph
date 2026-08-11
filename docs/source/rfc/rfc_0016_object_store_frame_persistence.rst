@@ -394,9 +394,22 @@ Runtime and lifecycle
 
 ``arrow::fs::InitializeS3`` is process-global and must precede first S3 use,
 with a matching finalize before process exit. The S3 backend initialises on
-first construction and registers finalization once, so an application that
-never configures S3 never initialises it. This is build-time/registration-time
-work, not per-tick.
+first construction, so an application that never configures S3 never
+initialises it. This is build-time/registration-time work, not per-tick.
+
+Finalization, however, **cannot** be automated, and the prototype establishes
+that by experiment rather than assumption. Both obvious mechanisms — a
+``std::atexit`` handler and a function-local static whose destructor finalizes
+— run *after* Arrow's own statics are gone, and the process terminates with
+``mutex lock failed: Invalid argument``. Omitting finalization instead draws
+Arrow's warning that a segfault at exit may follow.
+
+The store therefore exposes ``store::finalize_s3()`` and states that S3
+shutdown belongs to the application, the only layer that knows when the last
+store is gone. It is safe when S3 was never initialised and safe to call twice,
+so a caller need not track whether S3 was ever reached. The Python bridge
+should call it from run teardown, so the obligation does not reach Python
+users.
 
 No part of this sits on the per-tick evaluation path: stores are consulted by
 ``record``/``replay`` nodes at their own cadence, and the ops table is looked up
@@ -415,9 +428,44 @@ Parquet or IPC writer, so a frame is not materialised a second time in memory.
 Reads use ``OpenInputFile`` and Arrow's readers.
 
 For S3 the dominant costs are request count and object size, not encoding,
-which is one reason Parquet is the default. Multipart upload thresholds and
-read coalescing are Arrow's defaults; exposing them is deferred until a
-workload needs it.
+which is the argument for Parquet where objects are large and long-lived — see
+the open question on the default format. Multipart upload thresholds and read
+coalescing are Arrow's defaults; exposing them is deferred until a workload
+needs it.
+
+Testing
+-------
+
+Memory and local-filesystem backends are covered by ordinary unit tests, which
+is most of the surface: the two filesystem backends differ only in which
+``arrow::fs::FileSystem`` they hold, so key handling, immutability, both
+formats, and metadata survival are exercised without any network.
+
+The S3 path needs a real S3 protocol implementation, but *not* an AWS account.
+Arrow's ``S3Options::endpoint_override`` points the same client at any
+S3-compatible server, so the prototype's S3 test runs against a local MinIO in
+Docker:
+
+.. code-block:: sh
+
+   docker run -d --name hgraph-minio -p 9010:9000 \
+     -e MINIO_ROOT_USER=hgraphtest -e MINIO_ROOT_PASSWORD=hgraphtest123 \
+     quay.io/minio/minio:latest server /data
+   # create the bucket, then:
+   export HGRAPH_S3_TEST_ENDPOINT=http://127.0.0.1:9010
+   export HGRAPH_S3_TEST_BUCKET=hgraph-test
+   export AWS_ACCESS_KEY_ID=hgraphtest AWS_SECRET_ACCESS_KEY=hgraphtest123
+   ./hgraph_unit_tests "[s3]"
+
+This exercises the genuine Arrow S3 filesystem — credentials, region, bucket
+addressing, multipart write, immutability against an object store — with only
+the endpoint differing from AWS.
+
+The test is a hidden Catch2 case (``[.s3]``), so it does not run, and does not
+fail, in a checkout without an endpoint; it is requested by tag. That is
+preferred to reporting skipped, because ``catch_discover_tests`` surfaces a
+skip as a CTest failure. CI can gain an S3 leg by running MinIO as a service
+container and invoking the tag.
 
 Compatibility and migration
 ---------------------------

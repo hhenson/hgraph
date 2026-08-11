@@ -77,6 +77,13 @@ namespace hgraph::store
         }
     }
 
+    void finalize_s3() noexcept
+    {
+#if defined(HGRAPH_WITH_S3)
+        (void)arrow::fs::EnsureS3Finalized();
+#endif
+    }
+
     bool parquet_available() noexcept
     {
 #if defined(HGRAPH_WITH_PARQUET)
@@ -283,22 +290,28 @@ namespace hgraph::store
         };
 
 #if defined(HGRAPH_WITH_S3)
-        /** Arrow requires a process-global S3 init before first use, and a
-            matching finalize. Do it once, lazily, so a build that never
-            configures S3 never initialises it. */
-        void ensure_s3_initialized()
-        {
-            static const bool initialized = [] {
-                if (!arrow::fs::IsS3Initialized())
-                {
-                    auto options = arrow::fs::S3GlobalOptions::Defaults();
-                    check(arrow::fs::InitializeS3(options), "initialize S3");
-                    std::atexit([] { (void)arrow::fs::FinalizeS3(); });
-                }
-                return true;
-            }();
-            (void)initialized;
-        }
+        /**
+         * Arrow requires a process-global S3 init before first use and a
+         * matching finalize: "you MUST call FinalizeS3 before the end of the
+         * application in order to avoid a segmentation fault at shutdown".
+         *
+         * The finalize cannot be automated. Both obvious placements fail,
+         * measured against a live endpoint:
+         *
+         *   - std::atexit, and a function-local static destructor, both run
+         *     after Arrow's own statics are gone. FinalizeS3 then throws
+         *     "mutex lock failed: Invalid argument" and terminates the process
+         *     AFTER the tests have passed - a green run with a crashing exit.
+         *   - omitting it entirely leaves Arrow warning "FinalizeS3 was not
+         *     called even though S3 was initialized. This could lead to a
+         *     segmentation fault at exit".
+         *
+         * So shutdown is the application's, which is what Arrow's own
+         * documentation asks for: call finalize_s3() before exit. Init stays
+         * lazy, so a process that never configures S3 never initialises it and
+         * never needs to finalize.
+         */
+        void ensure_s3_initialized() { check(arrow::fs::EnsureS3Initialized(), "initialize S3"); }
 #endif
     }  // namespace
 

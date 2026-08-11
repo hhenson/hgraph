@@ -16,6 +16,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 
@@ -195,4 +196,62 @@ TEST_CASE("frame store: an unbuildable configuration fails rather than degrading
     FrameStoreConfig no_bucket;
     no_bucket.location = S3Location{};
     CHECK_THROWS(make_frame_store(no_bucket));
+}
+
+// The S3 backend runs against any S3-compatible endpoint, so it needs no cloud
+// account: point HGRAPH_S3_TEST_ENDPOINT at a local MinIO (or LocalStack) and
+// this exercises the real Arrow S3 filesystem. Without it the test reports as
+// skipped rather than silently passing, so a green run without S3 coverage is
+// visible as such.
+//
+//   docker run -d --name hgraph-minio -p 9010:9000 \
+//     -e MINIO_ROOT_USER=hgraphtest -e MINIO_ROOT_PASSWORD=hgraphtest123 \
+//     quay.io/minio/minio:latest server /data
+//   export HGRAPH_S3_TEST_ENDPOINT=http://127.0.0.1:9010
+//   export HGRAPH_S3_TEST_BUCKET=hgraph-test
+//   export AWS_ACCESS_KEY_ID=hgraphtest AWS_SECRET_ACCESS_KEY=hgraphtest123
+// Hidden by default ([.]): it needs an endpoint, so it is opt-in rather
+// than a failure for everyone else. Run it with:
+//     ./hgraph_unit_tests "[s3]"
+TEST_CASE("frame store: an S3 store round-trips against a local endpoint", "[.s3]")
+{
+    const char *endpoint = std::getenv("HGRAPH_S3_TEST_ENDPOINT");
+    if (endpoint == nullptr)
+    {
+        SKIP("set HGRAPH_S3_TEST_ENDPOINT to run the S3 backend against a local endpoint");
+    }
+
+    const char *bucket_name = std::getenv("HGRAPH_S3_TEST_BUCKET");
+    const char *key_id      = std::getenv("AWS_ACCESS_KEY_ID");
+    const char *secret      = std::getenv("AWS_SECRET_ACCESS_KEY");
+
+    S3Location location;
+    location.bucket            = bucket_name != nullptr ? bucket_name : "hgraph-test";
+    location.prefix            = "frame-store";
+    location.region            = "us-east-1";
+    location.endpoint_override = endpoint;
+    if (key_id != nullptr && secret != nullptr)
+    {
+        location.credentials.source = Credentials::Explicit{key_id, secret, {}};
+    }
+
+    FrameStoreConfig config;
+    config.location = location;
+    config.format   = Format::Parquet;
+
+    auto store = make_frame_store(config);
+
+    store->write("run/prices", make_frame());
+    CHECK(store->contains("run/prices"));
+    CHECK(store->read("run/prices").table->num_rows() == 2);
+    CHECK_FALSE(store->contains("run/absent"));
+
+    // Immutability holds against a real object store, where an overwrite would
+    // usually destroy the previous version outright.
+    CHECK_THROWS(store->write("run/prices", make_frame(10)));
+
+    store->clear();
+    store.reset();
+    // The application owns S3 shutdown; see finalize_s3's contract.
+    finalize_s3();
 }
