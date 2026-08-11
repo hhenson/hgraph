@@ -204,14 +204,16 @@ TEST_CASE("frame store: an unbuildable configuration fails rather than degrading
 // skipped rather than silently passing, so a green run without S3 coverage is
 // visible as such.
 //
-//   docker run -d --name hgraph-minio -p 9010:9000 \
-//     -e MINIO_ROOT_USER=hgraphtest -e MINIO_ROOT_PASSWORD=hgraphtest123 \
+//   docker run -d --name hgraph-minio -p 9010:9000
+//     -e MINIO_ROOT_USER=hgraphtest -e MINIO_ROOT_PASSWORD=hgraphtest123
 //     quay.io/minio/minio:latest server /data
 //   export HGRAPH_S3_TEST_ENDPOINT=http://127.0.0.1:9010
 //   export HGRAPH_S3_TEST_BUCKET=hgraph-test
 //   export AWS_ACCESS_KEY_ID=hgraphtest AWS_SECRET_ACCESS_KEY=hgraphtest123
-// Hidden by default ([.]): it needs an endpoint, so it is opt-in rather
-// than a failure for everyone else. Run it with:
+//
+// Hidden by default ([.]): it needs an endpoint, so it is opt-in rather than a
+// failure for everyone else, and a Catch2 skip reports as a CTest failure
+// because catch_discover_tests does not set SKIP_RETURN_CODE. Run it with:
 //     ./hgraph_unit_tests "[s3]"
 TEST_CASE("frame store: an S3 store round-trips against a local endpoint", "[.s3]")
 {

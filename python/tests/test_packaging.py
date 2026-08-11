@@ -75,6 +75,9 @@ def test_windows_wheel_installs_all_linked_pyarrow_runtimes():
     assert '"${HGRAPH_PYARROW_ARROW_RUNTIME}"' in python_cmake
     assert '"${HGRAPH_PYARROW_COMPUTE_RUNTIME}"' in python_cmake
     assert '"${HGRAPH_PYARROW_ACERO_RUNTIME}"' in python_cmake
+    # RFC 0016 links Parquet; a linked DLL left out of the wheel is an
+    # ImportError on the user's machine, not a build failure here.
+    assert '"${HGRAPH_PYARROW_PARQUET_RUNTIME}"' in python_cmake
 
 
 def test_wheel_installs_generated_native_stub_and_typed_package_marker():

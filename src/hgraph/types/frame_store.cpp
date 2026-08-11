@@ -246,9 +246,7 @@ namespace hgraph::store
                 {
                     auto reader = unwrap(parquet::arrow::OpenFile(in, arrow::default_memory_pool()),
                                          "open Parquet reader");
-                    std::shared_ptr<arrow::Table> table;
-                    check(reader->ReadTable(&table), "read Parquet table");
-                    return table;
+                    return unwrap(reader->ReadTable(), "read Parquet table");
                 }
 #else
                     throw std::runtime_error("this build has no Parquet support; configure with HGRAPH_WITH_PARQUET");
