@@ -6266,6 +6266,8 @@ Accepted native overloads
 
 - ``ts`` — any multiplexed collection (``TSL`` / ``TSD``; ``TSS`` once the Python reference grows one). Each collection kind is its own registered overload of this name, selected by pattern rank — implemented today: fixed/dynamic ``TSL`` and ``TSD``. - ``zero`` — **optional**, modelled as arity overloads (like ``const``): when supplied as a scalar, the value is wired as ``const(zero)`` at the element schema. Unset ``TSL`` slots are not live values. - ``is_associative=false`` — select an ordered left fold. A fixed TSL folds statically; a contiguous ``TSD[int, E]`` uses the live ``zero`` input as its initial accumulator and permits an accumulator type that differs from ``E``.
 
+**Migration from 0.5.** The 0.8 result depends only on currently valid values. An explicit ``zero`` is published immediately when none are valid, including when keyed or mapped child slots exist but have not yet produced a value; some 0.5 keyed/mapped startup paths waited instead. Omitting ``zero`` now leaves an empty reduction invalid rather than inferring an operation-specific identity. Code that observes first-tick timing or validity should be migrated explicitly; see the Python 0.5-to-0.8 migration guide.
+
 Python entry point: ``reduce(func, ts, zero=..., is_associative=True, **kwargs)`` (explicit helper).
 
 Parameters
@@ -6281,7 +6283,7 @@ are fixed when the graph is built.
    Collection whose live elements are reduced.
 
 ``zero`` : scalar, time-series; ``SCALAR_1``, ``V``
-   Optional empty-collection result. In associative mode it is not injected into reductions containing two or more live values.
+   Optional empty-collection result, not a general fold initializer. In associative mode it is not injected into reductions containing two or more live values.
 
 ``is_associative`` : scalar; ``bool``
    True for tree reduction; false for deterministic ordered left fold.
