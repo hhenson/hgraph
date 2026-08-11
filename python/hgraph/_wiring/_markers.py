@@ -1,10 +1,9 @@
 """Injectable annotation types and lazy type-kind caches.
 
-``_INJECTABLE_MARKERS`` keys on CLASS IDENTITY (STATE/CLOCK/SCHEDULER/NODE/
-EvaluationEngineApi/GlobalState) — import the classes, never redefine them. The ``global``
-kind caches live beside their factory functions (``global`` binds to the
-defining module)."""
-import logging
+``_INJECTABLE_MARKERS`` keys on CLASS IDENTITY (STATE/CLOCK/SCHEDULER/LOGGER/
+NODE/EvaluationEngineApi/GlobalState) — import the classes, never redefine
+them. The ``global`` kind caches live beside their factory functions
+(``global`` binds to the defining module)."""
 
 import _hgraph
 
@@ -92,7 +91,7 @@ EvaluationEngineApi = _hgraph.EvaluationEngineApi
 EvaluationClock = _hgraph.EvaluationClock
 SCHEDULER = _hgraph.Scheduler
 CLOCK = EvaluationClock
-LOGGER = logging.Logger
+LOGGER = _hgraph.Logger
 Traits = _hgraph.Traits
 Node = _hgraph.Node
 NODE = Node
@@ -106,6 +105,7 @@ _INJECTABLE_MARKERS = {
     EvaluationEngineApi: "e",
     GlobalState: "g",
     Traits: "h",
+    LOGGER: "l",
     NODE: "n",
 }
 

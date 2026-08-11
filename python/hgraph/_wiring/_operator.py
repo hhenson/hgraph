@@ -11,7 +11,7 @@ from .._types import (_ContextExpr, _TsExpr, _type_var_name,
                       wiring_signature_of as _wiring_signature_of)
 from ._core import (WiringError, WiringPort, _OperatorFunction, _unwrap,
                     _wiring_stack, wire)
-from ._markers import (LOGGER, _INJECTABLE_MARKERS, _RecordableStateExpr,
+from ._markers import (_INJECTABLE_MARKERS, _RecordableStateExpr,
                        _StateExpr, _is_object_vt)
 from ._resolution import (_BindingsMap, _apply_resolvers,
                           _invoke_resolution_callable)
@@ -23,7 +23,6 @@ def _is_hidden_node_parameter(parameter):
     return (
         parameter.name == "_output"
         or annotation in _INJECTABLE_MARKERS
-        or annotation is LOGGER
         or isinstance(
             annotation,
             (_ContextExpr, _StateExpr, _RecordableStateExpr),

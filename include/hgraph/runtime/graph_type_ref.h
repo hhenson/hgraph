@@ -15,7 +15,7 @@ namespace hgraph
     struct GraphOps;
     struct GraphTypeMetaData;
 
-    inline constexpr std::uint16_t GRAPH_OPS_ABI_VERSION = 5;
+    inline constexpr std::uint16_t GRAPH_OPS_ABI_VERSION = 6;
 
     class GraphTypeRef
     {

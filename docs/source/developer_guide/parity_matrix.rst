@@ -320,23 +320,22 @@ objects created by the engine during a Python callback. The acceptance gate
 now invokes every supported time-series input/output family and every runtime
 injectable, and separately checks the generated native stub signatures.
 
-This refresh restored ``logging.Logger`` as the actual ``LOGGER`` annotation,
-the complete eight-member scheduler API, normal mapping methods on injected
-``GlobalState``, read-only graph ``Traits`` injection, ``is_started`` on node
-and graph views, and ``RECORDABLE_STATE.as_schema``. ``CompoundScalar``
-dictionary conversion is also exercised as behaviour rather than accepted
-from symbol presence. ``REF.value.output`` and ``NODE.notify()`` are permanent
-Python exclusions, pinned as absent on both live objects and generated stubs.
+This refresh restored a seven-method ``LOGGER`` facade over the native
+``LoggerView``, the complete eight-member scheduler API, normal mapping methods
+on injected ``GlobalState``, read-only graph ``Traits`` injection, native
+lifecycle state on node and graph views, and ``RECORDABLE_STATE.as_schema``.
+It also adds lazy read-only input topology, compound-reference items and node
+diagnostic views. ``CompoundScalar`` dictionary conversion is exercised as
+behaviour rather than accepted from symbol presence. ``REF.value.output`` and
+``NODE.notify()`` are permanent Python exclusions, pinned as absent on both
+live objects and generated stubs.
 
-The broad surface probe moved from 110 actionable / 1,092 accepted findings in
-the saved pre-refresh audit to 85 actionable / 1,111 accepted findings across
-52 importable modules. Scheduler and trait signature findings are classified
-only because nanobind cannot supply ``inspect.signature`` at runtime; their
-exact ``.pyi`` declarations and live behavior are executable tests. Compound
-reference structure, endpoint topology, broader node/graph introspection,
-lifecycle controls, and mutable traits remain explicit decisions in
-:doc:`../user_guide/python_compatibility`; they are not treated as silently
-completed parity.
+Scheduler and trait signature findings are classified only because nanobind
+cannot supply ``inspect.signature`` at runtime; their exact ``.pyi``
+declarations and live behavior are executable tests. The diagnostic/control
+boundary is recorded in :doc:`../user_guide/python_compatibility`: endpoint,
+lifecycle and executor mutation remain excluded, as do ``signature``,
+``start_inputs`` and mutable traits.
 
 Compatibility audit: wiring and time-series tiers
 -------------------------------------------------

@@ -2158,14 +2158,14 @@
       "name": "Traits.set_traits",
       "kind": "method-missing",
       "side": "candidate",
-      "reason": "runtime Traits is deliberately read-only wiring metadata; a Python trait-authoring requirement needs an explicit wiring-time API decision documented in python_compatibility.rst"
+      "reason": "ruling 2026-08-11: runtime Traits is deliberately read-only diagnostic metadata; set_traits remains excluded from the Python callback surface"
     },
     {
       "module": "hgraph",
       "name": "Traits.copy",
       "kind": "method-missing",
       "side": "candidate",
-      "reason": "runtime Traits is deliberately a borrowed read-only view; a Python trait-authoring requirement needs an explicit wiring-time API decision documented in python_compatibility.rst"
+      "reason": "ruling 2026-08-11: runtime Traits is a borrowed read-only diagnostic view; copy remains excluded from the Python callback surface"
     },
     {
       "module": "hgraph",

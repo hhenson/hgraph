@@ -83,6 +83,7 @@ def test_graph_configuration_honours_run_mode_and_logger(caplog):
             engine: hg.EvaluationEngineApi = None,
             logger: hg.LOGGER = None) -> hg.TS[str]:
         observed.append(logger)
+        logger.warning("python run logger %s", ts.value)
         return engine.evaluation_mode
 
     @hg.graph
@@ -107,7 +108,10 @@ def test_graph_configuration_honours_run_mode_and_logger(caplog):
         )
 
     assert [value for _, value in result] == [hg.EvaluationMode.REAL_TIME]
-    assert observed == [logger]
+    assert len(observed) == 1
+    assert isinstance(observed[0], hg.LOGGER)
+    assert observed[0] is not logger
+    assert "python run logger 1" in caplog.text
     assert logger.level == logging.WARNING
     assert "native run logger 1" in caplog.text
 
@@ -143,7 +147,7 @@ def test_graph_configuration_applies_logger_formatter_to_python_and_native_nodes
 
     @hg.compute_node
     def python_log(value: hg.TS[int], logger: hg.LOGGER = None) -> hg.TS[int]:
-        logger.warning("python contextual log")
+        logger.warning("python contextual log %s", value.value)
         return value.value
 
     @hg.graph
@@ -164,7 +168,7 @@ def test_graph_configuration_applies_logger_formatter_to_python_and_native_nodes
         )
 
     assert [value for _, value in result] == [1]
-    assert any(path == "python_log" and "python contextual" in message
+    assert any("python_log" in path and "python contextual log 1" in message
                for path, message in formatted)
     assert any(path != "python_log" and "native contextual" in message
                for path, message in formatted)

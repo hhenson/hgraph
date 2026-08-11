@@ -99,7 +99,10 @@ The audit restored the complete 0.5 scheduler API
 (``next_scheduled_time``, ``is_scheduled``, ``is_scheduled_now``,
 ``has_tag()``, ``pop_tag()``, ``schedule()``, ``un_schedule()`` and
 ``reset()``), normal mapping methods on injected ``GlobalState``, read-only
-``Traits`` injection, and the ``RECORDABLE_STATE.as_schema`` view.
+``Traits`` injection, the ``RECORDABLE_STATE.as_schema`` view, and guarded
+read-only runtime diagnostics for input topology, compound references, nodes
+and graphs. ``LOGGER`` is a narrow Python facade over the native run logger,
+not the configured Python logging sink itself.
 
 Established exclusions
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -108,8 +111,9 @@ Two 0.5 members are deliberately outside the supported Python interface:
 
 * ``REF.value.output`` will not be supported. A reference token exposes only
   the safe ``is_empty``, ``has_output`` and observation-time ``is_valid``
-  metadata. It never provides a path to the live, mutable output endpoint.
-  Express output access through wiring or an explicit ``TS_OUT`` parameter.
+  metadata, plus ``items`` for a compound reference. It never provides a path
+  to the live, mutable output endpoint. Express output access through wiring
+  or an explicit ``TS_OUT`` parameter.
 * ``NODE.notify()`` is not exposed. Use the injected ``SCHEDULER`` for
   absolute, relative or tagged scheduling. The narrower
   ``NODE.notify_next_cycle()`` convenience remains available.
@@ -117,68 +121,66 @@ Two 0.5 members are deliberately outside the supported Python interface:
 Both exclusions are asserted against live callback objects and the generated
 ``_hgraph.pyi`` stub so they cannot be reintroduced accidentally.
 
-Items requiring an explicit compatibility decision
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Read-only diagnostics and internal controls
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The following 0.5 runtime members are not silently classified as either
-supported or obsolete. They expose native topology or execution ownership,
-and restoring them could make callback-scoped objects unsafe or create a
-second runtime control surface. Code that relies on one of these members needs
-an explicit migration decision before moving to 0.8.
+The Python bridge exposes enough callback-scoped state to inspect a running
+graph in a debugger. These properties are resolved lazily when accessed and do
+not add work to the normal tick path. They return guarded read-only views;
+wiring, endpoint ownership, lifecycle and executor control remain native.
 
 .. list-table::
    :header-rows: 1
-   :widths: 27 34 39
+   :widths: 27 36 37
 
    * - 0.5 surface
-     - Current 0.8 position
-     - Decision to make
+     - Supported diagnostic surface
+     - Excluded control surface
    * - Input topology observation: ``parent_input``, ``has_parent_input``,
        ``bound``, ``has_peer``, an input's bound ``output`` and
        compound-reference items
-     - Not exposed on callback views.
-     - Decide whether read-only topology is a genuine extension API or should
-       be replaced by owned diagnostics. This is separate from permitting
-       topology mutation and from the permanently excluded
-       ``REF.value.output`` path.
+     - Available lazily on callback input views. ``input.output`` returns a
+       separate read-only ``TimeSeriesOutput`` view. Compound references expose
+       read-only ``items``.
+     - ``REF.value.output`` remains permanently excluded. Diagnostic output
+       views cannot mutate values, bind endpoints or manage subscriptions.
    * - Endpoint mutation: ``re_parent``, ``bind_output``, ``un_bind_output``,
        ``do_bind_output``, ``do_un_bind_output``, ``parent_output``,
-       ``bind_input``, ``subscribe``, ``unsubscribe``, ``copy_from_*``,
-       ``apply_result`` and ``mark_*``
-     - Wiring and the C++ runtime own these operations. Public output views
-       retain value/collection mutation, ``clear()``, ``invalidate()`` and
-       ``can_apply_result()``.
-     - The current migration is to express topology during wiring. A new
-       public endpoint-management contract would require a first-class C++
-       design rather than compatibility methods on Python wrappers.
+       ``bind_input``, ``subscribe``, ``unsubscribe`` and ``copy_from_*``
+     - Inputs retain only ``active``, ``make_active()`` and ``make_passive()``
+       as the supported subscription-activity contract. Explicit ``TS_OUT``
+       injectables retain their documented authoring mutations.
+     - All listed topology mutations are excluded. Express topology during
+       wiring; do not manage native endpoints from a Python callback.
    * - Node internals: ``signature``, ``scalars``, ``input``/``inputs``,
        ``start_inputs``, ``output``, ``recordable_state``, ``scheduler`` and
        ``error_output``
-     - ``NODE`` provides identity/status and its graph.
-       ``notify_next_cycle()`` is the only node-level scheduling convenience;
-       explicit scheduling uses ``SCHEDULER``.
-       Callback inputs, ``TS_OUT``/``RECORDABLE_STATE``, ``SCHEDULER`` and
-       error-capture helpers provide task-specific access.
-     - Decide whether a read-only inspection snapshot is needed by library
-       writers. Direct setters and ``eval()`` remain executor responsibilities.
+     - ``scalars``, ``input``, ``inputs``, ``output``, ``recordable_state``,
+       ``error_output`` and read-only ``scheduler`` state are available for
+       debugging. Output properties return ``TimeSeriesOutput`` rather than the
+       mutable authoring view.
+     - ``signature`` and ``start_inputs`` are not exposed: the native schema
+       does not reproduce the old Python shadow signature/start list. Node
+       setters, endpoint mutation, ``eval()`` and ``notify()`` are excluded.
    * - Graph executor internals: ``engine_evaluation_clock``,
        ``evaluation_engine``, ``push_source_nodes_end``, ``schedule``,
        ``schedule_node()``, ``evaluate_graph()`` and ``copy_with()``
-     - The graph view is read-only. ``EvaluationEngineApi``, ``SCHEDULER`` and
-       ``Traits`` are injected independently.
-     - Continue the migration unless a concrete extension cannot be expressed
-       through those narrower contracts.
+     - ``Graph.evaluation_clock`` and the injected ``EvaluationEngineApi`` are
+       the supported equivalents. ``Graph.nodes``, ``parent_node`` and
+       read-only ``traits`` support navigation.
+     - Push-source layout, scheduling, evaluation and copying remain executor
+       implementation details and are not accessible from the graph view.
    * - Lifecycle transition flags and controls: ``is_starting``,
        ``is_stopping``, ``initialise()``, ``start()``, ``stop()`` and
        ``dispose()``
-     - ``is_started`` is observable; lifecycle control is not exposed.
-     - Read-only transition flags may be considered for diagnostics. Lifecycle
-       mutation remains owned by the executor.
+     - ``is_started``, ``is_starting`` and ``is_stopping`` report native node
+       and graph lifecycle state.
+     - Lifecycle methods remain owned by the executor and are not exposed.
    * - Mutable traits: ``set_traits()`` and ``copy()``
-     - Injected ``Traits`` provides ``get_trait()`` and ``get_trait_or()`` and
-       is read-only after wiring.
-     - If Python library writers need to author traits, add a wiring-time API;
-       do not mutate graph metadata from a running callback.
+     - Injected ``Traits`` and ``Graph.traits`` provide ``get_trait()`` and
+       ``get_trait_or()``.
+     - ``set_traits()`` and ``copy()`` are excluded for now. Runtime trait
+       metadata is read-only from Python.
 
 Decorator and source changes
 ----------------------------

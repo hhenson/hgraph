@@ -120,7 +120,8 @@ Collection types add shape-specific access:
        ``removed_value``
    * - ``REF``
      - the common input API; ``value`` is the current reference token, with
-       safe ``is_empty``, ``has_output`` and ``is_valid`` metadata
+       safe ``is_empty``, ``has_output`` and ``is_valid`` metadata; compound
+       references also expose read-only ``items``
    * - ``SIGNAL``
      - the common input API; ``value`` and ``delta_value`` are ``True`` on a
        signal tick
@@ -128,6 +129,14 @@ Collection types add shape-specific access:
 A reference token deliberately does not expose ``output``. Direct traversal
 from ``REF.value`` to a live output endpoint is not and will not become part of
 the supported Python API.
+
+Every input view exposes lazy, read-only topology diagnostics:
+``parent_input``, ``has_parent_input``, ``bound``, ``has_peer`` and ``output``.
+The last property is the input's directly bound peer and returns a guarded
+``TimeSeriesOutput`` view, or ``None``. That diagnostic output supports value,
+delta, collection and window inspection but no value mutation, endpoint
+binding or subscription control. It is distinct from the deliberately
+excluded ``REF.value.output`` path.
 
 For a ``TSW``, ``size`` and ``min_size`` describe configuration rather than
 current occupancy. They are integers for tick-count windows and
@@ -226,7 +235,7 @@ as parameters with a ``None`` default; graph callers do not supply them.
    * - ``Traits``
      - Read-only access to graph wiring traits, including parent lookup
    * - ``LOGGER``
-     - Logger selected for this graph run
+     - Narrow facade over the executor-owned native run logger
    * - ``NODE``
      - Current node identity, graph view and next-cycle notification
 
@@ -257,14 +266,25 @@ view is deliberately read-only; traits are immutable wiring metadata once the
 graph is running.
 
 ``NODE`` exposes stable identity and diagnostic properties (``node_id``,
-``node_ndx``, ``owning_graph_id``, ``label`` and ``node_type``), started and
-input/output status, its read-only ``graph`` view, and
-``notify_next_cycle()``. ``NODE.notify()`` is deliberately not part of the
-Python interface; use the injected ``SCHEDULER`` for explicit evaluation
-times. The graph view exposes identity, label, nodes, ``parent_node``,
-started/evaluating status and ``evaluation_clock``. Graph and node execution
-or topology mutation is not available through these views.
+``node_ndx``, ``owning_graph_id``, ``label`` and ``node_type``), native
+``is_started``/``is_starting``/``is_stopping`` state, and its read-only
+``graph``. For breakpoint inspection it also provides ``scalars``, ``input`` /
+``inputs``, ``output``, ``recordable_state``, ``error_output`` and a read-only
+``scheduler`` state. These are resolved only when queried. ``signature`` and
+``start_inputs`` are not reproduced from the old Python runtime. Output
+properties return ``TimeSeriesOutput`` and scheduler inspection cannot
+schedule or cancel events.
 
-``LOGGER`` is ``logging.Logger``. Standard methods such as ``debug()``,
-``info()``, ``warning()``, ``error()``, ``exception()`` and ``critical()`` are
-therefore visible to both runtime code and type checkers.
+``NODE.notify()`` is deliberately not part of the Python interface;
+``notify_next_cycle()`` remains the narrow convenience and the injected
+``SCHEDULER`` is the explicit scheduling API. The graph view exposes identity,
+label, nodes, ``parent_node``, read-only traits, lifecycle/evaluating state and
+``evaluation_clock``. Graph and node execution or topology mutation is not
+available through these views.
+
+``LOGGER`` exposes only ``debug()``, ``info()``, ``warning()``, ``error()``,
+``exception()``, ``critical()`` and ``log()`` with normal logging-style
+``%`` arguments. It is callback-scoped and backed by the graph's native
+``LoggerView`` and executor-owned spdlog logger. A Python
+``GraphConfiguration.graph_logger`` is an optional sink for that native
+logger; it is not the object injected into the node.

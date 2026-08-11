@@ -48,6 +48,26 @@ _hgraph\.TimeSeries\.valid$:
     def valid(self) -> bool:
         \doc
 
+_hgraph\.TimeSeries\.owning_node$:
+    @property
+    def owning_node(self) -> Node | None:
+        \doc
+
+_hgraph\.TimeSeries\.owning_graph$:
+    @property
+    def owning_graph(self) -> Graph | None:
+        \doc
+
+_hgraph\.TimeSeries\.parent_input$:
+    @property
+    def parent_input(self) -> TimeSeries | None:
+        \doc
+
+_hgraph\.TimeSeries\.output$:
+    @property
+    def output(self) -> TimeSeriesOutput | None:
+        \doc
+
 # TimeSeries is one native runtime-view class whose collection/window surface
 # dispatches by the schema kind.  Describe the public Python contract rather
 # than leaking nanobind's erased ``object`` return types into editor support.
@@ -167,6 +187,118 @@ _hgraph\.OutputView\.as_schema$:
 _hgraph\.OutputView\.__getattr__$:
     def __getattr__(self, name: str) -> OutputView: ...
 
+# Input/Node topology returns a distinct read-only output wrapper. It has the
+# complete observational surface for every TS kind but deliberately omits all
+# endpoint and value mutation methods.
+_hgraph\.TimeSeriesOutput\.(size|min_size)$:
+    @property
+    def \1(self) -> int | datetime.timedelta:
+        \doc
+
+_hgraph\.TimeSeriesOutput\.value_times$:
+    \import numpy
+    @property
+    def value_times(self) -> numpy.ndarray:
+        \doc
+
+_hgraph\.TimeSeriesOutput\.owning_node$:
+    @property
+    def owning_node(self) -> Node | None:
+        \doc
+
+_hgraph\.TimeSeriesOutput\.owning_graph$:
+    @property
+    def owning_graph(self) -> Graph | None:
+        \doc
+
+_hgraph\.TimeSeriesOutput\.(keys|modified_keys|valid_keys|added_keys|removed_keys)$:
+    def \1(self) -> list[object]:
+        \doc
+
+_hgraph\.TimeSeriesOutput\.values$:
+    def values(self) -> list[TimeSeriesOutput | object]:
+        \doc
+
+_hgraph\.TimeSeriesOutput\.(modified_values|valid_values|added_values|removed_values)$:
+    def \1(self) -> list[TimeSeriesOutput]:
+        \doc
+
+_hgraph\.TimeSeriesOutput\.(items|modified_items|valid_items|added_items|removed_items)$:
+    def \1(self) -> list[tuple[object, TimeSeriesOutput]]:
+        \doc
+
+_hgraph\.TimeSeriesOutput\.(added|removed)$:
+    def \1(self) -> frozenset[object]:
+        \doc
+
+_hgraph\.TimeSeriesOutput\.get$:
+    def get(self, key: object) -> TimeSeriesOutput | None:
+        \doc
+
+_hgraph\.TimeSeriesOutput\.key_from_value$:
+    def key_from_value(self, value: TimeSeriesOutput) -> object | None:
+        \doc
+
+_hgraph\.TimeSeriesOutput\.__getitem__$:
+    def __getitem__(self, key: object) -> TimeSeriesOutput: ...
+
+_hgraph\.TimeSeriesOutput\.__iter__$:
+    def __iter__(self) -> Iterator[object]: ...
+
+_hgraph\.TimeSeriesOutput\.as_schema$:
+    @property
+    def as_schema(self) -> TimeSeriesOutput:
+        \doc
+
+_hgraph\.TimeSeriesOutput\.__getattr__$:
+    def __getattr__(self, name: str) -> TimeSeriesOutput: ...
+
+_hgraph\.TimeSeriesRef\.items$:
+    @property
+    def items(self) -> tuple[TimeSeriesRef, ...]:
+        \doc
+
+_hgraph\.TimeSeriesRef\.__getitem__$:
+    def __getitem__(self, index: int) -> TimeSeriesRef: ...
+
+_hgraph\.TimeSeriesRef\.__iter__$:
+    def __iter__(self) -> Iterator[TimeSeriesRef]: ...
+
+_hgraph\.Graph\.parent_node$:
+    @property
+    def parent_node(self) -> Node | None:
+        \doc
+
+_hgraph\.Graph\.nodes$:
+    @property
+    def nodes(self) -> list[Node]:
+        \doc
+
+_hgraph\.Node\.scalars$:
+    @property
+    def scalars(self) -> object | None:
+        \doc
+
+_hgraph\.Node\.input$:
+    @property
+    def input(self) -> TimeSeries | None:
+        \doc
+
+_hgraph\.Node\.inputs$:
+    @property
+    def inputs(self) -> dict[str, TimeSeries] | None:
+        \doc
+
+_hgraph\.Node\.(output|recordable_state|error_output)$:
+    @property
+    def \1(self) -> TimeSeriesOutput | None:
+        \doc
+
+_hgraph\.Node\.scheduler$:
+    @property
+    def scheduler(self) -> SchedulerState | None:
+        \doc
+
 _hgraph\.CivilDateTime\.time$:
     @property
     def time(self) -> datetime.time: ...
@@ -219,10 +351,6 @@ _hgraph\.Scheduler\.schedule$:
     @overload
     def schedule(self, when: datetime.timedelta, tag: str | None = None, on_wall_clock: bool = False) -> None:
         """Schedule after a duration relative to the current evaluation time."""
-
-_hgraph\.Scheduler\.schedule_delta$:
-    def schedule_delta(self, delta: datetime.timedelta) -> None:
-        \doc
 
 _hgraph\.Scheduler\.pop_tag$:
     def pop_tag(self, tag: str, default: object | None = None) -> datetime.datetime | object | None:

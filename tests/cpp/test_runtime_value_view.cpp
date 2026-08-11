@@ -277,6 +277,58 @@ TEST_CASE("NodeValue exposes a type-erased view over node storage")
     REQUIRE(output.value().checked_as<std::int32_t>() == 41);
 }
 
+TEST_CASE("NodeView exposes read-only lifecycle transition state")
+{
+    using namespace hgraph;
+
+    bool observed_starting = false;
+    bool observed_stopping = false;
+    bool observed_graph_starting = false;
+    bool observed_graph_stopping = false;
+
+    NodeTypeMetaData schema;
+    schema.display_name = "lifecycle-state";
+
+    NodeCallbacks callbacks;
+    callbacks.start = [&](const NodeView &view, DateTime) {
+        observed_starting = view.is_starting() && !view.is_stopping() &&
+                            !view.started();
+        observed_graph_starting = view.graph().is_starting() &&
+                                  !view.graph().is_stopping();
+    };
+    callbacks.stop = [&](const NodeView &view, DateTime) {
+        observed_stopping = view.is_stopping() && !view.is_starting() &&
+                            view.started();
+        observed_graph_stopping = view.graph().is_stopping() &&
+                                  !view.graph().is_starting();
+    };
+
+    GraphBuilder graph_builder;
+    graph_builder.add_node(
+        NodeBuilder::native(std::move(schema), std::move(callbacks)));
+    testing::MockRootGraph graph{graph_builder};
+    auto graph_view = graph.graph();
+    NodeView view = graph_view.node_at(0);
+    REQUIRE_FALSE(graph_view.is_starting());
+    REQUIRE_FALSE(graph_view.is_stopping());
+    REQUIRE_FALSE(view.is_starting());
+    REQUIRE_FALSE(view.is_stopping());
+
+    graph_view.start(MIN_ST);
+    REQUIRE(observed_starting);
+    REQUIRE(observed_graph_starting);
+    REQUIRE_FALSE(view.is_starting());
+    REQUIRE_FALSE(view.is_stopping());
+
+    graph_view.stop(MIN_ST);
+    REQUIRE(observed_stopping);
+    REQUIRE(observed_graph_stopping);
+    REQUIRE_FALSE(view.is_starting());
+    REQUIRE_FALSE(view.is_stopping());
+    REQUIRE_FALSE(graph_view.is_starting());
+    REQUIRE_FALSE(graph_view.is_stopping());
+}
+
 TEST_CASE("testing set_output_value moves owned scalar values")
 {
     using namespace hgraph;

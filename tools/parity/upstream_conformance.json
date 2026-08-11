@@ -1068,38 +1068,6 @@
       ]
     },
     {
-      "id": "timeseries-private-bound-state-converted",
-      "match": "hgraph_unit_tests/ts_tests/test_ts_behavior.py::test_input_bound_when_wired",
-      "classification": "converted",
-      "candidate_outcomes": ["failed"],
-      "diagnostic_regex": "AttributeError: bound",
-      "reason": "The upstream test observes the private Python binding flag. Binding and retargeting are runtime-owned; public input behavior and native endpoint binding replace that introspection.",
-      "decision": "docs/source/developer_guide/parity_matrix.rst",
-      "review_date": "2026-08-05",
-      "evidence": [
-        "python/tests/test_time_series_runtime_api.py",
-        "python/tests/ported/_wiring/test_ref.py",
-        "tests/cpp/test_ts_input.cpp",
-        "tests/cpp/test_time_series_reference.cpp"
-      ]
-    },
-    {
-      "id": "timeseries-private-peer-state-converted",
-      "match": "hgraph_unit_tests/ts_tests/test_ts[bl]_behavior.py::test_*peer*",
-      "classification": "converted",
-      "candidate_outcomes": ["failed"],
-      "diagnostic_regex": "AttributeError: has_peer",
-      "reason": "has_peer exposes the old Python binding topology. Public structural values remain reference-transparent while native wiring explicitly tests peered and non-peered endpoints.",
-      "decision": "docs/source/developer_guide/parity_matrix.rst",
-      "review_date": "2026-08-05",
-      "evidence": [
-        "python/tests/test_time_series_runtime_api.py",
-        "python/tests/ported/_wiring/test_ref.py",
-        "tests/cpp/test_graph_wiring.cpp",
-        "tests/cpp/test_ts_input.cpp"
-      ]
-    },
-    {
       "id": "operators-filter-keyed-reconciliation-expected-change",
       "match": "hgraph_unit_tests/_operators/test_stream_operators.py::test_filter_str_tsd",
       "classification": "expected-change",
@@ -1283,20 +1251,6 @@
       "evidence": [
         "python/tests/ported/arrow/test_arrow.py",
         "tests/cpp/test_std_nodes.cpp"
-      ]
-    },
-    {
-      "id": "debug-inspector-parent-topology-converted",
-      "match": "hgraph_unit_tests/debug/test_inspector.py::test_inspector_graph_api_key_from_value*",
-      "classification": "converted",
-      "candidate_outcomes": ["failed"],
-      "diagnostic_regex": "AttributeError: parent_input",
-      "reason": "These tests traverse the old engine's private parent-input topology solely for the Python runtime-object inspector. The public inspector now consumes owned native GraphDiagnostics records and does not require that mutable endpoint topology in Python.",
-      "decision": "docs/source/user_guide/python_compatibility.rst",
-      "review_date": "2026-08-06",
-      "evidence": [
-        "python/tests/test_inspector.py",
-        "tests/cpp/test_graph_diagnostics.cpp"
       ]
     },
     {

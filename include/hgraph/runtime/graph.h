@@ -141,6 +141,8 @@ struct HGRAPH_EXPORT GraphEdge
                                    DateTime when) = nullptr;
 
         bool (*started_impl)(const void *context, const void *memory) noexcept = nullptr;
+        bool (*starting_impl)(const void *context, const void *memory) noexcept = nullptr;
+        bool (*stopping_impl)(const void *context, const void *memory) noexcept = nullptr;
         bool (*evaluating_impl)(const void *context, const void *memory) noexcept = nullptr;
         DateTime (*evaluation_time_impl)(const void *context, const void *memory) noexcept = nullptr;
         DateTime (*next_scheduled_time_impl)(const void *context, const void *memory) noexcept = nullptr;
@@ -192,6 +194,10 @@ struct HGRAPH_EXPORT GraphEdge
         [[nodiscard]] void *data() const noexcept;
 
         [[nodiscard]] bool started() const noexcept;
+        /** True only while this graph's native start transition is running. */
+        [[nodiscard]] bool is_starting() const noexcept;
+        /** True only while this graph's native stop transition is running. */
+        [[nodiscard]] bool is_stopping() const noexcept;
         [[nodiscard]] bool evaluating() const noexcept;
         [[nodiscard]] DateTime evaluation_time() const noexcept;
         [[nodiscard]] DateTime next_scheduled_time() const noexcept;

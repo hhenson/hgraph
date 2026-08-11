@@ -160,6 +160,8 @@ namespace hgraph
         std::string_view (*label_impl)(const void *context, const void *memory) noexcept = nullptr;
 
         bool (*started_impl)(const void *context, const void *memory) noexcept = nullptr;
+        bool (*starting_impl)(const void *context, const void *memory) noexcept = nullptr;
+        bool (*stopping_impl)(const void *context, const void *memory) noexcept = nullptr;
         void (*start_impl)(const void *context, const NodeView &view, DateTime evaluation_time) = nullptr;
         void (*stop_impl)(const void *context, const NodeView &view, DateTime evaluation_time) = nullptr;
         // Returns true when the node completed its evaluation, false when the node
@@ -290,6 +292,10 @@ namespace hgraph
         [[nodiscard]] std::string_view label() const noexcept;
         [[nodiscard]] NodeKind node_kind() const noexcept;
         [[nodiscard]] bool started() const noexcept;
+        /** True only while this node's native start callback is running. */
+        [[nodiscard]] bool is_starting() const noexcept;
+        /** True only while this node's native stop callback is running. */
+        [[nodiscard]] bool is_stopping() const noexcept;
         [[nodiscard]] std::size_t node_index() const noexcept;
         [[nodiscard]] GraphValue *graph_value() const noexcept;
         [[nodiscard]] GraphView graph() const;

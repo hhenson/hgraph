@@ -405,6 +405,53 @@ namespace hgraph
         return data_.modified(evaluation_time_);
     }
 
+    bool TSInputView::has_parent_input() const noexcept
+    {
+        if (!data_.has_storage()) { return false; }
+        if (data_.is_target_position() && !data_.is_target_root())
+        {
+            return data_.target_path_node() != nullptr;
+        }
+
+        const TSDataView &raw = data_.raw_data.valid() ? data_.raw_data
+                                                       : data_.value_data;
+        if (!raw.valid()) { return false; }
+        return fallback_on_exception(false, [&] {
+            const auto &parent = raw.parent_link();
+            return parent.has_ts_data_parent() &&
+                   parent.parent_storage_type().role() == TypeRole::Input;
+        });
+    }
+
+    TSInputView TSInputView::parent_input() const
+    {
+        if (!has_parent_input()) { return {}; }
+
+        if (data_.is_target_position() && !data_.is_target_root())
+        {
+            auto *current = data_.target_path_node();
+            auto *parent = current != nullptr ? current->parent : nullptr;
+            auto *parent_path = parent != nullptr && parent->parent != nullptr
+                                    ? parent
+                                    : nullptr;
+            TSDataView resolved = detail::target_link_resolve(
+                data_.raw_data, parent_path);
+            return TSInputView{
+                input_, std::move(resolved), data_.raw_data.borrowed_ref(),
+                parent_path != nullptr ? parent_path : target_root_marker(),
+                scheduling_notifier_, evaluation_time_,
+                InputDataCursor::Classification::Known};
+        }
+
+        const TSDataView &raw = data_.raw_data.valid() ? data_.raw_data
+                                                       : data_.value_data;
+        const auto &parent = raw.parent_link();
+        TSDataView parent_data{parent.parent_storage_type(), parent.parent_data()};
+        return TSInputView{
+            input_, std::move(parent_data), TSDataView{}, nullptr,
+            scheduling_notifier_, evaluation_time_};
+    }
+
     ValueView TSInputView::value() const
     {
         const auto &data = data_view();

@@ -92,6 +92,137 @@ namespace hgraph::python_bridge
             };
         }
 
+        [[nodiscard]] int python_log_level_to_native(int level) noexcept
+        {
+            if (level >= 50) { return 5; }
+            if (level >= 40) { return 4; }
+            if (level >= 30) { return 3; }
+            if (level >= 20) { return 2; }
+            if (level >= 10) { return 1; }
+            return 0;
+        }
+
+        void validate_logger_kwargs(const nb::kwargs &kwargs)
+        {
+            Py_ssize_t position = 0;
+            PyObject  *key      = nullptr;
+            PyObject  *value    = nullptr;
+            while (PyDict_Next(kwargs.ptr(), &position, &key, &value) != 0)
+            {
+                static_cast<void>(value);
+                const std::string name = nb::cast<std::string>(nb::handle(key));
+                if (name != "exc_info" && name != "extra" &&
+                    name != "stack_info" && name != "stacklevel")
+                {
+                    throw nb::type_error(
+                        ("unexpected logging keyword argument '" + name + "'").c_str());
+                }
+            }
+        }
+
+        [[nodiscard]] nb::str format_logger_message(nb::handle message,
+                                                     const nb::args &args)
+        {
+            nb::str text = nb::steal<nb::str>(PyObject_Str(message.ptr()));
+            if (!text.is_valid()) { nb::raise_python_error(); }
+            if (args.empty()) { return text; }
+
+            PyObject *operands = args.ptr();
+            if (args.size() == 1 && PyMapping_Check(args[0].ptr()) != 0)
+            {
+                operands = args[0].ptr();
+            }
+            nb::str formatted = nb::steal<nb::str>(
+                PyUnicode_Format(text.ptr(), operands));
+            if (!formatted.is_valid()) { nb::raise_python_error(); }
+            return formatted;
+        }
+
+        [[nodiscard]] bool logger_kwarg_truthy(const nb::kwargs &kwargs,
+                                                const char *name,
+                                                bool fallback = false)
+        {
+            PyObject *value = PyDict_GetItemString(kwargs.ptr(), name);
+            if (value == nullptr) { return fallback; }
+            const int truthy = PyObject_IsTrue(value);
+            if (truthy < 0) { nb::raise_python_error(); }
+            return truthy != 0;
+        }
+
+        void append_logger_diagnostics(nb::str &message,
+                                       const nb::kwargs &kwargs,
+                                       bool exception_default)
+        {
+            nb::object traceback;
+            if (logger_kwarg_truthy(kwargs, "exc_info", exception_default))
+            {
+                nb::tuple details;
+                if (PyObject *value = PyDict_GetItemString(kwargs.ptr(), "exc_info");
+                    value != nullptr && PyTuple_Check(value) != 0 &&
+                    PyTuple_Size(value) == 3)
+                {
+                    details = nb::borrow<nb::tuple>(nb::handle(value));
+                }
+                else
+                {
+                    details = nb::cast<nb::tuple>(
+                        nb::module_::import_("sys").attr("exc_info")());
+                }
+                traceback = nb::module_::import_("traceback");
+                nb::object lines = traceback.attr("format_exception")(
+                    details[0], details[1], details[2]);
+                nb::str rendered = nb::cast<nb::str>(nb::str("").attr("join")(lines));
+                message = nb::str("{}\n{}").format(message, rendered);
+            }
+            if (logger_kwarg_truthy(kwargs, "stack_info"))
+            {
+                if (!traceback.is_valid())
+                {
+                    traceback = nb::module_::import_("traceback");
+                }
+                nb::object lines = traceback.attr("format_stack")();
+                nb::str rendered = nb::cast<nb::str>(nb::str("").attr("join")(lines));
+                message = nb::str("{}\nStack (most recent call last):\n{}").format(
+                    message, rendered);
+            }
+        }
+
+        [[nodiscard]] nb::object diagnostic_value_to_py(ValueView value)
+        {
+            try { return value_to_py(value); }
+            catch (const std::logic_error &)
+            {
+                if (value.is_bundle())
+                {
+                    nb::dict result;
+                    auto bundle = value.as_bundle();
+                    const auto *schema = bundle.schema();
+                    for (std::size_t index = 0; index < schema->field_count; ++index)
+                    {
+                        const char *name = schema->fields[index].name;
+                        result[nb::str(name != nullptr ? name : "")] =
+                            diagnostic_value_to_py(bundle.at(index));
+                    }
+                    return result;
+                }
+                const std::string rendered = value.to_string();
+                return nb::str(rendered.data(), rendered.size());
+            }
+        }
+
+        void py_logger_emit(const PyLogger &self, int native_level,
+                            nb::handle message, const nb::args &args,
+                            const nb::kwargs &kwargs,
+                            bool exception_default = false)
+        {
+            const LoggerView logger = self.checked();
+            if (!logger.should_log(native_level)) { return; }
+            validate_logger_kwargs(kwargs);
+            nb::str text = format_logger_message(message, args);
+            append_logger_diagnostics(text, kwargs, exception_default);
+            logger.log(native_level, nb::cast<std::string>(text));
+        }
+
         template <auto Member>
         PyObject *py_ts_raw_get(PyObject *self, void *) noexcept
         {
@@ -693,6 +824,126 @@ namespace hgraph::python_bridge
                      throw nb::attribute_error(name.c_str());
                  }
              });
+    nb::class_<PyReadOnlyOutput>(
+        m, "TimeSeriesOutput",
+        "A read-only, callback-scoped view of a native output endpoint.\n\n"
+        "This diagnostic view is returned by TimeSeries.output and Node "
+        "topology properties. It supports state and structural navigation "
+        "but never endpoint binding, subscription, value mutation, or "
+        "lifecycle control.")
+        .def_prop_ro("owning_node", &PyReadOnlyOutput::owning_node,
+                     "The node that owns this output endpoint.")
+        .def_prop_ro("owning_graph", &PyReadOnlyOutput::owning_graph,
+                     "The graph containing the owning node.")
+        .def_prop_ro("valid", &PyReadOnlyOutput::valid,
+                     "Whether the output currently has a value.")
+        .def_prop_ro("all_valid", &PyReadOnlyOutput::all_valid,
+                     "Whether every direct child currently has a value.")
+        .def_prop_ro("modified", &PyReadOnlyOutput::modified,
+                     "Whether the output ticked in the current cycle.")
+        .def_prop_ro("last_modified_time", &PyReadOnlyOutput::last_modified_time,
+                     "The evaluation time of the most recent output tick.")
+        .def_prop_ro("value", &PyReadOnlyOutput::value,
+                     "The current output value, or None when invalid.")
+        .def_prop_ro("delta_value", &PyReadOnlyOutput::delta_value,
+                     "The change published in the current cycle.")
+        .def_prop_ro("size", &PyReadOnlyOutput::window_size,
+                     "The configured tick count or duration of a window output.")
+        .def_prop_ro("min_size", &PyReadOnlyOutput::window_min_size,
+                     "The configured minimum tick count or duration of a window output.")
+        .def_prop_ro("value_times", &PyReadOnlyOutput::value_times,
+                     "A NumPy-compatible datetime64 buffer containing window evaluation times.")
+        .def_prop_ro("first_modified_time", &PyReadOnlyOutput::first_modified_time,
+                     "The evaluation time of the oldest retained window value.")
+        .def_prop_ro("has_removed_value", &PyReadOnlyOutput::has_removed_value,
+                     "Whether a window value was evicted in the current cycle.")
+        .def_prop_ro("removed_value", &PyReadOnlyOutput::removed_value,
+                     "The window value evicted in the current cycle, or None.")
+        .def("is_reference", &PyReadOnlyOutput::is_reference,
+             "Return whether this is a reference-valued output.")
+        .def("keys", &PyReadOnlyOutput::keys,
+             "Return current dictionary keys, list indices, or bundle field names.")
+        .def("values", &PyReadOnlyOutput::values,
+             "Return read-only child views, or scalar values for a set output.")
+        .def("items", &PyReadOnlyOutput::items,
+             "Return current collection key/read-only-child pairs.")
+        .def("modified_keys", &PyReadOnlyOutput::modified_keys,
+             "Return collection keys modified in the current cycle.")
+        .def("modified_values", &PyReadOnlyOutput::modified_values,
+             "Return read-only child outputs modified in the current cycle.")
+        .def("modified_items", &PyReadOnlyOutput::modified_items,
+             "Return modified collection key/read-only-child pairs.")
+        .def("valid_keys", &PyReadOnlyOutput::valid_keys,
+             "Return collection keys whose child outputs are valid.")
+        .def("valid_values", &PyReadOnlyOutput::valid_values,
+             "Return valid read-only child outputs.")
+        .def("valid_items", &PyReadOnlyOutput::valid_items,
+             "Return valid collection key/read-only-child pairs.")
+        .def("added_keys", &PyReadOnlyOutput::added_keys,
+             "Return dictionary keys added in the current cycle.")
+        .def("added_values", &PyReadOnlyOutput::added_values,
+             "Return dictionary child outputs added in the current cycle.")
+        .def("added_items", &PyReadOnlyOutput::added_items,
+             "Return dictionary key/child-output pairs added in the current cycle.")
+        .def("removed_keys", &PyReadOnlyOutput::removed_keys,
+             "Return dictionary keys removed in the current cycle.")
+        .def("removed_values", &PyReadOnlyOutput::removed_values,
+             "Return dictionary child outputs removed in the current cycle.")
+        .def("removed_items", &PyReadOnlyOutput::removed_items,
+             "Return dictionary key/child-output pairs removed in the current cycle.")
+        .def("added", &PyReadOnlyOutput::set_added,
+             "Return set values added in the current cycle.")
+        .def("removed", &PyReadOnlyOutput::set_removed,
+             "Return set values removed in the current cycle.")
+        .def("was_added", &PyReadOnlyOutput::was_added, nb::arg("item"),
+             "Return whether a set value was added in the current cycle.")
+        .def("was_removed", &PyReadOnlyOutput::was_removed, nb::arg("item"),
+             "Return whether a set value was removed in the current cycle.")
+        .def("get", &PyReadOnlyOutput::get, nb::arg("key"),
+             "Return a keyed child output, or None when absent.")
+        .def_prop_ro("key_set", &PyReadOnlyOutput::key_set,
+                     "A read-only set-output view over dictionary keys.")
+        .def("key_from_value", &PyReadOnlyOutput::key_from_value,
+             nb::arg("value"),
+             "Return the key, index, or field name for a child output.")
+        .def("__getitem__", &PyReadOnlyOutput::child, nb::arg("key"))
+        .def("__contains__", &PyReadOnlyOutput::contains, nb::arg("key"))
+        .def("__len__", &PyReadOnlyOutput::size)
+        .def("__iter__", [](const PyReadOnlyOutput &self) -> nb::object {
+            nb::object source;
+            switch (self.checked().schema()->kind)
+            {
+                case TSTypeKind::TSD: source = self.keys(); break;
+                case TSTypeKind::TSL:
+                case TSTypeKind::TSB:
+                case TSTypeKind::TSS: source = self.values(); break;
+                default: throw nb::type_error("this output kind is not iterable");
+            }
+            PyObject *iterator = PyObject_GetIter(source.ptr());
+            if (iterator == nullptr) { nb::raise_python_error(); }
+            return nb::steal(iterator);
+        })
+        .def_prop_ro("as_schema", [](nb::object self) -> nb::object {
+            auto &view = nb::cast<PyReadOnlyOutput &>(self);
+            if (view.checked().schema()->kind != TSTypeKind::TSB)
+            {
+                throw nb::attribute_error("as_schema");
+            }
+            return self;
+        }, "The same bundle output viewed through its declared schema.")
+        .def("__getattr__",
+             [](const PyReadOnlyOutput &self,
+                const std::string &name) -> PyReadOnlyOutput {
+                 if (self.checked().schema()->kind != TSTypeKind::TSB)
+                 {
+                     throw nb::attribute_error(name.c_str());
+                 }
+                 try { return self.child(nb::str(name.c_str())); }
+                 catch (const std::out_of_range &)
+                 {
+                     throw nb::attribute_error(name.c_str());
+                 }
+             });
     nb::class_<PyRecordableState>(
         m, "RecordableStateView",
         "A mutable, callback-scoped view of persistent RECORDABLE_STATE.\n\n"
@@ -759,7 +1010,10 @@ namespace hgraph::python_bridge
         .def("__iter__", [](const PyRuntimeGlobalState &self) {
             nb::list result;
             const GlobalStateView state = self.checked();
-            for (const ValueView key : state.as_value().view().as_map().keys())
+            const ValueView       value = state.as_value().view();
+            const auto            map   = value.as_map();
+            const auto            keys  = map.keys();
+            for (const ValueView key : keys)
             {
                 result.append(value_to_py(key));
             }
@@ -768,7 +1022,10 @@ namespace hgraph::python_bridge
         .def("values", [](const PyRuntimeGlobalState &self) {
             nb::list result;
             const GlobalStateView state = self.checked();
-            for (const ValueView key : state.as_value().view().as_map().keys())
+            const ValueView       value = state.as_value().view();
+            const auto            map   = value.as_map();
+            const auto            keys  = map.keys();
+            for (const ValueView key : keys)
             {
                 result.append(value_to_py(state.get(key.checked_as<Str>())));
             }
@@ -777,7 +1034,10 @@ namespace hgraph::python_bridge
         .def("items", [](const PyRuntimeGlobalState &self) {
             nb::list result;
             const GlobalStateView state = self.checked();
-            for (const ValueView key : state.as_value().view().as_map().keys())
+            const ValueView       value = state.as_value().view();
+            const auto            map   = value.as_map();
+            const auto            keys  = map.keys();
+            for (const ValueView key : keys)
             {
                 result.append(nb::make_tuple(
                     value_to_py(key), value_to_py(state.get(key.checked_as<Str>()))));
@@ -923,6 +1183,16 @@ namespace hgraph::python_bridge
                      "The node consuming this input.")
         .def_prop_ro("owning_graph", &PyTimeSeries::owning_graph,
                      "The graph containing the consuming node.")
+        .def_prop_ro("parent_input", &PyTimeSeries::parent_input,
+                     "The read-only structural parent input, or None at the public root.")
+        .def_prop_ro("has_parent_input", &PyTimeSeries::has_parent_input,
+                     "Whether this input has a public structural parent.")
+        .def_prop_ro("bound", &PyTimeSeries::bound,
+                     "Whether this input projection is completely bound.")
+        .def_prop_ro("has_peer", &PyTimeSeries::has_peer,
+                     "Whether this input is directly bound to an output peer.")
+        .def_prop_ro("output", &PyTimeSeries::bound_output,
+                     "The directly bound read-only output peer, or None.")
         .def("is_reference", &PyTimeSeries::is_reference,
              "Return whether this input carries a time-series reference.")
         // hgraph's runtime activity control: a node may passivate/reactivate
@@ -1088,6 +1358,65 @@ namespace hgraph::python_bridge
         return PyScalarValue{std::move(result)};
     });
 
+    nb::class_<PyLogger>(
+        m, "Logger",
+        "A callback-scoped logging facade backed by the graph's native run logger.\n\n"
+        "Only the normal Python logging emission methods are exposed. Calls "
+        "use logging-style percent interpolation and flow through LoggerView "
+        "to the executor-owned spdlog logger. The view expires when the node "
+        "callback returns.")
+        .def("debug",
+             [](const PyLogger &self, nb::handle message, nb::args args,
+                nb::kwargs kwargs) {
+                 py_logger_emit(self, 1, message, args, kwargs);
+             },
+             nb::arg("msg"), nb::arg("args"), nb::arg("kwargs"),
+             "Log msg with severity DEBUG through the native run logger.")
+        .def("info",
+             [](const PyLogger &self, nb::handle message, nb::args args,
+                nb::kwargs kwargs) {
+                 py_logger_emit(self, 2, message, args, kwargs);
+             },
+             nb::arg("msg"), nb::arg("args"), nb::arg("kwargs"),
+             "Log msg with severity INFO through the native run logger.")
+        .def("warning",
+             [](const PyLogger &self, nb::handle message, nb::args args,
+                nb::kwargs kwargs) {
+                 py_logger_emit(self, 3, message, args, kwargs);
+             },
+             nb::arg("msg"), nb::arg("args"), nb::arg("kwargs"),
+             "Log msg with severity WARNING through the native run logger.")
+        .def("error",
+             [](const PyLogger &self, nb::handle message, nb::args args,
+                nb::kwargs kwargs) {
+                 py_logger_emit(self, 4, message, args, kwargs);
+             },
+             nb::arg("msg"), nb::arg("args"), nb::arg("kwargs"),
+             "Log msg with severity ERROR through the native run logger.")
+        .def("exception",
+             [](const PyLogger &self, nb::handle message, nb::args args,
+                nb::kwargs kwargs) {
+                 py_logger_emit(self, 4, message, args, kwargs, true);
+             },
+             nb::arg("msg"), nb::arg("args"), nb::arg("kwargs"),
+             "Log msg with severity ERROR and current exception information.")
+        .def("critical",
+             [](const PyLogger &self, nb::handle message, nb::args args,
+                nb::kwargs kwargs) {
+                 py_logger_emit(self, 5, message, args, kwargs);
+             },
+             nb::arg("msg"), nb::arg("args"), nb::arg("kwargs"),
+             "Log msg with severity CRITICAL through the native run logger.")
+        .def("log",
+             [](const PyLogger &self, int level, nb::handle message,
+                nb::args args, nb::kwargs kwargs) {
+                 py_logger_emit(self, python_log_level_to_native(level),
+                                message, args, kwargs);
+             },
+             nb::arg("level"), nb::arg("msg"), nb::arg("args"),
+             nb::arg("kwargs"),
+             "Log msg at a standard numeric Python logging level through the native run logger.");
+
     nb::class_<PyEvalClock>(
         m, "EvaluationClock",
         "A callback-scoped view of graph evaluation time: the graph evaluation clock.\n\n"
@@ -1182,6 +1511,12 @@ namespace hgraph::python_bridge
         .def_prop_ro("is_started", [](const PyGraph &self) {
             return self.checked().started();
         }, "Compatibility spelling for whether graph start has completed.")
+        .def_prop_ro("is_starting", [](const PyGraph &self) {
+            return self.checked().is_starting();
+        }, "Whether the graph is currently running its native start transition.")
+        .def_prop_ro("is_stopping", [](const PyGraph &self) {
+            return self.checked().is_stopping();
+        }, "Whether the graph is currently running its native stop transition.")
         .def_prop_ro("evaluating", [](const PyGraph &self) {
             return self.checked().evaluating();
         }, "Whether the graph is currently evaluating a cycle.")
@@ -1194,6 +1529,9 @@ namespace hgraph::python_bridge
             const NodeView parent = graph.as_nested().parent_node();
             return nb::cast(PyNode{parent.pointer(), NodeScheduler{}, self.lease});
         }, "The node owning this nested graph, or None for the root graph.")
+        .def_prop_ro("traits", [](const PyGraph &self) {
+            return PyTraits{TraitsView{self.checked().pointer()}, self.lease};
+        }, "A read-only view of this graph's parent-chained traits.")
         .def_prop_ro("nodes", [](const PyGraph &self) {
             const GraphView graph = self.checked();
             nb::list result;
@@ -1254,12 +1592,92 @@ namespace hgraph::python_bridge
                      "Whether node start has completed.")
         .def_prop_ro("is_started", [](const PyNode &self) { return self.checked().started(); },
                      "Compatibility spelling for whether node start has completed.")
+        .def_prop_ro("is_starting", [](const PyNode &self) { return self.checked().is_starting(); },
+                     "Whether the node is currently running its native start callback.")
+        .def_prop_ro("is_stopping", [](const PyNode &self) { return self.checked().is_stopping(); },
+                     "Whether the node is currently running its native stop callback.")
         .def_prop_ro("has_input", [](const PyNode &self) { return self.checked().has_input(); },
                      "Whether the node owns an input time-series tree.")
         .def_prop_ro("has_output", [](const PyNode &self) { return self.checked().has_output(); },
                      "Whether the node owns an output time-series tree.")
+        .def_prop_ro("scalars", [](const PyNode &self) -> nb::object {
+            const NodeView node = self.checked();
+            return node.has_scalars() ? diagnostic_value_to_py(node.scalars())
+                                      : nb::none();
+        }, "The node's decoded native scalar configuration, or None.")
+        .def_prop_ro("input", [](const PyNode &self) -> nb::object {
+            const NodeView node = self.checked();
+            if (!node.has_input()) { return nb::none(); }
+            return nb::cast(PyTimeSeries{
+                node.input(node.graph().evaluation_time()), self.lease});
+        }, "The read-only root input tree, or None.")
+        .def_prop_ro("inputs", [](const PyNode &self) -> nb::object {
+            const NodeView node = self.checked();
+            if (!node.has_input()) { return nb::none(); }
+            PyTimeSeries root{
+                node.input(node.graph().evaluation_time()), self.lease};
+            if (root.checked().schema()->kind != TSTypeKind::TSB)
+            {
+                nb::dict only;
+                only[nb::str("input")] = nb::cast(std::move(root));
+                return only;
+            }
+            nb::dict result;
+            auto bundle = root.checked().as_bundle();
+            const auto items = bundle.items();
+            for (auto &&[name, child] : items)
+            {
+                result[nb::str(name.data(), name.size())] = nb::cast(
+                    root.collection_child(
+                        std::move(child), nb::str(name.data(), name.size())));
+            }
+            return result;
+        }, "A mapping of native input field names to read-only child views.")
+        .def_prop_ro("output", [](const PyNode &self) -> nb::object {
+            const NodeView node = self.checked();
+            if (!node.has_output()) { return nb::none(); }
+            const DateTime now = node.graph().evaluation_time();
+            return nb::cast(PyReadOnlyOutput{PyOutput{
+                node.output(now).handle(), now, NodeScheduler{}, self.lease}});
+        }, "The node's read-only output tree, or None.")
+        .def_prop_ro("recordable_state", [](const PyNode &self) -> nb::object {
+            const NodeView node = self.checked();
+            if (!node.has_recordable_state()) { return nb::none(); }
+            const DateTime now = node.graph().evaluation_time();
+            return nb::cast(PyReadOnlyOutput{PyOutput{
+                node.recordable_state(now).handle(), now, NodeScheduler{}, self.lease}});
+        }, "The node's read-only recordable-state output, or None.")
+        .def_prop_ro("error_output", [](const PyNode &self) -> nb::object {
+            const NodeView node = self.checked();
+            if (!node.has_error_output()) { return nb::none(); }
+            const DateTime now = node.graph().evaluation_time();
+            return nb::cast(PyReadOnlyOutput{PyOutput{
+                node.error_output(now).handle(), now, NodeScheduler{}, self.lease}});
+        }, "The node's read-only error output, or None.")
+        .def_prop_ro("scheduler", [](const PyNode &self) -> nb::object {
+            const NodeView node = self.checked();
+            if (!node.has_scheduler()) { return nb::none(); }
+            return nb::cast(PySchedulerState{
+                py_scheduler_for_node(node, node.graph().evaluation_time()),
+                self.lease});
+        }, "Read-only scheduling state for this node, or None.")
         .def("notify_next_cycle", &PyNode::notify_next_cycle,
              "Schedule this node for the next evaluation cycle.");
+    nb::class_<PySchedulerState>(
+        m, "SchedulerState",
+        "A read-only, callback-scoped scheduler state used for diagnostics.")
+        .def_prop_ro("next_scheduled_time", [](const PySchedulerState &self) {
+            return self.checked().next_scheduled_time();
+        }, "The earliest pending evaluation time, or MIN_DT when empty.")
+        .def_prop_ro("is_scheduled", [](const PySchedulerState &self) {
+            return self.checked().is_scheduled();
+        }, "Whether this node has an outstanding schedule.")
+        .def_prop_ro("is_scheduled_now", [](const PySchedulerState &self) {
+            return self.checked().is_scheduled_now();
+        }, "Whether this node is scheduled for the current cycle.")
+        .def("has_tag", [](const PySchedulerState &self, const std::string &tag) {
+            return self.checked().has_tag(tag);
+        }, nb::arg("tag"), "Return whether a pending event has this tag.");
     nb::class_<PyScheduler>(
         m, "Scheduler",
         "A callback-scoped scheduler for the current node.\n\n"
@@ -1280,8 +1698,6 @@ namespace hgraph::python_bridge
                  self.scheduler.schedule(delta, std::move(tag), on_wall_clock);
              },
              nb::arg("when"), nb::arg("tag") = nb::none(), nb::arg("on_wall_clock") = false,
-             "Schedule after a duration relative to the current evaluation time.")
-        .def("schedule_delta", [](const PyScheduler &self, TimeDelta delta) { self.scheduler.schedule(delta); },
              "Schedule after a duration relative to the current evaluation time.")
         .def_prop_ro("next_scheduled_time",
                      [](const PyScheduler &self) { return self.scheduler.next_scheduled_time(); },

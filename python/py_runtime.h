@@ -353,6 +353,34 @@ namespace hgraph::python_bridge
         }
     };
 
+    /** Narrow, callback-scoped Python projection over the native run logger. */
+    struct PyLogger
+    {
+        LoggerView logger;
+        PyTsLease lease;
+
+        [[nodiscard]] LoggerView checked() const
+        {
+            lease.require_alive(
+                "a Logger view was accessed outside its node's evaluation");
+            return logger;
+        }
+    };
+
+    /** Read-only scheduler projection used by Node diagnostics. */
+    struct PySchedulerState
+    {
+        NodeScheduler scheduler;
+        PyTsLease     lease;
+
+        [[nodiscard]] const NodeScheduler &checked() const
+        {
+            lease.require_alive(
+                "a SchedulerState view was accessed outside its node's evaluation");
+            return scheduler;
+        }
+    };
+
     [[nodiscard]] inline PyTsLease py_ts_lease_for_call()
     {
         auto guard = std::make_shared<PyTsGuard>();
@@ -471,6 +499,19 @@ namespace hgraph::python_bridge
             scheduler.schedule(MIN_TD);
         }
     };
+
+    [[nodiscard]] inline NodeScheduler
+    py_scheduler_for_node(const NodeView &node, DateTime now)
+    {
+        if (!node.valid() || !node.has_scheduler()) { return {}; }
+        const GraphExecutorView executor = node.graph().executor();
+        const bool supports_wall_clock =
+            executor.valid() &&
+            executor.schema()->mode == GraphExecutorMode::RealTime;
+        return NodeScheduler{
+            node.scheduler_state(), node.graph_value(), node.node_index(), now,
+            node.started(), node.evaluation_clock(), supports_wall_clock};
+    }
 
     /**
      * The hgraph TimeSeries object handed to python user nodes: a LAZY,
@@ -1229,6 +1270,188 @@ namespace hgraph::python_bridge
 
     };
 
+    /**
+     * Read-only output endpoint projection used by input and node topology
+     * diagnostics. Mutation remains available only through the explicit
+     * ``_output``/``TS_OUT`` authoring views.
+     */
+    struct PyReadOnlyOutput
+    {
+        PyOutput output;
+
+        [[nodiscard]] TSOutputView checked() const { return output.checked(); }
+        [[nodiscard]] bool valid() const { return output.valid(); }
+        [[nodiscard]] bool all_valid() const { return output.all_valid(); }
+        [[nodiscard]] bool modified() const { return output.modified(); }
+        [[nodiscard]] DateTime last_modified_time() const
+        {
+            return output.last_modified_time();
+        }
+        [[nodiscard]] bool is_reference() const { return output.is_reference(); }
+        [[nodiscard]] nb::object owning_node() const { return output.owning_node(); }
+        [[nodiscard]] nb::object owning_graph() const { return output.owning_graph(); }
+        [[nodiscard]] nb::object value() const { return output.value(); }
+        [[nodiscard]] nb::object delta_value() const { return output.delta_value(); }
+        [[nodiscard]] nb::object window_size() const { return output.window_size(); }
+        [[nodiscard]] nb::object window_min_size() const
+        {
+            return output.window_min_size();
+        }
+        [[nodiscard]] nb::object value_times() const { return output.value_times(); }
+        [[nodiscard]] DateTime first_modified_time() const
+        {
+            return output.first_modified_time();
+        }
+        [[nodiscard]] bool has_removed_value() const
+        {
+            return output.has_removed_value();
+        }
+        [[nodiscard]] nb::object removed_value() const
+        {
+            return output.removed_value();
+        }
+        [[nodiscard]] bool contains(nb::handle key) const
+        {
+            return output.contains(key);
+        }
+        [[nodiscard]] std::size_t size() const { return output.size(); }
+        [[nodiscard]] nb::list keys() const { return output.keys(); }
+
+        [[nodiscard]] static PyReadOnlyOutput from_output(const PyOutput &source)
+        {
+            PyOutput copy{
+                source.handle, source.now, source.scheduler, source.lease,
+                source.collection_key, source.collection_identity};
+            return PyReadOnlyOutput{std::move(copy)};
+        }
+
+        [[nodiscard]] PyReadOnlyOutput child(nb::handle key) const
+        {
+            return PyReadOnlyOutput{output.child(key)};
+        }
+
+        [[nodiscard]] nb::object get(nb::handle key) const
+        {
+            auto view = checked();
+            if (view.schema()->kind != TSTypeKind::TSD)
+            {
+                throw nb::type_error("get(): not a keyed output");
+            }
+            Value key_value = py_to_value_as(key, view.schema()->key_type());
+            if (!view.as_dict().contains(key_value.view())) { return nb::none(); }
+            return nb::cast(child(key));
+        }
+
+        [[nodiscard]] nb::list values() const
+        {
+            nb::list result;
+            for (nb::handle value : output.values())
+            {
+                if (nb::isinstance<PyOutput>(value))
+                {
+                    result.append(from_output(nb::cast<PyOutput &>(value)));
+                }
+                else { result.append(value); }
+            }
+            return result;
+        }
+
+        [[nodiscard]] static nb::list read_only_values(nb::list source)
+        {
+            nb::list result;
+            for (nb::handle value : source)
+            {
+                if (nb::isinstance<PyOutput>(value))
+                {
+                    result.append(from_output(nb::cast<PyOutput &>(value)));
+                }
+                else { result.append(value); }
+            }
+            return result;
+        }
+
+        [[nodiscard]] static nb::list read_only_items(nb::list source)
+        {
+            nb::list result;
+            for (nb::handle item : source)
+            {
+                nb::tuple pair = nb::borrow<nb::tuple>(item);
+                result.append(nb::make_tuple(
+                    nb::borrow<nb::object>(pair[0]),
+                    from_output(nb::cast<PyOutput &>(pair[1]))));
+            }
+            return result;
+        }
+
+        [[nodiscard]] nb::list items() const
+        {
+            return read_only_items(output.items());
+        }
+
+        [[nodiscard]] nb::list modified_keys() const
+        {
+            return output.modified_keys();
+        }
+        [[nodiscard]] nb::list modified_values() const
+        {
+            return read_only_values(output.modified_values());
+        }
+        [[nodiscard]] nb::list modified_items() const
+        {
+            return read_only_items(output.modified_items());
+        }
+        [[nodiscard]] nb::list valid_keys() const { return output.valid_keys(); }
+        [[nodiscard]] nb::list valid_values() const
+        {
+            return read_only_values(output.valid_values());
+        }
+        [[nodiscard]] nb::list valid_items() const
+        {
+            return read_only_items(output.valid_items());
+        }
+        [[nodiscard]] nb::list added_keys() const { return output.added_keys(); }
+        [[nodiscard]] nb::list added_values() const
+        {
+            return read_only_values(output.added_values());
+        }
+        [[nodiscard]] nb::list added_items() const
+        {
+            return read_only_items(output.added_items());
+        }
+        [[nodiscard]] nb::list removed_keys() const
+        {
+            return output.removed_keys();
+        }
+        [[nodiscard]] nb::list removed_values() const
+        {
+            return read_only_values(output.removed_values());
+        }
+        [[nodiscard]] nb::list removed_items() const
+        {
+            return read_only_items(output.removed_items());
+        }
+        [[nodiscard]] nb::object set_added() const { return output.set_added(); }
+        [[nodiscard]] nb::object set_removed() const { return output.set_removed(); }
+        [[nodiscard]] bool was_added(nb::handle item) const
+        {
+            return output.was_added(item);
+        }
+        [[nodiscard]] bool was_removed(nb::handle item) const
+        {
+            return output.was_removed(item);
+        }
+
+        [[nodiscard]] PyReadOnlyOutput key_set() const
+        {
+            return PyReadOnlyOutput{output.key_set()};
+        }
+
+        [[nodiscard]] nb::object key_from_value(const PyReadOnlyOutput &value) const
+        {
+            return output.key_from_value(value.output);
+        }
+    };
+
     /** Mutable, call-scoped view over a node's C++ recordable-state output. */
     struct PyRecordableState
     {
@@ -1325,6 +1548,8 @@ namespace hgraph::python_bridge
             resolved target-data pointer. */
         nb::object         collection_key{};
         const void        *collection_identity{nullptr};
+        /** Public child depth, excluding the bridge's hidden packed input root. */
+        std::size_t        topology_depth{0};
 
         void refresh_evaluation_data(TSDataStorageRef<> storage,
                                      bool has_current_value)
@@ -1382,6 +1607,7 @@ namespace hgraph::python_bridge
             PyTimeSeries result{std::move(child), lease};
             result.collection_key      = std::move(key);
             result.collection_identity = checked().data_view().data();
+            result.topology_depth      = topology_depth + 1;
             return result;
         }
 
@@ -1390,13 +1616,8 @@ namespace hgraph::python_bridge
             const auto    &current = checked();
             const NodeView owner   = current.consumer_node();
             if (!owner.valid()) { return nb::none(); }
-            auto       executor            = owner.graph().executor();
-            const bool supports_wall_clock = executor.valid() &&
-                                             executor.schema()->mode == GraphExecutorMode::RealTime;
-            NodeScheduler scheduler{
-                owner.scheduler_state(), owner.graph_value(), owner.node_index(),
-                current.evaluation_time(), owner.started(), owner.evaluation_clock(),
-                supports_wall_clock};
+            NodeScheduler scheduler =
+                py_scheduler_for_node(owner, current.evaluation_time());
             return nb::cast(PyNode{owner.pointer(), scheduler, lease});
         }
 
@@ -1404,6 +1625,37 @@ namespace hgraph::python_bridge
         {
             const GraphView owner = checked().consumer_graph();
             return owner.valid() ? nb::cast(PyGraph{owner.pointer(), lease}) : nb::none();
+        }
+
+        [[nodiscard]] bool has_parent_input() const
+        {
+            return topology_depth != 0 && checked().has_parent_input();
+        }
+
+        [[nodiscard]] nb::object parent_input() const
+        {
+            if (!has_parent_input()) { return nb::none(); }
+            PyTimeSeries parent{checked().parent_input(), lease};
+            parent.topology_depth = topology_depth - 1;
+            return nb::cast(std::move(parent));
+        }
+
+        [[nodiscard]] bool bound() const { return checked().bound(); }
+
+        [[nodiscard]] bool has_peer() const
+        {
+            const auto &current = checked();
+            return current.is_bindable() && current.bound();
+        }
+
+        [[nodiscard]] nb::object bound_output() const
+        {
+            const auto &current = checked();
+            if (!current.is_bindable() || !current.bound()) { return nb::none(); }
+            TSOutputView target = current.bound_output();
+            if (!target.bound()) { return nb::none(); }
+            return nb::cast(PyReadOnlyOutput{PyOutput{
+                target.handle(), current.evaluation_time(), NodeScheduler{}, lease}});
         }
 
         [[nodiscard]] nb::object value() const

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-import logging
 from pathlib import Path
 import re
 
@@ -84,17 +83,26 @@ RECORDABLE_STATE_API = {
 }
 
 NODE_API = {
+    "error_output",
     "graph",
     "has_input",
     "has_output",
+    "input",
+    "inputs",
     "is_started",
+    "is_starting",
+    "is_stopping",
     "label",
     "node_id",
     "node_index",
     "node_ndx",
     "node_type",
     "notify_next_cycle",
+    "output",
     "owning_graph_id",
+    "recordable_state",
+    "scalars",
+    "scheduler",
     "started",
 }
 
@@ -103,10 +111,20 @@ GRAPH_API = {
     "evaluating",
     "graph_id",
     "is_started",
+    "is_starting",
+    "is_stopping",
     "label",
     "nodes",
     "parent_node",
     "started",
+    "traits",
+}
+
+SCHEDULER_STATE_API = {
+    "has_tag",
+    "is_scheduled",
+    "is_scheduled_now",
+    "next_scheduled_time",
 }
 
 LOGGER_API = {
@@ -135,13 +153,18 @@ def _assert_declared_api(value, expected):
     assert not missing, f"{type(value).__name__} is missing {missing}"
 
 
+def _declared_public_api(value):
+    """Return the deliberately named surface declared directly by a native type."""
+    return {name for name in value.__dict__ if not name.startswith("_")}
+
+
 def test_public_injectable_annotations_identify_the_runtime_types():
     assert hg.SCHEDULER is _hgraph.Scheduler
     assert hg.CLOCK is hg.EvaluationClock is _hgraph.EvaluationClock
     assert hg.NODE is hg.Node is _hgraph.Node
     assert hg.EvaluationEngineApi is _hgraph.EvaluationEngineApi
     assert hg.Traits is _hgraph.Traits
-    assert hg.LOGGER is logging.Logger
+    assert hg.LOGGER is _hgraph.Logger
 
     _assert_api(hg.STATE, STATE_API)
     _assert_api(hg.SCHEDULER, SCHEDULER_API)
@@ -150,11 +173,21 @@ def test_public_injectable_annotations_identify_the_runtime_types():
     _assert_api(hg.EvaluationEngineApi, ENGINE_API)
     _assert_api(hg.Traits, TRAITS_API)
     _assert_api(hg.LOGGER, LOGGER_API)
+    assert _declared_public_api(hg.SCHEDULER) == SCHEDULER_API
+    assert _declared_public_api(hg.CLOCK) == CLOCK_API
+    assert _declared_public_api(hg.NODE) == NODE_API
+    assert _declared_public_api(_hgraph.Graph) == GRAPH_API
+    assert _declared_public_api(hg.EvaluationEngineApi) == ENGINE_API
+    assert _declared_public_api(hg.Traits) == TRAITS_API
+    assert _declared_public_api(hg.LOGGER) == LOGGER_API
+    assert _declared_public_api(_hgraph.SchedulerState) == SCHEDULER_STATE_API
 
 
 def test_live_injected_objects_expose_and_execute_the_supported_0_5_api():
     observations = []
     retained_traits = []
+    retained_loggers = []
+    retained_scheduler_states = []
 
     @hg.compute_node
     def inspect(
@@ -198,6 +231,7 @@ def test_live_injected_objects_expose_and_execute_the_supported_0_5_api():
         with pytest.raises(ValueError, match="Trait missing not found"):
             traits.get_trait("missing")
         retained_traits.append(traits)
+        retained_loggers.append(logger)
 
         assert not state.is_updated()
         state.count = getattr(state, "count", 0) + 1
@@ -213,13 +247,32 @@ def test_live_injected_objects_expose_and_execute_the_supported_0_5_api():
         assert graph.graph_id == node.owning_graph_id == ()
         assert graph.parent_node is None
         assert graph.started == graph.is_started
+        assert not graph.is_starting and not graph.is_stopping
         assert graph.evaluating
         assert graph.evaluation_clock.evaluation_time == clock.evaluation_time
+        assert graph.traits.get_trait_or("missing", 42) == 42
         assert any(candidate.node_id == node.node_id for candidate in graph.nodes)
         assert node.node_index == node.node_ndx == node.node_id[-1]
         assert node.started == node.is_started
+        assert not node.is_starting and not node.is_stopping
         assert node.has_input and node.has_output
+        assert isinstance(node.input, _hgraph.TimeSeries)
+        assert isinstance(node.inputs, dict) and len(node.inputs) == 1
+        assert isinstance(node.output, _hgraph.TimeSeriesOutput)
+        assert node.recordable_state is None
+        assert node.error_output is None
+        assert node.scalars is not None
+        _assert_api(node.scheduler, SCHEDULER_STATE_API)
+        assert node.scheduler.is_scheduled == scheduler.is_scheduled
+        assert not hasattr(node.scheduler, "schedule")
+        assert not hasattr(node.scheduler, "reset")
+        retained_scheduler_states.append(node.scheduler)
+        assert not hasattr(node.output, "clear")
+        assert not hasattr(node.output, "invalidate")
+        assert not hasattr(node.output, "bind_input")
         assert not hasattr(node, "notify")
+
+        logger.warning("runtime logger %s", trigger.value)
 
         assert not scheduler.is_scheduled
         assert not scheduler.is_scheduled_now
@@ -268,7 +321,7 @@ def test_live_injected_objects_expose_and_execute_the_supported_0_5_api():
         with pytest.raises(KeyError):
             global_state.pop("missing")
 
-        observations.append((node.node_id, graph.label, logger.name))
+        observations.append((node.node_id, graph.label))
         return trigger.value
 
     with hg.GlobalState(seed=1) as state:
@@ -283,6 +336,10 @@ def test_live_injected_objects_expose_and_execute_the_supported_0_5_api():
     assert len(observations) == 1
     with pytest.raises(RuntimeError, match="outside its node's evaluation"):
         retained_traits[0].get_trait_or("missing")
+    with pytest.raises(RuntimeError, match="outside its node's evaluation"):
+        retained_loggers[0].info("expired")
+    with pytest.raises(RuntimeError, match="outside its node's evaluation"):
+        _ = retained_scheduler_states[0].is_scheduled
 
 
 def test_node_notify_is_excluded_but_next_cycle_notification_remains():
@@ -383,6 +440,8 @@ def test_native_stub_declares_runtime_api_with_user_facing_signatures():
     node = class_declaration("Node")
     graph = class_declaration("Graph")
     traits = class_declaration("Traits")
+    logger = class_declaration("Logger")
+    scheduler_state = class_declaration("SchedulerState")
     recordable_state = class_declaration("RecordableStateView")
     for name in NODE_API:
         assert f"def {name}(" in node, name
@@ -390,6 +449,10 @@ def test_native_stub_declares_runtime_api_with_user_facing_signatures():
         assert f"def {name}(" in graph, name
     for name in TRAITS_API:
         assert f"def {name}(" in traits, name
+    for name in LOGGER_API:
+        assert f"def {name}(" in logger, name
+    for name in SCHEDULER_STATE_API:
+        assert f"def {name}(" in scheduler_state, name
     for name in RECORDABLE_STATE_API:
         assert f"def {name}(" in recordable_state, name
     assert "def as_schema(self) -> RecordableStateView:" in recordable_state
@@ -398,3 +461,8 @@ def test_native_stub_declares_runtime_api_with_user_facing_signatures():
         in recordable_state
     )
     assert "def notify(" not in node
+    assert "def debug(self, msg: object, *args, **kwargs) -> None:" in logger
+    assert "def log(self, level: int, msg: object, *args, **kwargs) -> None:" in logger
+    for name in ("schedule", "reset", "pop_tag", "un_schedule"):
+        assert f"def {name}(" not in scheduler_state
+    assert "def schedule_delta(" not in scheduler
