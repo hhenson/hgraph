@@ -156,7 +156,9 @@ class DataFrameStorage(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def write_frame(self, path, df, mode=WriteMode.OVERWRITE, as_of=None):
+    def write_frame(
+        self, path, df, mode=WriteMode.OVERWRITE, as_of=None, global_state=None
+    ):
         raise NotImplementedError
 
     @abstractmethod
@@ -191,15 +193,27 @@ class BaseDataFrameStorage(DataFrameStorage, ABC):
         # replay normalizes back through _as_arrow.
         return as_user_frame(frame.filter(mask) if mask is not None else frame)
 
-    def write_frame(self, path, df, mode=WriteMode.OVERWRITE, as_of=None):
+    def write_frame(
+        self, path, df, mode=WriteMode.OVERWRITE, as_of=None, global_state=None
+    ):
         if mode is WriteMode.MERGE:
             raise RuntimeError("WriteMode.MERGE is not supported")
         frame = _as_arrow(df)
         if self._get_schema_info(path) == (None, None):
+            from hgraph._wiring._state import _is_runtime_active
+
+            # Preserve the original default-name runtime behavior without
+            # consulting the wiring-only GlobalState singleton. Configured
+            # runtime names come from the callback's explicit injectable.
+            if global_state is None and _is_runtime_active():
+                date_key, as_of_key = "__date_time__", "__as_of__"
+            else:
+                date_key = get_table_schema_date_key(global_state)
+                as_of_key = get_table_schema_as_of_key(global_state)
             self.set_schema_info(
                 path,
-                get_table_schema_date_key(),
-                get_table_schema_as_of_key(),
+                date_key,
+                as_of_key,
             )
         if mode is WriteMode.EXTEND and self._exists(path):
             previous = self._read(path)

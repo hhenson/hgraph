@@ -213,9 +213,14 @@ different columns:
        assert hg.get_table_schema_as_of_key() == "observed_at"
 
 The names are scoped to the current ``GlobalState`` and are used by table
-conversion and DataFrame storage metadata. The separate ``lower()`` frame-call
-interface defaults to ``date`` and ``as_of``; pass its ``date_col`` and
-``as_of_col`` arguments when those frames use another convention.
+conversion and DataFrame storage metadata. Inside a Python node, declare a
+``GlobalState`` injectable and pass it as ``global_state=`` when calling
+``DataFrameStorage.write_frame`` directly; runtime code must not call
+``GlobalState.instance()``.
+
+The separate ``lower()`` frame-call interface defaults to ``date`` and
+``as_of``; pass its ``date_col`` and ``as_of_col`` arguments when those frames
+use another convention.
 
 Diagnostics
 -----------

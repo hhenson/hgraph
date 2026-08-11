@@ -751,6 +751,10 @@ namespace hgraph::python_bridge
             }
             return result;
         });
+    m.def("_table_schema_keys", [](const PyRuntimeGlobalState &state) {
+        const auto config = record_replay::config(state.checked());
+        return nb::make_tuple(config.date_key, config.as_of_key);
+    });
     m.def("_temporal_at_zone",
           [](GlobalState &state, Instant instant, ZoneId zone) {
               return at_zone(
