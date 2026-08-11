@@ -23,6 +23,7 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
             ("EvaluationClock", "view of graph evaluation time"),
             ("EvaluationEngineApi", "control view for the running graph executor"),
             ("Scheduler", "scheduler for the current node"),
+            ("Traits", "read-only, callback-scoped view"),
             ("EvaluationProfiler", "Collect graph and node lifecycle timing"),
             ("GraphDiagnostics", "Collect graph structure"),
             ("WiringTracer", "Capture graph and node wiring events"),
@@ -43,6 +44,7 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
             ("EvaluationProfiler", "snapshot", "immutable snapshot"),
             ("GraphDiagnostics", "reset", "Clear collected diagnostics"),
             ("Scheduler", "reset", "Cancel every outstanding schedule"),
+            ("Traits", "get_trait", "parent chain"),
         ]
         for owner, member, summary in methods:
             documentation = getdoc(getattr(getattr(_hgraph, owner), member))
@@ -54,6 +56,7 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
             ("TimeSeries", "active", "currently schedule its node"),
             ("OutputView", "value", "Assigning publishes a value"),
             ("RecordableStateView", "value", "current persistent value"),
+            ("RecordableStateView", "as_schema", "declared schema"),
             ("EvaluationClock", "next_cycle_evaluation_time", "immediately following this evaluation cycle"),
             ("EvaluationEngineApi", "evaluation_mode", "active execution mode"),
             ("Graph", "nodes", "callback-scoped views"),
@@ -83,6 +86,7 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
             (hg.GlobalState, "Graph-scoped configuration"),
             (hg.SCHEDULER, "current node's scheduler"),
             (hg.CLOCK, "graph evaluation clock"),
+            (hg.Traits, "read-only, callback-scoped view"),
             (hg.TS_OUT, "inspect or mutate its native output"),
             (hg.RECORDABLE_STATE, "Persistent output-backed node state"),
         ]

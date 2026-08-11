@@ -707,6 +707,8 @@ namespace hgraph::python_bridge
                      &PyRecordableState::set_value,
                      "The current persistent value. Assigning records a new "
                      "state value through the native output.")
+        .def_prop_ro("as_schema", [](nb::object self) -> nb::object { return self; },
+                     "The same recordable-state bundle viewed through its declared schema.")
         .def("__getitem__", &PyRecordableState::child,
              "Return a statically addressed child state view.")
         .def("__getattr__",
@@ -739,6 +741,9 @@ namespace hgraph::python_bridge
         .def("__delitem__", [](const PyRuntimeGlobalState &self, const std::string &key) {
             if (!self.checked().erase(key)) { throw nb::key_error(key.c_str()); }
         })
+        .def("__bool__", [](const PyRuntimeGlobalState &self) {
+            return self.checked().size() != 0;
+        })
         .def("keys", [](const PyRuntimeGlobalState &self) {
             nb::list result;
             const GlobalStateView state = self.checked();
@@ -750,7 +755,82 @@ namespace hgraph::python_bridge
                 result.append(value_to_py(key));
             }
             return result;
-        });
+        }, "Return a snapshot of the keys in graph GlobalState.")
+        .def("__iter__", [](const PyRuntimeGlobalState &self) {
+            nb::list result;
+            const GlobalStateView state = self.checked();
+            for (const ValueView key : state.as_value().view().as_map().keys())
+            {
+                result.append(value_to_py(key));
+            }
+            return nb::iter(result);
+        }, "Iterate over a snapshot of the keys in graph GlobalState.")
+        .def("values", [](const PyRuntimeGlobalState &self) {
+            nb::list result;
+            const GlobalStateView state = self.checked();
+            for (const ValueView key : state.as_value().view().as_map().keys())
+            {
+                result.append(value_to_py(state.get(key.checked_as<Str>())));
+            }
+            return result;
+        }, "Return a snapshot of the values in graph GlobalState.")
+        .def("items", [](const PyRuntimeGlobalState &self) {
+            nb::list result;
+            const GlobalStateView state = self.checked();
+            for (const ValueView key : state.as_value().view().as_map().keys())
+            {
+                result.append(nb::make_tuple(
+                    value_to_py(key), value_to_py(state.get(key.checked_as<Str>()))));
+            }
+            return result;
+        }, "Return a snapshot of the key/value pairs in graph GlobalState.")
+        .def("setdefault", [](const PyRuntimeGlobalState &self, const std::string &key,
+                              nb::object fallback) -> nb::object {
+            const GlobalStateView state = self.checked();
+            if (state.contains(key)) { return value_to_py(state.get(key)); }
+            state.set(key, py_to_value(fallback));
+            return fallback;
+        }, nb::arg("key"), nb::arg("default") = nb::none(),
+        "Return an existing value, or insert and return the default.")
+        .def("pop", [](const PyRuntimeGlobalState &self,
+                       const std::string &key) -> nb::object {
+            const GlobalStateView state = self.checked();
+            if (!state.contains(key)) { throw nb::key_error(key.c_str()); }
+            nb::object value = value_to_py(state.get(key));
+            static_cast<void>(state.erase(key));
+            return value;
+        }, nb::arg("key"),
+        "Remove and return a value, raising KeyError when the key is absent.")
+        .def("pop", [](const PyRuntimeGlobalState &self, const std::string &key,
+                       nb::object fallback) -> nb::object {
+            const GlobalStateView state = self.checked();
+            if (!state.contains(key)) { return fallback; }
+            nb::object value = value_to_py(state.get(key));
+            static_cast<void>(state.erase(key));
+            return value;
+        }, nb::arg("key"), nb::arg("default"),
+        "Remove and return a value, or return the default when absent.");
+    nb::class_<PyTraits>(
+        m, "Traits",
+        "A read-only, callback-scoped view of the owning graph's traits.\n\n"
+        "get_trait performs a parent-chained lookup. get_trait_or reads the "
+        "current graph's own value and returns its default when absent. The "
+        "view expires when the callback returns.")
+        .def("get_trait", [](const PyTraits &self, const std::string &name) {
+            const ValueView value = self.checked().trait(name);
+            if (!value.valid())
+            {
+                throw nb::value_error(("Trait " + name + " not found").c_str());
+            }
+            return value_to_py(value);
+        }, nb::arg("trait"),
+        "Return a trait from this graph or its parent chain, raising ValueError when absent.")
+        .def("get_trait_or", [](const PyTraits &self, const std::string &name,
+                                nb::object fallback) -> nb::object {
+            const ValueView value = self.checked().trait_or(name);
+            return value.valid() ? value_to_py(value) : fallback;
+        }, nb::arg("trait"), nb::arg("default") = nb::none(),
+        "Return this graph's own trait, or the supplied default when absent.");
     m.def("_table_schema_keys", [](const PyRuntimeGlobalState &state) {
         const auto config = record_replay::config(state.checked());
         return nb::make_tuple(config.date_key, config.as_of_key);
@@ -1010,8 +1090,10 @@ namespace hgraph::python_bridge
 
     nb::class_<PyEvalClock>(
         m, "EvaluationClock",
-        "A callback-scoped view of graph evaluation time.\n\n"
-        "Inject with CLOCK or EvaluationClock. In simulation, now follows "
+        "A callback-scoped view of graph evaluation time: the graph evaluation clock.\n\n"
+        "Inject with CLOCK or EvaluationClock. It exposes logical evaluation "
+        "time, mode-dependent current time, cycle duration, and the immediately "
+        "following possible evaluation cycle. In simulation, now follows "
         "evaluation time; in real-time mode it represents wall-clock time.")
         .def_prop_ro("evaluation_time", [](const PyEvalClock &clock) { return clock.evaluation_time(); },
                      "The logical time of the current evaluation cycle.")
@@ -1097,6 +1179,9 @@ namespace hgraph::python_bridge
         .def_prop_ro("started", [](const PyGraph &self) {
             return self.checked().started();
         }, "Whether graph start has completed.")
+        .def_prop_ro("is_started", [](const PyGraph &self) {
+            return self.checked().started();
+        }, "Compatibility spelling for whether graph start has completed.")
         .def_prop_ro("evaluating", [](const PyGraph &self) {
             return self.checked().evaluating();
         }, "Whether the graph is currently evaluating a cycle.")
@@ -1167,18 +1252,19 @@ namespace hgraph::python_bridge
                      "The runtime role of this node.")
         .def_prop_ro("started", [](const PyNode &self) { return self.checked().started(); },
                      "Whether node start has completed.")
+        .def_prop_ro("is_started", [](const PyNode &self) { return self.checked().started(); },
+                     "Compatibility spelling for whether node start has completed.")
         .def_prop_ro("has_input", [](const PyNode &self) { return self.checked().has_input(); },
                      "Whether the node owns an input time-series tree.")
         .def_prop_ro("has_output", [](const PyNode &self) { return self.checked().has_output(); },
                      "Whether the node owns an output time-series tree.")
-        .def("notify", &PyNode::notify,
-             "Schedule this node at the supplied evaluation time.")
         .def("notify_next_cycle", &PyNode::notify_next_cycle,
              "Schedule this node for the next evaluation cycle.");
     nb::class_<PyScheduler>(
         m, "Scheduler",
         "A callback-scoped scheduler for the current node.\n\n"
-        "Inject with SCHEDULER. A tagged schedule replaces the existing event "
+        "This is the current node's scheduler. Inject with SCHEDULER. A tagged "
+        "schedule replaces the existing event "
         "with the same tag; reset() cancels outstanding schedules.")
         // hgraph's SCHEDULER.schedule(when: datetime | timedelta, tag=None,
         // on_wall_clock=False). Two overloads distinguish absolute times from
@@ -1197,10 +1283,26 @@ namespace hgraph::python_bridge
              "Schedule after a duration relative to the current evaluation time.")
         .def("schedule_delta", [](const PyScheduler &self, TimeDelta delta) { self.scheduler.schedule(delta); },
              "Schedule after a duration relative to the current evaluation time.")
+        .def_prop_ro("next_scheduled_time",
+                     [](const PyScheduler &self) { return self.scheduler.next_scheduled_time(); },
+                     "The earliest pending evaluation time, or MIN_DT when empty.")
         .def("reset", [](const PyScheduler &self) { self.scheduler.reset(); },
              "Cancel every outstanding schedule for this node.")
-        .def("has_tag", [](const PyScheduler &self, std::string_view tag) { return self.scheduler.has_tag(tag); },
+        .def("has_tag", [](const PyScheduler &self, const std::string &tag) { return self.scheduler.has_tag(tag); },
+             nb::arg("tag"),
              "Return whether an event is currently scheduled under the tag.")
+        .def("pop_tag", [](const PyScheduler &self, const std::string &tag,
+                           nb::object fallback) -> nb::object {
+            if (!self.scheduler.has_tag(tag)) { return fallback; }
+            return nb::cast(self.scheduler.pop_tag(tag));
+        }, nb::arg("tag"), nb::arg("default") = nb::none(),
+        "Remove a tagged event and return its time, or the default when absent.")
+        .def("un_schedule", [](const PyScheduler &self,
+                               std::optional<std::string> tag) {
+            if (tag.has_value()) { self.scheduler.un_schedule(*tag); }
+            else { self.scheduler.un_schedule(); }
+        }, nb::arg("tag") = nb::none(),
+        "Cancel a tagged event, or the earliest pending event when tag is None.")
         .def_prop_ro("is_scheduled", [](const PyScheduler &self) { return self.scheduler.is_scheduled(); },
                      "Whether this node has any outstanding schedule.")
         .def_prop_ro("is_scheduled_now", [](const PyScheduler &self) { return self.scheduler.is_scheduled_now(); },

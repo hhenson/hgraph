@@ -107,6 +107,8 @@ TSW_API = {
     "value_times",
 }
 
+REFERENCE_TOKEN_API = {"has_output", "is_empty", "is_valid"}
+
 BASE_OUTPUT_API = {
     "all_valid",
     "can_apply_result",
@@ -146,6 +148,13 @@ def test_live_input_views_expose_the_complete_supported_api_inventory():
     @compute_node(valid=())
     def inspect_ref(value: REF[TS[int]]) -> TS[bool]:
         _assert_api(value, BASE_INPUT_API)
+        _assert_api(value.value, REFERENCE_TOKEN_API)
+        assert value.value.has_output
+        assert value.value.is_valid
+        assert not value.value.is_empty
+        # Returning the referenced output would expose mutable endpoint
+        # topology. This is a deliberate, permanent compatibility exclusion.
+        assert not hasattr(value.value, "output")
         return True
 
     @compute_node(valid=())
@@ -837,6 +846,7 @@ def test_runtime_stub_declares_the_supported_time_series_contract():
 
     input_declaration = class_declaration("TimeSeries")
     output_declaration = class_declaration("OutputView")
+    reference_declaration = class_declaration("TimeSeriesRef")
     for name in sorted(BASE_INPUT_API | ITERABLE_API | TSD_API | TSS_API | TSW_API):
         assert f"def {name}(" in input_declaration, name
     for name in sorted(
@@ -848,6 +858,9 @@ def test_runtime_stub_declares_the_supported_time_series_contract():
         | {"get_or_create", "pop", "add", "remove"}
     ):
         assert f"def {name}(" in output_declaration, name
+    for name in sorted(REFERENCE_TOKEN_API):
+        assert f"def {name}(" in reference_declaration, name
+    assert "def output(" not in reference_declaration
 
     assert "def size(self) -> int | datetime.timedelta:" in source
     assert "def min_size(self) -> int | datetime.timedelta:" in source

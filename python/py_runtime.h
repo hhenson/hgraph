@@ -339,6 +339,20 @@ namespace hgraph::python_bridge
         }
     };
 
+    /** Callback-scoped Python projection over the owning graph's trait chain. */
+    struct PyTraits
+    {
+        TraitsView traits;
+        PyTsLease  lease;
+
+        [[nodiscard]] TraitsView checked() const
+        {
+            lease.require_alive(
+                "a Traits view was accessed outside its node's evaluation");
+            return traits;
+        }
+    };
+
     [[nodiscard]] inline PyTsLease py_ts_lease_for_call()
     {
         auto guard = std::make_shared<PyTsGuard>();
@@ -449,12 +463,6 @@ namespace hgraph::python_bridge
             std::vector<std::size_t> result = py_graph_id(current.graph());
             result.push_back(current.node_index());
             return result;
-        }
-
-        void notify() const
-        {
-            static_cast<void>(checked());
-            scheduler.schedule(scheduler.now());
         }
 
         void notify_next_cycle() const

@@ -101,7 +101,7 @@ def test_node_self_injectable_is_native_and_call_scoped():
     @source.start
     def start(node: NODE = None):
         phases.append(("start", node.started))
-        node.notify()
+        assert not hasattr(node, "notify")
 
     @source.stop
     def stop(node: NODE = None):

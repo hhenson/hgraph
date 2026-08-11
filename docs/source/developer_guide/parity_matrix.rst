@@ -311,6 +311,33 @@ lifecycle node.  These call paths are pinned by public Python adaptor tests,
 while independent-engine concurrency and runtime reference identification are
 also covered natively.
 
+Runtime callback surface refresh (2026-08-11)
+---------------------------------------------
+
+A targeted refresh against released hgraph 0.5.41 exposed a blind spot in the
+module-level probe: annotation classes do not prove which methods exist on the
+objects created by the engine during a Python callback. The acceptance gate
+now invokes every supported time-series input/output family and every runtime
+injectable, and separately checks the generated native stub signatures.
+
+This refresh restored ``logging.Logger`` as the actual ``LOGGER`` annotation,
+the complete eight-member scheduler API, normal mapping methods on injected
+``GlobalState``, read-only graph ``Traits`` injection, ``is_started`` on node
+and graph views, and ``RECORDABLE_STATE.as_schema``. ``CompoundScalar``
+dictionary conversion is also exercised as behaviour rather than accepted
+from symbol presence. ``REF.value.output`` and ``NODE.notify()`` are permanent
+Python exclusions, pinned as absent on both live objects and generated stubs.
+
+The broad surface probe moved from 110 actionable / 1,092 accepted findings in
+the saved pre-refresh audit to 85 actionable / 1,111 accepted findings across
+52 importable modules. Scheduler and trait signature findings are classified
+only because nanobind cannot supply ``inspect.signature`` at runtime; their
+exact ``.pyi`` declarations and live behavior are executable tests. Compound
+reference structure, endpoint topology, broader node/graph introspection,
+lifecycle controls, and mutable traits remain explicit decisions in
+:doc:`../user_guide/python_compatibility`; they are not treated as silently
+completed parity.
+
 Compatibility audit: wiring and time-series tiers
 -------------------------------------------------
 

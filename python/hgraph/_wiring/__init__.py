@@ -18,7 +18,7 @@ from ._state import (
     get_recorder_api, get_recording_label, set_recorder_api, set_recording_label, utc_now
 )
 from ._markers import (
-    CLOCK, EvaluationClock, EvaluationEngineApi, LOGGER, NODE, Node, RECORDABLE_STATE,
+    CLOCK, EvaluationClock, EvaluationEngineApi, LOGGER, NODE, Node, RECORDABLE_STATE, Traits,
     SCHEDULER, STATE, TSB_OUT, TSD_OUT, TSS_OUT, TSW_OUT, TS_OUT, _INJECTABLE_MARKERS,
     _MISSING, _RecordableStateExpr, _RecordableStateMarker, _TSW_KIND, _TsOutMarker,
     _UNBOUNDED_TUPLE_KIND, _annotation_ts_kind, _is_object_vt, _tsw_kind, _unbounded_tuple_kind
@@ -69,7 +69,7 @@ from ._runner import (
 
 __all__ = [
     "CLOCK", "EvaluationClock", "callable_shape_key", "equal_lambdas", "get_context", "get_recorded_value", "get_recorder_api", "get_recording_label", "set_recorder_api", "set_recording_label", "utc_now", "TSW_OUT", "DebugContext", "EvaluationEngineApi", "EvaluationLifeCycleObserver", "EvaluationMode", "Feedback", "GlobalContext", "GlobalState",
-    "GraphConfiguration", "IncorrectTypeBinding", "LOGGER", "NODE", "Node", "ParseError", "RECORDABLE_STATE",
+    "GraphConfiguration", "IncorrectTypeBinding", "LOGGER", "NODE", "Node", "ParseError", "RECORDABLE_STATE", "Traits",
     "REMOVE", "REMOVE_IF_EXISTS", "RecordReplayContext", "RecordReplayEnum", "Removed",
     "RequirementsNotMetWiringError", "SCHEDULER", "STATE", "TSB_OUT", "TSD_OUT", "TSS_OUT", "TS_OUT", "WiringError",
     "WiringPort", "DelayedBinding", "_AdaptorStub", "_BindingsMap", "_Collect", "_Combine", "_Component",

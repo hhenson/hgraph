@@ -181,4 +181,66 @@ _hgraph\.RecordReplayScope\.__init__$:
     def __init__(self, mode: int, recordable_id: str = '') -> None: ...
 
 _hgraph\.Scheduler\.has_tag$:
-    def has_tag(self, tag: str, /) -> bool: ...
+    def has_tag(self, tag: str) -> bool:
+        \doc
+
+_hgraph\.RuntimeGlobalState\.keys$:
+    def keys(self) -> list[str]:
+        \doc
+
+_hgraph\.RuntimeGlobalState\.values$:
+    def values(self) -> list[object]:
+        \doc
+
+_hgraph\.RuntimeGlobalState\.items$:
+    def items(self) -> list[tuple[str, object]]:
+        \doc
+
+_hgraph\.RuntimeGlobalState\.__iter__$:
+    def __iter__(self) -> Iterator[str]:
+        \doc
+
+_hgraph\.RuntimeGlobalState\.setdefault$:
+    def setdefault(self, key: str, default: object | None = None) -> object:
+        \doc
+
+_hgraph\.RuntimeGlobalState\.pop$:
+    @overload
+    def pop(self, key: str) -> object:
+        """Remove and return a value, raising KeyError when the key is absent."""
+    @overload
+    def pop(self, key: str, default: object) -> object:
+        """Remove and return a value, or return the default when absent."""
+
+_hgraph\.Scheduler\.schedule$:
+    @overload
+    def schedule(self, when: datetime.datetime, tag: str | None = None, on_wall_clock: bool = False) -> None:
+        """Schedule at an absolute evaluation time."""
+    @overload
+    def schedule(self, when: datetime.timedelta, tag: str | None = None, on_wall_clock: bool = False) -> None:
+        """Schedule after a duration relative to the current evaluation time."""
+
+_hgraph\.Scheduler\.schedule_delta$:
+    def schedule_delta(self, delta: datetime.timedelta) -> None:
+        \doc
+
+_hgraph\.Scheduler\.pop_tag$:
+    def pop_tag(self, tag: str, default: object | None = None) -> datetime.datetime | object | None:
+        \doc
+
+_hgraph\.Scheduler\.un_schedule$:
+    def un_schedule(self, tag: str | None = None) -> None:
+        \doc
+
+_hgraph\.Traits\.get_trait$:
+    def get_trait(self, trait: str) -> object:
+        \doc
+
+_hgraph\.Traits\.get_trait_or$:
+    def get_trait_or(self, trait: str, default: object | None = None) -> object:
+        \doc
+
+_hgraph\.RecordableStateView\.as_schema$:
+    @property
+    def as_schema(self) -> RecordableStateView:
+        \doc

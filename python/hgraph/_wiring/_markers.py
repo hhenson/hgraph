@@ -1,9 +1,11 @@
-"""Injectable annotation markers and lazy type-kind caches.
+"""Injectable annotation types and lazy type-kind caches.
 
 ``_INJECTABLE_MARKERS`` keys on CLASS IDENTITY (STATE/CLOCK/SCHEDULER/NODE/
 EvaluationEngineApi/GlobalState) — import the classes, never redefine them. The ``global``
 kind caches live beside their factory functions (``global`` binds to the
 defining module)."""
+import logging
+
 import _hgraph
 
 from .._types import _GenericTsExpr, _TsExpr
@@ -86,33 +88,12 @@ class _StateExpr:
         return f"STATE[{self.factory!r}]"
 
 
-class SCHEDULER:
-    """Annotation marker for injecting the current node's scheduler.
-
-    The callback receives a scheduler whose ``schedule`` method accepts an
-    absolute ``datetime`` or relative ``timedelta`` and an optional replacement
-    tag. ``reset`` cancels every outstanding schedule for the node. The object
-    is callback-scoped and must not be retained.
-    """
-
-
-class CLOCK:
-    """Annotation marker for injecting the graph evaluation clock.
-
-    The callback receives an ``EvaluationClock`` exposing logical evaluation
-    time, mode-dependent current time, cycle duration, and the logical time of
-    the immediately following possible evaluation cycle. The object is
-    callback-scoped.
-    """
-
-
-class LOGGER:
-    """Injectable: the Python logger configured for this graph run.
-    Resolved at wiring time from the copied-in GlobalState."""
-
-
 EvaluationEngineApi = _hgraph.EvaluationEngineApi
-EvaluationClock = _hgraph.EvaluationClock   # hgraph's clock annotation (same injectable as CLOCK)
+EvaluationClock = _hgraph.EvaluationClock
+SCHEDULER = _hgraph.Scheduler
+CLOCK = EvaluationClock
+LOGGER = logging.Logger
+Traits = _hgraph.Traits
 Node = _hgraph.Node
 NODE = Node
 
@@ -124,6 +105,7 @@ _INJECTABLE_MARKERS = {
     SCHEDULER: "d",
     EvaluationEngineApi: "e",
     GlobalState: "g",
+    Traits: "h",
     NODE: "n",
 }
 

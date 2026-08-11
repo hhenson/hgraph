@@ -119,10 +119,15 @@ Collection types add shape-specific access:
        buffers; ``first_modified_time``, ``has_removed_value`` and
        ``removed_value``
    * - ``REF``
-     - the common input API; ``value`` is the current reference token
+     - the common input API; ``value`` is the current reference token, with
+       safe ``is_empty``, ``has_output`` and ``is_valid`` metadata
    * - ``SIGNAL``
      - the common input API; ``value`` and ``delta_value`` are ``True`` on a
        signal tick
+
+A reference token deliberately does not expose ``output``. Direct traversal
+from ``REF.value`` to a live output endpoint is not and will not become part of
+the supported Python API.
 
 For a ``TSW``, ``size`` and ``min_size`` describe configuration rather than
 current occupancy. They are integers for tick-count windows and
@@ -189,7 +194,12 @@ not build a second Python-side time-series implementation.
 ``STATE`` preserves ordinary Python state for one node instance.
 ``RECORDABLE_STATE[Schema]`` instead supplies a native output-backed view whose
 writes participate in record/replay. Both are distinct from graph-scoped
-``GlobalState``.
+``GlobalState``. Naked ``STATE`` provides attribute and item reads,
+``as_schema``, ``keys()``, ``values()``, ``items()``, ``is_updated()`` and
+``reset_updated()``. A typed ``STATE[T]`` is the single lazily constructed
+``T`` instance. A recordable-state view provides named and indexed child
+access, ``as_schema``, and each child's ``value``, ``valid`` and ``modified``
+state.
 
 Injectable parameters
 ~~~~~~~~~~~~~~~~~~~~~
@@ -213,7 +223,48 @@ as parameters with a ``None`` default; graph callers do not supply them.
      - Run interval, execution mode, cycle notifications and graceful stop
    * - ``GlobalState``
      - Guarded mapping over the graph's copied-in native state
+   * - ``Traits``
+     - Read-only access to graph wiring traits, including parent lookup
    * - ``LOGGER``
      - Logger selected for this graph run
    * - ``NODE``
-     - Current node identity, graph view and explicit notification methods
+     - Current node identity, graph view and next-cycle notification
+
+``SCHEDULER`` exposes the complete node-scheduling contract: inspect
+``next_scheduled_time``, ``is_scheduled`` and ``is_scheduled_now``; call
+``schedule(when, tag=None, on_wall_clock=False)`` with an absolute
+``datetime`` or relative ``timedelta``; inspect or remove tagged events with
+``has_tag()`` and ``pop_tag()``; cancel one event with ``un_schedule()``; and
+cancel all events with ``reset()``. A tagged schedule replaces the previous
+event with that tag. Calling ``un_schedule()`` without a tag removes the
+earliest pending event.
+
+``CLOCK`` provides ``evaluation_time``, ``now``, ``cycle_time`` and
+``next_cycle_evaluation_time``. ``EvaluationEngineApi`` adds ``start_time``,
+``end_time``, ``evaluation_mode``, ``evaluation_clock``, before/after-cycle
+notifications, ``is_stop_requested`` and ``request_engine_stop()``.
+
+The injected ``GlobalState`` is a mutable mapping view. It supports item read,
+write and deletion, membership, iteration, length and truth testing, plus
+``get()``, ``keys()``, ``values()``, ``items()``, ``setdefault()`` and
+``pop()``. Mutations are copied back to the selected wiring-time
+``GlobalState`` after execution.
+
+``Traits.get_trait(name)`` searches the graph and its parent chain and raises
+``ValueError`` when the trait is absent. ``get_trait_or(name, default)`` reads
+the current graph's own value and otherwise returns ``default``. The injected
+view is deliberately read-only; traits are immutable wiring metadata once the
+graph is running.
+
+``NODE`` exposes stable identity and diagnostic properties (``node_id``,
+``node_ndx``, ``owning_graph_id``, ``label`` and ``node_type``), started and
+input/output status, its read-only ``graph`` view, and
+``notify_next_cycle()``. ``NODE.notify()`` is deliberately not part of the
+Python interface; use the injected ``SCHEDULER`` for explicit evaluation
+times. The graph view exposes identity, label, nodes, ``parent_node``,
+started/evaluating status and ``evaluation_clock``. Graph and node execution
+or topology mutation is not available through these views.
+
+``LOGGER`` is ``logging.Logger``. Standard methods such as ``debug()``,
+``info()``, ``warning()``, ``error()``, ``exception()`` and ``critical()`` are
+therefore visible to both runtime code and type checkers.
