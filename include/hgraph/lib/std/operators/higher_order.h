@@ -55,10 +55,20 @@ namespace hgraph::stdlib
      *   input as its initial accumulator and permits an accumulator type that
      *   differs from ``E``.
      *
+     * **Migration from 0.5.** The 0.8 result depends only on currently valid
+     * values. An explicit ``zero`` is published immediately when none are
+     * valid, including when keyed or mapped child slots exist but have not yet
+     * produced a value; some 0.5 keyed/mapped startup paths waited instead.
+     * Omitting ``zero`` now leaves an empty reduction invalid rather than
+     * inferring an operation-specific identity. Code that observes first-tick
+     * timing or validity should be migrated explicitly; see the Python
+     * 0.5-to-0.8 migration guide.
+     *
      * @param func Binary graph combining two values into one accumulator.
      * @param ts Collection whose live elements are reduced.
-     * @param zero Optional empty-collection result. In associative mode it is
-     *             not injected into reductions containing two or more live values.
+     * @param zero Optional empty-collection result, not a general fold initializer.
+     *             In associative mode it is not injected into reductions containing
+     *             two or more live values.
      * @param is_associative True for tree reduction; false for deterministic ordered left fold.
      * @return The current reduction of the live collection elements.
      * @par Python example

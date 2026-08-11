@@ -98,6 +98,63 @@ When porting a source, keep the scalar/time-series distinction explicit. A
 scalar parameter is fixed while wiring; a ``TS[...]`` parameter can change
 during the run.
 
+Reduction zero and validity
+---------------------------
+
+The 0.8 associative ``reduce`` contract depends on the number of
+**currently valid** collection values. The ``zero`` argument is the result for
+an empty reduction and participates in the singleton case; it is not a general
+left-fold initializer.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 35 40
+
+   * - Situation
+     - 0.5 behaviour
+     - 0.8 behaviour
+   * - No valid values; ``zero`` supplied
+     - A plain empty collection normally produced ``zero``, but keyed or
+       mapped reductions could remain invalid while a child slot existed but
+       had not yet produced a valid value.
+     - Publish ``zero`` immediately. An existing but unresolved child slot is
+       not a live reduction value.
+   * - No valid values; ``zero`` omitted
+     - Infer an operation-specific identity, such as ``0`` for addition.
+     - Remain invalid. A previously valid reduction is invalidated when its
+       last live value disappears.
+   * - One valid value
+     - Combine through the reduction tree and its zero/default leaves.
+     - Return the value directly when ``zero`` is omitted; otherwise evaluate
+       ``func(value, zero)``.
+   * - Two or more valid values
+     - Tree padding could apply a non-identity ``zero`` a
+       capacity-dependent number of times.
+     - Reduce only the valid values; ``zero`` is not an operand.
+
+For example, this 0.8 graph publishes ``0`` even before any mapped or keyed
+child has produced a value:
+
+.. code-block:: python
+
+   @hg.graph
+   def total(values: hg.TSD[str, hg.TS[int]]) -> hg.TS[int]:
+       return hg.reduce(hg.add_, values, zero=0)
+
+Omit ``zero`` (or pass ``None`` explicitly) when an empty reduction must be
+invalid. That choice also invalidates the result if the collection later
+becomes empty; it does not latch the first valid value. Code that must suppress
+only the initial zero but publish zero after a later emptying needs an explicit
+application-level liveness gate.
+
+With a true identity value, the eventual aggregate is normally unchanged; the
+main migration risk is output validity and first-tick timing. Re-test reductions
+fed by ``map_``, ``mesh_`` or ``switch_`` where collection slots can exist
+before their values become valid. Do not use a non-identity ``zero`` as an
+associative accumulator seed. Use the ordered ``is_associative=False`` form
+with a live zero input when a deterministic left fold is required. See
+:ref:`python-operator-reduce` for the complete current contract.
+
 Set and dictionary deltas
 -------------------------
 
@@ -161,6 +218,7 @@ Migration checklist
 #. Replace imports of removed metadata, endpoint and lifecycle classes.
 #. Move topology changes back to graph wiring.
 #. Update source decorators and test-only recording helpers.
+#. Review ``reduce`` calls for empty-input validity and explicit-zero timing.
 #. Run focused graph tests with ``eval_node`` and compare multi-tick results.
 #. Check the generated API inventory for dynamically exposed operators.
 #. Validate live services, adaptors and record/replay in an installed wheel.
