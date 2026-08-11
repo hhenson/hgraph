@@ -98,6 +98,7 @@ set(HGRAPH_WIRING_SOURCES
     hgraph/types/graph_wiring.cpp
     hgraph/types/operator_dispatch.cpp
     hgraph/types/record_replay.cpp
+    hgraph/types/frame_store.cpp
     hgraph/types/registry_reset.cpp
     hgraph/types/impl/request_reply_transport.cpp
     hgraph/types/service_runtime.cpp
