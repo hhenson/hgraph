@@ -1191,6 +1191,26 @@ TEST_CASE("TSOutputView all_valid recurses through fixed bundle children")
     REQUIRE(fully_valid_bundle.field("b").value().checked_as<std::int32_t>() == 2);
 }
 
+TEST_CASE("TSBOutputView keys range retains the output view as its context")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int   = registry.ts(int_meta);
+    const auto *tsb      = registry.tsb(
+        "TSOutputKeysBundle", {{"left", ts_int}, {"right", ts_int}});
+
+    TSOutput output{*tsb};
+    auto     root   = output.view(MIN_ST);
+    auto     bundle = root.as_bundle();
+
+    std::vector<std::string> keys;
+    for (std::string_view key : bundle.keys()) { keys.emplace_back(key); }
+
+    REQUIRE(keys == std::vector<std::string>{"left", "right"});
+}
+
 TEST_CASE("TSData observers notify at the modified level and bubble to parents")
 {
     using namespace hgraph;

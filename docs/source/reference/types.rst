@@ -35,6 +35,9 @@ stores and updates it.
    * - ``REF[V]``
      - Reference value naming another time-series output
      - ``TimeSeriesReference``
+   * - ``SIGNAL``
+     - A tick notification whose source value is intentionally ignored
+     - ``True`` when the signal ticks
 
 ``Size`` and ``WindowSize`` carry values that ordinary Python generic syntax
 cannot express directly. ``Frame`` and ``Array`` are native scalar schemas for
@@ -86,7 +89,9 @@ runtime storage. Reading ``value`` converts the current value to Python;
 ``delta_value`` converts only the current change. Use ``valid`` before relying
 on an optional input, ``modified`` to detect a tick in the current cycle, and
 ``last_modified_time`` when the tick time matters. ``make_passive`` and
-``make_active`` change whether future input ticks schedule the node.
+``make_active`` change whether future input ticks schedule the node. Every
+input also exposes ``all_valid``, ``owning_node``, ``owning_graph`` and
+``is_reference()``. These are live views, not copies of the runtime endpoint.
 
 Collection types add shape-specific access:
 
@@ -97,13 +102,58 @@ Collection types add shape-specific access:
    * - Input kind
      - Additional runtime access
    * - ``TSS``
-     - ``added()``, ``removed()``, membership and length
+     - ``values()``, ``added()``, ``removed()``, ``was_added(value)``,
+       ``was_removed(value)``, iteration, membership and length
    * - ``TSD``
-     - keys, child lookup, ``modified_items()`` and ``removed_keys()``
+     - ``keys()``/``values()``/``items()``; corresponding ``modified_*``,
+       ``valid_*``, ``added_*`` and ``removed_*`` views; ``get(key)``, child
+       lookup, ``key_from_value(child)``, ``key_set``, iteration, membership
+       and length
    * - ``TSL`` / ``TSB``
-     - child lookup, values, and named-field access for bundles
+     - ``keys()``/``values()``/``items()`` and the ``modified_*`` and
+       ``valid_*`` forms; child lookup, ``key_from_value(child)``, iteration
+       and length. Bundles also provide named-field access and ``as_schema``
    * - ``TSW``
-     - ``has_removed_value`` and ``removed_value`` for window eviction
+     - configured ``size`` and ``min_size``; current occupancy through
+       ``len(window)``; NumPy-compatible ``value`` and ``value_times``
+       buffers; ``first_modified_time``, ``has_removed_value`` and
+       ``removed_value``
+   * - ``REF``
+     - the common input API; ``value`` is the current reference token
+   * - ``SIGNAL``
+     - the common input API; ``value`` and ``delta_value`` are ``True`` on a
+       signal tick
+
+For a ``TSW``, ``size`` and ``min_size`` describe configuration rather than
+current occupancy. They are integers for tick-count windows and
+``datetime.timedelta`` values for duration windows. ``value`` is a one-
+dimensional NumPy array of retained values, and ``value_times`` is a matching
+``datetime64[us]`` array in the same oldest-to-newest order:
+
+.. testcode::
+
+   import numpy as np
+   from hgraph import MIN_ST, TS, TSW, WindowSize, compute_node, graph, to_window
+   from hgraph.test import eval_node
+
+   observations = []
+
+   @compute_node
+   def inspect_window(window: TSW[int, WindowSize[3], WindowSize[1]]) -> TS[int]:
+       assert isinstance(window.value, np.ndarray)
+       assert isinstance(window.value_times, np.ndarray)
+       assert window.value_times.dtype == np.dtype("datetime64[us]")
+       assert len(window.value) == len(window.value_times) == len(window)
+       observations.append((window.value.copy(), window.value_times.copy()))
+       return int(window.value[-1])
+
+   @graph
+   def window_example(value: TS[int]) -> TS[int]:
+       return inspect_window(to_window(value, 3, 1))
+
+   assert eval_node(window_example, [1, 2, 3, 4]) == [1, 2, 3, 4]
+   assert observations[-1][0].tolist() == [2, 3, 4]
+   assert observations[-1][1].tolist()[0] > MIN_ST
 
 Input, output, node, graph, clock and engine views expire when the callback
 returns. Do not retain them in ``STATE`` or pass them to another thread.
@@ -128,6 +178,13 @@ also needs its existing output or must mutate a collection output directly:
        return value.value
 
    assert eval_node(change_only, [1, 1, 2]) == [1, None, 2]
+
+Output views expose the same observational collection and window methods as
+inputs. They additionally provide native mutation: assign ``value``, call
+``invalidate()`` or ``clear()``, use ``add()``/``remove()`` for ``TSS``, and
+use ``get_or_create(key)``, item assignment/deletion or ``pop(key)`` for
+``TSD``. Mutating a child view publishes through the same C++ output; it does
+not build a second Python-side time-series implementation.
 
 ``STATE`` preserves ordinary Python state for one node instance.
 ``RECORDABLE_STATE[Schema]`` instead supplies a native output-backed view whose
