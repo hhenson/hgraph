@@ -445,6 +445,18 @@ for path in (root, root / "include", arrow_link, compute_link, acero_link,
     if(NOT EXISTS "${_hgraph_pyarrow_include}/arrow/api.h")
         message(FATAL_ERROR "pyarrow headers not found under ${_hgraph_pyarrow_include}")
     endif()
+    # RFC 0016: Parquet lives in a separate library that nothing linked before.
+    # Detect it beside the Arrow runtime rather than assuming it is there.
+    set(HGRAPH_WITH_PARQUET OFF)
+    file(GLOB _hgraph_pyarrow_parquet_runtime
+        LIST_DIRECTORIES false
+        "${_hgraph_pyarrow_dir}/libparquet.*${CMAKE_SHARED_LIBRARY_SUFFIX}"
+        "${_hgraph_pyarrow_dir}/parquet.dll")
+    if(_hgraph_pyarrow_parquet_runtime AND EXISTS "${_hgraph_pyarrow_include}/parquet/arrow/writer.h")
+        list(GET _hgraph_pyarrow_parquet_runtime 0 HGRAPH_PYARROW_PARQUET_RUNTIME)
+        set(HGRAPH_WITH_PARQUET ON)
+    endif()
+
     add_library(Arrow::arrow_shared SHARED IMPORTED GLOBAL)
     add_library(ArrowCompute::arrow_compute_shared SHARED IMPORTED GLOBAL)
     add_library(ArrowAcero::arrow_acero_shared SHARED IMPORTED GLOBAL)
@@ -477,6 +489,24 @@ for path in (root, root / "include", arrow_link, compute_link, acero_link,
             IMPORTED_LOCATION "${_hgraph_pyarrow_acero_lib}"
             INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
         )
+    endif()
+    if(HGRAPH_WITH_PARQUET)
+        add_library(Parquet::parquet_shared SHARED IMPORTED GLOBAL)
+        if(WIN32)
+            file(GLOB _hgraph_pyarrow_parquet_implib LIST_DIRECTORIES false
+                "${_hgraph_pyarrow_dir}/parquet.lib" "${_hgraph_pyarrow_dir}/libparquet.lib")
+            list(GET _hgraph_pyarrow_parquet_implib 0 _hgraph_pyarrow_parquet_lib)
+            set_target_properties(Parquet::parquet_shared PROPERTIES
+                IMPORTED_IMPLIB "${_hgraph_pyarrow_parquet_lib}"
+                IMPORTED_LOCATION "${HGRAPH_PYARROW_PARQUET_RUNTIME}"
+                INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
+            )
+        else()
+            set_target_properties(Parquet::parquet_shared PROPERTIES
+                IMPORTED_LOCATION "${HGRAPH_PYARROW_PARQUET_RUNTIME}"
+                INTERFACE_INCLUDE_DIRECTORIES "${_hgraph_pyarrow_include}"
+            )
+        endif()
     endif()
     set(HGRAPH_PYARROW_LIBRARY_DIR "${_hgraph_pyarrow_dir}" CACHE PATH
         "Directory containing pyarrow's bundled Arrow libraries" FORCE)
@@ -522,17 +552,32 @@ function(hgraph_configure_test_runtime_paths test_name)
         ENVIRONMENT_MODIFICATION "${_hgraph_test_environment}")
 endfunction()
 
-if(HGRAPH_BUILD_SHARED AND HGRAPH_BUILD_PYTHON_BINDINGS)
-    target_link_libraries(hgraph_private_dependencies INTERFACE
-        Arrow::arrow_shared
-        ArrowCompute::arrow_compute_shared
-        ArrowAcero::arrow_acero_shared)
-else()
-    target_link_libraries(hgraph_options INTERFACE
-        Arrow::arrow_shared
-        ArrowCompute::arrow_compute_shared
-        ArrowAcero::arrow_acero_shared)
+set(_hgraph_arrow_targets
+    Arrow::arrow_shared
+    ArrowCompute::arrow_compute_shared
+    ArrowAcero::arrow_acero_shared)
+if(HGRAPH_WITH_PARQUET)
+    list(APPEND _hgraph_arrow_targets Parquet::parquet_shared)
 endif()
+if(HGRAPH_BUILD_SHARED AND HGRAPH_BUILD_PYTHON_BINDINGS)
+    target_link_libraries(hgraph_private_dependencies INTERFACE ${_hgraph_arrow_targets})
+else()
+    target_link_libraries(hgraph_options INTERFACE ${_hgraph_arrow_targets})
+endif()
+
+# RFC 0016 feature macros. The store compiles in every configuration; the
+# backends it can actually build are decided here rather than assumed.
+if(HGRAPH_WITH_PARQUET)
+    target_compile_definitions(hgraph_options INTERFACE HGRAPH_WITH_PARQUET=1)
+endif()
+include(CheckCXXSourceCompiles)
+if(HGRAPH_USE_PYARROW_ARROW AND EXISTS "${_hgraph_pyarrow_include}/arrow/filesystem/s3fs.h")
+    set(HGRAPH_WITH_S3 ON)
+    target_compile_definitions(hgraph_options INTERFACE HGRAPH_WITH_S3=1)
+else()
+    set(HGRAPH_WITH_S3 OFF)
+endif()
+message(STATUS "hgraph frame store: parquet=${HGRAPH_WITH_PARQUET} s3=${HGRAPH_WITH_S3}")
 
 # Boost.Math supplies the numerically stable correlation implementation used
 # by the scientific operators. It is header-only and remains a build-interface

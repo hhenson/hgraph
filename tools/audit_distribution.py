@@ -116,6 +116,15 @@ def _audit_wheel(path: Path) -> int:
     ):
         raise AuditError("wheel does not contain the _hgraph extension")
 
+    # RFC 0016: the extension links Parquet wherever it links Arrow. Windows has
+    # no rpath, so the wheel stages those DLLs explicitly, and one left out of
+    # the list surfaces only as an ImportError the first time someone installs.
+    if "arrow.dll" in extension_names and "parquet.dll" not in extension_names:
+        raise AuditError(
+            "wheel stages arrow.dll but not parquet.dll; importing _hgraph "
+            "would fail with a DLL load error"
+        )
+
     libraries = [
         name
         for name in paths
