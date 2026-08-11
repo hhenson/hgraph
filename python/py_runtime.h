@@ -644,6 +644,11 @@ namespace hgraph::python_bridge
 
         void set_child_value(nb::handle key, nb::object value) const
         {
+            if (checked().schema()->kind == TSTypeKind::TSD)
+            {
+                get_or_create(key).set_value(std::move(value));
+                return;
+            }
             child(key).set_value(std::move(value));
         }
 
@@ -744,7 +749,8 @@ namespace hgraph::python_bridge
             switch (view.schema()->kind)
             {
                 case TSTypeKind::TSD: {
-                    for (const ValueView &key : view.as_dict().keys())
+                    auto dict = view.as_dict();
+                    for (const ValueView &key : dict.keys())
                     {
                         result.append(value_to_py(key));
                     }
@@ -1093,6 +1099,7 @@ namespace hgraph::python_bridge
                 return nb::borrow<nb::object>(value.collection_key);
             }
             const auto target = value.checked().data_view().data();
+            if (target == nullptr) { return nb::none(); }
             auto view = checked();
             if (view.schema()->kind == TSTypeKind::TSL)
             {
@@ -2018,9 +2025,10 @@ namespace hgraph::python_bridge
         {
             nb::list result;
             auto dict = checked().as_dict();
-            for (auto &&child : dict.added_values())
+            for (auto &&[key, child] : dict.added_items())
             {
-                result.append(PyTimeSeries{std::move(child), lease});
+                result.append(collection_child(
+                    std::move(child), value_to_py(key)));
             }
             return result;
         }
@@ -2031,8 +2039,9 @@ namespace hgraph::python_bridge
             auto dict = checked().as_dict();
             for (auto &&[key, child] : dict.added_items())
             {
+                nb::object py_key = value_to_py(key);
                 result.append(nb::make_tuple(
-                    value_to_py(key), PyTimeSeries{std::move(child), lease}));
+                    py_key, collection_child(std::move(child), py_key)));
             }
             return result;
         }
@@ -2049,9 +2058,10 @@ namespace hgraph::python_bridge
         {
             nb::list result;
             auto dict = checked().as_dict();
-            for (auto &&child : dict.removed_values())
+            for (auto &&[key, child] : dict.removed_items())
             {
-                result.append(PyTimeSeries{std::move(child), lease});
+                result.append(collection_child(
+                    std::move(child), value_to_py(key)));
             }
             return result;
         }
@@ -2062,8 +2072,9 @@ namespace hgraph::python_bridge
             auto dict = checked().as_dict();
             for (auto &&[key, child] : dict.removed_items())
             {
+                nb::object py_key = value_to_py(key);
                 result.append(nb::make_tuple(
-                    value_to_py(key), PyTimeSeries{std::move(child), lease}));
+                    py_key, collection_child(std::move(child), py_key)));
             }
             return result;
         }
@@ -2077,6 +2088,7 @@ namespace hgraph::python_bridge
                 return nb::borrow<nb::object>(value.collection_key);
             }
             const auto target = value.checked().data_view().data();
+            if (target == nullptr) { return nb::none(); }
             const auto &ts = checked();
             if (ts.schema()->kind == TSTypeKind::TSL)
             {

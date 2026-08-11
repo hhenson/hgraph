@@ -273,7 +273,7 @@ def test_mutable_tsd_and_key_set_output_views_report_exact_native_changes():
         command: TS[int], _output: TSD_OUT[str, TS[int]] = None
     ) -> TSD[str, TS[int]]:
         if command.value == 1:
-            _output.get_or_create("a").value = 10
+            _output["a"] = 10
             popped = None
         elif command.value == 2:
             _output["a"] = 20
@@ -506,6 +506,18 @@ def test_tsd_input_views_distinguish_added_modified_valid_and_removed_items():
                 "removed_values": tuple(
                     child.value for child in value.removed_values()
                 ),
+                "removed_value_keys": tuple(
+                    sorted(
+                        value.key_from_value(child)
+                        for child in value.removed_values()
+                    )
+                ),
+                "removed_item_value_keys": tuple(
+                    sorted(
+                        value.key_from_value(child)
+                        for _, child in value.removed_items()
+                    )
+                ),
                 "get": value.get("a").value if value.get("a") is not None else None,
                 "missing": value.get("missing"),
                 "key_set": (
@@ -553,6 +565,8 @@ def test_tsd_input_views_distinguish_added_modified_valid_and_removed_items():
     assert remove["modified_keys"] == ()
     assert remove["removed_keys"] == ("a",)
     assert tuple(key for key, *_ in remove["removed"]) == ("a",)
+    assert remove["removed_value_keys"] == ("a",)
+    assert remove["removed_item_value_keys"] == ("a",)
     assert remove["get"] is None
     assert remove["keys_from_children"] == ("b",)
     assert remove["missing"] is None
@@ -632,6 +646,29 @@ def test_tsb_input_views_expose_named_complete_modified_and_valid_ranges():
     assert observations[0]["schema"]
     assert observations[1]["modified_keys"] == ("right",)
     assert observations[1]["valid_keys"] == ("left", "right")
+
+
+def test_key_from_value_rejects_foreign_unresolved_structural_children():
+    @compute_node(valid=())
+    def inspect(
+        left_list: TSL[TS[int], Size[2]],
+        right_list: TSL[TS[int], Size[2]],
+        left_bundle: TSB[_ApiContractPair],
+        right_bundle: TSB[_ApiContractPair],
+    ) -> TS[bool]:
+        assert left_list.key_from_value(left_list[1]) == 1
+        assert left_bundle.key_from_value(left_bundle.right) == "right"
+        assert left_list.key_from_value(right_list[1]) is None
+        assert left_bundle.key_from_value(right_bundle.right) is None
+        return True
+
+    assert eval_node(
+        inspect,
+        [{0: 1}],
+        [{0: 2}],
+        [{"left": 3}],
+        [{"left": 4}],
+    ) == [True]
 
 
 def test_tss_input_views_expose_membership_and_exact_change_classification():

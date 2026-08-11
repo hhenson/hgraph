@@ -10,7 +10,7 @@
 namespace hgraph
 {
     /** Read view over set-shaped TSData. */
-    class TSSDataView
+    class HGRAPH_EXPORT TSSDataView
     {
       public:
         explicit TSSDataView(TSDataView view);
