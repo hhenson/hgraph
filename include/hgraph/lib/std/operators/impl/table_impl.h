@@ -71,6 +71,20 @@ namespace hgraph::stdlib
 
 
         /**
+         * Where a row's cells go: written straight to their destination as
+         * they are resolved, with ``end_row`` closing the row. Columns the
+         * traversal did not deliver were not present, and each sink says what
+         * that means in its own terms - unset in a planned row, null in a
+         * builder.
+         */
+        struct RowSink
+        {
+            void *context{nullptr};
+            void (*cell)(void *context, std::size_t column, const ValueView &value){nullptr};
+            void (*end_row)(void *context){nullptr};
+        };
+
+        /**
          * How a recording is shaped (RFC 0019, step 3).
          *
          * Supplied to the recorder rather than looked up, with the global
@@ -138,9 +152,23 @@ namespace hgraph::stdlib
             const TSValueTypeMetaData *ts, std::string_view date_key, std::string_view as_of_key);
         void clear_ts_table_layouts() noexcept;
 
+        /** ToTableMode::Tick - the per-tick mode, matching the Python enum. */
+        inline constexpr Int kToTableModeTick = 1;
+
         /** The ToTableMode enum meta (registers it on first use). */
         [[nodiscard]] const ValueTypeMetaData *to_table_mode_meta();
         [[nodiscard]] Value                    to_table_mode_value(Int member);
+
+        /**
+         * Emit this tick's rows to ``sink``.
+         *
+         * ``emit_removals`` is false when the recording omits removals: a
+         * removal then does nothing at all, rather than producing a row whose
+         * removed flag has nowhere to go.
+         */
+        HGRAPH_EXPORT void emit_rows_to(const TsTableLayout &layout, const TSInputView &ts, Int mode,
+                                        DateTime now, DateTime as_of, bool emit_removals,
+                                        const RowSink &sink);
 
         /** Emit this tick's rows into ``out`` (TS<row> or TS<rows>). */
         void emit_rows(const TsTableLayout &layout, const TSInputView &ts, Int mode, DateTime now,

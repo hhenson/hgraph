@@ -1,6 +1,7 @@
 #ifndef HGRAPH_LIB_STD_OPERATORS_IMPL_RECORD_REPLAY_FRAME_IMPL_H
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_RECORD_REPLAY_FRAME_IMPL_H
 
+#include <hgraph/lib/std/operators/impl/table_impl.h>
 #include <hgraph/lib/std/operators/io.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/operator_dispatch.h>
@@ -28,8 +29,40 @@ namespace hgraph::stdlib
         /** Heap recorder handle owned across start/eval/stop via node State. */
         struct RecorderHandle
         {
-            FrameRecorder recorder;
+            TableRecorder recorder;
             std::string   fq_key;
+            /** Output column per layout column; ``npos`` for one the recording
+                omits, so the sink can drop a cell rather than shift the rest. */
+            std::vector<std::size_t> output_of_layout_column{};
+            bool                     emit_removals{false};
+
+            static constexpr std::size_t dropped = static_cast<std::size_t>(-1);
+        };
+
+        /** Feeds emitted cells into the recorder, mapping layout columns to the
+            recording's own. */
+        struct RecordingSink
+        {
+            RecorderHandle *handle{nullptr};
+
+            static void cell(void *context, std::size_t column, const ValueView &value)
+            {
+                auto *self = static_cast<RecordingSink *>(context);
+                if (column >= self->handle->output_of_layout_column.size()) { return; }
+                const std::size_t output = self->handle->output_of_layout_column[column];
+                if (output == RecorderHandle::dropped) { return; }
+                self->handle->recorder.append_cell(output, value);
+            }
+
+            static void end_row(void *context)
+            {
+                static_cast<RecordingSink *>(context)->handle->recorder.end_row();
+            }
+
+            [[nodiscard]] table_ts_detail::RowSink sink()
+            {
+                return table_ts_detail::RowSink{.context = this, .cell = &cell, .end_row = &end_row};
+            }
         };
 
         /** Heap replay cursor owned across start/eval/stop via node State. */
@@ -97,12 +130,28 @@ namespace hgraph::stdlib
                           GlobalStateView gs, State<FrameRecorderState> state)
         {
             using record_replay_frame_detail::RecorderHandle;
+            using namespace table_ts_detail;
+
             const auto  config = record_replay::config(gs);
-            const auto &converter =
-                table_converter(ts.base().schema()->value_schema, config.date_key, config.as_of_key);
-            auto        handle    = std::make_unique<RecorderHandle>(RecorderHandle{
-                FrameRecorder{converter},
-                record_replay_frame_detail::frame_key(traits, recordable_id.value(), key.value())});
+            // The LAYOUT, not the value schema: a value schema cannot describe
+            // a TSD's key columns or removed flags, which is why recording a
+            // partitioned series used to fail here (RFC 0019).
+            const auto &layout =
+                ts_table_layout(ts.base().schema(), config.date_key, config.as_of_key);
+            const TableRecordingOptions options{};   // step 3 default; local config lands with the wiring
+            const RecordingColumns      columns = recording_columns(layout, options);
+
+            std::vector<std::size_t> output_of_layout_column(layout.keys.size(), RecorderHandle::dropped);
+            for (std::size_t output = 0; output < columns.source.size(); ++output)
+            {
+                output_of_layout_column[columns.source[output]] = output;
+            }
+
+            auto handle = std::make_unique<RecorderHandle>(RecorderHandle{
+                TableRecorder{columns.names, columns.metas},
+                record_replay_frame_detail::frame_key(traits, recordable_id.value(), key.value()),
+                std::move(output_of_layout_column),
+                options.removes == TableRecordingOptions::Removes::Track});
             state.set(FrameRecorderState{handle.release()});   // owned by node State until stop
         }
 
@@ -113,7 +162,14 @@ namespace hgraph::stdlib
             static_cast<void>(key);
             static_cast<void>(recordable_id);
             const auto as_of = record_replay::config(gs).as_of.value_or(now);
-            state.get().handle->recorder.append(now, as_of, ts.value());
+            using namespace table_ts_detail;
+            auto *handle = state.get().handle;
+            const auto &layout =
+                ts_table_layout(ts.base().schema(), record_replay::config(gs).date_key,
+                                record_replay::config(gs).as_of_key);
+            record_replay_frame_detail::RecordingSink recording{.handle = handle};
+            emit_rows_to(layout, ts.base(), kToTableModeTick, now, as_of, handle->emit_removals,
+                         recording.sink());
         }
 
         static void stop(State<FrameRecorderState> state)
@@ -215,12 +271,18 @@ namespace hgraph::stdlib
                           GlobalStateView gs, State<FrameRecorderState> state)
         {
             using record_replay_frame_detail::RecorderHandle;
-            const auto  config = record_replay::config(gs);
-            const auto &converter =
-                table_converter(scalar_descriptor<Bool>::value_meta(), config.date_key, config.as_of_key);
-            auto        handle    = std::make_unique<RecorderHandle>(RecorderHandle{
-                FrameRecorder{converter},
-                record_replay::fq_recordable_id(traits, recordable_id.value()) + ".__compare__"});
+            const auto config = record_replay::config(gs);
+            // Bitemporal plus one boolean: described directly rather than
+            // through a converter, so there is one recorder in the tree.
+            const std::vector<std::string> names{config.date_key, config.as_of_key, "value"};
+            const std::vector<const ValueTypeMetaData *> metas{
+                scalar_descriptor<DateTime>::value_meta(), scalar_descriptor<DateTime>::value_meta(),
+                scalar_descriptor<Bool>::value_meta()};
+            auto handle = std::make_unique<RecorderHandle>(RecorderHandle{
+                TableRecorder{names, metas},
+                record_replay::fq_recordable_id(traits, recordable_id.value()) + ".__compare__",
+                {},
+                false});
             state.set(FrameRecorderState{handle.release()});   // owned by node State until stop
         }
 
@@ -234,7 +296,14 @@ namespace hgraph::stdlib
             // a mismatch (one series produced where the other did not).
             const bool equal = lhs.valid() && rhs.valid() && lhs.value().equals(rhs.value());
             const auto as_of = record_replay::config(gs).as_of.value_or(now);
-            state.get().handle->recorder.append(now, as_of, Value{Bool{equal}}.view());
+            auto       &recorder = state.get().handle->recorder;
+            const Value when{now};
+            const Value as_of_value{as_of};
+            const Value result{Bool{equal}};
+            recorder.append_cell(0, when.view());
+            recorder.append_cell(1, as_of_value.view());
+            recorder.append_cell(2, result.view());
+            recorder.end_row();
         }
 
         static void stop(State<FrameRecorderState> state)
