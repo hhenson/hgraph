@@ -2462,6 +2462,30 @@ namespace hgraph::stdlib
             bool whole_variable{false};
         };
 
+        /** Schema a keyed/dynamic-list container must allocate for one child.
+            A synthetic structural adapter remains an implementation detail,
+            while an operator-authored REF terminal is the endpoint that the
+            container actually forwards to and must therefore be retained. */
+        [[nodiscard]] inline const TSValueTypeMetaData *mapped_element_schema(
+            const CompiledSubGraph &compiled)
+        {
+            const auto *logical = compiled.output_schema;
+            const auto *terminal = compiled.terminal_output_schema;
+            if (logical == nullptr || terminal == nullptr ||
+                compiled.terminal_is_structural_adapter ||
+                terminal->kind != TSTypeKind::REF)
+            {
+                return logical;
+            }
+
+            auto &registry = TypeRegistry::instance();
+            return time_series_schema_equivalent(
+                       registry.dereference(logical),
+                       registry.dereference(terminal))
+                       ? terminal
+                       : logical;
+        }
+
         /** Configure a whole child terminal against one public container
             element. A terminal with endpoint topology of its own, including
             the synthetic REF used for composed fixed structures, stays owned
@@ -2786,6 +2810,11 @@ namespace hgraph::stdlib
                         // switch_ remains the child's public output identity.
                         element_schema = declared;
                     }
+                }
+                if (const auto *physical = mapped_element_schema(compiled);
+                    physical != compiled.output_schema)
+                {
+                    element_schema = physical;
                 }
                 // TSD / dynamic-TSL elements embed since the storage-stability
                 // ruling (938a125): slot-backed TSData is construct-only in
@@ -3398,33 +3427,12 @@ namespace hgraph::stdlib
             auto ordered = ordered_map_schemas(context, "key");
             if (!ordered.has_value()) { return; }
 
-            if (const TSValueTypeMetaData *element = func->output_schema())
-            {
-                const MapArgClassification classified = classify_map_args(
-                    *func, ordered->takes_key,
-                    {ordered->schemas.data(), ordered->schemas.size()},
-                    {ordered->arg_tags.data(), ordered->arg_tags.size()},
-                    keys_kwarg_element(context));
-                std::size_t parameter = 0;
-                const auto accepts = [&](const TSValueTypeMetaData *actual) {
-                    const TSValueTypeMetaData *expected = func->input_schema(parameter++);
-                    return expected == nullptr ||
-                           graph_wiring_detail::input_accepts_output_schema(expected, actual);
-                };
-                const bool key_accepted =
-                    !ordered->takes_key || accepts(TypeRegistry::instance().ts(classified.key_meta));
-                const bool inputs_accepted = key_accepted &&
-                    std::ranges::all_of(classified.child_schemas, accepts);
-                const auto *output_schema = inputs_accepted
-                                                ? TypeRegistry::instance().tsd(classified.key_meta, element)
-                                                : nullptr;
-                if (output_schema != nullptr)
-                {
-                    bind_graph_output(resolution, output_schema, "O");
-                    return;
-                }
-            }
-
+            // A graph's declared return schema is only its public contract.
+            // Its compiled terminal can be transparently compatible but more
+            // precise, most notably REF[TSB] from a keyed TSD lookup exposed as
+            // TSB.  Compile the child before allocating the map output so the
+            // outer TSD retains that terminal schema instead of incorrectly
+            // allocating owned TSB storage.
             auto output_schema = try_resolve_map_output_schema(
                 *func, {ordered->schemas.data(), ordered->schemas.size()},
                 {ordered->arg_tags.data(), ordered->arg_tags.size()}, keys_kwarg_element(context));
@@ -4008,12 +4016,13 @@ namespace hgraph::stdlib
                     throw std::invalid_argument("map_: dynamic TSL function output node is out of range");
                 }
 
+                const auto *element_schema = mapped_element_schema(compiled);
                 NodeBuilder &terminal =
                     spec.child.graph_builder.node_at(binding.source.node);
                 spec.output_binding_mode = configure_mapped_child_terminal(
-                    terminal, compiled.output_schema,
+                    terminal, element_schema,
                     compiled.terminal_output_schema, "map_");
-                output_schema = registry.tsl(compiled.output_schema, 0);
+                output_schema = registry.tsl(element_schema, 0);
             } else {
                 output_schema = nullptr;
             }

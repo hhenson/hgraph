@@ -401,11 +401,6 @@ def convert_pairs_to_tuples(ts: TIME_SERIES_TYPE) -> TS[object]:
 convert_pairs_to_delta_tuples = convert_pairs_to_tuples  # full-value dialect (see module docstring)
 
 
-@compute_node
-def _record_probe(ts: TIME_SERIES_TYPE) -> TS[object]:
-    return ts.value
-
-
 # ---------------------------------------------------------------------------
 # eval_
 # ---------------------------------------------------------------------------
@@ -438,39 +433,21 @@ class _EvalArrowInput:
             values = _build_inputs(self.first, self.second, self.type_map)
             out = other(values)
             if out is not None:
-                flat_value = _to_value_port(out)
-                w.wire("__harness_record", (_unwrap(flat_value), "arrow::out"),
+                # Record the actual, typed output.  Pair-to-tuple conversion
+                # is a presentation concern for eval_ and must not insert an
+                # object-valued node into the graph: doing so erases enum,
+                # CompoundScalar, and structural projection types.
+                w.wire("__harness_record", (_unwrap(out), "arrow::out"),
                        {"sparse": True})
             run = w.run()
         finally:
             _wiring_stack.pop()
         if out is None:
             return []
-        return [v for _, v in run.recorded("arrow::out", sparse=True)]
-
-
-def _to_value_port(out):
-    """A TS[object] port carrying the (tuple-converted) full value of out."""
-    shape = _pair_shape(out)
-    if shape is None:
-        return _record_probe(out)
-    return convert_pairs_to_tuples(_pair_value_port(out))
-
-
-def _pair_value_port(x):
-    """Build a TS[object] of nested-dict full values from a pair port so a
-    single probe records tuple-shaped output."""
-    elements = _pair_elements(x)
-    if elements is None:
-        return _record_probe(x)
-    return _combine_pair_values(_pair_value_port(elements[0]),
-                                _pair_value_port(elements[1]))
-
-
-@compute_node(valid=())
-def _combine_pair_values(first: TS[object], second: TS[object]) -> TS[object]:
-    return {"first": first.value if first.valid else None,
-            "second": second.value if second.valid else None}
+        return [
+            _value_to_tuples(value)
+            for _, value in run.recorded("arrow::out", sparse=True)
+        ]
 
 
 _REPLAY_COUNTER = 0

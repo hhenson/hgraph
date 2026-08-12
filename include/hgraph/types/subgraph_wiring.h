@@ -70,9 +70,14 @@ namespace hgraph
         /** Physical schema of the endpoint named by ``output_binding``.
             This differs from ``output_schema`` only when compilation adds an
             internal terminal (for example REF<TSB/TSL> for a newly composed
-            fixed structural result). Consumers expose ``output_schema`` and
-            use this field only when configuring the child terminal itself. */
+            fixed structural result). Consumers normally expose
+            ``output_schema``; container owners also use this to retain an
+            operator-authored REF endpoint in their element allocation. */
         const TSValueTypeMetaData               *terminal_output_schema{nullptr};
+        /** The physical REF terminal was synthesized solely to give a newly
+            composed fixed structure one endpoint. Unlike an operator-authored
+            REF result, this adapter is not part of the callable's result. */
+        bool terminal_is_structural_adapter{false};
         /**
          * Outer-port CAPTURES (nested_graphs.rst): OUTER-wiring ports the
          * compose body referenced (closure capture). One per boundary index

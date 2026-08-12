@@ -214,6 +214,48 @@ namespace
         static Port<TSS<Int>> compose(Wiring &, Port<TSS<Int>> ts) { return ts; }
     };
 
+    using LookupMappedBundle =
+        UnNamedTSB<Field<"value", TS<Int>>, Field<"label", TS<Str>>>;
+
+    /** A typed graph whose public C++ return type is TSB, while its actual
+        terminal is the REF[TSB] produced by a dynamic TSD lookup. */
+    struct LookupMappedBundleG
+    {
+        static constexpr auto name = "lookup_mapped_bundle_g";
+
+        static Port<LookupMappedBundle> compose(
+            Wiring &w, Port<TS<Str>> lookup,
+            Port<TSD<Str, LookupMappedBundle>> values)
+        {
+            return wire<stdlib::getitem_>(w, values, lookup)
+                .as<LookupMappedBundle>();
+        }
+    };
+
+    struct MapLookupMappedBundleG
+    {
+        static constexpr auto name = "map_lookup_mapped_bundle_g";
+
+        static Port<TS<Int>> compose(
+            Wiring &w, Port<TSD<Str, TS<Str>>> lookups,
+            Port<TSD<Str, LookupMappedBundle>> values)
+        {
+            auto mapped = wire<stdlib::map_>(
+                w, fn<LookupMappedBundleG>(), lookups,
+                stdlib::pass_through(values));
+            if (mapped.erased().schema !=
+                ts_type<TSD<Str, REF<LookupMappedBundle>>>())
+            {
+                throw std::logic_error(
+                    "map_ erased the typed graph's REF[TSB] terminal");
+            }
+            auto selected = wire<stdlib::getitem_>(w, mapped, Str{"left"})
+                                .as<REF<LookupMappedBundle>>();
+            return wire<stdlib::getattr_>(w, selected, Str{"value"})
+                .as<TS<Int>>();
+        }
+    };
+
     struct ExplicitKeySetMapG
     {
         static constexpr auto name = "explicit_key_set_map_g";
@@ -1393,6 +1435,21 @@ TEST_CASE("map_: keyed lookup follows a child that becomes valid after its slot 
         values<Int>(none, 42));
 }
 
+TEST_CASE("map_: a typed graph preserves its keyed REF[TSB] terminal")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<MapLookupMappedBundleG>(
+            values<Value>(dict_delta<Str, TS<Str>>(
+                {{"left"s, "a"s}, {"right"s, "b"s}})),
+            values<Value>(dict_delta<Str, LookupMappedBundle>(
+                {{"a"s, tsb_delta<LookupMappedBundle>(Int{1}, Str{"one"})},
+                 {"b"s, tsb_delta<LookupMappedBundle>(Int{2}, Str{"two"})}}))),
+        values<Int>(1));
+}
+
 TEST_CASE("map_: a downstream map binds when an upstream phantom slot becomes valid")
 {
     using namespace hgraph;
@@ -2182,6 +2239,27 @@ namespace
         }
     };
 
+    struct MapDynamicLookupMappedBundleG
+    {
+        static constexpr auto name = "map_dynamic_lookup_mapped_bundle_g";
+
+        static Port<TSL<TS<Str>>> compose(
+            Wiring &w, Port<TSL<TS<Str>>> lookups,
+            Port<TSD<Str, LookupMappedBundle>> values)
+        {
+            auto mapped = wire<stdlib::map_>(
+                w, fn<LookupMappedBundleG>(), lookups,
+                stdlib::pass_through(values));
+            if (mapped.erased().schema !=
+                ts_type<TSL<REF<LookupMappedBundle>>>())
+            {
+                throw std::logic_error(
+                    "dynamic TSL map_ erased the child REF[TSB] terminal");
+            }
+            return lookups;
+        }
+    };
+
     struct MapDynamicCounterG
     {
         static constexpr auto name = "map_dynamic_counter_g";
@@ -2686,6 +2764,19 @@ TEST_CASE("map_ over dynamic TSL: composed structural child results retain their
                 {{1, tsb_delta<DynamicStructuralPair>(Int{2}, Int{102})}}),
             list_delta<DynamicStructuralPair>(
                 {{0, tsb_delta<DynamicStructuralPair>(Int{3}, Int{103})}})));
+}
+
+TEST_CASE("map_ over dynamic TSL: a typed graph preserves its keyed REF[TSB] terminal")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        (eval_node<MapDynamicLookupMappedBundleG>(
+            values<Value>(list_delta<TS<Str>>({{0, Str{"a"}}})),
+            values<Value>(dict_delta<Str, LookupMappedBundle>(
+                {{"a"s, tsb_delta<LookupMappedBundle>(Int{1}, Str{"one"})}})))),
+        values<Value>(list_delta<TS<Str>>({{0, Str{"a"}}})));
 }
 
 TEST_CASE("map_ over dynamic TSL: each index preserves isolated child state") {
