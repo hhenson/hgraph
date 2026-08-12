@@ -30,8 +30,12 @@ namespace hgraph
 
         void start_feedback_source_with_initial_delta(const NodeView &view, DateTime start_time)
         {
-            auto state = view.state().begin_mutation();
-            state.copy_from(view.scalars());
+            const ValueView state = view.state();
+            if (!state.can_begin_mutation() ||
+                !state.begin_mutation().try_copy_from(view.scalars()))
+            {
+                view.replace_state(view.scalars().clone());
+            }
 
             if (GraphValue *graph = view.graph_value(); graph != nullptr)
             {
