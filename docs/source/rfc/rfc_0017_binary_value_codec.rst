@@ -411,6 +411,63 @@ survivable — core NATS drops for a slow consumer, and a dropped delta is not
 lag but silent state corruption — and it is equally what makes reconnect
 correct on a transport that never drops at all.
 
+Delivery patterns
+-----------------
+
+The two consumers index the same frames differently — a live stream by
+sequence, a stored log by time — so each gets an explicit contract rather than
+leaving senders to invent one.
+
+Network streams
+~~~~~~~~~~~~~~~
+
+* **Connect** → ``Image``, then ``Delta`` frames.
+* **Disconnect / reconnect** → ``Image``, then ``Delta`` frames.
+
+The image is sent on every connection epoch, not only when a receiver reports a
+gap. A reconnecting receiver may hold state from before the break that the
+sender has since removed, and it cannot know what it is missing; only an image
+removes what is no longer there. Making it unconditional also removes a class
+of negotiation — there is no "do I need a resync?" exchange, because the answer
+is always yes at connect.
+
+Mid-connection, ``sequence`` still detects loss on a transport that can drop
+(core NATS), and the recovery is the same primitive: discard until the next
+``Image``, requesting one where the transport allows it.
+
+Stored logs
+~~~~~~~~~~~
+
+Two object kinds, both time-indexed, following RFC 0016's keyed store:
+
+**Delta objects** hold ``Delta`` frames with their engine times, ordered. Time
+is the index; the codec's ``sequence`` is a live-stream concern and does not
+order a log.
+
+**Snapshot objects** hold one ``Image`` frame. They are written occasionally,
+and **snapshotting is configurable** — cadence is a deployment decision, since
+it trades write volume against replay cost, not a codec rule.
+
+A snapshot's time **must coincide with a delta boundary**: the image is the
+state after every delta up to and including that time. Without that alignment a
+reader cannot tell which deltas the image already contains, and would either
+double-apply or skip.
+
+Reading from an arbitrary start time is then:
+
+1. find the latest snapshot at or before the start time;
+2. load it, then apply deltas in ``(snapshot_time, start_time]``;
+3. continue with deltas after the start time.
+
+Where no snapshot precedes the start time, the reader falls back to the head of
+the delta log — which is why a log begins with an ``Image``, exactly as a
+connection does. That keeps a log self-contained: it can be read without
+depending on state established before it.
+
+The cost of the cadence is visible in step 2: it bounds how many deltas a read
+must replay before reaching the requested time. Frequent snapshots make reads
+cheap and writes expensive; that is the trade a deployment tunes.
+
 Python contract
 ---------------
 
@@ -492,10 +549,6 @@ which transport a deployment chose.
 Unresolved questions
 --------------------
 
-* **Image cadence in a stored delta log.** A log needs a leading ``Image``, and
-  without periodic ones a replay walks from the beginning. The cadence is a
-  deployment policy rather than a codec rule, but the store (RFC 0016) needs
-  somewhere to express it.
 * **``Any`` in bound mode.** It carries per-instance schema identity, which a
   bound stream otherwise avoids. Descriptive-only, or a per-stream schema
   dictionary?
@@ -544,6 +597,12 @@ Acceptance criteria and test plan
 * ``REF`` is rejected with a clear error, matching ``capture_delta``.
 * A ``schema_id`` mismatch in bound mode is an error, with no partial apply.
 * A sequence gap suppresses apply and is cleared only by an ``Image``.
+* A reconnecting receiver holding state the sender has since removed converges
+  on the sender after the connect ``Image`` — the case an unconditional image
+  exists for.
+* A log read from an arbitrary start time agrees tick-for-tick with a read from
+  the head, for a start time landing before, on, and after a snapshot boundary,
+  and for a log with no snapshot at all.
 * The fixed-layout fast path is byte-identical to the field-wise path for every
   eligible schema.
 * Descriptive mode decodes a stream whose schema was never registered by the
