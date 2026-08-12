@@ -102,6 +102,7 @@ values:
      - ``Bundle{added: Set<T>, removed: Set<T>}``
    * - ``TSD<K,V>``
      - ``Bundle{removed: Set<K>, modified: Map<K, delta(V)>}``
+       — see "strict removal" below
    * - ``TSL<C,N>``
      - ``Map<int, delta(C)>``
    * - ``TSB{f...}``
@@ -114,6 +115,49 @@ values:
 another endpoint's storage; it has no meaning in another address space. A
 remote service sends values, never references. This is a property of the
 model, not a limitation of the encoding, and the codec reports it the same way.
+
+Strict removal is intent, not observation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``TSD`` row above states the **observed** delta, and it is deliberately a
+two-field bundle. The runtime today builds a third field into
+``delta_value_schema``:
+
+.. code-block:: text
+
+   Bundle{removed: Set<K>, modified: Map<K, delta(V)>, removed_strict: Set<K>}
+
+``removed_strict`` exists only for the **apply** direction. It carries
+user-authored ``REMOVE`` keys, which must raise when the key is absent, as
+against the lenient ``REMOVE_IF_EXISTS`` that travels in ``removed``
+(``type_registry.cpp``; the raising apply path is in ``ts_delta.cpp``). Its
+only producer is the Python dict conversion in ``value_conversion.cpp``, which
+populates it when a node's output dict contains the ``REMOVE`` sentinel.
+Capture never produces it — ``ts_delta.cpp`` builds it as an empty set with the
+comment *"captures never carry strict removals"*.
+
+So the field expresses an **expectation the author is asserting about the
+target**, not something that happened to a time series. A delta *read from* a
+``TSD`` has added, removed and updated keys and nothing else; "strict" is not a
+property an observation can have. Two directions are being carried by one
+schema.
+
+**Consequences for this RFC.** The wire delta for ``TSD`` is
+``{removed, modified}``. Strict removal is not representable and must not be:
+the codec transports observations between processes, and a sender expressing
+authored intent is mutating a local ``TSD``, not shipping a delta. Encoding it
+would also put an always-empty set in every ``TSD`` frame.
+
+**Consequence for the runtime**, recorded here per the doc/code discipline in
+``CLAUDE.md``: the two schemas should be separated rather than conflated —
+``delta_value_schema`` narrowed to the observed two fields, and a distinct
+mutation schema carrying ``removed_strict`` accepted by ``apply_delta`` and
+produced by the Python dict conversion. That is a prerequisite for this RFC,
+because the converter is synthesized *from* the schema: while the canonical
+schema has three fields, a synthesized converter necessarily puts three on the
+wire. It is a separate change from the codec itself and touches
+``type_registry.cpp``, ``ts_delta.cpp``, ``ts_data/proxy.cpp`` and
+``ts_data_slot_ops.cpp``.
 
 C++ contract
 ------------
@@ -350,6 +394,11 @@ Acceptance criteria and test plan
   ``JsonConverter::AtomicTag`` form.
 * Round-trip for every canonical delta shape in the table above, including
   nested ``TSB`` and ``TSD<K, TSB{...}>``.
+* **Prerequisite:** the ``TSD`` observed delta schema is ``{removed,
+  modified}``, with strict removal moved to a distinct mutation schema
+  accepted by ``apply_delta``. A captured ``TSD`` delta encodes no
+  ``removed_strict`` field, and a ``REMOVE``-sentinel dict from Python still
+  raises on an absent key.
 * ``REF`` is rejected with a clear error, matching ``capture_delta``.
 * A ``schema_id`` mismatch in bound mode is an error, with no partial apply.
 * A sequence gap suppresses apply and is cleared only by a snapshot.
