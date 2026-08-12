@@ -32,3 +32,4 @@ workflow are defined by :doc:`rfc_0000`.
    rfc_0016_object_store_frame_persistence
    rfc_0017_binary_value_codec
    rfc_0018_analytics_relative_change
+   rfc_0019_native_table_recording
