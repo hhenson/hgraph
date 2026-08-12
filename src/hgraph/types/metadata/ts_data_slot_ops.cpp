@@ -1,5 +1,4 @@
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
-#include <hgraph/types/time_series/ts_data/empty_delta_fields.h>
 
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/debug_descriptor.h>
@@ -1974,12 +1973,6 @@ namespace hgraph::ts_data_plan_factory_detail
             SetValueOps             key_set_value_ops{};
             IndexedValueOps          dict_delta_bundle_ops{};
             ValueTypeRef modified_map_binding{nullptr};
-            // Projected delta's third field: strict removals never originate
-            // from a live TSD; expose the interned always-empty set
-            // (NON-OWNING: the empty-set registry is cleared before the type
-            // records at reset — a context-owned Value would destruct after
-            // its record is gone; see empty_delta_fields.h).
-            const Value             *empty_strict_set{nullptr};
             ValueTypeRef key_set_value_binding{nullptr};
             TSRoleTypeRef          key_set_ts_type{};
 
@@ -2237,14 +2230,12 @@ namespace hgraph::ts_data_plan_factory_detail
                 dict_layout.value_binding = intern_value_type(*value_schema, plan_, value_map_ops, &debug);
                 dict_layout.tracking_offset = debug_offset(sample, sample.tracking());
 
-                if (delta_schema->value_kind() != ValueTypeKind::Bundle || delta_schema->field_count != 3)
+                if (delta_schema->value_kind() != ValueTypeKind::Bundle || delta_schema->field_count != 2)
                 {
-                    throw std::logic_error(
-                        "TSD delta schema must be Bundle{removed, modified, removed_strict}");
+                    throw std::logic_error("TSD delta schema must be Bundle{removed, modified}");
                 }
                 removed_set_binding = intern_value_type(*delta_schema->fields[0].type, plan_, removed_set_ops);
                 modified_map_binding = intern_value_type(*delta_schema->fields[1].type, plan_, modified_map_ops);
-                empty_strict_set = ts_data_detail::interned_empty_set(schema_.key_type());
                 added_set_binding = intern_value_type(*TypeRegistry::instance().set(schema_.key_type()),
                                                               plan_, added_set_ops);
                 dict_layout.delta_binding = intern_value_type(*delta_schema, plan_, dict_delta_bundle_ops);
@@ -2400,20 +2391,19 @@ namespace hgraph::ts_data_plan_factory_detail
                                                     const void *memory)
             {
                 if (binding.schema() == nullptr || binding.schema()->value_kind() != ValueTypeKind::Bundle ||
-                    binding.schema()->field_count != 3)
+                    binding.schema()->field_count != 2)
                 {
-                    throw std::logic_error(
-                        "TSD delta copy requires canonical Bundle{removed, modified, removed_strict}");
+                    throw std::logic_error("TSD delta copy requires canonical Bundle{removed, modified}");
                 }
 
                 const auto &plan = binding.checked_plan();
-                if (!plan.is_composite() || plan.component_count() < 3)
+                if (!plan.is_composite() || plan.component_count() < 2)
                 {
-                    throw std::logic_error("TSD delta copy requires a three-field structured plan");
+                    throw std::logic_error("TSD delta copy requires a two-field structured plan");
                 }
 
                 copy_projected_bundle_fields(
-                    binding, dst, 3,
+                    binding, dst, 2,
                     [&](std::size_t index) {
                         return dict_delta_element_binding(context, memory, index);
                     },
@@ -3163,13 +3153,13 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 #endif
 
-            [[nodiscard]] static std::size_t dict_delta_size(const void *, const void *) noexcept { return 3; }
+            [[nodiscard]] static std::size_t dict_delta_size(const void *, const void *) noexcept { return 2; }
 
             [[nodiscard]] static const void *dict_delta_element_at(const void *context, const void *memory,
                                                                    std::size_t index)
             {
+                (void)context;
                 if (index < 2) { return memory; }
-                if (index == 2) { return ctxd(context)->empty_strict_set->view().data(); }
                 throw std::out_of_range("TSD delta bundle index out of range");
             }
 
@@ -3178,7 +3168,6 @@ namespace hgraph::ts_data_plan_factory_detail
                                                                                     std::size_t index) noexcept
             {
                 const auto *state = ctxd(context);
-                if (index == 2) { return state->empty_strict_set->binding(); }
                 return index == 0 ? state->removed_set_binding : state->modified_map_binding;
             }
 
@@ -3194,7 +3183,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 return Range<ValueView>{
                     .context   = context,
                     .memory    = memory,
-                    .limit     = 3,
+                    .limit     = 2,
                     .predicate = nullptr,
                     .projector = &dict_delta_projector,
                 };
@@ -3203,10 +3192,8 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static std::size_t dict_delta_hash(const void *context, const void *memory)
             {
                 const auto *state = ctxd(context);
-                return combine_hash(combine_hash(state->removed_set_binding.ops_ref().hash(memory),
-                                                 state->modified_map_binding.ops_ref().hash(memory)),
-                                    state->empty_strict_set->binding().ops_ref().hash(
-                                        state->empty_strict_set->view().data()));
+                return combine_hash(state->removed_set_binding.ops_ref().hash(memory),
+                                    state->modified_map_binding.ops_ref().hash(memory));
             }
 
             [[nodiscard]] static bool dict_delta_equals(const void *context, const void *lhs,
@@ -3235,11 +3222,9 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static std::string dict_delta_to_string(const void *context, const void *memory)
             {
                 const auto *state = ctxd(context);
-                return fmt::format("{{removed: {}, modified: {}, removed_strict: {}}}",
+                return fmt::format("{{removed: {}, modified: {}}}",
                                    state->removed_set_binding.ops_ref().to_string(memory),
-                                   state->modified_map_binding.ops_ref().to_string(memory),
-                                   state->empty_strict_set->binding().ops_ref().to_string(
-                                       state->empty_strict_set->view().data()));
+                                   state->modified_map_binding.ops_ref().to_string(memory));
             }
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
@@ -3249,8 +3234,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 nb::dict result;
                 result[nb::str{"removed"}] = state->removed_set_binding.ops_ref().to_python(memory);
                 result[nb::str{"modified"}] = state->modified_map_binding.ops_ref().to_python(memory);
-                result[nb::str{"removed_strict"}] = state->empty_strict_set->binding().ops_ref().to_python(
-                    state->empty_strict_set->view().data());
                 return result;
             }
 #endif

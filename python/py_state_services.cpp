@@ -282,12 +282,17 @@ namespace hgraph::python_bridge
                  const auto current = entries.at(index).as_indexed_view();
                  const auto *delta_schema = current.at(1).schema();
                  nb::object canonical = nb::borrow(python_delta);
+                 // A recording holds OBSERVED deltas ({removed, modified});
+                 // the authored three-field shape is still accepted so an edit
+                 // written against either schema round-trips.
+                 const bool strict_supported =
+                     delta_schema != nullptr && delta_schema->field_count == 3 &&
+                     std::string_view{delta_schema->fields[2].name} == "removed_strict";
                  if (delta_schema != nullptr &&
                      delta_schema->value_kind() == ValueTypeKind::Bundle &&
-                     delta_schema->field_count == 3 &&
+                     (delta_schema->field_count == 2 || strict_supported) &&
                      std::string_view{delta_schema->fields[0].name} == "removed" &&
-                     std::string_view{delta_schema->fields[1].name} == "modified" &&
-                     std::string_view{delta_schema->fields[2].name} == "removed_strict")
+                     std::string_view{delta_schema->fields[1].name} == "modified")
                  {
                      nb::set removed;
                      nb::set removed_strict;
@@ -297,7 +302,13 @@ namespace hgraph::python_bridge
                          if (removed_sentinel_slot().is_valid() &&
                              item_value.ptr() == removed_sentinel_slot().ptr())
                          {
-                             removed_strict.add(item_key);
+                             // Editing a recording writes an OBSERVATION, and
+                             // an observed removal is already the fact that the
+                             // key went away - there is nothing for "strict" to
+                             // add. Both sentinels therefore record as
+                             // "removed"; replaying it stays lenient.
+                             if (strict_supported) { removed_strict.add(item_key); }
+                             else { removed.add(item_key); }
                          }
                          else if (remove_if_exists_sentinel_slot().is_valid() &&
                                   item_value.ptr() == remove_if_exists_sentinel_slot().ptr())
@@ -309,7 +320,7 @@ namespace hgraph::python_bridge
                      nb::dict shaped;
                      shaped["removed"]        = std::move(removed);
                      shaped["modified"]       = std::move(modified);
-                     shaped["removed_strict"] = std::move(removed_strict);
+                     if (strict_supported) { shaped["removed_strict"] = std::move(removed_strict); }
                      canonical = std::move(shaped);
                  }
                  Value delta = py_to_value_as(canonical, delta_schema);

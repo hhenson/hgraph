@@ -254,9 +254,15 @@ namespace hgraph
             auto       &registry      = TypeRegistry::instance();
             const auto *removed_schema = registry.set(key_meta);
             const auto *modified_schema = registry.map(key_meta, delta_value_schema<V>());
+            // Authoring helper: emits the OBSERVED two-field delta unless the
+            // caller asserts strict removals, which only an author can.
+            const bool  authored      = !removed_strict.empty();
             const auto *bundle_schema =
-                registry.un_named_bundle({{"removed", removed_schema}, {"modified", modified_schema},
-                                          {"removed_strict", removed_schema}});
+                authored ? registry.un_named_bundle({{"removed", removed_schema},
+                                                     {"modified", modified_schema},
+                                                     {"removed_strict", removed_schema}})
+                         : registry.un_named_bundle({{"removed", removed_schema},
+                                                     {"modified", modified_schema}});
             const auto bundle_binding = ValuePlanFactory::instance().type_for(bundle_schema);
             if (bundle_binding == nullptr) { throw std::logic_error("dict_delta: unresolved bundle binding"); }
 
@@ -281,7 +287,7 @@ namespace hgraph
             BundleBuilder bundle{bundle_binding};
             bundle.set("removed", removed_set.build());
             bundle.set("modified", modified_map.build());
-            bundle.set("removed_strict", removed_strict_set.build());
+            if (authored) { bundle.set("removed_strict", removed_strict_set.build()); }
             return bundle.build();
         }
 

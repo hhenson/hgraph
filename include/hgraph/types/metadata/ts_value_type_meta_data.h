@@ -232,6 +232,36 @@ namespace hgraph
          */
         const ValueTypeMetaData *delta_value_schema{nullptr};
 
+        /**
+         * Value-layer schema a **user may author** to apply to this
+         * time-series — the intent side of the boundary, as against
+         * ``delta_value_schema``, which is what an observation produces.
+         *
+         * Equal to ``delta_value_schema`` for every kind except ``TSD``,
+         * which adds a third field:
+         *
+         * - ``TSD<K, V>`` — ``Bundle{removed, modified, removed_strict}``
+         *
+         * ``removed_strict`` carries user-authored ``REMOVE`` keys, which
+         * must raise when the key is absent, as against the lenient
+         * ``REMOVE_IF_EXISTS`` travelling in ``removed``.
+         *
+         * It exists **solely for a user returning a delta**, never for reading
+         * one. An observation cannot be strict: a key it reports as removed
+         * was present by definition, so on the read side every removal is
+         * already a ``REMOVE``. Applying one is a separate question, and the
+         * answer is always lenient - the target being replayed or replicated
+         * into need not hold the key. Strictness is therefore only ever an
+         * expectation an author asserts, which is why it appears on this
+         * schema and not on ``delta_value_schema``.
+         *
+         * ``apply_delta`` accepts either schema. Everything that transports
+         * or stores an observed delta — record/replay, the projections, and
+         * the codec of RFC 0017 — uses ``delta_value_schema`` and never sees
+         * this one.
+         */
+        const ValueTypeMetaData *authored_delta_schema{nullptr};
+
         /** Registry-owned canonical diagnostic label. */
         [[nodiscard]] constexpr std::string_view name() const noexcept
         {
