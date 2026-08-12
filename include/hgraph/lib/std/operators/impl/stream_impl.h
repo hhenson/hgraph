@@ -590,6 +590,27 @@ namespace hgraph::stdlib
 {
     using namespace hgraph::operator_type_resolution;
 
+    namespace stream_impl_detail
+    {
+        /** Internal running tick count used by core stream compositions.
+            The public analytical ``count`` contract lives in hgraph-analytics;
+            this marker is deliberately not part of the core operator surface. */
+        struct tick_count : Operator<"__tick_count", In<"ts", SIGNAL>, Out<TS<Int>>>
+        {
+        };
+
+        struct tick_count_impl
+        {
+            static void eval(In<"ts", SIGNAL> ts, State<Int> count, Out<TS<Int>> out)
+            {
+                static_cast<void>(ts);
+                const Int next = count.get() + 1;
+                count.set(next);
+                out.set(next);
+            }
+        };
+    }  // namespace stream_impl_detail
+
     struct sample_impl
     {
         static void eval(In<"signal", SIGNAL> signal,
@@ -829,7 +850,7 @@ namespace hgraph::stdlib
         static auto compose(Wiring &w, NamedPort<"ts", TsVar<"S">> ts, Scalar<"period", Int> period,
                             NamedPort<"proxy", SIGNAL> proxy)
         {
-            auto ticks  = wire<count>(w, proxy);
+            auto ticks  = wire<stream_impl_detail::tick_count>(w, proxy);
             auto lagged = wire<lag>(w, ticks, period.value());
             return wire<lag_proxy_node>(w, ts, ticks, lagged);
         }
@@ -859,7 +880,7 @@ namespace hgraph::stdlib
         {
             // ONE shared count/lagged-count pair broadcast into every keyed
             // child (upstream wires the chain per key and dedups to this).
-            auto ticks       = wire<count>(w, proxy);
+            auto ticks       = wire<stream_impl_detail::tick_count>(w, proxy);
             auto lagged      = wire<lag>(w, ticks, period.value());
             auto keys        = wire<keys_>(w, ts);
             auto lagged_keys = wire<union_>(w, wire<lag>(w, keys, period.value(), proxy), keys);
@@ -1673,7 +1694,7 @@ namespace hgraph::stdlib
             // The early window: ticks counted from min_window_period up to
             // period cap the denominator, and the missing lagged sum is a
             // sampled zero (upstream's if_then_else/count/take/drop shape).
-            auto counted = wire<drop>(w, wire<count>(w, wire<take>(w, ts, period.value())),
+            auto counted = wire<drop>(w, wire<stream_impl_detail::tick_count>(w, wire<take>(w, ts, period.value())),
                                       min_window_period.value() - 1);
             auto capped  = wire<min_>(w, counted, wire<const_, TS<Int>>(w, Int{period.value()}));
             const auto *element =
@@ -1715,13 +1736,13 @@ namespace hgraph::stdlib
             auto lagged        = wire<lag>(w, ts, period.value());
             auto current       = wire<sum_>(w, ts);
             auto delayed       = wire<sum_>(w, lagged);
-            auto delayed_count = wire<count>(w, lagged);
+            auto delayed_count = wire<stream_impl_detail::tick_count>(w, lagged);
             if (min_window_period.value() > TimeDelta{0})
             {
                 delayed_count =
                     wire<default_>(w, delayed_count, wire<const_, TS<Int>>(w, Int{0}, period.value()));
             }
-            auto delta_ticks = wire<sub_>(w, wire<count>(w, ts), delayed_count);
+            auto delta_ticks = wire<sub_>(w, wire<stream_impl_detail::tick_count>(w, ts), delayed_count);
             auto empty       = wire<eq_>(w, delta_ticks, wire<const_, TS<Int>>(w, Int{0}));
             auto nan   = wire<const_, TS<Float>>(w, std::numeric_limits<Float>::quiet_NaN());
             auto denom = wire<if_then_else>(w, empty, nan, wire<convert, TS<Float>>(w, delta_ticks));
@@ -1731,59 +1752,6 @@ namespace hgraph::stdlib
         static std::vector<std::pair<std::string_view, Value>> defaults()
         {
             return {{"min_window_period", Value{TimeDelta{0}}}};
-        }
-    };
-
-    struct pct_change_compose
-    {
-        static constexpr auto name = "pct_change";
-
-        static bool requires_(const ResolutionMap &, OperatorCallContext context)
-        {
-            const auto *value = ts_value_schema_at(context, 0);
-            return value == scalar_descriptor<Int>::value_meta() ||
-                   value == scalar_descriptor<Float>::value_meta();
-        }
-
-        static void resolve_default_types(ResolutionMap &resolution,
-                                          OperatorCallContext)
-        {
-            if (!output_bound(resolution))
-            {
-                bind_output(resolution, TypeRegistry::instance().ts(
-                    scalar_descriptor<Float>::value_meta()));
-            }
-        }
-
-        static auto compose(Wiring &w, NamedPort<"ts", TS<ScalarVar<"T">>> ts)
-        {
-            auto previous = wire<lag>(w, ts, Int{1});
-            return wire<div_>(w, wire<sub_>(w, ts, previous), previous);
-        }
-    };
-
-    struct count_impl
-    {
-        static void eval(In<"ts", SIGNAL> ts, State<Int> count, Out<TS<Int>> out)
-        {
-            static_cast<void>(ts);
-            const Int next = count.get() + 1;
-            count.set(next);
-            out.set(next);
-        }
-    };
-
-    struct count_reset_impl
-    {
-        static void eval(In<"ts", SIGNAL, InputValidity::Unchecked> ts,
-                         In<"reset", SIGNAL, InputValidity::Unchecked> reset,
-                         State<Int> count, Out<TS<Int>> out)
-        {
-            if (reset.modified()) { count.set(Int{0}); }
-            if (!ts.modified()) { return; }  // a reset-only cycle does not emit
-            const Int next = count.get() + 1;
-            count.set(next);
-            out.set(next);
         }
     };
 
@@ -1863,64 +1831,6 @@ namespace hgraph::stdlib
             }
             out.set(value);
             last.set(value);
-        }
-    };
-
-    struct diff_int_impl
-    {
-        static void eval(In<"ts", TS<Int>> ts, RecordableState<TS<Int>> last, Out<TS<Int>> out)
-        {
-            if (last.valid()) { out.set(ts.value() - last.value().checked_as<Int>()); }
-            last.set(ts.value());
-        }
-    };
-
-    struct diff_float_impl
-    {
-        static void eval(In<"ts", TS<Float>> ts, RecordableState<TS<Float>> last, Out<TS<Float>> out)
-        {
-            if (last.valid()) { out.set(ts.value() - last.value().checked_as<Float>()); }
-            last.set(ts.value());
-        }
-    };
-
-    struct clip_float_impl
-    {
-        static void start(Scalar<"min", Float> min, Scalar<"max", Float> max)
-        {
-            if (min.value() > max.value()) { throw std::invalid_argument("clip: min must be <= max"); }
-        }
-
-        static void eval(In<"ts", TS<Float>> ts, Scalar<"min", Float> min, Scalar<"max", Float> max, Out<TS<Float>> out)
-        {
-            out.set(std::clamp(ts.value(), min.value(), max.value()));
-        }
-    };
-
-    struct clip_int_impl
-    {
-        static void start(Scalar<"min", Int> min, Scalar<"max", Int> max)
-        {
-            if (min.value() > max.value()) { throw std::invalid_argument("clip: min must be <= max"); }
-        }
-
-        static void eval(In<"ts", TS<Int>> ts, Scalar<"min", Int> min, Scalar<"max", Int> max, Out<TS<Int>> out)
-        {
-            out.set(std::clamp(ts.value(), min.value(), max.value()));
-        }
-    };
-
-    struct ewma_float_impl
-    {
-        static void eval(In<"ts", TS<Float>> ts, Scalar<"alpha", Float> alpha,
-                         RecordableState<TS<Float>> state, Out<TS<Float>> out)
-        {
-            const Float value = state.valid()
-                                    ? alpha.value() * ts.value() +
-                                          (Float{1.0} - alpha.value()) * state.value().checked_as<Float>()
-                                    : ts.value();
-            state.set(value);
-            out.set(value);
         }
     };
 

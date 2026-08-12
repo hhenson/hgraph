@@ -10,7 +10,7 @@ from ._types import (Array, SIZE, TS, TSB, TSD, TSS, K, K_1,
 
 __all__ = (
     "NpRollingWindowResult", "NpRollingWindowState", "np_rolling_window",
-    "np_quantile", "np_std", "pct_change", "rolling_window",
+    "np_quantile", "np_std", "rolling_window",
     "rolling_average", "make_tsd", "make_tsd_scalar", "flatten_tsd",
     "extract_tsd", "keys_where_true", "where_true", "flatten_tsl_values",
     "tsl_to_tsd",
@@ -42,7 +42,6 @@ _to_window_native = operator_function("to_window")
 _rolling_window_arrays_native = operator_function("rolling_window_arrays")
 _quantile_native = operator_function("quantile")
 _std_native = operator_function("np_std")
-pct_change = operator_function("pct_change")
 rolling_window = operator_function("window")
 rolling_average = operator_function("rolling_average")
 

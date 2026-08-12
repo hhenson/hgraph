@@ -779,54 +779,6 @@ class _call_Operator(_Protocol):
 
 call: _call_Operator
 
-class _clip_Operator(_Protocol):
-    """Constrain each numeric value to the inclusive ``[min, max]`` interval.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``ts`` : time-series; ``TS[float]``, ``TS[int]``
-       Numeric stream to constrain.
-
-    ``min`` : scalar; ``float``, ``int``
-       Lower bound.
-
-    ``max`` : scalar; ``float``, ``int``
-       Upper bound.
-
-    Returns
-    ~~~~~~~
-
-    ``min`` below the range, ``max`` above it, otherwise ``ts``.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       bounded = hg.clip(ratio, 0.0, 1.0)
-
-    Accepted native overloads:
-
-    - ``clip(ts: TS[float], min: float, max: float) -> TS[float]``
-    - ``clip(ts: TS[int], min: int, max: int) -> TS[int]``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    @_overload
-    def __call__(self, ts: _WiringPort | float, min: float, max: float) -> _WiringPort: ...
-    @_overload
-    def __call__(self, ts: _WiringPort | int, min: int, max: int) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-clip: _clip_Operator
-
 class _cmp__Operator(_Protocol):
     """Compare two values once and classify the result as ``LT``, ``EQ``, or ``GT``. This is useful with ``if_cmp`` when three branches must share one comparison.
 
@@ -1215,51 +1167,6 @@ class _corrcoef_Operator(_Protocol):
 
 corrcoef: _corrcoef_Operator
 
-class _count_Operator(_Protocol):
-    """Count input ticks cumulatively, restarting when an optional reset signal ticks.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``ts`` : time-series; ``SIGNAL``
-       Signal or stream whose ticks are counted; values are ignored.
-
-    ``reset`` : time-series; ``SIGNAL``
-       Optional signal that resets the count before processing a same-cycle tick.
-
-    Returns
-    ~~~~~~~
-
-    Running integer tick count.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       session_count = hg.count(updates, reset=session_start)
-
-    Accepted native overloads:
-
-    - ``count(ts: SIGNAL) -> TS[int]``
-    - ``count(ts: SIGNAL, reset: SIGNAL) -> TS[int]``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    @_overload
-    def __call__(self, ts: _WiringPort) -> _WiringPort: ...
-    @_overload
-    def __call__(self, ts: _WiringPort, reset: _WiringPort) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-count: _count_Operator
-
 class _cumsum_Operator(_Protocol):
     """Native cumulative sum. The optional scalar axis is supplied as a second argument.
 
@@ -1598,48 +1505,6 @@ class _dereference_Operator(_Protocol):
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 dereference: _dereference_Operator
-
-class _diff_Operator(_Protocol):
-    """Subtract the immediately preceding value from the current value.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``ts`` : time-series; ``TS[int]``, ``TS[float]``
-       Numeric, temporal, or otherwise subtractable stream.
-
-    Returns
-    ~~~~~~~
-
-    Successive differences; the first value has no output.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       change = hg.diff(price)
-
-    Accepted native overloads:
-
-    - ``diff(ts: TS[int]) -> TS[int]``
-    - ``diff(ts: TS[float]) -> TS[float]``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    @_overload
-    def __call__(self, ts: _WiringPort | int) -> _WiringPort: ...
-    @_overload
-    def __call__(self, ts: _WiringPort | float) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-diff: _diff_Operator
 
 class _difference_Operator(_Protocol):
     """Remove every member of the later sets from the first set.
@@ -2023,47 +1888,6 @@ class _evaluation_time_in_range_Operator(_Protocol):
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 evaluation_time_in_range: _evaluation_time_in_range_Operator
-
-class _ewma_Operator(_Protocol):
-    """Compute an exponentially weighted moving average.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``ts`` : time-series; ``TS[float]``
-       Numeric stream.
-
-    ``alpha`` : scalar; ``float``
-       Smoothing factor in ``(0, 1]``; larger values respond faster to new ticks.
-
-    Returns
-    ~~~~~~~
-
-    Running exponentially weighted average with the resolved numeric schema.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       smoothed = hg.ewma(price, alpha=0.2)
-
-    Accepted native overloads:
-
-    - ``ewma(ts: TS[float], alpha: float) -> TS[float]``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    def __call__(self, ts: _WiringPort | float, alpha: float) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-ewma: _ewma_Operator
 
 class _explode_Operator(_Protocol):
     """``explode`` — split a date into a fixed list of year, month, and day.
@@ -5596,44 +5420,6 @@ class _partition_Operator(_Protocol):
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 partition: _partition_Operator
-
-class _pct_change_Operator(_Protocol):
-    """Compute fractional change from the immediately preceding valid value. The first value does not have a prior observation and therefore produces no change.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``ts`` : time-series; ``TS[SCALAR]``
-       Numeric stream.
-
-    Returns
-    ~~~~~~~
-
-    ``(current - previous) / previous`` as a floating-point stream.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       returns = hg.pct_change(price)
-
-    Accepted native overloads:
-
-    - ``pct_change(ts: TS[SCALAR]) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-pct_change: _pct_change_Operator
 
 class _pos__Operator(_Protocol):
     """Apply unary plus to each input value. Python's ``+ts`` syntax wires this operator and preserves the resolved value schema.
@@ -9277,7 +9063,6 @@ __all__ = (
     "bit_or",
     "bit_xor",
     "call",
-    "clip",
     "cmp_",
     "collapse_keys",
     "compare",
@@ -9286,7 +9071,6 @@ __all__ = (
     "contains_",
     "convert_zone",
     "corrcoef",
-    "count",
     "cumsum",
     "day",
     "day_of_month",
@@ -9295,7 +9079,6 @@ __all__ = (
     "dedup",
     "default",
     "dereference",
-    "diff",
     "difference",
     "div_",
     "divmod_",
@@ -9303,7 +9086,6 @@ __all__ = (
     "drop",
     "eq_",
     "evaluation_time_in_range",
-    "ewma",
     "explode",
     "filter_",
     "filter_cs",
@@ -9376,7 +9158,6 @@ __all__ = (
     "null_sink",
     "or_",
     "partition",
-    "pct_change",
     "pos_",
     "pow_",
     "print_",

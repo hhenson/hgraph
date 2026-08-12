@@ -15,10 +15,10 @@ observation and an earlier observation selected by a positive tick-count
 period. The extension is a separately installed CMake and Python distribution
 inside the hgraph monorepo, as proposed by :doc:`rfc_0005_hgraph_1_0_api`.
 
-The existing one-period ``hgraph.pct_change`` remains unchanged during the 0.8
-compatibility line. New code imports ``hgraph_analytics`` and receives the
-period and division-policy contract specified here. The core compatibility
-operator is removed with the other analytics surface at the 1.0 boundary.
+The existing one-period ``hgraph.pct_change`` implementation moves into
+``hgraph_analytics`` with the rest of the numerical analytical family. The
+extension adds the period and division-policy contract specified here without
+leaving a second core registry contract behind.
 
 Motivation
 ----------
@@ -39,14 +39,13 @@ Ownership boundary
 ------------------
 
 Core ``hgraph`` owns the causal primitives and policies used by the graph:
-``lag``, arithmetic operators, tick validity, and ``DivideByZero``. It also
-retains adjacent ``diff`` as a kernel algorithm analogous to C++
-``adjacent_difference``.
+``lag``, arithmetic operators, tick validity, and ``DivideByZero``.
 
 ``hgraph-analytics`` owns generic numerical transforms and estimators whose
 period, denominator, warm-up, or window conventions are analytics policy. This
-RFC adds only ``pct_change``; rolling estimators and array analytics follow
-their own migration evidence and acceptance work.
+RFC adds ``pct_change`` and migrates the existing ``diff``, ``count``, ``clip``,
+and ``ewma`` family with it. Rolling-window, reduction, and shaped-array
+operators retain their existing ownership and follow separate acceptance work.
 
 Downstream finance packages own simple, log, and total-return contracts that
 select and align adjusted prices, currencies, calendars, and sessions. They may
@@ -150,15 +149,13 @@ their core primitives.
 Compatibility and migration
 ---------------------------
 
-The 0.8 core ``hgraph.pct_change(ts)`` contract and registry name remain
-available and unchanged. The extension uses the independent registry name
-``hgraph.analytics.pct_change`` so both distributions can be installed during
-the bridge period without duplicate overloads.
-
-Callers migrate by importing ``hgraph_analytics``. A one-period call is source
-equivalent; longer periods and explicit zero policies are additive extension
-surface. At hgraph 1.0 the compatibility operator leaves core as specified by
-RFC 0005. Core never imports or autoloads the extension.
+The core ``hgraph.pct_change(ts)`` contract and registry name are removed in the
+same migration that introduces ``hgraph.analytics.pct_change``. Callers import
+``hgraph_analytics``; a one-period call is otherwise source equivalent, while
+longer periods and explicit zero policies are additive extension surface. The
+complete analytical-family mapping is recorded in
+:doc:`../user_guide/analytics_migration`. Core never imports or autoloads the
+extension.
 
 Alternatives considered
 -----------------------

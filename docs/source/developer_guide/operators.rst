@@ -38,7 +38,8 @@ chosen implementation is baked into the graph.
    sized shape — str / TSS / TSD / TSL of any element kind / TSB field count
    / TSW buffer length / sized container scalars; issue #81), stream basics
    (``sample`` / ``filter_`` / ``take`` / ``drop`` / ``step`` / ``slice_`` /
-   ``dedup`` / ``diff`` / ``count`` / ``clip`` / ``ewma``),
+   ``dedup``), with numerical stream analytics supplied by the separate
+   ``hgraph-analytics`` package,
    flow-control basics (``merge`` / ``all_`` / ``any_`` / ``if_true`` /
    ``if_then_else`` / ``if_cmp``), date / datetime / time / timedelta
    attribute operators (the upstream ``getattr_`` tables — ``year`` /
@@ -555,7 +556,9 @@ under ``include/hgraph/lib/std/operators/``, grouped by family and pulled togeth
 - ``string.h`` — ``match_`` / ``replace`` / ``substr`` / ``split`` / ``join`` / ``format_``;
 - ``stream.h`` — ``sample`` / ``lag`` / ``resample`` / ``filter_`` / ``filter_by`` /
   ``until_true`` / ``freeze`` / ``throttle`` / ``take`` / ``drop`` / ``gate`` / ``window`` /
-  ``to_window`` / … plus analytics (``diff`` / ``count`` / ``clip`` / ``ewma``);
+  ``to_window`` / …;
+- ``extensions/analytics/include/hgraph/analytics/operators.h`` — the separately
+  registered ``diff`` / ``count`` / ``clip`` / ``ewma`` / ``pct_change`` family;
 - ``control.h`` — ``merge`` / ``race`` / ``all_`` / ``any_`` / ``if_`` / ``if_then_else`` /
   ``if_cmp`` / ``route_by_index`` / ``if_true``;
 - ``temporal.h`` — date components (``year`` / ``month_of_year`` / …) and time-series
@@ -831,7 +834,7 @@ Roadmap
    ``join`` / ``format_``, TSD ``keys_`` and TSS ``union_`` / ``intersection_`` /
    ``difference_`` / ``symmetric_difference_``, stream ``sample`` / ``filter_`` /
    ``take`` / ``drop`` / ``step`` / ``slice_`` / scalar and structural
-   ``dedup`` / numeric ``diff`` / ``count`` / ``clip`` / ``ewma``, ``str_``, date components /
+   ``dedup``, ``str_``, date components /
    ``explode(Date)``, time-series properties (``valid`` / ``modified`` /
    ``last_modified_*``), and optional
    wiring-time ``DivideByZero`` policy overloads (``Error`` / ``Nan`` / ``Inf`` /

@@ -1,9 +1,5 @@
-from hgraph.nodes import pct_change, rolling_average, rolling_window
+from hgraph.nodes import rolling_average, rolling_window
 from hgraph.test import eval_node
-
-
-def test_pct_change_uses_native_graph():
-    assert eval_node(pct_change, [1, 2, 3]) == [None, 1.0, 0.5]
 
 
 def test_public_window_aliases_remain_wirable():

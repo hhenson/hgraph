@@ -567,16 +567,13 @@ absent in 1.0.
    * - ``add_``, ``sub_``, ``mul_``, ``div_``, ``floordiv_``, ``mod_``,
        ``divmod_``, ``pow_``
      - Binary arithmetic with the documented division-by-zero policy
-   * - ``neg_``, ``pos_``, ``abs_``, ``sign``, ``round_``, ``clip``
-     - Unary numeric operations and clamping
+   * - ``neg_``, ``pos_``, ``abs_``, ``sign``, ``round_``
+     - Unary numeric operations
    * - ``ln``
      - Natural logarithm (see the new-surface list for ``exp_``/``sqrt_``)
-   * - ``min_``, ``max_``, ``sum_``, ``count``, ``mean``, ``zero``
+   * - ``min_``, ``max_``, ``sum_``, ``mean``, ``zero``
      - Running fold aggregations over a ticking value or collection, and
        the additive-identity source used by ``reduce``
-   * - ``diff``
-     - Difference between consecutive ticks (STL
-       ``adjacent_difference``)
 
 **Operator kernel — comparison and logic**
 
@@ -803,19 +800,22 @@ with a warning):
 Surface moved out of core
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Applying the kernel calibration, the following leaves the core
-distribution for the analytics extension (``hgraph-analytics``, import
-``hgraph_analytics``): the statistical estimators ``std``, ``var``,
-``ewma``, ``corrcoef``, ``quantile``, ``pct_change``,
-``rolling_average``, ``resample``, and the ``Array``-shaped operators
-formerly in ``hgraph.numpy_`` (``as_array``, ``cumsum``, ``np_std`` →
-``array_std``, ``rolling_window_arrays``). (``mean`` stays in core as a
-plain fold beside ``sum_``/``count``.) These need domain policy (estimator
-parameters, windowing conventions) that the kernel deliberately does not
-own — the same line the STL draws. The ``Array`` *type* remains core; only
-the analytics over it move. The NumPy-derived module name is retired with
-the move: the implementation is hgraph's native array machinery, and the
-extension's names say what they are rather than what they resemble.
+The first package boundary landed in 0.8: ``diff``, ``count``, ``clip``,
+``ewma``, ``pct_change``, ``center_of_mass_to_alpha``, and
+``span_to_alpha`` moved together to the analytics extension
+(``hgraph-analytics``, import ``hgraph_analytics``).
+
+Applying the kernel calibration further, the 1.0 surface described by this
+RFC would also move the statistical estimators ``std``, ``var``, ``corrcoef``,
+``quantile``, ``rolling_average``, ``resample``, and the ``Array``-shaped
+operators formerly in ``hgraph.numpy_`` (``as_array``, ``cumsum``, ``np_std``
+→ ``array_std``, ``rolling_window_arrays``). ``mean`` stays in core as a plain
+fold beside ``sum_``. These need domain policy (estimator parameters,
+windowing conventions) that the kernel deliberately does not own — the same
+line the STL draws. The ``Array`` *type* remains core; only the analytics over
+it move. The NumPy-derived module name is retired with the move: the
+implementation is hgraph's native array machinery, and the extension's names
+say what they are rather than what they resemble.
 
 ``hgraph.arrow`` (the composition-combinator DSL) moves to
 ``hgraph-compose`` (import ``hgraph_compose``): expressive but not

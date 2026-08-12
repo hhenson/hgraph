@@ -663,49 +663,6 @@ Accepted native overloads
 
    call(fn: TS[callable], *args: TIME_SERIES_TYPE, **kwargs: time-series) -> None
 
-.. _python-operator-clip:
-
-``clip``
---------
-
-Constrain each numeric value to the inclusive ``[min, max]`` interval.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``ts`` : time-series; ``TS[float]``, ``TS[int]``
-   Numeric stream to constrain.
-
-``min`` : scalar; ``float``, ``int``
-   Lower bound.
-
-``max`` : scalar; ``float``, ``int``
-   Upper bound.
-
-Returns
-~~~~~~~
-
-``min`` below the range, ``max`` above it, otherwise ``ts``.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   bounded = hg.clip(ratio, 0.0, 1.0)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   clip(ts: TS[float], min: float, max: float) -> TS[float]
-   clip(ts: TS[int], min: int, max: int) -> TS[int]
-
 .. _python-operator-cmp_:
 
 ``cmp_``
@@ -1333,46 +1290,6 @@ Accepted native overloads
    corrcoef(x: TIME_SERIES_TYPE, rowvar: bool) -> OUT
    corrcoef(x: TIME_SERIES_TYPE, y: TIME_SERIES_TYPE_1, rowvar: bool) -> OUT
 
-.. _python-operator-count:
-
-``count``
----------
-
-Count input ticks cumulatively, restarting when an optional reset signal ticks.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``ts`` : time-series; ``SIGNAL``
-   Signal or stream whose ticks are counted; values are ignored.
-
-``reset`` : time-series; ``SIGNAL``
-   Optional signal that resets the count before processing a same-cycle tick.
-
-Returns
-~~~~~~~
-
-Running integer tick count.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   session_count = hg.count(updates, reset=session_start)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   count(ts: SIGNAL) -> TS[int]
-   count(ts: SIGNAL, reset: SIGNAL) -> TS[int]
-
 .. _python-operator-cumsum:
 
 ``cumsum``
@@ -1683,43 +1600,6 @@ Accepted native overloads
 .. code-block:: text
 
    dereference(tsb: REF[TIME_SERIES_TYPE]) -> OUT
-
-.. _python-operator-diff:
-
-``diff``
---------
-
-Subtract the immediately preceding value from the current value.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``ts`` : time-series; ``TS[int]``, ``TS[float]``
-   Numeric, temporal, or otherwise subtractable stream.
-
-Returns
-~~~~~~~
-
-Successive differences; the first value has no output.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   change = hg.diff(price)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   diff(ts: TS[int]) -> TS[int]
-   diff(ts: TS[float]) -> TS[float]
 
 .. _python-operator-difference:
 
@@ -2162,45 +2042,6 @@ Accepted native overloads
    evaluation_time_in_range(start_time: TS[datetime], end_time: TS[datetime]) -> TS[CmpResult]
    evaluation_time_in_range(start_time: TS[date], end_time: TS[date]) -> TS[CmpResult]
    evaluation_time_in_range(start_time: TS[time], end_time: TS[time]) -> TS[CmpResult]
-
-.. _python-operator-ewma:
-
-``ewma``
---------
-
-Compute an exponentially weighted moving average.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``ts`` : time-series; ``TS[float]``
-   Numeric stream.
-
-``alpha`` : scalar; ``float``
-   Smoothing factor in ``(0, 1]``; larger values respond faster to new ticks.
-
-Returns
-~~~~~~~
-
-Running exponentially weighted average with the resolved numeric schema.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   smoothed = hg.ewma(price, alpha=0.2)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   ewma(ts: TS[float], alpha: float) -> TS[float]
 
 .. _python-operator-explode:
 
@@ -5468,42 +5309,6 @@ Accepted native overloads
 
    partition(ts: TIME_SERIES_TYPE, partitions: TIME_SERIES_TYPE_1) -> OUT
    partition(ts: TSD[K, V], partitions: TSD[K, TS[K_1]]) -> TSD[K_1, TSD[K, V]]
-
-.. _python-operator-pct_change:
-
-``pct_change``
---------------
-
-Compute fractional change from the immediately preceding valid value. The first value does not have a prior observation and therefore produces no change.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``ts`` : time-series; ``TS[SCALAR]``
-   Numeric stream.
-
-Returns
-~~~~~~~
-
-``(current - previous) / previous`` as a floating-point stream.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   returns = hg.pct_change(price)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   pct_change(ts: TS[SCALAR]) -> OUT
 
 .. _python-operator-pos_:
 

@@ -1,7 +1,8 @@
 # hgraph-analytics
 
-C++-first numerical analytics for hgraph. The initial operator implements RFC
-0018's causal, observation-count `pct_change` contract.
+C++-first numerical analytics for hgraph. The package owns the numerical
+analytical family migrated from core—`diff`, `count`, `clip`, `ewma`, and
+`pct_change`—plus the EWMA parameter conversion helpers.
 
 ```python
 import hgraph as hg
@@ -12,6 +13,9 @@ change = hga.pct_change(
     period=12,
     divide_by_zero=hg.DivideByZero.NAN,
 )
+
+bounded = hga.clip(change, -0.25, 0.25)
+smoothed = hga.ewma(bounded, alpha=0.2)
 ```
 
 The result is fractional: `0.05` denotes five percent. `period` counts valid
@@ -21,4 +25,8 @@ adjustment.
 
 Native consumers link `hgraph::analytics`, call
 `hgraph::analytics::register_analytics_operators()`, and wire
-`hgraph::analytics::pct_change`.
+the markers in `hgraph::analytics`, including `diff`, `count`, `clip`, `ewma`,
+and `pct_change`.
+
+See the hgraph user-guide migration note for the complete Python and C++ name
+mapping from the former core API.

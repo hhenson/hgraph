@@ -11,10 +11,10 @@ namespace hgraph::stdlib
 {
     /**
      * Streaming / temporal-shaping operator **definitions** (markers only). Mirrors the
-     * Python ``hgraph`` stream operators (``_stream.py``) and the analytical operators
-     * (``_analytical_operators.py``). A ``period`` / ``count`` that Python types as
-     * ``INT_OR_TIME_DELTA`` is modelled here as ``Int`` (ticks) — an implementation may also
-     * accept ``TimeDelta``.
+     * Python ``hgraph`` stream operators (``_stream.py``). The numerical analytical
+     * family is provided by ``hgraph-analytics``. A ``period`` / ``count`` that
+     * Python types as ``INT_OR_TIME_DELTA`` is modelled here as ``Int`` (ticks) —
+     * an implementation may also accept ``TimeDelta``.
      */
 
     /** Sample the latest valid value of ``ts`` whenever ``signal`` ticks.
@@ -246,19 +246,6 @@ namespace hgraph::stdlib
     {
     };
 
-    /** Compute fractional change from the immediately preceding valid value.
-        The first value does not have a prior observation and therefore produces no change.
-        @param ts Numeric stream.
-        @return ``(current - previous) / previous`` as a floating-point stream.
-        @par Python example
-        @code{.py}
-        returns = hg.pct_change(price)
-        @endcode */
-    struct pct_change
-        : Operator<"pct_change", In<"ts", TS<ScalarVar<"T">>>, Out<TS<Float>>>
-    {
-    };
-
     /** Queue source ticks while ``condition`` is false and release them in order after
         it becomes true. A positive ``buffer_length`` raises on overflow; ``-1`` keeps
         only the most recent gated value.
@@ -318,55 +305,6 @@ namespace hgraph::stdlib
     {
     };
 
-    // ---- Analytical ----
-
-    /** Subtract the immediately preceding value from the current value.
-        @param ts Numeric, temporal, or otherwise subtractable stream.
-        @return Successive differences; the first value has no output.
-        @par Python example
-        @code{.py}
-        change = hg.diff(price)
-        @endcode */
-    struct diff : Operator<"diff", In<"ts", TsVar<"S">>, Out<TsVar<"S">>>
-    {
-    };
-
-    /** Count input ticks cumulatively, restarting when an optional reset signal ticks.
-        @param ts Signal or stream whose ticks are counted; values are ignored.
-        @param reset Optional signal that resets the count before processing a same-cycle tick.
-        @return Running integer tick count.
-        @par Python example
-        @code{.py}
-        session_count = hg.count(updates, reset=session_start)
-        @endcode */
-    struct count : Operator<"count", In<"ts", SIGNAL>, Out<TS<Int>>>
-    {
-    };
-
-    /** Constrain each numeric value to the inclusive ``[min, max]`` interval.
-        @param ts Numeric stream to constrain.
-        @param min Lower bound.
-        @param max Upper bound.
-        @return ``min`` below the range, ``max`` above it, otherwise ``ts``.
-        @par Python example
-        @code{.py}
-        bounded = hg.clip(ratio, 0.0, 1.0)
-        @endcode */
-    struct clip : Operator<"clip", In<"ts", TsVar<"S">>, Scalar<"min", Float>, Scalar<"max", Float>, Out<TsVar<"S">>>
-    {
-    };
-
-    /** Compute an exponentially weighted moving average.
-        @param ts Numeric stream.
-        @param alpha Smoothing factor in ``(0, 1]``; larger values respond faster to new ticks.
-        @return Running exponentially weighted average with the resolved numeric schema.
-        @par Python example
-        @code{.py}
-        smoothed = hg.ewma(price, alpha=0.2)
-        @endcode */
-    struct ewma : Operator<"ewma", In<"ts", TsVar<"S">>, Scalar<"alpha", Float>, Out<TsVar<"S">>>
-    {
-    };
 }  // namespace hgraph::stdlib
 
 #endif  // HGRAPH_LIB_STD_OPERATORS_STREAM_H

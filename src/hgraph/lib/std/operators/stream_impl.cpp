@@ -8,6 +8,7 @@ namespace hgraph::stdlib
     void register_stream_operators()
     {
         register_overload<sample, sample_impl>();
+        register_overload<stream_impl_detail::tick_count, stream_impl_detail::tick_count_impl>();
         register_overload<filter_, filter_impl>();
         register_overload<lag, lag_tick_impl>();
         register_overload<lag, lag_time_impl>();
@@ -53,8 +54,6 @@ namespace hgraph::stdlib
         register_overload<drop, drop_time_impl>();
         register_overload<step, step_impl>();
         register_overload<slice_, slice_impl>();
-        register_overload<count, count_impl>();
-        register_overload<count, count_reset_impl>();
         register_overload<dedup, dedup_scalar_impl>();
         register_overload<dedup, dedup_float_tol_impl>();
         register_graph_overload<dedup, dedup_tsd_map>();
@@ -67,11 +66,5 @@ namespace hgraph::stdlib
         register_overload<window, window_time_impl>();
         register_graph_overload<rolling_average, rolling_average_tick_compose>();
         register_graph_overload<rolling_average, rolling_average_time_compose>();
-        register_graph_overload<pct_change, pct_change_compose>();
-        register_overload<diff, diff_int_impl>();
-        register_overload<diff, diff_float_impl>();
-        register_overload<clip, clip_float_impl>();
-        register_overload<clip, clip_int_impl>();
-        register_overload<ewma, ewma_float_impl>();
     }
 }  // namespace hgraph::stdlib

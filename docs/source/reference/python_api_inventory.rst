@@ -20,7 +20,7 @@ public operator they implement rather than listed as top-level operators.
    * - ``hgraph.__all__``
      - 207
    * - Public operator groups
-     - 204
+     - 199
    * - Public submodules
      - 19
 
@@ -299,9 +299,6 @@ whose curated signatures remain authoritative.
    * - :ref:`call <python-operator-call>`
      - ``call(fn: TS[callable], *args: TIME_SERIES_TYPE, **kwargs: time-series) -> None``
      - 1 native overload; lazy operator
-   * - :ref:`clip <python-operator-clip>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
    * - :ref:`cmp_ <python-operator-cmp_>`
      - ``10 overloads``
      - 10 native overloads; lazy operator
@@ -335,9 +332,6 @@ whose curated signatures remain authoritative.
    * - :ref:`corrcoef <python-operator-corrcoef>`
      - ``4 overloads``
      - 4 native overloads; lazy operator
-   * - :ref:`count <python-operator-count>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
    * - :ref:`cumsum <python-operator-cumsum>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
@@ -362,9 +356,6 @@ whose curated signatures remain authoritative.
    * - :ref:`dereference <python-operator-dereference>`
      - ``dereference(tsb: REF[TIME_SERIES_TYPE]) -> OUT``
      - 1 native overload; lazy operator
-   * - :ref:`diff <python-operator-diff>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
    * - :ref:`difference <python-operator-difference>`
      - ``difference(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
@@ -395,9 +386,6 @@ whose curated signatures remain authoritative.
    * - :ref:`evaluation_time_in_range <python-operator-evaluation_time_in_range>`
      - ``3 overloads``
      - 3 native overloads; lazy operator
-   * - :ref:`ewma <python-operator-ewma>`
-     - ``ewma(ts: TS[float], alpha: float) -> TS[float]``
-     - 1 native overload; lazy operator
    * - :ref:`explode <python-operator-explode>`
      - ``explode(ts: TS[date]) -> TSL[TS[int], 3]``
      - 1 native overload; lazy operator
@@ -623,9 +611,6 @@ whose curated signatures remain authoritative.
    * - :ref:`partition <python-operator-partition>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
-   * - :ref:`pct_change <python-operator-pct_change>`
-     - ``pct_change(ts: TS[SCALAR]) -> OUT``
-     - 1 native overload; lazy operator
    * - :ref:`pos_ <python-operator-pos_>`
      - ``5 overloads``
      - 5 native overloads; lazy operator
@@ -937,7 +922,6 @@ hgraph.nodes
    * - ``np_quantile``
    * - ``np_rolling_window``
    * - ``np_std``
-   * - ``pct_change``
    * - ``request_id``
    * - ``rolling_average``
    * - ``rolling_window``

@@ -65,6 +65,32 @@ namespace
         }
     }
 
+    template <typename T>
+    void require_value_output(
+        const std::vector<std::optional<Value>> &actual,
+        const std::vector<std::optional<T>> &expected,
+        const std::string &label)
+    {
+        require(actual.size() == expected.size(), label + ": output size");
+        for (std::size_t index = 0; index < expected.size(); ++index)
+        {
+            require(actual[index].has_value() == expected[index].has_value(),
+                    label + ": readiness at index " + std::to_string(index));
+            if (!expected[index].has_value()) { continue; }
+            const T value = actual[index]->view().checked_as<T>();
+            if constexpr (std::is_floating_point_v<T>)
+            {
+                require(std::abs(value - *expected[index]) <= 1.0e-12,
+                        label + ": value at index " + std::to_string(index));
+            }
+            else
+            {
+                require(value == *expected[index],
+                        label + ": value at index " + std::to_string(index));
+            }
+        }
+    }
+
     struct DefaultIntChange
     {
         static constexpr auto name = "analytics_default_int_change";
@@ -173,6 +199,40 @@ namespace
         }
         require(raised, "non-positive period is rejected while wiring");
     }
+
+    void test_migrated_analytical_operators()
+    {
+        require_value_output(eval_node<diff>(values<Int>(1, 2, 4, 7)),
+                             values<Int>(none, 1, 2, 3), "integer diff");
+        require_value_output(eval_node<diff>(values<Float>(1.0, 1.5, 3.0)),
+                             values<Float>(none, 0.5, 1.5), "floating diff");
+        require_value_output(eval_node<count>(values<Int>(3, none, 2, 1)),
+                             values<Int>(1, none, 2, 3), "count");
+        require_value_output(eval_node<count>(values<Int>(3, 2, 1),
+                                              values<Bool>(none, true, none)),
+                             values<Int>(1, 1, 2), "reset count");
+        require_value_output(eval_node<clip>(values<Int>(-1, 1, 3),
+                                             Int{0}, Int{2}),
+                             values<Int>(0, 1, 2), "integer clip");
+        require_value_output(eval_node<clip>(values<Float>(-1.0, 0.5, 2.0),
+                                             Float{0.0}, Float{1.0}),
+                             values<Float>(0.0, 0.5, 1.0), "floating clip");
+        require_value_output(eval_node<ewma>(values<Float>(1.0, 2.0, 3.0, 4.0),
+                                             Float{0.5}),
+                             values<Float>(1.0, 1.5, 2.25, 3.125), "ewma");
+
+        bool raised = false;
+        try
+        {
+            static_cast<void>(eval_node<clip>(
+                values<Float>(1.0), Float{1.0}, Float{-1.0}));
+        }
+        catch (const std::exception &)
+        {
+            raised = true;
+        }
+        require(raised, "clip rejects reversed bounds");
+    }
 }  // namespace
 
 int main()
@@ -185,6 +245,7 @@ int main()
         test_period_and_float_input();
         test_zero_policies();
         test_invalid_period();
+        test_migrated_analytical_operators();
         return 0;
     }
     catch (const std::exception &error)

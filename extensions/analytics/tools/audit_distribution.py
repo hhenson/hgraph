@@ -25,7 +25,7 @@ SDIST_REQUIRED = (
     "include/hgraph/analytics/operators.h",
     "python/hgraph_analytics/__init__.py",
     "python/hgraph_analytics/py.typed",
-    "src/pct_change.cpp",
+    "src/operators.cpp",
     "test_package/CMakeLists.txt",
     "tests/test_pct_change.cpp",
     "tools/audit_distribution.py",

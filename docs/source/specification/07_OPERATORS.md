@@ -301,7 +301,7 @@ def moving_average(price: TS[float], period: int) -> TS[float]:
 | `now()` | Current evaluation time |
 | `delay(ts, periods)` | Delay by N ticks |
 | `lag(ts, time)` | Delay by time duration |
-| `diff(ts)` | Difference from previous |
+| `hgraph_analytics.diff(ts)` | Difference from previous (moved from core in 0.8) |
 | `ticked(ts)` | True when ts modified |
 
 ### 8.2 Scheduling Functions
@@ -334,7 +334,7 @@ def rate_of_change(price: TS[float]) -> TS[float]:
 | `mean(...)` | Average values |
 | `min_(...)` | Minimum value |
 | `max_(...)` | Maximum value |
-| `count(...)` | Count items |
+| `hgraph_analytics.count(...)` | Count time-series ticks (moved from core in 0.8) |
 
 ### 9.2 Statistical Aggregations
 

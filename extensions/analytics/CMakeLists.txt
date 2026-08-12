@@ -31,7 +31,7 @@ if(HGRAPH_ANALYTICS_BUILD_PYTHON)
 endif()
 
 add_library(hgraph_analytics
-    src/pct_change.cpp
+    src/operators.cpp
 )
 add_library(hgraph::analytics ALIAS hgraph_analytics)
 

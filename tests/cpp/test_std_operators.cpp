@@ -2361,7 +2361,7 @@ TEST_CASE("std operators: convert preserves UTF-8 payloads between text and byte
         values<Bytes>(bytes_(std::string_view{"\xFF", 1})))));
 }
 
-TEST_CASE("std operators: stream operators cover sampling filtering slicing and scalar analytics")
+TEST_CASE("std operators: stream operators cover sampling filtering slicing and windows")
 {
     stdlib::register_standard_operators();
 
@@ -2501,7 +2501,6 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                      values<Int>(1, 2, 3, 4, 5)),
                  values<Float>(none, none, 1.0, 1.0, 1.0));
 
-    CHECK_OUTPUT(eval_node<stdlib::count>(values<Int>(3, none, 2, 1)), values<Int>(1, none, 2, 3));
     CHECK_OUTPUT(eval_node<stdlib::dedup>(values<Int>(1, 2, 2, 3, 3, 3, 4)),
                  values<Int>(1, 2, none, 3, none, none, 4));
     CHECK_OUTPUT((eval_node<stdlib::dedup, TSS<Int>>(
@@ -2511,12 +2510,6 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                                    set_delta<Int>({}, {1})))),
                  values<Value>(set_delta<Int>({1}, {}), none,
                                set_delta<Int>({}, {1}), none));
-    CHECK_OUTPUT(eval_node<stdlib::diff>(values<Int>(1, 2, 4, 7)), values<Int>(none, 1, 2, 3));
-    CHECK_OUTPUT(eval_node<stdlib::diff>(values<Float>(1.0, 1.5, 3.0)), values<Float>(none, 0.5, 1.5));
-    CHECK_OUTPUT(eval_node<stdlib::clip>(values<Float>(-1.0, 0.5, 2.0), Float{0.0}, Float{1.0}),
-                 values<Float>(0.0, 0.5, 1.0));
-    CHECK_OUTPUT(eval_node<stdlib::ewma>(values<Float>(1.0, 2.0, 3.0, 4.0), Float{0.5}),
-                 values<Float>(1.0, 1.5, 2.25, 3.125));
 }
 
 TEST_CASE("std operators: TSB proxy lag preserves sparse field deltas")

@@ -365,7 +365,7 @@ def test_inspector_serves_and_expands_the_graph_while_it_is_running():
     @hg.graph
     def app():
         inspector(port=port, publish_interval=0.05)
-        ticks = hg.count(live_values())
+        ticks = hg.sum_(live_values())
         values = hg.convert[hg.TSD[int, hg.TS[int]]](
             key=ticks, ts=ticks)
         hg.map_(lambda value: value * 2, values)

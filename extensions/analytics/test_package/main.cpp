@@ -17,6 +17,14 @@ namespace
         {
             auto input = hg::wire<hg::stdlib::const_, hg::TS<hg::Float>>(
                 w, hg::Float{100.0});
+            auto reset = hg::wire<hg::stdlib::const_, hg::TS<hg::Bool>>(
+                w, hg::Bool{false});
+            static_cast<void>(hg::wire<hga::diff>(w, input));
+            static_cast<void>(hg::wire<hga::count>(w, input));
+            static_cast<void>(hg::wire<hga::count>(w, input, reset));
+            static_cast<void>(hg::wire<hga::clip>(
+                w, input, hg::Float{0.0}, hg::Float{200.0}));
+            static_cast<void>(hg::wire<hga::ewma>(w, input, hg::Float{0.2}));
             static_cast<void>(hg::wire<hga::pct_change, hg::TS<hg::Float>>(
                 w, input, hg::Int{12}, hg::stdlib::DivideByZero::Nan));
         }
