@@ -87,6 +87,53 @@ namespace hgraph
      * ``start`` (against the pre-resolved converter) and finished in
      * ``stop``. Move-only; Arrow internals stay behind the pimpl.
      */
+    /**
+     * Records table rows straight into Arrow builders, driven by a COLUMN
+     * DESCRIPTION rather than by a value schema (RFC 0019).
+     *
+     * ``FrameRecorder`` is built from a ``TableConverter``, so it can only
+     * record what a converter can describe: atomic leaves and depth-1 bundles.
+     * A partitioned time-series is described by its table layout instead - the
+     * flattened column names and their leaf metadata, which already account for
+     * ``TSD`` key columns, removed flags and expanded frames - and that is all
+     * this needs.
+     *
+     * Rows arrive as cells already resolved to leaves, which is what the row
+     * sink in ``table_impl`` produces, so no row value is built on the way in.
+     * An unset cell appends a null: a removal row carries no value columns, and
+     * a tick that did not modify a column leaves it absent.
+     *
+     * Build-time construction, per-row appends; the builders are the only
+     * accumulation.
+     */
+    class HGRAPH_EXPORT TableRecorder
+    {
+      public:
+        /** ``names`` and ``leaf_metas`` are parallel and in row order. */
+        TableRecorder(std::span<const std::string> names,
+                      std::span<const ValueTypeMetaData *const> leaf_metas);
+        TableRecorder(TableRecorder &&) noexcept;
+        TableRecorder &operator=(TableRecorder &&) noexcept;
+        TableRecorder(const TableRecorder &)            = delete;
+        TableRecorder &operator=(const TableRecorder &) = delete;
+        ~TableRecorder();
+
+        /** One row; ``cells`` is parallel to the columns. Unset cells go in as
+            nulls. */
+        void append_row(std::span<const ValueView> cells);
+
+        [[nodiscard]] std::int64_t rows() const noexcept;
+
+        /** The accumulated rows, leaving the recorder empty. */
+        [[nodiscard]] Frame finish();
+
+        [[nodiscard]] const std::shared_ptr<arrow::Schema> &arrow_schema() const noexcept;
+
+      private:
+        struct Impl;
+        std::unique_ptr<Impl> impl_;
+    };
+
     class HGRAPH_EXPORT FrameRecorder
     {
       public:

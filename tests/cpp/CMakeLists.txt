@@ -268,6 +268,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_static_schema.cpp
     test_temporal.cpp
     test_time_series_reference.cpp
+    test_table_recorder.cpp
     test_ts_delta.cpp
     test_ts_endpoint_visitor.cpp
     test_ts_input.cpp

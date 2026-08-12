@@ -1019,6 +1019,84 @@ namespace hgraph
         }
     }  // namespace
 
+
+    struct TableRecorder::Impl
+    {
+        std::vector<Column>                              columns{};
+        std::vector<std::unique_ptr<arrow::ArrayBuilder>> builders{};
+        std::shared_ptr<arrow::Schema>                   schema{};
+        std::int64_t                                     rows{0};
+    };
+
+    TableRecorder::TableRecorder(std::span<const std::string> names,
+                                 std::span<const ValueTypeMetaData *const> leaf_metas)
+        : impl_(std::make_unique<Impl>())
+    {
+        if (names.size() != leaf_metas.size())
+        {
+            throw std::invalid_argument("table recorder: column names and leaf metadata differ in length");
+        }
+        arrow::FieldVector fields;
+        fields.reserve(names.size());
+        impl_->columns.reserve(names.size());
+        impl_->builders.reserve(names.size());
+        for (std::size_t i = 0; i < names.size(); ++i)
+        {
+            if (leaf_metas[i] == nullptr)
+            {
+                throw std::invalid_argument(
+                    fmt::format("table recorder: column '{}' has no leaf metadata", names[i]));
+            }
+            const LeafOps ops = leaf_ops_for(leaf_metas[i]);
+            impl_->columns.push_back(Column{.name      = names[i],
+                                            .leaf_meta = leaf_metas[i],
+                                            .path      = {},
+                                            .type      = ops.type,
+                                            .append    = ops.append,
+                                            .read      = ops.read});
+            impl_->builders.push_back(make_builder(ops.type));
+            fields.push_back(arrow::field(names[i], ops.type));
+        }
+        impl_->schema = arrow::schema(std::move(fields));
+    }
+
+    TableRecorder::TableRecorder(TableRecorder &&) noexcept            = default;
+    TableRecorder &TableRecorder::operator=(TableRecorder &&) noexcept = default;
+    TableRecorder::~TableRecorder()                                    = default;
+
+    void TableRecorder::append_row(std::span<const ValueView> cells)
+    {
+        if (cells.size() != impl_->columns.size())
+        {
+            throw std::invalid_argument(
+                fmt::format("table recorder: row has {} cells for {} columns", cells.size(),
+                            impl_->columns.size()));
+        }
+        for (std::size_t i = 0; i < cells.size(); ++i)
+        {
+            // An absent cell is a null, not a default: a removal row has no
+            // value columns, and a tick that did not modify a column leaves it
+            // unset rather than zero.
+            if (!cells[i].has_value()) { check(impl_->builders[i]->AppendNull(), "append null"); continue; }
+            append_column(impl_->columns[i], cells[i], *impl_->builders[i]);
+        }
+        ++impl_->rows;
+    }
+
+    std::int64_t TableRecorder::rows() const noexcept { return impl_->rows; }
+
+    const std::shared_ptr<arrow::Schema> &TableRecorder::arrow_schema() const noexcept { return impl_->schema; }
+
+    Frame TableRecorder::finish()
+    {
+        arrow::ArrayVector arrays;
+        arrays.reserve(impl_->builders.size());
+        for (auto &builder : impl_->builders) { arrays.push_back(hgraph::finish(*builder)); }
+        const std::int64_t rows = impl_->rows;
+        impl_->rows             = 0;
+        return Frame{arrow::Table::Make(impl_->schema, std::move(arrays), rows)};
+    }
+
     struct FrameRecorder::Impl
     {
         const TableConverter                             *converter{nullptr};
