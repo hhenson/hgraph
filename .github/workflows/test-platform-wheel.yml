@@ -54,6 +54,10 @@ jobs:
         with:
           name: kafka-distribution-wheel-${{ inputs.os }}
           path: kafka-dist
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: analytics-distribution-wheel-${{ inputs.os }}
+          path: analytics-dist
       - name: Sync test dependencies
         run: uv sync --frozen --all-extras --all-groups --no-install-workspace --python ${{ matrix.python-version }}
       - name: Install wheel
@@ -77,12 +81,20 @@ jobs:
               "uv", "pip", "install", "--python", str(venv_python),
               "--no-deps", str(kafka_wheels[0]),
           ])
+          analytics_wheels = list(Path("analytics-dist").glob("*.whl"))
+          assert len(analytics_wheels) == 1, analytics_wheels
+          subprocess.check_call([
+              "uv", "pip", "install", "--python", str(venv_python),
+              "--no-deps", str(analytics_wheels[0]),
+          ])
       - name: Confirm installed distribution
         run: uv run --no-sync --no-build python -c "import importlib.metadata as m; import _hgraph; print(m.version('hgraph'), _hgraph.__file__)"
       - name: Run Python compatibility suite
         run: uv run --no-sync --no-build python -m pytest python/tests -q -m "not wip"
       - name: Run Kafka extension suite
         run: uv run --no-sync --no-build python -m pytest extensions/kafka/python/tests -q
+      - name: Run analytics extension suite
+        run: uv run --no-sync --no-build python -m pytest extensions/analytics/python/tests -q
       - name: Build installed Python extension consumer
         if: matrix.python-version == '3.12'
         run: uv run --no-sync --no-build python tests/python_extension_consumer/check.py

@@ -124,7 +124,7 @@ def test_ci_builds_and_tests_separate_kafka_artifacts():
     assert "pattern: kafka-distribution-*" in workflow
     assert release_workflow.count(
         'python tools/restamp_distribution.py dist "$RELEASE_TAG"'
-    ) == 2
+    ) == 3
     assert "--wheel --no-isolation" in workflow
     assert "--sdist --no-isolation" in workflow
     assert "--skip-dependency-check" in workflow

@@ -92,9 +92,10 @@ requires all of the following from a clean checkout:
 
 GitHub CI is post-push platform evidence, not a substitute for the local gates.
 Tagged releases reuse the successful distribution artifacts for the exact
-commit SHA and restamp both ``hgraph`` and ``hgraph-kafka`` package metadata to
-the shared bare-version tag. For example, ``0.8.1`` publishes both packages as
-version ``0.8.1``; prereleases use the same form, such as ``0.8.1rc1``.
+commit SHA and restamp ``hgraph``, ``hgraph-kafka``, and ``hgraph-analytics``
+package metadata to the shared bare-version tag. For example, ``0.8.3``
+publishes all three packages as version ``0.8.3``; prereleases use the same
+form, such as ``0.8.3rc1``.
 
 Performance evidence
 --------------------

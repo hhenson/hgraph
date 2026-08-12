@@ -68,13 +68,6 @@ def test_named_operators_via_module_getattr():
 
     check(eval_node(fmt, [7]) == ["value=7"], "format_")
 
-    @graph
-    def clipped(a: TS[float]) -> TS[float]:
-        return hg.clip(a, 0.0, 10.0)
-
-    check(eval_node(clipped, [-5.0, 5.0, 15.0]) == [0.0, 5.0, 10.0], "clip")
-
-
 def test_nested_graphs_inline():
     @graph
     def double(a: TS[int]) -> TS[int]:

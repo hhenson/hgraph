@@ -266,15 +266,6 @@ namespace
         }
     };
 
-    struct PercentageChangeGraph
-    {
-        static constexpr auto name = "percentage_change_graph";
-
-        static Port<TS<Float>> compose(Wiring &w, Port<TS<Int>> input)
-        {
-            return wire<stdlib::pct_change>(w, input).as<TS<Float>>();
-        }
-    };
 }  // namespace
 
 TEST_CASE("numpy operators: as_array preserves readiness and pads warm windows")
@@ -450,11 +441,4 @@ TEST_CASE("numpy operators: standard deviation honors degrees of freedom")
                                   TS<ArrayOf<Float, 4>>>(values<Value>(offset));
     REQUIRE(stable[0].has_value());
     CHECK(stable[0]->view().checked_as<Float>() == Catch::Approx(std::sqrt(5.0)));
-}
-
-TEST_CASE("analytical operators: percentage change is a native graph")
-{
-    stdlib::register_standard_operators();
-    CHECK_OUTPUT(eval_node<PercentageChangeGraph>(values<Int>(1, 2, 3)),
-                 values<Float>(none, 1.0, 0.5));
 }

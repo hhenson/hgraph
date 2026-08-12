@@ -38,7 +38,7 @@ Operator catalogue
 ------------------
 
 Of the **165** public operator definitions in ``hgraph/_operators``:
-**136 registered**, **0 declared-only**, **0 missing** — **29** further names
+**132 registered**, **0 declared-only**, **0 missing** — **29** further names
 are covered by equivalent C++/bridge APIs (catalogue rechecked 2026-07-21
 after the release-hardening audit; the counts come from comparing
 ``operator_names()`` and the catalogue markers against the upstream scan).
@@ -53,10 +53,11 @@ after the release-hardening audit; the counts come from comparing
      - Miss.
      - Gaps (declared-only *italic*, missing **bold**, equiv-API plain)
    * - Analytical (``analytical_operators``)
-     - 4
      - 0
      - 0
-     - equiv-API: center_of_mass_to_alpha, span_to_alpha
+     - 0
+     - moved to ``hgraph-analytics``: diff, count, clip, ewma,
+       center_of_mass_to_alpha, span_to_alpha
    * - Apply / call (``apply``)
      - 2
      - 0
@@ -178,15 +179,17 @@ Notes on the residue:
   only adapts the ``downcast_ref(Type, ts)`` syntax.
 - The equiv-API names live in ``hgraph._table`` (bitemporal config +
   ``TableSchema``), the record/replay config/traits shims, the JSON builders,
-  and small python helpers (``accumulate``/``average``,
-  ``center_of_mass_to_alpha``/``span_to_alpha``, ``filter_by``, ``cast_``,
-  ``compute_set_delta``).
+  and small python helpers (``accumulate``/``average``, ``filter_by``,
+  ``cast_``, ``compute_set_delta``). The numerical analytical family is tested
+  and published by ``hgraph-analytics`` rather than counted as core parity.
 
 Ported operator-test suite (the behaviour yardstick)
 ----------------------------------------------------
 
-**All 48** upstream ``hgraph_unit_tests/_operators`` files are ported into
-``python/tests/ported`` (the ctest gate ``hgraph_python_ported_suite``).
+**All 48** upstream ``hgraph_unit_tests/_operators`` files are represented in
+``python/tests/ported`` (the ctest gate ``hgraph_python_ported_suite``); cases
+for the migrated numerical analytical family execute in the
+``hgraph-analytics`` package suite instead of the core gate.
 No implementation-gap skips remain in this tier. The two final stale markers
 were removed on 2026-07-21 after the unchanged upstream cases passed: proxy
 lag preserves sparse TSB field deltas, and every parameterized

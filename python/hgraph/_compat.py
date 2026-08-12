@@ -75,18 +75,6 @@ def average(*ts, **kwargs):
     return mean(*ts, **kwargs)
 
 
-def center_of_mass_to_alpha(com: float) -> float:
-    if com <= 0:
-        raise ValueError(f"Center of mass must be positive, got {com}")
-    return 1.0 / (com + 1.0)
-
-
-def span_to_alpha(span: float) -> float:
-    if span <= 0:
-        raise ValueError(f"Span must be positive, got {span}")
-    return 2.0 / (span + 1.0)
-
-
 def to_json_builder(tp):
     """hgraph's scalar-level JSON serializer factory: returns a callable
     rendering instances of ``tp`` as a JSON string (the C++ codec)."""

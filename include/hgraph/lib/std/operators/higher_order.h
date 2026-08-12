@@ -557,4 +557,21 @@ struct std::hash<hgraph::stdlib::DispatchCases>
     }
 };
 
+namespace hgraph
+{
+    // These public higher-order call descriptors are scalar operator inputs.
+    // Export their bindings once so downstream graph extensions do not create
+    // DSO-local plans for schemas already registered by hgraph_stdlib.
+#define HGRAPH_DECLARE_STDLIB_SCALAR_BINDING(Type)                                                \
+    extern template HGRAPH_EXPORT const MemoryUtils::StoragePlan &MemoryUtils::plan_for<Type>() noexcept; \
+    extern template HGRAPH_EXPORT const ValueOps &ops_for<Type>() noexcept
+
+    HGRAPH_DECLARE_STDLIB_SCALAR_BINDING(stdlib::SwitchCases);
+    HGRAPH_DECLARE_STDLIB_SCALAR_BINDING(stdlib::DispatchCases);
+    HGRAPH_DECLARE_STDLIB_SCALAR_BINDING(stdlib::MapCallConfig);
+    HGRAPH_DECLARE_STDLIB_SCALAR_BINDING(stdlib::TryExceptCallConfig);
+
+#undef HGRAPH_DECLARE_STDLIB_SCALAR_BINDING
+}  // namespace hgraph
+
 #endif  // HGRAPH_LIB_STD_OPERATORS_HIGHER_ORDER_H

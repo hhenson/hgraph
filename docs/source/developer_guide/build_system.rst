@@ -62,14 +62,15 @@ compatibility oracle.
 ``.github/workflows/release-wheels.yml`` builds one ``cp312-abi3`` wheel for Linux x86_64,
 Windows x86_64, and Apple Silicon macOS, then installs each platform wheel under
 CPython 3.12, 3.13, and 3.14. A bare tag matching ``x.x.x`` publishes the tested
-core and Kafka wheels and source distributions through PyPI trusted publishing.
+core, Kafka, and analytics wheels and source distributions through PyPI trusted
+publishing.
 The tag is the shared release version authority: the publish jobs restamp the
 metadata of artifacts already tested for that exact commit, rather than
 rebuilding them. The CMake ``project(VERSION)`` declarations identify the native
 API line and are intentionally independent of the shared Python distribution
 version. Reused wheels therefore retain the native API version they were built
 and tested with; a patch release tag does not require a source commit that only
-bumps CMake metadata. The release's numeric core may not predate either native
+bumps CMake metadata. The release's numeric core may not predate any native
 API version. A prerelease suffix likewise belongs only to the Python distribution
 metadata.
 ``pyproject.toml`` therefore uses ``0.0.0`` as an explicit untagged-artifact
@@ -153,11 +154,14 @@ First-party extension distributions
 First-party extensions live under ``extensions/`` in the same repository but
 remain separate CMake and Python distributions.  The root
 ``uv`` workspace makes them selectable without adding an extension dependency
-to core ``hgraph``.  With the matching installed hgraph SDK discoverable, Kafka can
-be built with::
+to core ``hgraph``.  With the matching installed hgraph SDK discoverable, an
+extension can be built independently, for example::
 
    CMAKE_PREFIX_PATH=/path/to/hgraph/sdk \
      uv build --wheel --package hgraph-kafka --python 3.12
+
+   CMAKE_PREFIX_PATH=/path/to/hgraph/sdk \
+     uv build --wheel --package hgraph-analytics --python 3.12
 
 The Kafka C++ targets can also be included in a repository build with
 ``HGRAPH_BUILD_KAFKA_EXTENSION=ON``.  That option is off by default: a normal
@@ -165,13 +169,21 @@ core configure neither resolves nor links librdkafka.  A standalone native
 consumer instead configures ``extensions/kafka`` against the installed
 ``hgraph`` CMake package and links ``hgraph::kafka``.
 
+The C++-first analytics package follows the same boundary without an external
+client library. ``HGRAPH_BUILD_ANALYTICS_EXTENSION=ON`` includes it in a
+repository build; standalone consumers find ``hgraph-analytics`` and link
+``hgraph::analytics``. Its wheel contains the native library, public headers,
+and CMake package as well as the stable-ABI Python registration module, so the
+same distribution is usable by C++ and Python authoring environments.
+
 Each extension owns its nested ``pyproject.toml``, CMake package configuration,
 and tests. Cross-cutting changes are tested against core at the same commit,
 while the resulting wheels remain separate distribution artifacts. During the
-current release line, core and Kafka are co-versioned and co-released: a bare
-``<version>`` tag validates that the version is new for both packages, restamps
-both distributions, and publishes both packages. Independent extension tags are
-intentionally not part of this release workflow.
+current release line, core, Kafka, and analytics are co-versioned and
+co-released: a bare ``<version>`` tag validates that the version is new for all
+three packages, restamps their distributions, and publishes each package.
+Independent extension tags are intentionally not part of this release
+workflow.
 
 The Kafka PEP 517 build requirements include ``hgraph>=0.8.0`` because its standalone
 CMake configure consumes the installed core SDK.  In-repository CI installs

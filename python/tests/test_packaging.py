@@ -134,7 +134,7 @@ def test_release_metadata_uses_untagged_sentinel():
     assert "v_*.*.*" not in workflow
     assert workflow.count(
         'python tools/restamp_distribution.py dist "$RELEASE_TAG"'
-    ) == 2
+    ) == 3
     assert 'python tools/validate_release.py "$RELEASE_TAG"' in workflow
 
 
@@ -261,7 +261,7 @@ def test_release_workflow_targets_supported_platforms():
     assert '- "3.12"' in test_workflow
     assert '- "3.13"' in test_workflow
     assert '- "3.14"' in test_workflow
-    assert test_workflow.count("uv run --no-sync --no-build") == 4
+    assert test_workflow.count("uv run --no-sync --no-build") == 5
 
 
 def test_platform_wheel_builds_use_stable_cacheable_paths():

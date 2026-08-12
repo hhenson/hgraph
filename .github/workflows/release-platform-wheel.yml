@@ -115,13 +115,13 @@ jobs:
               raise FileNotFoundError(f"installed hgraph CMake package not found: {config}")
 
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
-              env_file.write(f"HGRAPH_KAFKA_SDK_PREFIX={sdk_prefix}\n")
+              env_file.write(f"HGRAPH_EXTENSION_SDK_PREFIX={sdk_prefix}\n")
       - name: Build Kafka stable ABI wheel
         env:
           CMAKE_GENERATOR: Ninja
           CMAKE_ARGS: ${{ inputs.cmake_args }}
           CMAKE_BUILD_PARALLEL_LEVEL: ${{ inputs.parallel }}
-          CMAKE_PREFIX_PATH: ${{ env.HGRAPH_KAFKA_SDK_PREFIX }}
+          CMAKE_PREFIX_PATH: ${{ env.HGRAPH_EXTENSION_SDK_PREFIX }}
         run: >-
           python -m build --wheel --no-isolation --skip-dependency-check
           "-Cbuild-dir=.ci-build/kafka/{wheel_tag}"
@@ -149,4 +149,40 @@ jobs:
         with:
           name: kafka-distribution-wheel-${{ inputs.os }}
           path: kafka-dist/*.whl
+          if-no-files-found: error
+      - name: Build analytics stable ABI wheel
+        env:
+          CMAKE_GENERATOR: Ninja
+          CMAKE_ARGS: ${{ inputs.cmake_args }}
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ inputs.parallel }}
+          CMAKE_PREFIX_PATH: ${{ env.HGRAPH_EXTENSION_SDK_PREFIX }}
+        run: >-
+          python -m build --wheel --no-isolation --skip-dependency-check
+          "-Cbuild-dir=.ci-build/analytics/{wheel_tag}"
+          --outdir analytics-dist extensions/analytics
+      - name: Verify analytics wheel ABI
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          wheels = list(Path("analytics-dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          wheel = wheels[0]
+          assert wheel.name.startswith("hgraph_analytics-"), wheel.name
+          assert "-cp312-abi3-" in wheel.name, wheel.name
+          if sys.platform == "darwin":
+              assert "-macosx_15_0_arm64.whl" in wheel.name, wheel.name
+          elif sys.platform == "win32":
+              assert wheel.name.endswith("-win_amd64.whl"), wheel.name
+          subprocess.check_call(["abi3audit", "--strict", str(wheel)])
+      - name: Audit analytics wheel contents
+        run: >-
+          python extensions/analytics/tools/audit_distribution.py
+          "analytics-dist/*.whl"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: analytics-distribution-wheel-${{ inputs.os }}
+          path: analytics-dist/*.whl
           if-no-files-found: error

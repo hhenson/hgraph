@@ -65,6 +65,10 @@ jobs:
               "kafka-distribution-wheel-macos-26",
               "kafka-distribution-wheel-ubuntu-latest",
               "kafka-distribution-wheel-windows-latest",
+              "analytics-distribution-sdist",
+              "analytics-distribution-wheel-macos-26",
+              "analytics-distribution-wheel-ubuntu-latest",
+              "analytics-distribution-wheel-windows-latest",
             ]);
             const runs = await github.paginate(
               github.rest.actions.listWorkflowRuns,
@@ -272,6 +276,58 @@ jobs:
           name: kafka-distribution-wheel-ubuntu-latest
           path: kafka-dist/*.whl
           if-no-files-found: error
+      - name: Build analytics stable ABI wheel
+        shell: bash
+        run: |
+          hgraph_sdk="$(/opt/python/cp312-cp312/bin/python -c 'import site; print(site.getsitepackages()[0])')"
+          CMAKE_GENERATOR=Ninja \
+          CMAKE_ARGS=-DHGRAPH_WARNINGS_AS_ERRORS=ON \
+          CMAKE_BUILD_PARALLEL_LEVEL=2 \
+          CMAKE_PREFIX_PATH="$hgraph_sdk" \
+            /opt/python/cp312-cp312/bin/python -m build \
+              --wheel --no-isolation --skip-dependency-check \
+              --outdir analytics-dist-raw extensions/analytics
+      - name: Repair analytics wheel for the glibc 2.28 floor
+        run: |
+          mkdir analytics-dist
+          auditwheel repair \
+            --plat manylinux_2_28_x86_64 \
+            --exclude libarrow.so.2500 \
+            --exclude libarrow_compute.so.2500 \
+            --exclude libarrow_acero.so.2500 \
+            --exclude libhgraph_runtime.so \
+            --exclude libhgraph_wiring.so \
+            --exclude libhgraph_stdlib.so \
+            --exclude libnanobind-abi3.so \
+            --wheel-dir analytics-dist \
+            analytics-dist-raw/*.whl
+      - name: Verify analytics wheel ABI and platform tag
+        run: |
+          /opt/python/cp312-cp312/bin/python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          from packaging.tags import Tag
+          from packaging.utils import parse_wheel_filename
+
+          wheels = list(Path("analytics-dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          wheel = wheels[0]
+          assert wheel.name.startswith("hgraph_analytics-"), wheel.name
+          tags = parse_wheel_filename(wheel.name)[3]
+          expected = Tag("cp312", "abi3", "manylinux_2_28_x86_64")
+          assert expected in tags, (wheel.name, tags)
+          subprocess.check_call(["abi3audit", "--strict", str(wheel)])
+          PY
+      - name: Audit analytics wheel contents
+        run: >-
+          /opt/python/cp312-cp312/bin/python
+          extensions/analytics/tools/audit_distribution.py
+          "analytics-dist/*.whl"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: analytics-distribution-wheel-ubuntu-latest
+          path: analytics-dist/*.whl
+          if-no-files-found: error
 
   build-sdist:
     name: Build source distribution
@@ -343,6 +399,42 @@ jobs:
         with:
           name: kafka-distribution-sdist
           path: kafka-dist/*.tar.gz
+          if-no-files-found: error
+      - name: Build analytics source distribution
+        run: >-
+          python -m build --sdist --no-isolation --skip-dependency-check
+          --outdir analytics-dist extensions/analytics
+      - name: Verify analytics source distribution
+        shell: python
+        run: |
+          from pathlib import Path
+          import tarfile
+          import tomllib
+
+          version = tomllib.loads(
+              Path("extensions/analytics/pyproject.toml").read_text()
+          )["project"]["version"]
+          archives = list(Path("analytics-dist").glob("*.tar.gz"))
+          assert len(archives) == 1, archives
+          archive = archives[0]
+          assert archive.name == f"hgraph_analytics-{version}.tar.gz", archive.name
+          with tarfile.open(archive) as package:
+              names = set(package.getnames())
+          root = f"hgraph_analytics-{version}"
+          for required in (
+              "CMakeLists.txt",
+              "include/hgraph/analytics/operators.h",
+              "python/hgraph_analytics/__init__.py",
+          ):
+              assert f"{root}/{required}" in names, required
+      - name: Audit analytics source distribution contents
+        run: >-
+          python extensions/analytics/tools/audit_distribution.py
+          "analytics-dist/*.tar.gz"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: analytics-distribution-sdist
+          path: analytics-dist/*.tar.gz
           if-no-files-found: error
 
   test-windows-wheel:
@@ -480,7 +572,7 @@ jobs:
           with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:
               path_file.write(str(Path(pyarrow.__file__).resolve().parent) + "\n")
       - name: Configure native C++ tests
-        run: cmake -S . -B build-native -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF -DHGRAPH_USE_PYARROW_ARROW=ON -DHGRAPH_FETCH_SIMDJSON=ON -DHGRAPH_FETCH_DATE=ON -DHGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS=ON -DHGRAPH_WARNINGS_AS_ERRORS=ON -DHGRAPH_BUILD_KAFKA_EXTENSION=ON -DHGRAPH_KAFKA_FORCE_FETCH_LIBRDKAFKA=ON
+        run: cmake -S . -B build-native -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF -DHGRAPH_USE_PYARROW_ARROW=ON -DHGRAPH_FETCH_SIMDJSON=ON -DHGRAPH_FETCH_DATE=ON -DHGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS=ON -DHGRAPH_WARNINGS_AS_ERRORS=ON -DHGRAPH_BUILD_KAFKA_EXTENSION=ON -DHGRAPH_KAFKA_FORCE_FETCH_LIBRDKAFKA=ON -DHGRAPH_BUILD_ANALYTICS_EXTENSION=ON
       - name: Build native C++ tests
         run: cmake --build build-native --parallel ${{ matrix.parallel }}
       - name: Run native C++ tests
@@ -539,6 +631,7 @@ jobs:
           -DHGRAPH_WARNINGS_AS_ERRORS=ON
           -DHGRAPH_BUILD_KAFKA_EXTENSION=ON
           -DHGRAPH_KAFKA_FORCE_FETCH_LIBRDKAFKA=ON
+          -DHGRAPH_BUILD_ANALYTICS_EXTENSION=ON
       - name: Build shared C++ tests
         shell: micromamba-shell {0}
         run: cmake --build build-shared --parallel 2
@@ -572,6 +665,19 @@ jobs:
           cmake --build build-kafka-consumer --parallel 2
           LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install-shared/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             ctest --test-dir build-kafka-consumer --output-on-failure
+      - name: Configure installed analytics consumer
+        shell: micromamba-shell {0}
+        run: >-
+          cmake -S extensions/analytics/test_package
+          -B build-analytics-consumer -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/install-shared;$CONDA_PREFIX"
+      - name: Build and test installed analytics consumer
+        shell: micromamba-shell {0}
+        run: |
+          cmake --build build-analytics-consumer --parallel 2
+          LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install-shared/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            ctest --test-dir build-analytics-consumer --output-on-failure
 
   publish:
     name: Publish hgraph to PyPI
@@ -679,6 +785,61 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python tools/restamp_distribution.py dist "$RELEASE_TAG"
       - name: Publish Kafka package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: dist
+
+  publish-analytics:
+    name: Publish hgraph-analytics to PyPI
+    if: >-
+      always() &&
+      github.ref_type == 'tag' &&
+      needs.validate-release.result == 'success' &&
+      needs.reuse-build.result == 'success' &&
+      (
+        needs.reuse-build.outputs.run-id != '' ||
+        (
+          needs.build-sdist.result == 'success' &&
+          needs.test-windows-wheel.result == 'success' &&
+          needs.test-macos-wheel.result == 'success' &&
+          needs.test-linux-wheel.result == 'success' &&
+          needs.native-cpp.result == 'success' &&
+          needs.native-install.result == 'success'
+        )
+      )
+    needs:
+      - validate-release
+      - reuse-build
+      - build-sdist
+      - test-windows-wheel
+      - test-macos-wheel
+      - test-linux-wheel
+      - native-cpp
+      - native-install
+      - build-linux-wheel
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://pypi.org/p/hgraph-analytics
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: analytics-distribution-*
+          path: dist
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.reuse-build.outputs.run-id || github.run_id }}
+      - name: Restamp analytics distributions to the tag version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python tools/restamp_distribution.py dist "$RELEASE_TAG"
+      - name: Publish analytics package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: dist

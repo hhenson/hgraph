@@ -14,11 +14,21 @@
 #define HGRAPH_STANDARD_BINDING_FIXTURE_API __attribute__((visibility("default")))
 #endif
 
-HGRAPH_STANDARD_BINDING_FIXTURE_API const hgraph::MemoryUtils::StoragePlan *
-hgraph_standard_bytes_plan() noexcept;
-HGRAPH_STANDARD_BINDING_FIXTURE_API const hgraph::ValueOps *hgraph_standard_bytes_ops() noexcept;
-HGRAPH_STANDARD_BINDING_FIXTURE_API const hgraph::MemoryUtils::StoragePlan *
-hgraph_standard_str_plan() noexcept;
-HGRAPH_STANDARD_BINDING_FIXTURE_API const hgraph::ValueOps *hgraph_standard_str_ops() noexcept;
+#define HGRAPH_DECLARE_STANDARD_BINDING_ACCESSORS(Name)                                           \
+    HGRAPH_STANDARD_BINDING_FIXTURE_API const hgraph::MemoryUtils::StoragePlan *                  \
+    hgraph_standard_##Name##_plan() noexcept;                                                     \
+    HGRAPH_STANDARD_BINDING_FIXTURE_API const hgraph::ValueOps *                                  \
+    hgraph_standard_##Name##_ops() noexcept
+
+HGRAPH_DECLARE_STANDARD_BINDING_ACCESSORS(bytes);
+HGRAPH_DECLARE_STANDARD_BINDING_ACCESSORS(str);
+HGRAPH_DECLARE_STANDARD_BINDING_ACCESSORS(divide_by_zero);
+HGRAPH_DECLARE_STANDARD_BINDING_ACCESSORS(cmp_result);
+HGRAPH_DECLARE_STANDARD_BINDING_ACCESSORS(switch_cases);
+HGRAPH_DECLARE_STANDARD_BINDING_ACCESSORS(dispatch_cases);
+HGRAPH_DECLARE_STANDARD_BINDING_ACCESSORS(map_call_config);
+HGRAPH_DECLARE_STANDARD_BINDING_ACCESSORS(try_except_call_config);
+
+#undef HGRAPH_DECLARE_STANDARD_BINDING_ACCESSORS
 
 #endif  // HGRAPH_TESTS_CPP_STANDARD_BINDING_BOUNDARY_FIXTURE_API_H

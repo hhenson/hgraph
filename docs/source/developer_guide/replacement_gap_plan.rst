@@ -288,8 +288,9 @@ The complete public ``hgraph.numpy_`` catalogue -- ``as_array``, ``get_item``,
 ``cumsum``, ``corrcoef``, and ``quantile`` -- executes in typed or structurally
 bound C++ kernels and has paired public C++/Python tests. The additional
 ``hgraph.nodes`` exports ``np_rolling_window``, ``np_quantile``, ``np_std``,
-``pct_change``, ``rolling_window``, and ``rolling_average`` are also backed by
-native operators or native graph composition. This audit intentionally covers
+``rolling_window``, and ``rolling_average`` are also backed by native operators
+or native graph composition. ``pct_change`` moved to ``hgraph-analytics`` with
+the numerical analytical family. This audit intentionally covers
 the published upstream surface even when the checked-out applications do not
 import it.
 

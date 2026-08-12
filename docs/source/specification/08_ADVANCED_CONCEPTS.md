@@ -698,9 +698,10 @@ def my_adaptor_impl(path: str, ts: TS[int]) -> TS[int]:
 ```python
 from hgraph import (
     adaptor, adaptor_impl, graph, register_adaptor,
-    TS, queue_sink, queue_source, count, schedule,
+    TS, queue_sink, queue_source, schedule,
     stop_on_value, evaluate_graph, GraphConfiguration, EvaluationMode
 )
+import hgraph_analytics as hga
 from datetime import timedelta
 
 @adaptor
@@ -717,7 +718,7 @@ def g() -> TS[int]:
     register_adaptor("test_adaptor", my_adaptor_impl)
     result = my_adaptor(
         "test_adaptor",
-        count(schedule(timedelta(milliseconds=10), max_ticks=10))
+        hga.count(schedule(timedelta(milliseconds=10), max_ticks=10))
     )
     stop_on_value(result, 10)
     return result
@@ -772,8 +773,9 @@ def my_adaptor_impl(path: str, ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
 from hgraph import (
     service_adaptor, service_adaptor_impl, graph, register_adaptor,
     TS, TSD, TSL, Size, tsd_queue_sink, tsd_queue_source, map_,
-    count, schedule, combine, stop_on_tsl_values, evaluate_graph
+    schedule, combine, stop_on_tsl_values, evaluate_graph
 )
+import hgraph_analytics as hga
 from datetime import timedelta
 
 @service_adaptor
@@ -788,8 +790,8 @@ def my_adaptor_impl(path: str, b: bool, ts: TSD[int, TS[int]]) -> TSD[int, TS[in
 @graph
 def g() -> TSL[TS[int], Size[2]]:
     register_adaptor(None, my_adaptor_impl, b=False)
-    a1 = my_adaptor("test", ts=count(schedule(timedelta(milliseconds=10), max_ticks=10)))
-    a2 = my_adaptor("test", ts=count(schedule(timedelta(milliseconds=11), max_ticks=10)))
+    a1 = my_adaptor("test", ts=hga.count(schedule(timedelta(milliseconds=10), max_ticks=10)))
+    a2 = my_adaptor("test", ts=hga.count(schedule(timedelta(milliseconds=11), max_ticks=10)))
     result = combine(a1, a2)
     stop_on_tsl_values(result, 11, 11)
     return result
@@ -1054,4 +1056,3 @@ class NodeError:
 Continue to:
 - [09_CONTROL_FLOW.md](09_CONTROL_FLOW.md) - Control flow constructs
 - [10_DATA_SOURCES.md](10_DATA_SOURCES.md) - Data source patterns
-

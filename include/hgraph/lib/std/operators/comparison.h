@@ -195,4 +195,13 @@ namespace hgraph
 }  // namespace hgraph
 #endif  // HGRAPH_ENABLE_PYTHON_USER_NODES
 
+namespace hgraph
+{
+    // CmpResult is a public time-series scalar and must retain one plan and ops
+    // table when core operators are consumed from a downstream shared module.
+    extern template HGRAPH_EXPORT const MemoryUtils::StoragePlan &
+    MemoryUtils::plan_for<stdlib::CmpResult>() noexcept;
+    extern template HGRAPH_EXPORT const ValueOps &ops_for<stdlib::CmpResult>() noexcept;
+}  // namespace hgraph
+
 #endif  // HGRAPH_LIB_STD_OPERATORS_COMPARISON_H

@@ -272,4 +272,14 @@ namespace hgraph
 }  // namespace hgraph
 #endif  // HGRAPH_ENABLE_PYTHON_USER_NODES
 
+namespace hgraph
+{
+    // Public operator-policy scalars cross independently built extension
+    // boundaries. Keep their plan and ops tables in hgraph_stdlib so every DSO
+    // registers the same canonical addresses with ValuePlanFactory.
+    extern template HGRAPH_EXPORT const MemoryUtils::StoragePlan &
+    MemoryUtils::plan_for<stdlib::DivideByZero>() noexcept;
+    extern template HGRAPH_EXPORT const ValueOps &ops_for<stdlib::DivideByZero>() noexcept;
+}  // namespace hgraph
+
 #endif  // HGRAPH_LIB_STD_OPERATORS_ARITHMETIC_H

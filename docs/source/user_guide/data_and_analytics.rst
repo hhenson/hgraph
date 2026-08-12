@@ -54,8 +54,9 @@ not change the result schema. ``as_array`` is limited to fixed tick windows;
 duration windows have no fixed output shape.
 
 The ``hgraph.nodes`` compatibility surface also provides native-backed
-``np_rolling_window``, ``np_quantile``, ``np_std``, ``pct_change``,
-``rolling_window``, and ``rolling_average``. A rolling window whose
+``np_rolling_window``, ``np_quantile``, ``np_std``, ``rolling_window``, and
+``rolling_average``. ``pct_change`` and the numerical analytical family are
+provided by ``hgraph-analytics``; see :doc:`analytics_migration`. A rolling window whose
 ``min_window_period`` is smaller than its capacity emits shorter ndarrays while
 warming up. Those fields use an unbounded array dimension so the runtime schema
 truthfully describes the values; the old Python implementation declared a
