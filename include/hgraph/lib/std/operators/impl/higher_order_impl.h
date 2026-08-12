@@ -2148,7 +2148,8 @@ namespace hgraph::stdlib
                 const std::size_t slot = bound_slots.ordered[ordinal];
                 const auto *schema = slot_sources[slot].schema;
                 boundary_schemas.push_back(schema);
-                WiringPortRef port = WiringPortRef::boundary_source(ordinal, {}, schema);
+                WiringPortRef port = subgraph_wiring_detail::boundary_shape(
+                    slot_sources[slot], ordinal, {});
                 for (std::size_t selected = 0; selected < dispatch_slots.size(); ++selected)
                 {
                     if (dispatch_slots[selected] != slot || case_types.empty()) { continue; }

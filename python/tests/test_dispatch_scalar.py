@@ -3,7 +3,24 @@ from typing import Type, Union
 
 import pytest
 
-from hgraph import AUTO_RESOLVE, OUT, CompoundScalar, TS, TSB, TimeSeriesSchema, compute_node, const, dispatch, dispatch_, downcast_, downcast_ref, graph, operator, switch_
+from hgraph import (
+    AUTO_RESOLVE,
+    OUT,
+    CompoundScalar,
+    TS,
+    TSB,
+    TimeSeriesSchema,
+    combine,
+    compute_node,
+    const,
+    dispatch,
+    dispatch_,
+    downcast_,
+    downcast_ref,
+    graph,
+    operator,
+    switch_,
+)
 from hgraph.test import eval_node
 
 
@@ -73,6 +90,30 @@ def test_dispatch_fn_multi():
         [None, Cat(), None, Dog(), Cat()],
         [None, Plant(), Meat(), Plant(), Meat()],
     ) == [None, False, True, True, True]
+
+
+def test_dispatch_preserves_a_structurally_combined_tsb_argument():
+    class Animal(CompoundScalar): ...
+
+    class Dog(Animal): ...
+
+    class Repository(TimeSeriesSchema):
+        lhs: TS[int]
+        rhs: TS[int]
+
+    @operator
+    def apply(animal: TS[Animal], repository: TSB[Repository]) -> TS[int]: ...
+
+    @compute_node(overloads=apply)
+    def apply_dog(animal: TS[Dog], repository: TSB[Repository]) -> TS[int]:
+        return repository.as_schema.lhs.value + repository.as_schema.rhs.value
+
+    @graph
+    def app(animal: TS[Animal], lhs: TS[int], rhs: TS[int]) -> TS[int]:
+        repository = combine[TSB[Repository]](lhs=lhs, rhs=rhs)
+        return dispatch_(apply, animal, repository)
+
+    assert eval_node(app, [Dog()], [2], [3]) == [5]
 
 
 def test_compound_scalar_dispatch_to_compute_node_overload():
