@@ -364,6 +364,35 @@ This also peers with the implementation instead of translating at the boundary:
 the encoder reads the slot the value already lives in, and the decoder writes
 into the slot it will live in, with no re-hashing on apply.
 
+Two ways to apply a delta
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Slot ids index the observed delta, but they are **not** how a delta is normally
+applied. Two paths, and the distinction is deliberate rather than incidental:
+
+**By key — the default, and what ordinary code gets.** Applying a delta looks
+its keys up in the target, exactly as an authored delta does. This is the only
+correct choice when the target's slot layout is not known to match the source's
+— a fresh ``TSD``, a replay into a new graph, a peer that never received an
+image. The improvement here is that the lookup returns a **reference** to the
+key rather than a copy: the keys a ``TSD`` hands out are already views into its
+``KeySlotStore``, so nothing needs materialising.
+
+**By slot — image recovery and the delta stream that follows it.** Addressing
+by slot skips the lookup entirely, but it is only sound when sender and
+receiver share a slot layout, which holds *only* after an image has
+reconstructed one. This is not ordinary user code and the API says so: it is a
+separate, explicitly named entry point rather than an overload that silently
+does something different, because using it without the image/delta discipline
+binds values to the wrong keys and does so quietly.
+
+The staging matters. The by-key path with borrowed keys is correct everywhere
+and can land on its own; the by-slot path needs capabilities the runtime does
+not have yet — slot-addressed mutation, and placing a key into a *chosen* slot
+so an image can rebuild a layout including its holes. Neither exists today:
+``TSDDataMutationView`` is key-addressed, and ``KeySlotStore::insert`` takes the
+next free slot.
+
 ``TSB`` fields are already positional
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -622,19 +651,6 @@ which transport a deployment chose.
 Unresolved questions
 --------------------
 
-* **Where the slot mapping comes from.** The codec's input is a ``Value``, but
-  the canonical ``TSD`` delta is key-indexed (settled in the prerequisite) and
-  carries no slots — the mapping lives in the live ``TSD``'s
-  ``KeySlotStore``. So a slot-indexed wire needs one of: the codec taking
-  ``(delta Value, live view)`` rather than a value alone, or a slot-aware
-  capture producing the wire shape directly.
-
-  The second looks better: ``capture_delta`` already reads the live input, so a
-  sibling that emits the slot-indexed form keeps the codec's input a single
-  ``Value`` and leaves the canonical key-indexed delta untouched for local use,
-  where slots would be noise. It does mean a time-series has a *third*
-  associated schema — canonical delta, value, and wire delta — which is worth
-  confirming before it is built.
 
 * **``Any`` in bound mode.** It carries per-instance schema identity, which a
   bound stream otherwise avoids. Descriptive-only, or a per-stream schema
