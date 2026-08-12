@@ -6,6 +6,7 @@
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node_error.h>
 #include <hgraph/types/metadata/debug_descriptor.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_record_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/notifiable.h>
@@ -288,7 +289,7 @@ namespace hgraph
         [[nodiscard]] ValueTypeRef state_binding_for(const ValueTypeMetaData *schema)
         {
             if (schema == nullptr) { throw std::logic_error("Node state schema is null"); }
-            const auto binding = ValuePlanFactory::instance().type_for(schema);
+            const auto binding = value_type_for_active_realization(schema);
             if (!binding)
             {
                 throw std::logic_error("Node state schema has no value binding");
