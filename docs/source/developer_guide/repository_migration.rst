@@ -34,7 +34,8 @@ version is 0.8.0. ``pyproject.toml`` deliberately remains at the untagged
 ``0.0.0`` sentinel; release artifacts are restamped from ``v_<version>`` tags,
 and release validation rejects a core version below 0.8.0.
 
-The separately published Kafka extension requires ``hgraph>=0.8.0``. The
+The separately published Kafka and analytics extensions require
+``hgraph>=0.8.0``. The
 differential parity controller installs Python-first ``hgraph==0.5.41`` in its
 reference environment and installs the locally built 0.8 candidate wheel in a
 separate environment. The explicit pin prevents a later hgraph release from
@@ -45,8 +46,10 @@ External release configuration
 
 The migrated pipeline retains the established ``release-wheels.yml`` filename,
 repository ``hhenson/hgraph``, and GitHub environment ``release`` so the existing
-PyPI trusted publisher remains valid for both ``hgraph`` and ``hgraph-kafka``.
-The first release-candidate run should still verify the complete publish route.
+PyPI trusted publisher remains valid for ``hgraph`` and ``hgraph-kafka``. The
+new ``hgraph-analytics`` PyPI project must authorize the same workflow and
+``release`` environment before its first tagged publish. The first
+release-candidate run should still verify the complete publish route.
 Repository branch protection and documentation hosting should be reviewed
 against the migrated jobs.
 

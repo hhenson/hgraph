@@ -11,7 +11,7 @@ from urllib.request import urlopen
 
 
 MINIMUM_CORE_VERSION = (0, 8, 0)
-RELEASE_PACKAGES = ("hgraph", "hgraph-kafka")
+RELEASE_PACKAGES = ("hgraph", "hgraph-kafka", "hgraph-analytics")
 _TAG_PATTERN = re.compile(r"(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?)")
 _VERSION_CORE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 _CMAKE_PROJECT_VERSION = re.compile(
@@ -70,6 +70,7 @@ def validate_release(
     *,
     cmake_path: Path = Path("CMakeLists.txt"),
     kafka_cmake_path: Path = Path("extensions/kafka/CMakeLists.txt"),
+    analytics_cmake_path: Path = Path("extensions/analytics/CMakeLists.txt"),
     release_exists: Callable[[str, str], bool] = pypi_release_exists,
 ) -> Release:
     release = parse_release_tag(tag)
@@ -81,6 +82,7 @@ def validate_release(
     for package, path in (
         ("hgraph", cmake_path),
         ("hgraph-kafka", kafka_cmake_path),
+        ("hgraph-analytics", analytics_cmake_path),
     ):
         native_version = native_project_version(path)
         if release.core < native_version:
@@ -104,7 +106,7 @@ def main() -> None:
         release = validate_release(args.tag)
     except ValueError as error:
         raise SystemExit(str(error)) from error
-    packages = " and ".join(release.packages)
+    packages = ", ".join(release.packages[:-1]) + f", and {release.packages[-1]}"
     print(f"Validated new {packages} release {release.version}")
 
 

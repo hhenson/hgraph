@@ -30,3 +30,4 @@ workflow are defined by :doc:`rfc_0000`.
    rfc_0014_request_reply_transport_planning
    rfc_0015_kafka_extension_api
    rfc_0016_object_store_frame_persistence
+   rfc_0018_analytics_relative_change

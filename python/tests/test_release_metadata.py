@@ -10,7 +10,8 @@ def _cmake_projects(
     *,
     core_version: str = "0.8.0",
     kafka_version: str = "0.8.0",
-) -> tuple[Path, Path]:
+    analytics_version: str = "0.8.0",
+) -> tuple[Path, Path, Path]:
     core_path = tmp_path / "CMakeLists.txt"
     core_path.write_text(
         f"project(\n    hgraph\n    VERSION {core_version}\n)\n"
@@ -19,7 +20,11 @@ def _cmake_projects(
     kafka_path.write_text(
         f"project(hgraph_kafka VERSION {kafka_version} LANGUAGES CXX)\n"
     )
-    return core_path, kafka_path
+    analytics_path = tmp_path / "analytics-CMakeLists.txt"
+    analytics_path.write_text(
+        f"project(hgraph_analytics VERSION {analytics_version} LANGUAGES CXX)\n"
+    )
+    return core_path, kafka_path, analytics_path
 
 
 def _next_patch(version: str) -> str:
@@ -30,7 +35,7 @@ def _next_patch(version: str) -> str:
 def test_shared_release_can_advance_without_bumping_native_api_version(tmp_path: Path):
     native_version = "1.2.3"
     release_version = _next_patch(native_version)
-    core_path, kafka_path = _cmake_projects(
+    core_path, kafka_path, analytics_path = _cmake_projects(
         tmp_path,
         core_version=native_version,
         kafka_version=native_version,
@@ -39,6 +44,7 @@ def test_shared_release_can_advance_without_bumping_native_api_version(tmp_path:
         release_version,
         cmake_path=core_path,
         kafka_cmake_path=kafka_path,
+        analytics_cmake_path=analytics_path,
         release_exists=lambda _package, _version: False,
     )
 
@@ -47,7 +53,7 @@ def test_shared_release_can_advance_without_bumping_native_api_version(tmp_path:
 
 def test_shared_release_cannot_predate_native_api_version(tmp_path: Path):
     release_version = "1.2.3"
-    core_path, kafka_path = _cmake_projects(
+    core_path, kafka_path, analytics_path = _cmake_projects(
         tmp_path,
         core_version=release_version,
         kafka_version=_next_patch(release_version),
@@ -58,6 +64,7 @@ def test_shared_release_cannot_predate_native_api_version(tmp_path: Path):
             release_version,
             cmake_path=core_path,
             kafka_cmake_path=kafka_path,
+            analytics_cmake_path=analytics_path,
             release_exists=lambda _package, _version: False,
         )
 
@@ -68,12 +75,12 @@ def test_shared_prerelease_uses_numeric_release_core():
         release_exists=lambda _package, _version: False,
     )
 
-    assert release.packages == ("hgraph", "hgraph-kafka")
+    assert release.packages == ("hgraph", "hgraph-kafka", "hgraph-analytics")
     assert release.version == "0.8.0rc1"
     assert release.core == (0, 8, 0)
 
 
-def test_shared_release_checks_both_pypi_packages():
+def test_shared_release_checks_all_pypi_packages():
     checked: list[tuple[str, str]] = []
 
     validate_release(
@@ -82,7 +89,11 @@ def test_shared_release_checks_both_pypi_packages():
         or False,
     )
 
-    assert checked == [("hgraph", "0.8.0"), ("hgraph-kafka", "0.8.0")]
+    assert checked == [
+        ("hgraph", "0.8.0"),
+        ("hgraph-kafka", "0.8.0"),
+        ("hgraph-analytics", "0.8.0"),
+    ]
 
 
 def test_release_rejects_existing_pypi_version():

@@ -13,6 +13,7 @@ resolution-markers = [
 [manifest]
 members = [
     "hgraph",
+    "hgraph-analytics",
     "hgraph-kafka",
 ]
 
@@ -561,6 +562,26 @@ requires-dist = [
     { name = "trove-classifiers", marker = "extra == 'test'" },
 ]
 provides-extras = ["python", "test", "parity", "web", "sql", "snowflake", "delta", "perspective", "dataframe", "docs", "dev"]
+
+[[package]]
+name = "hgraph-analytics"
+version = "0.0.0"
+source = { editable = "extensions/analytics" }
+dependencies = [
+    { name = "hgraph" },
+]
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "hgraph", editable = "." },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
+]
+provides-extras = ["test"]
 
 [[package]]
 name = "hgraph-kafka"

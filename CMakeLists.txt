@@ -71,6 +71,7 @@ option(HGRAPH_ENABLE_COMPILER_CACHE "Use sccache or ccache when available" ON)
 option(HGRAPH_ENABLE_PCH "Use private precompiled headers for repository targets" ON)
 option(HGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS "Run debugger subprocess smoke tests when the platform debugger is available" OFF)
 option(HGRAPH_BUILD_KAFKA_EXTENSION "Build the first-party Kafka extension" OFF)
+option(HGRAPH_BUILD_ANALYTICS_EXTENSION "Build the first-party analytics extension" OFF)
 
 if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_BUILD_SHARED)
     # Every static library linked into the extension must provide PIC on ELF
@@ -808,6 +809,10 @@ if(HGRAPH_BUILD_KAFKA_EXTENSION)
     add_subdirectory(extensions/kafka)
 endif()
 
+if(HGRAPH_BUILD_ANALYTICS_EXTENSION)
+    add_subdirectory(extensions/analytics)
+endif()
+
 if(BUILD_TESTING AND EXISTS "${PROJECT_SOURCE_DIR}/tests/CMakeLists.txt")
     add_subdirectory(tests)
 endif()
@@ -895,6 +900,12 @@ if(NOT HGRAPH_BUILD_SHARED OR NOT HGRAPH_BUILD_PYTHON_BINDINGS)
         "  message(FATAL_ERROR \"hgraph requires simdjson >= 4.5; found \${simdjson_VERSION}\")\n"
         "endif()\n"
     )
+    if(HGRAPH_WITH_PARQUET)
+        list(APPEND _hgraph_config_dependencies
+            "if(NOT TARGET Parquet::parquet_shared AND NOT TARGET Parquet::parquet_static)\n"
+            "  find_dependency(Parquet CONFIG)\n"
+            "endif()\n")
+    endif()
     if(NOT HGRAPH_BUILD_SHARED AND
        _hgraph_selected_time_zone_backend STREQUAL "date")
         list(APPEND _hgraph_config_dependencies
