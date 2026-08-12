@@ -840,7 +840,81 @@ namespace hgraph::python_bridge
         return bundle.build();
     }
 
-    Value py_to_delta(nb::handle object, const TSValueTypeMetaData *ts)
+    namespace
+    {
+        /**
+         * Does this Python object express STRICT intent anywhere inside it?
+         *
+         * Strictness escalates the whole conversion to
+         * ``authored_delta_schema``. Deciding it up-front, guided by the
+         * time-series meta, keeps ONE shape throughout a converted value: a
+         * parent cannot discover half way through building a map that a child
+         * needed the wider schema.
+         *
+         * Almost every conversion answers false and so produces the ordinary
+         * observed delta, which is what feedback initial values, push queues
+         * and every other observed-typed slot expect.
+         */
+        [[nodiscard]] bool py_delta_expresses_strict_removal(nb::handle object, const TSValueTypeMetaData *ts)
+        {
+            if (ts == nullptr || !object.is_valid() || object.is_none()) { return false; }
+            switch (ts->kind)
+            {
+                case TSTypeKind::TSD: {
+                    if (!nb::isinstance<nb::dict>(object)) { return false; }
+                    const auto *child = ts->element_ts();
+                    for (auto [key, item] : nb::cast<nb::dict>(object))
+                    {
+                        (void)key;
+                        if (removed_sentinel_slot().is_valid() && item.is(removed_sentinel_slot()))
+                        {
+                            return true;
+                        }
+                        if (py_delta_expresses_strict_removal(item, child)) { return true; }
+                    }
+                    return false;
+                }
+                case TSTypeKind::TSL: {
+                    const auto *child = ts->element_ts();
+                    if (child == nullptr || !child->is_collection()) { return false; }
+                    if (nb::isinstance<nb::dict>(object))
+                    {
+                        for (auto [key, item] : nb::cast<nb::dict>(object))
+                        {
+                            (void)key;
+                            if (py_delta_expresses_strict_removal(item, child)) { return true; }
+                        }
+                        return false;
+                    }
+                    if (nb::isinstance<nb::str>(object) || !nb::isinstance<nb::sequence>(object))
+                    {
+                        return false;
+                    }
+                    for (nb::handle item : object)
+                    {
+                        if (py_delta_expresses_strict_removal(item, child)) { return true; }
+                    }
+                    return false;
+                }
+                case TSTypeKind::TSB: {
+                    if (!nb::isinstance<nb::dict>(object)) { return false; }
+                    const auto fields = nb::cast<nb::dict>(object);
+                    for (std::size_t index = 0; index < ts->field_count(); ++index)
+                    {
+                        const auto &field = ts->fields()[index];
+                        if (field.type == nullptr || !field.type->is_collection()) { continue; }
+                        nb::str key{field.name};
+                        if (!fields.contains(key)) { continue; }
+                        if (py_delta_expresses_strict_removal(fields[key], field.type)) { return true; }
+                    }
+                    return false;
+                }
+                default: return false;
+            }
+        }
+    }  // namespace
+
+    Value py_to_delta_impl(nb::handle object, const TSValueTypeMetaData *ts, bool authored)
     {
         std::shared_ptr<const TypeRealizationSnapshot> conversion_snapshot;
         const auto *snapshot = active_type_realization();
@@ -891,8 +965,9 @@ namespace hgraph::python_bridge
                 const auto *child    = ts->element_ts();
                 SetBuilder  removed{delta_binding(key_meta)};
                 SetBuilder  removed_strict{delta_binding(key_meta)};
-                MapBuilder  modified{delta_binding(key_meta),
-                                     delta_binding(child->authored_delta_schema)};
+                const auto *child_delta_schema =
+                    authored ? child->authored_delta_schema : child->delta_value_schema;
+                MapBuilder  modified{delta_binding(key_meta), delta_binding(child_delta_schema)};
                 bool        saw_item     = false;
                 bool        saw_non_none = false;
                 for (auto [key, item] : nb::cast<nb::dict>(object))
@@ -912,11 +987,16 @@ namespace hgraph::python_bridge
                     const bool lenient_remove =
                         remove_if_exists_sentinel_slot().is_valid() &&
                         item.is(remove_if_exists_sentinel_slot());
+                    if (strict_remove && !authored)
+                    {
+                        throw std::logic_error(
+                            "py_to_delta: REMOVE reached the observed conversion path");
+                    }
                     if (strict_remove) { (void)removed_strict.insert_copy(key_value.view().data()); }
                     else if (lenient_remove) { (void)removed.insert_copy(key_value.view().data()); }
                     else
                     {
-                        Value child_delta = py_to_delta(item, child);
+                        Value child_delta = py_to_delta_impl(item, child, authored);
                         if (!child_delta.has_value()) { continue; }
                         modified.set_item_copy(key_value.view().data(), child_delta.view().data());
                     }
@@ -929,14 +1009,16 @@ namespace hgraph::python_bridge
                 // A Python dict is AUTHORED: it may assert strict removals,
                 // so it targets ``authored_delta_schema``. ``apply_delta``
                 // accepts that as well as the observed two-field shape.
-                BundleBuilder bundle{delta_binding(ts->authored_delta_schema)};
+                const auto *delta_schema =
+                    authored ? ts->authored_delta_schema : ts->delta_value_schema;
+                BundleBuilder bundle{delta_binding(delta_schema)};
                 bundle.set("removed", removed.build());
                 bundle.set("modified", modified.build());
-                bundle.set("removed_strict", removed_strict.build());
+                if (authored) { bundle.set("removed_strict", removed_strict.build()); }
                 return bundle.build();
             }
             case TSTypeKind::TSL: {
-                const auto *map_meta = ts->authored_delta_schema;
+                const auto *map_meta = authored ? ts->authored_delta_schema : ts->delta_value_schema;
                 MapBuilder  builder{delta_binding(map_meta->key_type), delta_binding(map_meta->element_type)};
                 if (nb::isinstance<nb::dict>(object))
                 {
@@ -946,7 +1028,7 @@ namespace hgraph::python_bridge
                         // structure convention, ruling 2026-07-28).
                         if (item.is_none()) { continue; }
                         const auto index = nb::cast<std::int64_t>(key);
-                        Value child_delta = py_to_delta(item, ts->element_ts());
+                        Value child_delta = py_to_delta_impl(item, ts->element_ts(), authored);
                         if (!child_delta.has_value()) { continue; }
                         builder.set_item_copy(std::addressof(index), child_delta.view().data());
                     }
@@ -957,7 +1039,7 @@ namespace hgraph::python_bridge
                 {
                     if (!item.is_none())
                     {
-                        Value child_delta = py_to_delta(item, ts->element_ts());
+                        Value child_delta = py_to_delta_impl(item, ts->element_ts(), authored);
                         if (!child_delta.has_value())
                         {
                             ++index;
@@ -970,7 +1052,8 @@ namespace hgraph::python_bridge
                 return builder.build();
             }
             case TSTypeKind::TSB: {
-                BundleBuilder builder{delta_binding(ts->authored_delta_schema)};
+                BundleBuilder builder{
+                    delta_binding(authored ? ts->authored_delta_schema : ts->delta_value_schema)};
                 const bool is_mapping = nb::isinstance<nb::dict>(object);
                 nb::dict fields;
                 if (is_mapping)
@@ -1004,7 +1087,7 @@ namespace hgraph::python_bridge
                                           ? nb::borrow<nb::object>(fields[key])
                                           : nb::getattr(object, key);
                     if (item.is_none()) { continue; }
-                    Value child_delta = py_to_delta(item, field.type);
+                    Value child_delta = py_to_delta_impl(item, field.type, authored);
                     if (!child_delta.has_value()) { continue; }
                     builder.set(index, child_delta.view());
                 }
@@ -1014,6 +1097,17 @@ namespace hgraph::python_bridge
                 return py_to_value_as(object, ts->delta_value_schema);
         }
     }
+
+    Value py_to_delta(nb::handle object, const TSValueTypeMetaData *ts)
+    {
+        // The observed schema is the default; the authored one is an
+        // ESCALATION, taken only when the caller actually asserts strict
+        // intent. Producing it unconditionally would push a three-field TSD
+        // delta into every observed-typed slot - feedback initial values, push
+        // queues, recordings - none of which want it.
+        return py_to_delta_impl(object, ts, py_delta_expresses_strict_removal(object, ts));
+    }
+
 }  // namespace hgraph::python_bridge
 
 std::size_t std::hash<hgraph::python_bridge::PyObj>::operator()(

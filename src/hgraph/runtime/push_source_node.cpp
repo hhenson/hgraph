@@ -48,41 +48,29 @@ namespace hgraph
 
         struct PushSourcePolicyContext
         {
+            /** The OBSERVED delta schema; what ``sender_schema()`` reports. */
             const ValueTypeMetaData *sender_schema{nullptr};
+            /** The AUTHORED counterpart, equal to ``sender_schema`` unless the
+                output contains a ``TSD`` (see ``authored_delta_schema``). */
+            const ValueTypeMetaData *authored_schema{nullptr};
         };
 
 
         /**
          * A pushed delta may be OBSERVED or AUTHORED.
          *
-         * Python pushes go through ``py_to_delta``, which produces the
-         * authored shape so a caller can express ``{key: REMOVE}``; C++ senders
-         * build the leaner observed shape. The authored form is the observed
-         * one plus a trailing ``removed_strict``, and ``apply_delta`` already
-         * accepts either, so the queue does too rather than forcing every C++
-         * sender to carry a field it never fills.
+         * ``py_to_delta`` escalates to the authored shape only when the caller
+         * actually expresses strict intent, so an ordinary push matches
+         * ``sender_schema`` exactly. A ``{key: REMOVE}`` push arrives on the
+         * authored schema, which ``apply_delta`` already accepts - and which
+         * may differ from the observed one at ANY depth (a ``TSL`` of ``TSD``
+         * escalates its element type), so this compares whole schemas rather
+         * than inspecting the top-level fields.
          */
-        [[nodiscard]] bool push_value_schema_acceptable(const ValueTypeMetaData &sender,
+        [[nodiscard]] bool push_value_schema_acceptable(const PushSourcePolicyContext &context,
                                                         const ValueTypeMetaData &value) noexcept
         {
-            if (&sender == &value) { return true; }
-            if (sender.value_kind() != ValueTypeKind::Bundle ||
-                value.value_kind() != ValueTypeKind::Bundle ||
-                value.field_count != sender.field_count + 1)
-            {
-                return false;
-            }
-            for (std::size_t i = 0; i < sender.field_count; ++i)
-            {
-                if (value.fields[i].type != sender.fields[i].type) { return false; }
-                const std::string_view lhs =
-                    sender.fields[i].name != nullptr ? std::string_view{sender.fields[i].name} : std::string_view{};
-                const std::string_view rhs =
-                    value.fields[i].name != nullptr ? std::string_view{value.fields[i].name} : std::string_view{};
-                if (lhs != rhs) { return false; }
-            }
-            const auto *extra = value.fields[sender.field_count].name;
-            return extra != nullptr && std::string_view{extra} == "removed_strict";
+            return context.sender_schema == &value || context.authored_schema == &value;
         }
 
         struct QueuePolicyStorage
@@ -111,7 +99,7 @@ namespace hgraph
                 }
                 const auto &value_schema = *value.schema();
                 if (context.sender_schema == nullptr ||
-                    !push_value_schema_acceptable(*context.sender_schema, value_schema))
+                    !push_value_schema_acceptable(context, value_schema))
                 {
                     throw std::invalid_argument(
                         "PushSourceSender value schema does not match the push-source sender schema");
@@ -178,7 +166,7 @@ namespace hgraph
                 }
                 const auto &value_schema = *value.schema();
                 if (context.sender_schema == nullptr ||
-                    !push_value_schema_acceptable(*context.sender_schema, value_schema))
+                    !push_value_schema_acceptable(context, value_schema))
                 {
                     throw std::invalid_argument(
                         "PushSourceSender value schema does not match the push-source sender schema");
@@ -289,10 +277,12 @@ namespace hgraph
         }
 
         [[nodiscard]] const detail::PushSourcePolicyContext &register_policy_context(
-            const ValueTypeMetaData &sender_schema)
+            const ValueTypeMetaData &sender_schema, const ValueTypeMetaData *authored_schema)
         {
             auto context = std::make_unique<detail::PushSourcePolicyContext>(
-                detail::PushSourcePolicyContext{.sender_schema = &sender_schema});
+                detail::PushSourcePolicyContext{
+                    .sender_schema  = &sender_schema,
+                    .authored_schema = authored_schema != nullptr ? authored_schema : &sender_schema});
             const auto *result = context.get();
             policy_contexts().push_back(std::move(context));
             return *result;
@@ -498,11 +488,12 @@ namespace hgraph
         }
 
         [[nodiscard]] PushSourcePolicy make_policy(const detail::PushSourcePolicyOps &ops,
-                                                   const ValueTypeMetaData &sender_schema)
+                                                   const ValueTypeMetaData &sender_schema,
+                                                   const ValueTypeMetaData *authored_schema)
         {
             return detail::PushSourcePolicyAccess::make_policy(
                 &ops,
-                &register_policy_context(sender_schema));
+                &register_policy_context(sender_schema, authored_schema));
         }
     }  // namespace
 
@@ -623,24 +614,43 @@ namespace hgraph
     PushSourcePolicy make_push_source_policy(PushSourcePolicyKind kind,
                                              const ValueTypeMetaData &sender_schema)
     {
+        return make_push_source_policy(kind, sender_schema, nullptr);
+    }
+
+    PushSourcePolicy make_push_source_policy(PushSourcePolicyKind kind,
+                                             const ValueTypeMetaData &sender_schema,
+                                             const ValueTypeMetaData *authored_schema)
+    {
         switch (kind)
         {
             case PushSourcePolicyKind::Queue:
-                return make_policy(queue_policy_ops(), sender_schema);
+                return make_policy(queue_policy_ops(), sender_schema, authored_schema);
             case PushSourcePolicyKind::Conflating:
-                return make_policy(conflating_policy_ops(), sender_schema);
+                return make_policy(conflating_policy_ops(), sender_schema, authored_schema);
         }
         throw std::invalid_argument("Unknown push-source policy kind");
     }
 
     PushSourcePolicy make_push_source_queue_policy(const ValueTypeMetaData &sender_schema)
     {
-        return make_push_source_policy(PushSourcePolicyKind::Queue, sender_schema);
+        return make_push_source_policy(PushSourcePolicyKind::Queue, sender_schema, nullptr);
+    }
+
+    PushSourcePolicy make_push_source_queue_policy(const TSValueTypeMetaData &output_schema)
+    {
+        return make_push_source_policy(PushSourcePolicyKind::Queue, *output_schema.delta_value_schema,
+                                       output_schema.authored_delta_schema);
     }
 
     PushSourcePolicy make_push_source_conflating_policy(const ValueTypeMetaData &sender_schema)
     {
-        return make_push_source_policy(PushSourcePolicyKind::Conflating, sender_schema);
+        return make_push_source_policy(PushSourcePolicyKind::Conflating, sender_schema, nullptr);
+    }
+
+    PushSourcePolicy make_push_source_conflating_policy(const TSValueTypeMetaData &output_schema)
+    {
+        return make_push_source_policy(PushSourcePolicyKind::Conflating, *output_schema.delta_value_schema,
+                                       output_schema.authored_delta_schema);
     }
 
     namespace
@@ -713,7 +723,7 @@ namespace hgraph
     {
         return make_push_source_node(
             output_schema,
-            make_push_source_queue_policy(*output_schema.delta_value_schema),
+            make_push_source_queue_policy(output_schema),
             std::move(on_start),
             false);
     }
@@ -735,7 +745,7 @@ namespace hgraph
     {
         return make_simulation_capable_push_source_node(
             output_schema,
-            make_push_source_queue_policy(*output_schema.delta_value_schema),
+            make_push_source_queue_policy(output_schema),
             std::move(on_start),
             false);
     }

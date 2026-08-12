@@ -414,8 +414,8 @@ namespace hgraph::python_bridge
             ensure_open();
             auto slot     = std::make_shared<PySenderSlot>();
             slot->schema  = ts_type.meta;
-            auto policy   = conflate ? make_push_source_conflating_policy(*ts_type.meta->delta_value_schema)
-                                     : make_push_source_queue_policy(*ts_type.meta->delta_value_schema);
+            auto policy   = conflate ? make_push_source_conflating_policy(*ts_type.meta)
+                                     : make_push_source_queue_policy(*ts_type.meta);
             NodeBuilder builder = make_push_source_node(
                 *ts_type.meta, std::move(policy), [slot, on_start](PushSourceSender sender) {
                     slot->sender = std::move(sender);

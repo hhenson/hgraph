@@ -126,6 +126,21 @@ namespace hgraph
         const ValueTypeMetaData &sender_schema);
 
     /**
+     * Prefer these: taking the time-series meta lets the queue accept both the
+     * observed delta and its authored counterpart (a ``{key: REMOVE}`` push),
+     * which the ``ValueTypeMetaData`` overloads cannot know about.
+     */
+    [[nodiscard]] HGRAPH_EXPORT PushSourcePolicy make_push_source_policy(
+        PushSourcePolicyKind kind, const ValueTypeMetaData &sender_schema,
+        const ValueTypeMetaData *authored_schema);
+
+    [[nodiscard]] HGRAPH_EXPORT PushSourcePolicy make_push_source_queue_policy(
+        const TSValueTypeMetaData &output_schema);
+
+    [[nodiscard]] HGRAPH_EXPORT PushSourcePolicy make_push_source_conflating_policy(
+        const TSValueTypeMetaData &output_schema);
+
+    /**
      * Build a root push-source node for ``output_schema``.
      *
      * The node owns policy-selected push storage. ``on_start`` is invoked with
