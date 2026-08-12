@@ -342,6 +342,24 @@ def test_feedback_active_consumption_with_explicit_end():
     check(out == [1, 3, 6, 9], f"feedback: {out}")
 
 
+def test_feedback_accepts_a_python_dataclass_default():
+    @dataclass(frozen=True)
+    class FeedbackState:
+        count: int
+
+    @graph
+    def delayed(value: TS[FeedbackState]) -> TS[FeedbackState]:
+        fb = hg.feedback(TS[FeedbackState], default=FeedbackState(0))
+        fb(value)
+        return fb()
+
+    out = eval_node(delayed, [FeedbackState(1), FeedbackState(2)])
+    check(
+        out == [FeedbackState(0), FeedbackState(1), FeedbackState(2)],
+        f"dataclass feedback: {out}",
+    )
+
+
 def test_python_graph_fns_in_higher_order_operators():
     # Python @graph callables erase into WiredFn values (the type-erased
     # context+ops backend): map_/switch_ COMPILE them as C++ sub-graphs,

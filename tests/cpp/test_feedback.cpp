@@ -1,6 +1,8 @@
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/types/value/compact_container_ops.h>
+#include <hgraph/types/value/value_builder.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -8,6 +10,18 @@ namespace
 {
     using namespace hgraph;
     using namespace hgraph::testing;
+
+    [[nodiscard]] Value immutable_int_tuple()
+    {
+        const auto *meta = scalar_descriptor<HomogeneousTuple<Int>>::value_meta();
+        const auto binding =
+            ValuePlanFactory::instance().type_for(scalar_descriptor<Int>::value_meta());
+        ListBuilder builder{binding};
+        builder.push_back(Int{1});
+        builder.push_back(Int{2});
+        ListStorage storage = builder.build_storage();
+        return Value{compact_list_type(binding, *meta), &storage};
+    }
 
     struct AddInts
     {
@@ -41,6 +55,16 @@ namespace
         {
             auto feedback = stdlib::feedback<TS<Int>>(w);
             feedback(value);
+            return feedback();
+        }
+    };
+
+    struct ImmutableDefaultFeedbackGraph
+    {
+        static Port<TS<HomogeneousTuple<Int>>> compose(Wiring &w)
+        {
+            auto feedback = stdlib::feedback<TS<HomogeneousTuple<Int>>>(
+                w, immutable_int_tuple());
             return feedback();
         }
     };
@@ -101,6 +125,13 @@ TEST_CASE("stdlib feedback without a default is initially silent")
     CHECK_OUTPUT(hgraph::testing::eval_node<NoDefaultFeedbackGraph>(
                      hgraph::testing::values<hgraph::Int>(7, 11)),
                  hgraph::testing::values<hgraph::Int>(hgraph::testing::none, 7, 11));
+}
+
+TEST_CASE("stdlib feedback accepts an immutable compact initial value")
+{
+    CHECK_OUTPUT(hgraph::testing::eval_node<ImmutableDefaultFeedbackGraph>(),
+                 hgraph::testing::values<hgraph::Value>(
+                     immutable_int_tuple()));
 }
 
 TEST_CASE("stdlib feedback supports canonical Fibonacci-style wiring")
