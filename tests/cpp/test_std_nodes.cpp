@@ -327,12 +327,10 @@ namespace
             const Value union_key = make_polymorphic_union(schemas, leaf);
             static_cast<void>(removed_builder.insert_copy(union_key.view().data()));
         }
-        SetBuilder removed_strict_builder{key};
         BundleBuilder delta{
             schemas.realization->type_for(schemas.tsd->delta_value_schema)};
         delta.set("removed", removed_builder.build());
         delta.set("modified", modified_builder.build());
-        delta.set("removed_strict", removed_strict_builder.build());
         return delta.build();
     }
 

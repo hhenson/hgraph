@@ -891,7 +891,8 @@ namespace hgraph::python_bridge
                 const auto *child    = ts->element_ts();
                 SetBuilder  removed{delta_binding(key_meta)};
                 SetBuilder  removed_strict{delta_binding(key_meta)};
-                MapBuilder  modified{delta_binding(key_meta), delta_binding(child->delta_value_schema)};
+                MapBuilder  modified{delta_binding(key_meta),
+                                     delta_binding(child->authored_delta_schema)};
                 bool        saw_item     = false;
                 bool        saw_non_none = false;
                 for (auto [key, item] : nb::cast<nb::dict>(object))
@@ -925,14 +926,17 @@ namespace hgraph::python_bridge
                 // Keep {} distinct because it explicitly validates a fresh
                 // TSD as an empty collection.
                 if (saw_item && !saw_non_none) { return Value{*ts->delta_value_schema}; }
-                BundleBuilder bundle{delta_binding(ts->delta_value_schema)};
+                // A Python dict is AUTHORED: it may assert strict removals,
+                // so it targets ``authored_delta_schema``. ``apply_delta``
+                // accepts that as well as the observed two-field shape.
+                BundleBuilder bundle{delta_binding(ts->authored_delta_schema)};
                 bundle.set("removed", removed.build());
                 bundle.set("modified", modified.build());
                 bundle.set("removed_strict", removed_strict.build());
                 return bundle.build();
             }
             case TSTypeKind::TSL: {
-                const auto *map_meta = ts->delta_value_schema;
+                const auto *map_meta = ts->authored_delta_schema;
                 MapBuilder  builder{delta_binding(map_meta->key_type), delta_binding(map_meta->element_type)};
                 if (nb::isinstance<nb::dict>(object))
                 {
@@ -966,7 +970,7 @@ namespace hgraph::python_bridge
                 return builder.build();
             }
             case TSTypeKind::TSB: {
-                BundleBuilder builder{delta_binding(ts->delta_value_schema)};
+                BundleBuilder builder{delta_binding(ts->authored_delta_schema)};
                 const bool is_mapping = nb::isinstance<nb::dict>(object);
                 nb::dict fields;
                 if (is_mapping)

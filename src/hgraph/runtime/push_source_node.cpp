@@ -51,6 +51,40 @@ namespace hgraph
             const ValueTypeMetaData *sender_schema{nullptr};
         };
 
+
+        /**
+         * A pushed delta may be OBSERVED or AUTHORED.
+         *
+         * Python pushes go through ``py_to_delta``, which produces the
+         * authored shape so a caller can express ``{key: REMOVE}``; C++ senders
+         * build the leaner observed shape. The authored form is the observed
+         * one plus a trailing ``removed_strict``, and ``apply_delta`` already
+         * accepts either, so the queue does too rather than forcing every C++
+         * sender to carry a field it never fills.
+         */
+        [[nodiscard]] bool push_value_schema_acceptable(const ValueTypeMetaData &sender,
+                                                        const ValueTypeMetaData &value) noexcept
+        {
+            if (&sender == &value) { return true; }
+            if (sender.value_kind() != ValueTypeKind::Bundle ||
+                value.value_kind() != ValueTypeKind::Bundle ||
+                value.field_count != sender.field_count + 1)
+            {
+                return false;
+            }
+            for (std::size_t i = 0; i < sender.field_count; ++i)
+            {
+                if (value.fields[i].type != sender.fields[i].type) { return false; }
+                const std::string_view lhs =
+                    sender.fields[i].name != nullptr ? std::string_view{sender.fields[i].name} : std::string_view{};
+                const std::string_view rhs =
+                    value.fields[i].name != nullptr ? std::string_view{value.fields[i].name} : std::string_view{};
+                if (lhs != rhs) { return false; }
+            }
+            const auto *extra = value.fields[sender.field_count].name;
+            return extra != nullptr && std::string_view{extra} == "removed_strict";
+        }
+
         struct QueuePolicyStorage
         {
             void start()
@@ -76,7 +110,8 @@ namespace hgraph
                     throw std::invalid_argument("PushSourceSender requires a live value payload");
                 }
                 const auto &value_schema = *value.schema();
-                if (&value_schema != context.sender_schema)
+                if (context.sender_schema == nullptr ||
+                    !push_value_schema_acceptable(*context.sender_schema, value_schema))
                 {
                     throw std::invalid_argument(
                         "PushSourceSender value schema does not match the push-source sender schema");
@@ -142,7 +177,8 @@ namespace hgraph
                     throw std::invalid_argument("PushSourceSender requires a live value payload");
                 }
                 const auto &value_schema = *value.schema();
-                if (&value_schema != context.sender_schema)
+                if (context.sender_schema == nullptr ||
+                    !push_value_schema_acceptable(*context.sender_schema, value_schema))
                 {
                     throw std::invalid_argument(
                         "PushSourceSender value schema does not match the push-source sender schema");

@@ -1861,13 +1861,27 @@ namespace hgraph
                     const ValueTypeMetaData *value_delta = value_ts->delta_value_schema;
                     const ValueTypeMetaData *delta_map   = map(key, value_delta);
                     const ValueTypeMetaData *removed_set = set(key);
-                    // "removed" applies leniently (internal replication: capture,
-                    // conflation, replay). "removed_strict" carries USER-authored
+                    // An OBSERVED delta is {removed, modified}: "removed"
+                    // applies leniently, and "modified" carries both new and
+                    // updated entries. This is what capture produces and what
+                    // replication, replay and the wire codec (RFC 0017) carry.
+                    meta.delta_value_schema =
+                        un_named_bundle({{"removed", removed_set}, {"modified", delta_map}});
+                    // An AUTHORED delta may additionally assert intent about
+                    // the target: "removed_strict" carries user-authored
                     // REMOVE keys, which must raise when absent (hgraph's
-                    // REMOVE vs REMOVE_IF_EXISTS contract); only the Python
-                    // dict conversion populates it.
-                    meta.delta_value_schema = un_named_bundle(
-                        {{"removed", removed_set}, {"modified", delta_map},
+                    // REMOVE vs REMOVE_IF_EXISTS contract). Only the Python
+                    // dict conversion produces it — "strict" is an expectation
+                    // the author holds, never something a time series did, so
+                    // it must not escape into the observed delta.
+                    // Authored deltas nest: `{k1: {k2: REMOVE}}` is legal, so
+                    // the modified map carries the child's AUTHORED shape.
+                    const ValueTypeMetaData *authored_map =
+                        map(key, value_ts->authored_delta_schema != nullptr
+                                     ? value_ts->authored_delta_schema
+                                     : value_delta);
+                    meta.authored_delta_schema = un_named_bundle(
+                        {{"removed", removed_set}, {"modified", authored_map},
                          {"removed_strict", removed_set}});
                 }
                 break;
@@ -1881,6 +1895,12 @@ namespace hgraph
                     const ValueTypeMetaData *index_type    = register_scalar<Int>("int");
                     const ValueTypeMetaData *element_delta = element_ts->delta_value_schema;
                     meta.delta_value_schema                = map(index_type, element_delta);
+                    // Only differs when a descendant is a TSD (strict removal).
+                    if (element_ts->authored_delta_schema != nullptr &&
+                        element_ts->authored_delta_schema != element_delta)
+                    {
+                        meta.authored_delta_schema = map(index_type, element_ts->authored_delta_schema);
+                    }
                 }
                 break;
             }
@@ -1898,10 +1918,28 @@ namespace hgraph
                                               field.type ? field.type->delta_value_schema : nullptr);
                 }
                 meta.delta_value_schema = un_named_bundle(delta_fields);
+
+                std::vector<std::pair<std::string, const ValueTypeMetaData *>> authored_fields;
+                authored_fields.reserve(meta.field_count());
+                bool authored_differs = false;
+                for (size_t i = 0; i < meta.field_count(); ++i)
+                {
+                    const TSFieldMetaData   &field    = meta.fields()[i];
+                    const ValueTypeMetaData *authored =
+                        field.type != nullptr ? field.type->authored_delta_schema : nullptr;
+                    if (authored == nullptr) { authored = delta_fields[i].second; }
+                    if (authored != delta_fields[i].second) { authored_differs = true; }
+                    authored_fields.emplace_back(delta_fields[i].first, authored);
+                }
+                if (authored_differs) { meta.authored_delta_schema = un_named_bundle(authored_fields); }
                 break;
             }
 
         }
+
+        // Only TSD distinguishes the two directions; for every other kind an
+        // authored delta and an observed one have the same shape.
+        if (meta.authored_delta_schema == nullptr) { meta.authored_delta_schema = meta.delta_value_schema; }
     }
 
     bool TypeRegistry::contains_ref(const TSValueTypeMetaData *meta)

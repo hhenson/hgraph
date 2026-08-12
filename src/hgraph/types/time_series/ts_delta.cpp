@@ -1,6 +1,5 @@
 #include <hgraph/types/time_series/ts_delta.h>
 
-#include <hgraph/types/time_series/ts_data/empty_delta_fields.h>
 
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
@@ -352,12 +351,10 @@ namespace hgraph
             const ValueTypeRef delta_binding =
                 binding_for(schema->element_ts()->delta_value_schema, "empty_delta_tsd");
             SetBuilder    removed{key_binding};
-            SetBuilder    removed_strict{key_binding};
             MapBuilder    modified{key_binding, delta_binding};
             BundleBuilder bundle{binding_for(schema->delta_value_schema, "empty_delta_tsd")};
             bundle.set("removed", removed.build());
             bundle.set("modified", modified.build());
-            bundle.set("removed_strict", removed_strict.build());
             return bundle.build();
         }
 
@@ -492,19 +489,17 @@ namespace hgraph
                     owned_key.data(), stored_delta.view().data());
             }
 
-            SetBuilder removed_strict{key_binding};   // captures never carry strict removals
+            // No strict removals: a capture reports what happened, and
+            // "strict" is an expectation an author holds about the target.
             Value removed_delta = removed.build();
             Value modified_delta = modified.build();
-            Value removed_strict_delta = removed_strict.build();
-            const std::array field_bindings{removed_delta.binding(), modified_delta.binding(),
-                                            removed_strict_delta.binding()};
+            const std::array field_bindings{removed_delta.binding(), modified_delta.binding()};
             const auto bundle_binding = ValuePlanFactory::instance().realized_composite_type_for(
                 in.schema()->delta_value_schema,
                 field_bindings);
             BundleBuilder bundle{bundle_binding};
             bundle.set("removed", std::move(removed_delta));
             bundle.set("modified", std::move(modified_delta));
-            bundle.set("removed_strict", std::move(removed_strict_delta));
             return bundle.build();
         }
 
@@ -575,8 +570,11 @@ namespace hgraph
             if (!delta.has_value()) { return false; }
             const auto bundle = delta.as_bundle();
             const auto modified       = bundle.field("modified").as_map();
-            const auto removed_strict = bundle.field("removed_strict").as_indexed_view();
-            if (modified.size() != 0 || removed_strict.size() != 0)
+            if (modified.size() != 0) { return true; }
+            // Only an AUTHORED delta carries strict removals; an observed one
+            // has no such field.
+            if (bundle.has_field("removed_strict") &&
+                bundle.field("removed_strict").as_indexed_view().size() != 0)
             {
                 return true;
             }
@@ -667,14 +665,18 @@ namespace hgraph
 
             // User-authored REMOVE keys (hgraph contract): removing an absent
             // key is an error; REMOVE_IF_EXISTS / captured removals travel in
-            // the lenient "removed" set above.
-            const auto removed_strict = bundle.field("removed_strict").as_indexed_view();
-            for (std::size_t i = 0; i < removed_strict.size(); ++i)
+            // the lenient "removed" set above. Present only on an AUTHORED
+            // delta (``authored_delta_schema``) — apply accepts either shape.
+            if (bundle.has_field("removed_strict"))
             {
-                if (!mutation.erase(removed_strict.at(i)))
+                const auto removed_strict = bundle.field("removed_strict").as_indexed_view();
+                for (std::size_t i = 0; i < removed_strict.size(); ++i)
                 {
-                    throw std::runtime_error(
-                        "REMOVE: key not present in TSD (use REMOVE_IF_EXISTS to remove-if-present)");
+                    if (!mutation.erase(removed_strict.at(i)))
+                    {
+                        throw std::runtime_error(
+                            "REMOVE: key not present in TSD (use REMOVE_IF_EXISTS to remove-if-present)");
+                    }
                 }
             }
 
@@ -758,7 +760,6 @@ namespace hgraph
                     element_schema->delta_value_schema, "capture_current_delta");
 
                 SetBuilder removed{key_binding};
-                SetBuilder removed_strict{key_binding};
                 MapBuilder modified{key_binding, delta_binding};
                 const auto dict = in.as_dict();
                 for (const auto &[key, child] : dict.valid_items())
@@ -784,16 +785,13 @@ namespace hgraph
 
                 Value removed_delta = removed.build();
                 Value modified_delta = modified.build();
-                Value removed_strict_delta = removed_strict.build();
                 const std::array field_bindings{
-                    removed_delta.binding(), modified_delta.binding(),
-                    removed_strict_delta.binding()};
+                    removed_delta.binding(), modified_delta.binding()};
                 const auto bundle_binding = ValuePlanFactory::instance().realized_composite_type_for(
                     schema.delta_value_schema, field_bindings);
                 BundleBuilder bundle{bundle_binding};
                 bundle.set("removed", std::move(removed_delta));
                 bundle.set("modified", std::move(modified_delta));
-                bundle.set("removed_strict", std::move(removed_strict_delta));
                 return bundle.build();
             }
             case TSTypeKind::TSL:
@@ -874,49 +872,3 @@ namespace hgraph
     }
 }  // namespace hgraph
 
-namespace hgraph::ts_data_detail
-{
-    namespace
-    {
-        struct EmptySetRegistry
-        {
-            std::mutex                                              mutex;
-            ankerl::unordered_dense::map<const ValueTypeMetaData *, std::unique_ptr<Value>> values;
-        };
-
-        // Leaked (immortal): never destroyed at static teardown — the Values
-        // inside are destroyed ONLY via clear_interned_empty_sets(), which
-        // registry reset orders BEFORE the common type records are cleared.
-        EmptySetRegistry &empty_set_registry() noexcept
-        {
-            static auto *registry = new EmptySetRegistry{};
-            return *registry;
-        }
-    }  // namespace
-
-    const Value *interned_empty_set(const ValueTypeMetaData *key_meta)
-    {
-        if (key_meta == nullptr) { throw std::logic_error("interned_empty_set requires a key schema"); }
-        auto &registry = empty_set_registry();
-        std::lock_guard lock{registry.mutex};   // build-time machinery: mutex sanctioned
-        auto it = registry.values.find(key_meta);
-        if (it == registry.values.end())
-        {
-            const auto key_binding = ValuePlanFactory::instance().type_for(key_meta);
-            if (key_binding == nullptr)
-            {
-                throw std::logic_error("interned_empty_set could not resolve the key binding");
-            }
-            SetBuilder builder{key_binding};
-            it = registry.values.emplace(key_meta, std::make_unique<Value>(builder.build())).first;
-        }
-        return it->second.get();
-    }
-
-    void clear_interned_empty_sets() noexcept
-    {
-        auto &registry = empty_set_registry();
-        std::lock_guard lock{registry.mutex};
-        registry.values.clear();
-    }
-}  // namespace hgraph::ts_data_detail

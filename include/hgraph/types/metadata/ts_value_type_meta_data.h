@@ -232,6 +232,30 @@ namespace hgraph
          */
         const ValueTypeMetaData *delta_value_schema{nullptr};
 
+        /**
+         * Value-layer schema a **user may author** to apply to this
+         * time-series — the intent side of the boundary, as against
+         * ``delta_value_schema``, which is what an observation produces.
+         *
+         * Equal to ``delta_value_schema`` for every kind except ``TSD``,
+         * which adds a third field:
+         *
+         * - ``TSD<K, V>`` — ``Bundle{removed, modified, removed_strict}``
+         *
+         * ``removed_strict`` carries user-authored ``REMOVE`` keys, which
+         * must raise when the key is absent, as against the lenient
+         * ``REMOVE_IF_EXISTS`` travelling in ``removed``. Only the Python
+         * dict conversion produces it; a capture never can, because "strict"
+         * is an expectation the author asserts about the target rather than
+         * something that happened to a time series.
+         *
+         * ``apply_delta`` accepts either schema. Everything that transports
+         * or stores an observed delta — record/replay, the projections, and
+         * the codec of RFC 0017 — uses ``delta_value_schema`` and never sees
+         * this one.
+         */
+        const ValueTypeMetaData *authored_delta_schema{nullptr};
+
         /** Registry-owned canonical diagnostic label. */
         [[nodiscard]] constexpr std::string_view name() const noexcept
         {

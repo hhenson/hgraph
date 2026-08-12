@@ -202,12 +202,10 @@ namespace
             const Value key = make_push_union(schemas, leaf);
             static_cast<void>(removed_builder.insert_copy(key.view().data()));
         }
-        SetBuilder removed_strict_builder{key_binding};
         BundleBuilder delta{
             schemas.realization->type_for(schemas.dict->delta_value_schema)};
         delta.set("removed", removed_builder.build());
         delta.set("modified", modified_builder.build());
-        delta.set("removed_strict", removed_strict_builder.build());
         return delta.build();
     }
 }  // namespace
