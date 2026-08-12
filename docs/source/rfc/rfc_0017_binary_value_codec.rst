@@ -328,6 +328,79 @@ optimisation is guarded rather than trusted: a conformance test requires the
 fast path to produce **byte-identical** output to the field-wise path for every
 eligible schema, so the two cannot drift.
 
+Indexing by position, not by name
+---------------------------------
+
+Both keyed structures encode by an integer index rather than by the key or name
+itself. This is where most of the size saving is, and it is also what makes a
+recovered graph identical to the one that was persisted rather than merely
+equivalent.
+
+``TSD`` keys ride the slot model
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``KeySlotStore`` already assigns every ``TSD`` key a slot that is stable for
+the life of that ``TSD``, with a live / constructed / pending-erase lifecycle
+and free-listed reuse. The wire adopts it rather than inventing a per-stream
+dictionary:
+
+* an **image** is slot-indexed, carrying ``(slot, key, value)`` for live slots
+  and preserving the **holes** — reloading leaves them non-live and
+  non-constructed on the free list, so the receiver reconstructs the *same*
+  slot space rather than a compacted one;
+* a **delta** then addresses ``modified`` and ``removed`` by ``slot`` alone, so
+  a string-keyed ``TSD`` stops paying for its keys on every tick;
+* a key's bytes appear only where a slot first becomes live, as a
+  ``(slot, key)`` binding. That is exactly the ``TSS``/key-set shape, which is
+  why the key set is the one projection that must carry value **and** slot.
+
+Preserving holes is deliberate. Compacting on reload would produce a smaller
+image and a *different* graph: slot ids are identity, and anything holding one
+across a save/restore would silently rebind. The cost is that an image tracks
+peak cardinality rather than current — which is what the running graph already
+does, so the wire is not adding a property the runtime lacks.
+
+This also peers with the implementation instead of translating at the boundary:
+the encoder reads the slot the value already lives in, and the decoder writes
+into the slot it will live in, with no re-hashing on apply.
+
+``TSB`` fields are already positional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A bundle is encoded in declaration order with a presence bitmap and no field
+names, so it is index-keyed by construction. Nothing changes for it — but the
+consequence is the same one the slot model has, and it is worth stating
+plainly.
+
+Validation is not optional
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Positional encodings move correctness into the schema. A ``TSB`` whose fields
+were reordered, inserted into, or retyped reads a *well-formed* frame as the
+wrong values rather than failing; a ``TSD`` whose key type changed rebinds
+slots to different keys. Neither corrupts loudly.
+
+So descriptor equality is checked at **every** attach point, not only at a
+network handshake:
+
+* connect and reconnect, against the peer's descriptor;
+* opening a stored log, and loading a snapshot, against the reader's own
+  schema.
+
+A mismatch is an error. This is the reason the descriptor carries every
+wire-affecting flag and travels with stored data rather than being reduced to a
+digest: it is the artifact that makes a positional encoding safe.
+
+Recovering a running graph
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Reproducible slot ids are the step that takes this beyond persisting a data
+stream. If a restored ``TSD`` gives every key the slot it had, then slot-derived
+identity survives the restore and a graph can be brought back up in the state it
+was in, rather than in an equivalent-looking one. That is a larger piece of work
+and belongs in its own RFC; it is recorded here because it is the reason to
+preserve holes rather than compact, and that decision has to be made now.
+
 Schema identity
 ---------------
 
@@ -549,12 +622,23 @@ which transport a deployment chose.
 Unresolved questions
 --------------------
 
+* **Where the slot mapping comes from.** The codec's input is a ``Value``, but
+  the canonical ``TSD`` delta is key-indexed (settled in the prerequisite) and
+  carries no slots — the mapping lives in the live ``TSD``'s
+  ``KeySlotStore``. So a slot-indexed wire needs one of: the codec taking
+  ``(delta Value, live view)`` rather than a value alone, or a slot-aware
+  capture producing the wire shape directly.
+
+  The second looks better: ``capture_delta`` already reads the live input, so a
+  sibling that emits the slot-indexed form keeps the codec's input a single
+  ``Value`` and leaves the canonical key-indexed delta untouched for local use,
+  where slots would be noise. It does mean a time-series has a *third*
+  associated schema — canonical delta, value, and wire delta — which is worth
+  confirming before it is built.
+
 * **``Any`` in bound mode.** It carries per-instance schema identity, which a
   bound stream otherwise avoids. Descriptive-only, or a per-stream schema
   dictionary?
-* **Key dictionaries.** A ``TSD`` with string keys repeats them every frame. A
-  per-stream dictionary is an obvious win and an obvious complication; propose
-  deferring until measured.
 * **Big-endian hosts.** Proposal is a canonical little-endian wire with
   byte-swap on such a host. No big-endian platform is in CI or on the support
   matrix.
@@ -589,6 +673,15 @@ Acceptance criteria and test plan
   entry, so the distinction is pinned by test rather than by prose.
 * An image of a **partially valid** input round-trips with its UNSET children
   intact.
+* A ``TSD`` reloaded from an image assigns every key the slot it held, and its
+  holes come back as non-live, non-constructed free-list entries — so a delta
+  addressed by slot lands on the intended key.
+* A delta carries no key bytes for a key already bound; a newly live slot
+  carries its ``(slot, key)`` binding exactly once.
+* A descriptor mismatch is refused at every attach point — connect, reconnect,
+  log open and snapshot load — including the cases a positional encoding would
+  otherwise accept silently: a reordered ``TSB``, an inserted field, and a
+  changed ``TSD`` key type.
 * **Prerequisite:** the ``TSD`` observed delta schema is ``{removed,
   modified}``, with strict removal moved to a distinct mutation schema
   accepted by ``apply_delta``. A captured ``TSD`` delta encodes no
