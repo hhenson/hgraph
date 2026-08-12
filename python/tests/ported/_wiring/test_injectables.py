@@ -100,15 +100,22 @@ def test_node_self_injectable_is_native_and_call_scoped():
 
     @source.start
     def start(node: NODE = None):
-        phases.append(("start", node.started))
-        node.notify()
+        phases.append(("start", node.started, node.is_starting, node.is_stopping))
+        assert node.graph.is_starting
+        assert not node.graph.is_stopping
+        assert not hasattr(node, "notify")
 
     @source.stop
     def stop(node: NODE = None):
-        phases.append(("stop", node.started))
+        phases.append(("stop", node.started, node.is_starting, node.is_stopping))
+        assert node.graph.is_stopping
+        assert not node.graph.is_starting
 
     assert eval_node(source, [42]) == [42]
-    assert phases == [("start", False), ("stop", True)]
+    assert phases == [
+        ("start", False, True, False),
+        ("stop", True, False, True),
+    ]
     with pytest.raises(RuntimeError, match="outside its node's evaluation"):
         _ = retained[-1].node_id
 

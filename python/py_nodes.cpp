@@ -647,6 +647,15 @@ struct PyFastComputeStateRef {
     case 'g':
       call_args.append(runtime_global_state);
       break;
+    case 'h': {
+      GraphView graph = node.graph();
+      call_args.append(nb::cast(PyTraits{TraitsView{graph.pointer()}, lease}));
+      break;
+    }
+    case 'l':
+      call_args.append(nb::cast(PyLogger{
+          LoggerView{node.graph().logger(), node.pointer()}, lease}));
+      break;
     case 'n':
       call_args.append(nb::cast(PyNode{node.pointer(), scheduler, lease}));
       break;
@@ -802,6 +811,15 @@ void py_assemble_lifecycle_args(std::string_view layout,
       break;
     case 'g':
       call_args.append(runtime_global_state);
+      break;
+    case 'h': {
+      GraphView graph = node.graph();
+      call_args.append(nb::cast(PyTraits{TraitsView{graph.pointer()}, lease}));
+      break;
+    }
+    case 'l':
+      call_args.append(nb::cast(PyLogger{
+          LoggerView{node.graph().logger(), node.pointer()}, lease}));
       break;
     case 'n':
       call_args.append(nb::cast(PyNode{node.pointer(), scheduler, lease}));

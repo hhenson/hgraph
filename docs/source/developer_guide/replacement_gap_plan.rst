@@ -144,7 +144,9 @@ The executor now owns the run's shared spdlog logger. Root and nested graphs
 cache the same borrowed pointer, and ``LoggerView`` no longer reads a process
 global on the tick path. The Python bridge sink forwards native node, trace,
 and runner messages to the configured Python ``graph_logger``; Python-authored
-``LOGGER`` parameters use the same object from copied-in ``GlobalState``.
+``LOGGER`` parameters receive a guarded facade over the same native
+``LoggerView``. Logging no longer retrieves a Python object from copied-in
+``GlobalState``.
 ``default_log_level`` and ``logger_formatter`` apply to mixed graphs, with
 node paths supplied through the optional native ``ContextualLogger`` contract.
 

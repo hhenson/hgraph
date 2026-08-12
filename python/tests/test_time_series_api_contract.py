@@ -5,10 +5,9 @@ collection/window views.  These tests deliberately exercise the methods from
 inside Python node callbacks: a method present only in C++, or present in a
 stub but absent on the live callback object, does not satisfy this contract.
 
-Endpoint-topology and runtime-implementation hooks (binding, parenting,
-subscription and direct output traversal) are intentionally excluded.  They
-remain native runtime responsibilities, as documented in the compatibility
-deviations.
+Read-only parent and bound-peer topology is part of the diagnostic contract.
+Endpoint mutation, subscription control and ``REF.value.output`` traversal are
+intentionally excluded and remain native runtime responsibilities.
 """
 
 from __future__ import annotations
@@ -40,6 +39,7 @@ from hgraph import (
     TS_OUT,
     TimeSeriesSchema,
     WindowSize,
+    combine,
     compute_node,
     graph,
     to_window,
@@ -50,7 +50,10 @@ from hgraph.test import eval_node
 BASE_INPUT_API = {
     "active",
     "all_valid",
+    "bound",
     "delta_value",
+    "has_parent_input",
+    "has_peer",
     "is_reference",
     "last_modified_time",
     "make_active",
@@ -58,6 +61,8 @@ BASE_INPUT_API = {
     "modified",
     "owning_graph",
     "owning_node",
+    "output",
+    "parent_input",
     "valid",
     "value",
 }
@@ -107,6 +112,13 @@ TSW_API = {
     "value_times",
 }
 
+REFERENCE_TOKEN_API = {
+    "has_output",
+    "is_empty",
+    "is_valid",
+    "items",
+}
+
 BASE_OUTPUT_API = {
     "all_valid",
     "can_apply_result",
@@ -122,10 +134,72 @@ BASE_OUTPUT_API = {
     "value",
 }
 
+READ_ONLY_OUTPUT_API = (
+    (BASE_OUTPUT_API - {"can_apply_result", "clear", "invalidate"})
+    | ITERABLE_API
+    | TSD_API
+    | TSS_API
+    | TSW_API
+)
+
+ENDPOINT_MUTATION_API = {
+    "apply_result",
+    "bind_input",
+    "bind_output",
+    "copy_from_input",
+    "copy_from_output",
+    "do_bind_output",
+    "do_un_bind_output",
+    "parent_output",
+    "re_parent",
+    "subscribe",
+    "un_bind_output",
+    "unsubscribe",
+}
+
 
 def _assert_api(value, expected):
     missing = sorted(expected.difference(dir(value)))
     assert not missing, f"{type(value).__name__} is missing {missing}"
+
+
+def _declared_public_api(value):
+    return {name for name in value.__dict__ if not name.startswith("_")}
+
+
+def _assert_input_topology(value):
+    assert value.bound
+    assert value.has_peer
+    assert not value.has_parent_input
+    assert value.parent_input is None
+    assert isinstance(value.output, _hgraph.TimeSeriesOutput)
+    _assert_api(value.output, READ_ONLY_OUTPUT_API)
+    for name in ENDPOINT_MUTATION_API | {
+        "add",
+        "can_apply_result",
+        "clear",
+        "get_or_create",
+        "invalidate",
+        "pop",
+        "remove",
+    }:
+        assert not hasattr(value.output, name), name
+    for name in ENDPOINT_MUTATION_API:
+        assert not hasattr(value, name), name
+
+
+def _assert_read_only_output(value):
+    assert isinstance(value, _hgraph.TimeSeriesOutput)
+    for name in ENDPOINT_MUTATION_API | {
+        "add",
+        "can_apply_result",
+        "clear",
+        "get_or_create",
+        "invalidate",
+        "pop",
+        "remove",
+    }:
+        assert not hasattr(value, name), name
 
 
 @dataclass
@@ -138,6 +212,7 @@ def test_live_input_views_expose_the_complete_supported_api_inventory():
     @compute_node(valid=())
     def inspect_ts(value: TS[int]) -> TS[bool]:
         _assert_api(value, BASE_INPUT_API)
+        _assert_input_topology(value)
         assert not hasattr(value, "key_set")
         assert not hasattr(value, "size")
         assert not hasattr(value, "value_times")
@@ -146,11 +221,20 @@ def test_live_input_views_expose_the_complete_supported_api_inventory():
     @compute_node(valid=())
     def inspect_ref(value: REF[TS[int]]) -> TS[bool]:
         _assert_api(value, BASE_INPUT_API)
+        _assert_input_topology(value)
+        _assert_api(value.value, REFERENCE_TOKEN_API)
+        assert value.value.has_output
+        assert value.value.is_valid
+        assert not value.value.is_empty
+        # Returning the referenced output would expose mutable endpoint
+        # topology. This is a deliberate, permanent compatibility exclusion.
+        assert not hasattr(value.value, "output")
         return True
 
     @compute_node(valid=())
     def inspect_signal(value: SIGNAL) -> TS[bool]:
         _assert_api(value, BASE_INPUT_API)
+        _assert_input_topology(value)
         assert value.value is True
         assert value.delta_value is True
         return True
@@ -158,26 +242,56 @@ def test_live_input_views_expose_the_complete_supported_api_inventory():
     @compute_node(valid=())
     def inspect_tss(value: TSS[int]) -> TS[bool]:
         _assert_api(value, BASE_INPUT_API | TSS_API)
+        _assert_input_topology(value)
+        assert set(value.output.values()) == {1}
+        assert set(value.output.added()) == {1}
+        assert value.output.was_added(1)
         return True
 
     @compute_node(valid=())
     def inspect_tsd(value: TSD[str, TS[int]]) -> TS[bool]:
         _assert_api(value, BASE_INPUT_API | TSD_API)
+        _assert_input_topology(value)
+        peer = value.output
+        assert peer.keys() == ["a"]
+        child = peer.get("a")
+        _assert_read_only_output(child)
+        assert child.value == 1
+        assert peer.key_from_value(child) == "a"
+        assert peer.get("missing") is None
+        assert peer.key_set.values() == ["a"]
+        _assert_read_only_output(peer.key_set)
         return True
 
     @compute_node(valid=())
     def inspect_tsl(value: TSL[TS[int], Size[2]]) -> TS[bool]:
         _assert_api(value, BASE_INPUT_API | ITERABLE_API)
+        _assert_input_topology(value)
+        assert value.output.keys() == [0, 1]
+        child = value.output[0]
+        _assert_read_only_output(child)
+        assert child.value == 1
+        assert value.output.key_from_value(child) == 0
         return True
 
     @compute_node(valid=())
     def inspect_tsb(value: TSB[_ApiContractPair]) -> TS[bool]:
         _assert_api(value, BASE_INPUT_API | ITERABLE_API | {"as_schema"})
+        _assert_input_topology(value)
+        assert value.left.has_parent_input
+        assert value.left.parent_input.key_from_value(value.left) == "left"
+        assert value.left.bound and value.left.has_peer
+        assert isinstance(value.left.output, _hgraph.TimeSeriesOutput)
+        assert value.output.left.value == 1
+        _assert_read_only_output(value.output.left)
         return True
 
     @compute_node(valid=())
     def inspect_tsw(value: TSW[int, WindowSize[2], WindowSize[1]]) -> TS[bool]:
         _assert_api(value, BASE_INPUT_API | TSW_API)
+        _assert_input_topology(value)
+        assert isinstance(value.output.value_times, np.ndarray)
+        assert value.output.value_times.dtype == np.dtype("datetime64[us]")
         return True
 
     @graph
@@ -192,6 +306,25 @@ def test_live_input_views_expose_the_complete_supported_api_inventory():
     assert eval_node(inspect_tsl, [{0: 1}]) == [True]
     assert eval_node(inspect_tsb, [{"left": 1}]) == [True]
     assert eval_node(inspect_window, [1]) == [True]
+
+
+def test_compound_reference_exposes_items_but_never_output_traversal():
+    @compute_node
+    def inspect(value: REF[TSL[TS[int], Size[2]]]) -> TS[bool]:
+        reference = value.value
+        assert not reference.has_output
+        assert not hasattr(reference, "output")
+        assert len(reference) == 2
+        assert reference.items == tuple(reference)
+        assert reference[0] == reference.items[0]
+        assert all(item.has_output and item.is_valid for item in reference.items)
+        return True
+
+    @graph
+    def app(left: TS[int], right: TS[int]) -> TS[bool]:
+        return inspect(combine[TSL[TS[int], Size[2]]](left, right))
+
+    assert eval_node(app, [1], [2]) == [True]
 
 
 def test_live_output_views_expose_the_complete_supported_api_inventory():
@@ -837,6 +970,8 @@ def test_runtime_stub_declares_the_supported_time_series_contract():
 
     input_declaration = class_declaration("TimeSeries")
     output_declaration = class_declaration("OutputView")
+    read_only_output_declaration = class_declaration("TimeSeriesOutput")
+    reference_declaration = class_declaration("TimeSeriesRef")
     for name in sorted(BASE_INPUT_API | ITERABLE_API | TSD_API | TSS_API | TSW_API):
         assert f"def {name}(" in input_declaration, name
     for name in sorted(
@@ -848,6 +983,16 @@ def test_runtime_stub_declares_the_supported_time_series_contract():
         | {"get_or_create", "pop", "add", "remove"}
     ):
         assert f"def {name}(" in output_declaration, name
+    for name in sorted(REFERENCE_TOKEN_API):
+        assert f"def {name}(" in reference_declaration, name
+    for name in sorted(READ_ONLY_OUTPUT_API):
+        assert f"def {name}(" in read_only_output_declaration, name
+    for name in sorted(
+        ENDPOINT_MUTATION_API
+        | {"add", "can_apply_result", "clear", "get_or_create", "invalidate", "pop", "remove"}
+    ):
+        assert f"def {name}(" not in read_only_output_declaration, name
+    assert "def output(" not in reference_declaration
 
     assert "def size(self) -> int | datetime.timedelta:" in source
     assert "def min_size(self) -> int | datetime.timedelta:" in source
@@ -860,4 +1005,22 @@ def test_runtime_stub_declares_the_supported_time_series_contract():
     assert "def remove(self, value: object) -> bool:" in source
     assert "def key_from_value(self, value: TimeSeries) -> object | None:" in source
     assert "def key_from_value(self, value: OutputView) -> object | None:" in source
+    assert "def parent_input(self) -> TimeSeries | None:" in source
+    assert "def output(self) -> TimeSeriesOutput | None:" in input_declaration
+    assert "def items(self) -> tuple[TimeSeriesRef, ...]:" in reference_declaration
+    assert "def get(self, key: object) -> TimeSeriesOutput | None:" in source
+    assert (
+        "def key_from_value(self, value: TimeSeriesOutput) -> object | None:"
+        in source
+    )
     assert "def __setitem__(self, key: object, value: object) -> None:" in source
+
+
+def test_native_time_series_types_declare_only_the_supported_surface():
+    assert _declared_public_api(_hgraph.TimeSeries) == (
+        BASE_INPUT_API | ITERABLE_API | TSD_API | TSS_API | TSW_API | {"as_schema"}
+    )
+    assert _declared_public_api(_hgraph.TimeSeriesOutput) == (
+        READ_ONLY_OUTPUT_API | {"as_schema"}
+    )
+    assert _declared_public_api(_hgraph.TimeSeriesRef) == REFERENCE_TOKEN_API

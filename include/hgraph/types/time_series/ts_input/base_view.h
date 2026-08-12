@@ -106,6 +106,15 @@ namespace hgraph
         /** True when this view or a structural child was modified at the view's evaluation time. */
         [[nodiscard]] bool modified() const;
 
+        /**
+         * Read-only structural parent navigation for diagnostics.
+         *
+         * This follows input-side storage and target-path metadata only when
+         * queried. It never binds, subscribes, or mutates an endpoint.
+         */
+        [[nodiscard]] bool has_parent_input() const noexcept;
+        [[nodiscard]] TSInputView parent_input() const;
+
         [[nodiscard]] ValueView value() const;
         [[nodiscard]] ValueView delta_value() const;
 

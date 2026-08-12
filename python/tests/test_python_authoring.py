@@ -402,7 +402,7 @@ def test_compute_and_sink_active_inputs_and_scheduler_wakeup():
 
     @scheduled.start
     def scheduled_start(scheduler: hg.SCHEDULER = None):
-        scheduler.schedule_delta(hg.MIN_TD)
+        scheduler.schedule(hg.MIN_TD)
 
     check(eval_node(scheduled, [7]) == [None, 7], "scheduler wakes an input-passive node")
 
@@ -438,7 +438,7 @@ def test_compute_state_clock_scheduler_and_output_view():
         prior = _output.value if _output.valid else 0
         state.pending = value.value - prior
         state.started_at = getattr(state, "started_at", clock.evaluation_time)
-        scheduler.schedule_delta(hg.MIN_TD)
+        scheduler.schedule(hg.MIN_TD)
         return value.value
 
     check(eval_node(delayed_delta, [4]) == [4, 4], "state/scheduler/output injection")

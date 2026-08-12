@@ -630,7 +630,9 @@ void bind_ports(nb::module_ &m) {
       "An immutable runtime reference to another time-series output.\n\n"
       "Values of this type are produced by REF inputs. is_valid is evaluated "
       "at the cycle in which the reference value was observed; an empty "
-      "reference has no target output.")
+      "reference has no target output. Composite references expose their "
+      "read-only child references through items; target-output traversal is "
+      "deliberately not part of the Python API.")
       .def_prop_ro("is_empty",
                    [](const PyOpaqueRef &self) {
                      return self.value.view()
@@ -653,6 +655,48 @@ void bind_ports(nb::module_ &m) {
                        self.evaluation_time);
           },
           "Whether the referenced output is valid at the observation time.")
+      .def_prop_ro(
+          "items",
+          [](const PyOpaqueRef &self) -> nb::object {
+            const ValueView value = self.value.view();
+            const auto &reference =
+                value.checked_as<TimeSeriesReference>();
+            if (!reference.is_non_peered()) {
+              throw nb::attribute_error("items");
+            }
+            nb::list result;
+            for (const TimeSeriesReference &item : reference.items()) {
+              result.append(nb::cast(PyOpaqueRef{
+                  Value{item}, self.evaluation_time}));
+            }
+            return nb::steal(PyList_AsTuple(result.ptr()));
+          },
+          "The tuple of child references for a compound reference.")
+      .def(
+          "__getitem__",
+          [](const PyOpaqueRef &self, std::size_t index) {
+            const ValueView value = self.value.view();
+            const auto &reference =
+                value.checked_as<TimeSeriesReference>();
+            return PyOpaqueRef{Value{reference[index]}, self.evaluation_time};
+          },
+          nb::arg("index"))
+      .def(
+          "__len__",
+          [](const PyOpaqueRef &self) {
+            return self.value.view()
+                .checked_as<TimeSeriesReference>()
+                .items()
+                .size();
+          })
+      .def(
+          "__iter__",
+          [](nb::object self) {
+            nb::object items = self.attr("items");
+            PyObject *iterator = PyObject_GetIter(items.ptr());
+            if (iterator == nullptr) { nb::raise_python_error(); }
+            return nb::steal(iterator);
+          })
       .def("__eq__",
            [](const PyOpaqueRef &self, nb::handle other) {
              return nb::isinstance<PyOpaqueRef>(other) &&

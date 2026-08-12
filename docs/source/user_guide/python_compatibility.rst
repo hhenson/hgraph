@@ -74,6 +74,114 @@ supported 0.8 authoring surface.
      - Run through ``run_graph``/``evaluate_graph`` and control execution with
        ``SCHEDULER`` or ``EvaluationEngineApi``.
 
+Live runtime API baseline
+-------------------------
+
+The compatibility baseline is the public 0.5.41 surface, but runtime objects
+must be checked as live callback values rather than only as top-level Python
+classes. The 0.8 contract tests therefore inject and execute every supported
+runtime family:
+
+* all ``TS``, ``SIGNAL``, ``REF``, ``TSS``, ``TSD``, ``TSL``, ``TSB`` and
+  ``TSW`` input and output views, including their collection ranges, deltas,
+  child access and output mutation;
+* ``STATE``, ``RECORDABLE_STATE``, ``SCHEDULER``, ``CLOCK``,
+  ``EvaluationEngineApi``, ``GlobalState``, ``Traits``, ``LOGGER`` and
+  ``NODE`` injectables;
+* the read-only graph reached through ``NODE.graph``; and
+* ``CompoundScalar.to_dict()`` and ``CompoundScalar.from_dict()``.
+
+The same tests inspect the generated ``_hgraph.pyi`` declarations. This makes
+a method that exists in native code but is absent at runtime—or a runtime
+method whose typing signature is lost—a compatibility failure.
+
+The audit restored the complete 0.5 scheduler API
+(``next_scheduled_time``, ``is_scheduled``, ``is_scheduled_now``,
+``has_tag()``, ``pop_tag()``, ``schedule()``, ``un_schedule()`` and
+``reset()``), normal mapping methods on injected ``GlobalState``, read-only
+``Traits`` injection, the ``RECORDABLE_STATE.as_schema`` view, and guarded
+read-only runtime diagnostics for input topology, compound references, nodes
+and graphs. ``LOGGER`` is a narrow Python facade over the native run logger,
+not the configured Python logging sink itself.
+
+Established exclusions
+~~~~~~~~~~~~~~~~~~~~~~
+
+Two 0.5 members are deliberately outside the supported Python interface:
+
+* ``REF.value.output`` will not be supported. A reference token exposes only
+  the safe ``is_empty``, ``has_output`` and observation-time ``is_valid``
+  metadata, plus ``items`` for a compound reference. It never provides a path
+  to the live, mutable output endpoint. Express output access through wiring
+  or an explicit ``TS_OUT`` parameter.
+* ``NODE.notify()`` is not exposed. Use the injected ``SCHEDULER`` for
+  absolute, relative or tagged scheduling. The narrower
+  ``NODE.notify_next_cycle()`` convenience remains available.
+
+Both exclusions are asserted against live callback objects and the generated
+``_hgraph.pyi`` stub so they cannot be reintroduced accidentally.
+
+Read-only diagnostics and internal controls
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Python bridge exposes enough callback-scoped state to inspect a running
+graph in a debugger. These properties are resolved lazily when accessed and do
+not add work to the normal tick path. They return guarded read-only views;
+wiring, endpoint ownership, lifecycle and executor control remain native.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 27 36 37
+
+   * - 0.5 surface
+     - Supported diagnostic surface
+     - Excluded control surface
+   * - Input topology observation: ``parent_input``, ``has_parent_input``,
+       ``bound``, ``has_peer``, an input's bound ``output`` and
+       compound-reference items
+     - Available lazily on callback input views. ``input.output`` returns a
+       separate read-only ``TimeSeriesOutput`` view. Compound references expose
+       read-only ``items``.
+     - ``REF.value.output`` remains permanently excluded. Diagnostic output
+       views cannot mutate values, bind endpoints or manage subscriptions.
+   * - Endpoint mutation: ``re_parent``, ``bind_output``, ``un_bind_output``,
+       ``do_bind_output``, ``do_un_bind_output``, ``parent_output``,
+       ``bind_input``, ``subscribe``, ``unsubscribe`` and ``copy_from_*``
+     - Inputs retain only ``active``, ``make_active()`` and ``make_passive()``
+       as the supported subscription-activity contract. Explicit ``TS_OUT``
+       injectables retain their documented authoring mutations.
+     - All listed topology mutations are excluded. Express topology during
+       wiring; do not manage native endpoints from a Python callback.
+   * - Node internals: ``signature``, ``scalars``, ``input``/``inputs``,
+       ``start_inputs``, ``output``, ``recordable_state``, ``scheduler`` and
+       ``error_output``
+     - ``scalars``, ``input``, ``inputs``, ``output``, ``recordable_state``,
+       ``error_output`` and read-only ``scheduler`` state are available for
+       debugging. Output properties return ``TimeSeriesOutput`` rather than the
+       mutable authoring view.
+     - ``signature`` and ``start_inputs`` are not exposed: the native schema
+       does not reproduce the old Python shadow signature/start list. Node
+       setters, endpoint mutation, ``eval()`` and ``notify()`` are excluded.
+   * - Graph executor internals: ``engine_evaluation_clock``,
+       ``evaluation_engine``, ``push_source_nodes_end``, ``schedule``,
+       ``schedule_node()``, ``evaluate_graph()`` and ``copy_with()``
+     - ``Graph.evaluation_clock`` and the injected ``EvaluationEngineApi`` are
+       the supported equivalents. ``Graph.nodes``, ``parent_node`` and
+       read-only ``traits`` support navigation.
+     - Push-source layout, scheduling, evaluation and copying remain executor
+       implementation details and are not accessible from the graph view.
+   * - Lifecycle transition flags and controls: ``is_starting``,
+       ``is_stopping``, ``initialise()``, ``start()``, ``stop()`` and
+       ``dispose()``
+     - ``is_started``, ``is_starting`` and ``is_stopping`` report native node
+       and graph lifecycle state.
+     - Lifecycle methods remain owned by the executor and are not exposed.
+   * - Mutable traits: ``set_traits()`` and ``copy()``
+     - Injected ``Traits`` and ``Graph.traits`` provide ``get_trait()`` and
+       ``get_trait_or()``.
+     - ``set_traits()`` and ``copy()`` are excluded for now. Runtime trait
+       metadata is read-only from Python.
+
 Decorator and source changes
 ----------------------------
 

@@ -491,7 +491,7 @@ def test_user_node_scheduler():
             value, state.pending = state.pending, None
             return value
         state.pending = x.value + 100
-        sched.schedule_delta(hg.MIN_TD)
+        sched.schedule(hg.MIN_TD)
         return x.value
 
     @graph

@@ -47,6 +47,7 @@ namespace hgraph
             std::string   label{};
             bool          started{false};
             bool          starting{false};
+            bool          stopping{false};
         };
 
         [[nodiscard]] std::size_t node_runtime_graph_offset(const NodeTypeMetaData &schema)
@@ -689,6 +690,16 @@ namespace hgraph
             return node_storage(runtime_context(context), memory).started;
         }
 
+        bool starting_impl(const void *context, const void *memory) noexcept
+        {
+            return node_storage(runtime_context(context), memory).starting;
+        }
+
+        bool stopping_impl(const void *context, const void *memory) noexcept
+        {
+            return node_storage(runtime_context(context), memory).stopping;
+        }
+
         bool has_input_impl(const void *context, const void *memory) noexcept
         {
             static_cast<void>(memory);
@@ -882,6 +893,8 @@ namespace hgraph
             if (!state.started) { return; }
 
             auto mark_stopped = make_scope_exit([&] noexcept { state.started = false; });
+            state.stopping = true;
+            auto clear_stopping = make_scope_exit([&] noexcept { state.stopping = false; });
             auto deactivate = UnwindCleanupGuard([&] { deactivate_input_slots(view, evaluation_time); });
             if (callbacks(context).stop) { callbacks(context).stop(view, evaluation_time); }
             deactivate.complete();
@@ -1099,6 +1112,8 @@ namespace hgraph
                 if (ops.node_index_impl == nullptr) { ops.node_index_impl = &node_index_impl; }
                 if (ops.label_impl == nullptr) { ops.label_impl = &label_impl; }
                 if (ops.started_impl == nullptr) { ops.started_impl = &started_impl; }
+                if (ops.starting_impl == nullptr) { ops.starting_impl = &starting_impl; }
+                if (ops.stopping_impl == nullptr) { ops.stopping_impl = &stopping_impl; }
                 if (ops.start_impl == nullptr) { ops.start_impl = &start_impl; }
                 if (ops.stop_impl == nullptr) { ops.stop_impl = &stop_impl; }
                 if (ops.evaluate_impl == nullptr) { ops.evaluate_impl = &evaluate_impl; }
@@ -1414,6 +1429,16 @@ namespace hgraph
     bool NodeView::started() const noexcept
     {
         return ops().started_impl(ops().context, data());
+    }
+
+    bool NodeView::is_starting() const noexcept
+    {
+        return ops().starting_impl(ops().context, data());
+    }
+
+    bool NodeView::is_stopping() const noexcept
+    {
+        return ops().stopping_impl(ops().context, data());
     }
 
     std::size_t NodeView::node_index() const noexcept

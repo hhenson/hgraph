@@ -18,7 +18,7 @@ public operator they implement rather than listed as top-level operators.
    * - Surface
      - Names
    * - ``hgraph.__all__``
-     - 206
+     - 207
    * - Public operator groups
      - 204
    * - Public submodules
@@ -126,6 +126,7 @@ Top-level wildcard exports
    * - ``TimeSeries``
    * - ``TimeSeriesSchema``
    * - ``ToTableMode``
+   * - ``Traits``
    * - ``TryExceptResult``
    * - ``TryExceptTsdMapResult``
    * - ``V``

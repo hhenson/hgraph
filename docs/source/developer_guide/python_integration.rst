@@ -273,10 +273,11 @@ components:
   format-args ``assert_``) write through python's ``sys.stdout``/``stderr``
   via the bridge's writer hook, so redirection and pytest capture behave as
   in hgraph; ``DebugContext`` is wiring-scope sugar over ``debug_print``,
-  and the ``LOGGER`` injectable resolves to the configured Python graph logger
-  as a wiring-time object scalar. The executor owns a native spdlog logger for
-  the run; the bridge sink forwards native ``log_``, trace, and runner messages
-  to that same Python logger. ``logger_formatter`` receives node context for
+  and the ``LOGGER`` injectable is a guarded facade over the native
+  ``LoggerView``. Its normal Python logging calls enter the executor-owned
+  spdlog logger, exactly like native ``log_``, trace and runner messages. A
+  configured Python ``graph_logger`` is an optional bridge sink rather than
+  the injected object. ``logger_formatter`` receives native node context for
   both Python-authored and native nodes. Plain-value keyword arguments to
   ``**kwargs``-collecting operators auto-lift to ``const`` ports on a
   resolution retry;
@@ -341,7 +342,7 @@ Recorded divergences / gaps (the morning-summary list):
   decoration - graph code never supplies them):
   STATE is a lazily-created per-node namespace preserved across ticks,
   CLOCK exposes ``evaluation_time``, SCHEDULER exposes
-  ``schedule(datetime)`` / ``schedule_delta(timedelta)``. Each
+  ``schedule(datetime | timedelta)``. Each
   ``@generator`` call is a distinct source node.
 - ``passive(port)`` landed (both languages): the feedback idiom is
   ``a + passive(fb())``, and such loops quiesce naturally. ACTIVE feedback

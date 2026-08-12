@@ -78,8 +78,10 @@ def test_input_and_output_owners_keep_the_callback_scheduler():
     def reschedule(value: TS[int], _output: TS_OUT[int] = None) -> TS[int]:
         evaluations.append(value.value)
         if len(evaluations) == 1:
+            assert not hasattr(value.owning_node, "notify")
+            assert not hasattr(_output.owning_node, "notify")
             value.owning_node.notify_next_cycle()
-            _output.owning_node.notify()
+            _output.owning_node.notify_next_cycle()
         return value.value
 
     eval_node(

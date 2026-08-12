@@ -166,6 +166,8 @@ struct GraphRuntimeBaseStorage {
   DateTime cycle_wall_start{current_wall_time()};
   std::size_t evaluation_cursor{invalid_cursor};
   bool started{false};
+  bool starting{false};
+  bool stopping{false};
   bool evaluating{false};
   bool evaluation_failed{false};
   /** Graph traits (parent-chained key-value metadata; GraphView::trait_or).
@@ -650,6 +652,16 @@ bool started_impl(const void *context, const void *memory) noexcept {
 }
 
 template <typename Storage>
+bool starting_impl(const void *context, const void *memory) noexcept {
+  return graph_header<Storage>(graph_context(context), memory).starting;
+}
+
+template <typename Storage>
+bool stopping_impl(const void *context, const void *memory) noexcept {
+  return graph_header<Storage>(graph_context(context), memory).stopping;
+}
+
+template <typename Storage>
 bool evaluating_impl(const void *context, const void *memory) noexcept {
   return graph_header<Storage>(graph_context(context), memory).evaluating;
 }
@@ -848,6 +860,9 @@ void start_impl(const void *context, const GraphView &graph,
     return;
   }
 
+  state.starting = true;
+  auto clear_starting = make_scope_exit([&] noexcept { state.starting = false; });
+
   auto graph_start_failed = UnwindCleanupGuard(
       [&] { state.lifecycle_observers->notify_start_graph_failed(graph); });
   state.lifecycle_observers->notify_before_start_graph(graph);
@@ -936,6 +951,8 @@ void stop_impl(const void *context, const GraphView &graph,
   if (stop_time < state.evaluation_time) {
     throw std::invalid_argument("Graph cannot stop in the past");
   }
+  state.stopping = true;
+  auto clear_stopping = make_scope_exit([&] noexcept { state.stopping = false; });
   state.evaluation_time = stop_time;
 
   auto graph_stop_failed = UnwindCleanupGuard(
@@ -1358,6 +1375,8 @@ struct GraphRuntimeRegistry {
                            : &evaluate_impl<RootGraphRuntimeStorage>,
         .schedule_node_impl = &schedule_node_impl<RootGraphRuntimeStorage>,
         .started_impl = &started_impl<RootGraphRuntimeStorage>,
+        .starting_impl = &starting_impl<RootGraphRuntimeStorage>,
+        .stopping_impl = &stopping_impl<RootGraphRuntimeStorage>,
         .evaluating_impl = &evaluating_impl<RootGraphRuntimeStorage>,
         .evaluation_time_impl = &evaluation_time_impl<RootGraphRuntimeStorage>,
         .next_scheduled_time_impl =
@@ -1401,6 +1420,8 @@ struct GraphRuntimeRegistry {
                            : &evaluate_impl<NestedGraphRuntimeStorage>,
         .schedule_node_impl = &nested_schedule_node_impl,
         .started_impl = &started_impl<NestedGraphRuntimeStorage>,
+        .starting_impl = &starting_impl<NestedGraphRuntimeStorage>,
+        .stopping_impl = &stopping_impl<NestedGraphRuntimeStorage>,
         .evaluating_impl = &evaluating_impl<NestedGraphRuntimeStorage>,
         .evaluation_time_impl =
             &evaluation_time_impl<NestedGraphRuntimeStorage>,
@@ -1590,6 +1611,12 @@ void *GraphView::data() const noexcept {
 
 bool GraphView::started() const noexcept {
   return valid() && ops().started_impl(ops().context, data());
+}
+bool GraphView::is_starting() const noexcept {
+  return valid() && ops().starting_impl(ops().context, data());
+}
+bool GraphView::is_stopping() const noexcept {
+  return valid() && ops().stopping_impl(ops().context, data());
 }
 bool GraphView::evaluating() const noexcept {
   return valid() && ops().evaluating_impl(ops().context, data());

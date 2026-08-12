@@ -648,6 +648,7 @@ TEST_CASE("TSInput builds a non-peered TSB root with nested peered terminals")
     REQUIRE(input.schema() == root);
 
     auto input_root_view = input.view();
+    REQUIRE_FALSE(input_root_view.has_parent_input());
     REQUIRE_FALSE(input_root_view.is_bindable());
     REQUIRE(input_root_view.bound());
     auto root_view = input_root_view.as_bundle();
@@ -658,6 +659,10 @@ TEST_CASE("TSInput builds a non-peered TSB root with nested peered terminals")
     REQUIRE(root_view.has_field("nested"));
 
     auto scalar = root_view.field("a");
+    REQUIRE(scalar.has_parent_input());
+    auto scalar_parent = scalar.parent_input();
+    REQUIRE(scalar_parent.schema() == root);
+    REQUIRE(scalar_parent.data_view().data() == input_root_view.data_view().data());
     REQUIRE(scalar.is_bindable());
     REQUIRE_FALSE(scalar.bound());
     REQUIRE_FALSE(scalar.valid());
@@ -682,6 +687,13 @@ TEST_CASE("TSInput builds a non-peered TSB root with nested peered terminals")
     REQUIRE_FALSE(nested_bundle.is_bindable());
     REQUIRE(nested_bundle.bound());
     auto nested_leaf = nested_bundle.field("x");
+    REQUIRE(nested_field.has_parent_input());
+    auto nested_parent = nested_field.parent_input();
+    REQUIRE(nested_parent.schema() == root);
+    REQUIRE(nested_leaf.has_parent_input());
+    auto leaf_parent = nested_leaf.parent_input();
+    REQUIRE(leaf_parent.schema() == nested);
+    REQUIRE(leaf_parent.has_parent_input());
     REQUIRE(nested_leaf.is_bindable());
     REQUIRE_FALSE(nested_leaf.bound());
     REQUIRE_FALSE(nested_leaf.valid());
@@ -719,6 +731,37 @@ TEST_CASE("TSInput dynamic storage metrics include activation and target-link tr
     CHECK(active_metrics.live_bytes > passive.live_bytes);
     CHECK(active_metrics.reserved_bytes > passive.reserved_bytes);
     CHECK(active_metrics.reserved_bytes >= active_metrics.live_bytes);
+}
+
+TEST_CASE("TSInput peered target children expose read-only structural parents")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int   = registry.ts(int_meta);
+    const auto *nested   = registry.tsb("TSInputPeeredNested", {{"x", ts_int}});
+    const auto *root     = registry.tsb("TSInputPeeredRoot", {{"nested", nested}});
+
+    TSOutput output{*root};
+    TSInput input{TSInputBuilderFactory::checked_builder_for(
+        *root, TSEndpointSchema::peered(root))};
+    input.view().bind_output(output.view());
+
+    auto input_root = input.view();
+    auto root_bundle = input_root.as_bundle();
+    auto nested_input = root_bundle.field("nested");
+    auto nested_bundle = nested_input.as_bundle();
+    auto leaf_input = nested_bundle.field("x");
+
+    REQUIRE_FALSE(input_root.has_parent_input());
+    REQUIRE(nested_input.has_parent_input());
+    REQUIRE(nested_input.parent_input().schema() == root);
+    REQUIRE(leaf_input.has_parent_input());
+    auto leaf_parent = leaf_input.parent_input();
+    REQUIRE(leaf_parent.schema() == nested);
+    REQUIRE(leaf_parent.has_parent_input());
+    REQUIRE(leaf_parent.parent_input().schema() == root);
 }
 
 TEST_CASE("TSInput dynamic storage metrics do not follow borrowed output storage", "[memory]")
