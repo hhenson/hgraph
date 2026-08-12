@@ -53,7 +53,14 @@ def _ensure_venv(path: Path, interpreter: Path | str) -> Path:
     python = _python_in(path)
     if not python.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        _run(["uv", "venv", "--python", str(interpreter), str(path)])
+        command = ["uv", "venv"]
+        # Cached virtual environments can retain an interpreter symlink whose
+        # hosted-toolcache patch version has been retired. The managed venv
+        # directory then exists even though its Python executable does not.
+        if path.exists() or path.is_symlink():
+            command.extend(["--clear", "--force"])
+        command.extend(["--python", str(interpreter), str(path)])
+        _run(command)
     return python
 
 

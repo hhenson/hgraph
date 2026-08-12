@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import itertools
 import tarfile
 import zipfile
 from pathlib import Path
@@ -94,23 +95,26 @@ def _audit_sdist(path: Path) -> None:
     _assert_required(names, SDIST_REQUIRED, path)
 
 
+def _audit_distribution(path: Path) -> None:
+    if path.suffix == ".whl":
+        _audit_wheel(path)
+    elif path.name.endswith(".tar.gz"):
+        _audit_sdist(path)
+    else:
+        raise SystemExit(f"unsupported distribution: {path}")
+    print(f"audited {path}")
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("distributions", nargs="+")
-    args = parser.parse_args()
-    paths = sorted(
-        {Path(match) for pattern in args.distributions for match in glob.glob(pattern)}
-    )
+    arguments = argparse.ArgumentParser()
+    arguments.add_argument("distributions", nargs="+")
+    patterns = arguments.parse_args().distributions
+    matches = itertools.chain.from_iterable(glob.iglob(pattern) for pattern in patterns)
+    paths = sorted(map(Path, set(matches)))
     if not paths:
         raise SystemExit("no hgraph-analytics distributions matched")
-    for path in paths:
-        if path.suffix == ".whl":
-            _audit_wheel(path)
-        elif path.name.endswith(".tar.gz"):
-            _audit_sdist(path)
-        else:
-            raise SystemExit(f"unsupported distribution: {path}")
-        print(f"audited {path}")
+    for distribution in paths:
+        _audit_distribution(distribution)
 
 
 if __name__ == "__main__":

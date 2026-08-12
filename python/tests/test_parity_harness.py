@@ -409,6 +409,30 @@ def test_reference_environment_stays_on_the_python_first_0_5_line(
     ]
 
 
+def test_stale_cached_parity_environment_is_rebuilt(monkeypatch, tmp_path):
+    import tools.parity.environments as environments
+
+    venv = tmp_path / "envs" / "reference-test"
+    venv.mkdir(parents=True)
+    commands = []
+    monkeypatch.setattr(environments, "_run", commands.append)
+
+    python = environments._ensure_venv(venv, sys.executable)
+
+    assert python == venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    assert commands == [
+        [
+            "uv",
+            "venv",
+            "--clear",
+            "--force",
+            "--python",
+            sys.executable,
+            str(venv),
+        ]
+    ]
+
+
 def test_operator_inventory_fallback_excludes_callable_types_and_helpers():
     operator_type = type("OperatorWiringNodeClass", (), {})
     namespace = SimpleNamespace(
