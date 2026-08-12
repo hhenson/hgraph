@@ -264,7 +264,7 @@ namespace hgraph::stdlib
 
         namespace
         {
-            constexpr Int kModeTick = 1;
+            constexpr Int kModeTick = kToTableModeTick;
             constexpr Int kModeSnap = 3;
 
             // ---------------------------------------------------------------
@@ -330,27 +330,6 @@ namespace hgraph::stdlib
                 return view;
             }
 
-
-            /**
-             * Where a row's cells go.
-             *
-             * Cells are delivered as they are resolved and the sink writes each
-             * one straight to its destination - an Arrow builder, or a planned
-             * row value. Nothing stages the row in between: a container of
-             * borrowed views would be a third representation beside the
-             * planned row the value layer already provides and the columnar
-             * builders the recorder already holds.
-             *
-             * ``end_row`` closes the row. Columns the traversal did not deliver
-             * were not present, and each sink expresses that in its own terms -
-             * an unset cell in a planned row, a null in a builder.
-             */
-            struct RowSink
-            {
-                void *context{nullptr};
-                void (*cell)(void *context, std::size_t column, const ValueView &value){nullptr};
-                void (*end_row)(void *context){nullptr};
-            };
 
             /**
              * The keys of the levels above the row being emitted, threaded
@@ -476,7 +455,7 @@ namespace hgraph::stdlib
                 and emits no removals. */
             void emit_partition_rows(const TsTableLayout &layout, std::size_t level_index,
                                      const TSInputView &ts, Int mode, const RowScalars &scalars,
-                                     const KeyChain *chain, const RowSink &sink)
+                                     const KeyChain *chain, bool emit_removals, const RowSink &sink)
             {
                 if (level_index == layout.levels.size())
                 {
@@ -497,7 +476,8 @@ namespace hgraph::stdlib
                     for (auto &&[key, child] : dict.valid_items())
                     {
                         const KeyChain link{.parent = chain, .level = &level, .key = &key, .removed = false};
-                        emit_partition_rows(layout, level_index + 1, child, mode, scalars, &link, sink);
+                        emit_partition_rows(layout, level_index + 1, child, mode, scalars, &link,
+                                            emit_removals, sink);
                     }
                     return;
                 }
@@ -505,8 +485,10 @@ namespace hgraph::stdlib
                 for (auto &&[key, child] : dict.modified_items())
                 {
                     const KeyChain link{.parent = chain, .level = &level, .key = &key, .removed = false};
-                    emit_partition_rows(layout, level_index + 1, child, mode, scalars, &link, sink);
+                    emit_partition_rows(layout, level_index + 1, child, mode, scalars, &link,
+                                        emit_removals, sink);
                 }
+                if (!emit_removals) { return; }
                 for (const ValueView key : dict.removed_keys())
                 {
                     // A removal is emitted HERE, so the row carries the keys
@@ -640,29 +622,40 @@ namespace hgraph::stdlib
             return columns;
         }
 
-        void emit_rows(const TsTableLayout &layout, const TSInputView &ts, Int mode, DateTime now,
-                       DateTime as_of, const TSOutputView &out)
+        void emit_rows_to(const TsTableLayout &layout, const TSInputView &ts, Int mode, DateTime now,
+                          DateTime as_of, bool emit_removals, const RowSink &sink)
         {
             const RowScalars scalars{now, as_of};
-
             if (!layout.multi())
             {
-                std::vector<Value> single;
-                MaterialisingSink  materialise{.layout = &layout, .rows = &single};
-                const RowSink      sink = materialise.sink();
                 sink.cell(sink.context, 0, scalars.now.view());
                 sink.cell(sink.context, 1, scalars.as_of.view());
                 write_value_cells(sink, layout, ts, mode);
                 sink.end_row(sink.context);
-                apply_current_value(out, single.front().view());
                 return;
             }
+            if (layout.partitioned())
+            {
+                emit_partition_rows(layout, 0, ts, mode, scalars, nullptr, emit_removals, sink);
+            }
+            else { emit_frame_rows(layout, ts, scalars, nullptr, sink); }
+        }
 
+        void emit_rows(const TsTableLayout &layout, const TSInputView &ts, Int mode, DateTime now,
+                       DateTime as_of, const TSOutputView &out)
+        {
             std::vector<Value> rows;
             MaterialisingSink  materialise{.layout = &layout, .rows = &rows};
             const RowSink      sink = materialise.sink();
-            if (layout.partitioned()) { emit_partition_rows(layout, 0, ts, mode, scalars, nullptr, sink); }
-            else { emit_frame_rows(layout, ts, scalars, nullptr, sink); }
+            // to_table always reports removals: they are part of the row stream
+            // it produces, whatever a recording later chooses to keep.
+            emit_rows_to(layout, ts, mode, now, as_of, true, sink);
+
+            if (!layout.multi())
+            {
+                apply_current_value(out, rows.front().view());
+                return;
+            }
             if (rows.empty()) { return; }
             Value value = build_rows_value(layout, std::move(rows));
             apply_current_value(out, value.view());
