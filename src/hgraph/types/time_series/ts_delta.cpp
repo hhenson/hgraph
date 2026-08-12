@@ -17,6 +17,7 @@
 #include <fmt/format.h>
 
 #include <array>
+#include <cassert>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -55,6 +56,40 @@ namespace hgraph
             return result;
         }
 
+
+        /**
+         * Canonical delta field layouts. ``type_registry.cpp`` builds these in
+         * one place, so the apply path indexes them directly:
+         *
+         *   TSS           {added, removed}
+         *   TSD observed  {removed, modified}
+         *   TSD authored  {removed, modified, removed_strict}
+         *
+         * ``BundleView::field`` looks a field up by scanning the schema and
+         * comparing field-name strings. That is the wrong algorithm here - it
+         * runs on every tick, for every keyed structure, to find a field whose
+         * position is fixed and known at compile time.
+         *
+         * ``delta_field_is`` re-checks the assumption under ``assert`` so a
+         * reordered schema fails loudly in a debug build instead of silently
+         * reading the wrong field; release builds pay nothing.
+         */
+        inline constexpr std::size_t tss_delta_added           = 0;
+        inline constexpr std::size_t tss_delta_removed         = 1;
+        inline constexpr std::size_t tsd_delta_removed         = 0;
+        inline constexpr std::size_t tsd_delta_modified        = 1;
+        inline constexpr std::size_t tsd_delta_removed_strict  = 2;
+        /** An authored TSD delta has the third field; an observed one does not. */
+        inline constexpr std::size_t tsd_authored_delta_fields = 3;
+
+        [[maybe_unused]] [[nodiscard]] inline bool delta_field_is(const ValueView &bundle, std::size_t index,
+                                                 std::string_view name) noexcept
+        {
+            const auto *schema = bundle.binding() ? bundle.binding().schema() : nullptr;
+            if (schema == nullptr || index >= schema->field_count) { return false; }
+            const char *field = schema->fields[index].name;
+            return field != nullptr && name == field;
+        }
 
         /**
          * A key or element ready to hand to a builder, borrowed where possible.
@@ -589,8 +624,10 @@ namespace hgraph
         {
             if (!delta.has_value()) { return false; }
             const auto bundle = delta.as_bundle();
-            if (bundle.field("added").as_indexed_view().size() != 0 ||
-                bundle.field("removed").as_indexed_view().size() != 0)
+            assert(delta_field_is(delta, tss_delta_added, "added"));
+            assert(delta_field_is(delta, tss_delta_removed, "removed"));
+            if (bundle.at(tss_delta_added).as_indexed_view().size() != 0 ||
+                bundle.at(tss_delta_removed).as_indexed_view().size() != 0)
             {
                 return true;
             }
@@ -604,17 +641,19 @@ namespace hgraph
         {
             if (!delta.has_value()) { return false; }
             const auto bundle = delta.as_bundle();
-            const auto modified       = bundle.field("modified").as_map();
+            assert(delta_field_is(delta, tsd_delta_modified, "modified"));
+            const auto modified = bundle.at(tsd_delta_modified).as_map();
             if (modified.size() != 0) { return true; }
             // Only an AUTHORED delta carries strict removals; an observed one
             // has no such field.
-            if (bundle.has_field("removed_strict") &&
-                bundle.field("removed_strict").as_indexed_view().size() != 0)
+            if (bundle.size() == tsd_authored_delta_fields &&
+                bundle.at(tsd_delta_removed_strict).as_indexed_view().size() != 0)
             {
                 return true;
             }
 
-            const auto removed = bundle.field("removed").as_indexed_view();
+            assert(delta_field_is(delta, tsd_delta_removed, "removed"));
+            const auto removed = bundle.at(tsd_delta_removed).as_indexed_view();
             if (removed.size() != 0)
             {
                 const auto dict_out = out.as_dict();
@@ -678,9 +717,11 @@ namespace hgraph
             const auto bundle  = delta.as_bundle();
             auto       set_out = out.as_set();
             auto       mutation = set_out.begin_mutation(out.evaluation_time());
-            const auto removed = bundle.field("removed").as_indexed_view();
+            assert(delta_field_is(delta, tss_delta_added, "added"));
+            assert(delta_field_is(delta, tss_delta_removed, "removed"));
+            const auto removed = bundle.at(tss_delta_removed).as_indexed_view();
             for (std::size_t i = 0; i < removed.size(); ++i) { (void)mutation.remove(removed.at(i)); }
-            const auto added = bundle.field("added").as_indexed_view();
+            const auto added = bundle.at(tss_delta_added).as_indexed_view();
             for (std::size_t i = 0; i < added.size(); ++i) { (void)mutation.add(added.at(i)); }
             // Touch LAST: the once-per-time notification rides the FIRST
             // record and must carry the real changes; the trailing touch
@@ -698,16 +739,18 @@ namespace hgraph
             // Applying a removal is ALWAYS lenient, whatever it meant to its
             // producer: a captured removal is a fact about the source, and the
             // target being replayed or replicated into need not hold the key.
-            const auto removed = bundle.field("removed").as_indexed_view();
+            assert(delta_field_is(delta, tsd_delta_removed, "removed"));
+            const auto removed = bundle.at(tsd_delta_removed).as_indexed_view();
             for (std::size_t i = 0; i < removed.size(); ++i) { (void)mutation.erase(removed.at(i)); }
 
             // The one exception, and the only strictness in the model: keys a
             // USER authored as REMOVE, asserting the target holds them. Present
             // only on an AUTHORED delta (``authored_delta_schema``); apply
             // accepts either shape.
-            if (bundle.has_field("removed_strict"))
+            if (bundle.size() == tsd_authored_delta_fields)
             {
-                const auto removed_strict = bundle.field("removed_strict").as_indexed_view();
+                assert(delta_field_is(delta, tsd_delta_removed_strict, "removed_strict"));
+                const auto removed_strict = bundle.at(tsd_delta_removed_strict).as_indexed_view();
                 for (std::size_t i = 0; i < removed_strict.size(); ++i)
                 {
                     if (!mutation.erase(removed_strict.at(i)))
@@ -718,7 +761,8 @@ namespace hgraph
                 }
             }
 
-            const auto modified = bundle.field("modified").as_map();
+            assert(delta_field_is(delta, tsd_delta_modified, "modified"));
+            const auto modified = bundle.at(tsd_delta_modified).as_map();
             for (const auto &[key, child_delta] : modified)
             {
                 auto child = mutation.at(key);
