@@ -1861,19 +1861,23 @@ namespace hgraph
                     const ValueTypeMetaData *value_delta = value_ts->delta_value_schema;
                     const ValueTypeMetaData *delta_map   = map(key, value_delta);
                     const ValueTypeMetaData *removed_set = set(key);
-                    // An OBSERVED delta is {removed, modified}: "removed"
-                    // applies leniently, and "modified" carries both new and
-                    // updated entries. This is what capture produces and what
+                    // An OBSERVED delta is {removed, modified}. "removed" is
+                    // a statement of FACT - those keys were removed, so by
+                    // definition they were present - and "modified" carries
+                    // both new and updated entries. Applying that fact to some
+                    // other target is nonetheless lenient: the target need not
+                    // hold the key. This is what capture produces and what
                     // replication, replay and the wire codec (RFC 0017) carry.
                     meta.delta_value_schema =
                         un_named_bundle({{"removed", removed_set}, {"modified", delta_map}});
                     // An AUTHORED delta may additionally assert intent about
                     // the target: "removed_strict" carries user-authored
                     // REMOVE keys, which must raise when absent (hgraph's
-                    // REMOVE vs REMOVE_IF_EXISTS contract). Only the Python
-                    // dict conversion produces it — "strict" is an expectation
-                    // the author holds, never something a time series did, so
-                    // it must not escape into the observed delta.
+                    // REMOVE vs REMOVE_IF_EXISTS contract). It exists only for
+                    // a user RETURNING a delta, never for reading one: an
+                    // observation cannot be strict, because a key it reports as
+                    // removed was there by definition. Only the Python dict
+                    // conversion produces it.
                     // Authored deltas nest: `{k1: {k2: REMOVE}}` is legal, so
                     // the modified map carries the child's AUTHORED shape.
                     const ValueTypeMetaData *authored_map =

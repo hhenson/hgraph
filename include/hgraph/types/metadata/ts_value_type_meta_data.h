@@ -244,10 +244,16 @@ namespace hgraph
          *
          * ``removed_strict`` carries user-authored ``REMOVE`` keys, which
          * must raise when the key is absent, as against the lenient
-         * ``REMOVE_IF_EXISTS`` travelling in ``removed``. Only the Python
-         * dict conversion produces it; a capture never can, because "strict"
-         * is an expectation the author asserts about the target rather than
-         * something that happened to a time series.
+         * ``REMOVE_IF_EXISTS`` travelling in ``removed``.
+         *
+         * It exists **solely for a user returning a delta**, never for reading
+         * one. An observation cannot be strict: a key it reports as removed
+         * was present by definition, so on the read side every removal is
+         * already a ``REMOVE``. Applying one is a separate question, and the
+         * answer is always lenient - the target being replayed or replicated
+         * into need not hold the key. Strictness is therefore only ever an
+         * expectation an author asserts, which is why it appears on this
+         * schema and not on ``delta_value_schema``.
          *
          * ``apply_delta`` accepts either schema. Everything that transports
          * or stores an observed delta — record/replay, the projections, and

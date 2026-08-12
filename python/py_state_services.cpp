@@ -283,8 +283,8 @@ namespace hgraph::python_bridge
                  const auto *delta_schema = current.at(1).schema();
                  nb::object canonical = nb::borrow(python_delta);
                  // A recording holds OBSERVED deltas ({removed, modified});
-                 // the authored three-field shape is still accepted so an
-                 // edit written against either schema round-trips.
+                 // the authored three-field shape is still accepted so an edit
+                 // written against either schema round-trips.
                  const bool strict_supported =
                      delta_schema != nullptr && delta_schema->field_count == 3 &&
                      std::string_view{delta_schema->fields[2].name} == "removed_strict";
@@ -302,10 +302,11 @@ namespace hgraph::python_bridge
                          if (removed_sentinel_slot().is_valid() &&
                              item_value.ptr() == removed_sentinel_slot().ptr())
                          {
-                             // REMOVE asserts an expectation about the target,
-                             // which an observation cannot carry: against an
-                             // observed recording it records as an ordinary
-                             // removal rather than being silently dropped.
+                             // Editing a recording writes an OBSERVATION, and
+                             // an observed removal is already the fact that the
+                             // key went away - there is nothing for "strict" to
+                             // add. Both sentinels therefore record as
+                             // "removed"; replaying it stays lenient.
                              if (strict_supported) { removed_strict.add(item_key); }
                              else { removed.add(item_key); }
                          }

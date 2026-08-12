@@ -660,13 +660,16 @@ namespace hgraph
             auto       dict_out = out.as_dict();
             auto       mutation = dict_out.begin_mutation(out.evaluation_time());
 
+            // Applying a removal is ALWAYS lenient, whatever it meant to its
+            // producer: a captured removal is a fact about the source, and the
+            // target being replayed or replicated into need not hold the key.
             const auto removed = bundle.field("removed").as_indexed_view();
             for (std::size_t i = 0; i < removed.size(); ++i) { (void)mutation.erase(removed.at(i)); }
 
-            // User-authored REMOVE keys (hgraph contract): removing an absent
-            // key is an error; REMOVE_IF_EXISTS / captured removals travel in
-            // the lenient "removed" set above. Present only on an AUTHORED
-            // delta (``authored_delta_schema``) — apply accepts either shape.
+            // The one exception, and the only strictness in the model: keys a
+            // USER authored as REMOVE, asserting the target holds them. Present
+            // only on an AUTHORED delta (``authored_delta_schema``); apply
+            // accepts either shape.
             if (bundle.has_field("removed_strict"))
             {
                 const auto removed_strict = bundle.field("removed_strict").as_indexed_view();
