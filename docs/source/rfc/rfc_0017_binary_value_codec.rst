@@ -136,11 +136,21 @@ populates it when a node's output dict contains the ``REMOVE`` sentinel.
 Capture never produces it — ``ts_delta.cpp`` builds it as an empty set with the
 comment *"captures never carry strict removals"*.
 
-So the field expresses an **expectation the author is asserting about the
-target**, not something that happened to a time series. A delta *read from* a
-``TSD`` has added, removed and updated keys and nothing else; "strict" is not a
-property an observation can have. Two directions are being carried by one
-schema.
+So the field exists **solely for a user returning a delta**, never for reading
+one, and the reason is definitional rather than a matter of convention:
+
+* **Reading.** A key an observation reports as removed *was there* — that is
+  what "removed" means. Every observed removal is therefore already a
+  ``REMOVE``; there is no ``REMOVE_IF_EXISTS`` to distinguish it from, and
+  nothing for a strict variant to add.
+* **Applying.** Applying that same fact to another time-series is always
+  lenient. The target being replayed, replicated or seeded need not hold the
+  key, so a removal that cannot find one is not an error.
+* **Authoring.** Only here can strictness mean anything: a user asserting that
+  the target *does* hold the key and wanting to be told when it does not.
+
+A delta read from a ``TSD`` therefore has added, removed and updated keys and
+nothing else. Two directions were being carried by one schema.
 
 **Consequences for this RFC.** The wire delta for ``TSD`` is
 ``{removed, modified}``. Strict removal is not representable and must not be:
