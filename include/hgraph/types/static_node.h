@@ -137,6 +137,17 @@ namespace hgraph
         template <fixed_string Name, typename... Fields>
         struct is_static_tsb_schema<TSB<Name, Fields...>> : std::true_type {};
 
+        /**
+         * Named so the constraint below is a concept rather than a bare
+         * ``::value`` atomic constraint: MSVC before 14.51 reports
+         * "C7607: atomic constraint should be a constant expression of type
+         * 'bool', not 'unknown'" for the latter on a constrained partial
+         * specialization, which makes the whole tree unbuildable on VS 17.14.
+         * Normalization is identical, so this is purely a portability spelling.
+         */
+        template <typename S>
+        concept static_tsb_schema = is_static_tsb_schema<S>::value;
+
         template <typename S> struct static_tsb_schema_traits;
         template <typename... Fields>
         struct static_tsb_schema_traits<UnNamedTSB<Fields...>>
@@ -939,7 +950,7 @@ namespace hgraph
      * ``field<"name">()``.
      */
     template <fixed_string Name, typename TSchema, auto... TPolicies>
-        requires static_node_detail::is_static_tsb_schema<TSchema>::value
+        requires static_node_detail::static_tsb_schema<TSchema>
     class In<Name, TSchema, TPolicies...> : public TSBInputView
     {
       public:
