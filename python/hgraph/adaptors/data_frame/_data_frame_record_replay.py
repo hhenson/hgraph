@@ -34,6 +34,13 @@ __all__ = (
 
 
 DATA_FRAME_RECORD_REPLAY = ":data_frame:__data_frame_record_replay__"
+
+#: Rows buffered before a recording flush.
+#:
+#: Each flush costs one Arrow table build and one concat, so this trades a
+#: bounded amount of retained Python data for taking both off the per-tick
+#: path. Module-level so a deployment can tune it and tests can shrink it.
+RECORD_BATCH_ROWS = 8192
 # The GlobalState keys are public upstream surface (imported by user code);
 # the private aliases below are retained for the existing internal call sites.
 DATA_FRAME_RECORD_REPLAY_PATH = ":data_frame:__path__"
@@ -399,21 +406,57 @@ def _register_data_frame_record_replay():
     from hgraph._wiring._compose import _TsExprFor
     from hgraph._wiring._core import _unwrap
 
+    def _flush_record_batch(_state, storage, path):
+        """Write the buffered rows as ONE Arrow table, then drop them."""
+        columns = _state.columns
+        if not columns or not columns[0]:
+            return
+        frame = pa.table(dict(zip(_state.col_names, columns)))
+        mode = WriteMode.EXTEND if _state.started else WriteMode.OVERWRITE
+        _state.started = True
+        storage.write_frame(path, frame, mode=mode)
+        for column in columns:
+            column.clear()
+
     @sink_node
     def _df_record_rows(rows: TIME_SERIES_TYPE, key: str, recordable_id: str,
                         col_indices: tuple, col_names: tuple, multi_row: bool,
                         _state: STATE = None,
                         global_state: GlobalState = None):
+        # Buffer into plain Python lists and build Arrow in batches.
+        #
+        # Recording used to build a one-row `pa.table` every tick and write it
+        # with EXTEND, and EXTEND re-read the whole accumulated table and
+        # concatenated. That is O(n^2) in work, and the memory cost is worse
+        # than the row count suggests: `concat_tables` does not combine chunks,
+        # so the result carried ONE CHUNK PER TICK PER COLUMN, each with its own
+        # 64-byte-aligned data and validity buffers plus per-chunk object
+        # overhead. A few bytes of payload per tick retained hundreds.
         storage = DataFrameStorage.instance(global_state)
         if storage is None:
             raise RuntimeError("data-frame record requires an active DataFrameStorage")
-        row_values = list(rows.value) if multi_row else [rows.value]
-        data = {name: [row[index] for row in row_values]
-                for index, name in zip(col_indices, col_names)}
-        frame = pa.table(data)
-        mode = WriteMode.EXTEND if getattr(_state, "started", False) else WriteMode.OVERWRITE
-        _state.started = True
-        storage.write_frame(f"{recordable_id}.{key}", frame, mode=mode)
+        if not hasattr(_state, "columns"):
+            _state.columns = [[] for _ in col_names]
+            _state.col_names = list(col_names)
+            _state.started = False
+        row_values = rows.value if multi_row else (rows.value,)
+        columns = _state.columns
+        for position, index in enumerate(col_indices):
+            column = columns[position]
+            for row in row_values:
+                column.append(row[index])
+        if len(columns[0]) >= RECORD_BATCH_ROWS:
+            _flush_record_batch(_state, storage, f"{recordable_id}.{key}")
+
+    @_df_record_rows.stop
+    def _df_record_rows_stop(key: str, recordable_id: str, _state: STATE = None,
+                             global_state: GlobalState = None):
+        # The tail. Without this the last partial batch is lost, so the flush
+        # threshold would silently truncate a recording.
+        storage = DataFrameStorage.instance(global_state)
+        if storage is None or not hasattr(_state, "columns"):
+            return
+        _flush_record_batch(_state, storage, f"{recordable_id}.{key}")
 
     @graph(overloads="record", requires=_df_model_active)
     def _record_to_data_frame(ts: TIME_SERIES_TYPE, key: str = "out",

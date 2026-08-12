@@ -263,3 +263,59 @@ def test_raw_replay_applies_tsb_and_selects_each_tsd_partition():
         replay_data_frame[hg.TSD[str, hg.TS[int]]], dict_frame,
         as_of_time=hg.MIN_ST + 15 * hg.MIN_TD
     ) == [{"a": 1, "b": 3}, {"a": hg.REMOVE}]
+
+
+def _record_ints(storage, n):
+    from hgraph.adaptors.data_frame import _data_frame_record_replay as impl
+
+    with hg.GlobalState():
+        hg.set_record_replay_model(impl.DATA_FRAME_RECORD_REPLAY)
+        with storage:
+
+            @hg.graph
+            def g(ts: hg.TS[int]):
+                hg.record(ts, key="out", recordable_id="batched")
+
+            with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
+                hg.eval_node(g, list(range(n)))
+            return storage.read_frame("batched.out")
+
+
+@pytest.mark.parametrize("batch_rows", [4, 1000])
+def test_recording_spanning_several_batches_is_complete_and_ordered(monkeypatch, batch_rows):
+    """Recording buffers rows and flushes in batches.
+
+    The tail is flushed at stop, so a threshold that does not divide the row
+    count must not truncate; and rows must stay in tick order across the flush
+    boundaries. With the default threshold the second case never flushes
+    mid-run, which keeps the stop-only path covered too.
+    """
+    from hgraph.adaptors.data_frame import _data_frame_record_replay as impl
+
+    monkeypatch.setattr(impl, "RECORD_BATCH_ROWS", batch_rows)
+    frame = _record_ints(MemoryDataFrameStorage(), 10)
+
+    column = frame["value"]
+    # read_frame yields pyarrow or polars depending on what is installed.
+    values = column.to_pylist() if hasattr(column, "to_pylist") else column.to_list()
+    assert values == list(range(10))
+
+
+def test_recording_does_not_retain_a_chunk_per_tick():
+    """The regression this batching exists for.
+
+    Building a one-row table per tick and extending produced a chunk per tick
+    per column, each carrying its own aligned data and validity buffers, so
+    retained memory ran to multiples of the payload. Chunk count must track
+    flushes, not ticks.
+    """
+    # Deliberately uses the DEFAULT batch size and stays under it, so this
+    # asserts the shape of what gets stored rather than the batching knob -
+    # it fails against a per-tick writer even if the knob does not exist.
+    storage = MemoryDataFrameStorage()
+    _record_ints(storage, 200)
+
+    stored = storage._read("batched.out")
+    table = stored if isinstance(stored, pa.Table) else pa.table(stored.to_arrow())
+    assert table.num_rows == 200
+    assert table.column("value").num_chunks == 1
