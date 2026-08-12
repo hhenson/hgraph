@@ -284,29 +284,25 @@ dynamic list plan. Generic element and dimension patterns, generic TSB schema
 specialization, ndarray conversion, and C++ ``ArrayOf<T, ...>`` authoring use
 the same type records.
 
-The complete public ``hgraph.numpy_`` catalogue -- ``as_array``, ``get_item``,
-``cumsum``, ``corrcoef``, and ``quantile`` -- executes in typed or structurally
-bound C++ kernels and has paired public C++/Python tests. The additional
-``hgraph.nodes`` exports ``np_rolling_window``, ``np_quantile``, ``np_std``,
-``rolling_window``, and ``rolling_average`` are also backed by native operators
-or native graph composition. ``pct_change`` moved to ``hgraph-analytics`` with
-the numerical analytical family. This audit intentionally covers
-the published upstream surface even when the checked-out applications do not
-import it.
+The complete public ``hgraph.numpy_`` catalogue moved to ``hgraph-analytics``.
+``as_array``, ``get_item``, ``cumsum``, and ``corrcoef`` are now
+``window_values``, ``array_get_item``, ``cumulative_sum``, and ``correlation``.
+The additional ``hgraph.nodes`` exports ``np_rolling_window``, ``np_quantile``,
+and ``np_std`` moved as ``rolling_window``, ``quantile``, and ``array_std``.
+The obsolete NumPy-derived namespace and prefixes are retired. The core
+compatibility exports ``rolling_window`` and ``rolling_average`` remain. This
+audit intentionally covers the published upstream surface even when the
+checked-out applications do not import it.
 
 Recorded boundaries are numeric ``int``/``float`` kernels, one- or
-two-dimensional ``corrcoef``, fixed tick windows for ``as_array``, and the five
-common quantile interpolation methods. Unsupported methods and shapes fail
-explicitly. Early ``np_rolling_window`` output uses dynamic array dimensions,
-correcting the old implementation's mismatch between a fixed shape declaration
-and shorter warm-up ndarrays.
-
-The ``hgraph.numpy_`` namespace keeps familiar Python naming, but it is treated
-as the scientific-computation facade rather than a byte-for-byte NumPy
-compatibility layer. Quantile and standard deviation follow Arrow Compute,
-correlation follows Boost.Math, and cumulative sum uses hgraph's native shaped
-array traversal with defined integer wrapping. A future neutral namespace may
-alias this catalogue; no public rename is part of the current replacement work.
+two-dimensional ``correlation``, fixed tick windows for ``window_values``, and
+the five common quantile interpolation methods. Unsupported methods and shapes
+fail explicitly. Early ``hgraph_analytics.rolling_window`` output uses dynamic
+array dimensions, correcting the old implementation's mismatch between a fixed
+shape declaration and shorter warm-up arrays. Quantile and shaped-array
+standard deviation follow Arrow Compute; correlation follows Boost.Math, and
+cumulative sum uses hgraph's native shaped-array traversal with defined integer
+wrapping.
 
 The native ``window`` and tick/time ``rolling_average`` implementations and
 their Python compatibility tests are already complete; the earlier roadmap
@@ -425,11 +421,12 @@ Milestone R6: data and analytics catalogue
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Completed 2026-07-21.** Arrow dataframe
-operations, Series conversion, shaped native arrays, the complete public
-``hgraph.numpy_`` module, and the NumPy/analytical ``hgraph.nodes`` exports are
-implemented as described above. Application scans guided additional tests but
-did not define or reduce the public compatibility surface. Every Python facade
-has a C++ wiring route and paired behavioral coverage.
+operations, Series conversion, shaped native arrays, and the analytical
+extension exports are implemented as described above. The former
+``hgraph.numpy_`` and NumPy-prefixed ``hgraph.nodes`` surfaces have migration
+mappings and no longer ship in core. Application scans guided additional tests
+but did not define or reduce the public compatibility surface. Every Python
+facade has a C++ wiring route and paired behavioral coverage.
 
 Fresh macOS and Ubuntu x86_64 Release builds each passed 1,203 native tests.
 Stable-ABI wheels built with Python 3.12 each passed 1,493 Python 3.14 tests

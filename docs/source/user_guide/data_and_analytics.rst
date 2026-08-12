@@ -25,42 +25,45 @@ fixed tick window expose its shorter warm-up prefix without allocating a
 dynamic container. The native runtime and operator kernels do not depend on
 NumPy.
 
-Scientific operators (``hgraph.numpy_``)
-----------------------------------------
+Scientific operators (``hgraph_analytics``)
+-------------------------------------------
 
-The ``hgraph.numpy_`` name retains the familiar vocabulary used by existing
-Python code. It is a native scientific-computation surface rather than a
-promise to reproduce every NumPy edge-case or historical quirk. The complete
-public catalogue delegates to C++ operators:
+Shaped-array analytics live in the separately installed ``hgraph-analytics``
+package. The public catalogue delegates to C++ operators:
 
-* ``as_array`` converts a fixed tick window and pads an early-valid window;
-* ``get_item`` accepts an integer or integer tuple and resolves slice shape;
-* ``cumsum`` flattens when ``axis`` is omitted and preserves shape for an axis;
-* ``corrcoef`` accepts one- or two-dimensional numeric arrays and an optional
-  second array; and
-* ``quantile`` accepts an array or window and a scalar quantile.
+* ``window_values`` materializes a fixed tick window and pads an early-valid
+  window;
+* ``array_get_item`` accepts an integer or integer tuple and resolves slice
+  shape;
+* ``cumulative_sum`` flattens when ``axis`` is omitted and preserves shape for
+  an axis;
+* ``correlation`` accepts one- or two-dimensional numeric arrays and an
+  optional second array;
+* ``quantile`` and ``array_std`` provide scalar reductions; and
+* ``rolling_window`` returns shaped value and timestamp arrays.
 
-The numeric kernels support ``int`` and ``float`` leaves. Quantile and standard
-deviation delegate to Arrow Compute, while correlation delegates to Boost.Math;
-their documented backend behaviour defines numerical edge cases. Arrow null
-results are represented as floating-point NaN because the result time series
-has a non-nullable scalar schema. Cumulative sum follows the hgraph array shape
-and uses defined two's-complement wrapping for integer overflow.
+The former ``hgraph.numpy_`` module is retired. See
+:doc:`analytics_migration` for the complete name mapping.
 
-``quantile`` supports ``linear``, ``lower``, ``higher``, ``midpoint``, and
-``nearest`` interpolation; other methods fail explicitly. Its public result
-remains a scalar, so ``keepdims`` is accepted for call compatibility but does
-not change the result schema. ``as_array`` is limited to fixed tick windows;
+The numeric kernels support ``int`` and ``float`` leaves. Correlation delegates
+to Boost.Math, while cumulative sum follows the hgraph array shape and uses
+defined two's-complement wrapping for integer overflow. Quantile and shaped-array
+standard deviation now belong to ``hgraph-analytics`` and continue to use Arrow
+Compute there.
+
+``hgraph_analytics.quantile`` supports ``linear``, ``lower``, ``higher``,
+``midpoint``, and ``nearest`` interpolation; other methods fail explicitly.
+Its public result is a scalar, so the obsolete ``keepdims`` compatibility
+argument was removed. ``window_values`` is limited to fixed tick windows;
 duration windows have no fixed output shape.
 
-The ``hgraph.nodes`` compatibility surface also provides native-backed
-``np_rolling_window``, ``np_quantile``, ``np_std``, ``rolling_window``, and
-``rolling_average``. ``pct_change`` and the numerical analytical family are
-provided by ``hgraph-analytics``; see :doc:`analytics_migration`. A rolling window whose
-``min_window_period`` is smaller than its capacity emits shorter ndarrays while
+The core ``hgraph.nodes`` compatibility surface retains ``rolling_window`` and
+``rolling_average``. The NumPy-prefixed conveniences moved to
+``hgraph-analytics`` as ``rolling_window``, ``quantile``, and ``array_std``;
+see :doc:`analytics_migration`. An analytics rolling window whose
+``min_window_period`` is smaller than its capacity emits shorter arrays while
 warming up. Those fields use an unbounded array dimension so the runtime schema
-truthfully describes the values; the old Python implementation declared a
-fixed dimension while returning shorter arrays.
+truthfully describes the values.
 
 Dataframes and series
 ---------------------

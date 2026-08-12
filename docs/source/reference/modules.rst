@@ -20,8 +20,6 @@ Core modules
      - Stream conversion, multiplexing and stream utility nodes.
    * - ``hgraph.reflection``
      - Public type and schema inspection helpers.
-   * - ``hgraph.numpy_``
-     - Native shaped-array operators with NumPy boundary values.
    * - ``hgraph.arrow``
      - Python arrow-combinator authoring DSL (unrelated to Apache Arrow).
    * - ``hgraph.notebook``

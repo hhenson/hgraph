@@ -30,7 +30,6 @@
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/lib/std/operators/impl/table_impl.h>
 #include <hgraph/lib/std/operators/impl/logical_impl.h>
-#include <hgraph/lib/std/operators/impl/numpy_impl.h>
 #include <hgraph/lib/std/operators/impl/stream_impl.h>
 #include <hgraph/lib/std/operators/impl/string_impl.h>
 #include <hgraph/lib/std/operators/impl/temporal_impl.h>

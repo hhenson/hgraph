@@ -3,6 +3,13 @@
 include(CMakeFindDependencyMacro)
 find_dependency(hgraph CONFIG)
 
+include("${CMAKE_CURRENT_LIST_DIR}/hgraph_analytics_arrow.cmake")
+if(TARGET hgraph::nanobind)
+    hgraph_analytics_find_arrow(PREFER_PYARROW)
+else()
+    hgraph_analytics_find_arrow()
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/hgraphAnalyticsTargets.cmake")
 
 check_required_components(hgraph-analytics)

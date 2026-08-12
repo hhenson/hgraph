@@ -20,9 +20,9 @@ public operator they implement rather than listed as top-level operators.
    * - ``hgraph.__all__``
      - 207
    * - Public operator groups
-     - 199
+     - 192
    * - Public submodules
-     - 19
+     - 18
 
 Top-level wildcard exports
 --------------------------
@@ -275,9 +275,6 @@ whose curated signatures remain authoritative.
    * - :ref:`apply <python-operator-apply>`
      - ``apply(fn: TS[callable], *args: TIME_SERIES_TYPE, **kwargs: time-series) -> OUT``
      - 1 native overload; lazy operator
-   * - :ref:`as_array <python-operator-as_array>`
-     - ``3 overloads``
-     - 3 native overloads; lazy operator
    * - :ref:`assert_ <python-operator-assert_>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
@@ -329,12 +326,6 @@ whose curated signatures remain authoritative.
    * - :ref:`convert_zone <python-operator-convert_zone>`
      - ``convert_zone(value: TS[zoned_datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
      - 1 native overload; lazy operator
-   * - :ref:`corrcoef <python-operator-corrcoef>`
-     - ``4 overloads``
-     - 4 native overloads; lazy operator
-   * - :ref:`cumsum <python-operator-cumsum>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
    * - :ref:`day <python-operator-day>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
@@ -437,9 +428,6 @@ whose curated signatures remain authoritative.
    * - :ref:`ge_ <python-operator-ge_>`
      - ``9 overloads``
      - 9 native overloads; lazy operator
-   * - :ref:`get_item <python-operator-get_item>`
-     - ``get_item(ts: TIME_SERIES_TYPE, idx: SCALAR) -> OUT``
-     - 1 native overload; lazy operator
    * - :ref:`getattr_ <python-operator-getattr_>`
      - ``7 overloads``
      - 7 native overloads; lazy operator
@@ -599,9 +587,6 @@ whose curated signatures remain authoritative.
    * - :ref:`nothing <python-operator-nothing>`
      - ``nothing() -> OUT``
      - 1 native overload; lazy operator
-   * - :ref:`np_std <python-operator-np_std>`
-     - ``2 overloads``
-     - 2 native overloads; lazy operator
    * - :ref:`null_sink <python-operator-null_sink>`
      - ``null_sink(ts: TIME_SERIES_TYPE) -> None``
      - 1 native overload; lazy operator
@@ -620,9 +605,6 @@ whose curated signatures remain authoritative.
    * - :ref:`print_ <python-operator-print_>`
      - ``print_(fmt: TS[str], *args: TIME_SERIES_TYPE, __std_out__: bool = ..., **kwargs: time-series) -> None``
      - 1 native overload; lazy operator
-   * - :ref:`quantile <python-operator-quantile>`
-     - ``4 overloads``
-     - 4 native overloads; lazy operator
    * - :ref:`race <python-operator-race>`
      - ``race(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
@@ -701,9 +683,6 @@ whose curated signatures remain authoritative.
    * - :ref:`rolling_average <python-operator-rolling_average>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
-   * - :ref:`rolling_window_arrays <python-operator-rolling_window_arrays>`
-     - ``rolling_window_arrays(window: TIME_SERIES_TYPE) -> OUT``
-     - 1 native overload; lazy operator
    * - :ref:`round_ <python-operator-round_>`
      - ``round_(ts: TS[float], n_digits: TS[int]) -> TS[float]``
      - 1 native overload; lazy operator
@@ -911,17 +890,12 @@ hgraph.nodes
 .. hlist::
    :columns: 3
 
-   * - ``NpRollingWindowResult``
-   * - ``NpRollingWindowState``
    * - ``extract_tsd``
    * - ``flatten_tsd``
    * - ``flatten_tsl_values``
    * - ``keys_where_true``
    * - ``make_tsd``
    * - ``make_tsd_scalar``
-   * - ``np_quantile``
-   * - ``np_rolling_window``
-   * - ``np_std``
    * - ``request_id``
    * - ``rolling_average``
    * - ``rolling_window``
@@ -1004,23 +978,6 @@ hgraph.reflection
    * - ``scalar_type``
    * - ``size``
    * - ``value_type``
-
-hgraph.numpy_
-~~~~~~~~~~~~~
-
-.. hlist::
-   :columns: 3
-
-   * - ``ARRAY``
-   * - ``ARRAY_1``
-   * - ``add_docs``
-   * - ``as_array``
-   * - ``corrcoef``
-   * - ``cumsum``
-   * - ``extract_dimensions_from_array``
-   * - ``extract_type_from_array``
-   * - ``get_item``
-   * - ``quantile``
 
 hgraph.arrow
 ~~~~~~~~~~~~

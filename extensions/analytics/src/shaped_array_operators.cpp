@@ -1,11 +1,9 @@
-#include <hgraph/lib/std/operators/impl/numpy_impl.h>
+#include "shaped_array_operators.h"
+#include "operator_registration.h"
 
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/value/value_builder.h>
 
-#include <arrow/api.h>
-#include <arrow/compute/api.h>
-#include <arrow/compute/initialize.h>
 #include <boost/math/statistics/bivariate_statistics.hpp>
 
 #include <algorithm>
@@ -13,7 +11,6 @@
 #include <bit>
 #include <cmath>
 #include <concepts>
-#include <cstdint>
 #include <functional>
 #include <iterator>
 #include <limits>
@@ -21,11 +18,9 @@
 #include <stdexcept>
 #include <type_traits>
 
-#include <fmt/format.h>
-
-namespace hgraph::stdlib
+namespace hgraph::analytics
 {
-    namespace numpy_detail
+    namespace array_detail
     {
         namespace
         {
@@ -34,7 +29,8 @@ namespace hgraph::stdlib
                 const auto binding = ValuePlanFactory::instance().type_for(meta);
                 if (binding == nullptr)
                 {
-                    throw std::logic_error("numpy operator output has no value binding");
+                    throw std::logic_error(
+                        "hgraph analytics array output has no value binding");
                 }
                 return binding;
             }
@@ -163,7 +159,8 @@ namespace hgraph::stdlib
                 append_shape(value, shape);
                 if (shape.empty() || shape.size() > 2)
                 {
-                    throw std::invalid_argument("corrcoef supports one- or two-dimensional arrays");
+                    throw std::invalid_argument(
+                        "hgraph.analytics.correlation supports one- or two-dimensional arrays");
                 }
                 std::vector<T> flat;
                 flat.reserve(product(shape));
@@ -192,87 +189,6 @@ namespace hgraph::stdlib
                     }
                 }
                 return result;
-            }
-
-            template <typename T>
-            [[nodiscard]] arrow::Datum numeric_datum(const std::vector<T> &values)
-            {
-                static_assert(std::same_as<T, Int> || std::same_as<T, Float>);
-                const auto length = static_cast<std::int64_t>(values.size());
-                auto buffer = arrow::Buffer::Wrap(
-                    values.data(),
-                    static_cast<std::int64_t>(values.size() * sizeof(T)));
-                auto type = []
-                {
-                    if constexpr (std::same_as<T, Int>) { return arrow::int64(); }
-                    else { return arrow::float64(); }
-                }();
-                return arrow::Datum{arrow::ArrayData::Make(
-                    std::move(type), length, {nullptr, std::move(buffer)}, 0)};
-            }
-
-            [[nodiscard]] arrow::Datum checked_arrow_result(
-                arrow::Result<arrow::Datum> result, std::string_view operation)
-            {
-                if (!result.ok())
-                {
-                    throw std::runtime_error(fmt::format(
-                        "{}: Arrow compute failed: {}", operation,
-                        result.status().ToString()));
-                }
-                return std::move(result).ValueUnsafe();
-            }
-
-            [[nodiscard]] arrow::compute::QuantileOptions::Interpolation
-            quantile_interpolation(std::string_view method)
-            {
-                using Interpolation = arrow::compute::QuantileOptions::Interpolation;
-                if (method == "linear") { return Interpolation::LINEAR; }
-                if (method == "lower") { return Interpolation::LOWER; }
-                if (method == "higher") { return Interpolation::HIGHER; }
-                if (method == "nearest") { return Interpolation::NEAREST; }
-                if (method == "midpoint") { return Interpolation::MIDPOINT; }
-                throw std::invalid_argument(
-                    "unsupported quantile method: " + std::string{method});
-            }
-
-            [[nodiscard]] Float numeric_array_scalar(const arrow::Datum &datum,
-                                                     std::string_view operation)
-            {
-                if (!datum.is_array() || datum.array()->length != 1)
-                {
-                    throw std::runtime_error(fmt::format(
-                        "{}: Arrow compute returned a non-scalar array", operation));
-                }
-                if (datum.array()->null_count != 0)
-                {
-                    return std::numeric_limits<Float>::quiet_NaN();
-                }
-                switch (datum.type()->id())
-                {
-                    case arrow::Type::DOUBLE:
-                        return datum.array()->GetValues<Float>(1)[0];
-                    case arrow::Type::INT64:
-                        return static_cast<Float>(datum.array()->GetValues<Int>(1)[0]);
-                    default:
-                        throw std::runtime_error(fmt::format(
-                            "{}: Arrow compute returned unexpected type {}", operation,
-                            datum.type()->ToString()));
-                }
-            }
-
-            [[nodiscard]] Float numeric_scalar(const arrow::Datum &datum,
-                                               std::string_view operation)
-            {
-                if (!datum.is_scalar() || datum.type()->id() != arrow::Type::DOUBLE)
-                {
-                    throw std::runtime_error(fmt::format(
-                        "{}: Arrow compute returned an unexpected result", operation));
-                }
-                const auto &scalar = datum.scalar_as<arrow::DoubleScalar>();
-                return scalar.is_valid
-                           ? scalar.value
-                           : std::numeric_limits<Float>::quiet_NaN();
             }
 
             template <typename T>
@@ -388,48 +304,6 @@ namespace hgraph::stdlib
             return result;
         }
 
-        Value array_from_window_times(const TSWInputView &window,
-                                      const ValueTypeMetaData *output)
-        {
-            const auto binding = binding_for(output);
-            if (output->fixed_size == 0)
-            {
-                ListBuilder builder{binding_for(output->element_type)};
-                for (std::size_t index = 0; index < window.size(); ++index)
-                {
-                    const DateTime time = window.time_at(index);
-                    builder.push_back_copy(&time);
-                }
-                ListStorage storage = builder.build_storage();
-                return Value{binding, &storage};
-            }
-            if (window.size() != output->fixed_size)
-            {
-                throw std::invalid_argument(
-                    "rolling window timestamps do not match the declared shape");
-            }
-            Value result{binding};
-            auto values = result.as_list().begin_mutation();
-            values.resize(output->fixed_size);
-            for (std::size_t index = 0; index < window.size(); ++index)
-            {
-                values.at(index).checked_mutable_as<DateTime>() = window.time_at(index);
-            }
-            return result;
-        }
-
-        bool window_ready(const TSWInputView &window)
-        {
-            if (window.empty()) { return false; }
-            if (window.time_based())
-            {
-                const auto minimum = window.min_time_range();
-                return minimum <= TimeDelta{0} ||
-                       window.time_at(window.size() - 1) - window.time_at(0) >= minimum;
-            }
-            return window.size() >= window.min_period();
-        }
-
         template <typename T>
         Value cumulative_sum(ValueView input, const ValueTypeMetaData *output,
                              std::optional<Int> axis)
@@ -445,7 +319,8 @@ namespace hgraph::stdlib
                 if (normalized < 0) { normalized += static_cast<Int>(shape.size()); }
                 if (normalized < 0 || normalized >= static_cast<Int>(shape.size()))
                 {
-                    throw std::out_of_range("cumsum axis is out of range");
+                    throw std::out_of_range(
+                        "hgraph.analytics.cumulative_sum axis is out of range");
                 }
                 const std::size_t axis_index = static_cast<std::size_t>(normalized);
                 const std::size_t inner = product(std::span{shape}.subspan(axis_index + 1));
@@ -487,7 +362,8 @@ namespace hgraph::stdlib
                 if (!series.empty() && !additional.empty() &&
                     series.front().size() != additional.front().size())
                 {
-                    throw std::invalid_argument("corrcoef inputs have different observation counts");
+                    throw std::invalid_argument(
+                        "hgraph.analytics.correlation inputs have different observation counts");
                 }
                 series.insert(series.end(), std::make_move_iterator(additional.begin()),
                               std::make_move_iterator(additional.end()));
@@ -497,7 +373,8 @@ namespace hgraph::stdlib
             {
                 if (variable.empty())
                 {
-                    throw std::invalid_argument("corrcoef requires at least one observation");
+                    throw std::invalid_argument(
+                        "hgraph.analytics.correlation requires at least one observation");
                 }
             }
 
@@ -552,65 +429,6 @@ namespace hgraph::stdlib
                 TypeRegistry::instance().array(scalar_descriptor<Float>::value_meta(), shape)));
         }
 
-        template <typename T>
-        Float quantile(ValueView input, Float q, std::string_view method)
-        {
-            std::vector<T> raw;
-            flatten<T>(input, raw);
-            if (raw.empty()) { throw std::invalid_argument("quantile requires at least one value"); }
-            if (!(q >= 0.0 && q <= 1.0))
-            {
-                throw std::invalid_argument("quantile q must be in [0, 1]");
-            }
-            const arrow::compute::QuantileOptions options{
-                q, quantile_interpolation(method), false, 1};
-            return numeric_array_scalar(
-                checked_arrow_result(
-                    arrow::compute::Quantile(numeric_datum(raw), options), "quantile"),
-                "quantile");
-        }
-
-        template <typename T>
-        Float quantile(const TSWInputView &input, Float q, std::string_view method)
-        {
-            std::vector<T> values;
-            values.reserve(input.size());
-            for (std::size_t index = 0; index < input.size(); ++index)
-            {
-                values.push_back(input.at(index).checked_as<T>());
-            }
-            if (values.empty()) { throw std::invalid_argument("quantile requires at least one value"); }
-            if (!(q >= 0.0 && q <= 1.0))
-            {
-                throw std::invalid_argument("quantile q must be in [0, 1]");
-            }
-            const arrow::compute::QuantileOptions options{
-                q, quantile_interpolation(method), false, 1};
-            return numeric_array_scalar(
-                checked_arrow_result(
-                    arrow::compute::Quantile(numeric_datum(values), options), "quantile"),
-                "quantile");
-        }
-
-        template <typename T>
-        Float standard_deviation(ValueView input, Int ddof)
-        {
-            std::vector<T> raw;
-            flatten<T>(input, raw);
-            if (ddof < std::numeric_limits<int>::min() ||
-                ddof > std::numeric_limits<int>::max())
-            {
-                throw std::invalid_argument("standard deviation ddof is outside Arrow's supported range");
-            }
-            const arrow::compute::VarianceOptions options{
-                static_cast<int>(ddof), false, 0};
-            return numeric_scalar(
-                checked_arrow_result(
-                    arrow::compute::Stddev(numeric_datum(raw), options),
-                    "standard_deviation"),
-                "standard_deviation");
-        }
-
         template Value cumulative_sum<Int>(ValueView, const ValueTypeMetaData *,
                                            std::optional<Int>);
         template Value cumulative_sum<Float>(ValueView, const ValueTypeMetaData *,
@@ -619,13 +437,7 @@ namespace hgraph::stdlib
                                         const ValueTypeMetaData *);
         template Value correlation<Float>(ValueView, std::optional<ValueView>, bool,
                                           const ValueTypeMetaData *);
-        template Float quantile<Int>(ValueView, Float, std::string_view);
-        template Float quantile<Float>(ValueView, Float, std::string_view);
-        template Float quantile<Int>(const TSWInputView &, Float, std::string_view);
-        template Float quantile<Float>(const TSWInputView &, Float, std::string_view);
-        template Float standard_deviation<Int>(ValueView, Int);
-        template Float standard_deviation<Float>(ValueView, Int);
-    }  // namespace numpy_detail
+    }  // namespace array_detail
 
     bool array_get_item_impl::requires_(const ResolutionMap &,
                                         OperatorCallContext context)
@@ -653,31 +465,33 @@ namespace hgraph::stdlib
         const auto *array = ts_value_schema_at(context, 0);
         const auto *index = scalar_arg_at(context, 1);
         if (!TypeRegistry::is_array(array) || index == nullptr) { return; }
-        const auto components = numpy_detail::index_components(index->scalar_value.view());
-        const auto *result = numpy_detail::indexed_result(array, components.size());
+        const auto components = array_detail::index_components(index->scalar_value.view());
+        const auto *result = array_detail::indexed_result(array, components.size());
         if (result != nullptr)
         {
             bind_output(resolution, TypeRegistry::instance().ts(result));
         }
     }
 
-    void array_get_item_impl::eval(In<"ts", TsVar<"A">> ts,
-                                   Scalar<"idx", ScalarVar<"I">> index,
+    void array_get_item_impl::eval(In<"values", TsVar<"A">> values,
+                                   Scalar<"index", ScalarVar<"I">> index,
                                    Out<TsVar<"__out__">> out)
     {
-        const auto components = numpy_detail::index_components(index.value());
-        out.apply(numpy_detail::index_value(ts.value(), components));
+        // Walk the wiring-time components without copying; the selected view is
+        // copied only once when it is applied to the output.
+        const auto components = array_detail::index_components(index.value());
+        out.apply(array_detail::index_value(values.value(), components));
     }
 
-    bool as_array_erased_impl<false>::requires_(const ResolutionMap &,
-                                                OperatorCallContext context)
+    bool window_values_impl<false>::requires_(const ResolutionMap &,
+                                              OperatorCallContext context)
     {
         const auto *window = time_series_schema_at_as<AnyTSW>(context, 0);
         return window != nullptr && !window->is_duration_based() &&
                window->period() != 0;
     }
 
-    void as_array_erased_impl<false>::resolve_default_types(
+    void window_values_impl<false>::resolve_default_types(
         ResolutionMap &resolution, OperatorCallContext context)
     {
         if (output_bound(resolution)) { return; }
@@ -688,19 +502,21 @@ namespace hgraph::stdlib
                                            window->period())));
     }
 
-    void as_array_erased_impl<false>::eval(In<"tsw", TsVar<"W">> tsw,
-                                           Out<TsVar<"__out__">> out)
+    void window_values_impl<false>::eval(In<"window", TsVar<"W">> input,
+                                         Out<TsVar<"__out__">> out)
     {
-        const TSWInputView window{tsw.base().borrowed_ref()};
+        // The TSW owns chronological history; materialization copies that live
+        // prefix and default-initializes only the unused fixed-capacity suffix.
+        const TSWInputView window{input.base().borrowed_ref()};
         if (window.size() < window.min_period()) { return; }
-        Value value = numpy_detail::array_from_window(
+        Value value = array_detail::array_from_window(
             window, std::nullopt,
             static_cast<const TSOutputView &>(out).schema()->value_schema);
         out.apply(value.view());
     }
 
-    bool as_array_erased_impl<true>::requires_(const ResolutionMap &,
-                                               OperatorCallContext context)
+    bool window_values_impl<true>::requires_(const ResolutionMap &,
+                                             OperatorCallContext context)
     {
         const auto *window = time_series_schema_at_as<AnyTSW>(context, 0);
         const auto *zero = time_series_schema_at(context, 1);
@@ -709,26 +525,28 @@ namespace hgraph::stdlib
                zero->value_schema == window->value_schema->element_type;
     }
 
-    void as_array_erased_impl<true>::resolve_default_types(
+    void window_values_impl<true>::resolve_default_types(
         ResolutionMap &resolution, OperatorCallContext context)
     {
-        as_array_erased_impl<false>::resolve_default_types(resolution, context);
+        window_values_impl<false>::resolve_default_types(resolution, context);
     }
 
-    void as_array_erased_impl<true>::eval(In<"tsw", TsVar<"W">> tsw,
-                                          In<"zero", TsVar<"Z">> zero,
-                                          Out<TsVar<"__out__">> out)
+    void window_values_impl<true>::eval(In<"window", TsVar<"W">> input,
+                                        In<"zero", TsVar<"Z">> zero,
+                                        Out<TsVar<"__out__">> out)
     {
-        const TSWInputView window{tsw.base().borrowed_ref()};
+        // Sample the live padding value on each window tick so warm-up output
+        // reflects the current zero source without adding node-owned state.
+        const TSWInputView window{input.base().borrowed_ref()};
         if (window.size() < window.min_period()) { return; }
-        Value value = numpy_detail::array_from_window(
+        Value value = array_detail::array_from_window(
             window, zero.value(),
             static_cast<const TSOutputView &>(out).schema()->value_schema);
         out.apply(value.view());
     }
 
-    bool as_array_scalar_zero_impl::requires_(const ResolutionMap &,
-                                              OperatorCallContext context)
+    bool window_values_scalar_zero_impl::requires_(const ResolutionMap &,
+                                                   OperatorCallContext context)
     {
         const auto *window = time_series_schema_at_as<AnyTSW>(context, 0);
         const auto *zero = scalar_arg_at(context, 1);
@@ -737,116 +555,65 @@ namespace hgraph::stdlib
                zero->scalar_value.schema() == window->value_schema->element_type;
     }
 
-    void as_array_scalar_zero_impl::resolve_default_types(
+    void window_values_scalar_zero_impl::resolve_default_types(
         ResolutionMap &resolution, OperatorCallContext context)
     {
-        as_array_erased_impl<false>::resolve_default_types(resolution, context);
+        window_values_impl<false>::resolve_default_types(resolution, context);
     }
 
-    void as_array_scalar_zero_impl::eval(In<"tsw", TsVar<"W">> tsw,
-                                         Scalar<"zero", ScalarVar<"Z">> zero,
-                                         Out<TsVar<"__out__">> out)
+    void window_values_scalar_zero_impl::eval(
+        In<"window", TsVar<"W">> input,
+        Scalar<"zero", ScalarVar<"Z">> zero,
+        Out<TsVar<"__out__">> out)
     {
-        const TSWInputView window{tsw.base().borrowed_ref()};
+        // The scalar padding value is fixed in the node signature and fills only
+        // the suffix beyond the window's current logical extent.
+        const TSWInputView window{input.base().borrowed_ref()};
         if (window.size() < window.min_period()) { return; }
-        Value value = numpy_detail::array_from_window(
+        Value value = array_detail::array_from_window(
             window, zero.value(),
             static_cast<const TSOutputView &>(out).schema()->value_schema);
         out.apply(value.view());
     }
 
-    bool rolling_window_arrays_impl::requires_(const ResolutionMap &,
-                                               OperatorCallContext context)
-    {
-        const auto *window = time_series_schema_at_as<AnyTSW>(context, 0);
-        return window != nullptr && !window->is_duration_based() &&
-               window->period() != 0;
-    }
-
-    void rolling_window_arrays_impl::resolve_default_types(
-        ResolutionMap &resolution, OperatorCallContext context)
-    {
-        if (output_bound(resolution)) { return; }
-        const auto *window = time_series_schema_at_as<AnyTSW>(context, 0);
-        if (window == nullptr || window->is_duration_based() || window->period() == 0) { return; }
-        auto &registry = TypeRegistry::instance();
-        const std::size_t dimension = window->period() == window->min_period()
-                                          ? window->period()
-                                          : std::size_t{0};
-        const auto *buffer = registry.array(window->value_schema->element_type, dimension);
-        const auto *index = registry.array(scalar_descriptor<DateTime>::value_meta(), dimension);
-        const std::string name = window->period() == window->min_period()
-                                     ? fmt::format("NpRollingWindowResult[{},{}]",
-                                                   window->value_schema->element_type->name(),
-                                                   window->period())
-                                     : fmt::format("NpRollingWindowResult[{},{},{}]",
-                                                   window->value_schema->element_type->name(),
-                                                   window->period(), window->min_period());
-        bind_output(resolution, registry.tsb(
-            name, {{"buffer", registry.ts(buffer)}, {"index", registry.ts(index)}}));
-    }
-
-    void rolling_window_arrays_impl::eval(In<"window", TsVar<"W">> input,
-                                          Out<TsVar<"__out__">> out)
-    {
-        const TSWInputView window{input.base().borrowed_ref()};
-        if (!numpy_detail::window_ready(window)) { return; }
-        const auto &erased = static_cast<const TSOutputView &>(out);
-        auto bundle = erased.as_bundle();
-        Value buffer = numpy_detail::array_from_window(
-            window, std::nullopt, bundle.field("buffer").schema()->value_schema);
-        Value index = numpy_detail::array_from_window_times(
-            window, bundle.field("index").schema()->value_schema);
-        {
-            auto field = bundle.field("buffer");
-            auto mutation = field.begin_mutation(erased.evaluation_time());
-            static_cast<void>(mutation.move_value_from(std::move(buffer)));
-        }
-        {
-            auto field = bundle.field("index");
-            auto mutation = field.begin_mutation(erased.evaluation_time());
-            static_cast<void>(mutation.move_value_from(std::move(index)));
-        }
-    }
-
     template <typename T>
-    bool corrcoef_impl<T, false>::requires_(const ResolutionMap &,
-                                            OperatorCallContext context)
+    bool correlation_impl<T, false>::requires_(const ResolutionMap &,
+                                               OperatorCallContext context)
     {
         const auto *array = ts_value_schema_at(context, 0);
         const auto dimensions = TypeRegistry::array_dimensions(array);
-        return numpy_detail::numeric_array(array, scalar_descriptor<T>::value_meta()) &&
+        return array_detail::numeric_array(array, scalar_descriptor<T>::value_meta()) &&
                (dimensions.size() == 1 || dimensions.size() == 2) &&
                scalar_arg_at(context, 1) != nullptr;
     }
 
     template <typename T>
-    bool corrcoef_default_impl<T, false>::requires_(const ResolutionMap &,
-                                                    OperatorCallContext context)
+    bool correlation_default_impl<T, false>::requires_(
+        const ResolutionMap &, OperatorCallContext context)
     {
         const auto *array = ts_value_schema_at(context, 0);
         const auto dimensions = TypeRegistry::array_dimensions(array);
-        return numpy_detail::numeric_array(array, scalar_descriptor<T>::value_meta()) &&
+        return array_detail::numeric_array(array, scalar_descriptor<T>::value_meta()) &&
                (dimensions.size() == 1 || dimensions.size() == 2);
     }
 
     template <typename T>
-    bool corrcoef_default_impl<T, true>::requires_(const ResolutionMap &,
-                                                   OperatorCallContext context)
+    bool correlation_default_impl<T, true>::requires_(
+        const ResolutionMap &, OperatorCallContext context)
     {
         const auto *x = ts_value_schema_at(context, 0);
         const auto *y = ts_value_schema_at(context, 1);
         const auto x_dimensions = TypeRegistry::array_dimensions(x);
         const auto y_dimensions = TypeRegistry::array_dimensions(y);
-        return numpy_detail::numeric_array(x, scalar_descriptor<T>::value_meta()) &&
-               numpy_detail::numeric_array(y, scalar_descriptor<T>::value_meta()) &&
+        return array_detail::numeric_array(x, scalar_descriptor<T>::value_meta()) &&
+               array_detail::numeric_array(y, scalar_descriptor<T>::value_meta()) &&
                (x_dimensions.size() == 1 || x_dimensions.size() == 2) &&
                (y_dimensions.size() == 1 || y_dimensions.size() == 2);
     }
 
     template <typename T>
-    void corrcoef_impl<T, false>::resolve_default_types(ResolutionMap &resolution,
-                                                        OperatorCallContext context)
+    void correlation_impl<T, false>::resolve_default_types(
+        ResolutionMap &resolution, OperatorCallContext context)
     {
         if (output_bound(resolution)) { return; }
         const auto *array = ts_value_schema_at(context, 0);
@@ -865,23 +632,23 @@ namespace hgraph::stdlib
     }
 
     template <typename T>
-    bool corrcoef_impl<T, true>::requires_(const ResolutionMap &,
-                                           OperatorCallContext context)
+    bool correlation_impl<T, true>::requires_(const ResolutionMap &,
+                                              OperatorCallContext context)
     {
         const auto *x = ts_value_schema_at(context, 0);
         const auto *y = ts_value_schema_at(context, 1);
         const auto x_dimensions = TypeRegistry::array_dimensions(x);
         const auto y_dimensions = TypeRegistry::array_dimensions(y);
-        return numpy_detail::numeric_array(x, scalar_descriptor<T>::value_meta()) &&
-               numpy_detail::numeric_array(y, scalar_descriptor<T>::value_meta()) &&
+        return array_detail::numeric_array(x, scalar_descriptor<T>::value_meta()) &&
+               array_detail::numeric_array(y, scalar_descriptor<T>::value_meta()) &&
                (x_dimensions.size() == 1 || x_dimensions.size() == 2) &&
                (y_dimensions.size() == 1 || y_dimensions.size() == 2) &&
                scalar_arg_at(context, 2) != nullptr;
     }
 
     template <typename T>
-    void corrcoef_impl<T, true>::resolve_default_types(ResolutionMap &resolution,
-                                                       OperatorCallContext context)
+    void correlation_impl<T, true>::resolve_default_types(
+        ResolutionMap &resolution, OperatorCallContext context)
     {
         if (output_bound(resolution)) { return; }
         const auto x = TypeRegistry::array_dimensions(ts_value_schema_at(context, 0));
@@ -897,56 +664,23 @@ namespace hgraph::stdlib
             TypeRegistry::instance().array(scalar_descriptor<Float>::value_meta(), shape)));
     }
 
-    void register_numpy_operators()
+    void detail::register_shaped_array_operators()
     {
-        static const bool arrow_compute_initialised = [] {
-            const auto status = arrow::compute::Initialize();
-            if (!status.ok())
-            {
-                throw std::runtime_error(
-                    "numpy operators: Arrow compute initialization failed: " +
-                    status.ToString());
-            }
-            return true;
-        }();
-        static_cast<void>(arrow_compute_initialised);
-
-        register_overload<numpy::as_array, as_array_erased_impl<false>>();
-        register_overload<numpy::as_array, as_array_erased_impl<true>>();
-        register_overload<numpy::as_array, as_array_scalar_zero_impl>();
-        register_overload<numpy::get_item, array_get_item_impl>();
-        register_overload<numpy::cumsum, cumsum_impl<Int, false>>();
-        register_overload<numpy::cumsum, cumsum_impl<Float, false>>();
-        register_overload<numpy::cumsum, cumsum_impl<Int, true>>();
-        register_overload<numpy::cumsum, cumsum_impl<Float, true>>();
-        register_overload<numpy::corrcoef, corrcoef_default_impl<Int, false>>();
-        register_overload<numpy::corrcoef, corrcoef_default_impl<Float, false>>();
-        register_overload<numpy::corrcoef, corrcoef_default_impl<Int, true>>();
-        register_overload<numpy::corrcoef, corrcoef_default_impl<Float, true>>();
-        register_overload<numpy::corrcoef, corrcoef_impl<Int, false>>();
-        register_overload<numpy::corrcoef, corrcoef_impl<Float, false>>();
-        register_overload<numpy::corrcoef, corrcoef_impl<Int, true>>();
-        register_overload<numpy::corrcoef, corrcoef_impl<Float, true>>();
-        register_overload<numpy::quantile, quantile_array_impl<Int>>();
-        register_overload<numpy::quantile, quantile_array_impl<Float>>();
-        register_overload<numpy::quantile, quantile_window_impl<Int>>();
-        register_overload<numpy::quantile, quantile_window_impl<Float>>();
-        register_overload<numpy::quantile, quantile_array_default_impl<Int, false>>();
-        register_overload<numpy::quantile, quantile_array_default_impl<Float, false>>();
-        register_overload<numpy::quantile, quantile_array_default_impl<Int, true>>();
-        register_overload<numpy::quantile, quantile_array_default_impl<Float, true>>();
-        register_overload<numpy::quantile, quantile_array_keepdims_impl<Int>>();
-        register_overload<numpy::quantile, quantile_array_keepdims_impl<Float>>();
-        register_overload<numpy::quantile, quantile_window_default_impl<Int, false>>();
-        register_overload<numpy::quantile, quantile_window_default_impl<Float, false>>();
-        register_overload<numpy::quantile, quantile_window_default_impl<Int, true>>();
-        register_overload<numpy::quantile, quantile_window_default_impl<Float, true>>();
-        register_overload<numpy::quantile, quantile_window_keepdims_impl<Int>>();
-        register_overload<numpy::quantile, quantile_window_keepdims_impl<Float>>();
-        register_overload<numpy::rolling_window_arrays, rolling_window_arrays_impl>();
-        register_overload<numpy::standard_deviation, standard_deviation_impl<Int, false>>();
-        register_overload<numpy::standard_deviation, standard_deviation_impl<Float, false>>();
-        register_overload<numpy::standard_deviation, standard_deviation_impl<Int, true>>();
-        register_overload<numpy::standard_deviation, standard_deviation_impl<Float, true>>();
+        register_overload<window_values, window_values_impl<false>>();
+        register_overload<window_values, window_values_impl<true>>();
+        register_overload<window_values, window_values_scalar_zero_impl>();
+        register_overload<array_get_item, array_get_item_impl>();
+        register_overload<cumulative_sum, cumulative_sum_impl<Int, false>>();
+        register_overload<cumulative_sum, cumulative_sum_impl<Float, false>>();
+        register_overload<cumulative_sum, cumulative_sum_impl<Int, true>>();
+        register_overload<cumulative_sum, cumulative_sum_impl<Float, true>>();
+        register_overload<correlation, correlation_default_impl<Int, false>>();
+        register_overload<correlation, correlation_default_impl<Float, false>>();
+        register_overload<correlation, correlation_default_impl<Int, true>>();
+        register_overload<correlation, correlation_default_impl<Float, true>>();
+        register_overload<correlation, correlation_impl<Int, false>>();
+        register_overload<correlation, correlation_impl<Float, false>>();
+        register_overload<correlation, correlation_impl<Int, true>>();
+        register_overload<correlation, correlation_impl<Float, true>>();
     }
-}  // namespace hgraph::stdlib
+}  // namespace hgraph::analytics

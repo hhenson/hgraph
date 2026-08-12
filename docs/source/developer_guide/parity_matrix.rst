@@ -640,9 +640,10 @@ Types and scalars
        replacement/projection, and Series-to-tuple conversion execute
        Arrow-native. Python expression filters are retained for the
        Python-owned ``pyarrow.compute.Expression`` scalar. Native shaped arrays
-       retain all ``Size`` dimensions and back the complete public
-       ``hgraph.numpy_`` catalogue plus the NumPy helpers exported from
-       ``hgraph.nodes``. Fixed shapes use inline capacity with a stored logical
+       retain all ``Size`` dimensions and back the shaped-array operators now
+       exported from ``hgraph-analytics``. The former ``hgraph.numpy_`` and
+       NumPy-prefixed ``hgraph.nodes`` APIs have explicit migration mappings.
+       Fixed shapes use inline capacity with a stored logical
        extent; unbounded dimensions
        use compact list storage. **Recorded temporal divergence:** RFC 0002
        version-2 ``Instant`` fields use Arrow ``timestamp[us, "UTC"]`` rather

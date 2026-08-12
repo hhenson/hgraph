@@ -25,11 +25,11 @@ Arrow is the native table, series, and numerical-reduction substrate. The
 runtime links Arrow, Arrow Compute, and Arrow Acero; wheel builds resolve those
 libraries from PyArrow, while standalone C++ builds use their CMake packages.
 
-Boost.Math supplies the correlation kernel used by ``hgraph.numpy_``. CMake
-uses an installed ``boost_math`` package at version 1.90 or newer when
-available, otherwise it fetches the pinned standalone Boost.Math release. The
-header-only target is private to the stdlib build and does not add a Boost
-dependency to installed hgraph consumers.
+Boost.Math supplies the correlation kernel used by ``hgraph-analytics``. The
+extension uses an installed ``boost_math`` package at version 1.90 or newer
+when available, otherwise it fetches the pinned standalone Boost.Math release.
+The header-only target is private to the analytics build and does not add a
+Boost dependency to installed consumers.
 
 ``simdjson`` **requires version 4.5 or newer** — ``json_impl.cpp`` uses
 ``simdjson::dom::element_type::BIGINT``, which first appeared in 4.5. Wheel

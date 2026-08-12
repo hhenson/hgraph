@@ -39,6 +39,36 @@ namespace
     };
 }
 
+TEST_CASE("fixed shaped arrays retain inline capacity with a logical extent")
+{
+    using namespace hgraph;
+
+    const auto *meta = TypeRegistry::instance().array(
+        scalar_descriptor<Int>::value_meta(), 4);
+    Value partial{ValuePlanFactory::instance().type_for(meta)};
+    auto output = partial.as_list().begin_mutation();
+    output.resize(2);
+    Value first{Int{1}};
+    Value second{Int{2}};
+    output.at(0).copy_from(first.view());
+    output.at(1).copy_from(second.view());
+
+    CHECK(partial.schema()->fixed_size == 4);
+    CHECK(partial.as_list().size() == 2);
+    CHECK(partial.as_list().at(0).checked_as<Int>() == 1);
+    CHECK(partial.as_list().at(1).checked_as<Int>() == 2);
+
+    Value copy{partial.binding()};
+    copy.begin_mutation().copy_from(partial.view());
+    CHECK(copy.equals(partial));
+    CHECK(copy.as_list().size() == 2);
+
+    auto resized = copy.as_list().begin_mutation();
+    resized.resize(4);
+    CHECK(resized.size() == 4);
+    CHECK_THROWS_AS(resized.resize(5), std::out_of_range);
+}
+
 TEST_CASE("Value storage metrics expose owned string and bytes allocations", "[memory]")
 {
     using namespace hgraph;

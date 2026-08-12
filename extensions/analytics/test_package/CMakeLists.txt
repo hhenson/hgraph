@@ -19,6 +19,13 @@ if(TARGET hgraph::nanobind AND NOT TARGET Python::Python)
 endif()
 if(TARGET Python::Python)
     target_link_libraries(hgraph_analytics_consumer PRIVATE Python::Python)
+    # GNU-like Linux linkers commonly enable --as-needed.  Python::Python is
+    # encountered before the transitive hgraph shared libraries on the final
+    # link line, so retain it until those libraries contribute their Python
+    # symbol references.
+    if(UNIX AND NOT APPLE)
+        target_link_options(hgraph_analytics_consumer PRIVATE LINKER:--no-as-needed)
+    endif()
 endif()
 
 add_test(NAME hgraph_analytics_consumer COMMAND hgraph_analytics_consumer)

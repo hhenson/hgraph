@@ -937,12 +937,12 @@
       "classification": "converted",
       "candidate_outcomes": ["collection-error"],
       "diagnostic_regex": "No module named 'hgraph[.]nodes[.]_numpy'",
-      "reason": "NumPy nodes are public registered operators rather than a Python-private node module; rolling-window and quantile behavior use native arrays and schemas.",
+      "reason": "The private NumPy node module is retired. Its analytical transformations are public native operators in hgraph-analytics under descriptive names, with array and window behavior covered at the package boundary.",
       "decision": "docs/source/developer_guide/parity_matrix.rst",
-      "review_date": "2026-08-05",
+      "review_date": "2026-08-12",
       "evidence": [
-        "python/tests/test_numpy_nodes.py",
-        "tests/cpp/test_numpy_operators.cpp"
+        "extensions/analytics/python/tests/test_array_operators.py",
+        "extensions/analytics/tests/test_array_operators.cpp"
       ]
     },
     {

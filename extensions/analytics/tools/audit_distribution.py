@@ -18,15 +18,23 @@ WHEEL_REQUIRED = (
     # use lib. Match the package-relative suffix so both layouts are audited.
     "cmake/hgraph-analytics/hgraph-analyticsConfig.cmake",
     "cmake/hgraph-analytics/hgraphAnalyticsTargets.cmake",
+    "cmake/hgraph-analytics/hgraph_analytics_arrow.cmake",
 )
 SDIST_REQUIRED = (
     "CMakeLists.txt",
     "cmake/hgraph-analyticsConfig.cmake.in",
+    "cmake/hgraph_analytics_arrow.cmake",
     "include/hgraph/analytics/operators.h",
     "python/hgraph_analytics/__init__.py",
     "python/hgraph_analytics/py.typed",
+    "src/array_operators.cpp",
+    "src/operator_registration.h",
     "src/operators.cpp",
+    "src/registration.cpp",
+    "src/shaped_array_operators.cpp",
+    "src/shaped_array_operators.h",
     "test_package/CMakeLists.txt",
+    "tests/test_array_operators.cpp",
     "tests/test_pct_change.cpp",
     "tools/audit_distribution.py",
 )
