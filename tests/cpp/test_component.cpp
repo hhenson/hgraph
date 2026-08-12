@@ -3,20 +3,80 @@
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/record_replay.h>
+#include <hgraph/types/value/value_builder.h>
 
 #include <catch2/catch_test_macros.hpp>
+
+#include <array>
+#include <cstddef>
+#include <string>
 
 // Step 5 of the record/replay/table design record: component<G> - Python's
 // @component as a wiring function over the mode scope + the record/replay
 // operators (whatever backend the active model selects).
+
+namespace polymorphic_record_replay_repro
+{
+    struct Event
+    {};
+}
+
+namespace hgraph
+{
+    template <>
+    struct scalar_descriptor<polymorphic_record_replay_repro::Event>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return true; }
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            auto &registry = TypeRegistry::instance();
+            return registry.bundle(
+                "tests.record_replay", "Event",
+                {{"event_id", registry.value_type("str")}}, {}, true);
+        }
+    };
+}
+
+namespace hgraph::testing
+{
+    template <>
+    struct ts_harness<TS<polymorphic_record_replay_repro::Event>>
+        : bundle_ts_harness<TS<polymorphic_record_replay_repro::Event>>
+    {};
+}
 
 namespace
 {
     using namespace hgraph;
     using namespace hgraph::testing;
     using record_replay::Mode;
+    using PolymorphicEvent = polymorphic_record_replay_repro::Event;
+
+    struct PolymorphicEventIdentityGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "polymorphic_event_identity_graph";
+
+        static Port<TS<PolymorphicEvent>> compose(
+            Wiring &, NamedPort<"events", TS<PolymorphicEvent>> events)
+        {
+            return events;
+        }
+    };
+
+    struct PolymorphicEventComponentHarness
+    {
+        [[maybe_unused]] static constexpr auto name = "polymorphic_event_component_harness";
+
+        static Port<TS<PolymorphicEvent>> compose(
+            Wiring &w, Port<TS<PolymorphicEvent>> events)
+        {
+            return stdlib::component<PolymorphicEventIdentityGraph>(
+                w, "polymorphic_events", events);
+        }
+    };
 
     struct SumGraph
     {
@@ -260,6 +320,110 @@ TEST_CASE("component: in-memory mode records timestamped values and replays them
         (void)eval_node<CompareHarness<ProductGraph>>(
             values<Int>(), values<Int>()),
         std::runtime_error);
+}
+
+TEST_CASE("component: in-memory recording preserves changing polymorphic event leaves")
+{
+    stdlib::register_standard_operators();
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *text = registry.value_type("str");
+    // Materialize the public base before registering its transitive leaves,
+    // matching extension/client import order.
+    const auto *event = scalar_descriptor<PolymorphicEvent>::value_meta();
+    const auto *heartbeat_event = registry.bundle(
+        "tests.record_replay", "HeartbeatEvent",
+        {{"event_id", text}}, {event});
+    const auto *order_event = registry.bundle(
+        "tests.record_replay", "OrderEvent",
+        {{"event_id", text}, {"order_id", text}}, {event}, true);
+    const auto *create_event = registry.bundle(
+        "tests.record_replay", "CreateEvent",
+        {{"event_id", text},
+         {"order_id", text},
+         {"payload", text},
+         {"details_a", text},
+         {"details_b", text},
+         {"details_c", text},
+         {"details_d", text}},
+        {order_event});
+
+    BundleBuilder heartbeat_builder{ValuePlanFactory::instance().type_for(heartbeat_event)};
+    heartbeat_builder.set("event_id", Value{Str{"heartbeat"}});
+    const Value heartbeat = heartbeat_builder.build();
+
+    BundleBuilder create_builder{ValuePlanFactory::instance().type_for(create_event)};
+    create_builder.set("event_id", Value{Str{"event"}});
+    create_builder.set("order_id", Value{Str{"order"}});
+    create_builder.set("payload", Value{Str{"created"}});
+    create_builder.set("details_a", Value{Str{"a"}});
+    create_builder.set("details_b", Value{Str{"b"}});
+    create_builder.set("details_c", Value{Str{"c"}});
+    create_builder.set("details_d", Value{Str{"d"}});
+    const Value created = create_builder.build();
+
+    const std::array sequences{
+        values<Value>(heartbeat, created, heartbeat),
+        values<Value>(created, heartbeat, created),
+    };
+    const std::array expected_leaves{
+        std::array{heartbeat_event, create_event, heartbeat_event},
+        std::array{create_event, heartbeat_event, create_event},
+    };
+
+    for (const bool pooled : {false, true})
+    {
+        for (std::size_t sequence_index = 0; sequence_index < sequences.size(); ++sequence_index)
+        {
+            GlobalContext context;
+            record_replay::set_config(
+                context.state().view(),
+                record_replay::Config{.model = std::string{record_replay::IN_MEMORY}});
+            if (pooled) { set_pooled_compound_scalar_storage(context.state().view()); }
+
+            {
+                record_replay::scope mode{Mode::Record};
+                const auto actual =
+                    eval_node<PolymorphicEventComponentHarness>(sequences[sequence_index]);
+                CHECK_OUTPUT(actual, sequences[sequence_index]);
+            }
+
+            const auto recording = context.state().view()
+                                       .get(":memory:polymorphic_events.events")
+                                       .as_list();
+            REQUIRE(recording.size() == sequences[sequence_index].size());
+            for (std::size_t i = 0; i < recording.size(); ++i)
+            {
+                const auto entry = recording.at(i).as_indexed_view();
+                CHECK(entry.at(1).concrete().schema() == expected_leaves[sequence_index][i]);
+            }
+
+            auto replay_expected = sequences[sequence_index];
+            const Value replacement_source =
+                sequence_index == 0 ? Value{created} : Value{heartbeat};
+            const auto *replacement_leaf =
+                sequence_index == 0 ? create_event : heartbeat_event;
+            const auto recorded_delta_binding =
+                recording.at(0).as_indexed_view().at(1).binding();
+            Value replacement_delta{recorded_delta_binding};
+            recorded_delta_binding.ops_ref().copy_assign_from(
+                recorded_delta_binding,
+                replacement_delta.begin_mutation().mutable_data(),
+                replacement_source.binding(), replacement_source.view().data());
+            Value replacement = testing::make_sparse_entry(
+                event, MIN_ST, Value{replacement_delta});
+            recording.begin_mutation().set(0, replacement.view());
+            replay_expected[0] = replacement_delta;
+            CHECK(recording.at(0).as_indexed_view().at(1).concrete().schema() ==
+                  replacement_leaf);
+
+            {
+                record_replay::scope mode{Mode::Replay};
+                const auto replayed = eval_node<PolymorphicEventComponentHarness>(values<Value>());
+                CHECK_OUTPUT(replayed, replay_expected);
+            }
+        }
+    }
 }
 
 TEST_CASE("component: Replay mode replaces live inputs with the recordings")

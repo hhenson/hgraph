@@ -360,6 +360,77 @@ def test_mapped_emit_then_outer_emit_preserves_a_transitive_concrete_leaf():
     ]
 
 
+def test_in_memory_record_replay_preserves_changing_polymorphic_event_leaves():
+    @dataclass(frozen=True)
+    class Event(
+        CompoundScalar,
+        namespace="tests.polymorphic_record_replay",
+        abstract=True,
+    ):
+        event_id: str
+
+    # Reproduce extension/client import order: the public recording type is
+    # materialized before its transitive concrete leaves are registered.
+    _value_type(Event)
+
+    @dataclass(frozen=True)
+    class HeartbeatEvent(Event):
+        pass
+
+    @dataclass(frozen=True)
+    class OrderEvent(Event, abstract=True):
+        order_id: str
+
+    @dataclass(frozen=True)
+    class CreateEvent(OrderEvent):
+        payload: str
+        details_a: str
+        details_b: str
+        details_c: str
+        details_d: str
+
+    heartbeat = HeartbeatEvent(event_id="heartbeat")
+    created = CreateEvent(
+        event_id="event",
+        order_id="order",
+        payload="created",
+        details_a="a",
+        details_b="b",
+        details_c="c",
+        details_d="d",
+    )
+
+    @hg.component
+    def recorded_events(events: TS[Event]) -> TS[Event]:
+        return events
+
+    for pooled in (False, True):
+        for expected in (
+            [heartbeat, created, heartbeat],
+            [created, heartbeat, created],
+        ):
+            with hg.GlobalState() as state:
+                hg.set_record_replay_model(hg.IN_MEMORY)
+                if pooled:
+                    hg.set_pooled_compound_scalar_storage()
+
+                with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
+                    assert eval_node(recorded_events, expected) == expected
+
+                recording = state.get(":memory:recorded_events.events")
+                assert [value for _, value in recording] == expected
+
+                replay_expected = list(expected)
+                replay_expected[0] = (
+                    created if expected[0] == heartbeat else heartbeat
+                )
+                recording[0] = recording[0][0], replay_expected[0]
+                assert state.get(":memory:recorded_events.events")[0][1] == replay_expected[0]
+
+                with hg.RecordReplayContext(mode=hg.RecordReplayEnum.REPLAY):
+                    assert eval_node(recorded_events, []) == replay_expected
+
+
 def test_feedback_preserves_a_transitive_concrete_leaf_with_and_without_a_default():
     @dataclass(frozen=True)
     class Event(
