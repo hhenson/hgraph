@@ -322,6 +322,10 @@ namespace
 
     using DispatchStructuralResult =
         UnNamedTSB<Field<"id", TS<Int>>, Field<"sound", TS<Str>>>;
+    using DispatchRepository =
+        TSB<"DispatchRepository",
+            Field<"lhs", TS<Int>>,
+            Field<"rhs", TS<Int>>>;
 
     struct StructuralSound
     {
@@ -350,6 +354,51 @@ namespace
                               .as<DispatchStructuralResult>();
             return wire<stdlib::getitem_>(w, result, Str{"sound"})
                 .as<TS<Str>>();
+        }
+    };
+
+    struct SumRepository
+    {
+        static constexpr auto name = "sum_dispatch_repository";
+
+        static void eval(
+            In<"repository", DispatchRepository> repository,
+            Out<TS<Int>> out)
+        {
+            const auto lhs = repository.field<"lhs">();
+            const auto rhs = repository.field<"rhs">();
+            if (lhs.valid() && rhs.valid())
+            {
+                out.set(lhs.value() + rhs.value());
+            }
+        }
+    };
+
+    struct ApplyDogToRepository
+    {
+        static constexpr auto name = "apply_dog_to_repository";
+
+        static Port<TS<Int>> compose(
+            Wiring &w, Port<void>, Port<DispatchRepository> repository)
+        {
+            return wire<SumRepository>(w, repository);
+        }
+    };
+
+    struct StructuralInputDispatchGraph
+    {
+        static constexpr auto name = "structural_input_dispatch_graph";
+
+        static Port<TS<Int>> compose(
+            Wiring &w, Port<TS<Animal>> animal, Port<TS<Int>> lhs,
+            Port<TS<Int>> rhs,
+            Scalar<"cases", stdlib::DispatchCases> cases)
+        {
+            auto repository =
+                stdlib::to_tsb<DispatchRepository>(w, lhs, rhs);
+            return wire<stdlib::dispatch_>(
+                       w, cases.value(), animal, repository)
+                .as<TS<Int>>();
         }
     };
 }
@@ -393,6 +442,23 @@ TEST_CASE("dispatch_: composed structural branch outputs retain their public sch
                                    cat_value(types, 2)),
             cases)),
         testing::values<Str>(Str{"woof"}, Str{"meow"}));
+}
+
+TEST_CASE("dispatch_: compiled branches preserve structural TSB inputs")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+    const auto types = register_dispatch_types();
+    const auto cases = stdlib::dispatch_cases({
+        stdlib::dispatch_case(types.dog, fn<ApplyDogToRepository>()),
+    }).on({0});
+
+    CHECK_OUTPUT(
+        testing::eval_node<StructuralInputDispatchGraph>(
+            testing::values<Value>(dog_value(types, 1, "woof")),
+            testing::values<Int>(2), testing::values<Int>(3),
+            arg<"cases">(cases)),
+        testing::values<Int>(5));
 }
 
 TEST_CASE("dispatch_: compiled branches import an enclosing context")
