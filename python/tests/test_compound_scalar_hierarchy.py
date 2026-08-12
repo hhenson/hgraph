@@ -360,6 +360,104 @@ def test_mapped_emit_then_outer_emit_preserves_a_transitive_concrete_leaf():
     ]
 
 
+def test_feedback_preserves_a_transitive_concrete_leaf_with_and_without_a_default():
+    @dataclass(frozen=True)
+    class Event(
+        CompoundScalar,
+        namespace="tests.polymorphic_feedback",
+        abstract=True,
+    ):
+        event_id: str
+
+    # Match extension/client import order: the public base is materialized
+    # before the intermediate and concrete event classes are registered.
+    _value_type(Event)
+
+    @dataclass(frozen=True)
+    class HeartbeatEvent(Event):
+        pass
+
+    @dataclass(frozen=True)
+    class OrderEvent(Event, abstract=True):
+        order_id: str
+
+    @dataclass(frozen=True)
+    class CreateEvent(OrderEvent):
+        payload: str
+        details_a: str
+        details_b: str
+        details_c: str
+        details_d: str
+
+    default_event = CreateEvent(
+        event_id="default-event",
+        order_id="default-order",
+        payload="default",
+        details_a="a",
+        details_b="b",
+        details_c="c",
+        details_d="d",
+    )
+    heartbeat = HeartbeatEvent(event_id="heartbeat")
+    created = CreateEvent(
+        event_id="event",
+        order_id="order",
+        payload="created",
+        details_a="a",
+        details_b="b",
+        details_c="c",
+        details_d="d",
+    )
+
+    @graph
+    def delayed(value: TS[Event]) -> TS[Event]:
+        fb = hg.feedback(TS[Event])
+        fb(value)
+        return fb()
+
+    @graph
+    def delayed_from_default(value: TS[Event]) -> TS[Event]:
+        fb = hg.feedback(TS[Event], default=default_event)
+        fb(value)
+        return fb()
+
+    @compute_node
+    def create_events(trigger: TS[bool]) -> TS[tuple[Event, ...]]:
+        return (created,) if trigger.value else ()
+
+    @graph
+    def delayed_emission(trigger: TS[bool]) -> TS[Event]:
+        fb = hg.feedback(TS[Event])
+        fb(hg.emit(create_events(trigger)))
+        return fb()
+
+    @graph
+    def mapped_delayed_emission(
+        triggers: TSD[str, TS[bool]],
+    ) -> TSD[str, TS[Event]]:
+        return hg.map_(delayed_emission, triggers)
+
+    assert eval_node(delayed, [heartbeat, created]) == [None, heartbeat, created]
+    assert eval_node(delayed_from_default, [heartbeat, created]) == [
+        default_event,
+        heartbeat,
+        created,
+    ]
+    assert eval_node(mapped_delayed_emission, [{"order": True}]) == [
+        {},
+        {"order": created},
+    ]
+
+    with hg.GlobalContext(hg.GlobalState()):
+        hg.set_pooled_compound_scalar_storage()
+        assert eval_node(delayed, [heartbeat, created]) == [None, heartbeat, created]
+        assert eval_node(delayed_from_default, [heartbeat, created]) == [
+            default_event,
+            heartbeat,
+            created,
+        ]
+
+
 def test_closed_bundle_output_rejects_an_unrelated_compound_scalar():
     @dataclass
     class Base(CompoundScalar, namespace="tests.closed_error", abstract=True):

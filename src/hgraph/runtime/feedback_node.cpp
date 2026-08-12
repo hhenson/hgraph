@@ -28,11 +28,31 @@ namespace hgraph
             }
         }
 
+        [[nodiscard]] bool try_copy_feedback_state(
+            const ValueView &state, const ValueView &source)
+        {
+            if (!state.can_begin_mutation() || !source.has_value()) { return false; }
+
+            const auto target_binding = state.binding();
+            const auto source_binding = source.binding();
+            if (!target_binding || !source_binding ||
+                !target_binding.ops_ref().accepts_source(
+                    target_binding, source_binding))
+            {
+                return false;
+            }
+
+            auto mutation = state.begin_mutation();
+            target_binding.ops_ref().copy_assign_from(
+                target_binding, mutation.mutable_data(),
+                source_binding, source.data());
+            return true;
+        }
+
         void start_feedback_source_with_initial_delta(const NodeView &view, DateTime start_time)
         {
             const ValueView state = view.state();
-            if (!state.can_begin_mutation() ||
-                !state.begin_mutation().try_copy_from(view.scalars()))
+            if (!try_copy_feedback_state(state, view.scalars()))
             {
                 view.replace_state(view.scalars().clone());
             }
@@ -65,17 +85,17 @@ namespace hgraph
             {
                 throw std::logic_error("feedback sink target node has no delta state");
             }
-            // Canonical TSData delta views expose owning copy hooks. Copying
-            // through the already-planned source state avoids constructing an
-            // intermediate Value on every feedback tick. A sampled rebind can
-            // expose the current-value schema instead of the delta schema, so
-            // retain capture_delta as the general fallback. That fallback may
-            // replace the planned state with immutable compact storage, in
-            // which case a later tick must capture again rather than request a
-            // mutation view.
+            // Copy through the already-planned source state when its binding
+            // accepts the observed delta. This is intentionally binding-aware:
+            // a polymorphic TS[Base] may expose a concrete Derived delta, whose
+            // schema differs while remaining a valid source for the graph's
+            // closed Base realization. A sampled rebind can expose the current-
+            // value schema instead of the delta schema, so retain capture_delta
+            // as the general fallback. That fallback may replace the planned
+            // state with immutable compact storage, in which case a later tick
+            // must capture again rather than request a mutation view.
             const ValueView state = source_node.state();
-            if (!state.can_begin_mutation() ||
-                !state.begin_mutation().try_copy_from(ts.delta_value()))
+            if (!try_copy_feedback_state(state, ts.delta_value()))
             {
                 source_node.replace_state(capture_delta(ts));
             }
