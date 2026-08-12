@@ -139,9 +139,9 @@ key, so a graph can record two series with different policies:
        with a supplied time. The column name comes from ``Config::as_of_key``
        and may be overridden per key.
    * - ``removes``
-     - ``Track`` (default) or ``Omit``. When omitted the removed-flag column is
-       dropped from every level and removal rows are not emitted. Per-level
-       column names may be supplied, which is what
+     - ``Track`` (default) or ``Omit``. Omitted means a removal **does
+       nothing**: no removed-flag column on any level, and no row — not a row
+       of nulls. Per-level column names may be supplied, which is what
        ``remove_partition_keys`` does today.
    * - ``partition_names``
      - Per-level replacement names for the key columns, defaulting to the
@@ -155,12 +155,68 @@ key, so a graph can record two series with different policies:
    * - ``flush``
      - Rows per chunk and an optional wall-clock interval. Bounds retained
        memory and decides how often a partial recording becomes visible.
-   * - ``write``
-     - ``Overwrite`` (default) or ``Extend`` an existing recording, with schema
-       compatibility checked on extend.
+       Within a run only — see *A recording is one run*.
 
 Defaults reproduce today's behaviour exactly, so an existing recording keeps
 its columns and column names.
+
+**What ``removes: Omit`` costs.** A removal leaves no trace, so replaying the
+recording never removes the key: the replayed series keeps a value the recorded
+one had dropped. That is the right trade for an append-only feed and the wrong
+one for a membership-bearing ``TSD``, so it stays opt-in and is stated here
+rather than discovered.
+
+Frame-valued leaves expand into columns
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A frame-valued leaf under a ``TSD`` level is supported by **expansion**: the
+frame's own columns become value columns alongside the level's key columns, and
+each frame row becomes a table row carrying a copy of the key cells. A tick of
+``K`` keys whose frames hold ``R`` rows therefore produces ``K x R`` rows, each
+fully qualified.
+
+``TsTableLayout`` already carries ``frame_converter`` for the ``is_multi_row``
+case, so expansion reuses that converter's columns as the value columns rather
+than inventing a second description of the frame.
+
+A frame column whose name collides with a key or bitemporal column is an
+**error** at layout time. Silently renaming would produce a frame that replays
+by name into the wrong column, which is the failure mode this whole path exists
+to avoid.
+
+A recording is one run
+~~~~~~~~~~~~~~~~~~~~~~
+
+A recording is written by exactly one run and its schema is fixed for that run.
+Appending to a recording made by an earlier run is not supported; re-recording
+to the same key replaces it.
+
+That removes schema evolution from scope entirely — there is no widening rule
+to design, and no compatibility check on append — and it is what makes the
+options above safe to vary per run, since no two runs ever share a frame.
+Flushing still happens within a run: those writes build the current recording
+incrementally, they do not merge with a previous one.
+
+If cross-run append is wanted later it is a deliberate change, not an accident
+of the flush policy.
+
+Configuration is local, with a global default
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``record_replay::Config`` is global today, which is why the adaptor grew a
+second, per-key override dictionary beside it. Instead the configuration is
+passed **to the recorder**, and the global one becomes the default when no
+local configuration is supplied.
+
+This also answers where per-key options live: they do not live anywhere. They
+are an argument at the call site, so two recordings in one graph differ by
+being called differently rather than by a registry keyed on name.
+
+Backend selection can be local too, which is not obvious: overloads guard on
+the model through ``requires_``, which runs before the node exists — but
+``OperatorCallContext::scalar`` exposes scalar wiring arguments by name, so
+``requires_`` reads a supplied ``config`` first and falls back to the wiring
+state. The model therefore does not have to stay global for dispatch to work.
 
 Storage
 ~~~~~~~
@@ -249,20 +305,11 @@ recording was implemented twice, and nothing prevents a recurrence.
 Unresolved questions
 --------------------
 
-* **Where per-key options live.** ``record_replay::Config`` is currently one
-  global struct with the model and the bitemporal key names. Per-recordable-key
-  options need either a map on that config or a separate registry; the latter
-  keeps ``Config`` small but adds a lookup.
-* **Removal rows under ``Omit``.** Dropping the removed column is
-  unambiguous; whether a removal should still emit a row with null values, or
-  no row at all, is a semantic choice the current override does not state.
-* **Multi-row leaves inside partitions.** ``TsTableLayout`` supports both, but
-  the combination — a frame-valued leaf under a ``TSD`` level — has no test
-  today. Whether it is supported or explicitly refused should be decided
-  before it is implemented.
-* **Schema evolution on extend.** Appending to a recording whose stored schema
-  differs — an added bundle field — could be refused, or widened with nulls.
-  Refusal is the safe default; widening is what users will eventually ask for.
+* **Flush visibility and durability.** Flushing within a run makes a partial
+  recording readable before the run ends. Whether a run that dies mid-way
+  should leave that partial recording readable, or be discarded as incomplete,
+  is a policy the store seam can express either way and this RFC does not
+  settle.
 
 Acceptance criteria
 -------------------
@@ -284,6 +331,17 @@ Acceptance criteria
   implementation.
 * A recording written by the current Python adaptor replays through the native
   reader.
+* ``removes: Omit`` emits no row and no column for a removal, and the replayed
+  series is asserted to retain the key — the documented divergence, pinned by
+  test rather than left implicit.
+* A frame-valued leaf under a ``TSD`` level expands to ``K x R`` rows with the
+  key cells repeated, and a frame column colliding with a key or bitemporal
+  column is refused at layout time.
+* Two ``record`` calls in one graph with different local configurations produce
+  differently-shaped recordings, and a call with no configuration matches the
+  global default.
+* Selecting the backend through a local configuration dispatches to the same
+  overload as the global one.
 
 References
 ----------
