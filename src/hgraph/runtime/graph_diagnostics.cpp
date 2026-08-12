@@ -126,10 +126,14 @@ namespace hgraph
                     ValueView child;
                     if (value.has_value())
                     {
-                        const ValueView &field = kind == Kind::Bundle
-                                                     ? value.as_bundle().at(index)
-                                                     : value.as_tuple().at(index);
-                        child = reborrow(field);
+                        // Assigned per branch rather than through a ternary:
+                        // MSVC does not elide the conditional operator's
+                        // composite prvalue, so the ternary form needs
+                        // ValueView's deleted copy constructor and fails to
+                        // compile there. This matches how table_impl.cpp and
+                        // the sibling case below already select a child.
+                        if (kind == Kind::Bundle) { child = reborrow(value.as_bundle().at(index)); }
+                        else { child = reborrow(value.as_tuple().at(index)); }
                     }
                     children[index].append(child, row);
                 }
