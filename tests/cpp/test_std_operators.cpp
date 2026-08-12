@@ -24,10 +24,12 @@
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/subgraph_wiring.h>
+#include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/date_time.h>
 
 #include <arrow/api.h>
@@ -45,6 +47,27 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+namespace polymorphic_emit_repro
+{
+    struct Event
+    {};
+}
+
+namespace hgraph
+{
+    template <>
+    struct scalar_descriptor<polymorphic_emit_repro::Event>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return true; }
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            auto &registry = TypeRegistry::instance();
+            return registry.bundle(
+                "tests.emit", "Event", {{"event_id", registry.value_type("str")}}, {}, true);
+        }
+    };
+}
 
 namespace
 {
@@ -191,6 +214,8 @@ namespace
             return wire<stdlib::convert, TS<HomogeneousTuple<Int>>>(w, ts);
         }
     };
+
+    using PolymorphicEvent = polymorphic_emit_repro::Event;
 
     struct SeriesAddGraph
     {
@@ -1369,6 +1394,46 @@ TEST_CASE("std operators: tuple subtraction accepts a native erased comparator")
                      values<Value>(int_tuple({1, 2, 3, 4, 5})), values<Int>(1),
                      value_fn<SameParity>())),
                  values<Value>(int_tuple({2, 4})));
+}
+
+TEST_CASE("std operators: emit preserves a transitive concrete Bundle leaf")
+{
+    stdlib::register_standard_operators();
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *text = registry.value_type("str");
+    const auto *event = scalar_descriptor<PolymorphicEvent>::value_meta();
+    const auto *order_event = registry.bundle(
+        "tests.emit", "OrderEvent",
+        {{"event_id", text}, {"order_id", text}}, {event}, true);
+    const auto *create_event = registry.bundle(
+        "tests.emit", "CreateEvent",
+        {{"event_id", text}, {"order_id", text}, {"payload", text}},
+        {order_event});
+
+    BundleBuilder create{ValuePlanFactory::instance().type_for(create_event)};
+    create.set("event_id", Value{Str{"event"}});
+    create.set("order_id", Value{Str{"order"}});
+    create.set("payload", Value{Str{"created"}});
+    const Value created = create.build();
+
+    const auto event_binding = value_type_for_wiring(event);
+    Value event_value{event_binding};
+    event_binding.ops_ref().copy_assign_from(
+        event_binding, event_value.begin_mutation().mutable_data(),
+        created.binding(), created.view().data());
+    ListBuilder events_builder{event_binding};
+    events_builder.push_back_copy(event_value.view().data());
+    ListStorage events_storage = events_builder.build_storage();
+    const auto *events_schema =
+        scalar_descriptor<HomogeneousTuple<PolymorphicEvent>>::value_meta();
+    const Value events{
+        compact_list_type(event_binding, *events_schema), &events_storage};
+
+    CHECK_OUTPUT(
+        (eval_node<stdlib::emit, TS<HomogeneousTuple<PolymorphicEvent>>>(
+            values<Value>(events))),
+        values<Value>(created));
 }
 
 TEST_CASE("std operators: len_ visits scalar tuple, set, and map values")
