@@ -118,9 +118,15 @@ namespace hgraph
         TableRecorder &operator=(const TableRecorder &) = delete;
         ~TableRecorder();
 
-        /** One row; ``cells`` is parallel to the columns. Unset cells go in as
-            nulls. */
-        void append_row(std::span<const ValueView> cells);
+        /** Write one cell of the row under construction. Delivering a column
+            twice in one row is an error rather than a silent overwrite. */
+        void append_cell(std::size_t column, const ValueView &value);
+
+        /** Close the row. Columns this row never delivered append a NULL: a
+            removal row has no value columns, and a tick that did not modify a
+            column leaves it absent, so a default would record zero where
+            nothing happened. */
+        void end_row();
 
         [[nodiscard]] std::int64_t rows() const noexcept;
 

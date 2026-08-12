@@ -43,7 +43,6 @@ namespace
             {dt, dt, flag, key, val}};
     }
 
-    [[nodiscard]] ValueView unset() { return ValueView{}; }
 }  // namespace
 
 TEST_CASE("table recorder: columns come from the description, not a value schema")
@@ -72,16 +71,19 @@ TEST_CASE("table recorder: an unset cell records as null, not as a default")
     const Value key_a{Str{"a"}};
     const Value seven{Int{7}};
 
-    // A value row, then a removal row - which carries no value column at all.
-    // Arrays, not vectors: ValueView's copy constructor is deleted, so an
-    // initializer list will not do - array elements are copy-initialised from
-    // prvalues and elided.
-    const ValueView value_row[]{when.view(), when.view(), removed_false.view(), key_a.view(),
-                                seven.view()};
-    const ValueView removal_row[]{when.view(), when.view(), removed_true.view(), key_a.view(),
-                                  unset()};
-    recorder.append_row(value_row);
-    recorder.append_row(removal_row);
+    // A value row, then a removal row - which never delivers a value column.
+    recorder.append_cell(0, when.view());
+    recorder.append_cell(1, when.view());
+    recorder.append_cell(2, removed_false.view());
+    recorder.append_cell(3, key_a.view());
+    recorder.append_cell(4, seven.view());
+    recorder.end_row();
+
+    recorder.append_cell(0, when.view());
+    recorder.append_cell(1, when.view());
+    recorder.append_cell(2, removed_true.view());
+    recorder.append_cell(3, key_a.view());
+    recorder.end_row();
     REQUIRE(recorder.rows() == 2);
 
     const Frame frame = recorder.finish();
@@ -110,8 +112,12 @@ TEST_CASE("table recorder: finish leaves the recorder empty")
     const Value flag{Bool{false}};
     const Value key{Str{"a"}};
     const Value one{Int{1}};
-    const ValueView row[]{when.view(), when.view(), flag.view(), key.view(), one.view()};
-    recorder.append_row(row);
+    recorder.append_cell(0, when.view());
+    recorder.append_cell(1, when.view());
+    recorder.append_cell(2, flag.view());
+    recorder.append_cell(3, key.view());
+    recorder.append_cell(4, one.view());
+    recorder.end_row();
 
     CHECK(recorder.finish().table->num_rows() == 1);
     CHECK(recorder.rows() == 0);
@@ -119,12 +125,30 @@ TEST_CASE("table recorder: finish leaves the recorder empty")
     CHECK(recorder.finish().table->num_rows() == 0);
 }
 
-TEST_CASE("table recorder: a row of the wrong width is refused")
+TEST_CASE("table recorder: a column out of range or delivered twice is refused")
 {
     const Columns columns = partitioned_columns();
     TableRecorder recorder{columns.names, columns.metas};
     const Value   when{MIN_ST};
 
-    const ValueView short_row[]{when.view()};
-    CHECK_THROWS_AS(recorder.append_row(short_row), std::invalid_argument);
+    CHECK_THROWS_AS(recorder.append_cell(99, when.view()), std::invalid_argument);
+
+    recorder.append_cell(0, when.view());
+    // Twice in one row is a traversal bug, not an overwrite to absorb.
+    CHECK_THROWS_AS(recorder.append_cell(0, when.view()), std::invalid_argument);
+}
+
+TEST_CASE("table recorder: a column no row delivered is all nulls")
+{
+    const Columns columns = partitioned_columns();
+    TableRecorder recorder{columns.names, columns.metas};
+    const Value   when{MIN_ST};
+
+    recorder.append_cell(0, when.view());
+    recorder.end_row();
+
+    const Frame frame = recorder.finish();
+    REQUIRE(frame.table->num_rows() == 1);
+    CHECK(frame.table->GetColumnByName("value")->chunk(0)->IsNull(0));
+    CHECK(frame.table->GetColumnByName("__key_1__")->chunk(0)->IsNull(0));
 }
