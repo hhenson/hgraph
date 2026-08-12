@@ -9,13 +9,14 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-
 WHEEL_REQUIRED = (
     "hgraph_analytics/__init__.py",
     "hgraph_analytics/py.typed",
     "include/hgraph/analytics/operators.h",
-    "lib/cmake/hgraph-analytics/hgraph-analyticsConfig.cmake",
-    "lib/cmake/hgraph-analytics/hgraphAnalyticsTargets.cmake",
+    # GNUInstallDirs selects lib64 on manylinux, while macOS and Windows wheels
+    # use lib. Match the package-relative suffix so both layouts are audited.
+    "cmake/hgraph-analytics/hgraph-analyticsConfig.cmake",
+    "cmake/hgraph-analytics/hgraphAnalyticsTargets.cmake",
 )
 SDIST_REQUIRED = (
     "CMakeLists.txt",
