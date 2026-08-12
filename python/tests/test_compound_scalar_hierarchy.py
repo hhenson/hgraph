@@ -2,7 +2,7 @@ import inspect
 from dataclasses import InitVar, dataclass, field
 from datetime import timedelta
 from enum import Enum
-from typing import Callable, Generic, Optional, TypeVar
+from typing import Callable, Generic, Mapping, Optional, Set, TypeVar
 
 import _hgraph
 import hgraph as hg
@@ -527,6 +527,165 @@ def test_feedback_preserves_a_transitive_concrete_leaf_with_and_without_a_defaul
             heartbeat,
             created,
         ]
+
+
+def test_polymorphic_operators_preserve_concrete_leaves_in_owned_containers():
+    @dataclass(frozen=True)
+    class Event(
+        CompoundScalar,
+        namespace="tests.polymorphic_operator_transfer",
+        abstract=True,
+        discriminator="kind",
+    ):
+        event_id: str
+
+    # Reproduce the extension import order: client leaves are registered only
+    # after the public base schema has already been materialized.
+    _value_type(Event)
+
+    @dataclass(frozen=True)
+    class HeartbeatEvent(Event):
+        pass
+
+    @dataclass(frozen=True)
+    class OrderEvent(Event, abstract=True):
+        order_id: str
+
+    @dataclass(frozen=True)
+    class CreateEvent(OrderEvent):
+        payload: str
+        details_a: str
+        details_b: str
+        details_c: str
+        details_d: str
+
+    heartbeat = HeartbeatEvent(event_id="heartbeat")
+    created = CreateEvent(
+        event_id="event",
+        order_id="order",
+        payload="created",
+        details_a="a",
+        details_b="b",
+        details_c="c",
+        details_d="d",
+    )
+
+    @graph
+    def singleton_tuple(value: TS[Event]) -> TS[tuple[Event, ...]]:
+        return hg.convert[TS[tuple[Event, ...]]](value)
+
+    @graph
+    def singleton_set(value: TS[Event]) -> TS[Set[Event]]:
+        return hg.convert[TS[Set[Event]]](value)
+
+    @graph
+    def add_tuples(
+        lhs: TS[tuple[Event, ...]], rhs: TS[tuple[Event, ...]]
+    ) -> TS[tuple[Event, ...]]:
+        return lhs + rhs
+
+    @graph
+    def singleton_mapping(
+        key: TS[str], value: TS[Event]
+    ) -> TS[Mapping[str, Event]]:
+        return hg.convert[TS[Mapping[str, Event]]](key, value)
+
+    @graph
+    def collect_mapping(
+        key: TS[str], value: TS[Event]
+    ) -> TS[Mapping[str, Event]]:
+        return hg.collect[TS[Mapping[str, Event]]](key, value)
+
+    @graph
+    def mapping_values(
+        value: TS[Mapping[str, Event]],
+    ) -> TS[tuple[Event, ...]]:
+        return hg.values_(value)
+
+    @graph
+    def batched(
+        condition: TS[bool], value: TS[Event]
+    ) -> TS[tuple[Event, ...]]:
+        return hg.batch(condition, value, hg.MIN_TD)
+
+    @graph
+    def int_window_buffer(value: TS[int]) -> TS[tuple[int, ...]]:
+        return hg.window(value, 2).buffer
+
+    @graph
+    def window_buffer(value: TS[Event]) -> TS[tuple[Event, ...]]:
+        return hg.window(value, 2).buffer
+
+    @graph
+    def events_from_json(value: TS[str]) -> TS[tuple[Event, ...]]:
+        return hg.from_json[TS[tuple[Event, ...]]](value)
+
+    def check_operator_matrix() -> None:
+        assert eval_node(singleton_tuple, [heartbeat, created]) == [
+            (heartbeat,),
+            (created,),
+        ]
+        assert eval_node(singleton_set, [heartbeat, created]) == [
+            {heartbeat},
+            {created},
+        ]
+        assert eval_node(add_tuples, [(heartbeat,)], [(created,)]) == [
+            (heartbeat, created)
+        ]
+        assert eval_node(
+            singleton_mapping,
+            ["heartbeat", "created"],
+            [heartbeat, created],
+        ) == [
+            {"heartbeat": heartbeat},
+            {"created": created},
+        ]
+        assert eval_node(
+            collect_mapping,
+            ["order", "order"],
+            [heartbeat, created],
+        ) == [
+            {"order": heartbeat},
+            {"order": created},
+        ]
+        assert eval_node(
+            mapping_values,
+            [{"heartbeat": heartbeat, "created": created}],
+        ) == [(heartbeat, created)]
+        assert eval_node(batched, [False, True], [heartbeat, created]) == [
+            None,
+            (heartbeat, created),
+        ]
+        # WindowResult is generic: using it for int first must not reserve a
+        # process-global nominal schema that rejects Event later.
+        assert eval_node(int_window_buffer, [1, 2]) == [None, (1, 2)]
+        assert eval_node(window_buffer, [heartbeat, created]) == [
+            None,
+            (heartbeat, created),
+        ]
+        assert eval_node(
+            events_from_json,
+            [
+                """[
+                    {"kind": "HeartbeatEvent", "event_id": "heartbeat"},
+                    {
+                        "kind": "CreateEvent",
+                        "event_id": "event",
+                        "order_id": "order",
+                        "payload": "created",
+                        "details_a": "a",
+                        "details_b": "b",
+                        "details_c": "c",
+                        "details_d": "d"
+                    }
+                ]"""
+            ],
+        ) == [(heartbeat, created)]
+
+    check_operator_matrix()
+    with hg.GlobalContext(hg.GlobalState()):
+        hg.set_pooled_compound_scalar_storage()
+        check_operator_matrix()
 
 
 def test_closed_bundle_output_rejects_an_unrelated_compound_scalar():

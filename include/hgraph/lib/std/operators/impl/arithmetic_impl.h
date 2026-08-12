@@ -12,6 +12,7 @@
 #include <hgraph/lib/std/operators/impl/tsb_itemwise_impl.h>
 #include <hgraph/lib/std/operators/impl/tsl_itemwise_impl.h>
 #include <hgraph/runtime/global_state.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/lift.h>
 #include <hgraph/types/primitive_types.h>
@@ -530,7 +531,7 @@ namespace hgraph::stdlib
 
         [[nodiscard]] inline ValueTypeRef element_binding_of(const ValueTypeMetaData *meta)
         {
-            const auto binding = ValuePlanFactory::instance().type_for(meta);
+            const auto binding = value_type_for_active_realization(meta);
             if (binding == nullptr) { throw std::logic_error("container element schema has no binding"); }
             return binding;
         }
@@ -550,11 +551,11 @@ namespace hgraph::stdlib
                              Out<TS<ScalarVar<"T">>> out)
             {
                 const auto *meta = lhs.base().value().schema();
-                ListBuilder builder{element_binding_of(meta->element_type)};
+                ListBuilder builder{element_binding_of(meta->element_type), *meta};
                 const auto lhs_values = lhs.base().value().as_list();
                 const auto rhs_values = rhs.base().value().as_list();
-                for (const ValueView &element : lhs_values) { builder.push_back_copy(element.data()); }
-                for (const ValueView &element : rhs_values) { builder.push_back_copy(element.data()); }
+                for (const ValueView &element : lhs_values) { builder.push_back(element); }
+                for (const ValueView &element : rhs_values) { builder.push_back(element); }
                 out.apply(builder.build().view());
             }
         };
@@ -591,7 +592,8 @@ namespace hgraph::stdlib
             {
                 const ValueView rhs_value = rhs.base().value();
                 const ValueCallable &predicate = cmp.value();
-                ListBuilder builder{element_binding_of(lhs.base().value().schema()->element_type)};
+                const auto *meta = lhs.base().value().schema();
+                ListBuilder builder{element_binding_of(meta->element_type), *meta};
                 const auto lhs_values = lhs.base().value().as_list();
                 for (const ValueView element : lhs_values)
                 {
@@ -608,7 +610,7 @@ namespace hgraph::stdlib
                         matches = result.view().checked_as<Bool>();
                     }
                     else { matches = element.equals(rhs_value); }
-                    if (!matches) { builder.push_back_copy(element.data()); }
+                    if (!matches) { builder.push_back(element); }
                 }
                 out.apply(builder.build().view());
             }
@@ -645,7 +647,7 @@ namespace hgraph::stdlib
                                         : Kind == SetOpKind::Intersection ? in_rhs
                                         : Kind == SetOpKind::Union        ? true
                                                                           : !in_rhs;
-                    if (keep) { (void)builder.insert_copy(element.data()); }
+                    if (keep) { (void)builder.insert(element); }
                 }
                 if constexpr (Kind == SetOpKind::Union || Kind == SetOpKind::SymmetricDifference)
                 {
@@ -653,7 +655,7 @@ namespace hgraph::stdlib
                     {
                         if (Kind == SetOpKind::Union || !lhs_set.contains(element))
                         {
-                            (void)builder.insert_copy(element.data());
+                            (void)builder.insert(element);
                         }
                     }
                 }
@@ -764,7 +766,7 @@ namespace hgraph::stdlib
                 MapBuilder  builder{element_binding_of(meta->key_type), element_binding_of(meta->element_type)};
                 for (const auto [key, item] : lhs_map)
                 {
-                    if (!rhs_map.contains(key)) { builder.set_item_copy(key.data(), item.data()); }
+                    if (!rhs_map.contains(key)) { builder.set_item(key, item); }
                 }
                 out.apply(builder.build().view());
             }
@@ -866,11 +868,11 @@ namespace hgraph::stdlib
                 const auto  rhs_map = rhs.base().value().as_map();
                 for (const auto [key, item] : lhs_map)
                 {
-                    builder.set_item_copy(key.data(), item.data());
+                    builder.set_item(key, item);
                 }
                 for (const auto [key, item] : rhs_map)
                 {
-                    builder.set_item_copy(key.data(), item.data());
+                    builder.set_item(key, item);
                 }
                 out.apply(builder.build().view());
             }

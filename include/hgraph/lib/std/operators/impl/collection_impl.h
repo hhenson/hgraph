@@ -112,8 +112,8 @@ namespace hgraph::stdlib
                 const TSDInputView &dict   = ts;
                 const auto         &erased = static_cast<const TSOutputView &>(out);
                 const auto *out_meta = erased.schema()->value_schema;
-                SetBuilder builder{ValuePlanFactory::instance().type_for(out_meta->element_type)};
-                for (const auto key : dict.keys()) { (void)builder.insert_copy(key.data()); }
+                SetBuilder builder{value_type_for_active_realization(out_meta->element_type)};
+                for (const auto key : dict.keys()) { (void)builder.insert(key); }
                 Value set = builder.build();
                 if (erased.data_view().has_current_value() && erased.value().equals(set.view())) { return; }
                 auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
@@ -143,10 +143,10 @@ namespace hgraph::stdlib
                 TSSOutputView       &erased  = out;
                 // TSS value schema = Set[element]; the element binding builds it.
                 const auto *element_meta = erased.schema()->value_schema->element_type;
-                SetBuilder union_builder{ValuePlanFactory::instance().type_for(element_meta)};
+                SetBuilder union_builder{value_type_for_active_realization(element_meta)};
                 for (auto &&[key, child] : dict.items())
                 {
-                    if (child.valid()) { (void)union_builder.insert_copy(child.value().data()); }
+                    if (child.valid()) { (void)union_builder.insert(child.value()); }
                 }
                 Value current = union_builder.build();
                 auto  current_set = current.view().as_set();
@@ -1134,7 +1134,7 @@ namespace hgraph::stdlib
                 const auto  evaluation_time = erased.evaluation_time();
                 auto        mutation = dict_out.begin_mutation(evaluation_time);
                 const auto *tuple_meta = erased.schema()->key_type();
-                const auto tuple_binding = ValuePlanFactory::instance().type_for(tuple_meta);
+                const auto tuple_binding = value_type_for_active_realization(tuple_meta);
                 const std::size_t depth = tuple_meta->field_count;
 
                 // Removed SUBTREES erase every output tuple-key with the
@@ -2098,14 +2098,14 @@ namespace hgraph::stdlib
                                                                         const ValueTypeMetaData *value)
         {
             const auto *meta = TypeRegistry::instance().map(key, value);
-            return ValuePlanFactory::instance().type_for(meta);
+            return value_type_for_active_realization(meta);
         }
 
         [[nodiscard]] inline MapBuilder make_map_builder(const ValueTypeMetaData *key,
                                                          const ValueTypeMetaData *value)
         {
-            return MapBuilder{ValuePlanFactory::instance().type_for(key),
-                              ValuePlanFactory::instance().type_for(value)};
+            return MapBuilder{value_type_for_active_realization(key),
+                              value_type_for_active_realization(value)};
         }
 
         inline void publish_value(const TSOutputView &out, Value &&value)
@@ -2142,8 +2142,8 @@ namespace hgraph::stdlib
             {
                 auto map = ts.base().value().as_map();
                 const auto *key_meta = ts.base().schema()->value_schema->key_type;
-                SetBuilder builder{ValuePlanFactory::instance().type_for(key_meta)};
-                for (const auto key : map.keys()) { builder.insert_copy(key.data()); }
+                SetBuilder builder{value_type_for_active_realization(key_meta)};
+                for (const auto key : map.keys()) { builder.insert(key); }
                 publish_value(static_cast<const TSOutputView &>(out), builder.build());
             }
         };
@@ -2172,8 +2172,11 @@ namespace hgraph::stdlib
             {
                 auto map = ts.base().value().as_map();
                 const auto *value_meta = ts.base().schema()->value_schema->element_type;
-                ListBuilder builder{ValuePlanFactory::instance().type_for(value_meta)};
-                for (const auto [key, item] : map) { builder.push_back_copy(item.data()); }
+                const auto *output_meta =
+                    static_cast<const TSOutputView &>(out).schema()->value_schema;
+                ListBuilder builder{
+                    value_type_for_active_realization(value_meta), *output_meta};
+                for (const auto [key, item] : map) { builder.push_back(item); }
                 publish_value(static_cast<const TSOutputView &>(out), builder.build());
             }
         };
@@ -2211,7 +2214,7 @@ namespace hgraph::stdlib
                 for (const auto [key, item] : data)
                 {
                     if (!mapping.contains(key)) { continue; }
-                    builder.set_item_copy(mapping.at(key).data(), item.data());
+                    builder.set_item(mapping.at(key), item);
                 }
                 publish_value(static_cast<const TSOutputView &>(out), builder.build());
             }
@@ -2242,7 +2245,7 @@ namespace hgraph::stdlib
                 auto map = ts.base().value().as_map();
                 const auto *meta = ts.base().schema()->value_schema;
                 auto builder = make_map_builder(meta->element_type, meta->key_type);
-                for (const auto [key, item] : map) { builder.set_item_copy(item.data(), key.data()); }
+                for (const auto [key, item] : map) { builder.set_item(item, key); }
                 publish_value(static_cast<const TSOutputView &>(out), builder.build());
             }
         };
@@ -2296,13 +2299,13 @@ namespace hgraph::stdlib
                                             make_map_builder(ts_meta->key_type, ts_meta->element_type));
                         group = &groups.back().second;
                     }
-                    group->set_item_copy(key.data(), item.data());
+                    group->set_item(key, item);
                 }
                 auto builder = make_map_builder(part_meta->element_type, inner_meta);
                 for (auto &[label, inner] : groups)
                 {
                     Value built = inner.build();
-                    builder.set_item_copy(label.view().data(), built.view().data());
+                    builder.set_item(label.view(), built.view());
                 }
                 publish_value(static_cast<const TSOutputView &>(out), builder.build());
             }
@@ -2362,14 +2365,14 @@ namespace hgraph::stdlib
                                                 make_map_builder(meta->key_type, inner->element_type));
                             group = &groups.back().second;
                         }
-                        group->set_item_copy(outer_key.data(), item.data());
+                        group->set_item(outer_key, item);
                     }
                 }
                 auto builder = make_map_builder(inner->key_type, flipped_inner);
                 for (auto &[label, group] : groups)
                 {
                     Value built = group.build();
-                    builder.set_item_copy(label.view().data(), built.view().data());
+                    builder.set_item(label.view(), built.view());
                 }
                 publish_value(static_cast<const TSOutputView &>(out), builder.build());
             }
@@ -2403,7 +2406,7 @@ namespace hgraph::stdlib
                 const auto *meta  = ts.base().schema()->value_schema;
                 const auto *inner = nested_map_meta(meta);
                 const auto *pair  = TypeRegistry::instance().tuple({meta->key_type, inner->key_type});
-                const auto pair_binding = ValuePlanFactory::instance().type_for(pair);
+                const auto pair_binding = value_type_for_active_realization(pair);
 
                 auto builder = make_map_builder(pair, inner->element_type);
                 const auto outer_values = ts.base().value().as_map();
@@ -2416,7 +2419,7 @@ namespace hgraph::stdlib
                         key_builder.set(0, Value{outer_key});
                         key_builder.set(1, Value{inner_key});
                         Value pair_key = key_builder.build();
-                        builder.set_item_copy(pair_key.view().data(), item.data());
+                        builder.set_item(pair_key.view(), item);
                     }
                 }
                 publish_value(static_cast<const TSOutputView &>(out), builder.build());
@@ -2470,13 +2473,13 @@ namespace hgraph::stdlib
                         groups.emplace_back(Value{outer}, make_map_builder(inner_key, meta->element_type));
                         group = &groups.back().second;
                     }
-                    group->set_item_copy(pair.at(1).data(), item.data());
+                    group->set_item(pair.at(1), item);
                 }
                 auto builder = make_map_builder(outer_meta, inner_map);
                 for (auto &[label, group] : groups)
                 {
                     Value built = group.build();
-                    builder.set_item_copy(label.view().data(), built.view().data());
+                    builder.set_item(label.view(), built.view());
                 }
                 publish_value(static_cast<const TSOutputView &>(out), builder.build());
             }
@@ -2509,7 +2512,7 @@ namespace hgraph::stdlib
                 auto key = keys.base().value();
                 auto item = values.base().value();
                 auto builder = make_map_builder(key.schema(), item.schema());
-                builder.set_item_copy(key.data(), item.data());
+                builder.set_item(key, item);
                 publish_value(static_cast<const TSOutputView &>(out), builder.build());
             }
         };
@@ -2551,7 +2554,7 @@ namespace hgraph::stdlib
                 auto builder = make_map_builder(keys_meta->element_type, values_meta->element_type);
                 for (std::size_t index = 0; index < key_list.size(); ++index)
                 {
-                    builder.set_item_copy(key_list.at(index).data(), item_list.at(index).data());
+                    builder.set_item(key_list.at(index), item_list.at(index));
                 }
                 publish_value(static_cast<const TSOutputView &>(out), builder.build());
             }
@@ -2596,7 +2599,7 @@ namespace hgraph::stdlib
                     auto key_child  = keys.base().indexed_child_at(index);
                     auto item_child = values.base().indexed_child_at(index);
                     if (!key_child.valid() || !item_child.valid()) { continue; }
-                    builder.set_item_copy(key_child.value().data(), item_child.value().data());
+                    builder.set_item(key_child.value(), item_child.value());
                 }
                 publish_value(static_cast<const TSOutputView &>(out), builder.build());
             }
@@ -2907,7 +2910,8 @@ namespace hgraph::stdlib
 
         [[nodiscard]] inline ListBuilder make_list_builder(const ValueTypeMetaData *list_meta)
         {
-            return ListBuilder{ValuePlanFactory::instance().type_for(list_meta->element_type)};
+            return ListBuilder{
+                value_type_for_active_realization(list_meta->element_type), *list_meta};
         }
 
         /** mul_(tuple, n): python tuple repetition. */
@@ -2939,7 +2943,7 @@ namespace hgraph::stdlib
                 {
                     for (std::size_t index = 0; index < items.size(); ++index)
                     {
-                        (void)builder.push_back_copy(items.at(index).data());
+                        builder.push_back(items.at(index));
                     }
                 }
                 const auto &erased = static_cast<const TSOutputView &>(out);
@@ -3207,7 +3211,7 @@ namespace hgraph::stdlib
                     auto items = value.as_indexed_view();
                     for (std::size_t index = 0; index < items.size(); ++index)
                     {
-                        (void)builder.push_back_copy(items.at(index).data());
+                        builder.push_back(items.at(index));
                     }
                 };
                 if (lhs.valid()) { push_all(lhs.base().value()); }
@@ -3246,9 +3250,9 @@ namespace hgraph::stdlib
                 auto       builder = make_list_builder(value.schema());
                 for (std::size_t index = 0; index < items.size(); ++index)
                 {
-                    (void)builder.push_back_copy(items.at(index).data());
+                    builder.push_back(items.at(index));
                 }
-                (void)builder.push_back_copy(rhs.base().value().data());
+                builder.push_back(rhs.base().value());
                 const auto &erased = static_cast<const TSOutputView &>(out);
                 auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
                 static_cast<void>(mutation.move_value_from(builder.build()));
@@ -3284,7 +3288,7 @@ namespace hgraph::stdlib
                 auto builder = make_list_builder(value.schema());
                 for (std::size_t index = 0; index < items.size(); ++index)
                 {
-                    if (!items.at(index).equals(needle)) { (void)builder.push_back_copy(items.at(index).data()); }
+                    if (!items.at(index).equals(needle)) { builder.push_back(items.at(index)); }
                 }
                 const auto &erased = static_cast<const TSOutputView &>(out);
                 auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
@@ -3766,7 +3770,7 @@ namespace hgraph::stdlib
             static Value merge(const ValueView &orig, const ValueView &delta)
             {
                 const auto *meta = orig.schema();
-                BundleBuilder builder{ValuePlanFactory::instance().type_for(meta)};
+                BundleBuilder builder{value_type_for_active_realization(meta)};
                 auto orig_fields  = orig.as_indexed_view();
                 auto delta_fields = delta.as_indexed_view();
                 for (std::size_t index = 0; index < meta->field_count; ++index)

@@ -10,15 +10,6 @@ namespace hgraph
     {
         namespace
         {
-            using MaterializedOwner = MemoryUtils::ErasedOwner<MemoryUtils::InlineStoragePolicy<>, TypeRecord>;
-
-            [[nodiscard]] MaterializedOwner materialize_element(ValueTypeRef target, const ValueView &source)
-            {
-                MaterializedOwner result{*target.record()};
-                target.ops_ref().copy_assign_from(target, result.data(), source.binding(), source.data());
-                return result;
-            }
-
             template <typename State>
             [[nodiscard]] const State &compact_target_state(ValueTypeRef binding, const char *what)
             {
@@ -58,8 +49,7 @@ namespace hgraph
                     builder.push_back_unset();
                     continue;
                 }
-                auto materialized = materialize_element(state.element_binding, child);
-                builder.push_back_copy(materialized.data());
+                builder.push_back(child);
             }
             *static_cast<ListStorage *>(dst) = builder.build_storage();
         }
@@ -88,8 +78,7 @@ namespace hgraph
             const ValueView source_view{source, src};
             for (const auto child : source_view.as_set())
             {
-                auto materialized = materialize_element(state.element_binding, child);
-                static_cast<void>(builder.insert_copy(materialized.data()));
+                static_cast<void>(builder.insert(child));
             }
             *static_cast<SetStorage *>(dst) = builder.build_storage();
         }
@@ -118,14 +107,12 @@ namespace hgraph
             const ValueView source_view{source, src};
             for (const auto entry : source_view.as_map())
             {
-                auto materialized_key = materialize_element(state.key_binding, entry.first);
                 if (!entry.second.has_value())
                 {
-                    builder.set_item_unset(materialized_key.data());
+                    builder.set_item_unset(entry.first);
                     continue;
                 }
-                auto materialized_value = materialize_element(state.value_binding, entry.second);
-                builder.set_item_copy(materialized_key.data(), materialized_value.data());
+                builder.set_item(entry.first, entry.second);
             }
             *static_cast<MapStorage *>(dst) = builder.build_storage();
         }
@@ -155,8 +142,7 @@ namespace hgraph
             const auto values = source_view.as_cyclic_buffer();
             for (std::size_t index = 0; index < values.size(); ++index)
             {
-                auto materialized = materialize_element(state.element_binding, values.at(index));
-                builder.push_back_copy(materialized.data());
+                builder.push_back(values.at(index));
             }
             *static_cast<CyclicBufferStorage *>(dst) = builder.build_storage();
         }
@@ -186,8 +172,7 @@ namespace hgraph
             const auto values = source_view.as_queue();
             for (std::size_t index = 0; index < values.size(); ++index)
             {
-                auto materialized = materialize_element(state.element_binding, values.at(index));
-                builder.push_copy(materialized.data());
+                builder.push(values.at(index));
             }
             *static_cast<QueueStorage *>(dst) = builder.build_storage();
         }

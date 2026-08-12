@@ -10,6 +10,7 @@
 #include <hgraph/lib/std/operators/conversion.h>    // const_ / default_ / cast_ (rolling_average)
 #include <hgraph/lib/std/operators/impl/tsl_itemwise_impl.h>
 #include <hgraph/types/operator_dispatch.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/runtime/service_node.h>
@@ -565,12 +566,11 @@ namespace hgraph::stdlib
             }
             if (added.empty() && removed.empty()) { return std::nullopt; }
 
-            auto &factory = ValuePlanFactory::instance();
-            SetBuilder added_builder{factory.type_for(element_meta)};
-            for (const Value &value : added) { static_cast<void>(added_builder.insert_copy(value.view().data())); }
-            SetBuilder removed_builder{factory.type_for(element_meta)};
-            for (const Value &value : removed) { static_cast<void>(removed_builder.insert_copy(value.view().data())); }
-            BundleBuilder bundle{factory.type_for(bundle_meta)};
+            SetBuilder added_builder{value_type_for_active_realization(element_meta)};
+            for (const Value &value : added) { static_cast<void>(added_builder.insert(value.view())); }
+            SetBuilder removed_builder{value_type_for_active_realization(element_meta)};
+            for (const Value &value : removed) { static_cast<void>(removed_builder.insert(value.view())); }
+            BundleBuilder bundle{value_type_for_active_realization(bundle_meta)};
             bundle.set("added", added_builder.build());
             bundle.set("removed", removed_builder.build());
             return bundle.build();
@@ -1349,14 +1349,22 @@ namespace hgraph::stdlib
 
     namespace stream_impl_detail
     {
-        /** The window() result meta: the named WindowResult bundle
-            {buffer: TS[tuple[T,...]], index: TS[tuple[datetime,...]]}. */
+        /** The window() result meta: a WindowResult[T] specialization with
+            {buffer: TS[tuple[T,...]], index: TS[tuple[datetime,...]]}.
+
+            TSB names are process-global nominal identities. The element type
+            therefore participates in the name: a graph may wire windows over
+            multiple value types without asking one ``WindowResult`` name to
+            describe incompatible field schemas. */
         inline const TSValueTypeMetaData *window_result_meta(const ValueTypeMetaData *element)
         {
             auto &registry = TypeRegistry::instance();
             const auto *buffer = registry.list(element, 0, true);
             const auto *index  = registry.list(scalar_descriptor<DateTime>::value_meta(), 0, true);
-            return registry.tsb("WindowResult", {{"buffer", registry.ts(buffer)}, {"index", registry.ts(index)}});
+            std::string name{"WindowResult["};
+            name.append(element->name());
+            name.push_back(']');
+            return registry.tsb(name, {{"buffer", registry.ts(buffer)}, {"index", registry.ts(index)}});
         }
 
         /** Emit the {buffer, index} bundle for the queued (time, value) entries. */
@@ -1364,16 +1372,19 @@ namespace hgraph::stdlib
                                        const std::deque<std::pair<DateTime, Value>> &entries)
         {
             const auto *meta = out.schema()->value_schema;
-            auto &factory = ValuePlanFactory::instance();
             const auto *element_meta = meta->fields[0].type->element_type;
-            ListBuilder values{factory.type_for(element_meta)};
-            ListBuilder times{factory.type_for(scalar_descriptor<DateTime>::value_meta())};
+            const auto *buffer_meta = meta->fields[0].type;
+            ListBuilder values{
+                value_type_for_active_realization(element_meta), *buffer_meta};
+            ListBuilder times{
+                value_type_for_active_realization(scalar_descriptor<DateTime>::value_meta()),
+                *meta->fields[1].type};
             for (const auto &[time, value] : entries)
             {
-                values.push_back_copy(value.view().data());
+                values.push_back(value.view());
                 times.push_back_copy(&time);
             }
-            BundleBuilder bundle{factory.type_for(meta)};
+            BundleBuilder bundle{value_type_for_active_realization(meta)};
             bundle.set("buffer", values.build());
             bundle.set("index", times.build());
             auto mutation = out.data_view().begin_mutation(out.evaluation_time());
@@ -1502,8 +1513,9 @@ namespace hgraph::stdlib
                 {
                     const auto &erased = static_cast<const TSOutputView &>(out);
                     const auto *meta   = erased.schema()->value_schema;
-                    ListBuilder builder{ValuePlanFactory::instance().type_for(meta->element_type)};
-                    for (Value &value : current.buffer) { builder.push_back_copy(value.view().data()); }
+                    ListBuilder builder{
+                        value_type_for_active_realization(meta->element_type), *meta};
+                    for (Value &value : current.buffer) { builder.push_back(value.view()); }
                     current.buffer.clear();
                     Value result   = builder.build();
                     auto  mutation = erased.data_view().begin_mutation(erased.evaluation_time());

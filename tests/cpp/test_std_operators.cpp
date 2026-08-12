@@ -16,6 +16,7 @@
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/std/operators/impl/arithmetic_impl.h>
 #include <hgraph/lib/std/operators/impl/collection_impl.h>
+#include <hgraph/lib/std/operators/impl/stream_impl.h>
 #include <hgraph/lib/std/operators/impl/string_impl.h>
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/lib/std/value_util.h>
@@ -66,6 +67,27 @@ namespace hgraph
             return registry.bundle(
                 "tests.emit", "Event", {{"event_id", registry.value_type("str")}}, {}, true);
         }
+    };
+}
+
+namespace hgraph::testing
+{
+    template <>
+    struct ts_harness<TS<polymorphic_emit_repro::Event>>
+        : bundle_ts_harness<TS<polymorphic_emit_repro::Event>>
+    {
+    };
+
+    template <>
+    struct ts_harness<TS<Map<Str, polymorphic_emit_repro::Event>>>
+        : bundle_ts_harness<TS<Map<Str, polymorphic_emit_repro::Event>>>
+    {
+    };
+
+    template <>
+    struct ts_harness<TS<Set<polymorphic_emit_repro::Event>>>
+        : bundle_ts_harness<TS<Set<polymorphic_emit_repro::Event>>>
+    {
     };
 }
 
@@ -220,6 +242,13 @@ namespace
     using PolymorphicEventDict = TSD<Str, TS<PolymorphicEvent>>;
     using PolymorphicEventKeyValue =
         UnNamedTSB<Field<"key", TS<Str>>, Field<"value", TS<PolymorphicEvent>>>;
+    using PolymorphicEventTuple = TS<HomogeneousTuple<PolymorphicEvent>>;
+    using PolymorphicEventMap = TS<Map<Str, PolymorphicEvent>>;
+    using PolymorphicEventSet = TS<Set<PolymorphicEvent>>;
+    using PolymorphicEventWindow =
+        TSB<"WindowResult[tests.emit::Event]",
+            Field<"buffer", PolymorphicEventTuple>,
+            Field<"index", TS<HomogeneousTuple<DateTime>>>>;
 
     struct PolymorphicEventDictEmitGraph
     {
@@ -230,6 +259,95 @@ namespace
         {
             return wire<stdlib::emit>(w, events)
                 .as<PolymorphicEventKeyValue>();
+        }
+    };
+
+    struct PolymorphicEventSingletonTupleGraph
+    {
+        static Port<PolymorphicEventTuple> compose(
+            Wiring &w, Port<TS<PolymorphicEvent>> event)
+        {
+            return wire<stdlib::convert, PolymorphicEventTuple>(w, event);
+        }
+    };
+
+    struct PolymorphicEventTupleAddGraph
+    {
+        static Port<PolymorphicEventTuple> compose(
+            Wiring &w, Port<PolymorphicEventTuple> lhs,
+            Port<PolymorphicEventTuple> rhs)
+        {
+            return wire<stdlib::add_>(w, lhs, rhs)
+                .as<PolymorphicEventTuple>();
+        }
+    };
+
+    struct PolymorphicEventSingletonSetGraph
+    {
+        static Port<PolymorphicEventSet> compose(
+            Wiring &w, Port<TS<PolymorphicEvent>> event)
+        {
+            return wire<stdlib::convert, PolymorphicEventSet>(w, event);
+        }
+    };
+
+    struct PolymorphicEventMapGraph
+    {
+        static Port<PolymorphicEventMap> compose(
+            Wiring &w, Port<TS<Str>> key,
+            Port<TS<PolymorphicEvent>> event)
+        {
+            return wire<stdlib::convert, PolymorphicEventMap>(w, key, event);
+        }
+    };
+
+    struct PolymorphicEventMapValuesGraph
+    {
+        static Port<PolymorphicEventTuple> compose(
+            Wiring &w, Port<PolymorphicEventMap> events)
+        {
+            return wire<stdlib::values_>(w, events)
+                .as<PolymorphicEventTuple>();
+        }
+    };
+
+    struct PolymorphicEventCollectMapGraph
+    {
+        static Port<PolymorphicEventMap> compose(
+            Wiring &w, Port<TS<Str>> key,
+            Port<TS<PolymorphicEvent>> event)
+        {
+            return wire<stdlib::collect, PolymorphicEventMap>(w, key, event);
+        }
+    };
+
+    struct PolymorphicEventBatchGraph
+    {
+        static Port<PolymorphicEventTuple> compose(
+            Wiring &w, Port<TS<Bool>> condition,
+            Port<TS<PolymorphicEvent>> event)
+        {
+            return wire<stdlib::batch, PolymorphicEventTuple>(
+                w, condition, event, MIN_TD, Int{16});
+        }
+    };
+
+    struct PolymorphicEventWindowGraph
+    {
+        static Port<PolymorphicEventWindow> compose(
+            Wiring &w, Port<TS<PolymorphicEvent>> event)
+        {
+            return wire<stdlib::window, PolymorphicEventWindow>(
+                w, event, Int{2});
+        }
+    };
+
+    struct PolymorphicEventTupleFromJsonGraph
+    {
+        static Port<PolymorphicEventTuple> compose(
+            Wiring &w, Port<TS<Str>> value)
+        {
+            return wire<stdlib::from_json, PolymorphicEventTuple>(w, value);
         }
     };
 
@@ -1509,6 +1627,249 @@ TEST_CASE("std operators: keyed emit preserves a concrete Bundle leaf")
     CHECK(event_fields.at("event_id").checked_as<Str>() == Str{"event"});
     CHECK(event_fields.at("order_id").checked_as<Str>() == Str{"order"});
     CHECK(event_fields.at("payload").checked_as<Str>() == Str{"created"});
+}
+
+TEST_CASE("std operators preserve concrete Bundle leaves across owned container transfers")
+{
+    stdlib::register_standard_operators();
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *text = registry.value_type("str");
+    const auto *event = scalar_descriptor<PolymorphicEvent>::value_meta();
+    const auto *heartbeat_schema = registry.bundle(
+        "tests.emit", "HeartbeatEvent", {{"event_id", text}}, {event});
+    const auto *order_event = registry.bundle(
+        "tests.emit", "OrderEvent",
+        {{"event_id", text}, {"order_id", text}}, {event}, true);
+    const auto *create_schema = registry.bundle(
+        "tests.emit", "CreateEvent",
+        {{"event_id", text}, {"order_id", text}, {"payload", text},
+         {"details_a", text}, {"details_b", text},
+         {"details_c", text}, {"details_d", text}},
+        {order_event});
+
+    const auto exercise = [&](bool pooled) {
+        INFO("polymorphic container storage " << (pooled ? "pooled" : "inline"));
+        GlobalState graph_state;
+        if (pooled) { set_pooled_compound_scalar_storage(graph_state.view()); }
+        GlobalContext graph_context{graph_state};
+
+        const TypeRealizationOptions options{
+            .polymorphic_compound_storage =
+                pooled ? PolymorphicCompoundStoragePolicy::Pooled
+                       : PolymorphicCompoundStoragePolicy::Inline,
+        };
+        const auto realization = TypeRealizationSnapshot::capture(registry, options);
+        TypeRealizationScope realization_scope{realization.get()};
+        if (pooled)
+        {
+            REQUIRE(realization->inspect(event).representation ==
+                    GraphValueRepresentation::PooledUnion);
+        }
+
+        BundleBuilder heartbeat_builder{
+            realization->exact_type_for(heartbeat_schema)};
+        heartbeat_builder.set("event_id", Value{Str{"heartbeat"}});
+        const Value heartbeat_concrete = heartbeat_builder.build();
+
+        BundleBuilder create_builder{realization->exact_type_for(create_schema)};
+        create_builder.set("event_id", Value{Str{"event"}});
+        create_builder.set("order_id", Value{Str{"order"}});
+        create_builder.set("payload", Value{Str{"created"}});
+        create_builder.set("details_a", Value{Str{"a"}});
+        create_builder.set("details_b", Value{Str{"b"}});
+        create_builder.set("details_c", Value{Str{"c"}});
+        create_builder.set("details_d", Value{Str{"d"}});
+        const Value created_concrete = create_builder.build();
+
+        const auto event_binding = realization->type_for(event);
+        const auto realize_event = [&](const Value &concrete) {
+            Value value{event_binding};
+            event_binding.ops_ref().copy_assign_from(
+                event_binding, value.begin_mutation().mutable_data(),
+                concrete.binding(), concrete.view().data());
+            return value;
+        };
+        const Value heartbeat = realize_event(heartbeat_concrete);
+        const Value created = realize_event(created_concrete);
+
+        const auto check_event = [&](const ValueView &actual,
+                                     const ValueTypeMetaData *schema,
+                                     std::string_view event_id) {
+            const auto concrete = actual.concrete();
+            REQUIRE(concrete.schema() == schema);
+            const auto fields = concrete.as_bundle();
+            CHECK(fields.field("event_id").checked_as<Str>() == Str{event_id});
+            if (schema == create_schema)
+            {
+                CHECK(fields.field("order_id").checked_as<Str>() == Str{"order"});
+                CHECK(fields.field("payload").checked_as<Str>() == Str{"created"});
+                CHECK(fields.field("details_a").checked_as<Str>() == Str{"a"});
+                CHECK(fields.field("details_b").checked_as<Str>() == Str{"b"});
+                CHECK(fields.field("details_c").checked_as<Str>() == Str{"c"});
+                CHECK(fields.field("details_d").checked_as<Str>() == Str{"d"});
+            }
+        };
+        const auto check_events = [&](const Value &actual,
+                                      std::initializer_list<const ValueTypeMetaData *> schemas) {
+            const auto values = actual.as_list();
+            REQUIRE(values.size() == schemas.size());
+            std::size_t index = 0;
+            for (const auto *schema : schemas)
+            {
+                check_event(
+                    values.at(index++), schema,
+                    schema == heartbeat_schema ? "heartbeat" : "event");
+            }
+        };
+        const auto make_events = [&](std::initializer_list<const Value *> values) {
+            ListBuilder builder{event_binding};
+            for (const Value *value : values)
+            {
+                builder.push_back_copy(value->view().data());
+            }
+            ListStorage storage = builder.build_storage();
+            const auto *schema =
+                scalar_descriptor<HomogeneousTuple<PolymorphicEvent>>::value_meta();
+            return Value{compact_list_type(event_binding, *schema), &storage};
+        };
+        const auto make_event_map = [&]() {
+            const auto key_binding = realization->type_for(text);
+            MapBuilder builder{key_binding, event_binding};
+            const Str heartbeat_key{"heartbeat"};
+            const Str created_key{"created"};
+            builder.set_item_copy(
+                &heartbeat_key, heartbeat.view().data());
+            builder.set_item_copy(&created_key, created.view().data());
+            return builder.build();
+        };
+
+        const auto singleton = eval_node<PolymorphicEventSingletonTupleGraph>(
+            values<Value>(heartbeat, created));
+        REQUIRE(singleton.size() == 2);
+        REQUIRE(singleton[0].has_value());
+        check_events(*singleton[0], {heartbeat_schema});
+        REQUIRE(singleton[1].has_value());
+        check_events(*singleton[1], {create_schema});
+
+        const auto singleton_set = eval_node<PolymorphicEventSingletonSetGraph>(
+            values<Value>(heartbeat, created));
+        REQUIRE(singleton_set.size() == 2);
+        REQUIRE(singleton_set[0].has_value());
+        REQUIRE(singleton_set[0]->as_set().size() == 1);
+        const auto first_set_values = singleton_set[0]->as_set().values();
+        check_event(
+            *first_set_values.begin(), heartbeat_schema, "heartbeat");
+        REQUIRE(singleton_set[1].has_value());
+        REQUIRE(singleton_set[1]->as_set().size() == 1);
+        const auto second_set_values = singleton_set[1]->as_set().values();
+        check_event(
+            *second_set_values.begin(), create_schema, "event");
+
+        const Value heartbeat_tuple = make_events({&heartbeat});
+        const Value created_tuple = make_events({&created});
+        const auto added = eval_node<PolymorphicEventTupleAddGraph>(
+            values<Value>(heartbeat_tuple), values<Value>(created_tuple));
+        REQUIRE(added.size() == 1);
+        REQUIRE(added.front().has_value());
+        check_events(*added.front(), {heartbeat_schema, create_schema});
+
+        const auto converted_map = eval_node<PolymorphicEventMapGraph>(
+            values<Str>(Str{"heartbeat"}, Str{"created"}),
+            values<Value>(heartbeat, created));
+        REQUIRE(converted_map.size() == 2);
+        REQUIRE(converted_map[0].has_value());
+        check_event(
+            converted_map[0]->as_map().at(Value{Str{"heartbeat"}}.view()),
+            heartbeat_schema, "heartbeat");
+        REQUIRE(converted_map[1].has_value());
+        check_event(
+            converted_map[1]->as_map().at(Value{Str{"created"}}.view()),
+            create_schema, "event");
+
+        const auto collected_map = eval_node<PolymorphicEventCollectMapGraph>(
+            values<Str>(Str{"order"}, Str{"order"}),
+            values<Value>(heartbeat, created));
+        REQUIRE(collected_map.size() == 2);
+        REQUIRE(collected_map[0].has_value());
+        check_event(
+            collected_map[0]->as_map().at(Value{Str{"order"}}.view()),
+            heartbeat_schema, "heartbeat");
+        REQUIRE(collected_map[1].has_value());
+        check_event(
+            collected_map[1]->as_map().at(Value{Str{"order"}}.view()),
+            create_schema, "event");
+
+        const auto map_values = eval_node<PolymorphicEventMapValuesGraph>(
+            values<Value>(make_event_map()));
+        REQUIRE(map_values.size() == 1);
+        REQUIRE(map_values.front().has_value());
+        check_events(*map_values.front(), {heartbeat_schema, create_schema});
+
+        const auto batched = eval_node<PolymorphicEventBatchGraph>(
+            values<Bool>(false, true), values<Value>(heartbeat, created));
+        REQUIRE(batched.size() == 2);
+        CHECK_FALSE(batched[0].has_value());
+        REQUIRE(batched[1].has_value());
+        check_events(*batched[1], {heartbeat_schema, create_schema});
+
+        const auto windowed = eval_node<PolymorphicEventWindowGraph>(
+            values<Value>(heartbeat, created));
+        REQUIRE(windowed.size() == 2);
+        CHECK_FALSE(windowed[0].has_value());
+        REQUIRE(windowed[1].has_value());
+        const ValueView buffer =
+            windowed[1]->as_bundle().field("buffer");
+        REQUIRE(buffer.has_value());
+        const auto buffer_values = buffer.as_list();
+        REQUIRE(buffer_values.size() == 2);
+        check_event(buffer_values.at(0), heartbeat_schema, "heartbeat");
+        check_event(buffer_values.at(1), create_schema, "event");
+
+        const auto decoded = eval_node<PolymorphicEventTupleFromJsonGraph>(
+            values<Str>(Str{R"([
+                {"__type__": "HeartbeatEvent", "event_id": "heartbeat"},
+                {
+                    "__type__": "CreateEvent",
+                    "event_id": "event",
+                    "order_id": "order",
+                    "payload": "created",
+                    "details_a": "a",
+                    "details_b": "b",
+                    "details_c": "c",
+                    "details_d": "d"
+                }
+            ])"}));
+        REQUIRE(decoded.size() == 1);
+        REQUIRE(decoded.front().has_value());
+        check_events(*decoded.front(), {heartbeat_schema, create_schema});
+    };
+
+    exercise(false);
+    exercise(true);
+}
+
+TEST_CASE("window result nominal identity includes its element schema")
+{
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *event = scalar_descriptor<PolymorphicEvent>::value_meta();
+
+    const auto *integer_window =
+        stdlib::stream_impl_detail::window_result_meta(integer);
+    const auto *event_window =
+        stdlib::stream_impl_detail::window_result_meta(event);
+
+    REQUIRE(integer_window != event_window);
+    CHECK(integer_window ==
+          stdlib::stream_impl_detail::window_result_meta(integer));
+    CHECK(event_window ==
+          stdlib::stream_impl_detail::window_result_meta(event));
+    CHECK(integer_window->name() == "WindowResult[int]");
+    CHECK(event_window->name() == "WindowResult[tests.emit::Event]");
+    REQUIRE(integer_window->field_count() == 2);
+    REQUIRE(event_window->field_count() == 2);
+    CHECK(integer_window->fields()[0].type->value_schema->element_type == integer);
+    CHECK(event_window->fields()[0].type->value_schema->element_type == event);
 }
 
 TEST_CASE("std operators: len_ visits scalar tuple, set, and map values")

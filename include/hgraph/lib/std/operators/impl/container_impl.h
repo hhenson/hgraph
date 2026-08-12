@@ -4,6 +4,7 @@
 #include <hgraph/lib/std/operators/container.h>
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/impl/collection_input_semantics.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/operator_type_resolution.h>
 #include <hgraph/types/primitive_types.h>
@@ -814,22 +815,22 @@ struct getattr_ts_tuple_bundle {
     if (!index.has_value()) {
       return;
     }
-    const auto field_binding = ValuePlanFactory::instance().type_for(
+    const auto field_binding = value_type_for_active_realization(
         element_meta->fields[*index].type);
     if (field_binding == nullptr) {
       return;
     }
 
-    ListBuilder builder{field_binding};
+    ListBuilder builder{field_binding, *out.schema()->value_schema};
     auto list = value.as_indexed_view();
     for (std::size_t i = 0; i < list.size(); ++i) {
       const ValueView &element = list.at(i);
       auto fields = element.as_indexed_view();
       const ValueView &field = fields.at(*index);
       if (field.has_value()) {
-        builder.push_back_copy(field.data());
+        builder.push_back(field);
       } else if (fallback != nullptr) {
-        builder.push_back_copy(fallback->data());
+        builder.push_back(*fallback);
       } else {
         builder.push_back_unset();
       }
@@ -968,7 +969,7 @@ struct setattr_ts_bundle {
     const auto source = ts.base().value();
     const auto *meta = source.schema();
     auto fields = source.as_indexed_view();
-    BundleBuilder builder{ValuePlanFactory::instance().type_for(meta)};
+    BundleBuilder builder{value_type_for_active_realization(meta)};
     const auto target = getattr_ts_bundle::field_index(meta, attr.value());
     for (std::size_t index = 0; index < meta->field_count; ++index) {
       if (target.has_value() && index == *target) {
