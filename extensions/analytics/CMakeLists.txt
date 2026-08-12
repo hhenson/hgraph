@@ -5,6 +5,7 @@ project(hgraph_analytics VERSION 0.8.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 include(CTest)
+include(FetchContent)
 
 option(HGRAPH_ANALYTICS_BUILD_PYTHON "Build the optional Python authoring bridge" OFF)
 option(HGRAPH_ANALYTICS_WARNINGS_AS_ERRORS
@@ -20,6 +21,32 @@ if(NOT TARGET hgraph::core)
     find_package(hgraph CONFIG REQUIRED)
 endif()
 
+include(cmake/hgraph_analytics_arrow.cmake)
+if(HGRAPH_ANALYTICS_BUILD_PYTHON)
+    hgraph_analytics_find_arrow(PREFER_PYARROW)
+else()
+    hgraph_analytics_find_arrow()
+endif()
+
+# Boost.Math supplies the header-only correlation kernel owned by this package.
+find_package(boost_math 1.90 CONFIG QUIET)
+if(NOT TARGET Boost::math)
+    FetchContent_Declare(
+        boost_math
+        GIT_REPOSITORY https://github.com/boostorg/math.git
+        GIT_TAG        boost-1.91.0
+        GIT_SHALLOW    TRUE
+        SYSTEM
+    )
+    set(BOOST_MATH_STANDALONE ON CACHE BOOL
+        "Use Boost.Math without the Boost superproject" FORCE)
+    set(_hgraph_analytics_build_testing "${BUILD_TESTING}")
+    set(BUILD_TESTING OFF)
+    FetchContent_MakeAvailable(boost_math)
+    set(BUILD_TESTING "${_hgraph_analytics_build_testing}")
+    unset(_hgraph_analytics_build_testing)
+endif()
+
 if(HGRAPH_ANALYTICS_BUILD_PYTHON)
     get_target_property(_hgraph_analytics_core_links hgraph::options INTERFACE_LINK_LIBRARIES)
     if("Python::Python" IN_LIST _hgraph_analytics_core_links)
@@ -31,7 +58,10 @@ if(HGRAPH_ANALYTICS_BUILD_PYTHON)
 endif()
 
 add_library(hgraph_analytics
+    src/array_operators.cpp
     src/operators.cpp
+    src/registration.cpp
+    src/shaped_array_operators.cpp
 )
 add_library(hgraph::analytics ALIAS hgraph_analytics)
 
@@ -42,6 +72,14 @@ endif()
 
 target_compile_features(hgraph_analytics PUBLIC cxx_std_23)
 target_link_libraries(hgraph_analytics PUBLIC hgraph::core)
+target_link_libraries(hgraph_analytics PRIVATE $<BUILD_INTERFACE:Boost::math>)
+if(TARGET ArrowCompute::arrow_compute_shared)
+    target_link_libraries(hgraph_analytics PRIVATE
+        Arrow::arrow_shared ArrowCompute::arrow_compute_shared)
+else()
+    target_link_libraries(hgraph_analytics PRIVATE
+        Arrow::arrow_static ArrowCompute::arrow_compute_static)
+endif()
 target_include_directories(hgraph_analytics
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -112,6 +150,7 @@ install(EXPORT hgraphAnalyticsTargets
 install(FILES
     "${PROJECT_BINARY_DIR}/hgraph-analyticsConfig.cmake"
     "${PROJECT_BINARY_DIR}/hgraph-analyticsConfigVersion.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/hgraph_analytics_arrow.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/hgraph-analytics
     COMPONENT Development
 )

@@ -2608,6 +2608,21 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
     CHECK_OUTPUT(eval_node<stdlib::to_window>(values<Int>(1, 2, 3, 4, 5), MIN_TD * 2),
                  values<Value>(Value{Int{1}}, Value{Int{2}}, Value{Int{3}},
                                Value{Int{4}}, Value{Int{5}}));
+    CHECK_THROWS_WITH(
+        (eval_node<stdlib::to_window>(values<Int>(1), Int{0})),
+        Catch::Matchers::ContainsSubstring("to_window: period must be positive"));
+    CHECK_THROWS_WITH(
+        (eval_node<stdlib::to_window>(values<Int>(1), Int{3}, Int{-1})),
+        Catch::Matchers::ContainsSubstring("to_window: min_window_period must be between zero and period"));
+    CHECK_THROWS_WITH(
+        (eval_node<stdlib::to_window>(values<Int>(1), Int{3}, Int{4})),
+        Catch::Matchers::ContainsSubstring("to_window: min_window_period must be between zero and period"));
+    CHECK_THROWS_WITH(
+        (eval_node<stdlib::to_window>(values<Int>(1), TimeDelta{})),
+        Catch::Matchers::ContainsSubstring("to_window: period must be positive"));
+    CHECK_THROWS_WITH(
+        (eval_node<stdlib::to_window>(values<Int>(1), MIN_TD * 3, MIN_TD * 4)),
+        Catch::Matchers::ContainsSubstring("to_window: min_window_period must be between zero and period"));
     // rolling_average is a public graph operator in both C++ and Python.  Keep
     // native coverage for both scalar-policy overloads so the ported upstream
     // tests do not merely prove the Python facade.

@@ -807,21 +807,22 @@ Surface moved out of core
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The first package boundary landed in 0.8: ``diff``, ``count``, ``clip``,
-``ewma``, ``pct_change``, ``center_of_mass_to_alpha``, and
-``span_to_alpha`` moved together to the analytics extension
-(``hgraph-analytics``, import ``hgraph_analytics``).
+``ewma``, ``pct_change``, ``center_of_mass_to_alpha``, ``span_to_alpha``,
+``quantile``, ``array_std``, and the shaped-array ``rolling_window`` moved to
+the analytics extension (``hgraph-analytics``, import ``hgraph_analytics``).
+The last three replace ``np_quantile``, ``np_std``, and
+``np_rolling_window`` without retaining the NumPy-derived prefix. The remaining
+``hgraph.numpy_`` operators also moved: ``as_array``, ``get_item``, ``cumsum``,
+and ``corrcoef`` became ``window_values``, ``array_get_item``,
+``cumulative_sum``, and ``correlation``. The NumPy-derived module name is
+retired; the implementation is hgraph's native array machinery, and the
+extension's names describe their behavior rather than what they resemble.
 
-Applying the kernel calibration further, the 1.0 surface described by this
-RFC would also move the statistical estimators ``std``, ``var``, ``corrcoef``,
-``quantile``, ``rolling_average``, ``resample``, and the ``Array``-shaped
-operators formerly in ``hgraph.numpy_`` (``as_array``, ``cumsum``, ``np_std``
-→ ``array_std``, ``rolling_window_arrays``). ``mean`` stays in core as a plain
-fold beside ``sum_``. These need domain policy (estimator parameters,
-windowing conventions) that the kernel deliberately does not own — the same
-line the STL draws. The ``Array`` *type* remains core; only the analytics over
-it move. The NumPy-derived module name is retired with the move: the
-implementation is hgraph's native array machinery, and the extension's names
-say what they are rather than what they resemble.
+Future calibration still considers moving the statistical estimators ``std``
+and ``var`` plus ``rolling_average`` and ``resample``. ``mean`` stays in core
+as a plain fold beside ``sum_``. These functions need domain policy (estimator
+parameters and windowing conventions) that the kernel deliberately does not
+own. The ``Array`` *type* remains core; only analytics over it move.
 
 ``hgraph.arrow`` (the composition-combinator DSL) moves to
 ``hgraph-compose`` (import ``hgraph_compose``): expressive but not

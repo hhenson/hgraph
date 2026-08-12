@@ -38,7 +38,6 @@ PUBLIC_MODULES = (
     "hgraph.debug",
     "hgraph.stream",
     "hgraph.reflection",
-    "hgraph.numpy_",
     "hgraph.arrow",
     "hgraph.notebook",
     "hgraph.adaptors.data_catalogue",

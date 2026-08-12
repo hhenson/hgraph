@@ -9,7 +9,6 @@ namespace hgraph::stdlib
         register_arithmetic_operators();
         register_comparison_operators();
         register_logical_operators();
-        register_numpy_operators();
         register_container_operators();
         register_conversion_operators();
         register_collection_operators();

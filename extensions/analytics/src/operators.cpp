@@ -5,6 +5,8 @@
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/value/value.h>
 
+#include "operator_registration.h"
+
 #include <algorithm>
 #include <stdexcept>
 #include <string_view>
@@ -133,7 +135,7 @@ namespace hgraph::analytics
         };
     }  // namespace
 
-    void register_analytics_operators()
+    void detail::register_numerical_operators()
     {
         register_overload<diff, diff_impl<Int>>();
         register_overload<diff, diff_impl<Float>>();

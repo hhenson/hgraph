@@ -115,6 +115,162 @@ namespace hgraph::analytics
     {
     };
 
+    /** Materialize a fixed tick window as an array, padding its warm-up suffix.
+        Each valid window tick emits after the ``TSW`` reaches its configured
+        minimum population. The output capacity is the wiring-time window
+        period; positions beyond the current population use ``zero`` or the
+        element type's default value. The node owns no history.
+        @param window Fixed tick-count ``TSW``. Duration windows are rejected
+                      because they have no fixed output capacity.
+        @param zero Optional live or wiring-time padding value with the window's
+                    element type. It defaults to the type's zero value.
+        @return Fixed-capacity array containing chronological window values.
+        @throws std::invalid_argument if a materialized value cannot fit the
+                                     resolved output shape.
+        @par Python example
+        @code{.py}
+        import hgraph as hg
+        import hgraph_analytics as hga
+        values = hga.window_values(hg.to_window(price, 20, 5), zero=0.0)
+        @endcode */
+    struct window_values
+        : Operator<"hgraph.analytics.window_values",
+                   In<"window", TsVar<"W">>, Out<TsVar<"__out__">>>
+    {
+    };
+
+    /** Select an item or lower-rank slice from a shaped array.
+        Every valid array tick emits. ``index`` is fixed while wiring and may be
+        an integer or an integer tuple; negative components count from the end.
+        The node retains no state.
+        @param values Shaped array input.
+        @param index Wiring-time integer or integer tuple.
+        @return Selected scalar or the remaining lower-rank array.
+        @throws std::out_of_range for an invalid component or too many components.
+        @throws std::invalid_argument when ``index`` is not integer-valued.
+        @par Python example
+        @code{.py}
+        import hgraph_analytics as hga
+        second_row = hga.array_get_item(matrix, 1)
+        @endcode */
+    struct array_get_item
+        : Operator<"hgraph.analytics.array_get_item",
+                   In<"values", TsVar<"A">>,
+                   Scalar<"index", ScalarVar<"I">>, Out<TsVar<"__out__">>>
+    {
+    };
+
+    /** Compute the cumulative sum of a numeric shaped array.
+        Every valid array tick emits and the node retains no state. Omitting
+        ``axis`` flattens the result; supplying a wiring-time axis preserves the
+        input shape and accepts negative indexing. Integer addition has defined
+        two's-complement wrapping.
+        @param values Integer or floating-point shaped array.
+        @param axis Optional wiring-time axis. It defaults to flattened traversal.
+        @return Cumulative sums with the input leaf type.
+        @throws std::out_of_range when ``axis`` is outside the input rank.
+        @throws std::invalid_argument when the runtime value is not rectangular.
+        @par Python example
+        @code{.py}
+        import hgraph_analytics as hga
+        running_rows = hga.cumulative_sum(matrix, axis=1)
+        @endcode */
+    struct cumulative_sum
+        : Operator<"hgraph.analytics.cumulative_sum",
+                   In<"values", TsVar<"A">>, Out<TsVar<"__out__">>>
+    {
+    };
+
+    /** Compute correlation coefficients for one or two numeric arrays.
+        A tick on either array schedules evaluation; output requires every
+        supplied array to be valid. One- and two-dimensional arrays are
+        supported. ``rowvar`` is fixed while wiring and defaults to true. The
+        node retains no state and uses Boost.Math's correlation algorithm.
+        @param x First numeric shaped array.
+        @param y Optional second numeric shaped array.
+        @param rowvar Treat rows as variables when true and columns when false.
+        @return A scalar for one vector, otherwise a square coefficient matrix.
+                Constant variables produce NaN coefficients.
+        @throws std::invalid_argument for unsupported ranks, empty variables, or
+                                     mismatched observation counts.
+        @par Python example
+        @code{.py}
+        import hgraph_analytics as hga
+        coefficients = hga.correlation(observations, rowvar=False)
+        @endcode */
+    struct correlation
+        : Operator<"hgraph.analytics.correlation",
+                   In<"x", TsVar<"X">>, Scalar<"rowvar", Bool>,
+                   Out<TsVar<"__out__">>>
+    {
+    };
+
+    /** Select a scalar quantile from a numeric shaped array or tick window.
+        A tick on either input schedules evaluation; the operator emits only
+        when both inputs are valid and a selected window has reached its minimum
+        population. It retains no state beyond state already owned by a supplied
+        ``TSW``. Arrow Compute performs the interpolation using one of
+        ``linear``, ``lower``, ``higher``, ``midpoint``, or ``nearest``.
+        @param values Integer or floating-point ``Array`` or ``TSW`` input.
+        @param q Live quantile in the inclusive range ``[0, 1]``.
+        @param method Wiring-time interpolation method; defaults to ``linear``.
+        @return Floating-point quantile. An Arrow null result is represented by NaN.
+        @throws std::invalid_argument for an empty input, out-of-range ``q``, or
+                                     unsupported interpolation method.
+        @throws std::runtime_error if Arrow Compute rejects the operation.
+        @par Python example
+        @code{.py}
+        import hgraph_analytics as hga
+        median = hga.quantile(returns, 0.5)
+        @endcode */
+    struct quantile
+        : Operator<"hgraph.analytics.quantile", In<"values", TsVar<"A">>,
+                   In<"q", TS<Float>>, Scalar<"method", Str>, Out<TS<Float>>>
+    {
+    };
+
+    /** Compute population or sample standard deviation over a numeric shaped array.
+        The node has no warm-up state and emits for every valid input array.
+        Arrow Compute uses the divisor ``N - ddof``; ``ddof`` is fixed at
+        wiring time and defaults to zero.
+        @param values Integer or floating-point shaped array.
+        @param ddof Delta degrees of freedom subtracted from the observation count.
+        @return Floating-point standard deviation. An Arrow null result is NaN.
+        @throws std::invalid_argument when ``ddof`` is outside Arrow's integer range.
+        @throws std::runtime_error if Arrow Compute rejects the operation.
+        @par Python example
+        @code{.py}
+        import hgraph_analytics as hga
+        sample_volatility = hga.array_std(observations, ddof=1)
+        @endcode */
+    struct array_std
+        : Operator<"hgraph.analytics.array_std", In<"values", TsVar<"A">>,
+                   Scalar<"ddof", Int>, Out<TS<Float>>>
+    {
+    };
+
+    /** Publish a typed trailing window as shaped value and timestamp arrays.
+        The result bundle contains ``buffer`` and ``index`` fields. Each input
+        window tick emits after the ``TSW`` reaches its minimum population. A
+        partially warming result uses a dynamic leading dimension, while a
+        full-period result retains its fixed array capacity. The node owns no
+        history; use core ``to_window`` to define retention, reset, and warm-up
+        policy.
+        @param window Fixed tick-count ``TSW`` to materialize. Duration windows
+                      are rejected by overload resolution because their array
+                      shape has no fixed maximum.
+        @return ``RollingWindowResult`` with shaped ``buffer`` and ``index`` arrays.
+        @par Python example
+        @code{.py}
+        import hgraph_analytics as hga
+        recent = hga.rolling_window(price, period=20, min_window_period=5)
+        @endcode */
+    struct rolling_window
+        : Operator<"hgraph.analytics.rolling_window",
+                   In<"window", TsVar<"W">>, Out<TsVar<"__out__">>>
+    {
+    };
+
     /** Register the hgraph-analytics overloads in the current hgraph registry.
         Call once per registry lifetime after core standard operators are
         available and before wiring analytics graphs. */

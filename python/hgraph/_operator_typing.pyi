@@ -371,54 +371,6 @@ class _apply_Operator(_Protocol):
 
 apply: _apply_Operator
 
-class _as_array_Operator(_Protocol):
-    """Convert a fixed tick window into a shaped array, optionally padding with ``zero``.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``tsw`` : time-series; ``TIME_SERIES_TYPE``
-       The time-series window input.
-
-    ``zero`` : time-series, scalar; ``TIME_SERIES_TYPE_1``, ``SCALAR``
-       The zero value used by the selected overload.
-
-    Returns
-    ~~~~~~~
-
-    A wired output with one of the overload-selected shapes: ``OUT``.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       result = hg.as_array(tsw)
-
-    Accepted native overloads:
-
-    - ``as_array(tsw: TIME_SERIES_TYPE) -> OUT``
-    - ``as_array(tsw: TIME_SERIES_TYPE, zero: TIME_SERIES_TYPE_1) -> OUT``
-    - ``as_array(tsw: TIME_SERIES_TYPE, zero: SCALAR) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    @_overload
-    def __call__(self, tsw: _WiringPort | object) -> _WiringPort: ...
-    @_overload
-    def __call__(self, tsw: _WiringPort | object, zero: _WiringPort | object) -> _WiringPort: ...
-    @_overload
-    def __call__(self, tsw: _WiringPort | object, zero: object) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-as_array: _as_array_Operator
-
 class _assert__Operator(_Protocol):
     """Raise ``AssertionError`` when a ticking condition is false. Additional overloads format the error message from live arguments.
 
@@ -1112,105 +1064,6 @@ class _convert_zone_Operator(_Protocol):
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 convert_zone: _convert_zone_Operator
-
-class _corrcoef_Operator(_Protocol):
-    """Native correlation coefficients, with an optional second array.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``x`` : time-series; ``TIME_SERIES_TYPE``
-       The x value used by the selected overload.
-
-    ``y`` : time-series; ``TIME_SERIES_TYPE_1``
-       The y value used by the selected overload.
-
-    ``rowvar`` : scalar; ``bool``
-       The rowvar value used by the selected overload.
-
-    Returns
-    ~~~~~~~
-
-    A wired output with one of the overload-selected shapes: ``OUT``.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       result = hg.corrcoef(x)
-
-    Accepted native overloads:
-
-    - ``corrcoef(x: TIME_SERIES_TYPE) -> OUT``
-    - ``corrcoef(x: TIME_SERIES_TYPE, y: TIME_SERIES_TYPE_1) -> OUT``
-    - ``corrcoef(x: TIME_SERIES_TYPE, rowvar: bool) -> OUT``
-    - ``corrcoef(x: TIME_SERIES_TYPE, y: TIME_SERIES_TYPE_1, rowvar: bool) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    @_overload
-    def __call__(self, x: _WiringPort | object) -> _WiringPort: ...
-    @_overload
-    def __call__(self, x: _WiringPort | object, y: _WiringPort | object) -> _WiringPort: ...
-    @_overload
-    def __call__(self, x: _WiringPort | object, rowvar: bool) -> _WiringPort: ...
-    @_overload
-    def __call__(self, x: _WiringPort | object, y: _WiringPort | object, rowvar: bool) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-corrcoef: _corrcoef_Operator
-
-class _cumsum_Operator(_Protocol):
-    """Native cumulative sum. The optional scalar axis is supplied as a second argument.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``a`` : time-series; ``TIME_SERIES_TYPE``
-       The a value used by the selected overload.
-
-    ``axis`` : scalar; ``int``
-       The axis value used by the selected overload.
-
-    Returns
-    ~~~~~~~
-
-    A wired output with one of the overload-selected shapes: ``OUT``.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       result = hg.cumsum(a)
-
-    Accepted native overloads:
-
-    - ``cumsum(a: TIME_SERIES_TYPE) -> OUT``
-    - ``cumsum(a: TIME_SERIES_TYPE, axis: int) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    @_overload
-    def __call__(self, a: _WiringPort | object) -> _WiringPort: ...
-    @_overload
-    def __call__(self, a: _WiringPort | object, axis: int) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-cumsum: _cumsum_Operator
 
 class _day_Operator(_Protocol):
     """``day`` — the day-of-month attribute of a date or datetime.
@@ -2628,47 +2481,6 @@ class _ge__Operator(_Protocol):
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 ge_: _ge__Operator
-
-class _get_item_Operator(_Protocol):
-    """Apply a wiring-time integer or integer-tuple index to a shaped array.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``ts`` : time-series; ``TIME_SERIES_TYPE``
-       The primary time-series input.
-
-    ``idx`` : scalar; ``SCALAR``
-       Index selecting the requested item.
-
-    Returns
-    ~~~~~~~
-
-    A wired output with one of the overload-selected shapes: ``OUT``.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       result = hg.get_item(ts, idx)
-
-    Accepted native overloads:
-
-    - ``get_item(ts: TIME_SERIES_TYPE, idx: SCALAR) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    def __call__(self, ts: _WiringPort | object, idx: object) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-get_item: _get_item_Operator
 
 class _getattr__Operator(_Protocol):
     """Project a named field or attribute from a structured time-series value. Attribute selection is a wiring-time operation because it determines the output schema; normal ``port.field`` syntax delegates to this operator.
@@ -5235,51 +5047,6 @@ class _nothing_Operator(_Protocol):
 
 nothing: _nothing_Operator
 
-class _np_std_Operator(_Protocol):
-    """Population/sample standard deviation over a numeric shaped array.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``ts`` : time-series; ``TIME_SERIES_TYPE``
-       The primary time-series input.
-
-    ``ddof`` : scalar; ``int``
-       Delta degrees of freedom subtracted from the sample count in the divisor.
-
-    Returns
-    ~~~~~~~
-
-    A wired output with one of the overload-selected shapes: ``TS[float]``.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       result = hg.np_std(ts)
-
-    Accepted native overloads:
-
-    - ``np_std(ts: TIME_SERIES_TYPE) -> TS[float]``
-    - ``np_std(ts: TIME_SERIES_TYPE, ddof: int) -> TS[float]``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    @_overload
-    def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
-    @_overload
-    def __call__(self, ts: _WiringPort | object, ddof: int) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-np_std: _np_std_Operator
-
 class _null_sink_Operator(_Protocol):
     """Consume a stream without producing output or side effects. Use this to make an otherwise unused branch part of the executable graph.
 
@@ -5588,63 +5355,6 @@ class _print__Operator(_Protocol):
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 print_: _print__Operator
-
-class _quantile_Operator(_Protocol):
-    """Native scalar quantile over an array or time-series window.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``a`` : time-series; ``TIME_SERIES_TYPE``
-       The a value used by the selected overload.
-
-    ``q`` : time-series; ``TS[float]``
-       The q value used by the selected overload.
-
-    ``method`` : scalar; ``str``
-       The method value used by the selected overload.
-
-    ``keepdims`` : scalar; ``bool``
-       The keepdims value used by the selected overload.
-
-    Returns
-    ~~~~~~~
-
-    A wired output with one of the overload-selected shapes: ``TS[float]``.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       result = hg.quantile(a, q)
-
-    Accepted native overloads:
-
-    - ``quantile(a: TIME_SERIES_TYPE, q: TS[float], method: str, keepdims: bool) -> TS[float]``
-    - ``quantile(a: TIME_SERIES_TYPE, q: TS[float]) -> TS[float]``
-    - ``quantile(a: TIME_SERIES_TYPE, q: TS[float], method: str) -> TS[float]``
-    - ``quantile(a: TIME_SERIES_TYPE, q: TS[float], keepdims: bool) -> TS[float]``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    @_overload
-    def __call__(self, a: _WiringPort | object, q: _WiringPort | float, method: str, keepdims: bool) -> _WiringPort: ...
-    @_overload
-    def __call__(self, a: _WiringPort | object, q: _WiringPort | float) -> _WiringPort: ...
-    @_overload
-    def __call__(self, a: _WiringPort | object, q: _WiringPort | float, method: str) -> _WiringPort: ...
-    @_overload
-    def __call__(self, a: _WiringPort | object, q: _WiringPort | float, keepdims: bool) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-quantile: _quantile_Operator
 
 class _race_Operator(_Protocol):
     """Expose the first valid input in argument order, independently of which input ticks. If the selected input invalidates, the output falls through to the next valid input.
@@ -6743,44 +6453,6 @@ class _rolling_average_Operator(_Protocol):
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 rolling_average: _rolling_average_Operator
-
-class _rolling_window_arrays_Operator(_Protocol):
-    """Materialize a window's values and evaluation timestamps as shaped arrays.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``window`` : time-series; ``TIME_SERIES_TYPE``
-       The window value used by the selected overload.
-
-    Returns
-    ~~~~~~~
-
-    A wired output with one of the overload-selected shapes: ``OUT``.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       result = hg.rolling_window_arrays(window)
-
-    Accepted native overloads:
-
-    - ``rolling_window_arrays(window: TIME_SERIES_TYPE) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    def __call__(self, window: _WiringPort | object) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-rolling_window_arrays: _rolling_window_arrays_Operator
 
 class _round__Operator(_Protocol):
     """Round a floating-point value to ``n_digits`` decimal places using Python-compatible rounding semantics.
@@ -8325,7 +7997,7 @@ class _to_table_Operator(_Protocol):
 to_table: _to_table_Operator
 
 class _to_window_Operator(_Protocol):
-    """Convert a stream into a typed trailing ``TSW`` window. The output becomes valid after ``min_window_period`` values. When ``reset`` and the source tick together, retained values are cleared before the new tick is added.
+    """Convert a stream into a typed trailing ``TSW`` window. The output becomes valid after ``min_window_period`` values. When ``reset`` and the source tick together, retained values are cleared before the new tick is added. Wiring rejects a non-positive period, a negative minimum, or a minimum greater than the period.
 
     Parameters
     ~~~~~~~~~~
@@ -9055,7 +8727,6 @@ __all__ = (
     "and_",
     "any_",
     "apply",
-    "as_array",
     "assert_",
     "at_zone",
     "batch",
@@ -9070,8 +8741,6 @@ __all__ = (
     "const",
     "contains_",
     "convert_zone",
-    "corrcoef",
-    "cumsum",
     "day",
     "day_of_month",
     "days",
@@ -9102,7 +8771,6 @@ __all__ = (
     "from_table_const",
     "gate",
     "ge_",
-    "get_item",
     "getattr_",
     "getitem_",
     "group_by",
@@ -9154,14 +8822,12 @@ __all__ = (
     "neg_",
     "not_",
     "nothing",
-    "np_std",
     "null_sink",
     "or_",
     "partition",
     "pos_",
     "pow_",
     "print_",
-    "quantile",
     "race",
     "range_adjacent",
     "range_contains",
@@ -9187,7 +8853,6 @@ __all__ = (
     "resample",
     "resolve_civil",
     "rolling_average",
-    "rolling_window_arrays",
     "round_",
     "route_by_index",
     "rshift_",

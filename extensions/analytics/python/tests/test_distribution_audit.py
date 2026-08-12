@@ -24,6 +24,7 @@ def test_wheel_audit_accepts_platform_library_directories(
         f"{library_directory}/libhgraph_analytics.a": "",
         f"{library_directory}/cmake/hgraph-analytics/hgraph-analyticsConfig.cmake": "",
         f"{library_directory}/cmake/hgraph-analytics/hgraphAnalyticsTargets.cmake": "",
+        f"{library_directory}/cmake/hgraph-analytics/hgraph_analytics_arrow.cmake": "",
         "hgraph_analytics-0.0.0.dist-info/METADATA": (
             "Metadata-Version: 2.2\n"
             "Name: hgraph-analytics\n"

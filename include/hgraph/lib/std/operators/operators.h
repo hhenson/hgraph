@@ -25,7 +25,6 @@
 #include <hgraph/lib/std/operators/json.h>
 #include <hgraph/lib/std/operators/table.h>
 #include <hgraph/lib/std/operators/logical.h>
-#include <hgraph/lib/std/operators/numpy.h>
 #include <hgraph/lib/std/operators/stream.h>
 #include <hgraph/lib/std/operators/string.h>
 #include <hgraph/lib/std/operators/temporal.h>

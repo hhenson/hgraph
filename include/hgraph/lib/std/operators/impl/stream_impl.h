@@ -58,6 +58,15 @@ namespace hgraph::stdlib
                 const Int  *period = context.scalar_as<Int>("period");
                 if (schema == nullptr || period == nullptr) { return; }
                 const Int *min_period = context.scalar_as<Int>("min_window_period");
+                if (*period <= 0)
+                {
+                    throw std::invalid_argument("to_window: period must be positive");
+                }
+                if (min_period != nullptr && (*min_period < 0 || *min_period > *period))
+                {
+                    throw std::invalid_argument(
+                        "to_window: min_window_period must be between zero and period");
+                }
                 // hgraph: an unset minimum IS the period - the window's value
                 // stays invalid until it holds a full period of ticks.
                 const auto minimum = min_period != nullptr && *min_period > 0
@@ -137,6 +146,16 @@ namespace hgraph::stdlib
                 const auto *period = context.scalar_as<TimeDelta>("period");
                 if (schema == nullptr || period == nullptr) { return; }
                 const auto *min_period = context.scalar_as<TimeDelta>("min_window_period");
+                if (*period <= TimeDelta{})
+                {
+                    throw std::invalid_argument("to_window: period must be positive");
+                }
+                if (min_period != nullptr &&
+                    (*min_period < TimeDelta{} || *min_period > *period))
+                {
+                    throw std::invalid_argument(
+                        "to_window: min_window_period must be between zero and period");
+                }
                 const TimeDelta min_range =
                     min_period != nullptr && *min_period > TimeDelta{0} ? *min_period : *period;
                 bind_output(

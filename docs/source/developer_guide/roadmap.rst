@@ -563,10 +563,11 @@ become unset tuple elements.  The dataframe ``join``, structural filter,
 native.  Python expression-filter nodes remain the explicit compatibility path
 for the Python-owned ``pyarrow.compute.Expression`` scalar. The native
 ``ArrayOf<T, ...>`` schema and Python ``Array[T, Size[...]]`` adapter retain
-complete shape information. The public ``hgraph.numpy_`` conversion, indexing,
+complete shape information. The former ``hgraph.numpy_`` conversion, indexing,
 cumulative-sum, correlation, and quantile catalogue and the NumPy/analytical
-helpers exported by ``hgraph.nodes`` execute through native operators or
-native graph composition with paired C++ and Python coverage. The
+helpers exported by ``hgraph.nodes`` moved to ``hgraph-analytics`` under
+descriptive names. They execute through native operators or native graph
+composition with paired C++ and Python coverage. The
 arrow-combinator library is
 ported (``hgraph/arrow/`` mirrors the upstream package over the public wiring
 surface; upstream's own arrow tests pass, with two recorded deviations:

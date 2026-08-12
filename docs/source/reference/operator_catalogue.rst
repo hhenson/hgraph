@@ -300,47 +300,6 @@ Accepted native overloads
 
    apply(fn: TS[callable], *args: TIME_SERIES_TYPE, **kwargs: time-series) -> OUT
 
-.. _python-operator-as_array:
-
-``as_array``
-------------
-
-Convert a fixed tick window into a shaped array, optionally padding with ``zero``.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``tsw`` : time-series; ``TIME_SERIES_TYPE``
-   The time-series window input.
-
-``zero`` : time-series, scalar; ``TIME_SERIES_TYPE_1``, ``SCALAR``
-   The zero value used by the selected overload.
-
-Returns
-~~~~~~~
-
-A wired output with one of the overload-selected shapes: ``OUT``.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   result = hg.as_array(tsw)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   as_array(tsw: TIME_SERIES_TYPE) -> OUT
-   as_array(tsw: TIME_SERIES_TYPE, zero: TIME_SERIES_TYPE_1) -> OUT
-   as_array(tsw: TIME_SERIES_TYPE, zero: SCALAR) -> OUT
-
 .. _python-operator-assert_:
 
 ``assert_``
@@ -1244,91 +1203,6 @@ Accepted native overloads
 .. code-block:: text
 
    convert_zone(value: TS[zoned_datetime], zone: TS[zone_id]) -> TS[zoned_datetime]
-
-.. _python-operator-corrcoef:
-
-``corrcoef``
-------------
-
-Native correlation coefficients, with an optional second array.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``x`` : time-series; ``TIME_SERIES_TYPE``
-   The x value used by the selected overload.
-
-``y`` : time-series; ``TIME_SERIES_TYPE_1``
-   The y value used by the selected overload.
-
-``rowvar`` : scalar; ``bool``
-   The rowvar value used by the selected overload.
-
-Returns
-~~~~~~~
-
-A wired output with one of the overload-selected shapes: ``OUT``.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   result = hg.corrcoef(x)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   corrcoef(x: TIME_SERIES_TYPE) -> OUT
-   corrcoef(x: TIME_SERIES_TYPE, y: TIME_SERIES_TYPE_1) -> OUT
-   corrcoef(x: TIME_SERIES_TYPE, rowvar: bool) -> OUT
-   corrcoef(x: TIME_SERIES_TYPE, y: TIME_SERIES_TYPE_1, rowvar: bool) -> OUT
-
-.. _python-operator-cumsum:
-
-``cumsum``
-----------
-
-Native cumulative sum. The optional scalar axis is supplied as a second argument.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``a`` : time-series; ``TIME_SERIES_TYPE``
-   The a value used by the selected overload.
-
-``axis`` : scalar; ``int``
-   The axis value used by the selected overload.
-
-Returns
-~~~~~~~
-
-A wired output with one of the overload-selected shapes: ``OUT``.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   result = hg.cumsum(a)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   cumsum(a: TIME_SERIES_TYPE) -> OUT
-   cumsum(a: TIME_SERIES_TYPE, axis: int) -> OUT
 
 .. _python-operator-day:
 
@@ -2765,45 +2639,6 @@ Accepted native overloads
    ge_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
    ge_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
    ge_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
-
-.. _python-operator-get_item:
-
-``get_item``
-------------
-
-Apply a wiring-time integer or integer-tuple index to a shaped array.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``ts`` : time-series; ``TIME_SERIES_TYPE``
-   The primary time-series input.
-
-``idx`` : scalar; ``SCALAR``
-   Index selecting the requested item.
-
-Returns
-~~~~~~~
-
-A wired output with one of the overload-selected shapes: ``OUT``.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   result = hg.get_item(ts, idx)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   get_item(ts: TIME_SERIES_TYPE, idx: SCALAR) -> OUT
 
 .. _python-operator-getattr_:
 
@@ -5148,46 +4983,6 @@ Accepted native overloads
 
    nothing() -> OUT
 
-.. _python-operator-np_std:
-
-``np_std``
-----------
-
-Population/sample standard deviation over a numeric shaped array.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``ts`` : time-series; ``TIME_SERIES_TYPE``
-   The primary time-series input.
-
-``ddof`` : scalar; ``int``
-   Delta degrees of freedom subtracted from the sample count in the divisor.
-
-Returns
-~~~~~~~
-
-A wired output with one of the overload-selected shapes: ``TS[float]``.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   result = hg.np_std(ts)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   np_std(ts: TIME_SERIES_TYPE) -> TS[float]
-   np_std(ts: TIME_SERIES_TYPE, ddof: int) -> TS[float]
-
 .. _python-operator-null_sink:
 
 ``null_sink``
@@ -5447,54 +5242,6 @@ Accepted native overloads
 .. code-block:: text
 
    print_(fmt: TS[str], *args: TIME_SERIES_TYPE, __std_out__: bool = ..., **kwargs: time-series) -> None
-
-.. _python-operator-quantile:
-
-``quantile``
-------------
-
-Native scalar quantile over an array or time-series window.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``a`` : time-series; ``TIME_SERIES_TYPE``
-   The a value used by the selected overload.
-
-``q`` : time-series; ``TS[float]``
-   The q value used by the selected overload.
-
-``method`` : scalar; ``str``
-   The method value used by the selected overload.
-
-``keepdims`` : scalar; ``bool``
-   The keepdims value used by the selected overload.
-
-Returns
-~~~~~~~
-
-A wired output with one of the overload-selected shapes: ``TS[float]``.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   result = hg.quantile(a, q)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   quantile(a: TIME_SERIES_TYPE, q: TS[float], method: str, keepdims: bool) -> TS[float]
-   quantile(a: TIME_SERIES_TYPE, q: TS[float]) -> TS[float]
-   quantile(a: TIME_SERIES_TYPE, q: TS[float], method: str) -> TS[float]
-   quantile(a: TIME_SERIES_TYPE, q: TS[float], keepdims: bool) -> TS[float]
 
 .. _python-operator-race:
 
@@ -6560,42 +6307,6 @@ Accepted native overloads
 
    rolling_average(ts: TS[SCALAR], period: int, min_window_period: int = ...) -> OUT
    rolling_average(ts: TS[SCALAR], period: timedelta, min_window_period: timedelta = ...) -> OUT
-
-.. _python-operator-rolling_window_arrays:
-
-``rolling_window_arrays``
--------------------------
-
-Materialize a window's values and evaluation timestamps as shaped arrays.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``window`` : time-series; ``TIME_SERIES_TYPE``
-   The window value used by the selected overload.
-
-Returns
-~~~~~~~
-
-A wired output with one of the overload-selected shapes: ``OUT``.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   result = hg.rolling_window_arrays(window)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   rolling_window_arrays(window: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-round_:
 
@@ -8036,7 +7747,7 @@ Accepted native overloads
 ``to_window``
 -------------
 
-Convert a stream into a typed trailing ``TSW`` window. The output becomes valid after ``min_window_period`` values. When ``reset`` and the source tick together, retained values are cleared before the new tick is added.
+Convert a stream into a typed trailing ``TSW`` window. The output becomes valid after ``min_window_period`` values. When ``reset`` and the source tick together, retained values are cleared before the new tick is added. Wiring rejects a non-positive period, a negative minimum, or a minimum greater than the period.
 
 Python exposure: lazy native operator proxy.
 

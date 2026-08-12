@@ -219,6 +219,8 @@ namespace hgraph::stdlib
     /** Convert a stream into a typed trailing ``TSW`` window.
         The output becomes valid after ``min_window_period`` values. When ``reset`` and
         the source tick together, retained values are cleared before the new tick is added.
+        Wiring rejects a non-positive period, a negative minimum, or a minimum greater
+        than the period.
         @param ts Values admitted to the window.
         @param period Maximum number of retained ticks, fixed at wiring time.
         @param min_window_period Minimum retained count required for validity.

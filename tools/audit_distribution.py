@@ -53,6 +53,8 @@ FORBIDDEN_PARTS = {
 FORBIDDEN_PREFIXES = (
     "benchmarks/results/",
     "ext/",
+    "hgraph/numpy_/",
+    "python/hgraph/numpy_/",
     "reports/",
 )
 

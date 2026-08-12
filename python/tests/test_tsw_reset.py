@@ -1,6 +1,8 @@
 from datetime import timedelta
 
-from hgraph import SIGNAL, TS, TSW, WINDOW_SIZE, WINDOW_SIZE_MIN, compute_node, eval_node, graph, to_window
+import pytest
+
+from hgraph import SIGNAL, TS, TSW, WINDOW_SIZE, WINDOW_SIZE_MIN, WiringError, compute_node, eval_node, graph, to_window
 
 
 @compute_node
@@ -40,3 +42,25 @@ def test_duration_window_supports_the_same_reset_contract():
         [1, 2, None, 3],
         [None, None, True, None],
     ) == [(1,), (1, 2), (), (3,)]
+
+
+@pytest.mark.parametrize(("period", "minimum"), [(0, None), (-1, None), (3, -1), (3, 4)])
+def test_tick_window_rejects_invalid_sizes(period, minimum):
+    args = (period,) if minimum is None else (period, minimum)
+    with pytest.raises(WiringError, match="to_window: .*period"):
+        eval_node(to_window, [1, 2, 3], *args)
+
+
+@pytest.mark.parametrize(
+    ("period", "minimum"),
+    [
+        (timedelta(0), None),
+        (timedelta(microseconds=-1), None),
+        (timedelta(microseconds=3), timedelta(microseconds=-1)),
+        (timedelta(microseconds=3), timedelta(microseconds=4)),
+    ],
+)
+def test_duration_window_rejects_invalid_ranges(period, minimum):
+    args = (period,) if minimum is None else (period, minimum)
+    with pytest.raises(WiringError, match="to_window: .*period"):
+        eval_node(to_window, [1, 2, 3], *args)

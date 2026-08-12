@@ -139,6 +139,16 @@ def test_distribution_audit_rejects_private_or_generated_content(tmp_path):
     assert "forbidden distribution content" in result.stderr
 
 
+def test_distribution_audit_rejects_retired_numpy_module(tmp_path):
+    wheel = tmp_path / "hgraph-0.8.0-cp312-abi3-any.whl"
+    _wheel(wheel, WHEEL_FILES + ("hgraph/numpy_/__init__.py",))
+
+    result = _audit(wheel)
+
+    assert result.returncode == 1
+    assert "hgraph/numpy_/__init__.py" in result.stderr
+
+
 def test_distribution_audit_rejects_unsafe_archive_paths(tmp_path):
     wheel = tmp_path / "hgraph-0.8.0-cp312-abi3-any.whl"
     _wheel(wheel, WHEEL_FILES + ("../outside",))

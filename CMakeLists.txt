@@ -580,26 +580,6 @@ else()
 endif()
 message(STATUS "hgraph frame store: parquet=${HGRAPH_WITH_PARQUET} s3=${HGRAPH_WITH_S3}")
 
-# Boost.Math supplies the numerically stable correlation implementation used
-# by the scientific operators. It is header-only and remains a build-interface
-# implementation detail of hgraph_stdlib.
-find_package(boost_math 1.90 CONFIG QUIET)
-if(NOT TARGET Boost::math)
-    FetchContent_Declare(
-        boost_math
-        GIT_REPOSITORY https://github.com/boostorg/math.git
-        GIT_TAG        boost-1.91.0
-        GIT_SHALLOW    TRUE
-        SYSTEM
-    )
-    set(BOOST_MATH_STANDALONE ON CACHE BOOL "Use Boost.Math without the Boost superproject" FORCE)
-    set(_hgraph_build_testing "${BUILD_TESTING}")
-    set(BUILD_TESTING OFF)
-    FetchContent_MakeAvailable(boost_math)
-    set(BUILD_TESTING "${_hgraph_build_testing}")
-    unset(_hgraph_build_testing)
-endif()
-
 # spdlog backs the LOGGER injectable (ruling 2026-07-04), built in
 # SPDLOG_FMT_EXTERNAL mode against the fmt above so there is exactly one fmt
 # in the process. A system spdlog is only trusted when fmt also came from the
