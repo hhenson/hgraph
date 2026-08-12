@@ -53,7 +53,15 @@ def _ensure_venv(path: Path, interpreter: Path | str) -> Path:
     python = _python_in(path)
     if not python.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        _run(["uv", "venv", "--python", str(interpreter), str(path)])
+        # --clear because reaching here means the venv is unusable, not absent:
+        # CI restores .parity/envs from cache, and a restored venv whose
+        # interpreter symlink points at a tool-cache Python that is no longer
+        # there reads as missing (Path.exists follows symlinks) while the
+        # directory is still present. Plain `uv venv` then refuses with "a
+        # virtual environment already exists", failing every run with a warm
+        # cache. Clearing is safe precisely because we only get here when the
+        # interpreter is gone.
+        _run(["uv", "venv", "--clear", "--python", str(interpreter), str(path)])
     return python
 
 
