@@ -1754,14 +1754,15 @@ namespace hgraph
 
         Value read_list(const JsonConverter &self, Reader &reader)
         {
-            ListBuilder builder{realized_read_binding(*self.children[0])};
+            ListBuilder builder{
+                realized_read_binding(*self.children[0]), *self.meta};
             reader.expect('[');
             if (!reader.consume_if(']'))
             {
                 while (true)
                 {
                     Value element = self.children[0]->read(reader);
-                    builder.push_back_copy(element.view().data());
+                    builder.push_back(element.view());
                     if (!reader.consume_if(',')) { break; }
                 }
                 reader.expect(']');
@@ -1778,7 +1779,7 @@ namespace hgraph
                 while (true)
                 {
                     Value element = self.children[0]->read(reader);
-                    (void)builder.insert_copy(element.view().data());
+                    (void)builder.insert(element.view());
                     if (!reader.consume_if(',')) { break; }
                 }
                 reader.expect(']');
@@ -1824,12 +1825,12 @@ namespace hgraph
                     {
                         // JSON null = an unset entry (a None-valued mapping
                         // value; element validity).
-                        builder.set_item_unset(key.view().data());
+                        builder.set_item_unset(key.view());
                     }
                     else
                     {
                         Value value = self.children[1]->read(reader);
-                        builder.set_item_copy(key.view().data(), value.view().data());
+                        builder.set_item(key.view(), value.view());
                     }
                     if (!reader.consume_if(',')) { break; }
                 }

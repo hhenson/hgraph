@@ -95,6 +95,34 @@ namespace hgraph
                 ++size_;
             }
 
+            void push_back_from(const ValueTypeRef &target, const ValueView &source)
+            {
+                if (!source.has_value())
+                {
+                    throw std::invalid_argument("container builder requires a live source value");
+                }
+                if (target.plan() != plan_)
+                {
+                    throw std::logic_error("container builder target binding does not match its accumulator plan");
+                }
+                const auto source_binding = source.binding();
+                if (!source_binding ||
+                    !target.ops_ref().accepts_source(target, source_binding))
+                {
+                    throw std::invalid_argument(
+                        "container builder target binding does not accept its source binding");
+                }
+                if (size_ == capacity_) { grow(std::max<std::size_t>(capacity_ * 2, 8)); }
+                void *destination = slot_address(size_);
+                plan_->default_construct(destination);
+                auto rollback = make_scope_exit([&]() noexcept { plan_->destroy(destination); });
+                target.ops_ref().copy_assign_from(
+                    target, destination, source_binding, source.data());
+                if (!validity_.empty()) { validity_.push_back(true); }
+                ++size_;
+                rollback.release();
+            }
+
             /** Append a default-constructed HOLE (element validity): the slot
                 is live memory but reads report it unset. The first hole sizes
                 the (otherwise-empty, dense) validity bitset. */
@@ -220,10 +248,37 @@ namespace hgraph
         {
         }
 
+        /** Build a list-shaped value with the exact declared ``result_schema``.
+            This preserves distinctions such as variadic tuple versus ordinary
+            list while allowing the element binding to use a different active
+            realization from graph-owned storage. */
+        ListBuilder(
+            const ValueTypeRef &element_binding,
+            const ValueTypeMetaData &result_schema)
+            : element_binding_{element_binding},
+              result_schema_{&result_schema},
+              accumulator_{element_binding.checked_plan()}
+        {
+            if (result_schema.try_value_kind() != ValueTypeKind::List ||
+                result_schema.element_type != element_binding.schema())
+            {
+                throw std::invalid_argument(
+                    "ListBuilder result schema does not match its element binding");
+            }
+        }
+
         void push_back_copy(const void *src)
         {
             ensure_not_built();
             accumulator_.push_back_copy(src);
+        }
+
+        /** Append ``value``, converting from its source binding into this
+            builder's element binding when their representations differ. */
+        void push_back(const ValueView &value)
+        {
+            ensure_not_built();
+            accumulator_.push_back_from(element_binding_, value);
         }
 
         /** Append an UNSET element (a hole) - element validity. */
@@ -254,7 +309,10 @@ namespace hgraph
         [[nodiscard]] Value build()
         {
             ListStorage storage = build_storage();
-            return Value{compact_list_type(element_binding_), &storage};
+            const auto binding = result_schema_ != nullptr
+                                     ? compact_list_type(element_binding_, *result_schema_)
+                                     : compact_list_type(element_binding_);
+            return Value{binding, &storage};
         }
 
       private:
@@ -264,6 +322,7 @@ namespace hgraph
         }
 
         ValueTypeRef element_binding_{nullptr};
+        const ValueTypeMetaData                 *result_schema_{nullptr};
         builder_detail::ElementAccumulator   accumulator_;
         bool                                  built_{false};
     };
@@ -310,6 +369,33 @@ namespace hgraph
                         "CyclicBufferBuilder replacement requires a copy-assignable element plan");
                 }
                 plan.copy_assign(accumulator_.at(head_), src);
+                head_ = (head_ + 1) % capacity_;
+            }
+        }
+
+        /** Append ``value``, converting it into this builder's element
+            binding. Replacement of the oldest slot uses the same binding-aware
+            assignment after the declared capacity is reached. */
+        void push_back(const ValueView &value)
+        {
+            ensure_not_built();
+            if (accumulator_.size() < capacity_)
+            {
+                accumulator_.push_back_from(element_binding_, value);
+            }
+            else
+            {
+                const auto source_binding = value.binding();
+                if (!value.has_value() || !source_binding ||
+                    !element_binding_.ops_ref().accepts_source(
+                        element_binding_, source_binding))
+                {
+                    throw std::invalid_argument(
+                        "CyclicBufferBuilder element binding does not accept its source binding");
+                }
+                element_binding_.ops_ref().copy_assign_from(
+                    element_binding_, accumulator_.at(head_), source_binding,
+                    value.data());
                 head_ = (head_ + 1) % capacity_;
             }
         }
@@ -379,6 +465,18 @@ namespace hgraph
                 throw std::overflow_error("QueueBuilder: bounded queue is full");
             }
             accumulator_.push_back_copy(src);
+        }
+
+        /** Append ``value`` after converting it into this builder's element
+            binding. */
+        void push(const ValueView &value)
+        {
+            ensure_not_built();
+            if (max_capacity_ != 0 && accumulator_.size() >= max_capacity_)
+            {
+                throw std::overflow_error("QueueBuilder: bounded queue is full");
+            }
+            accumulator_.push_back_from(element_binding_, value);
         }
 
         template <typename T>
@@ -477,6 +575,20 @@ namespace hgraph
             const auto slot = accumulator_.size();
             accumulator_.push_back_copy(src);
             auto rollback = make_scope_exit([&]() noexcept { accumulator_.pop_back(); });
+            if (!index_.insert(slot)) { throw std::logic_error("SetBuilder index rejected a unique key"); }
+            rollback.release();
+            return true;
+        }
+
+        /** Insert ``value`` after converting it into this builder's element
+            binding. Deduplication is performed on the converted value. */
+        bool insert(const ValueView &value)
+        {
+            ensure_not_built();
+            const auto slot = accumulator_.size();
+            accumulator_.push_back_from(element_binding_, value);
+            auto rollback = make_scope_exit([&]() noexcept { accumulator_.pop_back(); });
+            if (index_.contains(accumulator_.at(slot))) { return false; }
             if (!index_.insert(slot)) { throw std::logic_error("SetBuilder index rejected a unique key"); }
             rollback.release();
             return true;
@@ -624,6 +736,27 @@ namespace hgraph
             key_rollback.release();
         }
 
+        /** Set an entry after converting both views into this builder's key
+            and value bindings. Existing entries are replaced in place. */
+        void set_item(const ValueView &key, const ValueView &value)
+        {
+            ensure_not_built();
+            const auto slot = key_acc_.size();
+            key_acc_.push_back_from(key_binding_, key);
+            auto key_rollback = make_scope_exit([&]() noexcept { key_acc_.pop_back(); });
+            if (auto found = find_slot(key_acc_.at(slot)); found.has_value())
+            {
+                value_binding_.ops_ref().copy_assign_from(
+                    value_binding_, value_acc_.at(*found), value.binding(), value.data());
+                return;
+            }
+            value_acc_.push_back_from(value_binding_, value);
+            auto value_rollback = make_scope_exit([&]() noexcept { value_acc_.pop_back(); });
+            if (!index_.insert(slot)) { throw std::logic_error("MapBuilder index rejected a unique key"); }
+            value_rollback.release();
+            key_rollback.release();
+        }
+
         template <typename K, typename V>
         void set_item(const K &key, const V &value)
         {
@@ -648,6 +781,24 @@ namespace hgraph
             const auto slot = key_acc_.size();
             key_acc_.push_back_copy(key);
             auto key_rollback = make_scope_exit([&]() noexcept { key_acc_.pop_back(); });
+            value_acc_.push_back_unset();
+            auto value_rollback = make_scope_exit([&]() noexcept { value_acc_.pop_back(); });
+            if (!index_.insert(slot)) { throw std::logic_error("MapBuilder index rejected a unique key"); }
+            value_rollback.release();
+            key_rollback.release();
+        }
+
+        /** Record a converted key with an unset value. */
+        void set_item_unset(const ValueView &key)
+        {
+            ensure_not_built();
+            const auto slot = key_acc_.size();
+            key_acc_.push_back_from(key_binding_, key);
+            auto key_rollback = make_scope_exit([&]() noexcept { key_acc_.pop_back(); });
+            if (find_slot(key_acc_.at(slot)).has_value())
+            {
+                throw std::logic_error("MapBuilder::set_item_unset cannot replace an existing entry");
+            }
             value_acc_.push_back_unset();
             auto value_rollback = make_scope_exit([&]() noexcept { value_acc_.pop_back(); });
             if (!index_.insert(slot)) { throw std::logic_error("MapBuilder index rejected a unique key"); }
