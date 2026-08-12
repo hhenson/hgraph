@@ -278,6 +278,40 @@ def test_base_annotation_closes_over_defined_python_subclasses():
     assert eval_node(is_derived, [Derived(value=1, label="one")]) == [True]
 
 
+def test_run_graph_emit_preserves_a_leaf_loaded_after_its_base_was_materialized():
+    @dataclass(frozen=True)
+    class Event(
+        CompoundScalar,
+        namespace="tests.run_graph_emit_hierarchy",
+        abstract=True,
+    ):
+        event_id: str
+
+    # Model the import order of a base package followed by an extension: the
+    # base schema is cached before the extension's transitive leaves exist.
+    _value_type(Event)
+
+    @dataclass(frozen=True)
+    class OrderEvent(Event, abstract=True):
+        order_id: str
+
+    @dataclass(frozen=True)
+    class CreateEvent(OrderEvent):
+        payload: str
+
+    created = CreateEvent(event_id="event", order_id="order", payload="created")
+
+    @compute_node
+    def create_events(trigger: TS[bool]) -> TS[tuple[Event, ...]]:
+        return (created,)
+
+    @graph
+    def app() -> TS[Event]:
+        return hg.emit(create_events(const(True)))
+
+    assert [value for _, value in hg.run_graph(app)] == [created]
+
+
 def test_closed_bundle_output_rejects_an_unrelated_compound_scalar():
     @dataclass
     class Base(CompoundScalar, namespace="tests.closed_error", abstract=True):

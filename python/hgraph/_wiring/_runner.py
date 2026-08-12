@@ -265,6 +265,8 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
     config._validate()
     trace = _make_evaluation_trace(config.trace)
     profiler = _make_evaluation_profiler(config.profile)
+    from .._types import _finalize_compound_scalar_types
+    _finalize_compound_scalar_types()
     state = GlobalState.instance()
     missing = object()
     previous_logger = state.get(_GRAPH_LOGGER_KEY, missing)
@@ -315,6 +317,10 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
         state["__evaluation_mode__"] = config.run_mode
         config.graph_logger.debug("Wiring graph: %s", getattr(graph_fn, "__name__", graph_fn))
         out = graph_fn(*args, **kwargs)
+        # Wiring may materialize a base schema before a downstream extension
+        # class is visited. Close every now-visible hierarchy immediately
+        # before the native graph captures its immutable type realization.
+        _finalize_compound_scalar_types()
         if out is not None:
             w.wire(
                 "__harness_record",
