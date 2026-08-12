@@ -225,13 +225,23 @@ Canonical little-endian, packed, no interior padding.
      - Encoding
    * - ``Atomic``
      - Fixed-width for numeric and temporal forms; varint length + bytes for
-       ``Str``/``Bytes``. The atomic taxonomy is ``JsonConverter::AtomicTag``,
-       reused rather than re-derived.
+       the two length-prefixed forms, ``Str`` and ``Bytes``. The codec defines
+       its OWN tag enumeration rather than reusing
+       ``JsonConverter::AtomicTag``: that taxonomy has no ``Bytes`` member,
+       because JSON has no byte-string form, so borrowing it would leave an
+       ordinary ``Value<Bytes>`` — the payload the Kafka extension moves —
+       without a wire form.
    * - ``Tuple``, ``Bundle``
-     - Fields in declaration order. **No names on the wire** — the schema
-       supplies them.
+     - A presence bitmap of ``ceil(n/8)`` bytes, then the PRESENT fields in
+       declaration order. **No names on the wire** — the schema supplies them.
+       The bitmap is not an optimisation: fields may be UNSET rather than
+       defaulted (see ``Nullable`` below), and without it a decoder can
+       neither tell UNSET from a value nor find the next variable-width field
+       after an omission.
    * - ``List``, ``Set``
      - varint count, then elements. Fixed-size lists omit the count.
+       A ``Nullable`` list carries the same presence bitmap as a bundle,
+       because its elements may be holes.
    * - ``Map``
      - varint count, then key/value pairs.
    * - ``CyclicBuffer``, ``Queue``
@@ -243,37 +253,78 @@ Counts, lengths, and sequence numbers are LEB128 varints — they are almost
 always small. Numeric and temporal atoms are fixed-width, because they are the
 bulk of the payload and a branchy varint decode is the wrong trade there.
 
-**The fixed-layout fast path.** During synthesis, a schema whose ``StoragePlan``
-image is fixed-size, free of indirection, and free of interior padding is
-flagged ``trivial_layout``; encode and decode become a copy of that image. This
-is the same idea that makes SBE fast, and hgraph's ``Plan`` model suits it
-unusually well because the offsets are already computed and interned.
+**The fixed-layout fast path.** During synthesis, a schema may be flagged
+``trivial_layout``, making encode and decode a copy of its ``StoragePlan``
+image. This is the same idea that makes SBE fast, and hgraph's ``Plan`` model
+suits it unusually well because the offsets are already computed and interned.
 
-The optimization is guarded rather than trusted: a conformance test requires
-the fast path to produce **byte-identical** output to the field-wise path for
-every eligible schema, so the two cannot drift.
+Layout compatibility alone is *not* sufficient to enable it. The copy is only
+correct when the in-memory image already IS the canonical wire image, so the
+flag requires all of:
+
+* fixed size, no indirection, and no interior padding;
+* a little-endian host — on a big-endian one a padding-free numeric image is
+  still host-ordered, which is precisely the canonical form the format does
+  not use; and
+* every constituent scalar's object representation equal to its canonical wire
+  representation, admitting no padding bits or alternative encodings.
+
+Anything else takes the field-wise path, which is always correct. The
+optimisation is guarded rather than trusted: a conformance test requires the
+fast path to produce **byte-identical** output to the field-wise path for every
+eligible schema, so the two cannot drift.
 
 Schema identity
 ---------------
 
-``schema_id`` is a 64-bit hash over a **canonical structural descriptor**: the
-kind tree, atomic tags, field names, fixed sizes, and nothing else.
+**The descriptor is the identity; the id is only a handle.** An earlier draft
+made ``schema_id`` a 64-bit structural hash and treated it as the identity
+itself. That is the wrong way round: it makes correctness depend on a hash
+function two implementations must agree on exactly, and on that hash never
+colliding.
+
+The **canonical descriptor** is the normative artifact — a byte encoding of the
+schema tree, compared for equality, never merely digested.
 
 It is explicitly *not* derived from ``ValueTypeMetaData::name()``, which is a
 registry-owned diagnostic label. Identity must be structural so that two
 processes — possibly two languages — agree because their types agree, not
 because their labels were spelled the same way.
 
+The descriptor carries, per node: the kind; the atomic tag where the kind is
+atomic; ``fixed_size``; field names for bundles; the ordered member table for
+enums; and **every flag that changes wire semantics**. That last item was
+missing from the first draft and is not optional — ``VariadicTuple`` and
+``Nullable`` distinguish schemas that are otherwise identical trees, and only
+the latter admits UNSET holes, so omitting the flags would let two schemas with
+different encodings share an identity. ``ShapedArray`` and ``Enum`` collide the
+same way.
+
+Because the wire-affecting subset of ``ValueTypeFlags`` has to stay correct as
+flags are added, a conformance test asserts that **every** enumerator is
+classified as wire-affecting or not, so a new flag cannot be introduced without
+deciding.
+
 Two modes, because the consumers genuinely differ:
 
-**Bound** (services, once a stream is established). The schema is agreed at
-handshake. Frames carry no descriptor, and a received ``schema_id`` that does
-not match the stream's is an **error**, never a coercion.
+**Bound** (services, once a stream is established). The handshake exchanges
+full descriptors, both ends verify structural equality, and each is assigned a
+small **stream-local** id used in subsequent frame headers. The id is therefore
+a compression of an already-agreed identity rather than a claim about it, and
+needs no cross-implementation hash agreement at all. A frame whose id is not
+bound to this stream is an **error**, never a coercion.
 
-**Descriptive** (storage, tooling, replay of an unknown stream). A
-``SchemaDescriptor`` is encoded ahead of the payload, so a reader that was
-never compiled against the type can still decode it. RFC 0001's typed frame
-metadata is the precedent for describing a schema in bytes.
+**Descriptive** (storage, tooling, replay of an unknown stream). The descriptor
+is encoded ahead of the payload, so a reader never compiled against the type
+can still decode it. RFC 0001's typed frame metadata is the precedent for
+describing a schema in bytes.
+
+Where a stable cross-run name is genuinely wanted — a store keying objects by
+schema — it is defined as the first 8 bytes of ``SHA-256`` over the canonical
+descriptor bytes, with domain separation by the format version. SHA-256 because
+it is unambiguous across languages with no seed to agree on. Even then the
+digest is a lookup key: the descriptor travels with the data and confirms the
+match, so a collision degrades to a miss rather than to silent corruption.
 
 Stream envelope
 ---------------
@@ -400,8 +451,21 @@ Unresolved questions
 Acceptance criteria and test plan
 ---------------------------------
 
-* Round-trip equality for every ``ValueTypeKind`` and every
-  ``JsonConverter::AtomicTag`` form.
+* Round-trip equality for every ``ValueTypeKind`` and every atomic tag,
+  enumerated from the REGISTRY rather than from the JSON taxonomy, so an
+  atomic with no JSON form — ``Bytes`` — is covered, and a newly registered
+  atomic without a binary tag fails the suite rather than passing silently.
+* Round-trip of a partially valid ``Bundle`` and of a ``Nullable`` list: UNSET
+  fields survive as UNSET, are distinguishable from defaulted values, and a
+  variable-width field following an omission still decodes.
+* Two schemas differing only by a wire-affecting flag (``VariadicTuple`` vs
+  plain ``List``; ``Nullable`` vs not) produce different descriptors and do not
+  satisfy each other's bound-mode check.
+* Every ``ValueTypeFlags`` enumerator is classified wire-affecting or not, so
+  adding a flag forces the decision.
+* ``trivial_layout`` is refused for any schema whose in-memory image is not the
+  canonical wire image, and the fast path is byte-identical to the field-wise
+  path wherever it is enabled.
 * Round-trip for every canonical delta shape in the table above, including
   nested ``TSB`` and ``TSD<K, TSB{...}>``.
 * **Prerequisite:** the ``TSD`` observed delta schema is ``{removed,
