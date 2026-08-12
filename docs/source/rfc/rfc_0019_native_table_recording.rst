@@ -214,6 +214,39 @@ incrementally, they do not merge with a previous one.
 If cross-run append is wanted later it is a deliberate change, not an accident
 of the flush policy.
 
+Flushing writes segments
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+A flushed recording must be **readable up to its last flush**, including after
+the run that was writing it has died. That makes a flush a commit point, and it
+decides the write shape.
+
+Each flush writes a **new object** rather than rewriting the recording. A
+recording is therefore one run stored as an ordered sequence of segments, and
+reading it concatenates the segments in order. Rewriting a single object per
+flush would be correct but would re-read and re-write the whole recording every
+time — the quadratic shape this work removed from the Python adaptor, restored
+one layer down.
+
+Segment writes suit RFC 0016's store directly: objects are written once and
+never mutated, which is the immutable-by-default case rather than an exception
+to it. It also means a partially written segment does not become visible — an
+object appears whole or not at all — so a reader naturally sees exactly the
+completed flushes and nothing torn.
+
+Two consequences follow:
+
+* Segments need an ordering the reader can recover without opening them, so
+  the key carries a monotonic segment index under the recording's key.
+* A reader cannot tell a still-running recording from one whose process died,
+  and does not need to: both are "everything up to the last flush". A
+  completion marker written at ``stop`` lets a reader that *does* care —
+  a downstream job wanting only finished runs — distinguish them, without
+  making the partial case unreadable.
+
+This keeps *A recording is one run* intact: one run, one recording, written as
+however many segments its flush policy produced.
+
 Configuration is local, with a global default
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -319,11 +352,8 @@ recording was implemented twice, and nothing prevents a recurrence.
 Unresolved questions
 --------------------
 
-* **Flush visibility and durability.** Flushing within a run makes a partial
-  recording readable before the run ends. Whether a run that dies mid-way
-  should leave that partial recording readable, or be discarded as incomplete,
-  is a policy the store seam can express either way and this RFC does not
-  settle.
+None outstanding. The flush-durability question is resolved above under
+*Flushing writes segments*.
 
 Acceptance criteria
 -------------------
@@ -353,6 +383,10 @@ Acceptance criteria
 * ``frame_prefix`` renames the expanded columns and they replay by the
   prefixed name; a collision that survives the prefix is refused at layout
   time.
+* A recording interrupted mid-run reads back exactly the rows up to its last
+  flush, and never a torn segment.
+* Segments read back in write order, and a recording of one segment is
+  indistinguishable in content from the same rows flushed across several.
 * Two ``record`` calls in one graph with different local configurations produce
   differently-shaped recordings, and a call with no configuration matches the
   global default.
