@@ -81,20 +81,6 @@ namespace hgraph::stdlib
     {
     };
 
-    /** Retick the latest valid input value on a regular engine-time schedule.
-        Unlike ``throttle``, this continues to emit at the requested period even when
-        no new source tick has arrived.
-        @param ts Input whose latest value is repeated.
-        @param period Positive resampling interval fixed at wiring time.
-        @return ``ts`` observed on the regular schedule.
-        @par Python example
-        @code{.py}
-        every_five_seconds = hg.resample(price, timedelta(seconds=5))
-        @endcode */
-    struct resample : Operator<"resample", In<"ts", TsVar<"S">>, Scalar<"period", TimeDelta>, Out<TsVar<"S">>>
-    {
-    };
-
     /** Suppress an input tick when its value compares equal to the last emitted value.
         The first valid value always passes through.
         @param ts Stream to de-duplicate.
@@ -165,7 +151,8 @@ namespace hgraph::stdlib
     };
 
     /** Limit output frequency while preserving the latest pending source value.
-        Unlike ``resample``, no output is produced during an interval with no source tick.
+        Unlike ``hgraph_analytics.resample``, no output is produced during an
+        interval with no source tick.
         @param ts Stream whose tick rate is limited.
         @param period Minimum elapsed time between output ticks; it may vary at runtime.
         @return A rate-limited stream of the latest source values.
@@ -232,19 +219,6 @@ namespace hgraph::stdlib
         @endcode */
     struct to_window : Operator<"to_window", In<"ts", TsVar<"S">>, Scalar<"period", Int>,
                                 Scalar<"min_window_period", Int>, Out<TsVar<"O">>>
-    {
-    };
-
-    /** Compute the mean over a trailing tick-count or duration horizon.
-        @param ts Numeric stream.
-        @param period Number of ticks or elapsed duration included in the average.
-        @return Floating-point trailing mean.
-        @par Python example
-        @code{.py}
-        moving_average = hg.rolling_average(price, 20)
-        @endcode */
-    struct rolling_average
-        : Operator<"rolling_average", In<"ts", TS<ScalarVar<"T">>>, Scalar<"period", Int>, Out<TS<Float>>>
     {
     };
 

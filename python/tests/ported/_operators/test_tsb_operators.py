@@ -15,7 +15,6 @@ from hgraph import (
     max_,
     sum_,
     mean,
-    std,
 )
 from hgraph.test import eval_node
 
@@ -403,30 +402,3 @@ def test_mean_tsbs_multi():
     assert eval_node(
         g, [{"a": 7.0, "b": 8.0}, {"a": 1.0, "b": 100.0}], [{"a": 5.0, "b": 9.0}, {"a": 1.0, "b": 100.0}]
     ) == [{"a": 6.0, "b": 8.5}, {"a": 1.0, "b": 100.0}]
-
-
-def test_std_tsb_unary():
-    class ABSchema(TimeSeriesSchema):
-        a: TS[int]
-        b: TS[int]
-        c: TS[int]
-
-    @graph
-    def g(ts: TSB[ABSchema]) -> TS[float]:
-        return std(ts)
-
-    assert (eval_node(g, [{"a": 70, "b": 80, "c": 90}])) == [10.0]
-
-
-def test_std_tsbs_multi():
-    class ABSchema(TimeSeriesSchema):
-        a: TS[float]
-        b: TS[float]
-
-    @graph
-    def g(lhs: TSB[ABSchema], rhs: TSB[ABSchema]) -> TSB[ABSchema]:
-        return std(*(lhs, rhs))
-
-    assert eval_node(
-        g, [{"a": 7.0, "b": 8.0}, {"a": 1.0, "b": 100.0}], [{"a": 5.0, "b": 9.0}, {"a": 1.0, "b": 100.0}]
-    ) == [{"a": 1.4142135623730951, "b": 0.7071067811865476}, {"a": 0.0, "b": 0.0}]

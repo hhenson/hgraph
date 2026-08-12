@@ -1192,10 +1192,6 @@ namespace hgraph::stdlib
             register_overload<sum_, container_numeric_agg_default<ContainerAgg::Sum, Kind, Element>>();
             register_overload<mean, container_numeric_agg_plain<ContainerAgg::Mean, Kind, Element>>();
             register_overload<mean, container_numeric_agg_default<ContainerAgg::Mean, Kind, Element>>();
-            register_overload<std_, container_numeric_agg_plain<ContainerAgg::Std, Kind, Element>>();
-            register_overload<std_, container_numeric_agg_default<ContainerAgg::Std, Kind, Element>>();
-            register_overload<var_, container_numeric_agg_plain<ContainerAgg::Var, Kind, Element>>();
-            register_overload<var_, container_numeric_agg_default<ContainerAgg::Var, Kind, Element>>();
         }
 
         template <ValueTypeKind Kind>

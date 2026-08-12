@@ -271,6 +271,103 @@ namespace hgraph::analytics
     {
     };
 
+    /** Calculate standard deviation according to input shape and arity.
+        A scalar stream produces the running population standard deviation.
+        A numeric collection reduces its current valid members using the
+        existing collection contract, while a ``TSW`` reduces the retained
+        observations and accepts an optional wiring-time ``ddof``. Binary and
+        fixed-list inputs are evaluated element by element. Invalid source
+        cycles do not trigger running or windowed results.
+        @param ts Numeric stream, collection, or typed window.
+        @param ddof Delta degrees of freedom for a typed window; defaults to
+                    zero and yields NaN when the retained count does not exceed
+                    it.
+        @param default_value Compatibility fallback accepted by scalar-container
+                             reductions.
+        @param lhs Left input for binary or element-wise standard deviation.
+        @param rhs Right input for binary or element-wise standard deviation.
+        @return Floating-point standard deviation selected by input shape.
+        @par Python example
+        @code{.py}
+        import hgraph as hg
+        import hgraph_analytics as hga
+        sample_volatility = hga.std(hg.to_window(returns, 20, 20), ddof=1)
+        @endcode */
+    struct std_
+        : Operator<"hgraph.analytics.std", In<"ts", TsVar<"S">>,
+                   Scalar<"ddof", Int>, Out<TsVar<"O">>>
+    {
+    };
+
+    /** Calculate variance according to input shape and arity.
+        A scalar stream produces running population variance. Numeric
+        collections use the migrated collection contract: current valid
+        members are treated as a sample and fewer than two members produce
+        zero. Binary and fixed-list inputs are evaluated element by element.
+        Invalid source cycles do not update running state or trigger output.
+        @param ts Numeric stream or collection.
+        @param default_value Compatibility fallback accepted by scalar-container
+                             reductions.
+        @param lhs Left input for binary or element-wise variance.
+        @param rhs Right input for binary or element-wise variance.
+        @return Floating-point variance selected by input shape.
+        @par Python example
+        @code{.py}
+        import hgraph_analytics as hga
+        running_variance = hga.var(observations)
+        @endcode */
+    struct var_
+        : Operator<"hgraph.analytics.var", In<"ts", TsVar<"S">>,
+                   Out<TsVar<"O">>>
+    {
+    };
+
+    /** Compute the mean over a trailing observation-count or duration window.
+        The migrated graph retains the original warm-up contract. Tick windows
+        emit after ``min_window_period`` observations (the full period when the
+        minimum is zero); duration windows use the covered tick count as their
+        denominator. Invalid input cycles do not add observations.
+        @param ts Numeric input stream.
+        @param period Positive observation count or duration fixed while wiring.
+        @param min_window_period Optional minimum observation count or duration;
+                                 zero selects the full period.
+        @return Floating-point trailing mean.
+        @throws std::invalid_argument while wiring for invalid period/minimum
+                                     combinations.
+        @par Python example
+        @code{.py}
+        import hgraph_analytics as hga
+        moving_average = hga.rolling_mean(price, 20)
+        @endcode */
+    struct rolling_mean
+        : Operator<"hgraph.analytics.rolling_mean",
+                   In<"ts", TS<ScalarVar<"T">>>, Scalar<"period", Int>,
+                   Out<TS<Float>>>
+    {
+    };
+
+    /** Retick the latest valid input on a regular engine-time schedule.
+        The first valid input establishes the value sampled at subsequent
+        schedule boundaries. Once valid, the node continues to emit even when
+        no new source tick arrives. It retains only the latest input value and
+        its scheduler state.
+        @param ts Input stream whose latest value is sampled.
+        @param period Positive fixed engine-time interval.
+        @return The latest value repeated on the regular schedule.
+        @throws std::invalid_argument during start when ``period`` is not
+                                     positive.
+        @par Python example
+        @code{.py}
+        from datetime import timedelta
+        import hgraph_analytics as hga
+        every_five_seconds = hga.resample(price, timedelta(seconds=5))
+        @endcode */
+    struct resample
+        : Operator<"hgraph.analytics.resample", In<"ts", TsVar<"S">>,
+                   Scalar<"period", TimeDelta>, Out<TsVar<"S">>>
+    {
+    };
+
     /** Register the hgraph-analytics overloads in the current hgraph registry.
         Call once per registry lifetime after core standard operators are
         available and before wiring analytics graphs. */

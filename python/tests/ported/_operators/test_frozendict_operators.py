@@ -35,8 +35,6 @@ from hgraph import (
     str_,
     WiringError,
     mean,
-    std,
-    var,
 )
 from hgraph.test import eval_node
 
@@ -146,41 +144,6 @@ def test_mean_frozendict_unary_default():
 
     out = eval_node(app, [frozendict({})])[0]
     assert math.isnan(out)
-
-
-def test_std_frozendict_unary():
-    @graph
-    def app(ts: TS[frozendict[int, int]]) -> TS[float]:
-        return std(ts)
-
-    assert eval_node(
-        app, [frozendict(), frozendict({1: 1}), frozendict({1: 10, 2: 20}), frozendict({1: 10, 2: 20, 3: 20})]
-    ) == pytest.approx([0.0, 0.0, 7.0710678118654755, 5.773502691896257])
-
-
-def test_var_frozendict_unary():
-    @graph
-    def app(ts: TS[frozendict[int, int]]) -> TS[float]:
-        return var(ts)
-
-    assert eval_node(
-        app, [frozendict(), frozendict({1: 1}), frozendict({1: 10, 2: 20}), frozendict({1: 10, 2: 20, 3: 20})]
-    ) == pytest.approx([0.0, 0.0, 50.0, 33.333333333333336])
-
-
-def test_frozendict_spread_with_large_integer_offset():
-    @graph
-    def std_app(ts: TS[frozendict[int, int]]) -> TS[float]:
-        return std(ts)
-
-    @graph
-    def var_app(ts: TS[frozendict[int, int]]) -> TS[float]:
-        return var(ts)
-
-    base = 2**40
-    values = [frozendict({1: base, 2: base + 10, 3: base + 20})]
-    assert eval_node(std_app, values) == pytest.approx([10.0])
-    assert eval_node(var_app, values) == pytest.approx([100.0])
 
 
 def test_str_frozendict():

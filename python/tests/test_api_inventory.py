@@ -186,7 +186,7 @@ def test_operator_catalogue_exposes_every_operator_signature_and_documentation()
     assert "``var_`` —" not in source
     assert "``zero_`` —" not in source
     assert "``union_`` —" not in source
-    assert "running_variance = hg.var(returns)" in source
+    assert "running_variance = hg.var(returns)" not in source
     assert "additive_identity = hg.zero[TS[int]](hg.add_)" in source
     assert "all_symbols = hg.union(primary_symbols, secondary_symbols)" in source
     assert "latest source value if the source changed while the gate was closed" in source

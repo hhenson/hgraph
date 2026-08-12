@@ -7,7 +7,7 @@ from ._types import (TS, TSD, TSS, K, K_1,
                      TIME_SERIES_TYPE_1)
 
 __all__ = (
-    "rolling_window", "rolling_average", "make_tsd", "make_tsd_scalar", "flatten_tsd",
+    "rolling_window", "make_tsd", "make_tsd_scalar", "flatten_tsd",
     "extract_tsd", "keys_where_true", "where_true", "flatten_tsl_values",
     "tsl_to_tsd",
     "request_id"
@@ -18,9 +18,6 @@ request_id = operator_function("request_id")
 
 
 rolling_window = operator_function("window")
-rolling_average = operator_function("rolling_average")
-
-
 def _requires_python_descriptor(mapping, attr):
     """Select the Python fallback only for non-storage attributes.
 

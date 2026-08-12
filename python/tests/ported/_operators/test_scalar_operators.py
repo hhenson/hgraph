@@ -33,8 +33,6 @@ from hgraph import (
     le_,
     ge_,
     mean,
-    std,
-    var,
     nothing,
     CmpResult,
     cmp_,
@@ -454,77 +452,6 @@ def test_mean_scalars_binary(lhs, rhs, expected):
 
 
 def test_mean_scalars_multi():
-    @graph
-    def app(ts1: TS[float], ts2: TS[float], ts3: TS[float]) -> TS[float]:
-        return mean(ts1, ts2, ts3)
-
-    assert eval_node(app, 4.0, 5.0, 6.0) == [5.0]
-
-
-def test_std_scalars_unary():
-    @graph
-    def app(ts: TS[int]) -> TS[float]:
-        return std(ts)
-
-    # ported: numeric-precision adaptation (Welford vs naive accumulation)
-    assert eval_node(app, [1, 2, 3, 5]) == pytest.approx([0.0, 0.5, 0.8164965809277263, 1.479019945774904])
-
-
-def test_std_tsw_number():
-    @graph
-    def app(ts: TS[int]) -> TS[float]:
-        window = to_window(ts, 5, 3)
-        return std(window)
-
-    assert eval_node(app, [1, 2, 3, 4, 5]) == [None, None, 0.816496580927726, 1.118033988749895, 1.4142135623730951]
-
-
-def test_std_tsw_ddof():
-    @graph
-    def app(ts: TS[int]) -> TS[float]:
-        window = to_window(ts, 5, 3)
-        return std(window, ddof=1)
-
-    actual = eval_node(app, [1, 2, 3, 4, 5])
-    assert actual[:2] == [None, None]
-    assert actual[2:] == pytest.approx([1.0, 1.2909944487358056, 1.5811388300841898])
-
-
-@pytest.mark.parametrize(
-    ["lhs", "rhs", "expected"],
-    [
-        ([1, 2], [2, 3], [0.7071067811865476, 0.7071067811865476]),
-        ([1.0, 2.0], [2.0, 3.0], [0.7071067811865476, 0.7071067811865476]),
-    ],
-)
-def test_std_scalars_binary(lhs, rhs, expected):
-    tp = type(lhs[0])
-
-    @graph
-    def app(lhs: TS[tp], rhs: TS[tp]) -> TS[float]:
-        return std(lhs, rhs)
-
-    assert eval_node(app, lhs, rhs) == expected
-
-
-@pytest.mark.parametrize(
-    ["lhs", "rhs", "expected"],
-    [
-        ([1, 2], [2, 3], [0.5, 0.5]),
-        ([1.0, 2.0], [2.0, 3.0], [0.5, 0.5]),
-    ],
-)
-def test_var_scalars_binary(lhs, rhs, expected):
-    tp = type(lhs[0])
-
-    @graph
-    def app(lhs: TS[tp], rhs: TS[tp]) -> TS[float]:
-        return var(lhs, rhs)
-
-    assert eval_node(app, lhs, rhs) == expected
-
-
-def test_std_scalars_multi():
     @graph
     def app(ts1: TS[float], ts2: TS[float], ts3: TS[float]) -> TS[float]:
         return mean(ts1, ts2, ts3)

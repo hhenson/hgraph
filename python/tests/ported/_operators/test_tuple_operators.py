@@ -15,8 +15,6 @@ from hgraph import (
     contains_,
     sum_,
     mean,
-    std,
-    var,
     index_of,
     TIME_SERIES_TYPE_1,
     TIME_SERIES_TYPE_2,
@@ -124,22 +122,6 @@ def test_mean_tuple_unary():
     output = eval_node(app, [(1, 2, 3), ()])
     assert output[0] == 2.0
     assert math.isnan(output[1])
-
-
-def test_std_tuple_unary():
-    @graph
-    def app(ts: TS[Tuple[int, ...]]) -> TS[float]:
-        return std(ts)
-
-    assert eval_node(app, [(1, 2, 3), ()]) == [1.0, 0.0]
-
-
-def test_var_tuple_unary():
-    @graph
-    def app(ts: TS[Tuple[int, ...]]) -> TS[float]:
-        return var(ts)
-
-    assert eval_node(app, [(1, 2, 3), ()]) == [1.0, 0.0]
 
 
 def test_contains_tuple():

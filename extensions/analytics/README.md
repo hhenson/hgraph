@@ -4,7 +4,8 @@ C++-first numerical analytics for hgraph. The package owns the numerical
 analytical family migrated from core—`diff`, `count`, `clip`, `ewma`, and
 `pct_change`—plus `quantile`, shaped-array `array_std`, shaped-array
 `rolling_window`, `window_values`, `array_get_item`, `cumulative_sum`,
-`correlation`, and the EWMA parameter conversion helpers.
+`correlation`, generic `std`/`var`, trailing `rolling_mean`, scheduled
+`resample`, and the EWMA parameter conversion helpers.
 
 ```python
 import hgraph as hg
@@ -24,6 +25,8 @@ recent = hga.rolling_window(value, period=20, min_window_period=5)
 window = hga.window_values(hg.to_window(value, 20))
 running = hga.cumulative_sum(observations, axis=0)
 correlation = hga.correlation(observations, rowvar=False)
+sample_volatility = hga.std(hg.to_window(change, 20, 20), ddof=1)
+moving_average = hga.rolling_mean(value, period=20)
 ```
 
 The result is fractional: `0.05` denotes five percent. `period` counts valid
@@ -35,7 +38,8 @@ Native consumers link `hgraph::analytics`, call
 `hgraph::analytics::register_analytics_operators()`, and wire
 the markers in `hgraph::analytics`, including `diff`, `count`, `clip`, `ewma`,
 `pct_change`, `window_values`, `array_get_item`, `cumulative_sum`,
-`correlation`, `quantile`, `array_std`, and `rolling_window`.
+`correlation`, `quantile`, `array_std`, `rolling_window`, `std_`, `var_`,
+`rolling_mean`, and `resample`.
 
 See the hgraph user-guide migration note for the complete Python and C++ name
 mapping from the former core API.

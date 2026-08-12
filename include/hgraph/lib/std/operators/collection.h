@@ -57,46 +57,6 @@ namespace hgraph::stdlib
     {
     };
 
-    /** Calculate standard deviation according to input shape and arity.
-        Unary scalar input is running; unary collection input reduces current members;
-        multiple inputs are evaluated element by element.
-        @param ts Value, collection, window, or variadic inputs.
-        @param ddof Delta degrees of freedom: the variance divisor is ``N - ddof``.
-        @param default_value Fallback used when the selected sample cannot produce a result.
-        @return Standard deviation using the overload-selected numeric schema.
-        @par Python example
-        @code{.py}
-        sample_volatility = hg.std(returns_window, ddof=1)
-        @endcode */
-    struct std_
-        : Operator<"std", In<"ts", TsVar<"S">>, Scalar<"ddof", Int>,
-                   Out<TsVar<"O">>>
-    {
-    };
-
-    /** Calculate variance according to the selected input shape.
-        A numeric ``TS`` produces the running population variance of all values observed
-        so far. A collection-valued ``TS``, ``TSS``, ``TSD``, or ``TSL`` produces the
-        sample variance of its current valid elements (dividing by ``N - 1``), with
-        zero for fewer than two elements. Binary inputs calculate the sample variance
-        between the current values; fixed-list inputs are handled element by element.
-        Unlike ``std``, ``var`` has no ``ddof`` parameter.
-        @param ts Numeric series or a numeric collection whose variance is required.
-        @param default_value Compatibility input accepted by container overloads; numeric
-                             variance still publishes zero when fewer than two elements
-                             are present.
-        @param lhs Left input for a binary or element-wise variance.
-        @param rhs Right input for a binary or element-wise variance.
-        @return Running population variance or current sample variance, according to the
-                selected overload.
-        @par Python example
-        @code{.py}
-        running_variance = hg.var(returns)
-        @endcode */
-    struct var_ : Operator<"var", In<"ts", TsVar<"S">>, Out<TsVar<"O">>>
-    {
-    };
-
     // ---- Set operations (variadic over the inputs) ----
 
     /** Combine all members present in any input set.

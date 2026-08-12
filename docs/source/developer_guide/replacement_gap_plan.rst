@@ -289,10 +289,11 @@ The complete public ``hgraph.numpy_`` catalogue moved to ``hgraph-analytics``.
 ``window_values``, ``array_get_item``, ``cumulative_sum``, and ``correlation``.
 The additional ``hgraph.nodes`` exports ``np_rolling_window``, ``np_quantile``,
 and ``np_std`` moved as ``rolling_window``, ``quantile``, and ``array_std``.
-The obsolete NumPy-derived namespace and prefixes are retired. The core
-compatibility exports ``rolling_window`` and ``rolling_average`` remain. This
-audit intentionally covers the published upstream surface even when the
-checked-out applications do not import it.
+The obsolete NumPy-derived namespace and prefixes are retired. Core retains
+the generic ``rolling_window`` alias; the policy-bearing ``rolling_average``
+has moved to ``hgraph_analytics.rolling_mean``. This audit intentionally covers
+the published upstream surface even when checked-out applications do not
+import it.
 
 Recorded boundaries are numeric ``int``/``float`` kernels, one- or
 two-dimensional ``correlation``, fixed tick windows for ``window_values``, and
@@ -304,13 +305,12 @@ standard deviation follow Arrow Compute; correlation follows Boost.Math, and
 cumulative sum uses hgraph's native shaped-array traversal with defined integer
 wrapping.
 
-The native ``window`` and tick/time ``rolling_average`` implementations and
-their Python compatibility tests are already complete; the earlier roadmap
-entry claiming that rolling support was absent was stale.  Audit the remaining
-statistics conveniences individually and implement public graph/operator
-facades over native operators.  An upstream public export remains a
-compatibility obligation even when it is not used by ``hg_oap`` or
-``hg_systematic``.
+The native ``window`` implementation remains core. The tick/time rolling mean,
+running and collection ``std``/``var``, and scheduled ``resample`` contracts
+have moved to ``hgraph-analytics`` with their Python compatibility tests. The
+earlier roadmap entry claiming rolling support was absent was stale. An
+upstream public export remains a migration obligation even when it is not used
+by ``hg_oap`` or ``hg_systematic``.
 
 Leaked service and mesh runtime helpers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

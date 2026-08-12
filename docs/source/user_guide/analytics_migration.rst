@@ -47,6 +47,14 @@ Python name changes
      - ``hgraph_analytics.array_std``
    * - ``hgraph.nodes.np_rolling_window``
      - ``hgraph_analytics.rolling_window``
+   * - ``hgraph.std``
+     - ``hgraph_analytics.std``
+   * - ``hgraph.var``
+     - ``hgraph_analytics.var``
+   * - ``hgraph.rolling_average`` and ``hgraph.nodes.rolling_average``
+     - ``hgraph_analytics.rolling_mean``
+   * - ``hgraph.resample``
+     - ``hgraph_analytics.resample``
    * - ``hgraph.numpy_.as_array``
      - ``hgraph_analytics.window_values``
    * - ``hgraph.numpy_.get_item``
@@ -71,6 +79,15 @@ generic array conversion. ``array_get_item``, ``cumulative_sum``, and
 ``correlation`` use descriptive hgraph names instead of mirroring NumPy's
 spellings. The ``hgraph.numpy_`` module is retired; import these functions from
 ``hgraph_analytics``.
+
+The generic dispersion and scheduled-statistics family has moved as well.
+``std`` and ``var`` preserve the released shape-dependent contracts: a scalar
+stream is a running population estimator, a typed window accepts ``ddof`` for
+``std``, and current collections use their existing sample estimator with zero
+for fewer than two valid members. ``rolling_average`` is now ``rolling_mean``
+to use the same reduction noun as ``mean`` and dataframe APIs. ``resample``
+retains its original behavior of emitting the latest valid value at every
+positive engine-time interval, including intervals without a new source tick.
 
 The former module also exported ``ARRAY``, ``ARRAY_1``, ``add_docs``,
 ``extract_type_from_array``, and ``extract_dimensions_from_array``. These were
@@ -99,7 +116,8 @@ extension after registering the core standard operators:
 
 The moved markers are ``diff``, ``count``, ``clip``, ``ewma``, ``pct_change``,
 ``window_values``, ``array_get_item``, ``cumulative_sum``, ``correlation``,
-``quantile``, ``array_std``, and ``rolling_window``. The C++
+``quantile``, ``array_std``, ``rolling_window``, ``std_``, ``var_``,
+``rolling_mean``, and ``resample``. The C++
 ``hgraph::analytics::rolling_window`` marker consumes a typed core ``TSW``;
 the Python convenience graph constructs that window from ``ts``, ``period``,
 and ``min_window_period`` first. Core does not link to or register the
@@ -109,7 +127,8 @@ Scope
 -----
 
 This migration covers the operators from the released Python hgraph
-``_analytical_operators`` family, ``pct_change``, and every former
-``hgraph.numpy_`` analytical transformation. Core still owns generic window
-construction, reductions such as ``mean``/``std``/``var``, the ``Array`` type,
-and structural indexing for core collection types.
+``_analytical_operators`` family, ``pct_change``, every former
+``hgraph.numpy_`` analytical transformation, and the remaining generic
+statistical estimators. Core still owns generic window construction,
+the primitive ``mean`` fold, the ``Array`` type, and structural indexing for
+core collection types.

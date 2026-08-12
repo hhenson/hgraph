@@ -4,7 +4,7 @@ RFC 0005: hgraph 1.0 API
 :Status: Proposed
 :Author: Howard Henson
 :Created: 2026-07-25
-:Updated: 2026-08-08
+:Updated: 2026-08-12
 :Target: hgraph 1.0.0 (PyPI ``hgraph``)
 
 Summary
@@ -818,11 +818,13 @@ and ``corrcoef`` became ``window_values``, ``array_get_item``,
 retired; the implementation is hgraph's native array machinery, and the
 extension's names describe their behavior rather than what they resemble.
 
-Future calibration still considers moving the statistical estimators ``std``
-and ``var`` plus ``rolling_average`` and ``resample``. ``mean`` stays in core
-as a plain fold beside ``sum_``. These functions need domain policy (estimator
-parameters and windowing conventions) that the kernel deliberately does not
-own. The ``Array`` *type* remains core; only analytics over it move.
+RFC 0020 completes this boundary by moving the statistical estimators ``std``
+and ``var`` plus ``rolling_average`` and ``resample``. The rolling operator is
+renamed ``rolling_mean`` so the reduction noun agrees with ``mean`` and common
+dataframe vocabulary. ``mean`` stays in core as a plain fold beside ``sum_``.
+Estimator degrees of freedom, shape-dependent sample policy, rolling warm-up,
+and scheduled re-ticking are analytics policy that the kernel deliberately
+does not own. The ``Array`` *type* remains core; only analytics over it move.
 
 ``hgraph.arrow`` (the composition-combinator DSL) moves to
 ``hgraph-compose`` (import ``hgraph_compose``): expressive but not
