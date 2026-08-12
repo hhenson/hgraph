@@ -312,6 +312,54 @@ def test_run_graph_emit_preserves_a_leaf_loaded_after_its_base_was_materialized(
     assert [value for _, value in hg.run_graph(app)] == [created]
 
 
+def test_mapped_emit_then_outer_emit_preserves_a_transitive_concrete_leaf():
+    @dataclass(frozen=True)
+    class Event(
+        CompoundScalar,
+        namespace="tests.mapped_emit_hierarchy",
+        abstract=True,
+    ):
+        event_id: str
+
+    # Reproduce the extension import order: the public base is materialized
+    # before the client defines the intermediate and concrete event types.
+    _value_type(Event)
+
+    @dataclass(frozen=True)
+    class OrderEvent(Event, abstract=True):
+        order_id: str
+
+    @dataclass(frozen=True)
+    class CreateEvent(OrderEvent):
+        payload: str
+
+    created = CreateEvent(event_id="event", order_id="order", payload="created")
+
+    @compute_node
+    def create_events(trigger: TS[bool]) -> TS[tuple[Event, ...]]:
+        return (created,) if trigger.value else ()
+
+    @graph
+    def emit_events(trigger: TS[bool]) -> TS[Event]:
+        return hg.emit(create_events(trigger))
+
+    @graph
+    def emit_keyed(events: TSD[str, TS[Event]]) -> TSB[hg.KeyValue[str, TS[Event]]]:
+        return hg.emit(events)
+
+    assert eval_node(emit_keyed, [{"order": created}]) == [
+        {"key": "order", "value": created}
+    ]
+
+    @graph
+    def app(triggers: TSD[str, TS[bool]]) -> TSB[hg.KeyValue[str, TS[Event]]]:
+        return hg.emit(hg.map_(emit_events, triggers))
+
+    assert eval_node(app, [{"order": True}]) == [
+        {"key": "order", "value": created}
+    ]
+
+
 def test_closed_bundle_output_rejects_an_unrelated_compound_scalar():
     @dataclass
     class Base(CompoundScalar, namespace="tests.closed_error", abstract=True):
