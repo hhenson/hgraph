@@ -12,7 +12,7 @@ Summary
 A compact schema-driven **binary codec for values**, synthesized per
 ``ValueTypeMetaData`` and interned exactly as ``JsonConverter`` already is, plus
 a minimal **stream envelope** carrying schema identity, a monotonic sequence,
-and a snapshot/delta discriminator.
+and an image/delta discriminator.
 
 The codec's unit is a ``Value``, not a time series. That is deliberate and it
 is what makes this RFC small: ``ts_delta.h`` already reduces a per-cycle
@@ -168,6 +168,60 @@ schema has three fields, a synthesized converter necessarily puts three on the
 wire. It is a separate change from the codec itself and touches
 ``type_registry.cpp``, ``ts_delta.cpp``, ``ts_data/proxy.cpp`` and
 ``ts_data_slot_ops.cpp``.
+
+The initial image
+~~~~~~~~~~~~~~~~~
+
+A delta stream is only meaningful to a receiver that already holds the state
+the deltas apply to. A subscriber attaching mid-run, a store whose log must be
+self-contained, and a receiver recovering from a gap all need the same thing
+first: an **image** of the current state.
+
+So the codec carries two payload shapes, not one, and they are different
+schemas with different application semantics:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 14 27 27 32
+
+   * - Frame
+     - Schema
+     - Produced by
+     - Applied by
+   * - ``Delta``
+     - ``delta_value_schema``
+     - ``capture_delta``
+     - ``apply_delta`` — **merges**
+   * - ``Image``
+     - ``value_schema``
+     - the whole current value
+     - ``apply_current_value`` — **replaces**
+
+The difference is not presentational. ``apply_current_value`` on a ``TSD``
+erases keys the image does not contain (``ts_delta.cpp``), whereas a delta can
+only add, update, and remove what it explicitly names. A delta therefore cannot
+serve as an image except against an empty target: applied to a *stale* one it
+leaves ghost keys, which is precisely the state a resync exists to repair.
+
+This is why the resync rule below discards until an ``Image`` rather than until
+"the next full-looking frame".
+
+Two consequences for the rest of this document:
+
+* the converter is synthesized for **both** ``value_schema`` and
+  ``delta_value_schema`` of a time-series, and a bound stream binds the pair.
+  This also settles ``TSW``, whose delta is the single appended element while
+  its image is the window contents — no special case, just the two schemas the
+  registry already computes;
+* an image of a partially valid input has to represent UNSET children, which
+  is exactly what the presence bitmap in the wire format provides. The two
+  requirements met each other: without the bitmap, only a fully valid
+  time-series could be imaged.
+
+``capture_current_delta`` — "every currently-valid value, in delta shape" —
+remains the right local mechanism for a sender that must build state from a
+partially valid input, but it is not a wire ``Image``: it merges, so it cannot
+repair a stale receiver.
 
 C++ contract
 ------------
@@ -342,13 +396,17 @@ Bound frame header, after handshake, where the schema is fixed per stream::
 
     flags u8 | sequence varint                                          (2-9 bytes)
 
-``flags`` carries the snapshot/delta discriminator, a descriptor-present bit,
-and reserved bits. A **delta** frame's payload is on ``delta_value_schema``; a
-**snapshot** frame's payload is on the value schema.
+``flags`` carries the image/delta discriminator, a descriptor-present bit, and
+reserved bits. A ``Delta`` frame's payload is on ``delta_value_schema`` and
+merges; an ``Image`` frame's payload is on ``value_schema`` and replaces. A
+bound stream therefore binds a **pair** of descriptors at handshake, and the
+discriminator selects which applies — one id per stream would not be enough.
 
 ``sequence`` is monotonic per stream. A receiver that observes a gap must not
-apply the frame: it discards until the next snapshot and requests one if the
-stream supports it. That single rule is what makes an at-most-once transport
+apply the frame: it discards until the next ``Image`` and requests one if the
+stream supports it. An ``Image`` is required rather than merely a large delta
+because only an image removes state the receiver holds and the sender no longer
+has. That single rule is what makes an at-most-once transport
 survivable — core NATS drops for a slow consumer, and a dropped delta is not
 lag but silent state corruption — and it is equally what makes reconnect
 correct on a transport that never drops at all.
@@ -434,8 +492,10 @@ which transport a deployment chose.
 Unresolved questions
 --------------------
 
-* **TSW snapshot shape.** The delta is a scalar, but a snapshot is the window
-  contents. The current-value path exists; the wire shape needs specifying.
+* **Image cadence in a stored delta log.** A log needs a leading ``Image``, and
+  without periodic ones a replay walks from the beginning. The cadence is a
+  deployment policy rather than a codec rule, but the store (RFC 0016) needs
+  somewhere to express it.
 * **``Any`` in bound mode.** It carries per-instance schema identity, which a
   bound stream otherwise avoids. Descriptive-only, or a per-stream schema
   dictionary?
@@ -468,6 +528,14 @@ Acceptance criteria and test plan
   path wherever it is enabled.
 * Round-trip for every canonical delta shape in the table above, including
   nested ``TSB`` and ``TSD<K, TSB{...}>``.
+* Round-trip of the ``value_schema`` image for every time-series kind,
+  ``TSW`` included.
+* An ``Image`` applied to a **stale** target erases what the image does not
+  contain — the property a delta cannot provide, and the reason resync waits
+  for one. The same case applied as a delta is asserted to leave the ghost
+  entry, so the distinction is pinned by test rather than by prose.
+* An image of a **partially valid** input round-trips with its UNSET children
+  intact.
 * **Prerequisite:** the ``TSD`` observed delta schema is ``{removed,
   modified}``, with strict removal moved to a distinct mutation schema
   accepted by ``apply_delta``. A captured ``TSD`` delta encodes no
@@ -475,7 +543,7 @@ Acceptance criteria and test plan
   raises on an absent key.
 * ``REF`` is rejected with a clear error, matching ``capture_delta``.
 * A ``schema_id`` mismatch in bound mode is an error, with no partial apply.
-* A sequence gap suppresses apply and is cleared only by a snapshot.
+* A sequence gap suppresses apply and is cleared only by an ``Image``.
 * The fixed-layout fast path is byte-identical to the field-wise path for every
   eligible schema.
 * Descriptive mode decodes a stream whose schema was never registered by the
