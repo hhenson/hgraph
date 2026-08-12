@@ -89,10 +89,11 @@ def app():
     kafka.kafka_commit(subscription["cursor"], path="primary")
 ```
 
-The extension wheel also owns the released import path
-`hgraph.adaptors.kafka`. Existing `message_publisher`, `message_subscriber`,
-`KafkaMessage`, and `register_kafka_adaptor` imports therefore continue to
-work without making the core `hgraph` package depend on this extension.
+The core `hgraph` wheel owns a guarded compatibility shim at the released
+`hgraph.adaptors.kafka` import path. Existing `message_publisher`,
+`message_subscriber`, `KafkaMessage`, and `register_kafka_adaptor` imports
+continue to work when `hgraph-kafka` is installed. The extension wheel installs
+only `hgraph_kafka`; it never contributes files to the core `hgraph` package.
 
 ## Recovery and simulation
 

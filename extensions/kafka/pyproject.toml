@@ -32,7 +32,7 @@ cmake.args = [
     "-DBUILD_TESTING=OFF",
 ]
 install.components = ["Python"]
-wheel.packages = ["python/hgraph_kafka", "python/hgraph"]
+wheel.packages = ["python/hgraph_kafka"]
 wheel.py-api = "cp312"
 sdist.include = [
     "CMakeLists.txt",

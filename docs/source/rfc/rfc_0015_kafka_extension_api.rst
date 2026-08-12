@@ -227,11 +227,14 @@ hg_cpp owns only the already-public facilities the extension consumes:
 * installed-SDK extension boundaries.
 
 The core must not link to librdkafka, include Kafka headers, import
-``hgraph_kafka``, or declare a package dependency on the extension.  A normal
-core CMake build remains independent of Python and Kafka.  The extension wheel
-owns the compatibility files installed at ``hgraph.adaptors.kafka``.  The
-coordinated core change removes its former Kafka implementation and
-``kafka-python`` extra; it does not replace them with a core-to-extension shim.
+``hgraph_kafka`` during a normal ``hgraph`` import, or declare a package
+dependency on the extension. A normal core CMake build remains independent of
+Python and Kafka. The core wheel owns a guarded compatibility shim at
+``hgraph.adaptors.kafka`` which imports ``hgraph_kafka`` only when that legacy
+path is explicitly requested. The extension wheel installs only the
+``hgraph_kafka`` package and never contributes files to ``hgraph``. The
+coordinated core change removes the former Kafka implementation and
+``kafka-python`` extra while retaining this protected migration path.
 
 This RFC lives in hg_cpp because it changes that existing public compatibility
 surface and fixes the public SDK boundary on which the new extension depends.
@@ -950,11 +953,10 @@ headers.
 The migration lands atomically in one monorepo implementation pull request:
 
 1. create the extension with native C++ API, runtime, tests, and wheel;
-2. make the extension wheel own ``hgraph.adaptors.kafka`` and its compatibility
-   tests; and
-3. remove the Kafka implementation, package files, ``kafka-python`` extra, and
-   Kafka tests from core without adding a dependency or import in the opposite
-   direction.
+2. retain a guarded, core-owned ``hgraph.adaptors.kafka`` compatibility shim
+   and test it both with and without the extension installed; and
+3. remove the Kafka implementation, ``kafka-python`` extra, and broker tests
+   from core without making normal core imports depend on the extension.
 
 Performance and memory
 ----------------------
@@ -1124,15 +1126,15 @@ Implementation plan
 3. Add the librdkafka C RAII layer, consumer recovery/live state machine,
    producer callbacks, commits, rebalances, pause/resume, and typed events.
 4. Add native byte codecs and the Python bridge/new service wiring API.
-5. Move the existing decorators and ``KafkaMessage`` into an extension-owned
-   ``hgraph.adaptors.kafka`` compatibility package and run differential
-   behavior tests against released hgraph.  Remove the former core package
-   without adding a core dependency on the extension.
+5. Move the existing decorators and ``KafkaMessage`` implementation into
+   ``hgraph_kafka``, retain a guarded, core-owned ``hgraph.adaptors.kafka``
+   forwarding shim, and run differential behavior tests against released
+   hgraph without adding a core dependency on the extension.
 6. Add broker integration, failure injection, memory/performance evidence,
    ASan/TSan validation, and packaging on supported platforms.
-7. Land extension addition and core ownership removal atomically, and update
-   this RFC to Accepted only when implementation and transition tests have
-   merged.
+7. Land the extension addition and removal of the core Kafka implementation
+   atomically, and update this RFC to Accepted only when implementation and
+   transition tests have merged.
 
 Implementation status
 ---------------------

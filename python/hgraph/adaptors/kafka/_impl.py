@@ -1,4 +1,4 @@
-"""Released Kafka registration API, implemented by :mod:`hgraph_kafka`."""
+"""Legacy Kafka registration name supplied by :mod:`hgraph_kafka`."""
 
 from hgraph_kafka.compat import register_kafka_adaptor
 

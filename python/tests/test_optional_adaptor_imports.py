@@ -74,3 +74,46 @@ def test_optional_adaptor_namespaces_import_without_client_dependencies():
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_legacy_kafka_shim_does_not_load_an_absent_extension():
+    script = textwrap.dedent(
+        """
+        import sys
+
+        class BlockKafkaExtension:
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname.partition(".")[0] == "hgraph_kafka":
+                    raise ModuleNotFoundError(
+                        f"blocked optional extension: {fullname}",
+                        name="hgraph_kafka",
+                    )
+                return None
+
+        sys.meta_path.insert(0, BlockKafkaExtension())
+
+        import hgraph
+        import hgraph.adaptors
+
+        assert "hgraph_kafka" not in sys.modules
+        try:
+            import hgraph.adaptors.kafka
+        except ModuleNotFoundError as error:
+            assert error.name == "hgraph_kafka"
+            assert "pip install hgraph-kafka" in str(error)
+        else:
+            raise AssertionError("the legacy shim imported without hgraph-kafka")
+        """
+    )
+    python_path = os.pathsep.join(
+        filter(None, (str(ROOT / "python"), os.environ.get("PYTHONPATH")))
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=ROOT,
+        env={**os.environ, "PYTHONPATH": python_path},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr

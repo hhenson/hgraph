@@ -208,6 +208,12 @@ reason), keeps imports honest (``import hgraph_sql``), and costs only
 aesthetics. Introducing a dotted namespace later would be an additive,
 non-breaking change, so choosing flat now forecloses nothing.
 
+Core may retain a guarded legacy import shim, such as
+``hgraph.adaptors.kafka``, when moving an existing API to an extension. The
+``hgraph`` distribution owns that shim and imports the flat extension only
+when the legacy path is explicitly requested. An extension distribution must
+never install files into the core ``hgraph`` package.
+
 **Discovery and registration.** Importing an extension registers its
 operators, scalars, services, and adaptors through the public registration
 surfaces — exactly as core operator modules register today. There is **no

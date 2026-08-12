@@ -1182,12 +1182,12 @@
       ]
     },
     {
-      "id": "adaptors-kafka-extension-owned-package",
+      "id": "adaptors-kafka-optional-extension-runtime",
       "match": "hgraph_unit_tests/adaptors/kafka/test_kafka_api.py::*",
       "classification": "expected-change",
       "candidate_outcomes": ["collection-error"],
-      "diagnostic_regex": "No module named ['\"]hgraph[.]adaptors[.]kafka['\"]",
-      "reason": "Kafka is no longer distributed by the core wheel. The separately installed C++-first Kafka extension owns the released hgraph.adaptors.kafka path; behavior conformance must use a candidate environment containing both distributions.",
+      "diagnostic_regex": "hgraph[.]adaptors[.]kafka requires the optional 'hgraph-kafka' distribution",
+      "reason": "The Kafka implementation is no longer distributed by the core wheel. Core retains a guarded hgraph.adaptors.kafka compatibility shim which reports that hgraph-kafka is required; behavior conformance must use a candidate environment containing both distributions.",
       "decision": "docs/source/developer_guide/parity_matrix.rst",
       "review_date": "2026-08-08",
       "evidence": [
