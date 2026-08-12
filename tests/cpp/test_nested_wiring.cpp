@@ -521,11 +521,13 @@ TEST_CASE("nested wiring: compiled structural results keep logical and terminal 
     CHECK(bundle.output_schema == bundle_schema);
     CHECK(bundle.terminal_output_schema ==
           TypeRegistry::instance().ref(bundle_schema));
+    CHECK(bundle.terminal_is_structural_adapter);
 
     const auto *list_schema = schema_descriptor<IntPair>::ts_meta();
     const CompiledSubGraph list = compile_subgraph<StructuralListSubGraph>();
     CHECK(list.output_schema == list_schema);
     CHECK(list.terminal_output_schema == TypeRegistry::instance().ref(list_schema));
+    CHECK(list.terminal_is_structural_adapter);
 
     const auto *plain_schema = schema_descriptor<TS<Int>>::ts_meta();
     const CompiledSubGraph dereferenced_ref =
@@ -533,6 +535,7 @@ TEST_CASE("nested wiring: compiled structural results keep logical and terminal 
     CHECK(dereferenced_ref.output_schema == plain_schema);
     CHECK(dereferenced_ref.terminal_output_schema ==
           TypeRegistry::instance().ref(plain_schema));
+    CHECK_FALSE(dereferenced_ref.terminal_is_structural_adapter);
 }
 
 TEST_CASE("nested wiring: newly composed fixed structural results retain their public schemas")

@@ -4,11 +4,10 @@ Dialect: STATE here is hg_cpp's attribute-namespace injectable (upstream's
 ``STATE[Schema]`` subscript form does not exist in this runtime)."""
 import string
 
-import hgraph as hg
-from hgraph import CLOCK, STATE, TIME_SERIES_TYPE, TS
+from hgraph import CLOCK, STATE, TIME_SERIES_TYPE
 
 from .._wiring import compute_node
-from ._arrow import _pair_shape, _pair_value_port, _value_to_tuples, arrow
+from ._arrow import _value_to_tuples, arrow
 
 __all__ = ("assert_", "debug_", "d")
 
@@ -19,8 +18,10 @@ def assert_(*args, message: str = None):
     message = "" if message is None else f": ({message})"
     expected_values = args
 
-    @compute_node
-    def _assert(ts: TIME_SERIES_TYPE, _state: STATE = None) -> TS[object]:
+    @compute_node(valid=())
+    def _assert(
+        ts: TIME_SERIES_TYPE, _state: STATE = None
+    ) -> TIME_SERIES_TYPE:
         c = getattr(_state, "count", 0)
         if c >= (l := len(expected_values)):
             _state.failed = True
@@ -33,7 +34,7 @@ def assert_(*args, message: str = None):
             _state.failed = True
             raise AssertionError(
                 f"Expected '{expected}' but got '{value}' on tick count: {_state.count}{message}")
-        return ts.value
+        return ts.delta_value
 
     @_assert.stop
     def _assert_stop(_state: STATE = None):
@@ -43,38 +44,53 @@ def assert_(*args, message: str = None):
             raise AssertionError(f"Expected {l} values but got {count} results{message}")
 
     def _wrapper(x):
-        # Feed the assert from a tuple-shaped TS[object] view of x, but pass
-        # the ORIGINAL port through so chains continue with typed values.
-        value_port = _pair_value_port(x) if _pair_shape(x) is not None else x
-        checked = _assert(value_port)
-        hg.null_sink(checked)
-        return x
+        checked = _assert(x)
+        return checked
 
     return arrow(_wrapper, __name__=f"assert_{expected_values}",
                  __has_side_effects__=True)
 
 
-def debug_(fmt_str: str = None, delta_value: bool = False):
-    """Print the (tuple-shaped) value of the stream and pass it through."""
+@compute_node(valid=())
+def _debug(
+    ts: TIME_SERIES_TYPE,
+    fmt: str,
+    use_delta: bool,
+    _clock: CLOCK = None,
+) -> TIME_SERIES_TYPE:
+    """Typed runtime half of the Arrow diagnostic pass-through."""
+    msg = _value_to_tuples(ts.delta_value if use_delta else ts.value)
+    if fmt:
+        _, parsed, _, _ = next(string.Formatter().parse(fmt), (None,) * 4)
+        msg = f"{fmt}: {msg}" if parsed is None else fmt.format(msg)
+    when = _clock.evaluation_time if _clock is not None else ""
+    print(f"[DEBUG][{when}] {msg}")
+    return ts.delta_value
 
-    @compute_node
-    def _debug(ts: TIME_SERIES_TYPE, fmt: str, use_delta: bool,
-               _clock: CLOCK = None) -> TS[object]:
-        msg = _value_to_tuples(ts.delta_value if use_delta else ts.value)
-        if fmt:
-            _, parsed, _, _ = next(string.Formatter().parse(fmt), (None,) * 4)
-            msg = f"{fmt}: {msg}" if parsed is None else fmt.format(msg)
-        when = _clock.evaluation_time if _clock is not None else ""
-        print(f"[DEBUG][{when}] {msg}")
-        return ts.value
 
-    def _wrapper(x):
-        value_port = _pair_value_port(x) if _pair_shape(x) is not None else x
-        hg.null_sink(_debug(value_port, fmt_str or "", delta_value))
-        return x
+def _debug_arrow(*args, fmt_str: str = None, delta_value: bool = False):
+    """Apply bound diagnostic options to the final Arrow input port."""
+    if not args:
+        raise TypeError("debug_ requires an Arrow input when it is evaluated")
+    ts = args[-1]
+    options = args[:-1]
+    if len(options) > 2:
+        raise TypeError("debug_ accepts at most a format string and delta_value")
+    if options:
+        if fmt_str is not None:
+            raise TypeError("debug_ received fmt_str both positionally and by keyword")
+        fmt_str = options[0]
+    if len(options) == 2:
+        if delta_value is not False:
+            raise TypeError("debug_ received delta_value both positionally and by keyword")
+        delta_value = options[1]
+    return _debug(ts, fmt_str or "", delta_value)
 
-    return arrow(_wrapper, __name__=f"debug_({fmt_str})",
-                 __has_side_effects__=True)
+
+# ``debug_`` is itself an Arrow, as in release/0.5.  It can therefore be
+# placed directly in a chain, while calls bind its optional configuration:
+# ``... >> debug_ >> ...`` and ``... >> debug_("value {}") >> ...``.
+debug_ = arrow(_debug_arrow, __name__="debug_", __has_side_effects__=True)
 
 
 d = debug_

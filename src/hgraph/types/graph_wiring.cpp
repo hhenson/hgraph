@@ -2790,6 +2790,9 @@ CompiledSubGraph Wiring::finish_subgraph(
           }
           if (output->peered_path().empty()) {
             compiled.terminal_output_schema = terminal_meta->output_schema;
+            compiled.terminal_is_structural_adapter =
+                output->peered_node()->definition ==
+                std::type_index(typeid(StructuralRefNodeTag));
           }
           compiled.output_binding = NestedGraphOutputBinding{
               .source = NestedGraphEndpoint{.node = it->second,

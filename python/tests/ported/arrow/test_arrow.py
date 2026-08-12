@@ -8,6 +8,9 @@
 #  - test_side_effects: converted - hg_cpp retains explicitly wired nodes, so
 #    an un-flagged side-effect node evaluates even when its output is unused
 #    (upstream discards nodes unreachable from a sink).
+from dataclasses import dataclass
+from enum import Enum
+
 import pytest
 from frozendict import frozendict as fd
 
@@ -300,6 +303,49 @@ def test_reduce():
 
 def test_debug_():
     eval_([1, 2], [1, None, 2]) | debug_("Test value {}") >> assert_((1, 1), (2, 1), (2, 2))
+
+
+def test_debug_is_a_direct_typed_arrow_for_enum_and_compound_scalar(capsys):
+    class Side(Enum):
+        BUY = "BUY"
+        SELL = "SELL"
+
+    @dataclass(frozen=True)
+    class Event(hgraph.CompoundScalar):
+        event_id: str
+
+    @compute_node
+    def render(side: TS[Side], event: TS[Event]) -> TS[str]:
+        return f"{side.value.value}:{event.value.event_id}"
+
+    @graph
+    def app(side: TS[Side], event: TS[Event]) -> TS[str]:
+        # release/0.5 exposed debug_ itself as an Arrow.  Its pass-through
+        # output must retain the pair's concrete field projections so this
+        # typed consumer receives TS[Side] and TS[Event], not TS[object].
+        return arrow(side, event) | debug_ >> render
+
+    buy = Event("one")
+    sell = Event("two")
+    assert eval_node(app, [Side.BUY, Side.SELL], [buy, sell]) == [
+        "BUY:one",
+        "SELL:two",
+    ]
+    output = capsys.readouterr().out
+    assert "<Side.BUY: 'BUY'>" in output and "Event(event_id='one')" in output
+    assert "<Side.SELL: 'SELL'>" in output and "Event(event_id='two')" in output
+
+    # eval_ records the typed pair and converts it to the presentation tuple
+    # only after execution; no object-valued _combine_pair_values node is
+    # inserted into the graph.
+    assert (
+        eval_(
+            [Side.BUY, Side.SELL],
+            [buy, sell],
+            type_map=(TS[Side], TS[Event]),
+        )
+        | i
+    ) == [(Side.BUY, buy), (Side.SELL, sell)]
 
 
 def test_side_effects():
