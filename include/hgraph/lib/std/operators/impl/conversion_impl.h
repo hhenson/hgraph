@@ -2620,8 +2620,18 @@ namespace hgraph::stdlib
                 }
                 if (compact)
                 {
-                    // COMPACT (whole-value) bundle output: one bundle write.
-                    BundleBuilder builder{ValuePlanFactory::instance().type_for(out_schema->value_schema)};
+                    // COMPACT (whole-value) bundle output: build an owning
+                    // value with the active graph's external realization.
+                    // The canonical schema plan cannot accept a concrete
+                    // polymorphic leaf (for example Event <- CreateEvent),
+                    // while the graph-local output binding is a TS storage
+                    // view rather than the portable owning value we enqueue.
+                    const auto *snapshot = active_type_realization();
+                    const auto bundle_binding = snapshot != nullptr
+                                                    ? snapshot->type_for(out_schema->value_schema)
+                                                    : ValuePlanFactory::instance().type_for(
+                                                          out_schema->value_schema);
+                    BundleBuilder builder{bundle_binding};
                     builder.set(0, std::move(key));
                     builder.set(1, std::move(value));
                     auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());

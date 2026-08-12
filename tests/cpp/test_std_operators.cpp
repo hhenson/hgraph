@@ -217,6 +217,22 @@ namespace
 
     using PolymorphicEvent = polymorphic_emit_repro::Event;
 
+    using PolymorphicEventDict = TSD<Str, TS<PolymorphicEvent>>;
+    using PolymorphicEventKeyValue =
+        UnNamedTSB<Field<"key", TS<Str>>, Field<"value", TS<PolymorphicEvent>>>;
+
+    struct PolymorphicEventDictEmitGraph
+    {
+        static constexpr auto name = "polymorphic_event_dict_emit_graph";
+
+        static Port<PolymorphicEventKeyValue> compose(
+            Wiring &w, Port<PolymorphicEventDict> events)
+        {
+            return wire<stdlib::emit>(w, events)
+                .as<PolymorphicEventKeyValue>();
+        }
+    };
+
     struct SeriesAddGraph
     {
         static constexpr auto name = "series_add_graph";
@@ -1434,6 +1450,65 @@ TEST_CASE("std operators: emit preserves a transitive concrete Bundle leaf")
         (eval_node<stdlib::emit, TS<HomogeneousTuple<PolymorphicEvent>>>(
             values<Value>(events))),
         values<Value>(created));
+}
+
+TEST_CASE("std operators: keyed emit preserves a concrete Bundle leaf")
+{
+    stdlib::register_standard_operators();
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *text = registry.value_type("str");
+    const auto *event = scalar_descriptor<PolymorphicEvent>::value_meta();
+    const auto *order_event = registry.bundle(
+        "tests.emit", "OrderEvent",
+        {{"event_id", text}, {"order_id", text}}, {event}, true);
+    const auto *create_event = registry.bundle(
+        "tests.emit", "CreateEvent",
+        {{"event_id", text}, {"order_id", text}, {"payload", text}},
+        {order_event});
+
+    BundleBuilder create{ValuePlanFactory::instance().type_for(create_event)};
+    create.set("event_id", Value{Str{"event"}});
+    create.set("order_id", Value{Str{"order"}});
+    create.set("payload", Value{Str{"created"}});
+    const Value created = create.build();
+
+    const auto realization = TypeRealizationSnapshot::capture(registry);
+    TypeRealizationScope realization_scope{realization.get()};
+    const auto key_binding = realization->type_for(text);
+    const auto event_binding = realization->type_for(event);
+    Value event_value{event_binding};
+    event_binding.ops_ref().copy_assign_from(
+        event_binding, event_value.begin_mutation().mutable_data(),
+        created.binding(), created.view().data());
+
+    SetBuilder removed{key_binding};
+    MapBuilder modified{key_binding, event_binding};
+    const Str key{"order"};
+    modified.set_item_copy(&key, event_value.view().data());
+    const auto *delta_schema = ts_type<PolymorphicEventDict>()->delta_value_schema;
+    BundleBuilder delta{realization->type_for(delta_schema)};
+    delta.set("removed", removed.build());
+    delta.set("modified", modified.build());
+
+    const Value input_delta = delta.build();
+    CHECK_OUTPUT((eval_node<stdlib::len_, PolymorphicEventDict>(
+                     values<Value>(input_delta))),
+                 values<Int>(1));
+    const auto actual = eval_node<PolymorphicEventDictEmitGraph>(
+        values<Value>(input_delta));
+
+    REQUIRE(actual.size() == 1);
+    REQUIRE(actual.front().has_value());
+    const auto fields = actual.front()->view().as_indexed_view();
+    REQUIRE(fields.size() == 2);
+    CHECK(fields.at(0).checked_as<Str>() == Str{"order"});
+    const auto concrete = fields.at(1).concrete();
+    REQUIRE(concrete.schema() == create_event);
+    const auto event_fields = concrete.as_bundle();
+    CHECK(event_fields.at("event_id").checked_as<Str>() == Str{"event"});
+    CHECK(event_fields.at("order_id").checked_as<Str>() == Str{"order"});
+    CHECK(event_fields.at("payload").checked_as<Str>() == Str{"created"});
 }
 
 TEST_CASE("std operators: len_ visits scalar tuple, set, and map values")
