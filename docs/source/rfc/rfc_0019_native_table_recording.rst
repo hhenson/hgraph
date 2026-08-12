@@ -158,9 +158,10 @@ key, so a graph can record two series with different policies:
        ``ToTableMode``, which the recorder must honour because it changes which
        rows exist.
    * - ``flush``
-     - Rows per chunk and an optional wall-clock interval. Bounds retained
-       memory and decides how often a partial recording becomes visible.
-       Within a run only — see *A recording is one run*.
+     - **Off by default**: the run is accumulated in the Arrow builders and
+       written once at ``stop``, which is the current and expected approach.
+       Set to a row count or wall-clock interval for a run whose output should
+       not be held whole — see *Flushing writes segments*. Within a run only.
 
 Defaults reproduce today's behaviour exactly, so an existing recording keeps
 its columns and column names.
@@ -217,9 +218,16 @@ of the flush policy.
 Flushing writes segments
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-A flushed recording must be **readable up to its last flush**, including after
-the run that was writing it has died. That makes a flush a commit point, and it
-decides the write shape.
+Flushing is **opt-in**. The default is to accumulate the whole run in the
+builders and write once at ``stop`` — the current approach, and the right one
+while a run's output fits in memory. Columnar builders are why that is
+affordable: the cost tracks the payload rather than the tick count, which is
+the whole point of recording into builders rather than assembling per tick.
+
+Where a run's output should not be held whole, flushing bounds it — and then a
+flushed recording must be **readable up to its last flush**, including after
+the run writing it has died. That makes a flush a commit point, and it decides
+the write shape.
 
 Each flush writes a **new object** rather than rewriting the recording. A
 recording is therefore one run stored as an ordered sequence of segments, and
@@ -245,7 +253,7 @@ Two consequences follow:
   making the partial case unreadable.
 
 This keeps *A recording is one run* intact: one run, one recording, written as
-however many segments its flush policy produced.
+however many segments its flush policy produced — one, in the default case.
 
 Configuration is local, with a global default
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -313,8 +321,11 @@ is chosen so nothing is rewritten twice:
 5. **Replay parity.** Grouping, filtering, ``replay_const``.
 6. **Adaptor migration.** ``DataFrameStorage`` as a frame store; the Python
    recorder deleted, its public surface unchanged.
+7. **Segmented flushing.** Only when a run's output stops fitting in memory.
+   Nothing earlier depends on it, because the default writes once at ``stop``.
 
-Steps 1–2 are where the performance is; steps 3–5 are where the parity is.
+Steps 1–2 are where the performance is; steps 3–5 are where the parity is;
+step 7 waits for a workload that needs it.
 
 Compatibility
 -------------
