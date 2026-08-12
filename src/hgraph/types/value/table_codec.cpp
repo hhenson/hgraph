@@ -1162,6 +1162,20 @@ namespace hgraph
         return Frame{arrow::Table::Make(impl_->converter->arrow_schema, std::move(arrays), impl_->rows)};
     }
 
+    Value read_table_cell(const ValueTypeMetaData *leaf_meta, const arrow::Array &array, std::int64_t row)
+    {
+        if (leaf_meta == nullptr) { throw std::invalid_argument("table codec: cell has no leaf metadata"); }
+        if (array.IsNull(row)) { return Value{}; }
+        const LeafOps ops = leaf_ops_for(leaf_meta);
+        const Column  column{.name      = {},
+                             .leaf_meta = leaf_meta,
+                             .path      = {},
+                             .type      = ops.type,
+                             .append    = ops.append,
+                             .read      = ops.read};
+        return ops.read(column, array, row);
+    }
+
     DateTime frame_value_time(const TableConverter &converter, const Frame &frame, std::int64_t row)
     {
         const auto chunked = frame.table->GetColumnByName(converter.date_key);

@@ -2,6 +2,9 @@
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_RECORD_REPLAY_FRAME_IMPL_H
 
 #include <hgraph/lib/std/operators/impl/table_impl.h>
+
+#include <arrow/array.h>
+#include <arrow/table.h>
 #include <hgraph/lib/std/operators/io.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/types/operator_dispatch.h>
@@ -68,10 +71,66 @@ namespace hgraph::stdlib
         /** Heap replay cursor owned across start/eval/stop via node State. */
         struct ReplayHandle
         {
-            const TableConverter *converter{nullptr};
-            Frame                 frame{};
-            std::int64_t          row{0};
+            const TableConverter                   *converter{nullptr};
+            /** Set when the recording is partitioned: a row is then a key and a
+                value rather than a whole value, so it cannot be read straight
+                through the converter. */
+            const table_ts_detail::TsTableLayout   *layout{nullptr};
+            Frame                                   frame{};
+            std::int64_t                            row{0};
         };
+
+        /** Apply one recorded row, descending the TSD levels it names.
+            The inverse of the emission walk: read this level's key, step into
+            it, and recurse; at the leaf read the value columns by name. */
+        inline void apply_recorded_row(const table_ts_detail::TsTableLayout &layout,
+                                       const TableConverter &leaf_converter, const Frame &frame,
+                                       std::int64_t row, std::size_t level_index,
+                                       const TSOutputView &out, DateTime now)
+        {
+            if (level_index == layout.levels.size())
+            {
+                // By name, so the key and bitemporal columns are ignored.
+                const Value value = read_row(leaf_converter, frame, row);
+                apply_current_value(out, value.view());
+                return;
+            }
+
+            const auto &level = layout.levels[level_index];
+            if (level.key_paths.size() != 1)
+            {
+                throw std::runtime_error(
+                    "replay: compound TSD keys are not yet reassembled from their flattened columns");
+            }
+            const auto key_column = frame.table->GetColumnByName(layout.keys[level.first_key_col]);
+            if (key_column == nullptr)
+            {
+                throw std::runtime_error("replay: recording is missing key column '" +
+                                         layout.keys[level.first_key_col] + "'");
+            }
+            const Value key = read_table_cell(level.key_meta, *key_column->chunk(0), row);
+
+            auto dict_out = out.as_dict();
+            auto mutation = dict_out.begin_mutation(now);
+
+            // A removed column is only present when the recording tracked
+            // removals; without it every row is a value.
+            const auto removed_column = frame.table->GetColumnByName(layout.keys[level.removed_col]);
+            if (removed_column != nullptr && !removed_column->chunk(0)->IsNull(row))
+            {
+                const Value removed = read_table_cell(scalar_descriptor<Bool>::value_meta(),
+                                                      *removed_column->chunk(0), row);
+                if (removed.has_value() && removed.view().checked_as<Bool>())
+                {
+                    static_cast<void>(mutation.erase(key.view()));
+                    return;
+                }
+            }
+
+            auto child = mutation.at(key.view());
+            apply_recorded_row(layout, leaf_converter, frame, row, level_index + 1,
+                               TSOutputView{out.output(), child, now}, now);
+        }
     }  // namespace record_replay_frame_detail
 
     /** Node-State payloads carrying the heap handles (start-lifecycle pattern). */
@@ -207,11 +266,17 @@ namespace hgraph::stdlib
             {
                 throw std::runtime_error("replay: no recorded frame under '" + fq_key + "'");
             }
-            const auto &erased    = static_cast<const TSOutputView &>(out);
+            const auto &erased = static_cast<const TSOutputView &>(out);
             const auto  config = record_replay::config(gs);
-            const auto &converter =
-                table_converter(erased.schema()->value_schema, config.date_key, config.as_of_key);
-            auto        handle    = std::make_unique<ReplayHandle>(ReplayHandle{&converter, std::move(frame), 0});
+            const auto &layout =
+                table_ts_detail::ts_table_layout(erased.schema(), config.date_key, config.as_of_key);
+            // The leaf's value schema for the value columns; the key columns
+            // are read separately, since no value schema names them.
+            const auto &converter = table_converter(
+                layout.partitioned() ? layout.leaf_ts->value_schema : erased.schema()->value_schema,
+                config.date_key, config.as_of_key);
+            auto handle = std::make_unique<ReplayHandle>(
+                ReplayHandle{&converter, layout.partitioned() ? &layout : nullptr, std::move(frame), 0});
             if (frame_rows(handle->frame) > 0)
             {
                 sched.schedule(frame_value_time(converter, handle->frame, 0));
@@ -228,8 +293,17 @@ namespace hgraph::stdlib
             const auto rows   = frame_rows(handle->frame);
             while (handle->row < rows && frame_value_time(*handle->converter, handle->frame, handle->row) == now)
             {
-                Value value = read_row(*handle->converter, handle->frame, handle->row);
-                apply_delta(out, value.view());
+                if (handle->layout != nullptr)
+                {
+                    record_replay_frame_detail::apply_recorded_row(
+                        *handle->layout, *handle->converter, handle->frame, handle->row, 0,
+                        static_cast<const TSOutputView &>(out), now);
+                }
+                else
+                {
+                    Value value = read_row(*handle->converter, handle->frame, handle->row);
+                    apply_delta(out, value.view());
+                }
                 ++handle->row;
             }
             if (handle->row < rows)

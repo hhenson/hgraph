@@ -158,6 +158,13 @@ namespace hgraph
         std::unique_ptr<Impl> impl_;
     };
 
+    /** One cell, read back as its leaf type. The inverse of what
+        ``TableRecorder`` appends, for a column the recorder described rather
+        than a converter did - a ``TSD`` key column has no place in any value
+        schema. */
+    [[nodiscard]] HGRAPH_EXPORT Value read_table_cell(const ValueTypeMetaData *leaf_meta,
+                                                     const arrow::Array &array, std::int64_t row);
+
     /** The ``date_key`` (value-time) column entry for ``row``. */
     [[nodiscard]] HGRAPH_EXPORT DateTime frame_value_time(const TableConverter &converter, const Frame &frame,
                                                           std::int64_t row);
