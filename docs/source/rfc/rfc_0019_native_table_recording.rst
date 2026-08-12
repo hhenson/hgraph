@@ -148,6 +148,11 @@ key, so a graph can record two series with different policies:
        layout's. Today's ``partition_keys`` override.
    * - ``date_key``
      - The value-time column name; defaults to ``Config::date_key``.
+   * - ``frame_prefix``
+     - Prefix applied to the columns of an expanded frame-valued leaf. Empty by
+       default, which is today's behaviour. Namespacing the expansion is the
+       ordinary way to avoid a frame column landing on the same name as a key
+       or bitemporal column.
    * - ``mode``
      - ``Tick`` (default), ``Sample``, ``Snap`` — the existing
        ``ToTableMode``, which the recorder must honour because it changes which
@@ -160,11 +165,16 @@ key, so a graph can record two series with different policies:
 Defaults reproduce today's behaviour exactly, so an existing recording keeps
 its columns and column names.
 
-**What ``removes: Omit`` costs.** A removal leaves no trace, so replaying the
-recording never removes the key: the replayed series keeps a value the recorded
-one had dropped. That is the right trade for an append-only feed and the wrong
-one for a membership-bearing ``TSD``, so it stays opt-in and is stated here
-rather than discovered.
+**What ``removes: Omit`` means.** This is the ordinary shape of a recorded data
+stream rather than a lossy variant of one: a removal means nothing further is
+recorded for that key, and the recording is not a reversible structure. Most
+consumers of a time-indexed stream read it exactly that way, which is why the
+option exists at all.
+
+The consequence to be aware of is at replay: nothing signals the removal, so a
+replayed series retains the key rather than dropping it. That is correct under
+this model — the stream never said it was removed — but it means a ``TSD`` whose
+membership carries meaning wants ``Track``, which stays the default.
 
 Frame-valued leaves expand into columns
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -179,7 +189,11 @@ fully qualified.
 case, so expansion reuses that converter's columns as the value columns rather
 than inventing a second description of the frame.
 
-A frame column whose name collides with a key or bitemporal column is an
+Expanded columns may be prefixed, through ``frame_prefix``. That is the
+intended way to keep a frame's columns clear of the key and bitemporal columns,
+and to distinguish two frames recorded side by side.
+
+A name that still collides after the configured prefix is applied is an
 **error** at layout time. Silently renaming would produce a frame that replays
 by name into the wrong column, which is the failure mode this whole path exists
 to avoid.
@@ -335,8 +349,10 @@ Acceptance criteria
   series is asserted to retain the key — the documented divergence, pinned by
   test rather than left implicit.
 * A frame-valued leaf under a ``TSD`` level expands to ``K x R`` rows with the
-  key cells repeated, and a frame column colliding with a key or bitemporal
-  column is refused at layout time.
+  key cells repeated.
+* ``frame_prefix`` renames the expanded columns and they replay by the
+  prefixed name; a collision that survives the prefix is refused at layout
+  time.
 * Two ``record`` calls in one graph with different local configurations produce
   differently-shaped recordings, and a call with no configuration matches the
   global default.
