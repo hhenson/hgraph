@@ -328,6 +328,68 @@ namespace hgraph::stdlib
                 return view;
             }
 
+
+            /**
+             * A row under construction, held as borrowed cells rather than as
+             * a value (RFC 0019, step 1).
+             *
+             * One instance serves a whole walk: emitting a row costs no
+             * allocation, which is what lets a recording sink append straight
+             * into Arrow builders while ``to_table`` still materialises a row.
+             *
+             * The cells are BORROWED, so a sink must consume the row before
+             * the sources it views go out of scope - which every caller here
+             * does, within the loop iteration that produced the key or frame
+             * row.
+             */
+            class RowCells
+            {
+              public:
+                explicit RowCells(std::size_t columns) : cells_(columns) {}
+
+                void set(std::size_t column, const ValueView &value) { cells_[column] = reborrow(value); }
+
+                /** Drop the tail. A row emitted above the leaf - a removal -
+                    must not carry the deeper keys or values a previous row
+                    left behind, which the copy-a-prototype form gave for free
+                    and a reused row has to do explicitly. */
+                void clear_from(std::size_t column)
+                {
+                    for (std::size_t i = column; i < cells_.size(); ++i) { cells_[i] = ValueView{}; }
+                }
+
+                [[nodiscard]] std::size_t       size() const noexcept { return cells_.size(); }
+                [[nodiscard]] const ValueView  &at(std::size_t column) const { return cells_[column]; }
+
+              private:
+                std::vector<ValueView> cells_;
+            };
+
+            /** Where emitted rows go: the ops-table idiom, context first. */
+            struct RowSink
+            {
+                void *context{nullptr};
+                void (*row)(void *context, const RowCells &cells){nullptr};
+            };
+
+            /** The scalars a row borrows that are not part of the source data. */
+            struct RowScalars
+            {
+                Value now{};
+                Value as_of{};
+                Value removed_true{Bool{true}};
+                Value removed_false{Bool{false}};
+
+                RowScalars(DateTime now_, DateTime as_of_) : now{now_}, as_of{as_of_} {}
+            };
+
+            /** The first column after ``level_index``'s own columns. */
+            [[nodiscard]] std::size_t columns_after_level(const TsTableLayout &layout, std::size_t level_index)
+            {
+                return level_index + 1 < layout.levels.size() ? layout.levels[level_index + 1].removed_col
+                                                              : layout.value_col_start;
+            }
+
             struct RowBuffer
             {
                 explicit RowBuffer(const TsTableLayout &layout)
@@ -366,18 +428,18 @@ namespace hgraph::stdlib
                 return row;
             }
 
-            void write_level_keys(RowBuffer &row, const TsTableLayout::Level &level, const ValueView &key)
+            void write_level_keys(RowCells &row, const TsTableLayout::Level &level, const ValueView &key)
             {
                 for (std::size_t i = 0; i < level.key_paths.size(); ++i)
                 {
-                    row.set_cell(level.first_key_col + i, walk_value(reborrow(key), level.key_paths[i]));
+                    row.set(level.first_key_col + i, walk_value(reborrow(key), level.key_paths[i]));
                 }
             }
 
             /** Write the leaf value columns of ``row`` from the leaf TS view.
                 Tick mode writes modified nodes only; Sample/Snap write every
                 valid node. */
-            void write_value_cells(RowBuffer &row, const TsTableLayout &layout, const TSInputView &leaf,
+            void write_value_cells(RowCells &row, const TsTableLayout &layout, const TSInputView &leaf,
                                    Int mode)
             {
                 for (std::size_t i = 0; i < layout.value_cols.size(); ++i)
@@ -391,26 +453,28 @@ namespace hgraph::stdlib
                     }
                     if (mode == kModeTick && !node.modified()) { continue; }
                     if (!node.valid()) { continue; }
-                    row.set_cell(layout.value_col_start + i, walk_value(node.value(), column.value_path));
+                    row.set(layout.value_col_start + i, walk_value(node.value(), column.value_path));
                 }
             }
 
-            void emit_frame_rows(const TsTableLayout &layout, const TSInputView &leaf, DateTime now,
-                                 DateTime as_of, std::vector<Value> &rows)
+            void emit_frame_rows(const TsTableLayout &layout, const TSInputView &leaf, RowCells &cells,
+                                 const RowSink &sink)
             {
                 const ValueView view  = leaf.value();
                 const Frame    &frame = view.checked_as<Frame>();
                 if (!frame.has_value()) { return; }
                 for (std::int64_t r = 0; r < frame_rows(frame); ++r)
                 {
-                    Value     row_value = read_row(*layout.frame_converter, frame, r);
-                    RowBuffer row       = make_row(layout, now, as_of);
+                    // Borrowed for this iteration only: the sink consumes the
+                    // row before ``row_value`` dies.
+                    Value row_value = read_row(*layout.frame_converter, frame, r);
+                    cells.clear_from(layout.value_col_start);
                     for (std::size_t i = 0; i < layout.value_cols.size(); ++i)
                     {
-                        row.set_cell(layout.value_col_start + i,
-                                     walk_value(row_value.view(), layout.value_cols[i].value_path));
+                        cells.set(layout.value_col_start + i,
+                                  walk_value(row_value.view(), layout.value_cols[i].value_path));
                     }
-                    rows.push_back(std::move(row.value));
+                    sink.row(sink.context, cells);
                 }
             }
 
@@ -418,14 +482,17 @@ namespace hgraph::stdlib
                 (Python's row order); Snap iterates the full current state
                 and emits no removals. */
             void emit_partition_rows(const TsTableLayout &layout, std::size_t level_index,
-                                     const TSInputView &ts, Int mode, DateTime now, DateTime as_of,
-                                     const RowBuffer &prototype, std::vector<Value> &rows)
+                                     const TSInputView &ts, Int mode, const RowScalars &scalars,
+                                     RowCells &cells, const RowSink &sink)
             {
                 if (level_index == layout.levels.size())
                 {
-                    RowBuffer row = prototype;
-                    write_value_cells(row, layout, ts, mode);
-                    rows.push_back(std::move(row.value));
+                    // Value cells are cleared first because write_value_cells
+                    // skips unmodified and invalid nodes; without this a
+                    // skipped column would keep the previous row's value.
+                    cells.clear_from(layout.value_col_start);
+                    write_value_cells(cells, layout, ts, mode);
+                    sink.row(sink.context, cells);
                     return;
                 }
 
@@ -436,29 +503,53 @@ namespace hgraph::stdlib
                 {
                     for (auto &&[key, child] : dict.valid_items())
                     {
-                        RowBuffer row = prototype;
-                        row.set_scalar(level.removed_col, Bool{false});
-                        write_level_keys(row, level, key);
-                        emit_partition_rows(layout, level_index + 1, child, mode, now, as_of, row, rows);
+                        cells.set(level.removed_col, scalars.removed_false.view());
+                        write_level_keys(cells, level, key);
+                        emit_partition_rows(layout, level_index + 1, child, mode, scalars, cells, sink);
                     }
                     return;
                 }
 
                 for (auto &&[key, child] : dict.modified_items())
                 {
-                    RowBuffer row = prototype;
-                    row.set_scalar(level.removed_col, Bool{false});
-                    write_level_keys(row, level, key);
-                    emit_partition_rows(layout, level_index + 1, child, mode, now, as_of, row, rows);
+                    cells.set(level.removed_col, scalars.removed_false.view());
+                    write_level_keys(cells, level, key);
+                    emit_partition_rows(layout, level_index + 1, child, mode, scalars, cells, sink);
                 }
                 for (const ValueView key : dict.removed_keys())
                 {
-                    RowBuffer row = prototype;
-                    row.set_scalar(level.removed_col, Bool{true});
-                    write_level_keys(row, level, key);
-                    rows.push_back(std::move(row.value));
+                    // A removal emits ABOVE the leaf, so everything below this
+                    // level is dropped rather than inherited.
+                    cells.clear_from(columns_after_level(layout, level_index));
+                    cells.set(level.removed_col, scalars.removed_true.view());
+                    write_level_keys(cells, level, key);
+                    sink.row(sink.context, cells);
                 }
             }
+
+            /** The ``to_table`` sink: materialise the row, because its output
+                IS a row-valued time-series. A recording sink appends the same
+                cells into Arrow builders instead (RFC 0019, step 2). */
+            struct MaterialisingSink
+            {
+                const TsTableLayout *layout{nullptr};
+                std::vector<Value>  *rows{nullptr};
+
+                static void emit(void *context, const RowCells &cells)
+                {
+                    auto     *self = static_cast<MaterialisingSink *>(context);
+                    RowBuffer row{*self->layout};
+                    for (std::size_t i = 0; i < cells.size(); ++i)
+                    {
+                        // set_cell ignores an unset view, so a cleared cell
+                        // stays None exactly as the copied prototype left it.
+                        row.set_cell(i, cells.at(i));
+                    }
+                    self->rows->push_back(std::move(row.value));
+                }
+
+                [[nodiscard]] RowSink sink() { return RowSink{.context = this, .row = &emit}; }
+            };
 
             [[nodiscard]] Value build_rows_value(const TsTableLayout &layout, std::vector<Value> rows)
             {
@@ -479,18 +570,25 @@ namespace hgraph::stdlib
             if (!layout.multi())
             {
                 RowBuffer row = make_row(layout, now, as_of);
-                write_value_cells(row, layout, ts, mode);
+                RowCells  cells{layout.keys.size()};
+                write_value_cells(cells, layout, ts, mode);
+                for (std::size_t i = layout.value_col_start; i < cells.size(); ++i)
+                {
+                    row.set_cell(i, cells.at(i));
+                }
                 apply_current_value(out, row.value.view());
                 return;
             }
 
             std::vector<Value> rows;
-            if (layout.partitioned())
-            {
-                const RowBuffer prototype = make_row(layout, now, as_of);
-                emit_partition_rows(layout, 0, ts, mode, now, as_of, prototype, rows);
-            }
-            else { emit_frame_rows(layout, ts, now, as_of, rows); }
+            RowScalars         scalars{now, as_of};
+            RowCells           cells{layout.keys.size()};
+            cells.set(0, scalars.now.view());
+            cells.set(1, scalars.as_of.view());
+            MaterialisingSink  materialise{.layout = &layout, .rows = &rows};
+            const RowSink      sink = materialise.sink();
+            if (layout.partitioned()) { emit_partition_rows(layout, 0, ts, mode, scalars, cells, sink); }
+            else { emit_frame_rows(layout, ts, cells, sink); }
             if (rows.empty()) { return; }
             Value value = build_rows_value(layout, std::move(rows));
             apply_current_value(out, value.view());
