@@ -55,6 +55,43 @@ namespace hgraph
             return result;
         }
 
+
+        /**
+         * A key or element ready to hand to a builder, borrowed where possible.
+         *
+         * The keys a ``TSD`` hands out are views into its ``KeySlotStore``, and
+         * the elements a ``TSS`` hands out are views into its own storage, so
+         * the source binding is usually already the builder's binding. In that
+         * case the builder can copy straight from that storage.
+         *
+         * Materialising unconditionally cost an allocation plus a SECOND copy
+         * of every key, every tick — the intermediate existed only to convert a
+         * binding that normally needs no conversion.
+         *
+         * The owner is an inline-storage ``ErasedOwner``, so it must outlive
+         * the returned pointer and must not be moved after the pointer is
+         * taken; callers keep it in the loop body's scope.
+         */
+        class BorrowedOperand
+        {
+          public:
+            BorrowedOperand(ValueTypeRef target, const ValueView &source, const char *fn)
+            {
+                if (target && source.binding() == target) { data_ = source.data(); return; }
+                owner_.emplace(materialize_as(target, source, fn));
+                data_ = owner_->data();
+            }
+
+            BorrowedOperand(const BorrowedOperand &)            = delete;
+            BorrowedOperand &operator=(const BorrowedOperand &) = delete;
+
+            [[nodiscard]] const void *data() const noexcept { return data_; }
+
+          private:
+            std::optional<MaterializedOwner> owner_{};
+            const void                      *data_{nullptr};
+        };
+
         [[nodiscard]] TSRoleTypeRef ts_type_for(const TSValueTypeMetaData *schema, const char *fn)
         {
             const auto type = TSDataPlanFactory::instance().data_type_for(schema);
@@ -423,14 +460,14 @@ namespace hgraph
             SetBuilder added{elem_binding};
             for (const auto &e : set.added())
             {
-                auto value = materialize_as(elem_binding, e, "capture_delta");
-                (void)added.insert_copy(value.data());
+                const BorrowedOperand borrowed{elem_binding, e, "capture_delta"};
+                (void)added.insert_copy(borrowed.data());
             }
             SetBuilder removed{elem_binding};
             for (const auto &e : set.removed())
             {
-                auto value = materialize_as(elem_binding, e, "capture_delta");
-                (void)removed.insert_copy(value.data());
+                const BorrowedOperand borrowed{elem_binding, e, "capture_delta"};
+                (void)removed.insert_copy(borrowed.data());
             }
 
             BundleBuilder bundle{binding_for(bundle_meta, "capture_delta")};
@@ -455,9 +492,8 @@ namespace hgraph
             SetBuilder removed{key_binding};
             for (const auto &key : dict.removed_keys())
             {
-                auto owned_key = materialize_as(
-                    key_binding, key, "capture_delta");
-                (void)removed.insert_copy(owned_key.data());
+                const BorrowedOperand borrowed{key_binding, key, "capture_delta"};
+                (void)removed.insert_copy(borrowed.data());
             }
 
             MapBuilder modified{key_binding, delta_binding};
@@ -468,13 +504,12 @@ namespace hgraph
                 {
                     throw std::logic_error("capture_delta_tsd resolved the wrong child TS schema");
                 }
-                auto owned_key = materialize_as(
-                    key_binding, key, "capture_delta");
+                const BorrowedOperand borrowed{key_binding, key, "capture_delta"};
                 const Value child_delta = capture_delta(child);
                 if (child_delta.binding() == delta_binding)
                 {
                     modified.set_item_copy(
-                        owned_key.data(), child_delta.view().data());
+                        borrowed.data(), child_delta.view().data());
                     continue;
                 }
                 Value stored_delta{delta_binding};
@@ -486,7 +521,7 @@ namespace hgraph
                     child_delta.binding(),
                     child_delta.view().data());
                 modified.set_item_copy(
-                    owned_key.data(), stored_delta.view().data());
+                    borrowed.data(), stored_delta.view().data());
             }
 
             // No strict removals: a capture reports what happened, and
@@ -743,9 +778,8 @@ namespace hgraph
                 const auto set = in.as_set();
                 for (const auto &value : set.values())
                 {
-                    auto owned_value = materialize_as(
-                        element, value, "capture_current_delta");
-                    static_cast<void>(added.insert_copy(owned_value.data()));
+                    const BorrowedOperand borrowed{element, value, "capture_current_delta"};
+                    static_cast<void>(added.insert_copy(borrowed.data()));
                 }
                 SetBuilder removed{element};
                 BundleBuilder bundle{
@@ -767,13 +801,12 @@ namespace hgraph
                 const auto dict = in.as_dict();
                 for (const auto &[key, child] : dict.valid_items())
                 {
-                    auto owned_key = materialize_as(
-                        key_binding, key, "capture_current_delta");
+                    const BorrowedOperand borrowed{key_binding, key, "capture_current_delta"};
                     Value child_delta = capture_current_delta(child);
                     if (child_delta.binding() == delta_binding)
                     {
                         modified.set_item_copy(
-                            owned_key.data(), child_delta.view().data());
+                            borrowed.data(), child_delta.view().data());
                         continue;
                     }
                     Value stored_delta{delta_binding};
@@ -783,7 +816,7 @@ namespace hgraph
                         child_delta.binding(),
                         child_delta.view().data());
                     modified.set_item_copy(
-                        owned_key.data(), stored_delta.view().data());
+                        borrowed.data(), stored_delta.view().data());
                 }
 
                 Value removed_delta = removed.build();
