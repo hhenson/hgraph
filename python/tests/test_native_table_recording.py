@@ -71,3 +71,36 @@ def test_a_flat_series_still_records():
 
     assert _columns(frame) == ["__date_time__", "__as_of__", "value"]
     assert _rows(frame) == 3
+
+
+def _round_trip(ticks, tp):
+    @hg.graph
+    def rec(ts: tp):
+        hg.record(ts, key="out", recordable_id="rt")
+
+    @hg.graph
+    def rep() -> tp:
+        return hg.replay("out", tp, recordable_id="rt")
+
+    with hg.GlobalState():
+        hg.set_record_replay_model("DataFrame")
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
+            hg.eval_node(rec, ticks)
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.REPLAY):
+            return hg.eval_node(rep)
+
+
+def test_a_tsd_round_trips_through_record_and_replay():
+    """Replay reconstructs the partition, not just the value.
+
+    A recorded row is a key and a value rather than a whole value, so it cannot
+    be read straight back through a converter - replay descends the levels the
+    row names and applies at that key.
+    """
+    ticks = [{"a": 1.0, "b": 2.0}, {"a": 3.0}]
+
+    assert _round_trip(ticks, hg.TSD[str, hg.TS[float]]) == ticks
+
+
+def test_a_flat_series_still_round_trips():
+    assert _round_trip([1, 2, 3], hg.TS[int]) == [1, 2, 3]
