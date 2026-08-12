@@ -9,6 +9,7 @@
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/value/table_codec.h>
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -67,6 +68,71 @@ namespace hgraph::stdlib
             [[nodiscard]] bool partitioned() const noexcept { return !levels.empty(); }
             [[nodiscard]] bool multi() const noexcept { return partitioned() || is_multi_row; }
         };
+
+
+        /**
+         * How a recording is shaped (RFC 0019, step 3).
+         *
+         * Supplied to the recorder rather than looked up, with the global
+         * ``record_replay::Config`` as the default. Two recordings in one
+         * graph therefore differ by being configured differently, not through
+         * a registry keyed on name - which is what pulled the data-frame
+         * adaptor into a second override dictionary beside ``Config``.
+         *
+         * Defaults follow today's configuration, including ``removes``, which
+         * the adaptor's ``_OverrideState`` leaves off.
+         */
+        struct TableRecordingOptions
+        {
+            enum class AsOf
+            {
+                Track,   ///< an as-of column carrying the evaluation as-of
+                Omit,    ///< no as-of column at all
+                Fixed,   ///< an as-of column carrying ``as_of_value``
+            };
+            enum class Removes
+            {
+                Omit,    ///< no removed columns, and no rows for removals
+                Track,   ///< a removed flag per level
+            };
+
+            AsOf                     as_of{AsOf::Track};
+            std::optional<DateTime>  as_of_value{};
+            Removes                  removes{Removes::Omit};
+            /** Empty means the layout's own name. */
+            std::string              date_key{};
+            std::string              as_of_key{};
+            /** One name per FLATTENED key column, not per level: a compound key
+                such as ``TSD[tuple[int, str], ...]`` occupies several columns.
+                Empty means the layout's names. */
+            std::vector<std::string> partition_names{};
+            /** One name per level; empty means the layout's names. */
+            std::vector<std::string> removed_names{};
+            /** Prefix for the columns of an expanded frame-valued leaf. */
+            std::string              frame_prefix{};
+        };
+
+        /**
+         * The columns a recording actually has, projected from a layout.
+         *
+         * ``source`` maps each output column back to its column in the
+         * layout's row, because omitting a column shifts every index after it
+         * and the row cells are still laid out by the layout.
+         */
+        struct RecordingColumns
+        {
+            std::vector<std::string>               names{};
+            std::vector<const ValueTypeMetaData *> metas{};
+            std::vector<std::size_t>               source{};
+
+            [[nodiscard]] std::size_t size() const noexcept { return names.size(); }
+        };
+
+        /** Project ``layout`` through ``options``. Throws when the options do
+            not fit the layout - a rename list of the wrong length, or a name
+            that collides after the configured prefix is applied. */
+        [[nodiscard]] HGRAPH_EXPORT RecordingColumns recording_columns(
+            const TsTableLayout &layout, const TableRecordingOptions &options);
 
         [[nodiscard]] HGRAPH_EXPORT const TsTableLayout &ts_table_layout(
             const TSValueTypeMetaData *ts, std::string_view date_key, std::string_view as_of_key);

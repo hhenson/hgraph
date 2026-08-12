@@ -1026,6 +1026,10 @@ namespace hgraph
         std::vector<std::unique_ptr<arrow::ArrayBuilder>> builders{};
         std::shared_ptr<arrow::Schema>                   schema{};
         std::int64_t                                     rows{0};
+        /** Row index each column last received a cell for; -1 for none. Cheaper
+            than clearing a mask per row, and it makes a duplicate delivery
+            detectable. */
+        std::vector<std::int64_t>                        written{};
     };
 
     TableRecorder::TableRecorder(std::span<const std::string> names,
@@ -1055,6 +1059,7 @@ namespace hgraph
                                             .append    = ops.append,
                                             .read      = ops.read});
             impl_->builders.push_back(make_builder(ops.type));
+            impl_->written.push_back(-1);
             fields.push_back(arrow::field(names[i], ops.type));
         }
         impl_->schema = arrow::schema(std::move(fields));
@@ -1064,21 +1069,29 @@ namespace hgraph
     TableRecorder &TableRecorder::operator=(TableRecorder &&) noexcept = default;
     TableRecorder::~TableRecorder()                                    = default;
 
-    void TableRecorder::append_row(std::span<const ValueView> cells)
+    void TableRecorder::append_cell(std::size_t column, const ValueView &value)
     {
-        if (cells.size() != impl_->columns.size())
+        if (column >= impl_->columns.size())
         {
-            throw std::invalid_argument(
-                fmt::format("table recorder: row has {} cells for {} columns", cells.size(),
-                            impl_->columns.size()));
+            throw std::invalid_argument(fmt::format("table recorder: column {} of {}", column,
+                                                    impl_->columns.size()));
         }
-        for (std::size_t i = 0; i < cells.size(); ++i)
+        if (impl_->written[column] == impl_->rows)
         {
-            // An absent cell is a null, not a default: a removal row has no
-            // value columns, and a tick that did not modify a column leaves it
-            // unset rather than zero.
-            if (!cells[i].has_value()) { check(impl_->builders[i]->AppendNull(), "append null"); continue; }
-            append_column(impl_->columns[i], cells[i], *impl_->builders[i]);
+            throw std::invalid_argument(fmt::format(
+                "table recorder: column '{}' delivered twice in one row", impl_->columns[column].name));
+        }
+        if (!value.has_value()) { return; }   // absent; end_row makes it a null
+        append_column(impl_->columns[column], value, *impl_->builders[column]);
+        impl_->written[column] = impl_->rows;
+    }
+
+    void TableRecorder::end_row()
+    {
+        for (std::size_t i = 0; i < impl_->columns.size(); ++i)
+        {
+            if (impl_->written[i] == impl_->rows) { continue; }
+            check(impl_->builders[i]->AppendNull(), "append null");
         }
         ++impl_->rows;
     }
@@ -1094,6 +1107,7 @@ namespace hgraph
         for (auto &builder : impl_->builders) { arrays.push_back(hgraph::finish(*builder)); }
         const std::int64_t rows = impl_->rows;
         impl_->rows             = 0;
+        std::fill(impl_->written.begin(), impl_->written.end(), -1);
         return Frame{arrow::Table::Make(impl_->schema, std::move(arrays), rows)};
     }
 
