@@ -476,11 +476,12 @@ authentication challenge.
 dataclass, executor, threaded-graph, stream status, dataframe source, and
 dataframe record-store compatibility modules are present.  Catalogue
 publish/subscribe, JSON, SQL, Delta Lake, and Perspective now execute over the
-native keyed service/adaptor or native time-series boundary.  Kafka is now
-provided by the separately installed C++-first ``hgraph-kafka`` extension,
-which owns the released ``hgraph.adaptors.kafka`` compatibility path.  Arrow
-``Table`` is the dataframe interchange value; Polars is accepted only as an
-optional producer and is converted at the boundary.
+native keyed service/adaptor or native time-series boundary. Kafka is now
+provided by the separately installed C++-first ``hgraph-kafka`` extension.
+Core retains a guarded ``hgraph.adaptors.kafka`` compatibility shim which
+loads the extension only when that legacy path is requested. Arrow ``Table``
+is the dataframe interchange value; Polars is accepted only as an optional
+producer and is converted at the boundary.
 
 Resource configuration belongs to the seeded/result ``GlobalState``:
 catalogues, environments, SQL connection stores, Delta backends, Perspective

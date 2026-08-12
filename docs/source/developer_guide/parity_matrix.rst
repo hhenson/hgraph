@@ -241,10 +241,11 @@ timezone-bearing standalone ``time`` at both inferred and typed graph ingress
 instead of silently losing a ``ZoneInfo`` whose offset needs a date.
 
 The recorded audit has one stable case without executable reference evidence:
-the upstream multi-client adaptor XFAIL.  After Kafka ownership moves out of
-the core distribution, a default core-only run also leaves the skipped Kafka
-wiring sketch reference-unverified; its behavior evidence belongs to a
-candidate environment containing both core and the extension.  The skipped
+the upstream multi-client adaptor XFAIL. After the Kafka implementation moves
+out of the core distribution, a default core-only run also leaves the skipped
+Kafka wiring sketch reference-unverified; the core-owned compatibility shim
+reports that its optional extension is missing. Its behavior evidence belongs
+to a candidate environment containing both core and the extension. The skipped
 generic ``nested_graph`` body is an explicit non-requirement, while the former
 inspector skip has deterministic public Python and native C++ evidence.  The
 controller deliberately leaves the adaptor XFAIL unclassified because it
@@ -281,12 +282,13 @@ design decisions, not unimplemented user behaviour:
   the private Python ``InputsKey`` cache is likewise replaced by the native
   structural interning key, which compares producer identity, paths, input
   shape, and native scalar values without invoking overloaded port equality;
-- Kafka is owned by a separately installed C++-first extension.  A core-only
-  conformance run records the absent ``hgraph.adaptors.kafka`` module as the
-  approved package boundary.  Extension tests cover replay/live isolation,
+- Kafka is implemented by a separately installed C++-first extension. Core
+  owns only a guarded ``hgraph.adaptors.kafka`` compatibility shim. A core-only
+  conformance run records the shim's explicit missing-extension error as the
+  approved package boundary. Extension tests cover replay/live isolation,
   recovery handover, and graph shutdown after permanent consumer failure
-  through the native push boundary.  Websocket behavior is covered without
-  the upstream module's broad optional-import guard;
+  through the native push boundary. Websocket behavior is covered without the
+  upstream module's broad optional-import guard;
 - ``cleanup_on_error=False`` defers stop only while the raised exception owns
   the failed executor; releasing it performs mandatory final teardown; and
 - Arrow stop-hook errors cross the native exception boundary, explicit nodes

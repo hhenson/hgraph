@@ -29,6 +29,13 @@ def test_kafka_is_a_separate_workspace_distribution():
     assert project["project"]["name"] == "hgraph-kafka"
     assert "uv" not in project.get("tool", {})
     assert project["tool"]["scikit-build"]["wheel"]["py-api"] == "cp312"
+    assert project["tool"]["scikit-build"]["wheel"]["packages"] == [
+        "python/hgraph_kafka"
+    ]
+    assert not any((EXTENSION_ROOT / "python" / "hgraph").rglob("*.py"))
+    assert (
+        REPOSITORY_ROOT / "python" / "hgraph" / "adaptors" / "kafka" / "__init__.py"
+    ).is_file()
     assert CORE_SDK_REQUIREMENT in project["project"]["dependencies"]
     assert CORE_SDK_REQUIREMENT in project["build-system"]["requires"]
     assert "extensions/**" in root["tool"]["scikit-build"]["sdist"]["exclude"]

@@ -15,9 +15,7 @@ from pathlib import Path
 
 WHEEL_REQUIRED = (
     "hgraph_kafka/__init__.py",
-    "hgraph/adaptors/kafka/__init__.py",
-    "hgraph/adaptors/kafka/_api.py",
-    "hgraph/adaptors/kafka/_impl.py",
+    "hgraph_kafka/compat.py",
 )
 SDIST_REQUIRED = (
     "CMakeLists.txt",
@@ -133,10 +131,11 @@ def _audit_wheel(path: Path) -> None:
     forbidden = [
         name
         for name in names
-        if Path(name).name.startswith(("libhgraph_", "libnanobind-abi3"))
+        if name.startswith("hgraph/")
+        or Path(name).name.startswith(("libhgraph_", "libnanobind-abi3"))
     ]
     if forbidden:
-        raise AssertionError(f"{path}: embeds core runtime libraries: {forbidden}")
+        raise AssertionError(f"{path}: embeds core-owned files: {forbidden}")
     if "Requires-Dist: hgraph" not in metadata:
         raise AssertionError(f"{path}: does not declare the core distribution dependency")
 

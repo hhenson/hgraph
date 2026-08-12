@@ -1,6 +1,6 @@
-"""Released Kafka authoring API, implemented by :mod:`hgraph_kafka`."""
+"""Legacy Kafka authoring names supplied by :mod:`hgraph_kafka`."""
 
-from frozendict import frozendict  # noqa: F401 - needed to resolve legacy annotations
+from frozendict import frozendict  # noqa: F401 - resolves legacy annotations
 
 from hgraph_kafka.compat import (
     KafkaMessage,
