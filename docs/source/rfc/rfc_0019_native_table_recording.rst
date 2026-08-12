@@ -121,6 +121,14 @@ time-series. Recording supplies a sink that appends cells directly into the
 builders, so no row value is ever built. This removes a copy from the native
 path that exists today even for the shapes it already supports.
 
+**Both emitters, not just the partition walk.** A frame-valued leaf does not go
+through ``emit_partition_rows`` at all: ``emit_frame_rows`` is a separate
+function that calls ``read_row`` to build a ``Value`` for every frame row. Since
+frame expansion is one of the shapes this RFC promises, parameterising only the
+partition walker would leave exactly that path materialising rows and would not
+satisfy the acceptance criterion below. The sink is therefore introduced as a
+shared cell-emission traversal that both emitters use.
+
 Options
 ~~~~~~~
 
@@ -139,13 +147,16 @@ key, so a graph can record two series with different policies:
        with a supplied time. The column name comes from ``Config::as_of_key``
        and may be overridden per key.
    * - ``removes``
-     - ``Track`` (default) or ``Omit``. Omitted means a removal **does
-       nothing**: no removed-flag column on any level, and no row — not a row
-       of nulls. Per-level column names may be supplied, which is what
-       ``remove_partition_keys`` does today.
+     - ``Omit`` (default, matching ``_OverrideState``) or ``Track``. Omitted
+       means a removal **does nothing**: no removed-flag column on any level,
+       and no row — not a row of nulls. Per-level column names may be supplied
+       for ``Track``, which is what ``remove_partition_keys`` does today.
    * - ``partition_names``
-     - Per-level replacement names for the key columns, defaulting to the
-       layout's. Today's ``partition_keys`` override.
+     - Replacement names **per flattened key column**, not per level: a level
+       whose key is a tuple or compound scalar flattens into several columns
+       (``Level::key_paths`` is one path per column), and the existing
+       ``partition_keys`` override supplies a name for each. A per-level name
+       could not express ``TSD[tuple[int, str], ...]``.
    * - ``date_key``
      - The value-time column name; defaults to ``Config::date_key``.
    * - ``frame_prefix``
@@ -163,8 +174,16 @@ key, so a graph can record two series with different policies:
        Set to a row count or wall-clock interval for a run whose output should
        not be held whole — see *Flushing writes segments*. Within a run only.
 
-Defaults reproduce today's behaviour exactly, so an existing recording keeps
-its columns and column names.
+Defaults follow today's configuration — notably ``removes`` defaults to
+``Omit``, because ``_OverrideState`` sets ``track_removes`` to ``False``.
+
+One default does **not** reproduce today's output, and it is a deliberate
+correction rather than an oversight. Today, omitting removals drops the
+removed-flag column but the rows ``to_table`` emitted for those removals are
+still stored — a row that cannot be interpreted, since nothing marks it as a
+removal. Under this RFC omission emits no row at all. Recordings will therefore
+contain fewer rows by default than they do today, which is the intended
+semantic and worth knowing before migration.
 
 **What ``removes: Omit`` means.** This is the ordinary shape of a recorded data
 stream rather than a lossy variant of one: a removal means nothing further is
@@ -244,8 +263,17 @@ completed flushes and nothing torn.
 
 Two consequences follow:
 
-* Segments need an ordering the reader can recover without opening them, so
-  the key carries a monotonic segment index under the recording's key.
+* Segments need an ordering *and a discovery rule*, because ``FrameStoreOps``
+  is ``write``/``read``/``contains``/``clear`` with no enumeration. Each
+  segment is a separate key carrying a monotonic index under the recording's
+  key, and a reader probes ``contains`` upwards until a key is absent. Writes
+  complete in order, so an absent index means end-of-recording rather than a
+  hole.
+
+  This deliberately adds no manifest and no store capability. Appending to a
+  single key is not an option: ``write`` has no mode, an immutable store
+  rejects the second write, and a mutable one replaces the object — a
+  multi-segment recording would either fail or retain only its last segment.
 * A reader cannot tell a still-running recording from one whose process died,
   and does not need to: both are "everything up to the last flush". A
   completion marker written at ``stop`` lets a reader that *does* care —
@@ -294,8 +322,20 @@ Replay
 Replay reads back through the same layout, which is what makes the round trip
 verifiable rather than merely plausible. It needs the row grouping the Python
 side does today — rows sharing a value time form one tick — plus ``start_time``
-/ ``end_time`` / ``as_of`` filtering, and the ``replay_const`` first-group
-semantics.
+/ ``end_time`` / ``as_of`` filtering.
+
+``replay_const`` takes the **native** semantics, not the adaptor's. The two
+differ, and in a direction that matters:
+``record_replay.cpp``'s ``replay_const_value`` skips rows whose value time is
+after the cutoff and keeps the *last qualifying* row — the last value at or
+before the start. The Python ``_df_replay_const_rows`` yields the *first* group
+at or after the start, which for a graph starting between recorded ticks is a
+**future** value. ``recorded_seed_resolver`` seeds RECOVER through
+``replay_const_value``, so adopting the adaptor's behaviour would seed graphs
+with data from their own future.
+
+The adaptor's behaviour changes to match, which is a fix rather than a
+migration loss.
 
 Reading a recording whose options differ from the reader's — a missing as-of
 column, renamed partition columns — is resolved by name against the stored
@@ -378,8 +418,12 @@ Acceptance criteria
   replay by name.
 * Tick, Sample and Snap produce the same rows natively as through
   ``to_table`` today.
-* No ``Value`` row is materialised on the recording path — asserted by covering
-  the appending sink directly, not inferred from timing.
+* No ``Value`` row is materialised on the recording path, **for the frame-leaf
+  path as well as the partition walk** — asserted by covering the appending
+  sink directly, not inferred from timing.
+* ``replay_const`` returns the last value at or before the start time, for both
+  the native reader and the migrated adaptor, and a graph starting between
+  recorded ticks is never seeded with a later value.
 * Retained Arrow memory tracks payload rather than tick count, at both one row
   per tick and five rows per tick over 20 000 ticks.
 * The Python adaptor's existing tests pass unchanged against the migrated
