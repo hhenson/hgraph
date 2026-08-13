@@ -462,6 +462,16 @@ def test_generator_covers_realistic_python_structural_and_polymorphic_workflows(
         for recipe in recipes
         if recipe.template == "structural_map_projection"
     }
+    captured_maps = [
+        recipe for recipe in recipes
+        if recipe.template == "structural_map_projection"
+        and recipe.parameters["projection"] == "captured_combine"
+    ]
+    assert all(
+        recipe.inputs["lookups"][0].keys()
+        <= recipe.inputs["rows"][0].keys()
+        for recipe in captured_maps
+    )
     arrows = [
         recipe for recipe in recipes
         if recipe.template == "arrow_typed_projection"

@@ -1002,9 +1002,14 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
                 "captured_combine",
             )
         ))
+        row_keys = (
+            ("left", "right")
+            if projection == "captured_combine"
+            else ("a", "b")
+        )
         rows = [{
-            "a": {"value": 1, "quantity": 10, "label": "alpha"},
-            "b": {"value": 2, "quantity": 20, "label": "beta"},
+            row_keys[0]: {"value": 1, "quantity": 10, "label": "alpha"},
+            row_keys[1]: {"value": 2, "quantity": 20, "label": "beta"},
         }]
         lookups = [{"left": "a", "right": "b"}]
         clients = {"left", "right"}
@@ -1021,7 +1026,7 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             row_tick = None
             lookup_tick = None
             if action == "row":
-                row = draw(st.sampled_from(("a", "b")))
+                row = draw(st.sampled_from(row_keys))
                 row_tick = {row: {
                     "value": draw(st.integers(min_value=-20, max_value=20)),
                     "quantity": draw(st.integers(min_value=-20, max_value=20)),
