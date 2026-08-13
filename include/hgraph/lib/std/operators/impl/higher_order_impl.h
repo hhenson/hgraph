@@ -122,15 +122,23 @@ namespace hgraph::stdlib
         }
 
         [[nodiscard]] inline std::vector<WiringInputRef> higher_order_input_refs(
-            std::span<const WiringPortRef> inputs)
+            std::span<const WiringPortRef> inputs,
+            std::span<const std::size_t> passive_materializers = {})
         {
             std::vector<WiringInputRef> refs;
             refs.reserve(inputs.size());
-            for (const WiringPortRef &input : inputs)
+            for (std::size_t index = 0; index < inputs.size(); ++index)
             {
                 refs.push_back(WiringInputRef{
-                    .source = input,
-                    .rank_dependency = input.arg_tag != WiringPortRef::ArgTag::Passive,
+                    .source = inputs[index],
+                    // Passive transports normally omit their producer edge so
+                    // higher-order feedback can close a cycle. A synthetic
+                    // materializer is the exception: the consumer needs its
+                    // initial REF publication before the first child sample.
+                    .rank_dependency =
+                        inputs[index].arg_tag != WiringPortRef::ArgTag::Passive ||
+                        std::find(passive_materializers.begin(), passive_materializers.end(), index) !=
+                            passive_materializers.end(),
                 });
             }
             return refs;
@@ -141,13 +149,14 @@ namespace hgraph::stdlib
             such root, so materialize its structural REF once in the parent.
             The multiplexed inputs retain their collection storage and every
             map/mesh child shares the live broadcast reference. */
-        inline void materialize_structural_broadcast_inputs(
+        [[nodiscard]] inline std::vector<std::size_t> materialize_structural_broadcast_inputs(
             Wiring &w,
             std::vector<WiringPortRef> &inputs,
             std::vector<const TSValueTypeMetaData *> &schemas,
             std::span<const std::size_t> multiplexed_inputs)
         {
             auto &registry = TypeRegistry::instance();
+            std::vector<std::size_t> passive_materializers;
             for (std::size_t index = 0; index < inputs.size(); ++index)
             {
                 if (std::find(multiplexed_inputs.begin(), multiplexed_inputs.end(), index) !=
@@ -158,12 +167,18 @@ namespace hgraph::stdlib
                 }
 
                 const auto tag = inputs[index].arg_tag;
+                inputs[index].arg_tag = WiringPortRef::ArgTag::None;
                 inputs[index] = graph_wiring_detail::adapt_source_for_input(
                     w, registry.ref(inputs[index].schema),
                     std::move(inputs[index]));
                 inputs[index].arg_tag = tag;
                 schemas[index] = inputs[index].schema;
+                if (tag == WiringPortRef::ArgTag::Passive)
+                {
+                    passive_materializers.push_back(index);
+                }
             }
+            return passive_materializers;
         }
 
         inline void bind_graph_output(ResolutionMap &resolution,
@@ -3069,7 +3084,7 @@ namespace hgraph::stdlib
             // excluded from the inference. The runtime is always keys-driven;
             // there is no in-node union scan.
             auto &registry = TypeRegistry::instance();
-            materialize_structural_broadcast_inputs(
+            const auto passive_materializers = materialize_structural_broadcast_inputs(
                 w, ordered, ts_schemas,
                 {spec.multiplexed_inputs.data(),
                  spec.multiplexed_inputs.size()});
@@ -3106,7 +3121,8 @@ namespace hgraph::stdlib
             // the scalar at the point of use.
             (void)scalar_descriptor<MapCallConfig>::value_meta();
             const auto input_refs = higher_order_input_refs(
-                std::span<const WiringPortRef>{inputs.data(), inputs.size()});
+                std::span<const WiringPortRef>{inputs.data(), inputs.size()},
+                {passive_materializers.data(), passive_materializers.size()});
             WiringPortRef out = w.add_node(
                 std::type_index(typeid(map_node_tag)), node_schema,
                 std::span<const WiringInputRef>{input_refs.data(), input_refs.size()},
@@ -3225,7 +3241,7 @@ namespace hgraph::stdlib
 
             auto &registry = TypeRegistry::instance();
 
-            materialize_structural_broadcast_inputs(
+            const auto passive_materializers = materialize_structural_broadcast_inputs(
                 w, ordered, ts_schemas,
                 {map_spec.multiplexed_inputs.data(),
                  map_spec.multiplexed_inputs.size()});
@@ -3269,7 +3285,8 @@ namespace hgraph::stdlib
 
             (void)scalar_descriptor<MapCallConfig>::value_meta();
             const auto input_refs = higher_order_input_refs(
-                std::span<const WiringPortRef>{inputs.data(), inputs.size()});
+                std::span<const WiringPortRef>{inputs.data(), inputs.size()},
+                {passive_materializers.data(), passive_materializers.size()});
             WiringPortRef out = w.add_node(
                 std::type_index(typeid(mesh_node_tag)), node_schema,
                 std::span<const WiringInputRef>{input_refs.data(), input_refs.size()},
@@ -4131,7 +4148,7 @@ namespace hgraph::stdlib
             append_external_service_inputs(
                 w, std::move(external_services), ts_schemas, arg_tags, ordered);
 
-            materialize_structural_broadcast_inputs(
+            const auto passive_materializers = materialize_structural_broadcast_inputs(
                 w, ordered, ts_schemas,
                 {spec.multiplexed_inputs.data(),
                  spec.multiplexed_inputs.size()});
@@ -4147,7 +4164,8 @@ namespace hgraph::stdlib
 
             (void)scalar_descriptor<MapCallConfig>::value_meta();
             const auto input_refs = higher_order_input_refs(
-                std::span<const WiringPortRef>{ordered.data(), ordered.size()});
+                std::span<const WiringPortRef>{ordered.data(), ordered.size()},
+                {passive_materializers.data(), passive_materializers.size()});
             return w.add_node(std::type_index(typeid(dynamic_tsl_map_node_tag)), node_schema,
                               std::span<const WiringInputRef>{input_refs.data(), input_refs.size()},
                               Value{MapCallConfig{func, Str{key_arg}, Str{}, arg_tags}}, [&]() {

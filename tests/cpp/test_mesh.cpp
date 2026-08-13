@@ -214,6 +214,22 @@ struct MeshBundledKeywordParamsG {
   }
 };
 
+struct MeshPassiveBundledKeywordParamsG {
+  static constexpr auto name = "mesh_passive_bundled_keyword_params_g";
+
+  static Port<TSD<Str, TS<Int>>>
+  compose(Wiring &w, Port<TSD<Str, TS<Int>>> values,
+          Port<TS<Bool>> flag, Port<TS<Int>> limit,
+          Port<TSS<Str>> keys) {
+    auto params = passive(stdlib::to_tsb<MeshKeywordParams>(w, flag, limit));
+    return wire<stdlib::mesh_>(w, fn<MeshKeywordParamsChildG>(),
+                               arg<"value">(values),
+                               arg<"params">(params),
+                               arg<"__keys__">(keys))
+        .as<TSD<Str, TS<Int>>>();
+  }
+};
+
 struct ConcreteDictSizeG {
   static constexpr auto name = "mesh_concrete_dict_size_g";
   static Port<TS<Int>> compose(Wiring &w,
@@ -696,6 +712,22 @@ TEST_CASE("mesh_: a structural TSB broadcast binds through a named child paramet
       values<Value>(
           dict_delta<Str, TS<Int>>({{"a"s, 12}, {"b"s, 13}}),
           dict_delta<Str, TS<Int>>({{"a"s, -3}, {"b"s, -2}})));
+}
+
+TEST_CASE("mesh_: a passive structural TSB broadcast materializes before child binding") {
+  using namespace hgraph;
+  stdlib::register_standard_operators();
+
+  CHECK_OUTPUT(
+      eval_node<MeshPassiveBundledKeywordParamsG>(
+          values<Value>(
+              dict_delta<Str, TS<Int>>({{"a"s, 2}, {"b"s, 3}}),
+              dict_delta<Str, TS<Int>>({{"a"s, 4}, {"b"s, 5}})),
+          values<Bool>(true, false), values<Int>(10, 5),
+          values<Value>(set_delta<Str>({"a"s, "b"s}, {}), none)),
+      values<Value>(
+          dict_delta<Str, TS<Int>>({{"a"s, 12}, {"b"s, 13}}),
+          dict_delta<Str, TS<Int>>({{"a"s, -1}, {"b"s, 0}})));
 }
 
 TEST_CASE(
