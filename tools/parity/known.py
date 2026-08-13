@@ -34,6 +34,12 @@ REQUEST_REPLY_ONE_CYCLE_EARLIER = "request-reply-one-cycle-earlier"
 NESTED_REQUEST_REPLY_ONE_CYCLE_EARLIER = "nested-request-reply-one-cycle-earlier"
 POLYMORPHIC_JSON_PRESERVES_LEAF = "polymorphic-json-preserves-leaf"
 
+_POLYMORPHIC_EVENT_LEAVES = {
+    "heartbeat": ("HeartbeatEvent", ("event_id",)),
+    "create": ("CreateEvent", ("event_id", "order_id", "quantity")),
+    "cancel": ("CancelEvent", ("event_id", "order_id", "reason")),
+}
+
 
 def load_known_divergences(
     path: Path | None = None,
@@ -93,6 +99,61 @@ def _trace_value_relation(
     return difference.get("classification") == "value"
 
 
+def _matches_polymorphic_recipe_events(
+    recipe: dict[str, Any], trace: Any
+) -> bool:
+    events = (recipe.get("inputs") or {}).get("events")
+    if (
+        not isinstance(events, list)
+        or not isinstance(trace, list)
+        or len(events) != len(trace)
+    ):
+        return False
+
+    for expected, actual in zip(events, trace):
+        if expected is None:
+            if actual is not None:
+                return False
+            continue
+        if not isinstance(expected, dict):
+            return False
+
+        leaf_spec = _POLYMORPHIC_EVENT_LEAVES.get(expected.get("kind"))
+        if leaf_spec is None:
+            return False
+        expected_leaf, expected_field_names = leaf_spec
+        if set(expected) != {"kind", *expected_field_names}:
+            return False
+
+        if not isinstance(actual, dict) or set(actual) != {"$dataclass"}:
+            return False
+        payload = actual["$dataclass"]
+        if not isinstance(payload, dict):
+            return False
+        type_name = payload.get("type")
+        if (
+            not isinstance(type_name, str)
+            or type_name.rsplit(".", 1)[-1] != expected_leaf
+        ):
+            return False
+
+        fields = payload.get("fields")
+        if not isinstance(fields, list) or any(
+            not isinstance(field, list)
+            or len(field) != 2
+            or not isinstance(field[0], str)
+            for field in fields
+        ):
+            return False
+        field_values = {field[0]: field[1] for field in fields}
+        if len(field_values) != len(fields) or field_values != {
+            name: expected[name] for name in expected_field_names
+        }:
+            return False
+
+    return True
+
+
 def _polymorphic_json_preserves_leaf_relation(
     _recipe: dict[str, Any],
     difference: dict[str, Any],
@@ -107,6 +168,8 @@ def _polymorphic_json_preserves_leaf_relation(
     become identical. Any changed base field, timing, container shape, or
     unrelated payload remains reportable."""
     if difference.get("classification") not in {"value", "length"}:
+        return False
+    if not _matches_polymorphic_recipe_events(_recipe, candidate.get("trace")):
         return False
 
     changed = False
@@ -135,10 +198,10 @@ def _polymorphic_json_preserves_leaf_relation(
                     if len(event_fields) != 1:
                         return value
                     changed = True
-                    prefix = type_name.rsplit(".", 1)[0]
+                    prefix, separator, _ = type_name.rpartition(".")
                     return {
                         "$dataclass": {
-                            "type": f"{prefix}.Event",
+                            "type": f"{prefix}.Event" if separator else "Event",
                             "fields": [["event_id", project(event_fields[0][1])]],
                         }
                     }

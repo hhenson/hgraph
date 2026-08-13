@@ -686,6 +686,23 @@ def test_campaign_classifies_known_family_without_verification(monkeypatch, tmp_
 def test_polymorphic_json_family_accepts_only_concrete_leaf_preservation():
     recipe = {
         "template": "polymorphic_event_flow",
+        "inputs": {
+            "events": [
+                {"kind": "heartbeat", "event_id": "heartbeat-one"},
+                {
+                    "kind": "create",
+                    "event_id": "create-one",
+                    "order_id": "order-one",
+                    "quantity": 10,
+                },
+                {
+                    "kind": "cancel",
+                    "event_id": "cancel-one",
+                    "order_id": "order-one",
+                    "reason": "risk",
+                },
+            ]
+        },
         "parameters": {"operation": "json_round_trip"},
     }
     families = [
@@ -702,9 +719,21 @@ def test_polymorphic_json_family_accepts_only_concrete_leaf_preservation():
             {
                 "$dataclass": {
                     "type": "model.Event",
-                    "fields": [["event_id", "one"]],
+                    "fields": [["event_id", "heartbeat-one"]],
                 }
-            }
+            },
+            {
+                "$dataclass": {
+                    "type": "model.Event",
+                    "fields": [["event_id", "create-one"]],
+                }
+            },
+            {
+                "$dataclass": {
+                    "type": "model.Event",
+                    "fields": [["event_id", "cancel-one"]],
+                }
+            },
         ],
     }
     candidate = {
@@ -712,14 +741,30 @@ def test_polymorphic_json_family_accepts_only_concrete_leaf_preservation():
         "trace": [
             {
                 "$dataclass": {
+                    "type": "model.HeartbeatEvent",
+                    "fields": [["event_id", "heartbeat-one"]],
+                }
+            },
+            {
+                "$dataclass": {
                     "type": "model.CreateEvent",
                     "fields": [
-                        ["event_id", "one"],
-                        ["order_id", "order"],
+                        ["event_id", "create-one"],
+                        ["order_id", "order-one"],
                         ["quantity", 10],
                     ],
                 }
-            }
+            },
+            {
+                "$dataclass": {
+                    "type": "model.CancelEvent",
+                    "fields": [
+                        ["event_id", "cancel-one"],
+                        ["order_id", "order-one"],
+                        ["reason", "risk"],
+                    ],
+                }
+            },
         ],
     }
     difference = compare_outcomes(reference, candidate)
@@ -732,17 +777,32 @@ def test_polymorphic_json_family_accepts_only_concrete_leaf_preservation():
         families,
     )
 
-    corrupted = json.loads(json.dumps(candidate))
-    corrupted["trace"][0]["$dataclass"]["fields"][0][1] = "wrong"
-    corrupted_difference = compare_outcomes(reference, corrupted)
-    assert corrupted_difference is not None
-    assert not is_known_family_failure(
-        recipe,
-        corrupted_difference.to_dict(),
-        reference,
-        corrupted,
-        families,
+    corruptions = (
+        (0, "type", "model.CreateEvent"),
+        (0, "event_id", "wrong"),
+        (1, "order_id", "wrong-order"),
+        (1, "quantity", 11),
+        (2, "reason", "wrong-reason"),
     )
+    for index, field_name, value in corruptions:
+        corrupted = json.loads(json.dumps(candidate))
+        payload = corrupted["trace"][index]["$dataclass"]
+        if field_name == "type":
+            payload["type"] = value
+        else:
+            field = next(
+                field for field in payload["fields"] if field[0] == field_name
+            )
+            field[1] = value
+        corrupted_difference = compare_outcomes(reference, corrupted)
+        assert corrupted_difference is not None
+        assert not is_known_family_failure(
+            recipe,
+            corrupted_difference.to_dict(),
+            reference,
+            corrupted,
+            families,
+        )
 
 
 def test_family_suppression_covers_only_the_documented_difference(
