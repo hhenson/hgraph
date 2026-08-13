@@ -63,6 +63,7 @@ namespace hgraph
         [[nodiscard]] std::size_t missing_slot_size(const void *, const void *);
         [[nodiscard]] std::size_t missing_slot_capacity(const void *, const void *);
         [[nodiscard]] bool missing_slot_predicate(const void *, const void *, std::size_t);
+        [[nodiscard]] bool no_structural_delta(const void *, const void *, DateTime) noexcept;
         [[nodiscard]] const void *missing_key_at_slot(const void *, const void *, std::size_t);
         [[nodiscard]] bool missing_contains_key(const void *, const void *, const ValueView &);
         [[nodiscard]] std::size_t missing_find_key_slot(const void *, const void *, const ValueView &);
@@ -260,6 +261,10 @@ namespace hgraph
 
     struct TSDDataOps : TSSDataOps
     {
+        /** True when the dictionary's structural delta window belongs to the supplied evaluation time. */
+        bool (*structural_delta_current_impl)(const void *context, const void *memory,
+                                              DateTime evaluation_time) =
+            &ts_data_detail::no_structural_delta;
         TSRoleTypeRef (*child_binding_at_slot_impl)(const void *context, const void *memory,
                                                     std::size_t slot) = nullptr;
         const void *(*child_at_slot_impl)(const void *context, const void *memory,

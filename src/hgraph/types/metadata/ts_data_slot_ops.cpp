@@ -484,6 +484,10 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 return slot < modified_.size() && modified_.test(slot);
             }
+            [[nodiscard]] bool structural_delta_current(DateTime evaluation_time) const noexcept
+            {
+                return evaluation_time != MIN_DT && delta_time_ == evaluation_time;
+            }
             [[nodiscard]] std::size_t next_modified_slot(std::size_t previous) const noexcept
             {
                 return next_delta_slot(modified_, previous);
@@ -2115,6 +2119,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 base_ops.delta_to_python_impl = &tsd_delta_to_python;
 #endif
 
+                dict_ops.structural_delta_current_impl = &tsd_structural_delta_current;
                 dict_ops.child_at_slot_impl = &tsd_child_at_slot;
                 dict_ops.slot_modified_impl = &tsd_slot_modified;
                 dict_ops.next_modified_slot_impl = &tsd_next_modified_slot;
@@ -2474,6 +2479,12 @@ namespace hgraph::ts_data_plan_factory_detail
                                                   DateTime modified_time)
             {
                 storage<TSDSlotStorage>(memory).record_child_modified(child_id, modified_time);
+            }
+
+            [[nodiscard]] static bool tsd_structural_delta_current(const void *, const void *memory,
+                                                                    DateTime evaluation_time) noexcept
+            {
+                return storage<TSDSlotStorage>(memory).structural_delta_current(evaluation_time);
             }
 
             [[nodiscard]] static bool tsd_copy_value_from(const void *context, void *memory, const ValueView &source,

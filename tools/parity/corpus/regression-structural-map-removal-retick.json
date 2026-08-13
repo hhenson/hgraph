@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "id": "regression-structural-map-removal-retick",
+  "description": "A removed typed structural map child must not emit another removal when its former source updates.",
+  "template": "structural_map_projection",
+  "inputs": {
+    "lookups": [
+      {"right": "b", "extra": "b"},
+      {"extra": {"$remove": true}},
+      null
+    ],
+    "rows": [
+      {"b": {"value": 2, "quantity": 20, "label": "beta"}},
+      null,
+      {"b": {"value": 3, "quantity": 30, "label": "updated"}}
+    ]
+  },
+  "parameters": {"projection": "lookup"},
+  "features": [
+    "binding:non-peered",
+    "boundary:structural",
+    "lifecycle:key-removal",
+    "lifecycle:keyed",
+    "projection:lookup",
+    "reference:REF",
+    "shape:TS",
+    "shape:TSB",
+    "shape:TSD",
+    "topology:keyed-lookup",
+    "topology:map",
+    "topology:typed-child-graph"
+  ],
+  "source_issues": ["https://github.com/hhenson/hgraph/pull/442"]
+}

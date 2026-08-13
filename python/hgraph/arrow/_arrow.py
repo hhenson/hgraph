@@ -424,7 +424,13 @@ class _EvalArrowInput:
             else:
                 return NotImplemented
         import _hgraph
+        from hgraph._types import _finalize_compound_scalar_types
 
+        # eval_node closes Python CompoundScalar hierarchies before planning
+        # replay storage.  Arrow's standalone evaluator must do the same:
+        # otherwise TS[Base] is realized before client-defined leaf classes
+        # are registered and replay silently reconstructs every leaf as Base.
+        _finalize_compound_scalar_types()
         w = _hgraph.Wiring()
         _wiring_stack.append(w)
         try:
@@ -439,6 +445,7 @@ class _EvalArrowInput:
                 # CompoundScalar, and structural projection types.
                 w.wire("__harness_record", (_unwrap(out), "arrow::out"),
                        {"sparse": True})
+            _finalize_compound_scalar_types()
             run = w.run()
         finally:
             _wiring_stack.pop()

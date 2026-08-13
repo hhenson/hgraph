@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "coverage-arrow-eval-projections",
+  "description": "Arrow eval_ records typed values before projecting a changing concrete CompoundScalar leaf.",
+  "template": "arrow_typed_projection",
+  "inputs": {
+    "side": ["BUY", "SELL", null, "BUY"],
+    "events": [
+      {"kind": "heartbeat", "event_id": "heartbeat-1"},
+      {"kind": "create", "event_id": "create-1", "order_id": "order-1", "quantity": 10},
+      {"kind": "cancel", "event_id": "cancel-1", "order_id": "order-1", "reason": "user"},
+      null
+    ]
+  },
+  "parameters": {
+    "projection": "second",
+    "debug": "configured",
+    "execution": "eval"
+  },
+  "features": [
+    "framework:arrow",
+    "execution:eval",
+    "projection:second",
+    "type:CompoundScalar",
+    "type:polymorphic"
+  ],
+  "source_issue": "https://github.com/hhenson/hgraph/pull/442"
+}

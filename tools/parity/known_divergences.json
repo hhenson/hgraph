@@ -28,6 +28,18 @@
   ],
   "families": [
     {
+      "family": "polymorphic-json-preserves-concrete-leaf",
+      "template": "polymorphic_event_flow",
+      "parameters_equal": {
+        "operation": "json_round_trip"
+      },
+      "parameters_not_equal": {},
+      "relation": "polymorphic-json-preserves-leaf",
+      "issue": "https://github.com/hhenson/hgraph/pull/440",
+      "reason": "Accepted information-preserving difference: released hgraph 0.5.41 decodes JSON supplied as TS[Event] into the declared Event base and discards concrete leaf fields. The C++-first implementation retains HeartbeatEvent/CreateEvent/CancelEvent. Suppress only when projecting every candidate leaf to Event and retaining event_id makes the complete traces exactly equal.",
+      "review_after": "2027-08-13"
+    },
+    {
       "family": "self-coupled-request-reply-one-cycle-earlier",
       "template": "service_request_reply",
       "parameters_not_equal": {},
