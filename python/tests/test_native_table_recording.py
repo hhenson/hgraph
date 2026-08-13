@@ -212,3 +212,24 @@ def test_a_rename_list_of_the_wrong_element_type_is_refused():
 
     with pytest.raises(Exception, match="no matching overload"):
         _record([{"a": 1.0}], hg.TSD[str, hg.TS[float]], partition_names=(1, 2))
+
+
+def test_the_frame_columns_of_a_frame_valued_leaf_can_be_prefixed():
+    """A frame-valued tick expands to one row per FRAME row, so the frame's
+    own columns sit alongside the bitemporal ones. ``frame_prefix`` is what
+    keeps them clear of each other, and of a second frame recorded beside
+    them."""
+    import pyarrow as pa
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class PriceRow(hg.CompoundScalar):
+        instrument: str
+        value: float
+
+    tick = pa.table({"instrument": ["a", "b"], "value": [1.0, 2.0]})
+    frame = _record([tick], hg.TS[hg.Frame[PriceRow]], frame_prefix="px_")
+
+    assert _columns(frame) == ["__date_time__", "__as_of__", "px_instrument", "px_value"]
+    # One row per frame row, not one per tick.
+    assert _rows(frame) == 2

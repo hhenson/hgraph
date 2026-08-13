@@ -75,12 +75,14 @@ namespace hgraph::stdlib
          */
         [[nodiscard]] inline table_ts_detail::TableRecordingOptions recording_options(
             RecordAsOf as_of, RecordRemoves removes, const ValueView &partition_names,
-            const ValueView &removed_names, const record_replay::Config &config)
+            const ValueView &removed_names, std::string_view frame_prefix,
+            const record_replay::Config &config)
         {
             using Options = table_ts_detail::TableRecordingOptions;
             Options options;
             options.partition_names = column_names(partition_names);
             options.removed_names   = column_names(removed_names);
+            options.frame_prefix    = std::string{frame_prefix};
             switch (as_of)
             {
             case RecordAsOf::Omit: options.as_of = Options::AsOf::Omit; break;
@@ -259,7 +261,8 @@ namespace hgraph::stdlib
                     {"as_of", Value{RecordAsOf::Inherit}},
                     {"removes", Value{RecordRemoves::Inherit}},
                     {"partition_names", record_replay_frame_detail::empty_names()},
-                    {"removed_names", record_replay_frame_detail::empty_names()}};
+                    {"removed_names", record_replay_frame_detail::empty_names()},
+                    {"frame_prefix", Value{Str{}}}};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
@@ -272,7 +275,8 @@ namespace hgraph::stdlib
                           Scalar<"removes", RecordRemoves> removes,
                           Scalar<"partition_names", ScalarVar<"PN", HomogeneousTuple<Str>>> partition_names,
                           Scalar<"removed_names", ScalarVar<"RN", HomogeneousTuple<Str>>>   removed_names,
-                          TraitsView traits, GlobalStateView gs, State<FrameRecorderState> state)
+                          Scalar<"frame_prefix", Str> frame_prefix, TraitsView traits, GlobalStateView gs,
+                          State<FrameRecorderState> state)
         {
             using record_replay_frame_detail::RecorderHandle;
             using namespace table_ts_detail;
@@ -284,7 +288,8 @@ namespace hgraph::stdlib
             const auto &layout =
                 ts_table_layout(ts.base().schema(), config.date_key, config.as_of_key);
             const TableRecordingOptions options = record_replay_frame_detail::recording_options(
-                as_of.value(), removes.value(), partition_names.value(), removed_names.value(), config);
+                as_of.value(), removes.value(), partition_names.value(), removed_names.value(),
+                frame_prefix.value(), config);
             const RecordingColumns columns = recording_columns(layout, options);
 
             std::vector<std::size_t> output_of_layout_column(layout.keys.size(), RecorderHandle::dropped);
@@ -306,16 +311,18 @@ namespace hgraph::stdlib
                          Scalar<"removes", RecordRemoves> removes,
                          Scalar<"partition_names", ScalarVar<"PN", HomogeneousTuple<Str>>> partition_names,
                          Scalar<"removed_names", ScalarVar<"RN", HomogeneousTuple<Str>>>   removed_names,
-                         State<FrameRecorderState> state, GlobalStateView gs, DateTime now)
+                         Scalar<"frame_prefix", Str> frame_prefix, State<FrameRecorderState> state,
+                         GlobalStateView gs, DateTime now)
         {
             static_cast<void>(key);
             static_cast<void>(recordable_id);
-            // All four were resolved into the recorder's shape at start; the
+            // All five were resolved into the recorder's shape at start; the
             // row walk reads that shape from the handle, not from the arguments.
             static_cast<void>(as_of);
             static_cast<void>(removes);
             static_cast<void>(partition_names);
             static_cast<void>(removed_names);
+            static_cast<void>(frame_prefix);
             const auto as_of_cell = record_replay::config(gs).as_of.value_or(now);
             using namespace table_ts_detail;
             auto *handle = state.get().handle;

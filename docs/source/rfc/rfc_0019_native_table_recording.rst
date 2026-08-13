@@ -221,13 +221,10 @@ them by name would fail under any ``frame_prefix``, because the recording
 options are not stored with the recording and replay has no way to recover the
 prefix; the order it does know, since a frame-valued leaf has no key columns.
 
-.. note::
-
-   ``frame_prefix`` is not yet reachable from a ``record`` call — it exists on
-   ``TableRecordingOptions`` but has no wiring argument, unlike ``as_of``,
-   ``removes``, ``partition_names`` and ``removed_names``. The replay side is
-   prefix-agnostic as described above, so wiring the argument is all that
-   remains for the ``frame_prefix`` acceptance criterion.
+``frame_prefix`` is a ``record`` argument like ``as_of``, ``removes``,
+``partition_names`` and ``removed_names``: the whole option surface is set at
+the call site, so two recordings in one graph differ by being called
+differently rather than through a registry keyed on their name.
 
 Compound keys are rebuilt through their paths
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

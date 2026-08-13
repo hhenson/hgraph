@@ -5803,6 +5803,9 @@ are fixed when the graph is built.
 ``removed_names`` : scalar; ``SCALAR_1``
    The removed names value used by the selected overload. Optional in overloads that show ``= ...``.
 
+``frame_prefix`` : scalar; ``str``
+   The frame prefix value used by the selected overload. Optional in overloads that show ``= ...``.
+
 Returns
 ~~~~~~~
 
@@ -5822,7 +5825,7 @@ Accepted native overloads
 
    record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ...) -> None
    record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ...) -> None
-   record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: SCALAR = ..., removed_names: SCALAR_1 = ...) -> None
+   record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: SCALAR = ..., removed_names: SCALAR_1 = ..., frame_prefix: str = ...) -> None
 
 .. _python-operator-reduce:
 

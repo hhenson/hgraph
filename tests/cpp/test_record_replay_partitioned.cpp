@@ -139,6 +139,20 @@ namespace
         }
     };
 
+    /** Records with a ``frame_prefix``, so the frame's columns land under
+        qualified names. */
+    template <typename TS_> struct PrefixedRecordGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "prefixed_record_graph";
+
+        static Port<TS_> compose(Wiring &w, Port<TS_> ts)
+        {
+            wire<stdlib::record>(w, ts, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                                 arg<"frame_prefix">(Str{"px_"}));
+            return ts;
+        }
+    };
+
     /** Both runs under the same DATA_FRAME configuration. */
     void use_frame_backend(GlobalContext &context)
     {
@@ -216,6 +230,35 @@ TEST_CASE("partitioned record/replay: a frame-valued leaf replays whole frames, 
     REQUIRE(replayed.size() == 2);
     REQUIRE(replayed[0].has_value());
     REQUIRE(replayed[1].has_value());
+    CHECK(equals(*replayed[0], first));
+    CHECK(equals(*replayed[1], second));
+}
+
+TEST_CASE("partitioned record/replay: a prefixed frame recording still replays")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    const Frame first  = row_frame({1, 2}, {10, 20});
+    const Frame second = row_frame({3}, {30});
+
+    (void)eval_node<PrefixedRecordGraph<TS<FrameOf<Row>>>>(values<Frame>(first, second));
+
+    const Frame recorded = record_replay::store_read("book.ticks");
+    // The prefix is what keeps a frame's columns clear of the bitemporal and
+    // key columns, so it has to actually reach the recording.
+    REQUIRE(recorded.table->GetColumnByName("px_a") != nullptr);
+    REQUIRE(recorded.table->GetColumnByName("px_b") != nullptr);
+    CHECK(recorded.table->GetColumnByName("a") == nullptr);
+
+    // And replay has to read it back WITHOUT being told the prefix: the
+    // options are not stored with the recording, which is why the value
+    // columns are resolved positionally rather than by name.
+    const auto replayed = eval_node<ReplayGraph<TS<FrameOf<Row>>>>();
+    REQUIRE(replayed.size() == 2);
+    REQUIRE(replayed[0].has_value());
+    REQUIRE(replayed[1].has_value());
+    // Round-tripped under the frame's OWN names, not the prefixed ones.
     CHECK(equals(*replayed[0], first));
     CHECK(equals(*replayed[1], second));
 }
