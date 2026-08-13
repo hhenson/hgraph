@@ -290,8 +290,11 @@ and extending as new regressions are identified:
 - ``structural_map_projection`` maps a typed child graph which performs keyed
   lookup into ``TSD[str, TSB[...]]``.  It varies forwarding the physical
   ``REF[TSB]`` terminal, materializing an owned bundle with ``combine``, and
-  passing that bundle through dispatch; keyed churn and ``pass_through`` keep
-  peered/non-peered structural binding in the generated path.
+  passing that bundle through dispatch.  It also maps a generic
+  ``TSB[TS_SCHEMA]`` child through ``dereference`` and combines reference
+  fields selected from captured dictionaries.  Keyed churn, explicit key
+  sets, and ``pass_through`` keep peered/non-peered structural binding in the
+  generated path.
 - ``arrow_typed_projection`` crosses enum and polymorphic ``CompoundScalar``
   fields through pair/first/second projections, direct and configured
   ``debug_``, and both ordinary graph evaluation and Arrow's standalone

@@ -1411,11 +1411,21 @@ struct dereference_indexed_ref_node {
     if (context.args.size() != 1) {
       return nullptr;
     }
-    if constexpr (ContainerKind == TSTypeKind::TSB) {
-      return container_impl_detail::ref_tsb_schema(context.args[0]);
-    } else {
-      return container_impl_detail::ref_tsl_schema(context.args[0]);
+    const TSValueTypeMetaData *surface = time_series_schema(
+        context.args[0], SchemaRefMode::Direct);
+    if (surface == nullptr) {
+      return nullptr;
     }
+
+    // A direct structured source binds to this node's REF<S> input through
+    // the normal to-REF adaptation. Resolve that direct TSB/TSL boundary the
+    // same way as an explicit REF without widening the REF-only helpers used
+    // by getitem_/getattr_.
+    const TSValueTypeMetaData *target = surface->kind == TSTypeKind::REF
+                                            ? TypeRegistry::instance().dereference(surface)
+                                            : surface;
+    return target != nullptr && target->kind == ContainerKind ? target
+                                                               : nullptr;
   }
 
   static bool requires_(const ResolutionMap &, OperatorCallContext context) {

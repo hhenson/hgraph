@@ -440,7 +440,13 @@ def test_generator_covers_realistic_python_structural_and_polymorphic_workflows(
         for recipe in recipes
         if recipe.template == "polymorphic_event_map"
     }
-    assert {"lookup", "combine", "dispatch_combine"} == {
+    assert {
+        "lookup",
+        "combine",
+        "dispatch_combine",
+        "dereference",
+        "captured_combine",
+    } == {
         recipe.parameters["projection"]
         for recipe in recipes
         if recipe.template == "structural_map_projection"
