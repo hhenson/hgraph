@@ -759,6 +759,31 @@ namespace hgraph
             return index >= 0 && metadata->value(index) == "2";
         }
 
+        /**
+         * The schema metadata a recorded table must carry.
+         *
+         * Shared by both writers, because the reader below REJECTS a table
+         * that lacks it: a ZonedDateTime column without hgraph.tzdb.version
+         * fails validation, so a writer that omits it produces recordings its
+         * own replay refuses. TableRecorder omitted it and only atomic-leaf
+         * tests covered that path, so nothing caught it.
+         */
+        [[nodiscard]] std::shared_ptr<arrow::KeyValueMetadata> table_schema_metadata(
+            std::span<const ValueTypeMetaData *const> leaf_metas)
+        {
+            std::vector<std::string> keys{"hgraph.temporal.version"};
+            std::vector<std::string> values{"2"};
+            if (std::any_of(leaf_metas.begin(), leaf_metas.end(),
+                            [](const ValueTypeMetaData *leaf) {
+                                return leaf == scalar_descriptor<ZonedDateTime>::value_meta();
+                            }))
+            {
+                keys.emplace_back("hgraph.tzdb.version");
+                values.emplace_back(make_time_zone_provider()->version());
+            }
+            return arrow::key_value_metadata(std::move(keys), std::move(values));
+        }
+
         void validate_versioned_array_type(
             const arrow::Array &array, const ValueTypeMetaData *leaf,
             const arrow::Schema &schema, std::string_view source)
@@ -969,24 +994,11 @@ namespace hgraph
                 converter->as_of_key,
                 arrow::timestamp(arrow::TimeUnit::MICRO, "UTC")));
             for (const auto &column : converter->columns) { fields.push_back(arrow::field(column.name, column.type)); }
-            std::vector<std::string> metadata_keys{
-                "hgraph.temporal.version"};
-            std::vector<std::string> metadata_values{"2"};
-            if (std::any_of(
-                    converter->columns.begin(), converter->columns.end(),
-                    [](const Column &column) {
-                        return column.leaf_meta ==
-                               scalar_descriptor<ZonedDateTime>::value_meta();
-                    }))
-            {
-                metadata_keys.emplace_back("hgraph.tzdb.version");
-                metadata_values.emplace_back(
-                    make_time_zone_provider()->version());
-            }
-            auto metadata = arrow::key_value_metadata(
-                std::move(metadata_keys), std::move(metadata_values));
+            std::vector<const ValueTypeMetaData *> leaf_metas;
+            leaf_metas.reserve(converter->columns.size());
+            for (const auto &column : converter->columns) { leaf_metas.push_back(column.leaf_meta); }
             converter->arrow_schema =
-                arrow::schema(std::move(fields), std::move(metadata));
+                arrow::schema(std::move(fields), table_schema_metadata(leaf_metas));
 
             const auto *raw = converter.get();
             g_converters.emplace(ConverterKey{meta, std::string{date_key}, std::string{as_of_key}},
@@ -1062,7 +1074,9 @@ namespace hgraph
             impl_->written.push_back(-1);
             fields.push_back(arrow::field(names[i], ops.type));
         }
-        impl_->schema = arrow::schema(std::move(fields));
+        // The same metadata the converter writes: replay validates against it,
+        // so a recording without it is one this codec will not read back.
+        impl_->schema = arrow::schema(std::move(fields), table_schema_metadata(leaf_metas));
     }
 
     TableRecorder::TableRecorder(TableRecorder &&) noexcept            = default;
@@ -1162,10 +1176,18 @@ namespace hgraph
         return Frame{arrow::Table::Make(impl_->converter->arrow_schema, std::move(arrays), impl_->rows)};
     }
 
-    Value read_table_cell(const ValueTypeMetaData *leaf_meta, const arrow::Array &array, std::int64_t row)
+    Value read_table_cell(const ValueTypeMetaData *leaf_meta, const arrow::Array &array,
+                          const arrow::Schema &schema, std::int64_t row)
     {
         if (leaf_meta == nullptr) { throw std::invalid_argument("table codec: cell has no leaf metadata"); }
         if (array.IsNull(row)) { return Value{}; }
+        // BEFORE dispatching: the readers use unchecked derived-array casts
+        // (the Boolean reader casts straight to arrow::BooleanArray), so a
+        // stored column whose Arrow type disagrees with the leaf metadata is
+        // undefined behaviour rather than a diagnosable error. read_row has
+        // always validated; this path did not, and a frame can now come from a
+        // Python-supplied store that the runtime never wrote.
+        validate_versioned_array_type(array, leaf_meta, schema, "table cell");
         const LeafOps ops = leaf_ops_for(leaf_meta);
         const Column  column{.name      = {},
                              .leaf_meta = leaf_meta,

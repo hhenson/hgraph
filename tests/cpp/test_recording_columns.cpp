@@ -10,6 +10,10 @@
 #include <hgraph/lib/std/operators/impl/table_impl.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/registry_reset.h>
+#include <hgraph/types/value/table_codec.h>
+
+#include <arrow/type.h>
+#include <arrow/util/key_value_metadata.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -210,4 +214,29 @@ TEST_CASE("recording columns: the frame prefix applies only to an expanded frame
     // Without it the frame's column keeps its own name.
     CHECK(names_of(recording_columns(framed, TableRecordingOptions{}))
           == std::vector<std::string>{"__date_time__", "__as_of__", "value"});
+}
+
+TEST_CASE("recording columns: a recorded schema carries the temporal metadata")
+{
+    // The reader REJECTS a table without this, so a writer that omits it
+    // produces recordings its own replay refuses. TableRecorder omitted it,
+    // and only atomic-leaf tests covered that path.
+    const auto *when = scalar_descriptor<DateTime>::value_meta();
+    const auto *zoned = scalar_descriptor<ZonedDateTime>::value_meta();
+
+    const std::string              plain_names[] = {"value"};
+    const ValueTypeMetaData *const plain_metas[] = {when};
+    TableRecorder                  plain{plain_names, plain_metas};
+    const auto                    &plain_schema = plain.arrow_schema()->metadata();
+    REQUIRE(plain_schema != nullptr);
+    CHECK(plain_schema->FindKey("hgraph.temporal.version") >= 0);
+    // No ZonedDateTime column, so no TZDB version is claimed.
+    CHECK(plain_schema->FindKey("hgraph.tzdb.version") < 0);
+
+    const std::string              zoned_names[] = {"value"};
+    const ValueTypeMetaData *const zoned_metas[] = {zoned};
+    TableRecorder                  tz{zoned_names, zoned_metas};
+    const auto                    &tz_schema = tz.arrow_schema()->metadata();
+    REQUIRE(tz_schema != nullptr);
+    CHECK(tz_schema->FindKey("hgraph.tzdb.version") >= 0);
 }

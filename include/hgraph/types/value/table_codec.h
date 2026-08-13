@@ -163,7 +163,8 @@ namespace hgraph
         than a converter did - a ``TSD`` key column has no place in any value
         schema. */
     [[nodiscard]] HGRAPH_EXPORT Value read_table_cell(const ValueTypeMetaData *leaf_meta,
-                                                     const arrow::Array &array, std::int64_t row);
+                                                     const arrow::Array &array,
+                                                     const arrow::Schema &schema, std::int64_t row);
 
     /** The ``date_key`` (value-time) column entry for ``row``. */
     [[nodiscard]] HGRAPH_EXPORT DateTime frame_value_time(const TableConverter &converter, const Frame &frame,

@@ -180,7 +180,7 @@ namespace hgraph::stdlib
                 throw std::runtime_error("replay: recording is missing key column '" +
                                          layout.keys[level.first_key_col] + "'");
             }
-            const Value key = read_table_cell(level.key_meta, *key_column->chunk(0), row);
+            const Value key = read_table_cell(level.key_meta, *key_column->chunk(0), *frame.table->schema(), row);
 
             auto dict_out = out.as_dict();
             auto mutation = dict_out.begin_mutation(now);
@@ -191,7 +191,8 @@ namespace hgraph::stdlib
             if (removed_column != nullptr && !removed_column->chunk(0)->IsNull(row))
             {
                 const Value removed = read_table_cell(scalar_descriptor<Bool>::value_meta(),
-                                                      *removed_column->chunk(0), row);
+                                                      *removed_column->chunk(0),
+                                                      *frame.table->schema(), row);
                 if (removed.has_value() && removed.view().checked_as<Bool>())
                 {
                     static_cast<void>(mutation.erase(key.view()));
