@@ -357,7 +357,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::DATA_FRAME);
+            return record_replay::call_model_is(context, record_replay::DATA_FRAME);
         }
 
         static void start(
@@ -536,7 +536,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::DATA_FRAME);
+            return record_replay::call_model_is(context, record_replay::DATA_FRAME);
         }
 
         static void start(
@@ -673,7 +673,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return !record_replay::model_is(context.global_state, record_replay::IN_MEMORY);
+            return !record_replay::call_model_is(context, record_replay::IN_MEMORY);
         }
 
         static std::vector<std::pair<std::string_view, Value>> defaults()
@@ -753,7 +753,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::DATA_FRAME);
+            return record_replay::call_model_is(context, record_replay::DATA_FRAME);
         }
 
         static Value const_eval(const TSValueTypeMetaData *resolved_output,

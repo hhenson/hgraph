@@ -75,7 +75,7 @@ namespace hgraph::stdlib
         /** Selected under the ``IN_MEMORY_DENSE`` model. */
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::IN_MEMORY_DENSE);
+            return record_replay::call_model_is(context, record_replay::IN_MEMORY_DENSE);
         }
 
         // hgraph parity: record(ts) defaults key to "out".
@@ -183,7 +183,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::IN_MEMORY);
+            return record_replay::call_model_is(context, record_replay::IN_MEMORY);
         }
 
         // hgraph parity: bare ``record(ts)`` records under the default
@@ -240,8 +240,8 @@ namespace hgraph::stdlib
         /** Selected under BOTH in-memory models (replay is model-agnostic). */
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::IN_MEMORY) ||
-                   record_replay::model_is(context.global_state, record_replay::IN_MEMORY_DENSE);
+            return record_replay::call_model_is(context, record_replay::IN_MEMORY) ||
+                   record_replay::call_model_is(context, record_replay::IN_MEMORY_DENSE);
         }
 
         // Absent recordable_id = the dense harness replay (plain key); a
@@ -308,7 +308,7 @@ namespace hgraph::stdlib
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
-            return record_replay::model_is(context.global_state, record_replay::IN_MEMORY);
+            return record_replay::call_model_is(context, record_replay::IN_MEMORY);
         }
 
         static void eval(

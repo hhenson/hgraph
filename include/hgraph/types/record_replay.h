@@ -102,6 +102,25 @@ namespace hgraph::record_replay
     [[nodiscard]] HGRAPH_EXPORT bool model_is(GlobalStateView state, std::string_view model);
 
     /**
+     * The model ONE call resolves against: a ``model`` scalar supplied at the
+     * call site if there is one, otherwise the graph's configured model.
+     *
+     * ``requires_`` runs before the node exists, so it cannot read node state —
+     * but ``OperatorCallContext::scalar`` exposes scalar wiring arguments by
+     * name, which is enough to let a call select its own backend.
+     *
+     * Every record/replay guard resolves through this one function. That is
+     * what keeps the overloads mutually exclusive: if one of them consulted a
+     * local override and another did not, a call supplying one would match
+     * both overloads or neither.
+     */
+    [[nodiscard]] HGRAPH_EXPORT std::string call_model(const OperatorCallContext &context);
+
+    /** ``requires_``-friendly guard over ``call_model``. */
+    [[nodiscard]] HGRAPH_EXPORT bool call_model_is(const OperatorCallContext &context,
+                                                   std::string_view           model);
+
+    /**
      * The mode scope: a wiring-time stack of ``(mode, recordable_id)``
      * (Python's ``RecordReplayContext``). Anything that consults the ambient
      * scope while wiring MUST fold what it consulted into its intern
