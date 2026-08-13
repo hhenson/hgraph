@@ -335,6 +335,18 @@ class _OperatorFunction:
         self._resolutions = resolutions
 
     def __call__(self, *args, **kwargs):
+        if self.__name__ in ("record", "replay"):
+            from ._state import GlobalState
+
+            if (GlobalState.has_instance()
+                    and GlobalState.instance().get("__record_replay_model__") == _hgraph.DATA_FRAME):
+                # release/0.5's data-frame override registry is translated at
+                # the Python wiring boundary into native scalar options. The
+                # adaptor remains unloaded for ordinary in-memory recording.
+                from ..adaptors.data_frame._data_frame_record_replay import (
+                    _legacy_record_replay_kwargs,
+                )
+                kwargs = _legacy_record_replay_kwargs(self.__name__, args, kwargs)
         if (self.__name__ == "apply" and args
                 and "tp" not in kwargs and "output_type" not in kwargs
                 and self._output_type is None and callable(args[0])

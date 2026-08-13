@@ -9,9 +9,9 @@
 #include <hgraph/types/frame_store.h>
 #include <hgraph/types/metadata/type_registry.h>
 
-#include <arrow/table.h>
-#include <arrow/builder.h>
 #include <arrow/array.h>
+#include <arrow/builder.h>
+#include <arrow/table.h>
 #include <arrow/util/key_value_metadata.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <type_traits>
 
 using namespace hgraph;
 using namespace hgraph::store;
@@ -56,10 +57,70 @@ namespace
     {
         FrameStoreConfig config;
         config.location = LocalLocation{dir.string()};
-        config.format   = format;
+        config.format = format;
         return config;
     }
+
+    struct ProbeStore
+    {
+        Frame frame{};
+        int   writes{0};
+    };
+
+    [[nodiscard]] const FrameStoreOps &probe_store_ops()
+    {
+        static const FrameStoreOps ops{
+            [](void *context, std::string_view, Frame frame, std::optional<Compression>) {
+                auto &store = *static_cast<ProbeStore *>(context);
+                store.frame = std::move(frame);
+                ++store.writes;
+            },
+            [](void *context, std::string_view) {
+                return static_cast<ProbeStore *>(context)->frame;
+            },
+            [](void *context, std::string_view) {
+                return static_cast<ProbeStore *>(context)->frame.has_value();
+            },
+            [](void *context) { static_cast<ProbeStore *>(context)->frame = Frame{}; },
+        };
+        return ops;
+    }
 }  // namespace
+
+TEST_CASE("frame store: the public contract is an owning type-erased handle")
+{
+    static_assert(!std::is_polymorphic_v<FrameStore>);
+
+    auto                      context = std::make_shared<ProbeStore>();
+    const std::weak_ptr<void> lifetime = context;
+    FrameStore                store{context, probe_store_ops()};
+    FrameStore                copy = store;
+    CHECK_FALSE(store.supports_segmented_recordings());
+    context.reset();
+
+    copy.write("value", make_frame());
+    CHECK(copy.contains("value"));
+    CHECK(copy.read("value").table->num_rows() == 2);
+
+    FrameStore moved = std::move(store);
+    CHECK_FALSE(store);
+    CHECK_FALSE(store.contains("value"));
+    CHECK_FALSE(store.read("value").has_value());
+    CHECK_NOTHROW(store.clear());
+    CHECK_THROWS_AS(store.write("value", make_frame()), std::logic_error);
+
+    CHECK(moved.contains("value"));
+    copy.reset();
+    CHECK_FALSE(lifetime.expired());
+    moved.reset();
+    CHECK(lifetime.expired());
+
+    CHECK_THROWS_AS((FrameStore{std::shared_ptr<void>{}, probe_store_ops()}),
+                    std::invalid_argument);
+    const FrameStoreOps incomplete{};
+    CHECK_THROWS_AS((FrameStore{std::make_shared<ProbeStore>(), incomplete}),
+                    std::invalid_argument);
+}
 
 TEST_CASE("frame store: key validation is identical in every backend")
 {
@@ -68,67 +129,89 @@ TEST_CASE("frame store: key validation is identical in every backend")
     const std::vector<std::string_view> rejected{
         "", "/leading", "trailing/", "double//segment", "..", "a/../b", "a/./b", "back\\slash",
     };
-    for (const auto key : rejected) { CHECK(validate_key(key).has_value()); }
+    for (const auto key : rejected)
+    {
+        CHECK(validate_key(key).has_value());
+    }
 
     const std::vector<std::string_view> accepted{
-        "calc.lhs", "run/2026-08-10/prices", "a-b_c.parquet", "nested/deeply/held/key",
+        "calc.lhs",
+        "run/2026-08-10/prices",
+        "a-b_c.parquet",
+        "nested/deeply/held/key",
     };
-    for (const auto key : accepted) { CHECK_FALSE(validate_key(key).has_value()); }
+    for (const auto key : accepted)
+    {
+        CHECK_FALSE(validate_key(key).has_value());
+    }
 
     TempDir dir{"validation"};
     auto    memory = make_frame_store(FrameStoreConfig{});
-    auto    local  = make_frame_store(local_config(dir, Format::ArrowIpc));
+    auto    local = make_frame_store(local_config(dir, Format::ArrowIpc));
     for (auto &store : {memory, local})
     {
-        CHECK_THROWS_AS(store->write("../escape", make_frame()), std::invalid_argument);
-        CHECK_THROWS_AS(store->contains("/absolute"), std::invalid_argument);
+        CHECK_THROWS_AS(store.write("../escape", make_frame()), std::invalid_argument);
+        CHECK_THROWS_AS(store.contains("/absolute"), std::invalid_argument);
     }
 }
 
 TEST_CASE("frame store: memory backend round-trips and honours immutability")
 {
     auto store = make_frame_store(FrameStoreConfig{});
+    CHECK(store.supports_segmented_recordings());
 
-    CHECK_FALSE(store->contains("prices"));
-    CHECK_FALSE(store->read("prices").has_value());  // absent reads as an empty Frame
+    CHECK_FALSE(store.contains("prices"));
+    CHECK_FALSE(store.read("prices").has_value());  // absent reads as an empty Frame
 
-    store->write("prices", make_frame());
-    CHECK(store->contains("prices"));
-    CHECK(store->read("prices").table->num_rows() == 2);
+    store.write("prices", make_frame());
+    CHECK(store.contains("prices"));
+    CHECK(store.read("prices").table->num_rows() == 2);
 
     // Immutable is the default (RFC 0016): a second write is rejected rather
     // than silently discarding the first.
-    CHECK_THROWS(store->write("prices", make_frame(10)));
+    CHECK_THROWS(store.write("prices", make_frame(10)));
 
     FrameStoreConfig overwritable;
     overwritable.immutable = false;
-    auto mutable_store     = make_frame_store(overwritable);
-    mutable_store->write("prices", make_frame());
-    CHECK_NOTHROW(mutable_store->write("prices", make_frame(10)));
-    CHECK(mutable_store->read("prices").table->column(0)->GetScalar(0).ValueOrDie()->ToString() == "10");
+    auto mutable_store = make_frame_store(overwritable);
+    mutable_store.write("prices", make_frame());
+    CHECK_NOTHROW(mutable_store.write("prices", make_frame(10)));
+    CHECK(mutable_store.read("prices").table->column(0)->GetScalar(0).ValueOrDie()->ToString() ==
+          "10");
 
-    store->clear();
-    CHECK_FALSE(store->contains("prices"));
+    store.clear();
+    CHECK_FALSE(store.contains("prices"));
 }
 
 TEST_CASE("frame store: a local store persists frames as files")
 {
     TempDir dir{"local"};
     auto    store = make_frame_store(local_config(dir, Format::ArrowIpc));
+    CHECK(store.supports_segmented_recordings());
 
-    store->write("run/2026-08-10/prices", make_frame());
+    store.write("run/2026-08-10/prices", make_frame());
+    CHECK_THROWS(store.write("run/2026-08-10/prices", make_frame(10)));
 
     // Keys nest as directories - the reason the RFC chose transparent paths.
-    CHECK(std::filesystem::exists(std::filesystem::path{dir.string()} / "run" / "2026-08-10" / "prices"));
+    CHECK(std::filesystem::exists(std::filesystem::path{dir.string()} / "run" / "2026-08-10" /
+                                  "prices"));
 
-    CHECK(store->contains("run/2026-08-10/prices"));
-    CHECK(store->read("run/2026-08-10/prices").table->num_rows() == 2);
-    CHECK_FALSE(store->contains("run/2026-08-10/absent"));
+    CHECK(store.contains("run/2026-08-10/prices"));
+    CHECK(store.read("run/2026-08-10/prices").table->num_rows() == 2);
+    CHECK_FALSE(store.contains("run/2026-08-10/absent"));
 
     // A store built over the same root sees what the first one wrote: the
     // point of persisting at all.
     auto reopened = make_frame_store(local_config(dir, Format::ArrowIpc));
-    CHECK(reopened->contains("run/2026-08-10/prices"));
+    CHECK(reopened.contains("run/2026-08-10/prices"));
+
+    // Publication uses an atomic rename from a sibling staging file.  A
+    // completed write must not leave implementation files visible beside the
+    // immutable key.
+    for (const auto &entry : std::filesystem::recursive_directory_iterator(dir.string()))
+    {
+        CHECK(entry.path().filename().string().find(".hgraph-tmp-") == std::string::npos);
+    }
 }
 
 TEST_CASE("frame store: both formats round-trip a frame")
@@ -136,14 +219,14 @@ TEST_CASE("frame store: both formats round-trip a frame")
     TempDir dir{"formats"};
 
     auto ipc = make_frame_store(local_config(dir, Format::ArrowIpc));
-    ipc->write("ipc", make_frame());
-    CHECK(ipc->read("ipc").table->num_rows() == 2);
+    ipc.write("ipc", make_frame());
+    CHECK(ipc.read("ipc").table->num_rows() == 2);
 
     if (parquet_available())
     {
         auto parquet = make_frame_store(local_config(dir, Format::Parquet));
-        parquet->write("parquet", make_frame());
-        CHECK(parquet->read("parquet").table->num_rows() == 2);
+        parquet.write("parquet", make_frame());
+        CHECK(parquet.read("parquet").table->num_rows() == 2);
     }
     else
     {
@@ -160,7 +243,10 @@ TEST_CASE("frame store: RFC 0001 frame metadata survives persistence")
 
     for (const auto format : {Format::ArrowIpc, Format::Parquet})
     {
-        if (format == Format::Parquet && !parquet_available()) { continue; }
+        if (format == Format::Parquet && !parquet_available())
+        {
+            continue;
+        }
 
         auto frame = make_frame();
         auto keyed = frame.table->schema()->WithMetadata(arrow::key_value_metadata(
@@ -171,9 +257,9 @@ TEST_CASE("frame store: RFC 0001 frame metadata survives persistence")
         REQUIRE(frame.has_metadata());
 
         auto store = make_frame_store(local_config(dir, format));
-        store->write("provenance", std::move(frame));
+        store.write("provenance", std::move(frame));
 
-        const auto back = store->read("provenance");
+        const auto back = store.read("provenance");
         REQUIRE(back.has_value());
         CHECK(back.has_metadata());
         const auto metadata = back.table->schema()->metadata();
@@ -181,7 +267,7 @@ TEST_CASE("frame store: RFC 0001 frame metadata survives persistence")
         CHECK(metadata->Get("hgraph.metadata.field.dataset").ValueOr("") == "eod_prices");
         CHECK(metadata->Get("hgraph.metadata.field.universe").ValueOr("") == R"(["CL", "NG"])");
 
-        store->clear();
+        store.clear();
     }
 }
 
@@ -220,17 +306,18 @@ TEST_CASE("frame store: an S3 store round-trips against a local endpoint", "[.s3
     const char *endpoint = std::getenv("HGRAPH_S3_TEST_ENDPOINT");
     if (endpoint == nullptr)
     {
-        SKIP("set HGRAPH_S3_TEST_ENDPOINT to run the S3 backend against a local endpoint");
+        SKIP("set HGRAPH_S3_TEST_ENDPOINT to run the S3 backend against a local "
+             "endpoint");
     }
 
     const char *bucket_name = std::getenv("HGRAPH_S3_TEST_BUCKET");
-    const char *key_id      = std::getenv("AWS_ACCESS_KEY_ID");
-    const char *secret      = std::getenv("AWS_SECRET_ACCESS_KEY");
+    const char *key_id = std::getenv("AWS_ACCESS_KEY_ID");
+    const char *secret = std::getenv("AWS_SECRET_ACCESS_KEY");
 
     S3Location location;
-    location.bucket            = bucket_name != nullptr ? bucket_name : "hgraph-test";
-    location.prefix            = "frame-store";
-    location.region            = "us-east-1";
+    location.bucket = bucket_name != nullptr ? bucket_name : "hgraph-test";
+    location.prefix = "frame-store";
+    location.region = "us-east-1";
     location.endpoint_override = endpoint;
     if (key_id != nullptr && secret != nullptr)
     {
@@ -239,20 +326,21 @@ TEST_CASE("frame store: an S3 store round-trips against a local endpoint", "[.s3
 
     FrameStoreConfig config;
     config.location = location;
-    config.format   = Format::Parquet;
+    config.format = Format::Parquet;
 
     auto store = make_frame_store(config);
+    CHECK(store.supports_segmented_recordings());
 
-    store->write("run/prices", make_frame());
-    CHECK(store->contains("run/prices"));
-    CHECK(store->read("run/prices").table->num_rows() == 2);
-    CHECK_FALSE(store->contains("run/absent"));
+    store.write("run/prices", make_frame());
+    CHECK(store.contains("run/prices"));
+    CHECK(store.read("run/prices").table->num_rows() == 2);
+    CHECK_FALSE(store.contains("run/absent"));
 
     // Immutability holds against a real object store, where an overwrite would
     // usually destroy the previous version outright.
-    CHECK_THROWS(store->write("run/prices", make_frame(10)));
+    CHECK_THROWS(store.write("run/prices", make_frame(10)));
 
-    store->clear();
+    store.clear();
     store.reset();
     // The application owns S3 shutdown; see finalize_s3's contract.
     finalize_s3();

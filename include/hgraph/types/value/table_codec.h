@@ -72,6 +72,20 @@ namespace hgraph
     HGRAPH_EXPORT void clear_table_converters() noexcept;
 
     /**
+     * Every atomic leaf scalar the table codec can carry, in dispatch order.
+     *
+     * This is the codec's own list, not a copy of it — the ``leaf_ops_for``
+     * dispatch is generated from the same enumeration — so it is a sound
+     * measure of what "all supported types" means. Tests size their coverage
+     * against it, which is what makes a newly added leaf fail a round-trip
+     * suite that has no sample for it rather than quietly narrow the suite.
+     *
+     * Composite leaves (a list or variadic tuple of a supported leaf) are
+     * derived from these and so are not listed separately.
+     */
+    [[nodiscard]] HGRAPH_EXPORT std::vector<const ValueTypeMetaData *> table_atomic_leaf_metas();
+
+    /**
      * Node-State payload carrying the converter resolved in ``start`` (the
      * lifecycle form of the builder pattern: compose once, read per tick).
      */
@@ -87,6 +101,59 @@ namespace hgraph
      * ``start`` (against the pre-resolved converter) and finished in
      * ``stop``. Move-only; Arrow internals stay behind the pimpl.
      */
+    /**
+     * Records table rows straight into Arrow builders, driven by a COLUMN
+     * DESCRIPTION rather than by a value schema (RFC 0019).
+     *
+     * ``FrameRecorder`` is built from a ``TableConverter``, so it can only
+     * record what a converter can describe: atomic leaves and depth-1 bundles.
+     * A partitioned time-series is described by its table layout instead - the
+     * flattened column names and their leaf metadata, which already account for
+     * ``TSD`` key columns, removed flags and expanded frames - and that is all
+     * this needs.
+     *
+     * Rows arrive as cells already resolved to leaves, which is what the row
+     * sink in ``table_impl`` produces, so no row value is built on the way in.
+     * An unset cell appends a null: a removal row carries no value columns, and
+     * a tick that did not modify a column leaves it absent.
+     *
+     * Build-time construction, per-row appends; the builders are the only
+     * accumulation.
+     */
+    class HGRAPH_EXPORT TableRecorder
+    {
+      public:
+        /** ``names`` and ``leaf_metas`` are parallel and in row order. */
+        TableRecorder(std::span<const std::string> names,
+                      std::span<const ValueTypeMetaData *const> leaf_metas);
+        TableRecorder(TableRecorder &&) noexcept;
+        TableRecorder &operator=(TableRecorder &&) noexcept;
+        TableRecorder(const TableRecorder &)            = delete;
+        TableRecorder &operator=(const TableRecorder &) = delete;
+        ~TableRecorder();
+
+        /** Write one cell of the row under construction. Delivering a column
+            twice in one row is an error rather than a silent overwrite. */
+        void append_cell(std::size_t column, const ValueView &value);
+
+        /** Close the row. Columns this row never delivered append a NULL: a
+            removal row has no value columns, and a tick that did not modify a
+            column leaves it absent, so a default would record zero where
+            nothing happened. */
+        void end_row();
+
+        [[nodiscard]] std::int64_t rows() const noexcept;
+
+        /** The accumulated rows, leaving the recorder empty. */
+        [[nodiscard]] Frame finish();
+
+        [[nodiscard]] const std::shared_ptr<arrow::Schema> &arrow_schema() const noexcept;
+
+      private:
+        struct Impl;
+        std::unique_ptr<Impl> impl_;
+    };
+
     class HGRAPH_EXPORT FrameRecorder
     {
       public:
@@ -104,6 +171,14 @@ namespace hgraph
         struct Impl;
         std::unique_ptr<Impl> impl_;
     };
+
+    /** One cell, read back as its leaf type. The inverse of what
+        ``TableRecorder`` appends, for a column the recorder described rather
+        than a converter did - a ``TSD`` key column has no place in any value
+        schema. */
+    [[nodiscard]] HGRAPH_EXPORT Value read_table_cell(const ValueTypeMetaData *leaf_meta,
+                                                     const arrow::Array &array,
+                                                     const arrow::Schema &schema, std::int64_t row);
 
     /** The ``date_key`` (value-time) column entry for ``row``. */
     [[nodiscard]] HGRAPH_EXPORT DateTime frame_value_time(const TableConverter &converter, const Frame &frame,

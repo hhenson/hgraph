@@ -268,6 +268,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_static_schema.cpp
     test_temporal.cpp
     test_time_series_reference.cpp
+    test_table_recorder.cpp
     test_ts_delta.cpp
     test_ts_endpoint_visitor.cpp
     test_ts_input.cpp
@@ -290,7 +291,10 @@ hgraph_add_test_objects(hgraph_record_test_objects
     test_record_replay.cpp
     test_record_replay_config.cpp
     test_record_replay_frame.cpp
+    test_record_replay_partitioned.cpp
+    test_recording_columns.cpp
     test_table.cpp
+    test_table_round_trip.cpp
 )
 
 set(HGRAPH_TEST_OBJECT_LIBS

@@ -1,7 +1,7 @@
 RFC 0016: Object-Store Frame Persistence
 ========================================
 
-:Status: Proposed
+:Status: Proposed; reference implementation in progress
 :Author: Howard Henson
 :Created: 2026-08-10
 :Target: Next hgraph minor release
@@ -29,11 +29,16 @@ planned below rather than assumed away.
 Scope
 -----
 
-This is **new functionality on the 0.8 line**. Availability on the
+This is **new native functionality on the 0.8 line**. Availability on the
 Python-first ``release/0.5`` line is an explicit **non-goal**: the seam it
-builds on (``record_replay::FrameStoreOps``) and the value type it moves
+builds on (``store::FrameStore``) and the value type it moves
 (``Frame``, and ``Frame[Rows, Metadata]`` under RFC 0001) are C++-runtime
 constructs with no 0.5 counterpart, so there is nothing to keep at parity.
+
+That does not remove the release/0.5 ``DataFrameStorage`` compatibility
+surface. RFC 0019 adapts that Python API to complete-frame ``store``/``load``/
+``has`` calls, while every supported production memory, file and S3 endpoint
+uses this native contract.
 
 The distinction matters because it is the opposite of the rule that applies to
 *existing* behaviour. A capability both lines already claim to have must stay
@@ -45,15 +50,16 @@ construction.
 Motivation
 ----------
 
-``record_replay::FrameStoreOps`` already exists as the type-erased keyed store,
-and its declaration anticipates this work:
+``store::FrameStoreOps`` defines the passive type-erased keyed-store
+operations. It preserves the seam originally introduced for this work:
 
    *"The default registration is an in-memory map; file / Arrow-dataset stores
    register over it."*
 
-What is missing is any registration other than the default. A user who wants
+At proposal time, what was missing was any implementation other than the
+default. A user who wanted
 recorded frames to outlive a process — or to be read by something that is not
-this process — has to write the store themselves, and gets no help with format,
+this process — had to write the store themselves, and got no help with format,
 layout, or credentials.
 
 Three needs are served by one mechanism:
@@ -94,8 +100,8 @@ Ownership boundary
 The store abstraction, its configuration, and the Arrow-backed backends are
 **core**. Three things put them there rather than in an extension:
 
-* the seam is already core (``FrameStoreOps`` in
-  ``include/hgraph/types/record_replay.h``);
+* the seam is already core (``FrameStoreOps`` and its owning handle in
+  ``include/hgraph/types/frame_store.h``);
 * the value type is already core (``Frame``, and ``Frame[Rows, Metadata]``
   under RFC 0001);
 * no new *package* is acquired: ``arrow::fs`` and ``arrow::ipc`` are in the
@@ -116,69 +122,72 @@ application or extension concerns built *on* this contract.
 C++ contract
 ------------
 
-The ops table is retained unchanged as the *runtime* seam — the per-call shape
-that ``store_write``/``store_read`` dispatch through is not altered, and
-consumers that only read and write by key are unaffected.
-
-What does change is **registration**, in two ways the current API cannot
-express. Both were raised in review and both are real:
+The public semantic contract is an owning, type-erased C++ ``FrameStore``. It
+deliberately contains only storage concerns: complete-frame reads and writes,
+existence, and explicit administrative clearing. Record/replay depends on this
+contract, not on a concrete memory, filesystem, S3 or Python representation.
 
 .. code-block:: cpp
 
     struct FrameStoreOps
     {
-        void *context{nullptr};
-        void (*write)(void *context, std::string_view key, Frame frame){nullptr};
-        Frame (*read)(void *context, std::string_view key){nullptr};
-        bool (*contains)(void *context, std::string_view key){nullptr};
-        void (*clear)(void *context){nullptr};
+        void (*write)(void *, std::string_view, Frame,
+                      std::optional<Compression>);
+        Frame (*read)(void *, std::string_view);
+        bool (*contains)(void *, std::string_view);
+        void (*clear)(void *);
     };
 
-**Registration owns the backend.** ``FrameStoreOps`` carries a bare
-``void *context`` and no destructor. That is sufficient for the default store,
-whose context is ``nullptr`` and whose functions close over statics. A
-configured local or S3 backend must allocate, and a factory returning a plain
-ops table would leave that allocation with no owner: it dangles when the
-factory-local owner dies, or leaks when the registration is replaced.
-Registration therefore takes an owning handle.
+    class FrameStore final
+    {
+        std::shared_ptr<void> context_;
+        const FrameStoreOps *ops_;       // always non-null
 
-**Registration is scoped to the run, not the process.** ``g_store`` in
-``record_replay.cpp`` is a file-scope global replaced wholesale by
-``set_frame_store``, so two graph runs selecting different destinations would
-fight over it and one run could write into another's bucket. The precedent for
-the fix is in the same file: ``set_config`` already takes a
-``GlobalStateView``, so record/replay *configuration* is run-scoped while the
-store is not. The store joins it.
+      public:
+        FrameStore(std::shared_ptr<void> context,
+                   const FrameStoreOps &static_ops);
+        void write(std::string_view key, Frame frame,
+                   std::optional<Compression> compression = {}) const;
+        [[nodiscard]] Frame read(std::string_view key) const;
+        [[nodiscard]] bool contains(std::string_view key) const;
+        void clear() const;
+    };
+
+``FrameStore`` is a value handle, not a strategy hierarchy. Its erased
+``shared_ptr<void>`` makes ownership explicit: ``GlobalState`` copies into the
+executor and back to the caller, and every copy refers to the same context.
+Default and moved-from handles bind a canonical empty ops table, so dispatch
+never branches around a null ops pointer. Empty-handle reads and existence
+checks report absence; writes fail explicitly rather than silently losing
+data. Concrete strategies and their containers are private to implementation
+files.
+
+**Registration is scoped to the graph run, not the process.** ``GlobalState``
+is already owned by one graph instance and copied into and back from that run.
+The process store in ``record_replay.cpp`` is only a fallback and cannot
+represent a graph-selected destination. The precedent is
+``set_config(GlobalStateView, ...)``; the selected store follows the same
+graph-scoped ownership.
 
 .. code-block:: cpp
 
     namespace hgraph::store
     {
-        /** Move-only owner of a backend and its context. Destroying it
-            releases the backend; the ops table it exposes is valid for the
-            handle's lifetime. */
-        class HGRAPH_EXPORT FrameStoreHandle
-        {
-          public:
-            FrameStoreHandle(FrameStoreHandle &&) noexcept;
-            FrameStoreHandle &operator=(FrameStoreHandle &&) noexcept;
-            ~FrameStoreHandle();
-            [[nodiscard]] const FrameStoreOps &ops() const noexcept;
-        };
-
-        [[nodiscard]] HGRAPH_EXPORT FrameStoreHandle make_frame_store(FrameStoreConfig config);
+        [[nodiscard]] HGRAPH_EXPORT FrameStore
+        make_frame_store(FrameStoreConfig config);
     }
 
     namespace hgraph::record_replay
     {
-        /** Register for the active run; the handle is owned by GlobalState and
+        /** Register for the active run; the store is owned by GlobalState and
             released with it. Mirrors set_config's scoping. */
-        HGRAPH_EXPORT void set_frame_store(GlobalStateView state, store::FrameStoreHandle store);
+        HGRAPH_EXPORT void set_frame_store(
+            GlobalStateView state, store::FrameStore store);
     }
 
-The process-global ``set_frame_store(FrameStoreOps)`` is retained for the
-default registration and for a caller that genuinely owns its context for the
-process lifetime, but it is no longer the mechanism a configured backend uses.
+The process fallback is another owning ``FrameStore`` handle, not a parallel
+registration mechanism. Runtime nodes resolve the graph store first and then
+dispatch through the fallback handle when no graph store was selected.
 
 The configuration a backend is built from:
 
@@ -186,7 +195,7 @@ The configuration a backend is built from:
 
     namespace hgraph::store
     {
-        enum class Format { Parquet, ArrowIpc };
+        enum class Format { ArrowIpc, Parquet };
 
         /** Where frames live. Exactly one location is configured. */
         struct MemoryLocation {};
@@ -198,7 +207,7 @@ The configuration a backend is built from:
             /** Empty means resolve from the ambient AWS chain. */
             std::optional<std::string> region{};
             std::optional<std::string> endpoint_override{};
-            std::optional<Credentials> credentials{};   // see below
+            Credentials credentials{};   // see below
         };
 
         using Location = std::variant<MemoryLocation, LocalLocation, S3Location>;
@@ -206,14 +215,15 @@ The configuration a backend is built from:
         struct FrameStoreConfig
         {
             Location    location{MemoryLocation{}};
-            Format      format{Format::Parquet};
+            Format      format{Format::ArrowIpc};
             Compression compression{Compression::Default};
             /** Reject a write whose key already exists. Default: on. */
             bool        immutable{true};
         };
 
         /** Build a store; the caller registers it with set_frame_store. */
-        [[nodiscard]] HGRAPH_EXPORT FrameStoreOps make_frame_store(FrameStoreConfig config);
+        [[nodiscard]] HGRAPH_EXPORT FrameStore
+        make_frame_store(FrameStoreConfig config);
     }
 
 Credentials are explicit about the ambient case rather than silent about it:
@@ -243,39 +253,26 @@ Credentials are explicit about the ambient case rather than silent about it:
 application that must not read ambient credentials states another alternative
 and gets a hard failure rather than an accidental fallback.
 
-Python contract
----------------
+Python compatibility contract
+-----------------------------
 
-The Python surface mirrors the configuration, not the ops table. The ops table
-stays private; Python configures and registers.
-
-.. code-block:: python
-
-    from hgraph import frame_store, set_frame_store, FrameStoreConfig
-
-    set_frame_store(FrameStoreConfig(location="memory"))                    # unit tests
-    set_frame_store(FrameStoreConfig(location="file:///tmp/recordings"))    # development
-    set_frame_store(FrameStoreConfig(                                       # production
-        location="s3://bucket/prefix",
-        format="parquet",
-        region="eu-west-1",
-    ))
-
-A URL is the ergonomic form; the structured form is available for anything a
-URL cannot say:
+Python does not configure or implement the native memory, local-filesystem or
+S3 endpoints. Those remain C++ stores with the contract above. Python is an
+extension seam for compatibility bridges, most importantly the release/0.5
+``DataFrameStorage`` API. The object installed for one graph implements only:
 
 .. code-block:: python
 
-    set_frame_store(FrameStoreConfig(
-        location=S3Location(bucket="bucket", prefix="recordings",
-                            endpoint_override="http://localhost:9000"),
-        credentials=Profile("research"),
-        format="ipc",
-        immutable=True,
-    ))
+    class PythonFrameStoreProtocol:
+        def store(self, key: str, frame: Frame) -> None: ...
+        def load(self, key: str) -> Frame | None: ...
+        def has(self, key: str) -> bool: ...
 
-``record_replay_scope`` and the rest of the record/replay API are unchanged. A
-graph does not know which store is active, which is the point.
+No ``clear``, compression, immutability or segmentation operation crosses this
+boundary. In particular, repeated-key behaviour belongs to the Python
+implementation; native immutable-key policy is not imposed on a compatibility
+adapter. ``MemoryDataFrameStorage`` continues to let release/0.5 code set and
+retrieve complete tables directly.
 
 Format
 ------
@@ -288,8 +285,8 @@ different questions:
    :widths: 14 43 43
 
    * -
-     - ``Parquet`` (default)
-     - ``ArrowIpc``
+     - ``Parquet``
+     - ``ArrowIpc`` (default)
    * - Reader reach
      - Anything that reads Parquet
      - Arrow-aware readers
@@ -303,9 +300,9 @@ different questions:
      - Arrow schema restored via ``ARROW:schema``
      - Exact Arrow schema
 
-Parquet is the default because durable records are read more often than
-written, and usually by something other than hgraph. IPC is the right choice
-for high-frequency intermediate output where the reader is also hgraph.
+Arrow IPC is the default because it is available wherever hgraph already links
+Arrow. Parquet is selected explicitly when interoperability and storage size
+justify the additional build capability.
 
 **Both preserve RFC 0001 metadata**, which is what makes frame-level identity
 survive a round trip. Verified rather than assumed:
@@ -336,8 +333,8 @@ from the object itself. No side-channel, and no index object.
 
 Keys are the only addressing mechanism. A consumer that writes several related
 frames writes several keys, and relates them by naming them — a shared key
-prefix, or values carried in each frame's own metadata. See the open question
-below on what, if anything, relating them further requires.
+prefix, or values carried in each frame's own metadata. The store adds no group
+or catalogue object.
 
 Dependency plan
 ---------------
@@ -386,8 +383,10 @@ Enabling Parquet therefore means, in order:
 * extend ``tools/audit_distribution.py`` and the installed-SDK consumer test so
   a wheel missing the Parquet runtime fails in CI rather than at first use.
 
-This is routine work, but it is *work*, and it is the reason the default format
-is now an open question rather than a settled decision.
+The pyarrow build now discovers and stages Parquet when it is present. Conan
+still disables it, so Parquet remains a build capability rather than a promise
+of every installation; requesting it from a build without support fails
+loudly.
 
 Runtime and lifecycle
 ---------------------
@@ -405,15 +404,15 @@ that by experiment rather than assumption. Both obvious mechanisms — a
 Arrow's warning that a segfault at exit may follow.
 
 The store therefore exposes ``store::finalize_s3()`` and states that S3
-shutdown belongs to the application, the only layer that knows when the last
-store is gone. It is safe when S3 was never initialised and safe to call twice,
-so a caller need not track whether S3 was ever reached. The Python bridge
-should call it from run teardown, so the obligation does not reach Python
-users.
+shutdown belongs to the native application, the only layer that knows when the
+last S3 store is gone. It is safe when S3 was never initialised and safe to call
+twice, so a caller need not track whether S3 was ever reached. The narrow
+Python compatibility bridge cannot select S3 and therefore owns no S3
+finalization lifecycle.
 
 No part of this sits on the per-tick evaluation path: stores are consulted by
-``record``/``replay`` nodes at their own cadence, and the ops table is looked up
-once at node start, matching how the in-memory store is used today.
+``record``/``replay`` nodes at their own cadence. The graph store is resolved
+at replay start or record stop, never on the per-tick value path.
 
 Failures are reported, not swallowed. A write that cannot reach the bucket
 raises; it does not silently fall back to memory. Environment selection is a
@@ -428,10 +427,9 @@ Parquet or IPC writer, so a frame is not materialised a second time in memory.
 Reads use ``OpenInputFile`` and Arrow's readers.
 
 For S3 the dominant costs are request count and object size, not encoding,
-which is the argument for Parquet where objects are large and long-lived — see
-the open question on the default format. Multipart upload thresholds and read
-coalescing are Arrow's defaults; exposing them is deferred until a workload
-needs it.
+which is the argument for selecting Parquet where objects are large and
+long-lived. Multipart upload thresholds and read coalescing are Arrow's
+defaults; exposing them is deferred until a workload needs it.
 
 Testing
 -------
@@ -470,10 +468,12 @@ container and invoking the tag.
 Compatibility and migration
 ---------------------------
 
-Additive. The default registration remains the in-memory map, so a program that
-configures nothing behaves exactly as it does today, including every existing
-record/replay test. ``FrameStoreOps`` is unchanged, so a downstream store
-already registered against it keeps working.
+Selecting the ``DATA_FRAME`` model creates a graph-owned native memory store
+unless the graph already has another store. A custom C++ store supplies an
+owned context plus a static ``FrameStoreOps`` table and installs the resulting
+handle either on the graph or as the process fallback. A borrowed raw context
+is deliberately no longer accepted: the graph copy-in/copy-out lifecycle must
+not be able to outlive a store representation.
 
 Nothing about the wire format of ``Frame`` changes. Persisted files are
 ordinary Parquet or Arrow IPC and are not versioned by hgraph beyond the RFC
@@ -576,37 +576,21 @@ The typed value is recovered after both Parquet and Arrow IPC, so a frame
 keeps its definition through persistence without hgraph holding any state
 about it.
 
-Unresolved questions
---------------------
+Resolved format decision
+------------------------
 
-**Should Parquet remain the default format?** The first draft chose Parquet on
-the grounds that durable records are read more often than written, usually by
-something that is not hgraph. That reasoning stands, but the cost was
-mis-stated: IPC needs nothing, and Parquet needs the plan above.
-
-* **A. Parquet default, do the work.** Best interchange out of the box. The
-  store cannot ship until the dependency plan lands, and every configuration
-  carries ``libparquet`` whether or not it writes Parquet.
-* **B. IPC default, Parquet behind a build option.** Ships immediately on the
-  existing link set; a build that wants interchange opts in. Costs a
-  configuration axis, and a frame written by one build may be unreadable by
-  another — exactly the kind of environment-dependent behaviour the rest of
-  this design avoids.
-* **C. IPC default, Parquet unconditionally linked.** No configuration axis and
-  no ambiguity about what a build can read; interchange available whenever it
-  is asked for. Pays the ``libparquet`` link everywhere, as A does, but does not
-  block the store on it.
-
-*Recommendation: C.* It keeps a single behaviour across builds, which is the
-property B gives up, and it decouples shipping the store from the Parquet
-plumbing that A blocks on. The default is then a runtime choice rather than a
-build-time one, which is where the rest of this configuration lives.
+Arrow IPC is the default and Parquet is available when the build links
+``libparquet``. This lets the core store use the already-required Arrow runtime
+without making Parquet a mandatory dependency. Capability is explicit:
+``store::parquet_available()`` reports it, and constructing an unsupported
+Parquet store raises rather than silently changing format.
 
 Acceptance criteria and test plan
 ---------------------------------
 
-* The default store remains in-memory; the full existing record/replay suite
-  passes unchanged with no configuration.
+* The default ``DATA_FRAME`` location is a graph-owned in-memory store; the full
+  existing record/replay suite passes unchanged with no destination
+  configuration.
 * Round trip through each backend — memory, local filesystem, S3 — for both
   formats, asserting frame equality including schema.
 * RFC 0001 metadata survives every backend/format combination, and decodes
@@ -623,8 +607,8 @@ Acceptance criteria and test plan
 * S3 coverage runs against a local S3-compatible endpoint via
   ``endpoint_override``, so it needs no cloud account. This is what makes the
   S3 path testable in CI rather than only in deployment.
-* C++ tests for each backend, per AGENTS.md, with Python tests covering the
-  configuration surface and bridge.
+* C++ tests for each backend, per AGENTS.md, with Python tests covering only
+  the narrow compatibility bridge.
 * Two runs configured with different destinations do not disturb each other's
   store, and a store released with its GlobalState leaves no live backend.
 * The installed-SDK consumer test links and uses whichever format libraries the
@@ -633,14 +617,17 @@ Acceptance criteria and test plan
 Implementation status
 ---------------------
 
-Not started. This RFC records the design for review.
+Native memory and local-filesystem stores, format handling, key validation,
+immutable writes and graph-scoped ownership are implemented. S3 remains
+build-option dependent. RFC 0019 consumes this graph-scoped store; segmented
+recordings remain deferred to its step 7.
 
 References
 ----------
 
 * :doc:`rfc_0001_typed_frame_metadata` — frame-level metadata this must
   preserve.
-* :doc:`../developer_guide/record_replay_table` — the ``FrameStoreOps``
+* :doc:`../developer_guide/record_replay_table` — the graph-scoped frame-store
   seam and the ``DATA_FRAME`` backend.
 * :doc:`../developer_guide/extension_policy` — core versus extension ownership.
 * Apache Arrow C++ ``arrow::fs`` filesystem layer, and the Parquet

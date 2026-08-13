@@ -3,7 +3,6 @@
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/types/frame.h>
-#include <hgraph/types/record_replay.h>
 
 #include <memory>
 #include <optional>
@@ -16,8 +15,8 @@
  *
  * A configured content store: keyed frames written to memory, a local
  * filesystem, or S3, in Arrow IPC or Parquet. Record/replay is the first
- * consumer through ``record_replay::FrameStoreOps``; the store itself knows
- * nothing about it.
+ * consumer through the owning, type-erased ``store::FrameStore``; the store
+ * itself knows nothing about record/replay.
  *
  * The frame is the unit. A frame carries its own description in its Arrow
  * schema metadata (RFC 0001), and both formats preserve it, so a stored frame
@@ -84,8 +83,8 @@ namespace hgraph::store
     /** Frames live in an S3 bucket. */
     struct S3Location
     {
-        std::string                bucket{};
-        std::string                prefix{};
+        std::string bucket{};
+        std::string prefix{};
         /** Unset resolves the region through the ambient chain. */
         std::optional<std::string> region{};
         /** Set to point at an S3-compatible endpoint (MinIO, LocalStack). */
@@ -101,7 +100,25 @@ namespace hgraph::store
         Format      format{Format::ArrowIpc};
         Compression compression{Compression::Default};
         /** Reject a write whose key already exists (RFC 0016 decision). */
-        bool        immutable{true};
+        bool immutable{true};
+    };
+
+    /**
+     * Passive operations table for one frame-store representation.
+     *
+     * The table has static lifetime. It owns no state: ``FrameStore`` supplies
+     * the erased context on every call and keeps that context alive. Concrete
+     * memory, filesystem, S3 and Python representations remain private to
+     * their implementation translation units.
+     */
+    struct FrameStoreOps
+    {
+        void (*write)(void *context, std::string_view key, Frame frame,
+                      std::optional<Compression> compression);
+        /** Empty ``Frame`` when the key is absent. */
+        Frame (*read)(void *context, std::string_view key);
+        bool (*contains)(void *context, std::string_view key);
+        void (*clear)(void *context);
     };
 
     /**
@@ -135,30 +152,52 @@ namespace hgraph::store
     [[nodiscard]] HGRAPH_EXPORT bool parquet_available() noexcept;
 
     /**
-     * A configured store, owning whatever the backend needs — an Arrow
-     * filesystem, its credentials, the format choice.
+     * Owning, type-erased handle to a configured store.
      *
-     * Held by ``shared_ptr`` and installed into ``GlobalState``, which owns it
-     * for the run and releases it with the run. This follows the existing
-     * time-zone-provider pattern rather than inventing a second lifetime rule.
+     * The handle shares ownership of an erased context and dispatches only
+     * through ``FrameStoreOps``. It has no virtual functions and exposes no
+     * representation type. Copies refer to the same store, as required when
+     * ``GlobalState`` is copied into and back out of a graph run.
+     *
+     * Default and moved-from handles use a canonical empty ops table. Queries
+     * therefore remain safe without testing an ops pointer for null; a write
+     * fails explicitly rather than silently discarding data.
      */
-    class HGRAPH_EXPORT FrameStore
+    class HGRAPH_EXPORT FrameStore final
     {
       public:
-        virtual ~FrameStore();
+        FrameStore() noexcept;
+
+        /** Bind an owned erased context to a static, complete operations table. */
+        FrameStore(std::shared_ptr<void> context, const FrameStoreOps &ops);
+
+        FrameStore(const FrameStore &) = default;
+        FrameStore &operator=(const FrameStore &) = default;
+        FrameStore(FrameStore &&other) noexcept;
+        FrameStore &operator=(FrameStore &&other) noexcept;
+        ~FrameStore() = default;
 
         /** Write a frame. Rejects an existing key when the store is immutable. */
-        virtual void write(std::string_view key, Frame frame, std::optional<Compression> compression = {}) = 0;
+        void write(std::string_view key, Frame frame,
+                   std::optional<Compression> compression = {}) const;
         /** An empty ``Frame`` when the key is absent. */
-        [[nodiscard]] virtual Frame read(std::string_view key) = 0;
-        [[nodiscard]] virtual bool contains(std::string_view key) = 0;
-        virtual void clear() = 0;
+        [[nodiscard]] Frame read(std::string_view key) const;
+        [[nodiscard]] bool  contains(std::string_view key) const;
+        /** True only for native stores that implement immutable segment keys. */
+        [[nodiscard]] bool supports_segmented_recordings() const noexcept;
+        void               clear() const;
 
-        [[nodiscard]] const FrameStoreConfig &config() const noexcept { return config_; }
+        /** True when this handle owns a concrete representation. */
+        [[nodiscard]] explicit operator bool() const noexcept;
 
-      protected:
-        explicit FrameStore(FrameStoreConfig config) : config_(std::move(config)) {}
-        FrameStoreConfig config_;
+        /** Release the representation and rebind the canonical empty table. */
+        void reset() noexcept;
+
+      private:
+        [[nodiscard]] static const FrameStoreOps &empty_ops() noexcept;
+
+        std::shared_ptr<void> context_{};
+        const FrameStoreOps  *ops_{&empty_ops()};
     };
 
     /**
@@ -170,27 +209,7 @@ namespace hgraph::store
      * a store that quietly fell back would turn a configuration error into
      * output that looks wrong much later.
      */
-    [[nodiscard]] HGRAPH_EXPORT std::shared_ptr<FrameStore> make_frame_store(FrameStoreConfig config);
-
-    /** The ops table for a store, for the record/replay seam. */
-    [[nodiscard]] HGRAPH_EXPORT record_replay::FrameStoreOps frame_store_ops(const std::shared_ptr<FrameStore> &store);
+    [[nodiscard]] HGRAPH_EXPORT FrameStore make_frame_store(FrameStoreConfig config);
 }  // namespace hgraph::store
-
-namespace hgraph::record_replay
-{
-    /**
-     * Install a configured store for the active run.
-     *
-     * ``GlobalState`` owns the store and releases it with the run, so two runs
-     * configured with different destinations do not disturb each other. This
-     * mirrors ``set_config``, which is already ``GlobalState``-scoped; the
-     * process-global ``set_frame_store(FrameStoreOps)`` remains for the default
-     * registration and for a caller owning its context for the process.
-     */
-    HGRAPH_EXPORT void set_frame_store(GlobalStateView state, std::shared_ptr<store::FrameStore> frame_store);
-
-    /** The store installed for this run, or nullptr when none is. */
-    [[nodiscard]] HGRAPH_EXPORT std::shared_ptr<store::FrameStore> frame_store(GlobalStateView state);
-}  // namespace hgraph::record_replay
 
 #endif  // HGRAPH_TYPES_FRAME_STORE_H

@@ -5789,7 +5789,37 @@ are fixed when the graph is built.
    The sparse value used by the selected overload. Optional in overloads that show ``= ...``.
 
 ``recordable_id`` : scalar; ``str``
-   Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
+   Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
+
+``as_of`` : scalar; ``RecordAsOf``
+   Whether to track, omit, or inherit the as-of column policy. Optional in overloads that show ``= ...``.
+
+``removes`` : scalar; ``RecordRemoves``
+   Whether TSD removals are emitted as explicit rows. Optional in overloads that show ``= ...``.
+
+``partition_names`` : scalar; ``tuple[str, ...]``
+   Optional stored names for flattened TSD key columns. Optional in overloads that show ``= ...``.
+
+``removed_names`` : scalar; ``tuple[str, ...]``
+   Optional stored names for TSD removal-flag columns. Optional in overloads that show ``= ...``.
+
+``date_key`` : scalar; ``str``
+   Optional stored name for the value-time column. Optional in overloads that show ``= ...``.
+
+``as_of_key`` : scalar; ``str``
+   Optional stored name for the as-of column. Optional in overloads that show ``= ...``.
+
+``frame_prefix`` : scalar; ``str``
+   Prefix applied to expanded frame-valued columns. Optional in overloads that show ``= ...``.
+
+``mode`` : scalar; ``ToTableMode``
+   Fixed Tick, Sample, or Snap row-selection policy. Optional in overloads that show ``= ...``.
+
+``flush_rows`` : scalar; ``int``
+   Native-store segment threshold in rows; zero disables it. Optional in overloads that show ``= ...``.
+
+``flush_interval`` : scalar; ``timedelta``
+   Native-store segment threshold in evaluation time; zero disables it. Optional in overloads that show ``= ...``.
 
 Returns
 ~~~~~~~
@@ -5802,6 +5832,7 @@ Python example
 .. code-block:: python
 
    hg.record(price, key="price")
+   hg.record(positions, key="positions", removes=hg.RecordRemoves.TRACK)
 
 Accepted native overloads
 
@@ -5809,7 +5840,7 @@ Accepted native overloads
 
    record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ...) -> None
    record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ...) -> None
-   record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ...) -> None
+   record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ..., mode: ToTableMode = ..., flush_rows: int = ..., flush_interval: timedelta = ...) -> None
 
 .. _python-operator-reduce:
 
@@ -6047,7 +6078,22 @@ are fixed when the graph is built.
    Wiring-time name within the current recordable context.
 
 ``recordable_id`` : scalar; ``str``
-   Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
+   Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
+
+``partition_names`` : scalar; ``tuple[str, ...]``
+   Stored names used for flattened TSD key columns. Optional in overloads that show ``= ...``.
+
+``removed_names`` : scalar; ``tuple[str, ...]``
+   Stored names used for TSD removal-flag columns. Optional in overloads that show ``= ...``.
+
+``date_key`` : scalar; ``str``
+   Stored name for the value-time column. Optional in overloads that show ``= ...``.
+
+``as_of_key`` : scalar; ``str``
+   Stored name for the as-of column. Optional in overloads that show ``= ...``.
+
+``frame_prefix`` : scalar; ``str``
+   Prefix used by expanded frame-valued columns. Optional in overloads that show ``= ...``.
 
 Returns
 ~~~~~~~
@@ -6060,12 +6106,15 @@ Python example
 .. code-block:: python
 
    price = hg.replay[TS[float]](key="price")
+   positions = hg.replay[TSD[str, TS[float]]](
+       key="positions", partition_names=("symbol",))
 
 Accepted native overloads
 
 .. code-block:: text
 
    replay(key: str, recordable_id: str = ...) -> OUT
+   replay(key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., date_key: str = ..., as_of_key: str = ..., frame_prefix: str = ...) -> OUT
 
 .. _python-operator-replay_const:
 
@@ -7565,7 +7614,7 @@ Accepted native overloads
 
 Table serialization operators (design record: *Record/replay, tables and const_fn*, P4 + step 6). ``to_table`` is the Python-parity TUPLE-ROW protocol: each tick converts to bitemporal row values ``[date, as_of, {removed, *keys}(per TSD level), *value columns]`` — ``TS<tuple[...]>`` for single-row types, ``TS<tuple[tuple[...], ...]>`` for partitioned (TSD) or multi-row (``Frame``-valued) types; unset cells are tuple field validity (Python ``None``). The output schema is computed from the resolved input at wiring. ``mode`` is a ``ToTableMode`` enum time-series (Tick/Sample/Snap) defaulting to Tick.
 
-``from_table`` reverses it, applying each row as the tick's delta at the resolved output (supplied at the wiring site: ``wire<from_table, TS<MySchema>>(w, ts)``); removed flags map to TSD key removals. The record/replay backends bypass both and drive the Arrow serializer ops directly (``types/value/table_codec.h``).
+``from_table`` reverses it, applying each row as the tick's delta at the resolved output (supplied at the wiring site: ``wire<from_table, TS<MySchema>>(w, ts)``); removed flags map to TSD key removals. The record/replay backends bypass tuple materialisation and drive the selected ``TableTypeOps`` into Arrow builders directly.
 
 Python exposure: lazy native operator proxy.
 
@@ -7576,28 +7625,28 @@ Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
 ``ts`` : time-series; ``TIME_SERIES_TYPE``
-   The primary time-series input.
+   Time-series value or structure to flatten.
 
-``mode`` : time-series; ``TS[SCALAR]``
-   The mode value used by the selected overload. Optional in overloads that show ``= ...``.
+``mode`` : time-series; ``TS[ToTableMode]``
+   Tick emits deltas, Sample emits complete modified entries, and Snap emits a complete snapshot when the source ticks. Optional in overloads that show ``= ...``.
 
 Returns
 ~~~~~~~
 
-A wired output with one of the overload-selected shapes: ``OUT``.
+One row per scalar tick, or a tuple of rows for partitioned and frame-valued inputs.
 
 Python example
 ~~~~~~~~~~~~~~
 
 .. code-block:: python
 
-   result = hg.to_table(ts)
+   rows = hg.to_table(positions, hg.ToTableMode.Sample)
 
 Accepted native overloads
 
 .. code-block:: text
 
-   to_table(ts: TIME_SERIES_TYPE, mode: TS[SCALAR] = ...) -> OUT
+   to_table(ts: TIME_SERIES_TYPE, mode: TS[ToTableMode] = ...) -> OUT
 
 .. _python-operator-to_window:
 

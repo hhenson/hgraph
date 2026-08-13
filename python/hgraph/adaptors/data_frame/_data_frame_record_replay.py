@@ -6,9 +6,11 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+import _hgraph
 
 from hgraph import (
     AUTO_RESOLVE,
+    DATA_FRAME,
     MAX_DT,
     OUT,
     Frame,
@@ -33,14 +35,10 @@ __all__ = (
 )
 
 
+# Preserve the 0.5 public sentinel: downstream code imports it directly and
+# uses it with ``set_record_replay_model``. The state setter translates this
+# compatibility name to the native ``DataFrame`` model.
 DATA_FRAME_RECORD_REPLAY = ":data_frame:__data_frame_record_replay__"
-
-#: Rows buffered before a recording flush.
-#:
-#: Each flush costs one Arrow table build and one concat, so this trades a
-#: bounded amount of retained Python data for taking both off the per-tick
-#: path. Module-level so a deployment can tune it and tests can shrink it.
-RECORD_BATCH_ROWS = 8192
 # The GlobalState keys are public upstream surface (imported by user code);
 # the private aliases below are retained for the existing internal call sites.
 DATA_FRAME_RECORD_REPLAY_PATH = ":data_frame:__path__"
@@ -113,6 +111,51 @@ def get_data_frame_record_overrides(key, recordable_id, global_state=None):
     )
 
 
+def _legacy_record_replay_kwargs(name, args, kwargs):
+    """Translate the 0.5 override registry into native call-site options.
+
+    This is wiring-only compatibility. The native recorder still receives
+    explicit immutable scalar options and does not consult Python state at
+    runtime.
+    """
+    if not GlobalState.has_instance():
+        return kwargs
+    state = GlobalState.instance()
+    if state.get("__record_replay_model__") != DATA_FRAME or DataFrameStorage.instance(state) is None:
+        return kwargs
+
+    key_position = 1 if name == "record" else 0
+    key = kwargs.get("key", args[key_position] if len(args) > key_position else "out")
+    recordable_id_position = 2 if name == "record" else 1
+    recordable_id = kwargs.get(
+        "recordable_id",
+        args[recordable_id_position] if len(args) > recordable_id_position else None,
+    )
+    options = get_data_frame_record_overrides(key, recordable_id, state)
+    translated = dict(kwargs)
+
+    if name == "record":
+        from hgraph import RecordAsOf, RecordRemoves
+
+        translated.setdefault(
+            # The 0.5 flag controls whether the column is present; it does not
+            # override a fixed graph-level ``set_as_of`` value.  ``INHERIT``
+            # preserves that distinction while still tracking evaluation time
+            # when no fixed value is configured.  Callers can continue to pass
+            # ``RecordAsOf.TRACK`` explicitly when they want that override.
+            "as_of", RecordAsOf.INHERIT if options.get("track_as_of", True) else RecordAsOf.OMIT
+        )
+        translated.setdefault(
+            "removes", RecordRemoves.TRACK if options.get("track_removes", False) else RecordRemoves.OMIT
+        )
+    if name in ("record", "replay"):
+        if options.get("partition_keys") is not None:
+            translated.setdefault("partition_names", tuple(options["partition_keys"]))
+        if options.get("remove_partition_keys") is not None:
+            translated.setdefault("removed_names", tuple(options["remove_partition_keys"]))
+    return translated
+
+
 # These names are compatibility views over the C++-owned record/replay nodes.
 record_to_data_frame = operator_function("record")
 replay_from_data_frame = operator_function("replay")
@@ -140,15 +183,47 @@ class DataFrameStorage(ABC):
     def set_as_instance(self):
         state = GlobalState.instance()
         self._previous = state.get(_STORAGE_KEY, self._MISSING)
+        self._date_key = get_table_schema_date_key(state._impl)
+        self._as_of_key = get_table_schema_as_of_key(state._impl)
         state[_STORAGE_KEY] = self
+        _hgraph._set_python_frame_store(state._impl, self)
 
     def release_as_instance(self):
         state = GlobalState.instance()
+        _hgraph._restore_python_frame_store(state._impl)
         if self._previous is self._MISSING:
             state.pop(_STORAGE_KEY, None)
         else:
             state[_STORAGE_KEY] = self._previous
         self._previous = self._MISSING
+
+    # The native compatibility seam is deliberately smaller than this legacy
+    # storage API. It neither asks Python to enforce native immutability nor
+    # exposes native segmentation: one call stores or loads one complete frame.
+    def store(self, path, frame):
+        frame = _as_arrow(frame)
+        self.write_frame(path, frame, mode=WriteMode.OVERWRITE)
+        names = set(frame.schema.names)
+        self.set_schema_info(
+            path,
+            self._date_key if self._date_key in names else None,
+            self._as_of_key if self._as_of_key in names else None,
+        )
+
+    def load(self, path):
+        try:
+            return _as_arrow(self.read_frame(path))
+        except (FileNotFoundError, KeyError):
+            return None
+
+    def has(self, path):
+        exists = getattr(self, "_exists", None)
+        if exists is not None:
+            return exists(path)
+        try:
+            return self.load(path) is not None
+        except (FileNotFoundError, KeyError):
+            return False
 
     def __enter__(self):
         self.set_as_instance()
@@ -317,222 +392,6 @@ def _as_arrow(value):
     if not isinstance(table, pa.Table):
         raise TypeError(f"dataframe storage requires an Arrow-compatible frame, got {type(value)!r}")
     return table
-
-
-# --------------------------------------------------------------------------
-# DATA_FRAME-model record/replay overloads (upstream parity, Arrow-native).
-#
-# Built on the native TABLE protocol: ``to_table`` supplies canonical rows
-# (date, as_of[, removed, key], value...) and ``from_table`` rebuilds the
-# time series; this module maps rows <-> Arrow frames in DataFrameStorage,
-# honouring set_data_frame_overrides (column renames / dropped columns).
-# --------------------------------------------------------------------------
-
-def _df_model_active(m):
-    return (GlobalState.has_instance()
-            and GlobalState.instance().get("__record_replay_model__") == DATA_FRAME_RECORD_REPLAY)
-
-
-def _configured_as_of(default=None, global_state=None):
-    if global_state is not None:
-        return global_state.get("__as_of__", default)
-    if GlobalState.has_instance():
-        return GlobalState.instance().get("__as_of__", default)
-    return default
-
-
-def _frame_columns_for(schema, overrides):
-    """[(row_index, stored_column_name)] honouring the overrides."""
-    partition_iter = iter(list(overrides.get("partition_keys", ()) or ()))
-    removed_iter = iter(list(overrides.get("remove_partition_keys", ()) or ()))
-    track_as_of = overrides.get("track_as_of", True)
-    track_removes = overrides.get("track_removes", True)
-
-    columns = []
-    for index, key in enumerate(schema.keys):
-        if key == schema.as_of_key:
-            if track_as_of:
-                columns.append((index, key))
-        elif key in schema.removed_keys:
-            if track_removes:
-                columns.append((index, next(removed_iter, key)))
-        elif key in schema.partition_keys:
-            columns.append((index, next(partition_iter, key)))
-        else:
-            columns.append((index, key))
-    return columns
-
-
-def _read_row_groups(frame, schema, overrides):
-    """Stored frame -> canonical row tuples grouped by consecutive date."""
-    columns = _frame_columns_for(schema, overrides)
-    stored = {index: frame[name].to_pylist() for index, name in columns}
-    date_index = schema.keys.index(schema.date_time_key)
-    as_of_index = schema.keys.index(schema.as_of_key) if schema.as_of_key in schema.keys else None
-    groups = []
-    for row_number in range(frame.num_rows):
-        row = tuple(
-            stored[index][row_number] if index in stored
-            else (stored[date_index][row_number] if index == as_of_index
-                  else (False if key in schema.removed_keys else None))
-            for index, key in enumerate(schema.keys))
-        when = row[date_index]
-        if groups and groups[-1][0] == when:
-            groups[-1][1].append(row)
-        else:
-            groups.append((when, [row]))
-    return groups
-
-
-def _storage_frame(key, recordable_id, global_state):
-    # Internal replay consumption: a user-implemented storage (or a
-    # user-supplied literal frame) may return the user-facing form —
-    # normalize back to the canonical Arrow representation (issue #80).
-    storage = DataFrameStorage.instance(global_state)
-    if storage is None:
-        raise RuntimeError("data-frame record/replay requires an active DataFrameStorage")
-    return _as_arrow(storage.read_frame(
-        f"{recordable_id}.{key}", as_of=_configured_as_of(global_state=global_state)))
-
-
-_REPLAY_SCHEMAS = {}
-
-
-def _register_data_frame_record_replay():
-    from hgraph import (
-        AUTO_RESOLVE, TIME_SERIES_TYPE, TS, OUT, STATE, graph,
-        sink_node, generator, table_schema, to_table, from_table,
-    )
-    from hgraph._wiring._compose import _TsExprFor
-    from hgraph._wiring._core import _unwrap
-
-    def _flush_record_batch(_state, storage, path):
-        """Write the buffered rows as ONE Arrow table, then drop them."""
-        columns = _state.columns
-        if not columns or not columns[0]:
-            return
-        frame = pa.table(dict(zip(_state.col_names, columns)))
-        mode = WriteMode.EXTEND if _state.started else WriteMode.OVERWRITE
-        _state.started = True
-        storage.write_frame(path, frame, mode=mode)
-        for column in columns:
-            column.clear()
-
-    @sink_node
-    def _df_record_rows(rows: TIME_SERIES_TYPE, key: str, recordable_id: str,
-                        col_indices: tuple, col_names: tuple, multi_row: bool,
-                        _state: STATE = None,
-                        global_state: GlobalState = None):
-        # Buffer into plain Python lists and build Arrow in batches.
-        #
-        # Recording used to build a one-row `pa.table` every tick and write it
-        # with EXTEND, and EXTEND re-read the whole accumulated table and
-        # concatenated. That is O(n^2) in work, and the memory cost is worse
-        # than the row count suggests: `concat_tables` does not combine chunks,
-        # so the result carried ONE CHUNK PER TICK PER COLUMN, each with its own
-        # 64-byte-aligned data and validity buffers plus per-chunk object
-        # overhead. A few bytes of payload per tick retained hundreds.
-        storage = DataFrameStorage.instance(global_state)
-        if storage is None:
-            raise RuntimeError("data-frame record requires an active DataFrameStorage")
-        if not hasattr(_state, "columns"):
-            _state.columns = [[] for _ in col_names]
-            _state.col_names = list(col_names)
-            _state.started = False
-        row_values = rows.value if multi_row else (rows.value,)
-        columns = _state.columns
-        for position, index in enumerate(col_indices):
-            column = columns[position]
-            for row in row_values:
-                column.append(row[index])
-        if len(columns[0]) >= RECORD_BATCH_ROWS:
-            _flush_record_batch(_state, storage, f"{recordable_id}.{key}")
-
-    @_df_record_rows.stop
-    def _df_record_rows_stop(key: str, recordable_id: str, _state: STATE = None,
-                             global_state: GlobalState = None):
-        # The tail. Without this the last partial batch is lost, so the flush
-        # threshold would silently truncate a recording.
-        storage = DataFrameStorage.instance(global_state)
-        if storage is None or not hasattr(_state, "columns"):
-            return
-        _flush_record_batch(_state, storage, f"{recordable_id}.{key}")
-
-    @graph(overloads="record", requires=_df_model_active)
-    def _record_to_data_frame(ts: TIME_SERIES_TYPE, key: str = "out",
-                              recordable_id: str = None,
-                              _tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
-                              global_state: GlobalState = None):
-        # registry dispatch re-wraps the port as whole-value TS; the resolved
-        # typevar carries the true endpoint type (TSD vs TS)
-        tp = _tp if _tp is not AUTO_RESOLVE else _TsExprFor(_unwrap(ts).ts_type)
-        schema = table_schema(tp).value
-        overrides = get_data_frame_record_overrides(
-            key, recordable_id, global_state
-        )
-        storage = DataFrameStorage.instance(global_state)
-        if storage is not None:
-            storage.set_schema_info(
-                f"{recordable_id}.{key}", schema.date_time_key,
-                schema.as_of_key if overrides.get("track_as_of", True) else None,
-            )
-        columns = _frame_columns_for(schema, overrides)
-        _df_record_rows(to_table(ts), key=key, recordable_id=recordable_id,
-                        col_indices=tuple(index for index, _ in columns),
-                        col_names=tuple(name for _, name in columns),
-                        multi_row=bool(schema.partition_keys) or schema.is_multi_row)
-
-    def _replay_rows_type(m, key, recordable_id):
-        schema, _, _ = _REPLAY_SCHEMAS[(key, recordable_id)]
-        from hgraph._table import table_shape_from_schema
-        return TS[table_shape_from_schema(schema)]
-
-    @generator(resolvers={TIME_SERIES_TYPE: _replay_rows_type})
-    def _df_replay_rows(key: str, recordable_id: str,
-                        multi_row: bool,
-                        global_state: GlobalState = None) -> TIME_SERIES_TYPE:
-        # upstream filter: rows strictly before the evaluation start are
-        # dropped (dt_col >= start_time)
-        schema, overrides, start = _REPLAY_SCHEMAS[(key, recordable_id)]
-        frame = _storage_frame(key, recordable_id, global_state)
-        for when, rows in _read_row_groups(frame, schema, overrides):
-            if start is not None and when < start:
-                continue
-            yield when, tuple(rows) if multi_row else rows[0]
-
-    @generator(resolvers={TIME_SERIES_TYPE: _replay_rows_type})
-    def _df_replay_const_rows(key: str, recordable_id: str,
-                              multi_row: bool,
-                              global_state: GlobalState = None) -> TIME_SERIES_TYPE:
-        # const semantics (upstream replay_const_from_data_frame): the FIRST
-        # group at/after the evaluation start, emitted once.
-        schema, overrides, start = _REPLAY_SCHEMAS[(key, recordable_id)]
-        frame = _storage_frame(key, recordable_id, global_state)
-        for when, rows in _read_row_groups(frame, schema, overrides):
-            if start is not None and when < start:
-                continue
-            yield when, tuple(rows) if multi_row else rows[0]
-            return
-
-    def _wire_replay(node, tp, key, recordable_id):
-        schema = table_schema(tp).value
-        overrides = get_data_frame_record_overrides(key, recordable_id)
-        start = GlobalState.instance().get("__start_time__")
-        _REPLAY_SCHEMAS[(key, recordable_id)] = (schema, overrides, start)
-        return node(key=key, recordable_id=recordable_id,
-                    multi_row=bool(schema.partition_keys) or schema.is_multi_row)
-
-    @graph(overloads="replay", requires=_df_model_active)
-    def _replay_from_data_frame(key: str = "out", recordable_id: str = None,
-                                to: type[OUT] = AUTO_RESOLVE) -> OUT:
-        return from_table[to](_wire_replay(_df_replay_rows, to, key, recordable_id))
-
-    @graph(overloads="replay_const", requires=_df_model_active)
-    def _replay_const_from_data_frame(key: str = "out", recordable_id: str = None,
-                                      to: type[OUT] = AUTO_RESOLVE) -> OUT:
-        return from_table[to](_wire_replay(_df_replay_const_rows, to, key, recordable_id))
-
-_register_data_frame_record_replay()
 
 
 @graph

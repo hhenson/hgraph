@@ -1,6 +1,7 @@
 #include <hgraph/types/value/json_codec.h>
 #include <hgraph/types/value/table_codec.h>
 #include <hgraph/types/registry_reset.h>
+#include <hgraph/types/table_type_ops.h>
 #include <hgraph/types/temporal.h>
 
 #include <hgraph/runtime/executor.h>
@@ -40,6 +41,7 @@ namespace hgraph
         OperatorRegistry::instance().reset();
         ValueConversionRegistry::instance().reset();
         clear_json_converters();   // interns by meta/binding pointer — must precede the lenders below
+        clear_table_type_ops();    // exact schema overrides + layouts borrow registry metadata
         clear_table_converters();  // same rule (also captures record_replay config keys)
         clear_time_zone_provider_cache();  // borrows ZoneId handles; withdraw before names
         clear_zone_name_registry();  // invalidates process-local ZoneId handles between tests

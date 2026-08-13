@@ -18,7 +18,7 @@ public operator they implement rather than listed as top-level operators.
    * - Surface
      - Names
    * - ``hgraph.__all__``
-     - 208
+     - 210
    * - Public operator groups
      - 188
    * - Public submodules
@@ -93,6 +93,8 @@ Top-level wildcard exports
    * - ``REMOVE``
    * - ``REMOVE_IF_EXISTS``
    * - ``REQUIRED``
+   * - ``RecordAsOf``
+   * - ``RecordRemoves``
    * - ``RecordReplayContext``
    * - ``RecordReplayEnum``
    * - ``RequirementsNotMetWiringError``
@@ -664,8 +666,8 @@ whose curated signatures remain authoritative.
      - ``replace(pattern: TS[str], repl: TS[str], s: TS[str]) -> TS[str]``
      - 1 native overload; lazy operator
    * - :ref:`replay <python-operator-replay>`
-     - ``replay(key: str, recordable_id: str = ...) -> OUT``
-     - 1 native overload; lazy operator
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - :ref:`replay_const <python-operator-replay_const>`
      - ``replay_const(key: str, recordable_id: str = ..., tm: datetime = ...) -> OUT``
      - 1 native overload; lazy operator
@@ -772,7 +774,7 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`to_table <python-operator-to_table>`
-     - ``to_table(ts: TIME_SERIES_TYPE, mode: TS[SCALAR] = ...) -> OUT``
+     - ``to_table(ts: TIME_SERIES_TYPE, mode: TS[ToTableMode] = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`to_window <python-operator-to_window>`
      - ``4 overloads``

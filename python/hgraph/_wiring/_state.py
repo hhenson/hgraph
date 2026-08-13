@@ -11,6 +11,7 @@ _GRAPH_LOGGER_KEY = "__hgraph_graph_logger__"
 _GRAPH_LOGGER_FORMATTER_KEY = "__hgraph_graph_logger_formatter__"
 _RECORDER_API_KEY = "__recorder_api__"
 _RECORDER_LABEL_KEY = "__recorder_api__label__"
+_LEGACY_DATA_FRAME_RECORD_REPLAY = ":data_frame:__data_frame_record_replay__"
 
 
 def utc_now():
@@ -238,10 +239,16 @@ def _exit_runtime():
 
 
 def set_record_replay_config(model):
-    _hgraph._set_record_replay_config(GlobalState.instance()._impl, model)
+    # The 0.5 data-frame adaptor exported a private-looking model sentinel
+    # which became part of the user surface. Keep accepting it while the C++
+    # runtime has one canonical model name.
+    native_model = (
+        _hgraph.DATA_FRAME if model == _LEGACY_DATA_FRAME_RECORD_REPLAY else model
+    )
+    _hgraph._set_record_replay_config(GlobalState.instance()._impl, native_model)
     # python-readable mirror (model-gated python overloads read it in their
     # requires= predicates; the C++ config has no python getter)
-    GlobalState.instance()["__record_replay_model__"] = model
+    GlobalState.instance()["__record_replay_model__"] = native_model
 
 
 def set_pooled_compound_scalar_storage(enabled=True):

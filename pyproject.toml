@@ -153,6 +153,12 @@ BUILD_TESTING = "OFF"
 
 [tool.pytest.ini_options]
 minversion = "8.0"
+# The repo root, so `tools.api_inventory` imports in test_api_inventory.py.
+# Without it the suite only COLLECTS under `python -m pytest` run from the
+# root, which puts the cwd on sys.path as a side effect - a plain `pytest`
+# or `uv run pytest` fails at collection with ModuleNotFoundError. Relative
+# to rootdir, so it holds from any working directory.
+pythonpath = ["."]
 testpaths = [
     "python/tests",
 ]

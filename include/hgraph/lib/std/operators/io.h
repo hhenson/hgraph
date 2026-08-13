@@ -168,14 +168,54 @@ namespace hgraph::stdlib
     {
     };
 
+    /**
+     * Whether a recording carries an as-of column (RFC 0019).
+     *
+     * ``Inherit`` defers to the wiring-time ``record_replay::Config``, which
+     * is what makes the configuration LOCAL with a global default rather than
+     * a second override registry keyed on name.
+     */
+    enum class RecordAsOf : std::int64_t
+    {
+        Inherit,
+        Track,   ///< an as-of column carrying the evaluation as-of
+        Omit,    ///< no as-of column at all
+    };
+
+    /**
+     * Whether a recording carries a removed flag per TSD level (RFC 0019).
+     *
+     * Omitting them means a removal records NOTHING - the stream simply stops
+     * carrying that key, which is how most data streams are consumed. Tracking
+     * them makes a removal an explicit row.
+     */
+    enum class RecordRemoves : std::int64_t
+    {
+        Inherit,
+        Omit,
+        Track,
+    };
+
     /** Persist source ticks through the active record/replay backend.
         The effective location combines graph recordable context with ``key``.
         @param ts Stream to record.
         @param key Wiring-time name within the current recordable context.
+        @param recordable_id Optional explicit identity; context supplies it when omitted.
+        @param as_of Whether to track, omit, or inherit the as-of column policy.
+        @param removes Whether TSD removals are emitted as explicit rows.
+        @param partition_names Optional stored names for flattened TSD key columns.
+        @param removed_names Optional stored names for TSD removal-flag columns.
+        @param date_key Optional stored name for the value-time column.
+        @param as_of_key Optional stored name for the as-of column.
+        @param frame_prefix Prefix applied to expanded frame-valued columns.
+        @param mode Fixed Tick, Sample, or Snap row-selection policy.
+        @param flush_rows Native-store segment threshold in rows; zero disables it.
+        @param flush_interval Native-store segment threshold in evaluation time; zero disables it.
         @return No output.
         @par Python example
         @code{.py}
         hg.record(price, key="price")
+        hg.record(positions, key="positions", removes=hg.RecordRemoves.TRACK)
         @endcode */
     struct record : Operator<"record", In<"ts", TsVar<"S">>, Scalar<"key", Str>>
     {
@@ -184,10 +224,18 @@ namespace hgraph::stdlib
     /** Replay stored ticks for a key as an explicitly selected output type.
         Replay timing and availability follow the active record/replay mode and backend.
         @param key Wiring-time name within the current recordable context.
+        @param recordable_id Optional explicit identity; context supplies it when omitted.
+        @param partition_names Stored names used for flattened TSD key columns.
+        @param removed_names Stored names used for TSD removal-flag columns.
+        @param date_key Stored name for the value-time column.
+        @param as_of_key Stored name for the as-of column.
+        @param frame_prefix Prefix used by expanded frame-valued columns.
         @return A source reproducing the recorded stream.
         @par Python example
         @code{.py}
         price = hg.replay[TS[float]](key="price")
+        positions = hg.replay[TSD[str, TS[float]]](
+            key="positions", partition_names=("symbol",))
         @endcode */
     struct replay : Operator<"replay", Scalar<"key", Str>, Out<TsVar<"O">>>
     {
@@ -219,5 +267,78 @@ namespace hgraph::stdlib
     {
     };
 }  // namespace hgraph::stdlib
+
+namespace hgraph::static_schema_detail
+{
+    template <>
+    struct scalar_name<hgraph::stdlib::RecordAsOf>
+    {
+        static constexpr std::string_view value{"RecordAsOf"};
+    };
+
+    template <>
+    struct scalar_name<hgraph::stdlib::RecordRemoves>
+    {
+        static constexpr std::string_view value{"RecordRemoves"};
+    };
+}  // namespace hgraph::static_schema_detail
+
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+#include <hgraph/python/bridge_state.h>
+
+namespace hgraph
+{
+    /** Python conversion binds to the type AT DEFINITION (type-erasure rule).
+        These carry no dedicated enum slot, so they cross as their integer
+        member - which an IntEnum on the Python side accepts either way. */
+    template <>
+    struct python_conversion_traits<stdlib::RecordAsOf>
+    {
+        static nb::object to_python(const stdlib::RecordAsOf &value)
+        {
+            return nb::cast(static_cast<std::int64_t>(value));
+        }
+
+        static stdlib::RecordAsOf from_python(nb::handle source)
+        {
+            if (nb::hasattr(source, "value"))
+            {
+                return static_cast<stdlib::RecordAsOf>(nb::cast<std::int64_t>(source.attr("value")));
+            }
+            return static_cast<stdlib::RecordAsOf>(nb::cast<std::int64_t>(source));
+        }
+    };
+
+    template <>
+    struct python_conversion_traits<stdlib::RecordRemoves>
+    {
+        static nb::object to_python(const stdlib::RecordRemoves &value)
+        {
+            return nb::cast(static_cast<std::int64_t>(value));
+        }
+
+        static stdlib::RecordRemoves from_python(nb::handle source)
+        {
+            if (nb::hasattr(source, "value"))
+            {
+                return static_cast<stdlib::RecordRemoves>(nb::cast<std::int64_t>(source.attr("value")));
+            }
+            return static_cast<stdlib::RecordRemoves>(nb::cast<std::int64_t>(source));
+        }
+    };
+}  // namespace hgraph
+#endif  // HGRAPH_ENABLE_PYTHON_USER_NODES
+
+namespace hgraph
+{
+    // Public operator-policy scalars cross independently built extension
+    // boundaries; keep one canonical plan/ops address in hgraph_stdlib.
+    extern template HGRAPH_EXPORT const MemoryUtils::StoragePlan &
+    MemoryUtils::plan_for<stdlib::RecordAsOf>() noexcept;
+    extern template HGRAPH_EXPORT const ValueOps &ops_for<stdlib::RecordAsOf>() noexcept;
+    extern template HGRAPH_EXPORT const MemoryUtils::StoragePlan &
+    MemoryUtils::plan_for<stdlib::RecordRemoves>() noexcept;
+    extern template HGRAPH_EXPORT const ValueOps &ops_for<stdlib::RecordRemoves>() noexcept;
+}  // namespace hgraph
 
 #endif  // HGRAPH_LIB_STD_OPERATORS_IO_H

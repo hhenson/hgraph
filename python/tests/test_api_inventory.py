@@ -204,7 +204,13 @@ def test_operator_catalogue_exposes_every_operator_signature_and_documentation()
         line for line in source.splitlines()
         if line.startswith("   ") and "(" in line and " -> " in line
     )
-    assert not re.search(r"(?<![A-Z_])(?:O|S|T)(?![A-Z_])", signature_lines)
+    # No UNRESOLVED single-letter type var (``-> O``, ``: S``, ``[T]``) reached
+    # the published signatures. The bound must be a whole identifier: the
+    # earlier ``(?<![A-Z_])`` form only excluded an adjacent UPPERCASE letter,
+    # so it also matched the lone capital inside an ordinary mixed-case name
+    # (``RecordAsOf``). Every genuine bare type var is still caught - in
+    # ``TS[int]`` or ``OUT`` the letter has a letter beside it either way.
+    assert not re.search(r"(?<![A-Za-z0-9_])(?:O|S|T)(?![A-Za-z0-9_])", signature_lines)
     for operator in inventory["operators"]:
         assert operator["documentation"] in source
 
@@ -278,6 +284,24 @@ def test_operator_stub_exposes_overloads_docs_and_every_public_operator():
         ]
         for call in to_window.body
         if isinstance(call, ast.FunctionDef) and call.name == "__call__"
+    )
+
+    record = classes["_record_Operator"]
+    assert any(
+        any(
+            argument.arg == "mode" and ast.unparse(argument.annotation) == "_ToTableMode"
+            for argument in call.args.args + call.args.kwonlyargs
+        )
+        for call in record.body
+        if isinstance(call, ast.FunctionDef) and call.name == "__call__"
+    )
+    to_table = classes["_to_table_Operator"]
+    assert any(
+        argument.arg == "mode"
+        and ast.unparse(argument.annotation) == "_WiringPort | _ToTableMode"
+        for call in to_table.body
+        if isinstance(call, ast.FunctionDef) and call.name == "__call__"
+        for argument in call.args.args + call.args.kwonlyargs
     )
 
     typing_all = next(

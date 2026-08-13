@@ -616,81 +616,44 @@ namespace hgraph
         void append_sequence(const Column &, const ValueView &, arrow::ArrayBuilder &);
         Value read_sequence(const Column &, const arrow::Array &, std::int64_t);
 
+/**
+ * The atomic leaves the table codec can carry, as ONE list: the dispatch in
+ * ``leaf_ops_for`` and the inventory ``table_atomic_leaf_metas`` reports are
+ * both generated from it, so a leaf cannot be added to one without the other.
+ * That matters because the inventory is what the round-trip test sizes itself
+ * against - a hand-kept second copy would let a new leaf ship with the test
+ * still claiming full coverage.
+ */
+#define HGRAPH_TABLE_ATOMIC_LEAVES(X)                                             \
+    X(Bool, arrow::boolean(), bool)                                               \
+    X(Int, arrow::int64(), int)                                                   \
+    X(Float, arrow::float64(), float)                                             \
+    X(Str, arrow::utf8(), str)                                                    \
+    X(Bytes, arrow::binary(), bytes)                                              \
+    X(Date, arrow::date32(), date)                                                \
+    X(DateTime, arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"), datetime)        \
+    X(TimeDelta, arrow::duration(arrow::TimeUnit::MICRO), timedelta)              \
+    X(Time, arrow::time64(arrow::TimeUnit::MICRO), time)                          \
+    X(CivilDateTime, arrow::timestamp(arrow::TimeUnit::MICRO), civil_datetime)    \
+    X(Period, arrow::month_day_nano_interval(), period)                           \
+    X(ZoneId, arrow::utf8(), zone_id)                                             \
+    X(ZonedDateTime, zoned_datetime_type(), zoned_datetime)                       \
+    X(InstantRange, instant_range_type(), instant_range)                          \
+    X(CivilDateRange, civil_date_range_type(), civil_date_range)                  \
+    X(InstantRangeSet, arrow::fixed_size_list(instant_range_type(), 2),           \
+      instant_range_set)                                                          \
+    X(CivilDateRangeSet, arrow::fixed_size_list(civil_date_range_type(), 2),      \
+      civil_date_range_set)
+
         [[nodiscard]] LeafOps leaf_ops_for(const ValueTypeMetaData *meta)
         {
-            if (meta == scalar_descriptor<Bool>::value_meta())
-            {
-                return {arrow::boolean(), &append_bool, &read_bool};
-            }
-            if (meta == scalar_descriptor<Int>::value_meta()) { return {arrow::int64(), &append_int, &read_int}; }
-            if (meta == scalar_descriptor<Float>::value_meta())
-            {
-                return {arrow::float64(), &append_float, &read_float};
-            }
-            if (meta == scalar_descriptor<Str>::value_meta()) { return {arrow::utf8(), &append_str, &read_str}; }
-            if (meta == scalar_descriptor<Bytes>::value_meta())
-            {
-                return {arrow::binary(), &append_bytes, &read_bytes};
-            }
-            if (meta == scalar_descriptor<Date>::value_meta())
-            {
-                return {arrow::date32(), &append_date, &read_date};
-            }
-            if (meta == scalar_descriptor<DateTime>::value_meta())
-            {
-                return {arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"),
-                        &append_datetime, &read_datetime};
-            }
-            if (meta == scalar_descriptor<TimeDelta>::value_meta())
-            {
-                return {arrow::duration(arrow::TimeUnit::MICRO), &append_timedelta, &read_timedelta};
-            }
-            if (meta == scalar_descriptor<Time>::value_meta())
-            {
-                return {arrow::time64(arrow::TimeUnit::MICRO), &append_time, &read_time};
-            }
-            if (meta == scalar_descriptor<CivilDateTime>::value_meta())
-            {
-                return {arrow::timestamp(arrow::TimeUnit::MICRO),
-                        &append_civil_datetime, &read_civil_datetime};
-            }
-            if (meta == scalar_descriptor<Period>::value_meta())
-            {
-                return {arrow::month_day_nano_interval(), &append_period,
-                        &read_period};
-            }
-            if (meta == scalar_descriptor<ZoneId>::value_meta())
-            {
-                return {arrow::utf8(), &append_zone_id, &read_zone_id};
-            }
-            if (meta == scalar_descriptor<ZonedDateTime>::value_meta())
-            {
-                return {zoned_datetime_type(), &append_zoned_datetime,
-                        &read_zoned_datetime};
-            }
-            if (meta == scalar_descriptor<InstantRange>::value_meta())
-            {
-                return {instant_range_type(), &append_instant_range,
-                        &read_instant_range};
-            }
-            if (meta == scalar_descriptor<CivilDateRange>::value_meta())
-            {
-                return {civil_date_range_type(), &append_civil_date_range,
-                        &read_civil_date_range};
-            }
-            if (meta == scalar_descriptor<InstantRangeSet>::value_meta())
-            {
-                return {
-                    arrow::fixed_size_list(instant_range_type(), 2),
-                    &append_instant_range_set, &read_instant_range_set};
-            }
-            if (meta == scalar_descriptor<CivilDateRangeSet>::value_meta())
-            {
-                return {
-                    arrow::fixed_size_list(civil_date_range_type(), 2),
-                    &append_civil_date_range_set,
-                    &read_civil_date_range_set};
-            }
+#define HGRAPH_TABLE_LEAF_DISPATCH(Type, ArrowType, Suffix)                       \
+    if (meta == scalar_descriptor<Type>::value_meta())                            \
+    {                                                                             \
+        return {ArrowType, &append_##Suffix, &read_##Suffix};                     \
+    }
+            HGRAPH_TABLE_ATOMIC_LEAVES(HGRAPH_TABLE_LEAF_DISPATCH)
+#undef HGRAPH_TABLE_LEAF_DISPATCH
             if ((meta->value_kind() == ValueTypeKind::List ||
                  (meta->value_kind() == ValueTypeKind::Tuple && meta->has(ValueTypeFlags::VariadicTuple))) &&
                 meta->element_type != nullptr)
@@ -757,6 +720,31 @@ namespace hgraph
             const int index =
                 metadata->FindKey("hgraph.temporal.version");
             return index >= 0 && metadata->value(index) == "2";
+        }
+
+        /**
+         * The schema metadata a recorded table must carry.
+         *
+         * Shared by both writers, because the reader below REJECTS a table
+         * that lacks it: a ZonedDateTime column without hgraph.tzdb.version
+         * fails validation, so a writer that omits it produces recordings its
+         * own replay refuses. TableRecorder omitted it and only atomic-leaf
+         * tests covered that path, so nothing caught it.
+         */
+        [[nodiscard]] std::shared_ptr<arrow::KeyValueMetadata> table_schema_metadata(
+            std::span<const ValueTypeMetaData *const> leaf_metas)
+        {
+            std::vector<std::string> keys{"hgraph.temporal.version"};
+            std::vector<std::string> values{"2"};
+            if (std::any_of(leaf_metas.begin(), leaf_metas.end(),
+                            [](const ValueTypeMetaData *leaf) {
+                                return leaf == scalar_descriptor<ZonedDateTime>::value_meta();
+                            }))
+            {
+                keys.emplace_back("hgraph.tzdb.version");
+                values.emplace_back(make_time_zone_provider()->version());
+            }
+            return arrow::key_value_metadata(std::move(keys), std::move(values));
         }
 
         void validate_versioned_array_type(
@@ -969,24 +957,11 @@ namespace hgraph
                 converter->as_of_key,
                 arrow::timestamp(arrow::TimeUnit::MICRO, "UTC")));
             for (const auto &column : converter->columns) { fields.push_back(arrow::field(column.name, column.type)); }
-            std::vector<std::string> metadata_keys{
-                "hgraph.temporal.version"};
-            std::vector<std::string> metadata_values{"2"};
-            if (std::any_of(
-                    converter->columns.begin(), converter->columns.end(),
-                    [](const Column &column) {
-                        return column.leaf_meta ==
-                               scalar_descriptor<ZonedDateTime>::value_meta();
-                    }))
-            {
-                metadata_keys.emplace_back("hgraph.tzdb.version");
-                metadata_values.emplace_back(
-                    make_time_zone_provider()->version());
-            }
-            auto metadata = arrow::key_value_metadata(
-                std::move(metadata_keys), std::move(metadata_values));
+            std::vector<const ValueTypeMetaData *> leaf_metas;
+            leaf_metas.reserve(converter->columns.size());
+            for (const auto &column : converter->columns) { leaf_metas.push_back(column.leaf_meta); }
             converter->arrow_schema =
-                arrow::schema(std::move(fields), std::move(metadata));
+                arrow::schema(std::move(fields), table_schema_metadata(leaf_metas));
 
             const auto *raw = converter.get();
             g_converters.emplace(ConverterKey{meta, std::string{date_key}, std::string{as_of_key}},
@@ -1018,6 +993,100 @@ namespace hgraph
             column.append(column, value, builder);
         }
     }  // namespace
+
+
+    struct TableRecorder::Impl
+    {
+        std::vector<Column>                              columns{};
+        std::vector<std::unique_ptr<arrow::ArrayBuilder>> builders{};
+        std::shared_ptr<arrow::Schema>                   schema{};
+        std::int64_t                                     rows{0};
+        /** Row index each column last received a cell for; -1 for none. Cheaper
+            than clearing a mask per row, and it makes a duplicate delivery
+            detectable. */
+        std::vector<std::int64_t>                        written{};
+    };
+
+    TableRecorder::TableRecorder(std::span<const std::string> names,
+                                 std::span<const ValueTypeMetaData *const> leaf_metas)
+        : impl_(std::make_unique<Impl>())
+    {
+        if (names.size() != leaf_metas.size())
+        {
+            throw std::invalid_argument("table recorder: column names and leaf metadata differ in length");
+        }
+        arrow::FieldVector fields;
+        fields.reserve(names.size());
+        impl_->columns.reserve(names.size());
+        impl_->builders.reserve(names.size());
+        for (std::size_t i = 0; i < names.size(); ++i)
+        {
+            if (leaf_metas[i] == nullptr)
+            {
+                throw std::invalid_argument(
+                    fmt::format("table recorder: column '{}' has no leaf metadata", names[i]));
+            }
+            const LeafOps ops = leaf_ops_for(leaf_metas[i]);
+            impl_->columns.push_back(Column{.name      = names[i],
+                                            .leaf_meta = leaf_metas[i],
+                                            .path      = {},
+                                            .type      = ops.type,
+                                            .append    = ops.append,
+                                            .read      = ops.read});
+            impl_->builders.push_back(make_builder(ops.type));
+            impl_->written.push_back(-1);
+            fields.push_back(arrow::field(names[i], ops.type));
+        }
+        // The same metadata the converter writes: replay validates against it,
+        // so a recording without it is one this codec will not read back.
+        impl_->schema = arrow::schema(std::move(fields), table_schema_metadata(leaf_metas));
+    }
+
+    TableRecorder::TableRecorder(TableRecorder &&) noexcept            = default;
+    TableRecorder &TableRecorder::operator=(TableRecorder &&) noexcept = default;
+    TableRecorder::~TableRecorder()                                    = default;
+
+    void TableRecorder::append_cell(std::size_t column, const ValueView &value)
+    {
+        if (column >= impl_->columns.size())
+        {
+            throw std::invalid_argument(fmt::format("table recorder: column {} of {}", column,
+                                                    impl_->columns.size()));
+        }
+        if (impl_->written[column] == impl_->rows)
+        {
+            throw std::invalid_argument(fmt::format(
+                "table recorder: column '{}' delivered twice in one row", impl_->columns[column].name));
+        }
+        if (!value.has_value()) { return; }   // absent; end_row makes it a null
+        append_column(impl_->columns[column], value, *impl_->builders[column]);
+        impl_->written[column] = impl_->rows;
+    }
+
+    void TableRecorder::end_row()
+    {
+        for (std::size_t i = 0; i < impl_->columns.size(); ++i)
+        {
+            if (impl_->written[i] == impl_->rows) { continue; }
+            check(impl_->builders[i]->AppendNull(), "append null");
+        }
+        ++impl_->rows;
+    }
+
+    std::int64_t TableRecorder::rows() const noexcept { return impl_->rows; }
+
+    const std::shared_ptr<arrow::Schema> &TableRecorder::arrow_schema() const noexcept { return impl_->schema; }
+
+    Frame TableRecorder::finish()
+    {
+        arrow::ArrayVector arrays;
+        arrays.reserve(impl_->builders.size());
+        for (auto &builder : impl_->builders) { arrays.push_back(hgraph::finish(*builder)); }
+        const std::int64_t rows = impl_->rows;
+        impl_->rows             = 0;
+        std::fill(impl_->written.begin(), impl_->written.end(), -1);
+        return Frame{arrow::Table::Make(impl_->schema, std::move(arrays), rows)};
+    }
 
     struct FrameRecorder::Impl
     {
@@ -1070,6 +1139,28 @@ namespace hgraph
         return Frame{arrow::Table::Make(impl_->converter->arrow_schema, std::move(arrays), impl_->rows)};
     }
 
+    Value read_table_cell(const ValueTypeMetaData *leaf_meta, const arrow::Array &array,
+                          const arrow::Schema &schema, std::int64_t row)
+    {
+        if (leaf_meta == nullptr) { throw std::invalid_argument("table codec: cell has no leaf metadata"); }
+        if (array.IsNull(row)) { return Value{}; }
+        // BEFORE dispatching: the readers use unchecked derived-array casts
+        // (the Boolean reader casts straight to arrow::BooleanArray), so a
+        // stored column whose Arrow type disagrees with the leaf metadata is
+        // undefined behaviour rather than a diagnosable error. read_row has
+        // always validated; this path did not, and a frame can now come from a
+        // Python-supplied store that the runtime never wrote.
+        validate_versioned_array_type(array, leaf_meta, schema, "table cell");
+        const LeafOps ops = leaf_ops_for(leaf_meta);
+        const Column  column{.name      = {},
+                             .leaf_meta = leaf_meta,
+                             .path      = {},
+                             .type      = ops.type,
+                             .append    = ops.append,
+                             .read      = ops.read};
+        return ops.read(column, array, row);
+    }
+
     DateTime frame_value_time(const TableConverter &converter, const Frame &frame, std::int64_t row)
     {
         const auto chunked = frame.table->GetColumnByName(converter.date_key);
@@ -1101,6 +1192,18 @@ namespace hgraph
     {
         std::scoped_lock lock{g_converters_mutex};
         g_converters.clear();
+    }
+
+    std::vector<const ValueTypeMetaData *> table_atomic_leaf_metas()
+    {
+        // Built fresh rather than cached in a static: the metas are registry
+        // -owned, and a reset frees them.
+        std::vector<const ValueTypeMetaData *> metas;
+#define HGRAPH_TABLE_LEAF_META(Type, ArrowType, Suffix)                           \
+    metas.push_back(scalar_descriptor<Type>::value_meta());
+        HGRAPH_TABLE_ATOMIC_LEAVES(HGRAPH_TABLE_LEAF_META)
+#undef HGRAPH_TABLE_LEAF_META
+        return metas;
     }
 
     Frame single_row_frame(const TableConverter &converter, DateTime value_time, DateTime as_of,

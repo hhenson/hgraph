@@ -281,18 +281,8 @@ def _record_ints(storage, n):
             return storage.read_frame("batched.out")
 
 
-@pytest.mark.parametrize("batch_rows", [4, 1000])
-def test_recording_spanning_several_batches_is_complete_and_ordered(monkeypatch, batch_rows):
-    """Recording buffers rows and flushes in batches.
-
-    The tail is flushed at stop, so a threshold that does not divide the row
-    count must not truncate; and rows must stay in tick order across the flush
-    boundaries. With the default threshold the second case never flushes
-    mid-run, which keeps the stop-only path covered too.
-    """
-    from hgraph.adaptors.data_frame import _data_frame_record_replay as impl
-
-    monkeypatch.setattr(impl, "RECORD_BATCH_ROWS", batch_rows)
+def test_native_recording_is_complete_and_ordered():
+    """The migrated native recorder writes the complete run once at stop."""
     frame = _record_ints(MemoryDataFrameStorage(), 10)
 
     column = frame["value"]
@@ -302,16 +292,15 @@ def test_recording_spanning_several_batches_is_complete_and_ordered(monkeypatch,
 
 
 def test_recording_does_not_retain_a_chunk_per_tick():
-    """The regression this batching exists for.
+    """The regression the native recorder replaces.
 
     Building a one-row table per tick and extending produced a chunk per tick
     per column, each carrying its own aligned data and validity buffers, so
     retained memory ran to multiples of the payload. Chunk count must track
     flushes, not ticks.
     """
-    # Deliberately uses the DEFAULT batch size and stays under it, so this
-    # asserts the shape of what gets stored rather than the batching knob -
-    # it fails against a per-tick writer even if the knob does not exist.
+    # A native run builds one Arrow column, rather than retaining one Python
+    # table/chunk for every tick.
     storage = MemoryDataFrameStorage()
     _record_ints(storage, 200)
 

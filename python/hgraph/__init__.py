@@ -18,7 +18,8 @@ from ._types import (TS, TSS, TSD, TSL, TSB, Size, TimeSeriesSchema, CONTEXT, RE
                      NUMBER, NUMBER_2,
                      DEFAULT, REF, K, V, SCHEMA, TS_SCHEMA,
                      SIGNAL, WINDOW_SIZE, WINDOW_SIZE_MIN, WindowSize, Array, ts_schema, ENUM)
-from ._compat import (CmpResult, DivideByZero, exception_time_series, try_except,
+from ._compat import (CmpResult, DivideByZero, RecordAsOf, RecordRemoves,
+                      exception_time_series, try_except,
                       TryExceptResult, TryExceptTsdMapResult, NodeError,
                       OperatorWiringNodeClass, BoolResult, CompoundScalar, JSON, TimeSeriesReference,
                       NodeException, accumulate, average,
@@ -60,8 +61,18 @@ MAX_ET = _hgraph.MAX_ET    # the maximum end time (last processable instant)
 IN_MEMORY = _hgraph.IN_MEMORY
 IN_MEMORY_DENSE = _hgraph.IN_MEMORY_DENSE
 DATA_FRAME = _hgraph.DATA_FRAME
-frame_store_contains = _hgraph.frame_store_contains
-frame_store_read = _hgraph.frame_store_read
+
+
+def frame_store_contains(key, global_state=None):
+    """Whether the active graph's frame store contains ``key``."""
+    state = global_state if global_state is not None else GlobalState.instance()
+    return _hgraph._frame_store_contains(state._impl, key)
+
+
+def frame_store_read(key, global_state=None):
+    """Load one complete frame from the active graph's frame store."""
+    state = global_state if global_state is not None else GlobalState.instance()
+    return _hgraph._frame_store_read(state._impl, key)
 
 TimeSeries = _hgraph.TimeSeries
 Graph = _hgraph.Graph
@@ -74,6 +85,8 @@ _hgraph._set_set_delta_class(_SetDelta)
 _hgraph._set_delta_shaper(_simplify_delta)
 _hgraph._set_cmp_result_enum(CmpResult)
 _hgraph._set_divide_by_zero_enum(DivideByZero)
+_hgraph._set_record_as_of_enum(RecordAsOf)
+_hgraph._set_record_removes_enum(RecordRemoves)
 
 from ._wiring import _Combine as _CombineClass
 combine = _CombineClass()
@@ -86,6 +99,7 @@ from ._frame import (frame_metadata, has_frame_metadata, without_frame_metadata,
 from ._table import (ToTableMode, TableSchema, make_table_schema, table_schema,
                      table_shape, table_shape_from_schema, shape_of_table_type,
                      get_table_schema_date_key, get_table_schema_as_of_key)
+_hgraph._set_to_table_mode_enum(ToTableMode)
 
 from ._wiring import Removed
 
@@ -139,7 +153,7 @@ def __dir__():
 __all__ = [
     "TS", "TSS", "TSD", "TSL", "TSB", "Size", "TimeSeriesSchema", "CONTEXT", "REQUIRED", "WiringError", "TimeSeries",
     "NUMBER", "NUMBER_2", "DEFAULT",
-    "WiringPort", "CmpResult", "DivideByZero", "NodeError", "exception_time_series", "try_except", "lift", "lower",
+    "WiringPort", "CmpResult", "DivideByZero", "RecordAsOf", "RecordRemoves", "NodeError", "exception_time_series", "try_except", "lift", "lower",
     "TryExceptResult", "TryExceptTsdMapResult", "OperatorWiringNodeClass", "graph", "run_graph", "eval_node", "wire", "map_", "reduce", "mesh_", "MeshWiringPort", "get_mesh", "REMOVE", "REMOVE_IF_EXISTS", "feedback", "delayed_binding", "switch_", "passive", "compute_node", "sink_node", "generator", "STATE", "SCHEDULER", "CLOCK", "EvaluationEngineApi", "NODE", "Node", "Traits", "component", "record_replay_scope", "RecordReplayEnum", "comparison_summary", "push_queue", "EvaluationMode", "context",
     "MIN_ST", "MIN_TD", "MIN_DT", "MAX_DT", "MAX_ET", "IN_MEMORY", "IN_MEMORY_DENSE", "DATA_FRAME",
     "default_path",

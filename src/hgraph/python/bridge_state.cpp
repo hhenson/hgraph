@@ -614,6 +614,21 @@ nb::object &divide_by_zero_enum_slot() {
   return *slot;
 }
 
+nb::object &record_as_of_enum_slot() {
+  static auto *slot = new nb::object{};
+  return *slot;
+}
+
+nb::object &record_removes_enum_slot() {
+  static auto *slot = new nb::object{};
+  return *slot;
+}
+
+nb::object &to_table_mode_enum_slot() {
+  static auto *slot = new nb::object{};
+  return *slot;
+}
+
 nb::object &removed_sentinel_slot() {
   static auto *slot = new nb::object{};
   return *slot;

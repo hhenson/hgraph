@@ -21,6 +21,31 @@ class DivideByZero(Enum):
     ONE = 5
 
 
+class RecordAsOf(Enum):
+    """Whether a recording carries an as-of column (RFC 0019).
+
+    ``INHERIT`` defers to the wiring-time record/replay config, which is what
+    makes the configuration local WITH a global default rather than a second
+    override registry keyed on name.
+    """
+    # Values match the C++ stdlib::RecordAsOf scale.
+    INHERIT = 0
+    TRACK = 1
+    OMIT = 2
+
+
+class RecordRemoves(Enum):
+    """Whether a recording carries a removed flag per TSD level (RFC 0019).
+
+    Omitting them means a removal records NOTHING - the stream simply stops
+    carrying that key, which is how most data streams are consumed.
+    """
+    # Values match the C++ stdlib::RecordRemoves scale.
+    INHERIT = 0
+    OMIT = 1
+    TRACK = 2
+
+
 def exception_time_series(ts, trace_back_depth=1, capture_values=False):
     """Activate error capture on ``ts``'s producing node; returns the
     native error output. Ordinary nodes expose ``TS[NodeError]``; a TSD

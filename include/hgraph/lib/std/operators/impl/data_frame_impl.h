@@ -117,6 +117,12 @@ namespace hgraph::stdlib
                                      const TSOutputView &out,
                                      SingleShotScheduler &sched,
                                      ReplayDataFramePlan *&plan_out);
+        /** Select the latest visible revision for each value-time/partition
+            and discard rows before ``start_time``. A multi-row frame tick
+            retains every row belonging to its selected revision. */
+        [[nodiscard]] HGRAPH_EXPORT Frame select_replay_frame(
+            const Frame &frame, const table_ts_detail::TsTableLayout &layout,
+            DateTime as_of_time, DateTime start_time);
         void eval_replay_data_frame(ReplayDataFramePlan &plan, DateTime now,
                                     NodeScheduler &sched, const TSOutputView &out);
 

@@ -9,16 +9,31 @@
 #include <hgraph/types/value/specialized_views.h>
 #include <hgraph/types/value/value_builder.h>
 
+#include <arrow/table.h>
+#include <arrow/type.h>
+
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <memory>
+#include <numeric>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
+
+namespace
+{
+    std::unordered_map<const hgraph::TSValueTypeMetaData *, const hgraph::TableTypeOps *>
+        g_table_type_ops_overrides;
+}
 
 namespace hgraph::stdlib
 {
     namespace table_ts_detail
     {
+        [[nodiscard]] const TableTypeOps &builtin_table_type_ops(
+            const TSValueTypeMetaData *schema);
+
         namespace
         {
             // ---------------------------------------------------------------
@@ -40,13 +55,36 @@ namespace hgraph::stdlib
                 std::size_t operator()(const LayoutKey &key) const noexcept
                 {
                     std::size_t seed = std::hash<const TSValueTypeMetaData *>{}(key.meta);
-                    seed ^= std::hash<std::string>{}(key.date_key) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-                    seed ^= std::hash<std::string>{}(key.as_of_key) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+                    seed ^= std::hash<std::string>{}(key.date_key) + 0x9e3779b9 + (seed << 6) +
+                            (seed >> 2);
+                    seed ^= std::hash<std::string>{}(key.as_of_key) + 0x9e3779b9 + (seed << 6) +
+                            (seed >> 2);
                     return seed;
                 }
             };
 
             std::unordered_map<LayoutKey, std::unique_ptr<TsTableLayout>, LayoutKeyHash> g_layouts;
+            /** The registry generation ``g_layouts`` was built against. */
+            std::uint64_t g_layouts_generation{0};
+
+            /** Drop the cache when the registry that owns its keys has been
+                reset: the schema pointers it interns by are freed by that
+                reset, and the next interning can hand the same address to a
+                DIFFERENT type - at which point a stale entry answers for it.
+                register_table_operators() also clears, but only a caller that
+                registers operators reaches it, and building a layout needs
+                nothing but the type registry. */
+            void discard_stale_layouts()
+            {
+                const std::uint64_t generation = TypeRegistry::instance().reset_generation();
+                if (generation == g_layouts_generation)
+                {
+                    return;
+                }
+                g_layouts.clear();
+                g_table_type_ops_overrides.clear();
+                g_layouts_generation = generation;
+            }
 
             /** Flatten a VALUE schema to (suffix, leaf, path) triples. Bundles
                 flatten by field name (dotted), tuples by index; the suffix is
@@ -60,16 +98,17 @@ namespace hgraph::stdlib
                     sink(suffix, meta, std::move(path));
                     return;
                 }
-                if (meta != nullptr &&
-                    (meta->value_kind() == ValueTypeKind::Bundle || meta->value_kind() == ValueTypeKind::Tuple))
+                if (meta != nullptr && (meta->value_kind() == ValueTypeKind::Bundle ||
+                                        meta->value_kind() == ValueTypeKind::Tuple))
                 {
                     for (std::size_t i = 0; i < meta->field_count; ++i)
                     {
                         const auto &field = meta->fields[i];
-                        std::string name  = meta->value_kind() == ValueTypeKind::Bundle && field.name != nullptr
-                                                ? std::string{field.name}
-                                                : fmt::format("{}", i);
-                        auto        child_path = path;
+                        std::string name =
+                            meta->value_kind() == ValueTypeKind::Bundle && field.name != nullptr
+                                ? std::string{field.name}
+                                : fmt::format("{}", i);
+                        auto child_path = path;
                         child_path.push_back(i);
                         flatten_value(field.type, suffix.empty() ? name : suffix + "." + name,
                                       std::move(child_path), sink);
@@ -79,153 +118,179 @@ namespace hgraph::stdlib
                 throw std::invalid_argument(
                     fmt::format("to_table: unsupported value kind for column '{}' ('{}')",
                                 suffix.empty() ? "value" : suffix,
-                                meta != nullptr && !meta->name().empty() ? meta->name() : std::string_view{"?"}));
+                                meta != nullptr && !meta->name().empty() ? meta->name()
+                                                                         : std::string_view{"?"}));
             }
 
-            /** Flatten the LEAF time-series (below all TSD levels): TSB
-                recurses over child time-series, a plain TS flattens its
-                value schema. */
-            template <typename Sink>
-            void flatten_leaf_ts(const TSValueTypeMetaData *ts, const std::string &suffix,
-                                 std::vector<std::size_t> ts_path, Sink &&sink)
+            void emit_plain(const TableLayout &layout, const TSInputView &ts, Int mode,
+                            DateTime now, DateTime as_of, bool emit_removals,
+                            const TableRowSink &sink, bool reject_empty_frames);
+            void emit_partitioned(const TableLayout &layout, const TSInputView &ts, Int mode,
+                                  DateTime now, DateTime as_of, bool emit_removals,
+                                  const TableRowSink &sink, bool reject_empty_frames);
+            void emit_frame(const TableLayout &layout, const TSInputView &ts, Int mode,
+                            DateTime now, DateTime as_of, bool emit_removals,
+                            const TableRowSink &sink, bool reject_empty_frames);
+            void apply_plain(const TableLayout &layout, const TableRowSource &source,
+                             const TSOutputView &out);
+            void apply_partitioned(const TableLayout &layout, const TableRowSource &source,
+                                   const TSOutputView &out);
+            void apply_frame(const TableLayout &layout, const TableRowSource &source,
+                             const TSOutputView &out);
+
+            void begin_leaf(TableLayout &layout, const TSValueTypeMetaData *schema)
             {
-                if (ts == nullptr) { throw std::invalid_argument("to_table: null time-series schema"); }
-                if (ts->kind == TSTypeKind::TSB)
+                if (layout.leaf_ts == nullptr)
                 {
-                    const auto *bundle = ts->value_schema;
-                    for (std::size_t i = 0; i < ts->field_count(); ++i)
-                    {
-                        const auto *child = ts->fields()[i].type;
-                        const char *name  = bundle->fields[i].name;
-                        auto        child_ts_path = ts_path;
-                        child_ts_path.push_back(i);
-                        flatten_leaf_ts(child,
-                                        suffix.empty() ? std::string{name != nullptr ? name : ""}
-                                                       : suffix + "." + (name != nullptr ? name : ""),
-                                        std::move(child_ts_path), sink);
-                    }
-                    return;
+                    layout.leaf_ts = schema;
+                    layout.value_col_start = layout.keys.size();
                 }
-                if (ts->kind == TSTypeKind::TS)
-                {
-                    flatten_value(ts->value_schema, suffix, {},
-                                  [&](const std::string &value_suffix, const ValueTypeMetaData *leaf,
-                                      std::vector<std::size_t> value_path) {
-                                      sink(value_suffix, leaf, ts_path, std::move(value_path));
-                                  });
-                    return;
-                }
-                throw std::invalid_argument(
-                    fmt::format("to_table: unsupported leaf time-series kind for '{}'",
-                                ts != nullptr && !ts->name().empty() ? ts->name() : std::string_view{"?"}));
             }
 
-            [[nodiscard]] bool is_frame_meta(const ValueTypeMetaData *meta)
+            void describe_tsd(TableLayout &layout, const TSValueTypeMetaData *schema, std::string,
+                              std::vector<std::size_t>, std::size_t           level_no)
             {
-                return TypeRegistry::instance().is_frame(meta);
+                TableLayout::Level level;
+                level.key_meta = schema->key_type();
+                level.removed_col = layout.keys.size();
+                const std::string removed_name = fmt::format("__key_{}_removed__", level_no);
+                layout.keys.push_back(removed_name);
+                layout.col_metas.push_back(TypeRegistry::instance().value_type("bool"));
+                layout.removed_keys.push_back(removed_name);
+
+                level.first_key_col = layout.keys.size();
+                flatten_value(level.key_meta, "", {},
+                              [&](const std::string &suffix, const ValueTypeMetaData *leaf,
+                                  std::vector<std::size_t> path) {
+                                  const std::string name =
+                                      suffix.empty()
+                                          ? fmt::format("__key_{}__", level_no)
+                                          : fmt::format("__key_{}_{}__", level_no, suffix);
+                                  layout.keys.push_back(name);
+                                  layout.col_metas.push_back(leaf);
+                                  layout.partition_keys.push_back(name);
+                                  level.key_paths.push_back(std::move(path));
+                              });
+                layout.levels.push_back(std::move(level));
+                const auto *child = schema->element_ts();
+                builtin_table_type_ops(child).describe(layout, child, "", {}, level_no + 1);
+            }
+
+            void describe_tsb(TableLayout &layout, const TSValueTypeMetaData *schema,
+                              std::string prefix, std::vector<std::size_t> ts_path,
+                              std::size_t level_no)
+            {
+                begin_leaf(layout, schema);
+                const auto *bundle = schema->value_schema;
+                for (std::size_t i = 0; i < schema->field_count(); ++i)
+                {
+                    const auto *child = schema->fields()[i].type;
+                    const char *name = bundle->fields[i].name;
+                    auto        child_path = ts_path;
+                    child_path.push_back(i);
+                    const std::string child_prefix =
+                        prefix.empty() ? std::string{name != nullptr ? name : ""}
+                                       : prefix + "." + (name != nullptr ? name : "");
+                    builtin_table_type_ops(child).describe(
+                        layout, child, child_prefix, std::move(child_path), level_no);
+                }
+            }
+
+            void describe_ts(TableLayout &layout, const TSValueTypeMetaData *schema,
+                             std::string prefix, std::vector<std::size_t> ts_path, std::size_t)
+            {
+                begin_leaf(layout, schema);
+                flatten_value(schema->value_schema, prefix, {},
+                              [&](const std::string &suffix, const ValueTypeMetaData *leaf,
+                                  std::vector<std::size_t> value_path) {
+                                  TableLayout::Column entry;
+                                  entry.name = suffix.empty() ? "value" : suffix;
+                                  entry.leaf = leaf;
+                                  entry.ts_path = ts_path;
+                                  entry.value_path = std::move(value_path);
+                                  layout.keys.push_back(entry.name);
+                                  layout.col_metas.push_back(leaf);
+                                  layout.value_cols.push_back(std::move(entry));
+                              });
+            }
+
+            void describe_frame(TableLayout &layout, const TSValueTypeMetaData *schema,
+                                std::string prefix, std::vector<std::size_t> ts_path, std::size_t)
+            {
+                if (!prefix.empty() || !ts_path.empty() || !layout.value_cols.empty())
+                {
+                    throw std::invalid_argument("to_table: a Frame leaf must be the complete "
+                                                "value below any TSD levels");
+                }
+                begin_leaf(layout, schema);
+                layout.is_multi_row = true;
+                const auto *columns = schema->value_schema->element_type;
+                if (columns == nullptr)
+                {
+                    throw std::invalid_argument(
+                        "to_table: an untyped Frame input cannot derive table columns "
+                        "(use Frame[Schema])");
+                }
+                layout.frame_converter =
+                    &table_converter(columns, layout.date_key, layout.as_of_key);
+                for (const auto &column : layout.frame_converter->columns)
+                {
+                    TableLayout::Column entry;
+                    entry.name = column.name;
+                    entry.leaf = column.leaf_meta;
+                    entry.value_path = column.path;
+                    layout.keys.push_back(column.name);
+                    layout.col_metas.push_back(column.leaf_meta);
+                    layout.value_cols.push_back(std::move(entry));
+                }
+            }
+
+            [[nodiscard]] const TableTypeOps &tsd_ops()
+            {
+                static const TableTypeOps ops{&describe_tsd, &emit_partitioned, &apply_partitioned};
+                return ops;
+            }
+
+            [[nodiscard]] const TableTypeOps &tsb_ops()
+            {
+                static const TableTypeOps ops{&describe_tsb, &emit_plain, &apply_plain};
+                return ops;
+            }
+
+            [[nodiscard]] const TableTypeOps &ts_ops()
+            {
+                static const TableTypeOps ops{&describe_ts, &emit_plain, &apply_plain};
+                return ops;
+            }
+
+            [[nodiscard]] const TableTypeOps &frame_ops()
+            {
+                static const TableTypeOps ops{&describe_frame, &emit_frame, &apply_frame};
+                return ops;
             }
 
             [[nodiscard]] const TsTableLayout *build_layout(const TSValueTypeMetaData *ts,
                                                             std::string_view           date_key,
                                                             std::string_view           as_of_key)
             {
-                auto layout       = std::make_unique<TsTableLayout>();
+                auto layout = std::make_unique<TsTableLayout>();
                 layout->ts_schema = ts;
-                layout->date_key  = std::string{date_key};
+                layout->date_key = std::string{date_key};
                 layout->as_of_key = std::string{as_of_key};
 
                 const auto *datetime_meta = TypeRegistry::instance().value_type("datetime");
-                const auto *bool_meta     = TypeRegistry::instance().value_type("bool");
-
                 layout->keys.push_back(layout->date_key);
                 layout->col_metas.push_back(datetime_meta);
                 layout->keys.push_back(layout->as_of_key);
                 layout->col_metas.push_back(datetime_meta);
+                layout->ops = &table_type_ops(ts);
+                layout->ops->describe(*layout, ts, "", {}, 1);
 
-                // TSD nesting levels contribute removed + key columns.
-                const TSValueTypeMetaData *cursor   = ts;
-                std::size_t                level_no = 1;
-                while (cursor->kind == TSTypeKind::TSD)
-                {
-                    TsTableLayout::Level level;
-                    level.key_meta    = cursor->key_type();
-                    level.removed_col = layout->keys.size();
-                    const std::string removed_name = fmt::format("__key_{}_removed__", level_no);
-                    layout->keys.push_back(removed_name);
-                    layout->col_metas.push_back(bool_meta);
-                    layout->removed_keys.push_back(removed_name);
-
-                    level.first_key_col = layout->keys.size();
-                    flatten_value(level.key_meta, "", {},
-                                  [&](const std::string &suffix, const ValueTypeMetaData *leaf,
-                                      std::vector<std::size_t> path) {
-                                      const std::string name =
-                                          suffix.empty() ? fmt::format("__key_{}__", level_no)
-                                                         : fmt::format("__key_{}_{}__", level_no, suffix);
-                                      layout->keys.push_back(name);
-                                      layout->col_metas.push_back(leaf);
-                                      layout->partition_keys.push_back(name);
-                                      level.key_paths.push_back(std::move(path));
-                                  });
-                    layout->levels.push_back(std::move(level));
-                    cursor = cursor->element_ts();
-                    ++level_no;
-                }
-                layout->leaf_ts = cursor;
-
-                layout->value_col_start = layout->keys.size();
-                if (cursor->kind == TSTypeKind::TS && is_frame_meta(cursor->value_schema))
-                {
-                    // Frame payload: one output row per frame row.
-                    if (!layout->levels.empty())
-                    {
-                        throw std::invalid_argument(
-                            "to_table: Frame payloads under a TSD are not supported yet");
-                    }
-                    layout->is_multi_row = true;
-                    // The typed Frame carries its column bundle on
-                    // element_type (TypeRegistry::frame); an untyped frame
-                    // cannot name columns.
-                    const auto *columns = cursor->value_schema->element_type;
-                    if (columns == nullptr)
-                    {
-                        throw std::invalid_argument(
-                            "to_table: an untyped Frame input cannot derive table columns "
-                            "(use Frame[Schema])");
-                    }
-                    layout->frame_converter = &table_converter(columns, date_key, as_of_key);
-                    for (const auto &column : layout->frame_converter->columns)
-                    {
-                        TsTableLayout::Column entry;
-                        entry.name       = column.name;
-                        entry.leaf       = column.leaf_meta;
-                        entry.value_path = column.path;
-                        layout->keys.push_back(column.name);
-                        layout->col_metas.push_back(column.leaf_meta);
-                        layout->value_cols.push_back(std::move(entry));
-                    }
-                }
-                else
-                {
-                    flatten_leaf_ts(cursor, "", {},
-                                    [&](const std::string &suffix, const ValueTypeMetaData *leaf,
-                                        std::vector<std::size_t> ts_path,
-                                        std::vector<std::size_t> value_path) {
-                                        TsTableLayout::Column entry;
-                                        entry.name       = suffix.empty() ? "value" : suffix;
-                                        entry.leaf       = leaf;
-                                        entry.ts_path    = std::move(ts_path);
-                                        entry.value_path = std::move(value_path);
-                                        layout->keys.push_back(entry.name);
-                                        layout->col_metas.push_back(leaf);
-                                        layout->value_cols.push_back(std::move(entry));
-                                    });
-                }
-
-                auto &registry    = TypeRegistry::instance();
-                layout->row_meta  = registry.tuple(layout->col_metas);
+                auto &registry = TypeRegistry::instance();
+                layout->row_meta = registry.tuple(layout->col_metas);
                 layout->rows_meta = registry.list(layout->row_meta, 0, /*variadic_tuple=*/true);
-                layout->output_ts = registry.ts(layout->multi() ? layout->rows_meta : layout->row_meta);
+                layout->output_ts =
+                    registry.ts(layout->multi() ? layout->rows_meta : layout->row_meta);
 
                 const auto *raw = layout.get();
                 g_layouts.emplace(LayoutKey{ts, std::string{date_key}, std::string{as_of_key}},
@@ -234,43 +299,60 @@ namespace hgraph::stdlib
             }
         }  // namespace
 
-        const TsTableLayout &ts_table_layout(const TSValueTypeMetaData *ts, std::string_view date_key,
-                                             std::string_view as_of_key)
+        const TableTypeOps &builtin_table_type_ops(const TSValueTypeMetaData *schema)
         {
+            if (schema == nullptr)
+            {
+                return empty_table_type_ops();
+            }
+            switch (schema->kind)
+            {
+            case TSTypeKind::TSD:
+                return tsd_ops();
+            case TSTypeKind::TSB:
+                return tsb_ops();
+            case TSTypeKind::TS:
+                return TypeRegistry::instance().is_frame(schema->value_schema) ? frame_ops()
+                                                                               : ts_ops();
+            default:
+                return empty_table_type_ops();
+            }
+        }
+
+        const TsTableLayout &ts_table_layout(const TSValueTypeMetaData *ts,
+                                             std::string_view date_key, std::string_view as_of_key)
+        {
+            discard_stale_layouts();
             const LayoutKey key{ts, std::string{date_key}, std::string{as_of_key}};
-            if (const auto it = g_layouts.find(key); it != g_layouts.end()) { return *it->second; }
+            if (const auto it = g_layouts.find(key); it != g_layouts.end())
+            {
+                return *it->second;
+            }
             return *build_layout(ts, date_key, as_of_key);
         }
 
-        void clear_ts_table_layouts() noexcept { g_layouts.clear(); }
+        void clear_ts_table_layouts() noexcept
+        {
+            g_layouts.clear();
+            g_layouts_generation = TypeRegistry::instance().reset_generation();
+        }
 
         const ValueTypeMetaData *to_table_mode_meta()
         {
-            return TypeRegistry::instance().enum_type("ToTableMode",
-                                                      {{"Tick", 1}, {"Sample", 2}, {"Snap", 3}});
-        }
-
-        Value to_table_mode_value(Int member)
-        {
-            const auto *meta    = to_table_mode_meta();
-            const auto binding = ValuePlanFactory::instance().type_for(meta);
-            if (binding == nullptr) { throw std::logic_error("ToTableMode has no value binding"); }
-            Value value{binding};
-            *static_cast<Int *>(const_cast<void *>(value.view().data())) = member;
-            return value;
+            return scalar_descriptor<ToTableMode>::value_meta();
         }
 
         namespace
         {
-            constexpr Int kModeTick = 1;
-            constexpr Int kModeSnap = 3;
+            constexpr Int kModeTick = static_cast<Int>(ToTableMode::Tick);
+            constexpr Int kModeSnap = static_cast<Int>(ToTableMode::Snap);
 
             // ---------------------------------------------------------------
             // Row building
             // ---------------------------------------------------------------
 
             [[nodiscard]] ValueTypeRef checked_binding(const ValueTypeMetaData *meta,
-                                                                  const char              *what)
+                                                       const char              *what)
             {
                 const auto binding = ValuePlanFactory::instance().type_for(meta);
                 if (binding == nullptr)
@@ -293,16 +375,19 @@ namespace hgraph::stdlib
             {
                 for (const std::size_t index : path)
                 {
-                    if (!view.has_value()) { return view; }
+                    if (!view.has_value())
+                    {
+                        return view;
+                    }
                     if (view.is_tuple())
                     {
                         auto tuple = view.as_tuple();
-                        view       = reborrow(tuple.at(index));
+                        view = reborrow(tuple.at(index));
                     }
                     else
                     {
                         auto bundle = view.as_bundle();
-                        view        = reborrow(bundle.at(index));
+                        view = reborrow(bundle.at(index));
                     }
                 }
                 return view;
@@ -317,16 +402,44 @@ namespace hgraph::stdlib
                     if (view.is_tuple())
                     {
                         auto mut = view.as_tuple().begin_mutation();
-                        view     = mut.at(index);
+                        view = mut.at(index);
                     }
                     else
                     {
                         auto mut = view.as_bundle().begin_mutation();
-                        view     = mut.at(index);
+                        view = mut.at(index);
                     }
                 }
                 return view;
             }
+
+            /**
+             * The keys of the levels above the row being emitted, threaded
+             * through the recursion rather than copied into a buffer.
+             *
+             * A row is emitted at whatever depth it belongs to - a removal
+             * above the leaf, a value row at it - and delivering the chain
+             * gives exactly that row's key columns. There is nothing to clear
+             * afterwards, because nothing was written speculatively.
+             */
+            struct KeyChain
+            {
+                const KeyChain             *parent{nullptr};
+                const TsTableLayout::Level *level{nullptr};
+                const ValueView            *key{nullptr};
+                bool                        removed{false};
+            };
+
+            /** The scalars a row needs that are not part of the source data. */
+            struct RowScalars
+            {
+                Value now;
+                Value as_of;
+                Value removed_true{Bool{true}};
+                Value removed_false{Bool{false}};
+
+                RowScalars(DateTime now_, DateTime as_of_) : now{now_}, as_of{as_of_} {}
+            };
 
             struct RowBuffer
             {
@@ -336,14 +449,17 @@ namespace hgraph::stdlib
                 }
 
                 RowBuffer(const RowBuffer &other) : value{Value{other.value.view()}} {}
-                RowBuffer(RowBuffer &&) noexcept            = default;
+                RowBuffer(RowBuffer &&) noexcept = default;
                 RowBuffer &operator=(RowBuffer &&) noexcept = default;
 
                 void set_cell(std::size_t index, const ValueView &leaf)
                 {
-                    if (!leaf.has_value()) { return; }   // unset cell = None
+                    if (!leaf.has_value())
+                    {
+                        return;
+                    }  // unset cell = None
                     ValueView root = value.view();
-                    auto      mut  = root.as_tuple().begin_mutation();
+                    auto      mut = root.as_tuple().begin_mutation();
                     ValueView cell = mut.at(index);
                     cell.copy_from(leaf);
                 }
@@ -358,59 +474,86 @@ namespace hgraph::stdlib
                 Value value;
             };
 
-            [[nodiscard]] RowBuffer make_row(const TsTableLayout &layout, DateTime now, DateTime as_of)
+            /** Deliver the key columns of every level above this row, outermost
+                first, along with each level's removed flag. */
+            void deliver_keys(const RowSink &sink, const RowScalars &scalars, const KeyChain *chain)
             {
-                RowBuffer row{layout};
-                row.set_scalar(0, now);
-                row.set_scalar(1, as_of);
-                return row;
-            }
-
-            void write_level_keys(RowBuffer &row, const TsTableLayout::Level &level, const ValueView &key)
-            {
+                if (chain == nullptr)
+                {
+                    return;
+                }
+                deliver_keys(sink, scalars, chain->parent);
+                const auto &level = *chain->level;
+                sink.cell(sink.context, level.removed_col,
+                          chain->removed ? scalars.removed_true.view()
+                                         : scalars.removed_false.view());
                 for (std::size_t i = 0; i < level.key_paths.size(); ++i)
                 {
-                    row.set_cell(level.first_key_col + i, walk_value(reborrow(key), level.key_paths[i]));
+                    sink.cell(sink.context, level.first_key_col + i,
+                              walk_value(reborrow(*chain->key), level.key_paths[i]));
                 }
             }
 
             /** Write the leaf value columns of ``row`` from the leaf TS view.
                 Tick mode writes modified nodes only; Sample/Snap write every
                 valid node. */
-            void write_value_cells(RowBuffer &row, const TsTableLayout &layout, const TSInputView &leaf,
-                                   Int mode)
+            void write_value_cells(const RowSink &sink, const TsTableLayout &layout,
+                                   const TSInputView &leaf, Int mode)
             {
                 for (std::size_t i = 0; i < layout.value_cols.size(); ++i)
                 {
                     const auto &column = layout.value_cols[i];
-                    TSInputView node   = leaf.borrowed_ref();
+                    TSInputView node = leaf.borrowed_ref();
                     for (const std::size_t index : column.ts_path)
                     {
                         auto bundle = node.as_bundle();
-                        node        = bundle.at(index);
+                        node = bundle.at(index);
                     }
-                    if (mode == kModeTick && !node.modified()) { continue; }
-                    if (!node.valid()) { continue; }
-                    row.set_cell(layout.value_col_start + i, walk_value(node.value(), column.value_path));
+                    if (mode == kModeTick && !node.modified())
+                    {
+                        continue;
+                    }
+                    if (!node.valid())
+                    {
+                        continue;
+                    }
+                    sink.cell(sink.context, layout.value_col_start + i,
+                              walk_value(node.value(), column.value_path));
                 }
             }
 
-            void emit_frame_rows(const TsTableLayout &layout, const TSInputView &leaf, DateTime now,
-                                 DateTime as_of, std::vector<Value> &rows)
+            void emit_frame_rows(const TsTableLayout &layout, const TSInputView &leaf,
+                                 const RowScalars &scalars, const KeyChain *chain,
+                                 const RowSink &sink, bool reject_empty_frames)
             {
-                const ValueView view  = leaf.value();
+                const ValueView view = leaf.value();
                 const Frame    &frame = view.checked_as<Frame>();
-                if (!frame.has_value()) { return; }
+                if (!frame.has_value())
+                {
+                    return;
+                }
+                if (frame_rows(frame) == 0 && reject_empty_frames)
+                {
+                    throw std::invalid_argument("record: zero-row Frame ticks cannot be recorded");
+                }
                 for (std::int64_t r = 0; r < frame_rows(frame); ++r)
                 {
-                    Value     row_value = read_row(*layout.frame_converter, frame, r);
-                    RowBuffer row       = make_row(layout, now, as_of);
+                    sink.cell(sink.context, 0, scalars.now.view());
+                    sink.cell(sink.context, 1, scalars.as_of.view());
+                    deliver_keys(sink, scalars, chain);
                     for (std::size_t i = 0; i < layout.value_cols.size(); ++i)
                     {
-                        row.set_cell(layout.value_col_start + i,
-                                     walk_value(row_value.view(), layout.value_cols[i].value_path));
+                        const auto &column = layout.value_cols[i];
+                        // Read just the Arrow leaf requested by the sink. A
+                        // complete row Value would immediately be flattened
+                        // again by the recorder and doubles the hot-path copy.
+                        const Value cell = frame_cell(frame, column.name, column.leaf, r);
+                        if (cell.has_value())
+                        {
+                            sink.cell(sink.context, layout.value_col_start + i, cell.view());
+                        }
                     }
-                    rows.push_back(std::move(row.value));
+                    sink.end_row(sink.context);
                 }
             }
 
@@ -418,54 +561,113 @@ namespace hgraph::stdlib
                 (Python's row order); Snap iterates the full current state
                 and emits no removals. */
             void emit_partition_rows(const TsTableLayout &layout, std::size_t level_index,
-                                     const TSInputView &ts, Int mode, DateTime now, DateTime as_of,
-                                     const RowBuffer &prototype, std::vector<Value> &rows)
+                                     const TSInputView &ts, Int mode, const RowScalars &scalars,
+                                     const KeyChain *chain, bool emit_removals, const RowSink &sink,
+                                     bool reject_empty_frames)
             {
                 if (level_index == layout.levels.size())
                 {
-                    RowBuffer row = prototype;
-                    write_value_cells(row, layout, ts, mode);
-                    rows.push_back(std::move(row.value));
+                    if (layout.is_multi_row)
+                    {
+                        emit_frame_rows(layout, ts, scalars, chain, sink, reject_empty_frames);
+                        return;
+                    }
+                    sink.cell(sink.context, 0, scalars.now.view());
+                    sink.cell(sink.context, 1, scalars.as_of.view());
+                    deliver_keys(sink, scalars, chain);
+                    write_value_cells(sink, layout, ts, mode);
+                    sink.end_row(sink.context);
                     return;
                 }
 
                 const auto &level = layout.levels[level_index];
-                auto        dict  = const_cast<TSInputView &>(ts).as_dict();
+                auto        dict = const_cast<TSInputView &>(ts).as_dict();
 
                 if (mode == kModeSnap)
                 {
                     for (auto &&[key, child] : dict.valid_items())
                     {
-                        RowBuffer row = prototype;
-                        row.set_scalar(level.removed_col, Bool{false});
-                        write_level_keys(row, level, key);
-                        emit_partition_rows(layout, level_index + 1, child, mode, now, as_of, row, rows);
+                        const KeyChain link{
+                            .parent = chain, .level = &level, .key = &key, .removed = false};
+                        emit_partition_rows(layout, level_index + 1, child, mode, scalars, &link,
+                                            emit_removals, sink, reject_empty_frames);
                     }
                     return;
                 }
 
                 for (auto &&[key, child] : dict.modified_items())
                 {
-                    RowBuffer row = prototype;
-                    row.set_scalar(level.removed_col, Bool{false});
-                    write_level_keys(row, level, key);
-                    emit_partition_rows(layout, level_index + 1, child, mode, now, as_of, row, rows);
+                    const KeyChain link{
+                        .parent = chain, .level = &level, .key = &key, .removed = false};
+                    emit_partition_rows(layout, level_index + 1, child, mode, scalars, &link,
+                                        emit_removals, sink, reject_empty_frames);
+                }
+                if (!emit_removals)
+                {
+                    return;
                 }
                 for (const ValueView key : dict.removed_keys())
                 {
-                    RowBuffer row = prototype;
-                    row.set_scalar(level.removed_col, Bool{true});
-                    write_level_keys(row, level, key);
-                    rows.push_back(std::move(row.value));
+                    // A removal is emitted HERE, so the row carries the keys
+                    // down to this level and no value columns at all - which
+                    // needs no clearing, because nothing below was written.
+                    const KeyChain link{
+                        .parent = chain, .level = &level, .key = &key, .removed = true};
+                    sink.cell(sink.context, 0, scalars.now.view());
+                    sink.cell(sink.context, 1, scalars.as_of.view());
+                    deliver_keys(sink, scalars, &link);
+                    sink.end_row(sink.context);
                 }
             }
 
-            [[nodiscard]] Value build_rows_value(const TsTableLayout &layout, std::vector<Value> rows)
+            /** The ``to_table`` sink: materialise the row, because its output
+                IS a row-valued time-series. A recording sink appends the same
+                cells into Arrow builders instead (RFC 0019, step 2). */
+            struct MaterialisingSink
             {
-                const auto &row_binding  = checked_binding(layout.row_meta, "to_table");
+                const TsTableLayout     *layout{nullptr};
+                std::vector<Value>      *rows{nullptr};
+                std::optional<RowBuffer> row{};
+
+                RowBuffer &current()
+                {
+                    if (!row.has_value())
+                    {
+                        row.emplace(*layout);
+                    }
+                    return *row;
+                }
+
+                static void cell(void *context, std::size_t column, const ValueView &value)
+                {
+                    static_cast<MaterialisingSink *>(context)->current().set_cell(column, value);
+                }
+
+                static void end_row(void *context)
+                {
+                    auto *self = static_cast<MaterialisingSink *>(context);
+                    self->rows->push_back(std::move(self->current().value));
+                    // A fresh row next time: a column this row never delivered
+                    // stays unset, which is what None means here.
+                    self->row.reset();
+                }
+
+                [[nodiscard]] RowSink sink()
+                {
+                    return RowSink{.context = this, .cell = &cell, .end_row = &end_row};
+                }
+            };
+
+            [[nodiscard]] Value build_rows_value(const TsTableLayout &layout,
+                                                 std::vector<Value>   rows)
+            {
+                const auto &row_binding = checked_binding(layout.row_meta, "to_table");
                 const auto &rows_binding = checked_binding(layout.rows_meta, "to_table");
                 ListBuilder builder{row_binding};
-                for (const Value &row : rows) { builder.push_back_copy(row.view().data()); }
+                for (const Value &row : rows)
+                {
+                    builder.push_back_copy(row.view().data());
+                }
                 Value out{rows_binding};
                 *static_cast<ListStorage *>(const_cast<void *>(out.view().data())) =
                     builder.build_storage();
@@ -473,25 +675,142 @@ namespace hgraph::stdlib
             }
         }  // namespace
 
+        RecordingColumns recording_columns(const TsTableLayout         &layout,
+                                           const TableRecordingOptions &options)
+        {
+            const std::size_t flattened_keys =
+                std::accumulate(layout.levels.begin(), layout.levels.end(), std::size_t{0},
+                                [](std::size_t total, const TsTableLayout::Level &level) {
+                                    return total + level.key_paths.size();
+                                });
+            if (!options.partition_names.empty() &&
+                options.partition_names.size() != flattened_keys)
+            {
+                throw std::invalid_argument(
+                    fmt::format("table recording: {} partition names for {} flattened key columns",
+                                options.partition_names.size(), flattened_keys));
+            }
+            if (!options.removed_names.empty() &&
+                options.removed_names.size() != layout.levels.size())
+            {
+                throw std::invalid_argument(
+                    fmt::format("table recording: {} removed names for {} levels",
+                                options.removed_names.size(), layout.levels.size()));
+            }
+
+            const bool track_removes = options.removes == TableRecordingOptions::Removes::Track;
+            const bool keep_as_of = options.as_of != TableRecordingOptions::AsOf::Omit;
+
+            RecordingColumns columns;
+            const auto       add = [&](std::size_t source, std::string name) {
+                columns.names.push_back(std::move(name));
+                columns.metas.push_back(layout.col_metas[source]);
+                columns.source.push_back(source);
+            };
+
+            add(0, options.date_key.empty() ? layout.date_key : options.date_key);
+            if (keep_as_of)
+            {
+                add(1, options.as_of_key.empty() ? layout.as_of_key : options.as_of_key);
+            }
+
+            std::size_t key_column = 0;
+            for (std::size_t level_index = 0; level_index < layout.levels.size(); ++level_index)
+            {
+                const auto &level = layout.levels[level_index];
+                if (track_removes)
+                {
+                    add(level.removed_col, options.removed_names.empty()
+                                               ? layout.keys[level.removed_col]
+                                               : options.removed_names[level_index]);
+                }
+                for (std::size_t i = 0; i < level.key_paths.size(); ++i, ++key_column)
+                {
+                    add(level.first_key_col + i, options.partition_names.empty()
+                                                     ? layout.keys[level.first_key_col + i]
+                                                     : options.partition_names[key_column]);
+                }
+            }
+
+            for (std::size_t i = layout.value_col_start; i < layout.keys.size(); ++i)
+            {
+                // The prefix applies to an expanded frame's columns; a plain
+                // value column has nothing to disambiguate from.
+                add(i,
+                    layout.is_multi_row ? options.frame_prefix + layout.keys[i] : layout.keys[i]);
+            }
+
+            std::unordered_set<std::string_view> seen;
+            for (const auto &name : columns.names)
+            {
+                if (!seen.insert(name).second)
+                {
+                    throw std::invalid_argument(
+                        fmt::format("table recording: duplicate column '{}' - rename it or "
+                                    "set a frame prefix",
+                                    name));
+                }
+            }
+            return columns;
+        }
+
+        namespace
+        {
+            void emit_plain(const TableLayout &layout, const TSInputView &ts, Int mode,
+                            DateTime now, DateTime as_of, bool, const TableRowSink &sink, bool)
+            {
+                const RowScalars scalars{now, as_of};
+                sink.cell(sink.context, 0, scalars.now.view());
+                sink.cell(sink.context, 1, scalars.as_of.view());
+                write_value_cells(sink, layout, ts, mode);
+                sink.end_row(sink.context);
+            }
+
+            void emit_partitioned(const TableLayout &layout, const TSInputView &ts, Int mode,
+                                  DateTime now, DateTime as_of, bool emit_removals,
+                                  const TableRowSink &sink, bool reject_empty_frames)
+            {
+                const RowScalars scalars{now, as_of};
+                emit_partition_rows(layout, 0, ts, mode, scalars, nullptr, emit_removals, sink,
+                                    reject_empty_frames);
+            }
+
+            void emit_frame(const TableLayout &layout, const TSInputView &ts, Int, DateTime now,
+                            DateTime as_of, bool, const TableRowSink &sink,
+                            bool reject_empty_frames)
+            {
+                const RowScalars scalars{now, as_of};
+                emit_frame_rows(layout, ts, scalars, nullptr, sink, reject_empty_frames);
+            }
+        }  // namespace
+
+        void emit_rows_to(const TsTableLayout &layout, const TSInputView &ts, Int mode,
+                          DateTime now, DateTime as_of, bool emit_removals, const RowSink &sink,
+                          bool reject_empty_frames)
+        {
+            layout.ops->emit(layout, ts, mode, now, as_of, emit_removals, sink,
+                             reject_empty_frames);
+        }
+
         void emit_rows(const TsTableLayout &layout, const TSInputView &ts, Int mode, DateTime now,
                        DateTime as_of, const TSOutputView &out)
         {
+            std::vector<Value> rows;
+            MaterialisingSink  materialise{.layout = &layout, .rows = &rows};
+            const RowSink      sink = materialise.sink();
+            // to_table always reports removals: they are part of the row stream
+            // it produces, whatever a recording later chooses to keep.
+            emit_rows_to(layout, ts, mode, now, as_of, true, sink);
+
             if (!layout.multi())
             {
-                RowBuffer row = make_row(layout, now, as_of);
-                write_value_cells(row, layout, ts, mode);
-                apply_current_value(out, row.value.view());
+                apply_current_value(out, rows.front().view());
                 return;
             }
-
-            std::vector<Value> rows;
-            if (layout.partitioned())
+            if (rows.empty())
             {
-                const RowBuffer prototype = make_row(layout, now, as_of);
-                emit_partition_rows(layout, 0, ts, mode, now, as_of, prototype, rows);
+                return;
             }
-            else { emit_frame_rows(layout, ts, now, as_of, rows); }
-            if (rows.empty()) { return; }
             Value value = build_rows_value(layout, std::move(rows));
             apply_current_value(out, value.view());
         }
@@ -516,13 +835,17 @@ namespace hgraph::stdlib
                 for (std::size_t i = 0; i < level.key_paths.size(); ++i)
                 {
                     const ValueView &cell = row.at(level.first_key_col + i);
-                    if (!cell.has_value()) { continue; }
+                    if (!cell.has_value())
+                    {
+                        continue;
+                    }
                     walk_mutable(key.view().begin_mutation(), level.key_paths[i]).copy_from(cell);
                 }
                 return key;
             }
 
-            void apply_leaf_row(const TsTableLayout &layout, const TupleView &row, const TSOutputView &out)
+            void apply_leaf_row(const TsTableLayout &layout, const TupleView &row,
+                                const TSOutputView &out)
             {
                 const auto *leaf_ts = layout.leaf_ts;
                 if (leaf_ts->kind == TSTypeKind::TS && layout.value_cols.size() == 1 &&
@@ -530,7 +853,10 @@ namespace hgraph::stdlib
                     layout.value_cols.front().ts_path.empty())
                 {
                     const ValueView &cell = row.at(layout.value_col_start);
-                    if (cell.has_value()) { apply_current_value(out, cell); }
+                    if (cell.has_value())
+                    {
+                        apply_current_value(out, cell);
+                    }
                     return;
                 }
 
@@ -540,16 +866,22 @@ namespace hgraph::stdlib
                 bool  any = false;
                 for (std::size_t i = 0; i < layout.value_cols.size(); ++i)
                 {
-                    const auto     &column = layout.value_cols[i];
-                    const ValueView &cell  = row.at(layout.value_col_start + i);
-                    if (!cell.has_value()) { continue; }
+                    const auto      &column = layout.value_cols[i];
+                    const ValueView &cell = row.at(layout.value_col_start + i);
+                    if (!cell.has_value())
+                    {
+                        continue;
+                    }
                     std::vector<std::size_t> full_path = column.ts_path;
                     full_path.insert(full_path.end(), column.value_path.begin(),
                                      column.value_path.end());
                     walk_mutable(value.view().begin_mutation(), full_path).copy_from(cell);
                     any = true;
                 }
-                if (!any) { return; }
+                if (!any)
+                {
+                    return;
+                }
                 apply_delta(out, value.view());
             }
 
@@ -561,10 +893,10 @@ namespace hgraph::stdlib
                     apply_leaf_row(layout, row, out);
                     return;
                 }
-                const auto &level    = layout.levels[level_index];
-                auto        dict     = out.as_dict();
+                const auto &level = layout.levels[level_index];
+                auto        dict = out.as_dict();
                 auto        mutation = dict.begin_mutation(out.evaluation_time());
-                Value       key      = read_key(level, row);
+                Value       key = read_key(level, row);
 
                 const ValueView &removed = row.at(level.removed_col);
                 if (removed.has_value() && removed.checked_as<Bool>())
@@ -576,48 +908,372 @@ namespace hgraph::stdlib
                 apply_partition_row(layout, level_index + 1, row,
                                     TSOutputView{out.output(), element, out.evaluation_time()});
             }
-        }  // namespace
 
-        void apply_rows(const TsTableLayout &layout, const ValueView &value, const TSOutputView &out)
-        {
-            if (layout.is_multi_row)
+            [[nodiscard]] bool same_partition_key(const TsTableLayout &layout, const TupleView &lhs,
+                                                  const TupleView &rhs)
             {
-                // Frame output: rebuild the tick's frame from its rows.
-                std::vector<ValueView> row_views;
-                auto                   list = value.as_list();
-                for (ValueView row : list) { row_views.push_back(std::move(row)); }
-                Frame frame = frame_from_rows(*layout.frame_converter,
-                                              std::span<const ValueView>{row_views},
+                for (const auto &level : layout.levels)
+                {
+                    for (std::size_t i = 0; i < level.key_paths.size(); ++i)
+                    {
+                        const ValueView &left = lhs.at(level.first_key_col + i);
+                        const ValueView &right = rhs.at(level.first_key_col + i);
+                        if (left.has_value() != right.has_value())
+                        {
+                            return false;
+                        }
+                        if (left.has_value() && !left.equals(right))
+                        {
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            }
+
+            void apply_frame_rows_value(const TsTableLayout       &layout,
+                                        std::span<const ValueView> rows, const TSOutputView &out)
+            {
+                Frame frame = frame_from_rows(*layout.frame_converter, rows,
                                               /*first_column=*/layout.value_col_start);
-                // Box over the OUTPUT's (typed) frame schema - the base
-                // Frame{} scalar meta would not match a Frame[Schema] output.
                 Value boxed{checked_binding(out.schema()->value_schema, "from_table")};
                 *static_cast<Frame *>(const_cast<void *>(boxed.view().data())) = std::move(frame);
                 apply_current_value(out, boxed.view());
-                return;
             }
-            if (layout.partitioned())
+
+            [[nodiscard]] std::size_t apply_partitioned_frame_rows(const TsTableLayout &layout,
+                                                                   std::span<const ValueView> rows,
+                                                                   std::size_t                first,
+                                                                   std::size_t         level_index,
+                                                                   const TSOutputView &out)
             {
-                auto list = value.as_list();
-                for (ValueView row : list)
+                const TupleView row = rows[first].as_tuple();
+                if (level_index == layout.levels.size())
+                {
+                    std::size_t count = 1;
+                    while (first + count < rows.size() &&
+                           same_partition_key(layout, row, rows[first + count].as_tuple()))
+                    {
+                        ++count;
+                    }
+                    apply_frame_rows_value(layout, rows.subspan(first, count), out);
+                    return count;
+                }
+
+                const auto &level = layout.levels[level_index];
+                auto        dict = out.as_dict();
+                auto        mutation = dict.begin_mutation(out.evaluation_time());
+                Value       key = read_key(level, row);
+
+                const ValueView &removed = row.at(level.removed_col);
+                if (removed.has_value() && removed.checked_as<Bool>())
+                {
+                    static_cast<void>(mutation.erase(key.view()));
+                    return 1;
+                }
+                auto element = mutation.at(key.view());
+                return apply_partitioned_frame_rows(
+                    layout, rows, first, level_index + 1,
+                    TSOutputView{out.output(), element, out.evaluation_time()});
+            }
+        }  // namespace
+
+        namespace
+        {
+            /** ``assemble_from_paths`` at one nesting depth.
+                ``paths``/``leaves`` are the entries that reach this node, and
+                ``flatten_value`` emitted them in field order, so the entries
+                for one field are contiguous. */
+            [[nodiscard]] Value assemble_at(const ValueTypeMetaData                  *meta,
+                                            std::span<const std::vector<std::size_t>> paths,
+                                            std::span<const Value> leaves, std::size_t depth)
+            {
+                if (meta == nullptr)
+                {
+                    throw std::invalid_argument("replay: cannot rebuild a key with no schema");
+                }
+                if (meta->value_kind() == ValueTypeKind::Atomic)
+                {
+                    // An atomic node is reached by exactly one column, so the
+                    // uncompounded key falls out of the same walk.
+                    if (leaves.size() != 1 || !leaves.front().has_value())
+                    {
+                        throw std::invalid_argument(
+                            "replay: recorded key column is empty, so the key cannot be rebuilt");
+                    }
+                    return Value{leaves.front().view()};
+                }
+
+                BundleBuilder builder{ValuePlanFactory::instance().type_for(meta)};
+                std::size_t   i = 0;
+                while (i < paths.size())
+                {
+                    const std::size_t field = paths[i][depth];
+                    std::size_t       j = i;
+                    while (j < paths.size() && paths[j][depth] == field)
+                    {
+                        ++j;
+                    }
+                    builder.set(field,
+                                assemble_at(meta->fields[field].type, paths.subspan(i, j - i),
+                                            leaves.subspan(i, j - i), depth + 1));
+                    i = j;
+                }
+                return builder.build();
+            }
+        }  // namespace
+
+        void apply_recorded_frame_rows(const TsTableLayout &layout, const Frame &recorded,
+                                       std::int64_t first, std::int64_t count,
+                                       const TSOutputView &out)
+        {
+            if (!layout.is_multi_row || layout.frame_converter == nullptr)
+            {
+                throw std::invalid_argument("replay: not a frame-valued recording");
+            }
+
+            // The value columns are taken POSITIONALLY after excluding the
+            // bitemporal and TSD structural columns, then renamed back to the
+            // frame's own names. Resolving them by name instead would break
+            // the moment a recording used ``frame_prefix``, because the
+            // options are not stored with the recording and replay has no way
+            // to know the prefix. Their relative layout order is stable even
+            // when a frame lives beneath one or more TSD levels.
+            arrow::FieldVector                                fields;
+            std::vector<std::shared_ptr<arrow::ChunkedArray>> columns;
+            fields.reserve(layout.value_cols.size());
+            columns.reserve(layout.value_cols.size());
+            const auto &recorded_schema = *recorded.table->schema();
+            for (int i = 0; i < recorded_schema.num_fields(); ++i)
+            {
+                const std::string &name = recorded_schema.field(i)->name();
+                if (name == layout.date_key || name == layout.as_of_key)
+                {
+                    continue;
+                }
+                if (std::find(layout.partition_keys.begin(), layout.partition_keys.end(), name) !=
+                        layout.partition_keys.end() ||
+                    std::find(layout.removed_keys.begin(), layout.removed_keys.end(), name) !=
+                        layout.removed_keys.end())
+                {
+                    continue;
+                }
+                if (columns.size() == layout.value_cols.size())
+                {
+                    throw std::runtime_error(
+                        "replay: recording has more frame columns than the frame schema");
+                }
+                fields.push_back(
+                    recorded_schema.field(i)->WithName(layout.value_cols[columns.size()].name));
+                columns.push_back(recorded.table->column(i));
+            }
+            if (columns.size() != layout.value_cols.size())
+            {
+                throw std::runtime_error(
+                    "replay: recording has fewer frame columns than the frame schema");
+            }
+
+            const auto projected = arrow::Table::Make(arrow::schema(std::move(fields)), columns,
+                                                      recorded.table->num_rows());
+            Frame      tick{projected->Slice(first, count)};
+
+            // Box over the OUTPUT's (typed) frame schema - the base Frame{}
+            // scalar meta would not match a Frame[Schema] output.
+            Value boxed{checked_binding(out.schema()->value_schema, "replay")};
+            *static_cast<Frame *>(const_cast<void *>(boxed.view().data())) = std::move(tick);
+            apply_current_value(out, boxed.view());
+        }
+
+        Value assemble_from_paths(const ValueTypeMetaData                  *meta,
+                                  std::span<const std::vector<std::size_t>> paths,
+                                  std::span<const Value>                    leaves)
+        {
+            if (paths.size() != leaves.size())
+            {
+                throw std::invalid_argument(
+                    "replay: key column count does not match the key layout");
+            }
+            return assemble_at(meta, paths, leaves, 0);
+        }
+
+        namespace
+        {
+            struct ValueRowSource
+            {
+                const TableLayout *layout{nullptr};
+                const ValueView   *value{nullptr};
+
+                static Value cell(const void *context, std::size_t row, std::size_t column)
+                {
+                    const auto     &self = *static_cast<const ValueRowSource *>(context);
+                    const ValueView row_value = self.layout->multi() ? self.value->as_list().at(row)
+                                                                     : reborrow(*self.value);
+                    const ValueView item = row_value.as_tuple().at(column);
+                    return item.has_value() ? Value{item} : Value{};
+                }
+
+                [[nodiscard]] TableRowSource source() const
+                {
+                    return TableRowSource{.context = this,
+                                          .rows = layout->multi() ? value->as_list().size()
+                                                                  : std::size_t{1},
+                                          .cell = &cell};
+                }
+            };
+
+            [[nodiscard]] Value materialize_row(const TableLayout    &layout,
+                                                const TableRowSource &source, std::size_t row)
+            {
+                Value value{checked_binding(layout.row_meta, "from_table")};
+                auto  tuple = value.as_tuple().begin_mutation();
+                for (std::size_t column = 0; column < layout.keys.size(); ++column)
+                {
+                    Value cell = source.cell(source.context, row, column);
+                    if (cell.has_value())
+                    {
+                        tuple.at(column).copy_from(cell.view());
+                    }
+                }
+                return value;
+            }
+
+            void apply_plain(const TableLayout &layout, const TableRowSource &source,
+                             const TSOutputView &out)
+            {
+                if (source.rows == 0)
+                {
+                    return;
+                }
+                Value row = materialize_row(layout, source, 0);
+                apply_leaf_row(layout, row.view().as_tuple(), out);
+            }
+
+            void apply_partitioned(const TableLayout &layout, const TableRowSource &source,
+                                   const TSOutputView &out)
+            {
+                std::vector<Value> owned_rows;
+                owned_rows.reserve(source.rows);
+                std::vector<ValueView> rows;
+                rows.reserve(source.rows);
+                for (std::size_t row = 0; row < source.rows; ++row)
+                {
+                    owned_rows.push_back(materialize_row(layout, source, row));
+                    rows.push_back(owned_rows.back().view());
+                }
+
+                if (layout.is_multi_row)
+                {
+                    std::size_t first = 0;
+                    while (first < rows.size())
+                    {
+                        first += apply_partitioned_frame_rows(
+                            layout, std::span<const ValueView>{rows}, first, 0, out);
+                    }
+                    return;
+                }
+                for (ValueView &row : rows)
                 {
                     apply_partition_row(layout, 0, row.as_tuple(), out);
                 }
-                return;
             }
-            apply_leaf_row(layout, value.as_tuple(), out);
+
+            void apply_frame(const TableLayout &layout, const TableRowSource &source,
+                             const TSOutputView &out)
+            {
+                std::vector<Value> owned_rows;
+                owned_rows.reserve(source.rows);
+                std::vector<ValueView> rows;
+                rows.reserve(source.rows);
+                for (std::size_t row = 0; row < source.rows; ++row)
+                {
+                    owned_rows.push_back(materialize_row(layout, source, row));
+                    rows.push_back(owned_rows.back().view());
+                }
+                apply_frame_rows_value(layout, std::span<const ValueView>{rows}, out);
+            }
+        }  // namespace
+
+        void apply_rows(const TsTableLayout &layout, const ValueView &value,
+                        const TSOutputView &out)
+        {
+            const ValueRowSource rows{.layout = &layout, .value = &value};
+            const TableRowSource source = rows.source();
+            layout.ops->apply(layout, source, out);
         }
     }  // namespace table_ts_detail
 
     void register_table_operators()
     {
-        // Layouts intern by TS-schema POINTER (the plan-registries rule):
-        // registration follows every registry reset, so clearing here keeps
-        // the cache generation-consistent without a types->stdlib reset hook.
+        // Layouts intern by TS-schema POINTER (the plan-registries rule).
+        // ts_table_layout() drops the cache itself when the registry
+        // generation moves, so this is belt-and-braces rather than the only
+        // guard - registration is not on the path a layout build must take.
         table_ts_detail::clear_ts_table_layouts();
-        static_cast<void>(table_ts_detail::to_table_mode_meta());   // register the mode enum
+        static_cast<void>(table_ts_detail::to_table_mode_meta());  // register the mode enum
         register_overload<to_table, to_table_rows_impl>();
         register_overload<from_table, from_table_rows_impl>();
         register_overload<from_table_const, from_table_const_impl>();
     }
 }  // namespace hgraph::stdlib
+
+namespace hgraph
+{
+    namespace
+    {
+        void unsupported_describe(TableLayout &, const TSValueTypeMetaData *schema, std::string,
+                                  std::vector<std::size_t>, std::size_t)
+        {
+            throw std::invalid_argument(fmt::format("to_table: unsupported time-series schema '{}'",
+                                                    schema != nullptr && !schema->name().empty()
+                                                        ? schema->name()
+                                                        : std::string_view{"?"}));
+        }
+
+        void unsupported_emit(const TableLayout &, const TSInputView &, Int, DateTime, DateTime,
+                              bool, const TableRowSink &, bool)
+        {
+            throw std::logic_error("table layout has no emit operation");
+        }
+
+        void unsupported_apply(const TableLayout &, const TableRowSource &, const TSOutputView &)
+        {
+            throw std::logic_error("table layout has no apply operation");
+        }
+    }  // namespace
+
+    const TableTypeOps &empty_table_type_ops() noexcept
+    {
+        static const TableTypeOps ops{&unsupported_describe, &unsupported_emit, &unsupported_apply};
+        return ops;
+    }
+
+    void register_table_type_ops(const TSValueTypeMetaData *schema, const TableTypeOps &ops)
+    {
+        if (schema == nullptr)
+        {
+            throw std::invalid_argument("table type ops require a schema");
+        }
+        if (ops.describe == nullptr || ops.emit == nullptr || ops.apply == nullptr)
+        {
+            throw std::invalid_argument("table type ops must provide describe, emit and apply");
+        }
+        g_table_type_ops_overrides[schema] = &ops;
+        stdlib::table_ts_detail::clear_ts_table_layouts();
+    }
+
+    const TableTypeOps &table_type_ops(const TSValueTypeMetaData *schema)
+    {
+        if (const auto it = g_table_type_ops_overrides.find(schema);
+            it != g_table_type_ops_overrides.end())
+        {
+            return *it->second;
+        }
+        return stdlib::table_ts_detail::builtin_table_type_ops(schema);
+    }
+
+    void clear_table_type_ops() noexcept
+    {
+        g_table_type_ops_overrides.clear();
+        stdlib::table_ts_detail::clear_ts_table_layouts();
+    }
+}  // namespace hgraph

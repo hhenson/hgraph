@@ -355,43 +355,56 @@ Tests: ``tests/cpp/test_table.cpp`` (codec round-trips for atomics and
 bundles, bitemporal columns, the input-minimum rule, operator ticks, as-of
 override, graph round-trip).
 
-Step 4 — landed (first pass)
-----------------------------
+Step 4 — landed
+---------------
 
 The Arrow data-frame record/replay backend, model
 ``record_replay::DATA_FRAME``:
 
-- **The P6 content store** (``record_replay::FrameStoreOps``) — the
-  type-erased keyed frame store: an ops table (context + write/read/
-  contains/clear fn-ptrs) with implementations **registered** over the
-  default in-memory map (``set_frame_store``; reset restores the default).
-  The store outlives graph runs — record in one run, replay in another.
+- **The P6 content store** — a graph-scoped, owning type-erased
+  ``store::FrameStore`` selected in ``GlobalState``. The handle shares an
+  erased context and dispatches through a non-null ``store::FrameStoreOps``
+  table; it is not an abstract base class. Native memory, local-filesystem and
+  S3 representations remain private and own key validation, serialization,
+  compression and immutable-key enforcement. The process fallback uses the
+  same erased handle; graph execution first resolves the store belonging to
+  that graph.
 - **``TraitsView``** — the node-level injectable completing the traits
   primitive: a transparent stateless injectable (the ``SingleShotScheduler``
   pattern) giving hooks ``trait``/``trait_or`` over the owning graph's
   chain; ``fq_recordable_id(TraitsView, id)`` is the node-side resolution.
 - **``record`` (frame backend)** — ``requires_`` gates on the model;
-  ``start`` resolves the ``TableConverter`` + fq key (explicit
+  ``start`` resolves the ``TableLayout`` + fq key (explicit
   ``recordable_id`` scalar, defaulting through the trait chain) and creates
-  a ``FrameRecorder`` (multi-tick Arrow builder accumulator, pimpl'd in the
-  table codec); ``eval`` appends one bitemporal row; ``stop`` finishes the
-  frame and writes it to the store. The in-memory (GlobalState) record
+  one ``TableRecorder`` over Arrow builders. ``eval`` appends the tick's
+  partition, removal and value cells without materialising row ``Value``
+  objects, including frame-valued leaves below ``TSD``; ``stop`` finishes one
+  complete frame and writes it to the graph store by default.
+  Native stores reject an existing key. The in-memory (GlobalState) record
   backends carry the matching ``requires_`` gate on the in-memory models
   (see *In-memory record/replay — sparse vs dense*).
-- **``replay`` (frame backend)** — ``start`` reads the frame, resolves the
-  converter from the resolved output, and schedules the first row's
-  recorded value time; ``eval`` applies every row stamped at the current
-  time and schedules the next row's time (absolute scheduling) — replay
-  reproduces the RECORDED timing, gaps included.
+- **``replay`` (frame backend)** — ``start`` reads the frame through the same
+  graph store and resolves its columns against the output layout. ``eval``
+  applies every row stamped at the current value time and schedules the next
+  group absolutely, reproducing recorded timing and gaps. Explicit replay
+  projections preserve release/0.5 partition and removal column renames.
 - **``replay_const_value(fq_key, meta, tm, as_of)``** — the const read
   (Python's ``replay_const``, a plain function per the const_fn ruling):
   the last row with value-time <= ``tm`` and as-of <= ``as_of``.
 
-Deferred from step 4: RECOVER seeding (P7 — the graph-start seeding pass),
-as-of generation filtering on replay (v1 replays a single recording
-generation), Python's per-frame overrides (track_as_of/track_removes/
-partition renames), and TSD partitioned recording (needs the step-3 TSD
-table support first). Tests: ``tests/cpp/test_record_replay_frame.cpp``.
+The release/0.5 ``DataFrameStorage`` surface is now a compatibility adapter,
+not a second recorder. It offers the native bridge only
+``store(key, frame)``, ``load(key)`` and ``has(key)``; Python retains ownership
+of overwrite policy and receives no native segmentation API. The production
+memory, local and S3 paths stay entirely in C++. The legacy override registry
+is translated at wiring time into explicit native record/replay options.
+
+RFC 0019 completes this backend with per-record column projection,
+Tick/Sample/Snap recording, keyed frame expansion, and optional native
+segmentation. Tests: ``tests/cpp/test_record_replay_frame.cpp``,
+``tests/cpp/test_record_replay_partitioned.cpp``,
+``python/tests/test_native_table_recording.py``, and
+``python/tests/test_python_frame_store.py``.
 
 Step 5 — landed (first pass)
 ----------------------------
@@ -603,3 +616,50 @@ precedent): layout synthesis + row emission in ``lib/std/operators/impl``
 (interned per (ts-schema, date-key, as-of-key); cleared on registry reset
 per the plan-registries rule); the value-level ``TableConverter`` is
 unchanged underneath.
+
+Step 7 — native segmented recordings
+------------------------------------
+
+``record`` normally retains one run in Arrow builders and writes one immutable
+frame at ``stop``. Native memory, local-filesystem, and S3 stores additionally
+honour the wiring-time ``flush_rows`` and ``flush_interval`` thresholds. A
+flush happens only after the current evaluation tick has been emitted, so the
+rows of one frame-valued tick are never split between segments.
+
+A segmented recording uses an immutable base-key marker, independently valid
+frames at ``<key>.0``, ``<key>.1``, and so on, and a ``<key>.complete``
+manifest after a successful stop. Replay needs neither enumeration nor the
+manifest: it loads one segment, releases it after its last time group, and
+then probes the next number. An interrupted run therefore replays every fully
+published segment and nothing torn. A writer refuses either a claimed base key
+or a pre-existing ``.0`` legacy/segment key.
+
+Segmentation is intentionally not part of ``FrameStoreOps``. Core identifies
+its own immutable native stores without changing that public ops-table ABI.
+Python and other custom frame stores remain the compatibility seam promised by
+RFC 0019: one complete ``store``/``load``/``has`` frame operation per run,
+even when the call supplied flush thresholds.
+
+Step 8 — public table type operations
+-------------------------------------
+
+``types/table_type_ops.h`` contains the installed extension contract:
+``TableLayout``, ``TableRowSink``, ``TableRowSource``, recording projection
+types, and the passive ``TableTypeOps`` table. An extension may register a
+static, complete ``describe``/``emit``/``apply`` table for an exact resolved
+time-series schema before wiring. The registry selects it while building the
+interned layout; evaluation performs no lookup and holds no strategy-specific
+container.
+
+Direct tuple-row application and persisted Arrow replay both adapt their
+input to ``TableRowSource`` and call the selected ``apply`` function. This is
+the important inverse guarantee: an extension does not acquire a separate
+stored-replay implementation. Default and moved-from-style states use a
+canonical table whose three function pointers are non-null and fail with a
+diagnostic when invoked. Registry reset clears schema-addressed overrides and
+cached layouts because their metadata addresses are no longer valid.
+
+The installed-SDK consumer includes this header and checks the passive,
+non-polymorphic contract. Native tests register a custom scalar time-series
+strategy and exercise both direct ``to_table``/``from_table`` and
+record/store/replay paths.
