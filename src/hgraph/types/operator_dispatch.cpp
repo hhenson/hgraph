@@ -12,6 +12,31 @@ namespace hgraph
 {
     namespace
     {
+        /** Render a constrained scalar variable as its actual accepted public
+            type when it has exactly one constraint. The variable name is an
+            implementation detail in that case; exposing ``PN`` instead of
+            ``tuple[str, ...]`` made generated Python signatures less precise
+            than native dispatch. */
+        [[nodiscard]] std::string scalar_signature_pattern(const ScalarPattern &pattern)
+        {
+            if (pattern.kind != ScalarPattern::Kind::Var || pattern.constraints.size() != 1)
+            {
+                return scalar_pattern_to_string(pattern);
+            }
+            const ValueTypeMetaData *constraint = pattern.constraints.front();
+            if (constraint == nullptr) { return scalar_pattern_to_string(pattern); }
+            if (constraint->value_kind() == ValueTypeKind::List &&
+                constraint->has(ValueTypeFlags::VariadicTuple))
+            {
+                const std::string_view element =
+                    constraint->element_type != nullptr
+                        ? constraint->element_type->name()
+                        : std::string_view{"scalar"};
+                return fmt::format("tuple[{}, ...]", element);
+            }
+            return std::string{constraint->name()};
+        }
+
         [[nodiscard]] bool value_schema_matches_ts_pattern(const TypePattern &pattern,
                                                            const ValueTypeMetaData *value_schema,
                                                            ResolutionMap &map)
@@ -775,7 +800,7 @@ namespace hgraph
                     .kind = parameter.kind,
                     .type_pattern = parameter.kind == ParamPattern::Kind::Input
                                         ? ts_pattern_to_string(parameter.ts)
-                                        : scalar_pattern_to_string(parameter.scalar),
+                                        : scalar_signature_pattern(parameter.scalar),
                     .has_default = parameter.default_value.has_value(),
                 });
             }

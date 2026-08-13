@@ -73,14 +73,19 @@ def test_a_flat_series_still_records():
     assert _rows(frame) == 3
 
 
-def _round_trip(ticks, tp):
+def _round_trip(ticks, tp, **config):
     @hg.graph
     def rec(ts: tp):
-        hg.record(ts, key="out", recordable_id="rt")
+        hg.record(ts, key="out", recordable_id="rt", **config)
 
     @hg.graph
     def rep() -> tp:
-        return hg.replay("out", tp, recordable_id="rt")
+        replay_config = {
+            name: config[name]
+            for name in ("partition_names", "removed_names", "frame_prefix")
+            if name in config
+        }
+        return hg.replay("out", tp, recordable_id="rt", **replay_config)
 
     with hg.GlobalState():
         hg.set_record_replay_model("DataFrame")
@@ -104,6 +109,17 @@ def test_a_tsd_round_trips_through_record_and_replay():
 
 def test_a_flat_series_still_round_trips():
     assert _round_trip([1, 2, 3], hg.TS[int]) == [1, 2, 3]
+
+
+def test_renamed_partition_and_removal_columns_round_trip():
+    ticks = [{"a": 1.0}, {"a": hg.REMOVE}]
+    assert _round_trip(
+        ticks,
+        hg.TSD[str, hg.TS[float]],
+        removes=hg.RecordRemoves.TRACK,
+        partition_names=("symbol",),
+        removed_names=("symbol_gone",),
+    ) == ticks
 
 
 # --------------------------------------------------------------------------
@@ -135,6 +151,23 @@ def test_the_as_of_column_can_be_omitted():
     # Dropping a column must not shift the ones after it.
     values = frame["value"]
     assert (values.to_pylist() if hasattr(values, "to_pylist") else values.to_list()) == [1, 2]
+
+
+def test_explicit_track_overrides_a_fixed_graph_default():
+    @hg.graph
+    def g(ts: hg.TS[int]):
+        hg.record(ts, key="out", recordable_id="native", as_of=hg.RecordAsOf.TRACK)
+
+    with hg.GlobalState():
+        hg.set_record_replay_model("DataFrame")
+        hg.set_as_of(hg.MIN_ST + 10 * hg.MIN_TD)
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
+            hg.eval_node(g, [1, 2])
+        frame = hg.frame_store_read("native.out")
+
+    values = frame["__as_of__"]
+    values = values.to_pylist() if hasattr(values, "to_pylist") else values.to_list()
+    assert values == [hg.MIN_ST, hg.MIN_ST + hg.MIN_TD]
 
 
 def test_inherit_records_exactly_as_an_unconfigured_call():
@@ -233,3 +266,23 @@ def test_the_frame_columns_of_a_frame_valued_leaf_can_be_prefixed():
     assert _columns(frame) == ["__date_time__", "__as_of__", "px_instrument", "px_value"]
     # One row per frame row, not one per tick.
     assert _rows(frame) == 2
+
+
+def test_a_prefixed_frame_valued_leaf_round_trips_all_rows():
+    import pyarrow as pa
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class PriceRow(hg.CompoundScalar):
+        instrument: str
+        value: float
+
+    tick = pa.table({"instrument": ["a", "b"], "value": [1.0, 2.0]})
+    result = _round_trip(
+        [tick], hg.TS[hg.Frame[PriceRow]], frame_prefix="px_"
+    )
+
+    assert len(result) == 1
+    replayed = result[0]
+    assert replayed["instrument"].to_pylist() == ["a", "b"]
+    assert replayed["value"].to_pylist() == [1.0, 2.0]

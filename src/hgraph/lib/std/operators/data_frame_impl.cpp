@@ -258,7 +258,14 @@ namespace hgraph::stdlib
                 DateTime           when{};
                 DateTime           as_of{};
                 std::int64_t        row{0};
-                std::vector<Value> keys{};
+            };
+
+            struct ReplayGroup
+            {
+                DateTime                    when{};
+                DateTime                    as_of{};
+                std::vector<Value>          keys{};
+                std::vector<ReplayCandidate> rows{};
             };
 
             [[nodiscard]] std::size_t combine_hash(std::size_t seed,
@@ -280,19 +287,52 @@ namespace hgraph::stdlib
                 return seed;
             }
 
-            [[nodiscard]] bool same_partition(const ReplayCandidate &candidate,
+            [[nodiscard]] bool same_partition(const ReplayGroup &group,
                                               DateTime when,
                                               const std::vector<Value> &keys)
             {
-                if (candidate.when != when || candidate.keys.size() != keys.size())
+                if (group.when != when || group.keys.size() != keys.size())
                 {
                     return false;
                 }
                 for (std::size_t index = 0; index < keys.size(); ++index)
                 {
-                    if (!candidate.keys[index].equals(keys[index])) { return false; }
+                    if (!group.keys[index].equals(keys[index])) { return false; }
                 }
                 return true;
+            }
+
+            [[nodiscard]] Frame take_replay_rows(
+                const Frame &frame, std::span<const ReplayCandidate> selected)
+            {
+                arrow::Int64Builder builder;
+                for (const ReplayCandidate &candidate : selected)
+                {
+                    const auto status = builder.Append(candidate.row);
+                    if (!status.ok())
+                    {
+                        throw std::runtime_error(
+                            "replay_data_frame: failed to append row selection: " +
+                            status.ToString());
+                    }
+                }
+                std::shared_ptr<arrow::Array> indices;
+                const auto finish = builder.Finish(&indices);
+                if (!finish.ok())
+                {
+                    throw std::runtime_error(
+                        "replay_data_frame: failed to finish row selection: " +
+                        finish.ToString());
+                }
+                const auto result = arrow::compute::Take(
+                    arrow::Datum{frame.table}, arrow::Datum{std::move(indices)});
+                if (!result.ok())
+                {
+                    throw std::runtime_error(
+                        "replay_data_frame: failed to select rows: " +
+                        result.status().ToString());
+                }
+                return Frame{result->table()};
             }
 
             [[nodiscard]] Value read_table_row(
@@ -303,6 +343,15 @@ namespace hgraph::stdlib
                 auto  tuple = value.as_tuple().begin_mutation();
                 for (std::size_t column = 0; column < layout.keys.size(); ++column)
                 {
+                    if (frame.table->GetColumnByName(layout.keys[column]) == nullptr)
+                    {
+                        const bool optional =
+                            layout.keys[column] == layout.as_of_key ||
+                            std::find(layout.removed_keys.begin(),
+                                      layout.removed_keys.end(),
+                                      layout.keys[column]) != layout.removed_keys.end();
+                        if (optional) { continue; }
+                    }
                     Value cell = frame_cell(frame, layout.keys[column],
                                             layout.col_metas[column], row);
                     if (cell.has_value()) { tuple.at(column).copy_from(cell.view()); }
@@ -335,6 +384,124 @@ namespace hgraph::stdlib
             }
         }  // namespace
 
+        Frame select_replay_frame(const Frame &frame,
+                                  const table_ts_detail::TsTableLayout &layout,
+                                  DateTime as_of_time, DateTime start_time)
+        {
+            if (!frame.has_value() || frame_rows(frame) == 0) { return frame; }
+
+            Frame normalized = frame;
+            const auto combined = frame.table->CombineChunks();
+            if (!combined.ok())
+            {
+                throw std::invalid_argument(
+                    "replay_data_frame: failed to combine input chunks: " +
+                    combined.status().ToString());
+            }
+            normalized.table = *combined;
+
+            const bool has_as_of =
+                normalized.table->GetColumnByName(layout.as_of_key) != nullptr;
+            std::vector<ReplayGroup> groups;
+            std::unordered_map<std::size_t, std::vector<std::size_t>> buckets;
+
+            for (std::int64_t row = 0; row < frame_rows(normalized); ++row)
+            {
+                const Value when_cell = frame_cell(
+                    normalized, layout.date_key,
+                    scalar_descriptor<DateTime>::value_meta(), row);
+                if (!when_cell.has_value())
+                {
+                    throw std::invalid_argument(
+                        "replay_data_frame: date column must not contain nulls");
+                }
+                const DateTime when = when_cell.view().checked_as<DateTime>();
+                if (when < start_time) { continue; }
+
+                DateTime revision = MIN_DT;
+                if (has_as_of)
+                {
+                    const Value as_of_cell = frame_cell(
+                        normalized, layout.as_of_key,
+                        scalar_descriptor<DateTime>::value_meta(), row);
+                    if (!as_of_cell.has_value())
+                    {
+                        throw std::invalid_argument(
+                            "replay_data_frame: as-of column must not contain nulls");
+                    }
+                    revision = as_of_cell.view().checked_as<DateTime>();
+                    if (revision > as_of_time) { continue; }
+                }
+
+                std::vector<Value> keys;
+                keys.reserve(layout.partition_keys.size());
+                for (const std::string &key : layout.partition_keys)
+                {
+                    const auto key_index =
+                        std::find(layout.keys.begin(), layout.keys.end(), key);
+                    if (key_index == layout.keys.end())
+                    {
+                        throw std::logic_error(
+                            "replay_data_frame: partition key missing from table layout");
+                    }
+                    const std::size_t column = static_cast<std::size_t>(
+                        std::distance(layout.keys.begin(), key_index));
+                    Value value = frame_cell(
+                        normalized, key, layout.col_metas[column], row);
+                    if (!value.has_value())
+                    {
+                        throw std::invalid_argument(
+                            "replay_data_frame: partition keys must not contain nulls");
+                    }
+                    keys.push_back(std::move(value));
+                }
+
+                ReplayCandidate candidate{when, revision, row};
+                const std::size_t hash = candidate_hash(when, keys);
+                auto &bucket = buckets[hash];
+                const auto existing = std::find_if(
+                    bucket.begin(), bucket.end(), [&](std::size_t index) {
+                        return same_partition(groups[index], when, keys);
+                    });
+                if (existing == bucket.end())
+                {
+                    bucket.push_back(groups.size());
+                    groups.push_back(ReplayGroup{
+                        when, revision, std::move(keys), {std::move(candidate)}});
+                }
+                else
+                {
+                    auto &group = groups[*existing];
+                    if (revision > group.as_of)
+                    {
+                        group.as_of = revision;
+                        group.rows.clear();
+                        group.rows.push_back(std::move(candidate));
+                    }
+                    else if (layout.is_multi_row && revision == group.as_of)
+                    {
+                        group.rows.push_back(std::move(candidate));
+                    }
+                }
+            }
+
+            std::vector<ReplayCandidate> selected;
+            for (auto &group : groups)
+            {
+                for (auto &candidate : group.rows)
+                {
+                    selected.push_back(std::move(candidate));
+                }
+            }
+            std::stable_sort(
+                selected.begin(), selected.end(),
+                [](const ReplayCandidate &lhs, const ReplayCandidate &rhs) {
+                    if (lhs.when != rhs.when) { return lhs.when < rhs.when; }
+                    return lhs.row < rhs.row;
+                });
+            return take_replay_rows(normalized, selected);
+        }
+
         void start_replay_data_frame(const Frame &frame, DateTime as_of_time,
                                      DateTime start_time, GlobalStateView gs,
                                      const TSOutputView &out,
@@ -352,89 +519,25 @@ namespace hgraph::stdlib
                 return;
             }
 
-            Frame normalized = frame;
-            const auto combined = frame.table->CombineChunks();
-            if (!combined.ok())
-            {
-                throw std::invalid_argument(
-                    "replay_data_frame: failed to combine input chunks: " +
-                    combined.status().ToString());
-            }
-            normalized.table = *combined;
-
             const DateTime cutoff = as_of_time == MAX_DT
                                         ? config.as_of.value_or(start_time)
                                         : as_of_time;
+            const Frame normalized =
+                select_replay_frame(frame, *plan->layout, cutoff, start_time);
             std::vector<ReplayCandidate> candidates;
-            std::unordered_map<std::size_t, std::vector<std::size_t>> groups;
             for (std::int64_t row = 0; row < frame_rows(normalized); ++row)
             {
                 const Value when_cell = frame_cell(
                     normalized, plan->layout->date_key,
                     scalar_descriptor<DateTime>::value_meta(), row);
-                const Value as_of_cell = frame_cell(
-                    normalized, plan->layout->as_of_key,
-                    scalar_descriptor<DateTime>::value_meta(), row);
-                if (!when_cell.has_value() || !as_of_cell.has_value())
+                if (!when_cell.has_value())
                 {
                     throw std::invalid_argument(
-                        "replay_data_frame: date and as-of columns must not contain nulls");
+                        "replay_data_frame: date column must not contain nulls");
                 }
                 const DateTime when = when_cell.view().checked_as<DateTime>();
-                const DateTime revision = as_of_cell.view().checked_as<DateTime>();
-                if (when < start_time || revision > cutoff) { continue; }
-
-                std::vector<Value> keys;
-                keys.reserve(plan->layout->partition_keys.size());
-                for (const std::string &key : plan->layout->partition_keys)
-                {
-                    const auto key_index = std::find(
-                        plan->layout->keys.begin(), plan->layout->keys.end(), key);
-                    if (key_index == plan->layout->keys.end())
-                    {
-                        throw std::logic_error(
-                            "replay_data_frame: partition key missing from table layout");
-                    }
-                    const std::size_t column = static_cast<std::size_t>(
-                        std::distance(plan->layout->keys.begin(), key_index));
-                    Value value = frame_cell(normalized, key,
-                                             plan->layout->col_metas[column], row);
-                    if (!value.has_value())
-                    {
-                        throw std::invalid_argument(
-                            "replay_data_frame: partition keys must not contain nulls");
-                    }
-                    keys.push_back(std::move(value));
-                }
-
-                const std::size_t hash = candidate_hash(when, keys);
-                auto &bucket = groups[hash];
-                auto existing = std::find_if(
-                    bucket.begin(), bucket.end(), [&](std::size_t index) {
-                        return same_partition(candidates[index], when, keys);
-                    });
-                if (existing == bucket.end())
-                {
-                    bucket.push_back(candidates.size());
-                    candidates.push_back(
-                        ReplayCandidate{when, revision, row, std::move(keys)});
-                }
-                else if (revision > candidates[*existing].as_of)
-                {
-                    candidates[*existing].as_of = revision;
-                    candidates[*existing].row = row;
-                }
+                candidates.push_back(ReplayCandidate{when, MIN_DT, row});
             }
-
-            std::stable_sort(candidates.begin(), candidates.end(),
-                             [](const ReplayCandidate &lhs,
-                                const ReplayCandidate &rhs) {
-                                 if (lhs.when != rhs.when)
-                                 {
-                                     return lhs.when < rhs.when;
-                                 }
-                                 return lhs.row < rhs.row;
-                             });
 
             for (std::size_t begin = 0; begin < candidates.size();)
             {

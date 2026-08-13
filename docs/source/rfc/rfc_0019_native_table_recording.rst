@@ -1,7 +1,7 @@
 RFC 0019: Native Table Recording for Partitioned Time-Series
 ============================================================
 
-:Status: Proposed
+:Status: Proposed; steps 1–6 implemented in the reference branch
 :Author: Howard Henson
 :Created: 2026-08-12
 :Target: Table codec, record/replay data-frame backend, and the Python data-frame adaptor
@@ -9,12 +9,14 @@ RFC 0019: Native Table Recording for Partitioned Time-Series
 Summary
 -------
 
-Make the native recorder able to record everything the Python data-frame
-adaptor records — ``TSD`` partitions, removals, multi-row frames — so that
-recording a data frame is one implementation rather than two, and so the
-per-tick path never enters Python.
+Make the native recorder own the data-frame recording path — ``TSD``
+partitions, removals and unpartitioned multi-row frames in the first pass — so
+recording is one implementation rather than two and the per-tick path never
+enters Python. A frame-valued leaf nested below ``TSD`` remains a separately
+tracked extension of the layout walk.
 
-The missing piece is smaller and better-shaped than it first appears. C++
+The original missing piece was smaller and better-shaped than it first
+appeared. C++
 already flattens a partitioned time-series into table rows, and C++ already
 appends rows into Arrow builders. What does not exist is a recorder driven by
 the *table layout*: the Arrow recorder is built from a plain value schema and
@@ -22,14 +24,13 @@ has never known about partition levels.
 
 This RFC adds that recorder, fuses row emission with column appending so no row
 tuples are materialised on either side of the boundary, and gives recording an
-explicit options surface — as-of tracking, removal tracking, column naming,
-record mode, flush policy — rather than the ad-hoc dictionary the adaptor
-carries today.
+explicit options surface — as-of tracking, removal tracking and column naming
+— rather than the ad-hoc dictionary the adaptor carried.
 
 Motivation
 ----------
 
-Recording a ``TSD`` to a data frame currently fails natively:
+Before this work, recording a ``TSD`` to a data frame failed natively:
 
 .. code-block:: text
 
@@ -37,10 +38,10 @@ Recording a ``TSD`` to a data frame currently fails natively:
      table codec: unsupported value kind for 'Map[str,float]'
      (atomics and depth-1 bundles in v1)
 
-So the Python adaptor implements recording itself: it takes rows from
+The Python adaptor therefore implemented recording itself: it took rows from
 ``to_table``, pulls every cell into Python, builds Arrow, and writes through
-``DataFrameStorage``. That is the only route for the shapes people actually
-record, and it has already drifted once from the columnar-builder design
+``DataFrameStorage``. That was the only route for the shapes people actually
+record, and it had already drifted once from the columnar-builder design
 ``record_replay_table.rst`` mandates — it was building a one-row Arrow table
 per tick and concatenating, which cost 12.3s and 380MB peak where the batched
 form costs 0.77s and 226MB on the same 20 000-tick sparse ``TSD``.
@@ -68,10 +69,10 @@ Current state
      - What it does / does not do
    * - ``to_table`` row flattening
      - ``table_impl.cpp``, ``TsTableLayout``
-     - **Handles everything**: nested ``TSD`` levels, per-level key columns and
-       removed flags, multi-row frame leaves, Tick/Sample/Snap modes. But
-       ``emit_partition_rows`` materialises a ``Value`` row per row into a
-       ``std::vector<Value>``.
+     - Handles nested ``TSD`` levels, per-level key columns and removed flags,
+       and unpartitioned multi-row frame leaves. A frame below a ``TSD`` remains
+       deferred. The public ``to_table`` result necessarily materialises rows;
+       the recorder uses the shared cell-emission traversal instead.
    * - ``TableConverter`` / ``FrameRecorder``
      - ``table_codec.cpp``
      - Appends **straight into Arrow builders**, no row tuples — the shape the
@@ -79,16 +80,21 @@ Current state
        depth-1 bundles only. Knows nothing of partition levels.
    * - ``record`` (``DATA_FRAME`` model)
      - ``record_replay_frame_impl.h``
-     - Uses ``FrameRecorder``, writes the finished frame to the RFC 0016 frame
-       store. Fails at ``start`` for any partitioned type.
+     - Uses ``TableRecorder`` over ``TsTableLayout`` and writes the finished
+       frame to the graph-scoped RFC 0016 store. Partitioned scalar recordings
+       and unpartitioned frame-valued recordings are covered; frame-valued
+       leaves below ``TSD`` remain deferred.
    * - Python data-frame adaptor
      - ``adaptors/data_frame``
-     - Consumes ``to_table`` rows in Python, builds Arrow, writes through
-       ``DataFrameStorage``. Carries the override surface: ``track_as_of``,
-       ``track_removes``, partition-key and removed-key renames.
+     - A compatibility storage adapter only. It delegates complete frames
+       through ``store``/``load``/``has``; the recorder and replayer are native.
+       The legacy override registry is translated to explicit native wiring
+       options at the Python call boundary.
 
-The gap is one component: **an Arrow recorder driven by ``TsTableLayout``
-rather than by a value schema.** Everything either side of it exists.
+The reference implementation now closes that gap with an Arrow recorder driven
+by ``TsTableLayout`` rather than by a value schema. Remaining work is explicit:
+frame-valued leaves below ``TSD``, segmented flushing, and the later table-ops
+refactor described below.
 
 Design
 ------
@@ -248,14 +254,16 @@ A recording is one run
 ~~~~~~~~~~~~~~~~~~~~~~
 
 A recording is written by exactly one run and its schema is fixed for that run.
-Appending to a recording made by an earlier run is not supported; re-recording
-to the same key replaces it.
+Appending to a recording made by an earlier run is not supported. A native
+write to an existing key fails: another run has no relationship to the first
+and must use another key, or the caller must explicitly remove the old object.
+The Python compatibility seam delegates overwrite policy to its implementation;
+core does not impose native storage policy on user code.
 
 That removes schema evolution from scope entirely — there is no widening rule
-to design, and no compatibility check on append — and it is what makes the
-options above safe to vary per run, since no two runs ever share a frame.
-Flushing still happens within a run: those writes build the current recording
-incrementally, they do not merge with a previous one.
+to design and no compatibility check on append. Through adaptor migration the
+storage operation is one atomic write/read of one complete frame. Flushing is a
+later native-store feature within a run; it never merges with a previous run.
 
 If cross-run append is wanted later it is a deliberate change, not an accident
 of the flush policy.
@@ -275,11 +283,11 @@ the run writing it has died. That makes a flush a commit point, and it decides
 the write shape.
 
 Each flush writes a **new object** rather than rewriting the recording. A
-recording is therefore one run stored as an ordered sequence of segments, and
-reading it concatenates the segments in order. Rewriting a single object per
-flush would be correct but would re-read and re-write the whole recording every
-time — the quadratic shape this work removed from the Python adaptor, restored
-one layer down.
+recording is therefore one run stored as an ordered sequence of independently
+valid frames. Replay holds only the current segment: after replaying it, the
+frame is released and the next segment is loaded. Rewriting a single object per
+flush would re-read and re-write the whole recording every time — the quadratic
+shape this work removed from the Python adaptor, restored one layer down.
 
 Segment writes suit RFC 0016's store directly: objects are written once and
 never mutated, which is the immutable-by-default case rather than an exception
@@ -287,24 +295,27 @@ to it. It also means a partially written segment does not become visible — an
 object appears whole or not at all — so a reader naturally sees exactly the
 completed flushes and nothing torn.
 
-Two consequences follow:
+The object at the logical key is an immutable marker identifying a segmented
+recording and claiming the key before any segment is published. Segments use
+``<key>.0``, ``<key>.1`` and so on. A flat recording stores its frame directly
+at ``<key>``. Consequently a writer refuses a flat write if either ``<key>`` or
+the legacy ``<key>.0`` already exists, avoiding an ambiguous old layout.
 
-* Segments need an ordering *and a discovery rule*, because ``FrameStoreOps``
-  is ``write``/``read``/``contains``/``clear`` with no enumeration. Each
-  segment is a separate key carrying a monotonic index under the recording's
-  key, and a reader probes ``contains`` upwards until a key is absent. Writes
-  complete in order, so an absent index means end-of-recording rather than a
-  hole.
+Three consequences follow:
 
-  This deliberately adds no manifest and no store capability. Appending to a
-  single key is not an option: ``write`` has no mode, an immutable store
-  rejects the second write, and a mutable one replaces the object — a
-  multi-segment recording would either fail or retain only its last segment.
+* Segments need no enumeration. A reader that sees the marker loads ``.0`` and
+  probes monotonically until the next segment is absent. Recording time is
+  monotonic, so every segment also has an ordered time bound that can later be
+  used to skip whole objects.
 * A reader cannot tell a still-running recording from one whose process died,
   and does not need to: both are "everything up to the last flush". A
-  completion marker written at ``stop`` lets a reader that *does* care —
-  a downstream job wanting only finished runs — distinguish them, without
-  making the partial case unreadable.
+  ``<key>.complete`` manifest written atomically at successful ``stop`` lets a
+  reader that *does* care distinguish them. It may carry the segment count,
+  row count and time bounds, but is not required to replay completed segments.
+* Segmentation is native-only. The Python compatibility bridge receives one
+  complete frame through ``store``/``load``/``has`` and has no segment or flush
+  API. This keeps it suitable for compatibility adapters without making it a
+  second storage framework.
 
 This keeps *A recording is one run* intact: one run, one recording, written as
 however many segments its flush policy produced — one, in the default case.
@@ -312,10 +323,10 @@ however many segments its flush policy produced — one, in the default case.
 Configuration is local, with a global default
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``record_replay::Config`` is global today, which is why the adaptor grew a
+``record_replay::Config`` is graph-scoped in ``GlobalState``. The adaptor grew a
 second, per-key override dictionary beside it. Instead the configuration is
-passed **to the recorder**, and the global one becomes the default when no
-local configuration is supplied.
+passed **to the recorder**, and the graph-level value becomes the default when
+no local configuration is supplied.
 
 This also answers where per-key options live: they do not live anywhere. They
 are an argument at the call site, so two recordings in one graph differ by
@@ -330,15 +341,22 @@ state. The model therefore does not have to stay global for dispatch to work.
 Storage
 ~~~~~~~
 
-Recording writes through ``record_replay::FrameStoreOps`` — the seam RFC 0016
-already defines — so the native recorder does not learn about files, object
-stores, or Python.
+Recording writes through the graph-scoped ``store::FrameStore`` contract that
+RFC 0016 defines. Its private ops table keeps the recorder independent of
+memory, filesystem, S3 and Python representations.
 
-``DataFrameStorage`` is then exposed as a frame store implementation rather
-than as a parallel recording stack. The Python adaptor keeps its public surface
+``DataFrameStorage`` is then a compatibility frame-store implementation rather
+than a parallel recording stack. The Python adaptor keeps its public surface
 (``MemoryDataFrameStorage``, ``FileBasedDataFrameStorage``, subclass hooks,
-``set_data_frame_overrides``) and loses only the part that was reimplementing
-the recorder.
+``set_data_frame_overrides``) and loses only the part that reimplemented the
+recorder. Its native-facing protocol is deliberately just ``store(key, frame)``,
+``load(key)`` and ``has(key)``. Python decides whether a repeated ``store``
+overwrites; native immutability is not projected onto this compatibility seam.
+
+Production memory, filesystem and S3 stores remain C++ implementations. They
+do not delegate through ``DataFrameStorage`` and retain native key validation,
+immutability, compression and, later, segmentation. ``MemoryDataFrameStorage``
+exists so release/0.5 Python code can still set and retrieve frames directly.
 
 The flush policy matters here: a store write per flush, not per tick.
 
@@ -363,9 +381,11 @@ with data from their own future.
 The adaptor's behaviour changes to match, which is a fix rather than a
 migration loss.
 
-Reading a recording whose options differ from the reader's — a missing as-of
-column, renamed partition columns — is resolved by name against the stored
-schema, and a genuine mismatch is an error rather than a silent reinterpretation.
+The caller supplies the same local column projection when replaying a recording
+with renamed partition or removal columns. The release/0.5 compatibility layer
+does this from ``set_data_frame_overrides`` at wiring time. A missing projected
+column is an error rather than a silent reinterpretation. This is a fixed-schema
+read contract, not schema evolution.
 
 Staging
 -------
@@ -385,8 +405,9 @@ is chosen so nothing is rewritten twice:
    rejection; the ``DATA_FRAME`` model now records ``TSD`` and multi-row
    shapes.
 5. **Replay parity.** Grouping, filtering, ``replay_const``.
-6. **Adaptor migration.** ``DataFrameStorage`` as a frame store; the Python
-   recorder deleted, its public surface unchanged.
+6. **Adaptor migration.** ``DataFrameStorage`` as the narrow Python
+   ``store``/``load``/``has`` bridge; the Python recorder and replayer deleted,
+   their public compatibility surface unchanged. No segmentation in Python.
 7. **Segmented flushing.** Only when a run's output stops fitting in memory.
    Nothing earlier depends on it, because the default writes once at ``stop``.
 8. **Table ops and a real builder.** See below. Deliberately last: it
@@ -472,11 +493,16 @@ after batching it matches the native path on flat values. Rejected because the
 split is the defect: the drift that cost 12.3s and 380MB happened *because*
 recording was implemented twice, and nothing prevents a recurrence.
 
-Unresolved questions
---------------------
+Resolved scope decisions
+------------------------
 
-None outstanding. The flush-durability question is resolved above under
-*Flushing writes segments*.
+* Reads and writes are atomic whole-frame operations through step 6.
+* Stored schema evolution is out of scope; a key identifies one immutable run.
+* Python compatibility storage is limited to ``store``/``load``/``has`` and
+  owns its overwrite policy. Segmentation is native-only.
+* A segmented recording is identified by its base-key marker and consists of
+  independently valid ``.N`` frames; an optional ``.complete`` manifest closes
+  a successful run.
 
 Acceptance criteria
 -------------------
@@ -500,6 +526,13 @@ Acceptance criteria
   per tick and five rows per tick over 20 000 ticks.
 * The Python adaptor's existing tests pass unchanged against the migrated
   implementation.
+* A release/0.5-style ``MemoryDataFrameStorage`` can set and retrieve complete
+  frames while all row construction and replay remain native.
+* A Python compatibility store is invoked only through ``store``/``load``/
+  ``has``; no clear, immutability, compression or segmentation operation crosses
+  the Python boundary.
+* Native memory, filesystem and S3 stores reject a duplicate recording key;
+  a Python compatibility implementation may choose to overwrite it.
 * A recording written by the current Python adaptor replays through the native
   reader.
 * ``removes: Omit`` emits no row and no column for a removal, and the replayed
@@ -525,8 +558,8 @@ References
 
 * ``docs/source/developer_guide/record_replay_table.rst`` — the columnar-builder
   ruling (*I5*) this RFC finishes applying.
-* RFC 0016 — object-store frame persistence; ``FrameStoreOps`` is the storage
-  seam used here.
+* RFC 0016 — object-store frame persistence; the graph-scoped
+  ``store::FrameStore`` is the storage seam used here.
 * ``include/hgraph/lib/std/operators/impl/table_impl.h`` — ``TsTableLayout``.
 * ``include/hgraph/types/value/table_codec.h`` — ``TableConverter``,
   ``FrameRecorder``.

@@ -61,8 +61,18 @@ MAX_ET = _hgraph.MAX_ET    # the maximum end time (last processable instant)
 IN_MEMORY = _hgraph.IN_MEMORY
 IN_MEMORY_DENSE = _hgraph.IN_MEMORY_DENSE
 DATA_FRAME = _hgraph.DATA_FRAME
-frame_store_contains = _hgraph.frame_store_contains
-frame_store_read = _hgraph.frame_store_read
+
+
+def frame_store_contains(key, global_state=None):
+    """Whether the active graph's frame store contains ``key``."""
+    state = global_state if global_state is not None else GlobalState.instance()
+    return _hgraph._frame_store_contains(state._impl, key)
+
+
+def frame_store_read(key, global_state=None):
+    """Load one complete frame from the active graph's frame store."""
+    state = global_state if global_state is not None else GlobalState.instance()
+    return _hgraph._frame_store_read(state._impl, key)
 
 TimeSeries = _hgraph.TimeSeries
 Graph = _hgraph.Graph

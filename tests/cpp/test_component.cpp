@@ -495,27 +495,38 @@ TEST_CASE("component: Recover seeds inputs at start from the recordings; live ti
 TEST_CASE("component: Compare recomputes from recorded inputs and records per-tick equality")
 {
     stdlib::register_standard_operators();
-    GlobalContext context;
-    record_replay::set_config(context.state().view(),
-                              record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+    {
+        GlobalContext context;
+        record_replay::set_config(context.state().view(),
+                                  record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
 
-    (void)eval_node<RecordingHarness>(values<Int>(1, none, 3), values<Int>(10, 20, none));
+        (void)eval_node<RecordingHarness>(values<Int>(1, none, 3), values<Int>(10, 20, none));
 
-    // Same computation: every recomputed tick matches the recording.
-    (void)eval_node<CompareHarness<SumGraph>>(values<Int>(100), values<Int>(100));
-    auto matched = record_replay::comparison_summary(context.state().view(), "calc.__compare__");
-    CHECK(matched.compared == 3);
-    CHECK(matched.mismatches == 0);
+        // Same computation: every recomputed tick matches the recording.
+        (void)eval_node<CompareHarness<SumGraph>>(values<Int>(100), values<Int>(100));
+        auto matched = record_replay::comparison_summary(context.state().view(), "calc.__compare__");
+        CHECK(matched.compared == 3);
+        CHECK(matched.mismatches == 0);
 
-    // A regressed computation (product instead of sum) mismatches every tick.
-    (void)eval_node<CompareHarness<ProductGraph>>(values<Int>(100), values<Int>(100));
-    auto regressed = record_replay::comparison_summary(context.state().view(), "calc.__compare__");
-    CHECK(regressed.compared == 3);
-    CHECK(regressed.mismatches == 3);
+        // No comparison recorded under an unknown key.
+        CHECK_THROWS_AS((void)record_replay::comparison_summary(context.state().view(), "nowhere.__compare__"),
+                        std::runtime_error);
+    }
 
-    // No comparison recorded under an unknown key.
-    CHECK_THROWS_AS((void)record_replay::comparison_summary(context.state().view(), "nowhere.__compare__"),
-                    std::runtime_error);
+    // A comparison result is itself an immutable per-run recording. Start a
+    // new run, with its own graph-scoped store, to compare the regressed
+    // computation (product instead of sum) against the same baseline.
+    {
+        GlobalContext context;
+        record_replay::set_config(context.state().view(),
+                                  record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+
+        (void)eval_node<RecordingHarness>(values<Int>(1, none, 3), values<Int>(10, 20, none));
+        (void)eval_node<CompareHarness<ProductGraph>>(values<Int>(100), values<Int>(100));
+        auto regressed = record_replay::comparison_summary(context.state().view(), "calc.__compare__");
+        CHECK(regressed.compared == 3);
+        CHECK(regressed.mismatches == 3);
+    }
 }
 
 TEST_CASE("compare: a one-sided value is recorded as a mismatch")

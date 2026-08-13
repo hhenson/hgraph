@@ -1117,6 +1117,8 @@ _SCALAR_ANNOTATIONS = {
     "civil_datetime": "_CivilDateTime",
     "CmpResult": "_CmpResult",
     "DivideByZero": "_DivideByZero",
+    "RecordAsOf": "_RecordAsOf",
+    "RecordRemoves": "_RecordRemoves",
     "instant_range": "_InstantRange",
     "month_end_policy": "_MonthEndPolicy",
     "nonexistent_time_policy": "_NonexistentTimePolicy",
@@ -1131,6 +1133,9 @@ def _parameter_annotation(parameter: dict[str, Any]) -> str:
     if parameter["kind"] == "scalar":
         if pattern in {"callable", "fn"}:
             return "_Callable[..., object]"
+        tuple_match = re.fullmatch(r"tuple\[([^\[\],]+), \.\.\.\]", pattern)
+        if tuple_match and tuple_match.group(1) in _SCALAR_ANNOTATIONS:
+            return f"tuple[{_SCALAR_ANNOTATIONS[tuple_match.group(1)]}, ...]"
         return _SCALAR_ANNOTATIONS.get(pattern, "object")
     if pattern == "SIGNAL":
         return "_WiringPort"
@@ -1245,7 +1250,8 @@ def render_operator_stub(inventory: dict[str, Any]) -> str:
         "                     NonexistentTimePolicy as _NonexistentTimePolicy,",
         "                     Period as _Period, ZoneId as _ZoneId,",
         "                     ZonedDateTime as _ZonedDateTime)",
-        "from ._compat import CmpResult as _CmpResult, DivideByZero as _DivideByZero",
+        "from ._compat import (CmpResult as _CmpResult, DivideByZero as _DivideByZero,",
+        "                      RecordAsOf as _RecordAsOf, RecordRemoves as _RecordRemoves)",
         "from ._wiring import WiringPort as _WiringPort",
         "",
     ]

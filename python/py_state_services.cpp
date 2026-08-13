@@ -9,6 +9,7 @@
 #include "py_wiring.h"
 #include "py_bindings.h"
 
+#include <hgraph/types/frame_store.h>
 #include <hgraph/types/metadata/type_realization.h>
 
 namespace nb = nanobind;
@@ -253,26 +254,68 @@ namespace hgraph::python_bridge
 
     namespace
     {
-        /**
-         * A frame store implemented in Python (RFC 0016's seam, RFC 0019 step 6).
+        /** State-owned compatibility store delegated to Python.
          *
-         * The native recorder writes through ``FrameStoreOps``; binding a
-         * Python object to it is what lets the data-frame adaptor's
-         * ``DataFrameStorage`` BACK the native recorder rather than
-         * reimplement one beside it.
+         * This intentionally exposes only store/load/has. Native storage
+         * policy (immutability, compression and future segmentation) belongs
+         * to the C++ memory/file/S3 implementations; a Python bridge decides
+         * its own overwrite behaviour and is never asked to manage segments.
          */
-        struct PyFrameStore
+        class PythonFrameStore final : public store::FrameStore
         {
-            nb::object impl;
+          public:
+            PythonFrameStore(nb::object impl, std::shared_ptr<store::FrameStore> previous)
+                : FrameStore(store::FrameStoreConfig{.immutable = false}),
+                  impl_(std::move(impl)), previous_(std::move(previous))
+            {
+            }
+
+            void write(std::string_view key, Frame frame, std::optional<store::Compression>) override
+            {
+                const nb::gil_scoped_acquire gil;
+                impl_.get().attr("store")(std::string{key}, frame_to_py(frame));
+            }
+
+            [[nodiscard]] Frame read(std::string_view key) override
+            {
+                const nb::gil_scoped_acquire gil;
+                nb::object out = impl_.get().attr("load")(std::string{key});
+                if (out.is_none()) { return Frame{}; }
+                const Value frame = py_arrow_to_frame(out);
+                return Frame{frame.view().checked_as<Frame>()};
+            }
+
+            [[nodiscard]] bool contains(std::string_view key) override
+            {
+                const nb::gil_scoped_acquire gil;
+                return nb::cast<bool>(impl_.get().attr("has")(std::string{key}));
+            }
+
+            // The deliberately small Python protocol has no bulk-delete
+            // operation. Removing the adapter from GlobalState releases it;
+            // deleting persisted user data remains the implementation's API.
+            void clear() override {}
+
+            [[nodiscard]] const std::shared_ptr<store::FrameStore> &previous() const noexcept
+            {
+                return previous_;
+            }
+
+          private:
+            PyObj                              impl_;
+            std::shared_ptr<store::FrameStore> previous_;
         };
 
-        // One live store, replaced on re-registration - held here rather than
-        // leaked per call, so re-binding does not accumulate stores.
-        std::unique_ptr<PyFrameStore> g_py_frame_store;
-
-        [[nodiscard]] nb::object &py_store_impl(void *context) noexcept
+        void restore_python_frame_store(GlobalStateView state)
         {
-            return static_cast<PyFrameStore *>(context)->impl;
+            auto current = record_replay::frame_store(state);
+            auto python  = std::dynamic_pointer_cast<PythonFrameStore>(current);
+            if (!python)
+            {
+                throw std::logic_error("the active graph store is not a Python frame store");
+            }
+            if (python->previous()) { record_replay::set_frame_store(state, python->previous()); }
+            else { record_replay::clear_frame_store(state); }
         }
     }  // namespace
 
@@ -378,6 +421,21 @@ namespace hgraph::python_bridge
 
     // Record/replay configuration is copied with the Python thread's seed.
     m.def("_set_record_replay_config", [](GlobalState &state, const std::string &model) {
+        if (model == record_replay::DATA_FRAME)
+        {
+            // Explicitly selecting the native data-frame model starts a new
+            // recording session. Do not carry immutable keys from an earlier
+            // native run through the long-lived implicit Python GlobalState.
+            // A Python compatibility store is user-owned and remains installed
+            // so `with DataFrameStorage(): set_record_replay_model(...)` keeps
+            // the legacy ordering contract.
+            const auto current = record_replay::frame_store(state.view());
+            if (!std::dynamic_pointer_cast<PythonFrameStore>(current))
+            {
+                record_replay::set_frame_store(
+                    state.view(), store::make_frame_store(store::FrameStoreConfig{}));
+            }
+        }
         auto config = record_replay::config(state.view());
         config.model = model;
         record_replay::set_config(state.view(), std::move(config));
@@ -430,47 +488,22 @@ namespace hgraph::python_bridge
         const auto summary = record_replay::comparison_summary(state.view(), fq_key);
         return nb::make_tuple(summary.compared, summary.mismatches);
     });
-    m.def("frame_store_contains", [](const std::string &key) { return record_replay::store_contains(key); });
-    m.def("frame_store_read", [](const std::string &key) { return frame_to_py(record_replay::store_read(key)); });
-
-    // Back the native recorder with a Python store. ``impl`` supplies
-    // write(key, frame) / read(key) -> frame|None / contains(key) / clear().
-    m.def("_set_frame_store", [](nb::object impl) {
-        g_py_frame_store = std::make_unique<PyFrameStore>(PyFrameStore{std::move(impl)});
-        record_replay::set_frame_store(record_replay::FrameStoreOps{
-            .context = g_py_frame_store.get(),
-            .write =
-                [](void *context, std::string_view key, Frame frame) {
-                    const nb::gil_scoped_acquire gil;
-                    py_store_impl(context).attr("write")(std::string{key}, frame_to_py(frame));
-                },
-            .read =
-                [](void *context, std::string_view key) {
-                    const nb::gil_scoped_acquire gil;
-                    nb::object out = py_store_impl(context).attr("read")(std::string{key});
-                    // A missing key is an empty Frame, not an error: that is
-                    // what ``read`` promises its native callers.
-                    if (out.is_none()) { return Frame{}; }
-                    const Value frame = py_arrow_to_frame(out);
-                    return Frame{frame.view().checked_as<Frame>()};
-                },
-            .contains =
-                [](void *context, std::string_view key) {
-                    const nb::gil_scoped_acquire gil;
-                    return nb::cast<bool>(py_store_impl(context).attr("contains")(std::string{key}));
-                },
-            .clear =
-                [](void *context) {
-                    const nb::gil_scoped_acquire gil;
-                    py_store_impl(context).attr("clear")();
-                },
-        });
+    m.def("_frame_store_contains", [](GlobalState &state, const std::string &key) {
+        return record_replay::store_contains(state.view(), key);
     });
-    // Drop back to the built-in in-memory store.
-    m.def("_clear_frame_store", [] {
-        record_replay::reset();
-        const nb::gil_scoped_acquire gil;
-        g_py_frame_store.reset();
+    m.def("_frame_store_read", [](GlobalState &state, const std::string &key) {
+        return frame_to_py(record_replay::store_read(state.view(), key));
+    });
+
+    // Install/restore a graph-scoped Python compatibility store. Nesting is
+    // lossless: each adapter retains the native or Python store it replaced.
+    m.def("_set_python_frame_store", [](GlobalState &state, nb::object impl) {
+        auto previous = record_replay::frame_store(state.view());
+        record_replay::set_frame_store(
+            state.view(), std::make_shared<PythonFrameStore>(std::move(impl), std::move(previous)));
+    });
+    m.def("_restore_python_frame_store", [](GlobalState &state) {
+        restore_python_frame_store(state.view());
     });
 
     // Context publishing (same-wiring; the C++ design record's semantics).

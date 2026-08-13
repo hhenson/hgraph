@@ -200,6 +200,12 @@ namespace hgraph::stdlib
         The effective location combines graph recordable context with ``key``.
         @param ts Stream to record.
         @param key Wiring-time name within the current recordable context.
+        @param recordable_id Optional explicit identity; context supplies it when omitted.
+        @param as_of Whether to track, omit, or inherit the as-of column policy.
+        @param removes Whether TSD removals are emitted as explicit rows.
+        @param partition_names Optional stored names for flattened TSD key columns.
+        @param removed_names Optional stored names for TSD removal-flag columns.
+        @param frame_prefix Prefix applied to expanded frame-valued columns.
         @return No output.
         @par Python example
         @code{.py}
@@ -213,10 +219,16 @@ namespace hgraph::stdlib
     /** Replay stored ticks for a key as an explicitly selected output type.
         Replay timing and availability follow the active record/replay mode and backend.
         @param key Wiring-time name within the current recordable context.
+        @param recordable_id Optional explicit identity; context supplies it when omitted.
+        @param partition_names Stored names used for flattened TSD key columns.
+        @param removed_names Stored names used for TSD removal-flag columns.
+        @param frame_prefix Prefix used by expanded frame-valued columns.
         @return A source reproducing the recorded stream.
         @par Python example
         @code{.py}
         price = hg.replay[TS[float]](key="price")
+        positions = hg.replay[TSD[str, TS[float]]](
+            key="positions", partition_names=("symbol",))
         @endcode */
     struct replay : Operator<"replay", Scalar<"key", Str>, Out<TsVar<"O">>>
     {

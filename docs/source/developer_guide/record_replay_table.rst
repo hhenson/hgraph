@@ -361,37 +361,45 @@ Step 4 — landed (first pass)
 The Arrow data-frame record/replay backend, model
 ``record_replay::DATA_FRAME``:
 
-- **The P6 content store** (``record_replay::FrameStoreOps``) — the
-  type-erased keyed frame store: an ops table (context + write/read/
-  contains/clear fn-ptrs) with implementations **registered** over the
-  default in-memory map (``set_frame_store``; reset restores the default).
-  The store outlives graph runs — record in one run, replay in another.
+- **The P6 content store** — a graph-scoped ``store::FrameStore`` selected in
+  ``GlobalState``. Native memory, local-filesystem and S3 implementations own
+  key validation, serialization, compression and immutable-key enforcement.
+  The private ``record_replay::FrameStoreOps`` process-level registration is
+  retained only as a legacy fallback; graph execution uses the store belonging
+  to that graph.
 - **``TraitsView``** — the node-level injectable completing the traits
   primitive: a transparent stateless injectable (the ``SingleShotScheduler``
   pattern) giving hooks ``trait``/``trait_or`` over the owning graph's
   chain; ``fq_recordable_id(TraitsView, id)`` is the node-side resolution.
 - **``record`` (frame backend)** — ``requires_`` gates on the model;
-  ``start`` resolves the ``TableConverter`` + fq key (explicit
+  ``start`` resolves the ``TsTableLayout`` + fq key (explicit
   ``recordable_id`` scalar, defaulting through the trait chain) and creates
-  a ``FrameRecorder`` (multi-tick Arrow builder accumulator, pimpl'd in the
-  table codec); ``eval`` appends one bitemporal row; ``stop`` finishes the
-  frame and writes it to the store. The in-memory (GlobalState) record
+  one ``TableRecorder`` over Arrow builders. ``eval`` appends the tick's
+  partition, removal and value rows without materialising Python tuples;
+  ``stop`` finishes one complete frame and writes it to the graph store.
+  Native stores reject an existing key. The in-memory (GlobalState) record
   backends carry the matching ``requires_`` gate on the in-memory models
   (see *In-memory record/replay — sparse vs dense*).
-- **``replay`` (frame backend)** — ``start`` reads the frame, resolves the
-  converter from the resolved output, and schedules the first row's
-  recorded value time; ``eval`` applies every row stamped at the current
-  time and schedules the next row's time (absolute scheduling) — replay
-  reproduces the RECORDED timing, gaps included.
+- **``replay`` (frame backend)** — ``start`` reads the frame through the same
+  graph store and resolves its columns against the output layout. ``eval``
+  applies every row stamped at the current value time and schedules the next
+  group absolutely, reproducing recorded timing and gaps. Explicit replay
+  projections preserve release/0.5 partition and removal column renames.
 - **``replay_const_value(fq_key, meta, tm, as_of)``** — the const read
   (Python's ``replay_const``, a plain function per the const_fn ruling):
   the last row with value-time <= ``tm`` and as-of <= ``as_of``.
 
-Deferred from step 4: RECOVER seeding (P7 — the graph-start seeding pass),
-as-of generation filtering on replay (v1 replays a single recording
-generation), Python's per-frame overrides (track_as_of/track_removes/
-partition renames), and TSD partitioned recording (needs the step-3 TSD
-table support first). Tests: ``tests/cpp/test_record_replay_frame.cpp``.
+The release/0.5 ``DataFrameStorage`` surface is now a compatibility adapter,
+not a second recorder. It offers the native bridge only
+``store(key, frame)``, ``load(key)`` and ``has(key)``; Python retains ownership
+of overwrite policy and receives no native segmentation API. The production
+memory, local and S3 paths stay entirely in C++. The legacy override registry
+is translated at wiring time into explicit native record/replay options.
+
+Deferred from this first pass: segmented flushing, frame-valued leaves below
+``TSD``, and the remaining replay filtering/recovery work identified by RFC
+0019. Tests: ``tests/cpp/test_record_replay_frame.cpp`` and
+``python/tests/test_python_frame_store.py``.
 
 Step 5 — landed (first pass)
 ----------------------------

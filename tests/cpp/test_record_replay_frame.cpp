@@ -9,7 +9,9 @@
 #include <arrow/api.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <vector>
@@ -145,6 +147,19 @@ namespace
         }
     };
 
+    struct ReplaySinkGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "replay_frame_sink_graph";
+
+        static void compose(Wiring &w)
+        {
+            auto replayed =
+                wire<stdlib::replay, TS<Int>>(
+                    w, Str{"prices"}, arg<"recordable_id">(Str{"book"}));
+            wire<stdlib::dense_record_impl>(w, replayed, Str{"selected"});
+        }
+    };
+
     struct TraitRecordGraph
     {
         [[maybe_unused]] static constexpr auto name = "trait_record_frame_graph";
@@ -189,6 +204,24 @@ TEST_CASE("frame backend: the recordable id resolves through graph traits at run
     CHECK(record_replay::store_contains("desk.fx.orders"));
 }
 
+TEST_CASE("frame backend: native recording keys are immutable within a store")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    const auto state = context.state().view();
+    record_replay::set_config(
+        state, record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+
+    (void)eval_node<RecordGraph>(values<Int>(10));
+    CHECK_THROWS_WITH((void)eval_node<RecordGraph>(values<Int>(20)),
+                      Catch::Matchers::ContainsSubstring("key already exists"));
+
+    const Frame original = record_replay::store_read(state, "book.prices");
+    REQUIRE(original.has_value());
+    CHECK(read_row(table_converter(scalar_descriptor<Int>::value_meta()), original, 0)
+              .view().checked_as<Int>() == Int{10});
+}
+
 TEST_CASE("frame backend: replay_const_value reads the last row at or before tm")
 {
     stdlib::register_standard_operators();
@@ -222,6 +255,48 @@ TEST_CASE("raw frame replay selects revisions independently of input row order")
     REQUIRE(result[1].has_value());
     CHECK(result[0]->view().checked_as<Int>() == Int{10});
     CHECK(result[1]->view().checked_as<Int>() == Int{30});
+}
+
+TEST_CASE("stored frame replay selects the visible revision")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    const auto state = context.state().view();
+    record_replay::set_config(
+        state,
+        record_replay::Config{
+            .model = std::string{record_replay::DATA_FRAME},
+            .as_of = MIN_ST + TimeDelta{15}});
+    record_replay::store_write(state, "book.prices", scalar_replay_frame());
+
+    CHECK_OUTPUT(eval_node<ReplayGraph>(), values<Int>(10, 30));
+}
+
+TEST_CASE("stored frame replay discards rows before graph start")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    const auto state = context.state().view();
+    record_replay::set_config(
+        state,
+        record_replay::Config{.model = std::string{record_replay::DATA_FRAME}});
+    record_replay::store_write(state, "book.prices", scalar_replay_frame());
+
+    GraphBuilder gb = build_graph<ReplaySinkGraph>();
+    GraphExecutorBuilder eb;
+    eb.graph_builder(std::move(gb))
+        .start_time(MIN_ST + TimeDelta{1})
+        .end_time(MIN_ST + TimeDelta{2});
+    GraphExecutorValue executor = eb.make_executor();
+    auto view = executor.view();
+    view.run();
+
+    const auto replayed = get_recorded_values<Int>(
+        view.graph().global_state(), "selected");
+    REQUIRE_FALSE(replayed.empty());
+    CHECK(replayed.back() == std::optional<Int>{40});
+    CHECK(std::ranges::none_of(
+        replayed, [](const auto &value) { return value == std::optional<Int>{20}; }));
 }
 
 TEST_CASE("raw frame replay uses configured as-of and applies TSB rows")

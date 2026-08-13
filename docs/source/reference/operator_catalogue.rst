@@ -5789,22 +5789,22 @@ are fixed when the graph is built.
    The sparse value used by the selected overload. Optional in overloads that show ``= ...``.
 
 ``recordable_id`` : scalar; ``str``
-   Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
+   Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
 ``as_of`` : scalar; ``RecordAsOf``
-   The as of value used by the selected overload. Optional in overloads that show ``= ...``.
+   Whether to track, omit, or inherit the as-of column policy. Optional in overloads that show ``= ...``.
 
 ``removes`` : scalar; ``RecordRemoves``
-   The removes value used by the selected overload. Optional in overloads that show ``= ...``.
+   Whether TSD removals are emitted as explicit rows. Optional in overloads that show ``= ...``.
 
-``partition_names`` : scalar; ``SCALAR``
-   The partition names value used by the selected overload. Optional in overloads that show ``= ...``.
+``partition_names`` : scalar; ``tuple[str, ...]``
+   Optional stored names for flattened TSD key columns. Optional in overloads that show ``= ...``.
 
-``removed_names`` : scalar; ``SCALAR_1``
-   The removed names value used by the selected overload. Optional in overloads that show ``= ...``.
+``removed_names`` : scalar; ``tuple[str, ...]``
+   Optional stored names for TSD removal-flag columns. Optional in overloads that show ``= ...``.
 
 ``frame_prefix`` : scalar; ``str``
-   The frame prefix value used by the selected overload. Optional in overloads that show ``= ...``.
+   Prefix applied to expanded frame-valued columns. Optional in overloads that show ``= ...``.
 
 Returns
 ~~~~~~~
@@ -5825,7 +5825,7 @@ Accepted native overloads
 
    record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ...) -> None
    record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ...) -> None
-   record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: SCALAR = ..., removed_names: SCALAR_1 = ..., frame_prefix: str = ...) -> None
+   record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., frame_prefix: str = ...) -> None
 
 .. _python-operator-reduce:
 
@@ -6063,7 +6063,16 @@ are fixed when the graph is built.
    Wiring-time name within the current recordable context.
 
 ``recordable_id`` : scalar; ``str``
-   Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
+   Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
+
+``partition_names`` : scalar; ``tuple[str, ...]``
+   Stored names used for flattened TSD key columns. Optional in overloads that show ``= ...``.
+
+``removed_names`` : scalar; ``tuple[str, ...]``
+   Stored names used for TSD removal-flag columns. Optional in overloads that show ``= ...``.
+
+``frame_prefix`` : scalar; ``str``
+   Prefix used by expanded frame-valued columns. Optional in overloads that show ``= ...``.
 
 Returns
 ~~~~~~~
@@ -6076,12 +6085,15 @@ Python example
 .. code-block:: python
 
    price = hg.replay[TS[float]](key="price")
+   positions = hg.replay[TSD[str, TS[float]]](
+       key="positions", partition_names=("symbol",))
 
 Accepted native overloads
 
 .. code-block:: text
 
    replay(key: str, recordable_id: str = ...) -> OUT
+   replay(key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., frame_prefix: str = ...) -> OUT
 
 .. _python-operator-replay_const:
 

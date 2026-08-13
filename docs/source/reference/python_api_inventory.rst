@@ -666,8 +666,8 @@ whose curated signatures remain authoritative.
      - ``replace(pattern: TS[str], repl: TS[str], s: TS[str]) -> TS[str]``
      - 1 native overload; lazy operator
    * - :ref:`replay <python-operator-replay>`
-     - ``replay(key: str, recordable_id: str = ...) -> OUT``
-     - 1 native overload; lazy operator
+     - ``2 overloads``
+     - 2 native overloads; lazy operator
    * - :ref:`replay_const <python-operator-replay_const>`
      - ``replay_const(key: str, recordable_id: str = ..., tm: datetime = ...) -> OUT``
      - 1 native overload; lazy operator

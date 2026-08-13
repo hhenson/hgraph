@@ -1,6 +1,7 @@
 #include <hgraph/types/record_replay.h>
 
 #include <hgraph/runtime/graph.h>
+#include <hgraph/types/frame_store.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -66,6 +67,13 @@ namespace hgraph::record_replay
             throw std::invalid_argument("record/replay table keys must not be empty");
         }
         ensure_config_type();
+        if (config.model == DATA_FRAME && !frame_store(state))
+        {
+            // DATA_FRAME has a real graph-owned C++ store by default. Besides
+            // matching the configured file/S3 lifetime, this gives the memory
+            // backend the same immutable-key behaviour as those deployments.
+            set_frame_store(state, store::make_frame_store(store::FrameStoreConfig{}));
+        }
         state.set(CONFIG_KEY, Value{std::move(config)});
     }
 
@@ -101,16 +109,59 @@ namespace hgraph::record_replay
 
     const FrameStoreOps &frame_store() { return g_store; }
 
-    void store_write(std::string_view key, Frame frame) { g_store.write(g_store.context, key, std::move(frame)); }
+    void store_write(std::string_view key, Frame frame)
+    {
+        if (GlobalState *state = GlobalContext::active_state())
+        {
+            if (auto selected = frame_store(state->view()))
+            {
+                selected->write(key, std::move(frame));
+                return;
+            }
+        }
+        g_store.write(g_store.context, key, std::move(frame));
+    }
 
-    Frame store_read(std::string_view key) { return g_store.read(g_store.context, key); }
+    Frame store_read(std::string_view key)
+    {
+        if (GlobalState *state = GlobalContext::active_state())
+        {
+            if (auto selected = frame_store(state->view())) { return selected->read(key); }
+        }
+        return g_store.read(g_store.context, key);
+    }
 
-    bool store_contains(std::string_view key) { return g_store.contains(g_store.context, key); }
+    bool store_contains(std::string_view key)
+    {
+        if (GlobalState *state = GlobalContext::active_state())
+        {
+            if (auto selected = frame_store(state->view())) { return selected->contains(key); }
+        }
+        return g_store.contains(g_store.context, key);
+    }
+
+    void store_write(GlobalStateView state, std::string_view key, Frame frame)
+    {
+        if (auto selected = frame_store(state)) { selected->write(key, std::move(frame)); }
+        else { g_store.write(g_store.context, key, std::move(frame)); }
+    }
+
+    Frame store_read(GlobalStateView state, std::string_view key)
+    {
+        if (auto selected = frame_store(state)) { return selected->read(key); }
+        return g_store.read(g_store.context, key);
+    }
+
+    bool store_contains(GlobalStateView state, std::string_view key)
+    {
+        if (auto selected = frame_store(state)) { return selected->contains(key); }
+        return g_store.contains(g_store.context, key);
+    }
 
     Value replay_const_value(GlobalStateView state, std::string_view fq_key, const ValueTypeMetaData *meta,
                              DateTime tm, DateTime as_of)
     {
-        const Frame frame = store_read(fq_key);
+        const Frame frame = store_read(state, fq_key);
         if (!frame.has_value()) { return Value{}; }
         const Config cfg = config(state);
         const auto  &converter = table_converter(meta, cfg.date_key, cfg.as_of_key);
@@ -133,7 +184,7 @@ namespace hgraph::record_replay
 
     ComparisonSummary comparison_summary(GlobalStateView state, std::string_view fq_key)
     {
-        const Frame frame = store_read(fq_key);
+        const Frame frame = store_read(state, fq_key);
         if (!frame.has_value())
         {
             throw std::runtime_error("no comparison recorded under '" + std::string{fq_key} + "'");

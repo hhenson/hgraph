@@ -189,6 +189,10 @@ namespace hgraph::record_replay
      */
     HGRAPH_EXPORT void set_frame_store(GlobalStateView state, std::shared_ptr<store::FrameStore> frame_store);
 
+    /** Remove the store selected for this run. Subsequent operations use the
+        process-lifetime fallback store. */
+    HGRAPH_EXPORT void clear_frame_store(GlobalStateView state);
+
     /** The store installed for this run, or nullptr when none is. */
     [[nodiscard]] HGRAPH_EXPORT std::shared_ptr<store::FrameStore> frame_store(GlobalStateView state);
 }  // namespace hgraph::record_replay

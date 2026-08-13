@@ -420,6 +420,12 @@ namespace hgraph::record_replay
         state.set(FRAME_STORE_KEY, Value{FrameStoreHolder{std::move(frame_store)}});
     }
 
+    void clear_frame_store(GlobalStateView state)
+    {
+        if (!state.valid()) { throw std::logic_error("clearing a frame store requires GlobalState"); }
+        static_cast<void>(state.erase(FRAME_STORE_KEY));
+    }
+
     std::shared_ptr<store::FrameStore> frame_store(GlobalStateView state)
     {
         if (!state.valid()) { return nullptr; }

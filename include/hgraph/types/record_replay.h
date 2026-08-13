@@ -153,6 +153,13 @@ namespace hgraph::record_replay
     [[nodiscard]] HGRAPH_EXPORT Frame store_read(std::string_view key);
     [[nodiscard]] HGRAPH_EXPORT bool store_contains(std::string_view key);
 
+    /** Graph-scoped store operations. A store installed in ``state`` wins;
+        otherwise these use the process-lifetime fallback above. Runtime nodes
+        use these overloads so storage follows the graph that selected it. */
+    HGRAPH_EXPORT void store_write(GlobalStateView state, std::string_view key, Frame frame);
+    [[nodiscard]] HGRAPH_EXPORT Frame store_read(GlobalStateView state, std::string_view key);
+    [[nodiscard]] HGRAPH_EXPORT bool store_contains(GlobalStateView state, std::string_view key);
+
     /** Reset transient scopes and the registered content store to defaults. */
     HGRAPH_EXPORT void reset() noexcept;
 }  // namespace hgraph::record_replay

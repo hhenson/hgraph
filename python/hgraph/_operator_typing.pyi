@@ -19,7 +19,8 @@ from _hgraph import (AmbiguousTimePolicy as _AmbiguousTimePolicy,
                      NonexistentTimePolicy as _NonexistentTimePolicy,
                      Period as _Period, ZoneId as _ZoneId,
                      ZonedDateTime as _ZonedDateTime)
-from ._compat import CmpResult as _CmpResult, DivideByZero as _DivideByZero
+from ._compat import (CmpResult as _CmpResult, DivideByZero as _DivideByZero,
+                      RecordAsOf as _RecordAsOf, RecordRemoves as _RecordRemoves)
 from ._wiring import WiringPort as _WiringPort
 
 class _abs__Operator(_Protocol):
@@ -5917,22 +5918,22 @@ class _record_Operator(_Protocol):
        The sparse value used by the selected overload. Optional in overloads that show ``= ...``.
 
     ``recordable_id`` : scalar; ``str``
-       Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
+       Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
 
     ``as_of`` : scalar; ``RecordAsOf``
-       The as of value used by the selected overload. Optional in overloads that show ``= ...``.
+       Whether to track, omit, or inherit the as-of column policy. Optional in overloads that show ``= ...``.
 
     ``removes`` : scalar; ``RecordRemoves``
-       The removes value used by the selected overload. Optional in overloads that show ``= ...``.
+       Whether TSD removals are emitted as explicit rows. Optional in overloads that show ``= ...``.
 
-    ``partition_names`` : scalar; ``SCALAR``
-       The partition names value used by the selected overload. Optional in overloads that show ``= ...``.
+    ``partition_names`` : scalar; ``tuple[str, ...]``
+       Optional stored names for flattened TSD key columns. Optional in overloads that show ``= ...``.
 
-    ``removed_names`` : scalar; ``SCALAR_1``
-       The removed names value used by the selected overload. Optional in overloads that show ``= ...``.
+    ``removed_names`` : scalar; ``tuple[str, ...]``
+       Optional stored names for TSD removal-flag columns. Optional in overloads that show ``= ...``.
 
     ``frame_prefix`` : scalar; ``str``
-       The frame prefix value used by the selected overload. Optional in overloads that show ``= ...``.
+       Prefix applied to expanded frame-valued columns. Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~
@@ -5951,7 +5952,7 @@ class _record_Operator(_Protocol):
 
     - ``record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ...) -> None``
     - ``record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ...) -> None``
-    - ``record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: SCALAR = ..., removed_names: SCALAR_1 = ..., frame_prefix: str = ...) -> None``
+    - ``record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., frame_prefix: str = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -5963,7 +5964,7 @@ class _record_Operator(_Protocol):
     @_overload
     def __call__(self, ts: _WiringPort | object, key: str = ..., recordable_id: str = ...) -> None: ...
     @_overload
-    def __call__(self, ts: _WiringPort | object, key: str, recordable_id: str = ..., as_of: object = ..., removes: object = ..., partition_names: object = ..., removed_names: object = ..., frame_prefix: str = ...) -> None: ...
+    def __call__(self, ts: _WiringPort | object, key: str, recordable_id: str = ..., as_of: _RecordAsOf = ..., removes: _RecordRemoves = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., frame_prefix: str = ...) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 record: _record_Operator
@@ -6144,7 +6145,16 @@ class _replay_Operator(_Protocol):
        Wiring-time name within the current recordable context.
 
     ``recordable_id`` : scalar; ``str``
-       Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
+       Optional explicit identity; context supplies it when omitted. Optional in overloads that show ``= ...``.
+
+    ``partition_names`` : scalar; ``tuple[str, ...]``
+       Stored names used for flattened TSD key columns. Optional in overloads that show ``= ...``.
+
+    ``removed_names`` : scalar; ``tuple[str, ...]``
+       Stored names used for TSD removal-flag columns. Optional in overloads that show ``= ...``.
+
+    ``frame_prefix`` : scalar; ``str``
+       Prefix used by expanded frame-valued columns. Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~
@@ -6157,17 +6167,23 @@ class _replay_Operator(_Protocol):
     .. code-block:: python
 
        price = hg.replay[TS[float]](key="price")
+       positions = hg.replay[TSD[str, TS[float]]](
+           key="positions", partition_names=("symbol",))
 
     Accepted native overloads:
 
     - ``replay(key: str, recordable_id: str = ...) -> OUT``
+    - ``replay(key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., frame_prefix: str = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
+    @_overload
     def __call__(self, key: str, recordable_id: str = ...) -> _WiringPort: ...
+    @_overload
+    def __call__(self, key: str, recordable_id: str = ..., partition_names: tuple[str, ...] = ..., removed_names: tuple[str, ...] = ..., frame_prefix: str = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 replay: _replay_Operator
