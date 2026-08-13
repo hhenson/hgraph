@@ -251,6 +251,31 @@ namespace hgraph::python_bridge
         }
     }
 
+    namespace
+    {
+        /**
+         * A frame store implemented in Python (RFC 0016's seam, RFC 0019 step 6).
+         *
+         * The native recorder writes through ``FrameStoreOps``; binding a
+         * Python object to it is what lets the data-frame adaptor's
+         * ``DataFrameStorage`` BACK the native recorder rather than
+         * reimplement one beside it.
+         */
+        struct PyFrameStore
+        {
+            nb::object impl;
+        };
+
+        // One live store, replaced on re-registration - held here rather than
+        // leaked per call, so re-binding does not accumulate stores.
+        std::unique_ptr<PyFrameStore> g_py_frame_store;
+
+        [[nodiscard]] nb::object &py_store_impl(void *context) noexcept
+        {
+            return static_cast<PyFrameStore *>(context)->impl;
+        }
+    }  // namespace
+
     void bind_state_and_services(nb::module_ &m)
     {
     nb::class_<GlobalState>(m, "_GlobalState")
@@ -407,6 +432,46 @@ namespace hgraph::python_bridge
     });
     m.def("frame_store_contains", [](const std::string &key) { return record_replay::store_contains(key); });
     m.def("frame_store_read", [](const std::string &key) { return frame_to_py(record_replay::store_read(key)); });
+
+    // Back the native recorder with a Python store. ``impl`` supplies
+    // write(key, frame) / read(key) -> frame|None / contains(key) / clear().
+    m.def("_set_frame_store", [](nb::object impl) {
+        g_py_frame_store = std::make_unique<PyFrameStore>(PyFrameStore{std::move(impl)});
+        record_replay::set_frame_store(record_replay::FrameStoreOps{
+            .context = g_py_frame_store.get(),
+            .write =
+                [](void *context, std::string_view key, Frame frame) {
+                    const nb::gil_scoped_acquire gil;
+                    py_store_impl(context).attr("write")(std::string{key}, frame_to_py(frame));
+                },
+            .read =
+                [](void *context, std::string_view key) {
+                    const nb::gil_scoped_acquire gil;
+                    nb::object out = py_store_impl(context).attr("read")(std::string{key});
+                    // A missing key is an empty Frame, not an error: that is
+                    // what ``read`` promises its native callers.
+                    if (out.is_none()) { return Frame{}; }
+                    const Value frame = py_arrow_to_frame(out);
+                    return Frame{frame.view().checked_as<Frame>()};
+                },
+            .contains =
+                [](void *context, std::string_view key) {
+                    const nb::gil_scoped_acquire gil;
+                    return nb::cast<bool>(py_store_impl(context).attr("contains")(std::string{key}));
+                },
+            .clear =
+                [](void *context) {
+                    const nb::gil_scoped_acquire gil;
+                    py_store_impl(context).attr("clear")();
+                },
+        });
+    });
+    // Drop back to the built-in in-memory store.
+    m.def("_clear_frame_store", [] {
+        record_replay::reset();
+        const nb::gil_scoped_acquire gil;
+        g_py_frame_store.reset();
+    });
 
     // Context publishing (same-wiring; the C++ design record's semantics).
     // --- services (runtime identity; services.rst rulings 2026-07-05) ---
