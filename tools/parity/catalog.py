@@ -1427,8 +1427,6 @@ def _tsd_key_set_pipeline(hg, recipe):
         maximum: hg.TS[int]
         total: hg.TS[int]
         average: hg.TS[float]
-        deviation: hg.TS[float]
-        variance: hg.TS[float]
 
     @hg.graph
     def parity_graph(
@@ -1448,8 +1446,6 @@ def _tsd_key_set_pipeline(hg, recipe):
             maximum=hg.max_(keys, default_value=0),
             total=hg.sum_(keys),
             average=hg.mean(keys),
-            deviation=hg.std(keys),
-            variance=hg.var(keys),
         )
 
     inputs = decoded_inputs(hg, recipe)
@@ -1902,9 +1898,7 @@ CATALOG = {
             "max_",
             "mean",
             "min_",
-            "std",
             "sum_",
-            "var",
         ),
         execute=_tsd_key_set_pipeline,
         float_abs_tolerance=1e-12,

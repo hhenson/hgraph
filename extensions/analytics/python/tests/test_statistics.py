@@ -98,6 +98,14 @@ def test_time_series_collection_dispersion_preserves_shape():
     def bundle_std(lhs: hg.TSB[ABSchema], rhs: hg.TSB[ABSchema]) -> hg.TSB[ABSchema]:
         return hga.std(lhs, rhs)
 
+    @hg.graph
+    def bundle_unary_std(ts: hg.TSB[ABSchema]) -> hg.TS[float]:
+        return hga.std(ts)
+
+    @hg.graph
+    def bundle_unary_var(ts: hg.TSB[ABSchema]) -> hg.TS[float]:
+        return hga.var(ts)
+
     assert hg.eval_node(set_std, [set(), {1}, {1, 2}, {1, 2, -1, 3}]) == pytest.approx(
         [0.0, 0.0, math.sqrt(0.5), math.sqrt(35.0 / 12.0)]
     )
@@ -109,6 +117,10 @@ def test_time_series_collection_dispersion_preserves_shape():
         [{"a": 7.0, "b": 8.0}],
         [{"a": 5.0, "b": 9.0}],
     ) == [{"a": math.sqrt(2.0), "b": math.sqrt(0.5)}]
+    assert hg.eval_node(bundle_unary_std, [{"a": 1.0, "b": 3.0}]) == [
+        math.sqrt(2.0)
+    ]
+    assert hg.eval_node(bundle_unary_var, [{"a": 1.0, "b": 3.0}]) == [2.0]
 
 
 def test_rolling_mean_supports_tick_and_duration_periods():
@@ -127,6 +139,26 @@ def test_rolling_mean_supports_tick_and_duration_periods():
     assert math.isnan(duration[-1])
 
 
+@pytest.mark.parametrize(
+    ("period", "minimum", "message"),
+    [
+        (0, 0, "period must be positive"),
+        (-1, 0, "period must be positive"),
+        (3, -1, "min_window_period must be between zero and period"),
+        (3, 4, "min_window_period must be between zero and period"),
+        (timedelta(0), timedelta(0), "period must be positive"),
+        (
+            3 * hg.MIN_TD,
+            4 * hg.MIN_TD,
+            "min_window_period must be between zero and period",
+        ),
+    ],
+)
+def test_rolling_mean_rejects_invalid_window_parameters(period, minimum, message):
+    with pytest.raises(hg.WiringError, match=message):
+        hg.eval_node(hga.rolling_mean, [1], period, minimum)
+
+
 def test_resample_reticks_the_latest_value():
     @hg.graph
     def sampled(ts: hg.TS[int], period: timedelta) -> hg.TS[int]:
@@ -140,8 +172,8 @@ def test_resample_reticks_the_latest_value():
     ) == [None, None, 3, None, 5, None, 6, None, 6]
 
 
-def test_statistics_are_no_longer_exported_from_core():
-    assert not hasattr(hg, "std")
-    assert not hasattr(hg, "var")
-    assert not hasattr(hg, "rolling_average")
-    assert not hasattr(hg, "resample")
+def test_statistics_core_aliases_are_deprecated():
+    assert hg.std._deprecated
+    assert hg.var._deprecated
+    assert hg.rolling_average._deprecated
+    assert hg.resample._deprecated

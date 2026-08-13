@@ -19,6 +19,14 @@ distribution to the separately installed ``hgraph-analytics`` distribution in
    bounded = hga.clip(returns, -0.25, 0.25)
    smoothed = hga.ewma(bounded, alpha=0.2)
 
+The former root-level Python names remain as deprecated compatibility graphs
+for the 0.8 migration. Each graph emits ``DeprecationWarning`` when wired and
+then imports and delegates to its ``hgraph_analytics`` replacement. The import
+is deliberately lazy: ``import hgraph`` does not require or import the
+analytics distribution, but wiring one of these aliases requires
+``hgraph-analytics`` to be installed. New code should use the explicit
+``hgraph_analytics`` names above.
+
 Python name changes
 -------------------
 
@@ -78,7 +86,12 @@ retired ``NpRollingWindowResult`` compatibility schema.
 generic array conversion. ``array_get_item``, ``cumulative_sum``, and
 ``correlation`` use descriptive hgraph names instead of mirroring NumPy's
 spellings. The ``hgraph.numpy_`` module is retired; import these functions from
-``hgraph_analytics``.
+``hgraph_analytics``. The former root operator spellings ``hgraph.as_array``,
+``hgraph.get_item``, ``hgraph.cumsum``, ``hgraph.corrcoef``, and
+``hgraph.quantile`` remain deprecated lazy aliases. The former
+``hgraph.nodes.np_quantile``, ``np_std``, and ``np_rolling_window`` names are
+also retained as deprecated aliases for source compatibility; no new
+NumPy-prefixed APIs are added to analytics.
 
 The generic dispersion and scheduled-statistics family has moved as well.
 ``std`` and ``var`` preserve the released shape-dependent contracts: a scalar

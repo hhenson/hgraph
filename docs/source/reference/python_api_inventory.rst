@@ -884,7 +884,12 @@ hgraph.nodes
    * - ``keys_where_true``
    * - ``make_tsd``
    * - ``make_tsd_scalar``
+   * - ``np_quantile``
+   * - ``np_rolling_window``
+   * - ``np_std``
+   * - ``pct_change``
    * - ``request_id``
+   * - ``rolling_average``
    * - ``rolling_window``
    * - ``tsl_to_tsd``
    * - ``where_true``

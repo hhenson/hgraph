@@ -1,5 +1,6 @@
 #include <hgraph/analytics/operators.h>
 
+#include <hgraph/lib/std/operators/collection.h>
 #include <hgraph/lib/std/operators/impl/record_replay_memory_impl.h>
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/lib/std/operators/stream.h>
@@ -126,6 +127,26 @@ namespace
         static Port<TS<Float>> compose(Wiring &w, Port<TS<Int>> ts) { return wire<rolling_mean, TS<Float>>(w, ts, Int{3}, Int{2}); }
     };
 
+    using HomogeneousIntBundle = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Int>>, Field<"c", TS<Int>>>;
+
+    struct BundleStdGraph
+    {
+        static constexpr auto name = "analytics_bundle_std";
+
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Int>> a, Port<TS<Int>> b, Port<TS<Int>> c) {
+            return wire<std_, TS<Float>>(w, hgraph::stdlib::to_tsb<HomogeneousIntBundle>(w, a, b, c));
+        }
+    };
+
+    struct BundleVarGraph
+    {
+        static constexpr auto name = "analytics_bundle_var";
+
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Int>> a, Port<TS<Int>> b, Port<TS<Int>> c) {
+            return wire<var_, TS<Float>>(w, hgraph::stdlib::to_tsb<HomogeneousIntBundle>(w, a, b, c));
+        }
+    };
+
     void test_running_and_binary_dispersion() {
         require_float_output(eval_node<RunningStdGraph>(values<Int>(1, 2, 3, 5)),
                              values<Float>(0.0, 0.5, 0.8164965809277263, 1.479019945774904), "running std");
@@ -158,6 +179,31 @@ namespace
                                                                                    list_delta<TS<Int>>({{2, 3}, {3, 4}, {4, 5}}),
                                                                                    list_delta<TS<Int>>({{0, 10}}))),
                                     values<Float>(std::sqrt(0.5), std::sqrt(2.5), std::sqrt(9.7)), "fixed-list std");
+        require_float_output(eval_node<BundleStdGraph>(values<Int>(1), values<Int>(2), values<Int>(3)),
+                             values<Float>(1.0), "homogeneous bundle std");
+        require_float_output(eval_node<BundleVarGraph>(values<Int>(1), values<Int>(2), values<Int>(3)),
+                             values<Float>(1.0), "homogeneous bundle var");
+    }
+
+    template <typename Period, typename Minimum>
+    void require_invalid_rolling_mean(Period period, Minimum minimum, const std::string &expected) {
+        try {
+            static_cast<void>(eval_node<rolling_mean>(values<Int>(1), period, minimum));
+        } catch (const std::exception &error) {
+            require(std::string{error.what()}.find(expected) != std::string::npos,
+                    "rolling mean validation message");
+            return;
+        }
+        require(false, "rolling mean invalid parameters must fail while wiring");
+    }
+
+    void test_rolling_mean_validation() {
+        require_invalid_rolling_mean(Int{0}, Int{0}, "period must be positive");
+        require_invalid_rolling_mean(Int{3}, Int{-1}, "min_window_period must be between zero and period");
+        require_invalid_rolling_mean(Int{3}, Int{4}, "min_window_period must be between zero and period");
+        require_invalid_rolling_mean(TimeDelta{}, TimeDelta{}, "period must be positive");
+        require_invalid_rolling_mean(MIN_TD * 3, MIN_TD * 4,
+                                     "min_window_period must be between zero and period");
     }
 
     void test_resample_schedule() {
@@ -187,6 +233,7 @@ int main() {
         test_running_and_binary_dispersion();
         test_window_dispersion_and_rolling_mean();
         test_collection_dispersion();
+        test_rolling_mean_validation();
         test_resample_schedule();
         return 0;
     } catch (const std::exception &error) {
