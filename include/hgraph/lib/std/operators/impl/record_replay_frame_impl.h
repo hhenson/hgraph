@@ -170,6 +170,9 @@ namespace hgraph::stdlib
             /** Present only for an inherited fixed as-of. Explicit Track
                 always follows evaluation time even when the graph default is fixed. */
             std::optional<DateTime>  fixed_as_of{};
+            /** Set before rejecting an unrepresentable tick, so stop does not
+                persist a partial recording after evaluation fails. */
+            bool                     discard{false};
 
             static constexpr std::size_t dropped = static_cast<std::size_t>(-1);
         };
@@ -394,6 +397,16 @@ namespace hgraph::stdlib
             const auto &layout =
                 ts_table_layout(ts.base().schema(), record_replay::config(gs).date_key,
                                 record_replay::config(gs).as_of_key);
+            if (layout.is_multi_row)
+            {
+                const Frame &frame = ts.base().value().checked_as<Frame>();
+                if (frame.has_value() && frame_rows(frame) == 0)
+                {
+                    handle->discard = true;
+                    throw std::invalid_argument(
+                        "record: zero-row Frame ticks cannot be recorded");
+                }
+            }
             record_replay_frame_detail::RecordingSink recording{.handle = handle};
             emit_rows_to(layout, ts.base(), kToTableModeTick, now, as_of_cell, handle->emit_removals,
                          recording.sink());
@@ -404,7 +417,7 @@ namespace hgraph::stdlib
             // Take ownership first so a throwing store write cannot leak.
             std::unique_ptr<record_replay_frame_detail::RecorderHandle> handle{state.get().handle};
             state.set(FrameRecorderState{});
-            if (handle == nullptr) { return; }
+            if (handle == nullptr || handle->discard) { return; }
             record_replay::store_write(gs, handle->fq_key, handle->recorder.finish());
         }
     };

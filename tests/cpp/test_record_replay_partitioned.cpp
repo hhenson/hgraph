@@ -24,6 +24,7 @@
 #include <arrow/api.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <string>
 #include <vector>
@@ -34,10 +35,11 @@ namespace
     using namespace hgraph::testing;
     using namespace std::string_literals;
 
-    using PriceDict   = TSD<Str, TS<Int>>;
-    using CompoundKey = Tuple<Int, Str>;
-    using LegDict     = TSD<CompoundKey, TS<Int>>;
-    using Row         = Bundle<"tests.replay_partitioned::Row", Field<"a", Int>, Field<"b", Int>>;
+    using PriceDict       = TSD<Str, TS<Int>>;
+    using NestedPriceDict = TSD<Str, TSD<Str, TS<Int>>>;
+    using CompoundKey     = Tuple<Int, Str>;
+    using LegDict         = TSD<CompoundKey, TS<Int>>;
+    using Row             = Bundle<"tests.replay_partitioned::Row", Field<"a", Int>, Field<"b", Int>>;
 
     void require_arrow(const arrow::Status &status)
     {
@@ -122,6 +124,20 @@ namespace
         }
     };
 
+    /** Records explicit removal rows, including removals at an intermediate
+        level of a nested TSD. */
+    template <typename TS_> struct TrackedRecordGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "tracked_partitioned_record_graph";
+
+        static Port<TS_> compose(Wiring &w, Port<TS_> ts)
+        {
+            wire<stdlib::record>(w, ts, Str{"ticks"}, arg<"recordable_id">(Str{"book"}),
+                                 arg<"removes">(stdlib::RecordRemoves::Track));
+            return ts;
+        }
+    };
+
     /** Replay a recording and record what came back. The echo is the assertion:
         a key rebuilt wrongly re-records under different key columns, so the two
         recordings can only agree if the reassembly is the exact inverse of the
@@ -181,6 +197,29 @@ TEST_CASE("partitioned record/replay: a TSD round-trips through the store")
     CHECK_OUTPUT(eval_node<ReplayGraph<PriceDict>>(), values<Value>(first, second, third));
 }
 
+TEST_CASE("partitioned record/replay: an outer nested-TSD removal uses its key prefix")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    const Value first = dict_delta<Str, TSD<Str, TS<Int>>>(
+        {{"desk"s, dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}})}});
+    const Value removed =
+        dict_delta<Str, TSD<Str, TS<Int>>>({}, {"desk"s});
+
+    (void)eval_node<TrackedRecordGraph<NestedPriceDict>>(
+        values<Value>(first, removed));
+
+    const Frame recorded = record_replay::store_read("book.ticks");
+    REQUIRE(frame_rows(recorded) == 3);
+    const auto inner_key = recorded.table->GetColumnByName("__key_2__");
+    REQUIRE(inner_key != nullptr);
+    CHECK(inner_key->chunk(0)->IsNull(2));
+
+    CHECK_OUTPUT(eval_node<ReplayGraph<NestedPriceDict>>(),
+                 values<Value>(first, removed));
+}
+
 TEST_CASE("partitioned record/replay: a compound TSD key round-trips through its flattened columns")
 {
     GlobalContext context;
@@ -232,6 +271,19 @@ TEST_CASE("partitioned record/replay: a frame-valued leaf replays whole frames, 
     REQUIRE(replayed[1].has_value());
     CHECK(equals(*replayed[0], first));
     CHECK(equals(*replayed[1], second));
+}
+
+TEST_CASE("partitioned record/replay: zero-row frame ticks are rejected explicitly")
+{
+    GlobalContext context;
+    use_frame_backend(context);
+
+    const Frame empty = row_frame({}, {});
+    CHECK_THROWS_WITH(
+        (void)eval_node<RecordGraph<TS<FrameOf<Row>>>>(values<Frame>(empty)),
+        Catch::Matchers::ContainsSubstring(
+            "zero-row Frame ticks cannot be recorded"));
+    CHECK_FALSE(record_replay::store_contains("book.ticks"));
 }
 
 TEST_CASE("partitioned record/replay: a prefixed frame recording still replays")

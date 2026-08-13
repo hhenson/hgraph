@@ -435,25 +435,41 @@ namespace hgraph::stdlib
 
                 std::vector<Value> keys;
                 keys.reserve(layout.partition_keys.size());
-                for (const std::string &key : layout.partition_keys)
+                // A removal row ends at the removed TSD level: key columns
+                // below that level are deliberately null because there is no
+                // descendant partition to name. Select revisions by the
+                // populated key prefix, matching apply_recorded_row's walk.
+                for (const auto &level : layout.levels)
                 {
-                    const auto key_index =
-                        std::find(layout.keys.begin(), layout.keys.end(), key);
-                    if (key_index == layout.keys.end())
+                    for (std::size_t key_index = 0;
+                         key_index < level.key_paths.size(); ++key_index)
                     {
-                        throw std::logic_error(
-                            "replay_data_frame: partition key missing from table layout");
+                        const std::size_t column = level.first_key_col + key_index;
+                        Value value = frame_cell(normalized, layout.keys[column],
+                                                 layout.col_metas[column], row);
+                        if (!value.has_value())
+                        {
+                            throw std::invalid_argument(
+                                "replay_data_frame: populated partition key prefix "
+                                "must not contain nulls");
+                        }
+                        keys.push_back(std::move(value));
                     }
-                    const std::size_t column = static_cast<std::size_t>(
-                        std::distance(layout.keys.begin(), key_index));
-                    Value value = frame_cell(
-                        normalized, key, layout.col_metas[column], row);
-                    if (!value.has_value())
+
+                    const auto removed_column = normalized.table->GetColumnByName(
+                        layout.keys[level.removed_col]);
+                    if (removed_column != nullptr &&
+                        !removed_column->chunk(0)->IsNull(row))
                     {
-                        throw std::invalid_argument(
-                            "replay_data_frame: partition keys must not contain nulls");
+                        const Value removed = frame_cell(
+                            normalized, layout.keys[level.removed_col],
+                            layout.col_metas[level.removed_col], row);
+                        if (removed.has_value() &&
+                            removed.view().checked_as<Bool>())
+                        {
+                            break;
+                        }
                     }
-                    keys.push_back(std::move(value));
                 }
 
                 ReplayCandidate candidate{when, revision, row};

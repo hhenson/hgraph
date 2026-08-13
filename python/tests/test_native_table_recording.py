@@ -107,6 +107,17 @@ def test_a_tsd_round_trips_through_record_and_replay():
     assert _round_trip(ticks, hg.TSD[str, hg.TS[float]]) == ticks
 
 
+def test_an_outer_nested_tsd_removal_round_trips_by_its_key_prefix():
+    """An outer removal has no descendant key, by construction."""
+    ticks = [{"desk": {"a": 1.0, "b": 2.0}}, {"desk": hg.REMOVE}]
+
+    assert _round_trip(
+        ticks,
+        hg.TSD[str, hg.TSD[str, hg.TS[float]]],
+        removes=hg.RecordRemoves.TRACK,
+    ) == ticks
+
+
 def test_a_flat_series_still_round_trips():
     assert _round_trip([1, 2, 3], hg.TS[int]) == [1, 2, 3]
 
@@ -266,6 +277,26 @@ def test_the_frame_columns_of_a_frame_valued_leaf_can_be_prefixed():
     assert _columns(frame) == ["__date_time__", "__as_of__", "px_instrument", "px_value"]
     # One row per frame row, not one per tick.
     assert _rows(frame) == 2
+
+
+def test_a_zero_row_frame_tick_is_rejected_instead_of_disappearing():
+    import pyarrow as pa
+    import pytest
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class PriceRow(hg.CompoundScalar):
+        instrument: str
+        value: float
+
+    tick = pa.table(
+        {
+            "instrument": pa.array([], type=pa.string()),
+            "value": pa.array([], type=pa.float64()),
+        }
+    )
+    with pytest.raises(Exception, match="zero-row Frame ticks cannot be recorded"):
+        _record([tick], hg.TS[hg.Frame[PriceRow]])
 
 
 def test_a_prefixed_frame_valued_leaf_round_trips_all_rows():
