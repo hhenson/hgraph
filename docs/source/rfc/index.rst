@@ -33,3 +33,4 @@ workflow are defined by :doc:`rfc_0000`.
    rfc_0017_binary_value_codec
    rfc_0018_analytics_relative_change
    rfc_0019_native_table_recording
+   rfc_0020_analytics_statistics

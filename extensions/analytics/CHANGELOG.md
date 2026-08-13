@@ -12,3 +12,5 @@
 - Move the remaining `hgraph.numpy_` operators into `hgraph-analytics` as
   `window_values`, `array_get_item`, `cumulative_sum`, and `correlation`, and
   retire the obsolete module.
+- Move generic `std`, `var`, and `resample` from core without changing their
+  shape-dependent contracts, and rename `rolling_average` to `rolling_mean`.

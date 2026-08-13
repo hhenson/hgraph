@@ -6180,45 +6180,6 @@ Accepted native overloads
 
    request_id(hash: int) -> TS[int]
 
-.. _python-operator-resample:
-
-``resample``
-------------
-
-Retick the latest valid input value on a regular engine-time schedule. Unlike ``throttle``, this continues to emit at the requested period even when no new source tick has arrived.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``ts`` : time-series; ``TIME_SERIES_TYPE``
-   Input whose latest value is repeated.
-
-``period`` : scalar; ``timedelta``
-   Positive resampling interval fixed at wiring time.
-
-Returns
-~~~~~~~
-
-``ts`` observed on the regular schedule.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   every_five_seconds = hg.resample(price, timedelta(seconds=5))
-
-Accepted native overloads
-
-.. code-block:: text
-
-   resample(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE
-
 .. _python-operator-resolve_civil:
 
 ``resolve_civil``
@@ -6264,49 +6225,6 @@ Accepted native overloads
 .. code-block:: text
 
    resolve_civil(local: TS[civil_datetime], zone: TS[zone_id], ambiguous: ambiguous_time_policy = ..., nonexistent: nonexistent_time_policy = ...) -> TS[zoned_datetime]
-
-.. _python-operator-rolling_average:
-
-``rolling_average``
--------------------
-
-Compute the mean over a trailing tick-count or duration horizon.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``ts`` : time-series; ``TS[SCALAR]``
-   Numeric stream.
-
-``period`` : scalar; ``int``, ``timedelta``
-   Number of ticks or elapsed duration included in the average.
-
-``min_window_period`` : scalar; ``int``, ``timedelta``
-   Minimum populated window size required before the output becomes valid. Optional in overloads that show ``= ...``.
-
-Returns
-~~~~~~~
-
-Floating-point trailing mean.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   moving_average = hg.rolling_average(price, 20)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   rolling_average(ts: TS[SCALAR], period: int, min_window_period: int = ...) -> OUT
-   rolling_average(ts: TS[SCALAR], period: timedelta, min_window_period: timedelta = ...) -> OUT
 
 .. _python-operator-round_:
 
@@ -6798,71 +6716,6 @@ Accepted native overloads
 
    split(s: TS[str], separator: str) -> TSL[TS[str], SIZE]
    split(s: TS[str], separator: str) -> OUT
-
-.. _python-operator-std:
-
-``std``
--------
-
-Calculate standard deviation according to input shape and arity. Unary scalar input is running; unary collection input reduces current members; multiple inputs are evaluated element by element.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``ts`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TIME_SERIES_TYPE``, ``TSS[int]``, ``TSS[float]``, ``TSD[K, TS[int]]``, ``TSD[K, TS[float]]``, ``TSL[TS[int], SIZE]``, ``TSL[TS[float], SIZE]``
-   Value, collection, window, or variadic inputs.
-
-``default_value`` : time-series; ``TS[SCALAR_1]``
-   Fallback used when the selected sample cannot produce a result.
-
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
-   The left-hand operand.
-
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_2, SIZE]``, ``TIME_SERIES_TYPE_2``
-   The right-hand operand.
-
-``ddof`` : scalar; ``int``
-   Delta degrees of freedom: the variance divisor is ``N - ddof``.
-
-Returns
-~~~~~~~
-
-Standard deviation using the overload-selected numeric schema.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   sample_volatility = hg.std(returns_window, ddof=1)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   std(ts: TS[SCALAR]) -> TS[SCALAR_1]
-   std(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]
-   std(ts: TS[int]) -> TS[float]
-   std(ts: TS[float]) -> TS[float]
-   std(ts: TIME_SERIES_TYPE) -> OUT
-   std(ts: TSS[int]) -> TS[float]
-   std(ts: TSS[float]) -> TS[float]
-   std(ts: TSD[K, TS[int]]) -> TS[float]
-   std(ts: TSD[K, TS[float]]) -> TS[float]
-   std(ts: TSL[TS[int], SIZE]) -> TS[float]
-   std(ts: TSL[TS[float], SIZE]) -> TS[float]
-   std(lhs: TS[int], rhs: TS[int]) -> TS[float]
-   std(lhs: TS[float], rhs: TS[float]) -> TS[float]
-   std(lhs: TS[int], rhs: TS[float]) -> TS[float]
-   std(lhs: TS[float], rhs: TS[int]) -> TS[float]
-   std(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
-   std(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
-   std(ts: TIME_SERIES_TYPE, ddof: int) -> OUT
 
 .. _python-operator-step:
 
@@ -7470,7 +7323,7 @@ Accepted native overloads
 ``throttle``
 ------------
 
-Limit output frequency while preserving the latest pending source value. Unlike ``resample``, no output is produced during an interval with no source tick.
+Limit output frequency while preserving the latest pending source value. Unlike ``hgraph_analytics.resample``, no output is produced during an interval with no source tick.
 
 Python exposure: lazy native operator proxy.
 
@@ -8178,66 +8031,6 @@ Accepted native overloads
 
    values_(ts: TSD[K, V]) -> TSS[SCALAR]
    values_(ts: TIME_SERIES_TYPE) -> OUT
-
-.. _python-operator-var:
-
-``var``
--------
-
-Calculate variance according to the selected input shape. A numeric ``TS`` produces the running population variance of all values observed so far. A collection-valued ``TS``, ``TSS``, ``TSD``, or ``TSL`` produces the sample variance of its current valid elements (dividing by ``N - 1``), with zero for fewer than two elements. Binary inputs calculate the sample variance between the current values; fixed-list inputs are handled element by element. Unlike ``std``, ``var`` has no ``ddof`` parameter.
-
-Python exposure: lazy native operator proxy.
-
-Parameters
-~~~~~~~~~~
-
-Time-series inputs are live graph edges. Wiring-time scalar choices
-are fixed when the graph is built.
-
-``ts`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TSS[int]``, ``TSS[float]``, ``TSD[K, TS[int]]``, ``TSD[K, TS[float]]``, ``TSL[TS[int], SIZE]``, ``TSL[TS[float], SIZE]``
-   Numeric series or a numeric collection whose variance is required.
-
-``default_value`` : time-series; ``TS[SCALAR_1]``
-   Compatibility input accepted by container overloads; numeric variance still publishes zero when fewer than two elements are present.
-
-``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
-   Left input for a binary or element-wise variance.
-
-``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
-   Right input for a binary or element-wise variance.
-
-Returns
-~~~~~~~
-
-Running population variance or current sample variance, according to the selected overload.
-
-Python example
-~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-   running_variance = hg.var(returns)
-
-Accepted native overloads
-
-.. code-block:: text
-
-   var(ts: TS[SCALAR]) -> TS[SCALAR_1]
-   var(ts: TS[SCALAR], default_value: TS[SCALAR_1]) -> TS[SCALAR_1]
-   var(ts: TS[int]) -> TS[float]
-   var(ts: TS[float]) -> TS[float]
-   var(ts: TSS[int]) -> TS[float]
-   var(ts: TSS[float]) -> TS[float]
-   var(ts: TSD[K, TS[int]]) -> TS[float]
-   var(ts: TSD[K, TS[float]]) -> TS[float]
-   var(ts: TSL[TS[int], SIZE]) -> TS[float]
-   var(ts: TSL[TS[float], SIZE]) -> TS[float]
-   var(lhs: TS[int], rhs: TS[int]) -> TS[float]
-   var(lhs: TS[float], rhs: TS[float]) -> TS[float]
-   var(lhs: TS[int], rhs: TS[float]) -> TS[float]
-   var(lhs: TS[float], rhs: TS[int]) -> TS[float]
-   var(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
-   var(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
 
 .. _python-operator-weekday:
 

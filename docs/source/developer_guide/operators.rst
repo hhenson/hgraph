@@ -547,18 +547,19 @@ under ``include/hgraph/lib/std/operators/``, grouped by family and pulled togeth
   ``bit_and`` / ``bit_or`` / ``bit_xor`` / ``lshift_`` / ``rshift_``;
 - ``container.h`` — ``getitem_`` / ``getattr_`` / ``setattr_`` / ``contains_`` / ``len_`` /
   ``index_of`` / ``is_empty``;
-- ``collection.h`` — aggregations (``sum_`` / ``mean`` / ``std_`` / ``var_``), set ops
+- ``collection.h`` — core aggregations (``sum_`` / ``mean``), set ops
   (``union_`` / ``intersection_`` / ``difference_`` / ``symmetric_difference_``) and ``TSD``
   re-shaping (``keys_`` / ``values_`` / ``rekey`` / ``flip`` / ``partition`` / … );
 - ``conversion.h`` — ``const_`` / ``convert`` / ``combine`` / ``collect`` / ``emit`` /
   ``cast_`` / ``downcast_`` / ``downcast_ref`` / ``str_`` / ``type_`` / ``zero_`` /
   ``nothing`` / ``default_``;
 - ``string.h`` — ``match_`` / ``replace`` / ``substr`` / ``split`` / ``join`` / ``format_``;
-- ``stream.h`` — ``sample`` / ``lag`` / ``resample`` / ``filter_`` / ``filter_by`` /
+- ``stream.h`` — ``sample`` / ``lag`` / ``filter_`` / ``filter_by`` /
   ``until_true`` / ``freeze`` / ``throttle`` / ``take`` / ``drop`` / ``gate`` / ``window`` /
   ``to_window`` / …;
 - ``extensions/analytics/include/hgraph/analytics/operators.h`` — the separately
-  registered ``diff`` / ``count`` / ``clip`` / ``ewma`` / ``pct_change`` family;
+  registered numerical transforms, statistical estimators, rolling means,
+  resampling, and shaped-array analytics;
 - ``control.h`` — ``merge`` / ``race`` / ``all_`` / ``any_`` / ``if_`` / ``if_then_else`` /
   ``if_cmp`` / ``route_by_index`` / ``if_true``;
 - ``temporal.h`` — date components (``year`` / ``month_of_year`` / …) and time-series

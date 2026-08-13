@@ -33,9 +33,11 @@ SDIST_REQUIRED = (
     "src/registration.cpp",
     "src/shaped_array_operators.cpp",
     "src/shaped_array_operators.h",
+    "src/statistics.cpp",
     "test_package/CMakeLists.txt",
     "tests/test_array_operators.cpp",
     "tests/test_pct_change.cpp",
+    "tests/test_statistics.cpp",
     "tools/audit_distribution.py",
 )
 

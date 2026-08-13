@@ -478,19 +478,6 @@ namespace
         }
     };
 
-    struct WindowStdDdofGraph
-    {
-        static constexpr auto name = "window_std_ddof_graph";
-
-        static Port<TS<Float>> compose(Wiring &w, Port<TS<Int>> ts)
-        {
-            auto window = wire<stdlib::to_window>(w, ts, Int{3}, Int{3});
-            return wire<stdlib::std_>(
-                       w, window, arg<"ddof">(Int{1}))
-                .as<TS<Float>>();
-        }
-    };
-
     // Scalar-container TS schemas are runtime metadata today. The wrapper graph
     // pins the output type expectation while eval_runtime_schema_graph supplies
     // the input schema at replay.
@@ -515,14 +502,6 @@ namespace
         static Port<TS<Float>> compose(Wiring &w, Port<void> ts)
         {
             return wire<stdlib::mean>(w, ts).as<TS<Float>>();
-        }
-    };
-
-    struct ScalarContainerStdGraph
-    {
-        static Port<TS<Float>> compose(Wiring &w, Port<void> ts)
-        {
-            return wire<stdlib::std_>(w, ts).as<TS<Float>>();
         }
     };
 
@@ -2110,12 +2089,6 @@ TEST_CASE("std operators: scalar container aggregate overloads resolve by kind a
     REQUIRE(mean_out[1].has_value());
     CHECK(*mean_out[1] == Float{1.5});
 
-    CHECK_OUTPUT((eval_runtime_schema_graph<ScalarContainerStdGraph, Float>(
-                     registry.ts(registry.set(types.float_type)),
-                     values<Value>(stdlib::make_set<Float>({}),
-                                   stdlib::make_set<Float>({Float{1.0}}),
-                                   stdlib::make_set<Float>({Float{1.0}, Float{2.0}})))),
-                 values<Float>(Float{0.0}, Float{0.0}, std::sqrt(Float{0.5})));
 }
 
 TEST_CASE("std operators: eq_ works for strings")
@@ -2409,7 +2382,7 @@ TEST_CASE("std operators: fixed TSL comparisons and extrema match Python contrac
                  values<Value>(list_delta<TS<Float>>({{0, 2.0}, {1, 3.0}})));
 }
 
-TEST_CASE("std operators: fixed TSL binary analytics map elementwise")
+TEST_CASE("std operators: fixed TSL binary aggregations map elementwise")
 {
     stdlib::register_standard_operators();
 
@@ -2421,14 +2394,6 @@ TEST_CASE("std operators: fixed TSL binary analytics map elementwise")
                      values<Value>(list_delta<TS<Int>>({{0, 1}, {1, 2}})),
                      values<Value>(list_delta<TS<Int>>({{0, 2}, {1, 3}})))),
                  values<Value>(list_delta<TS<Float>>({{0, 1.5}, {1, 2.5}})));
-    CHECK_OUTPUT((eval_node<stdlib::var_, TSL<TS<Float>, 2>, TSL<TS<Float>, 2>>(
-                     values<Value>(list_delta<TS<Float>>({{0, 1.0}, {1, 2.0}})),
-                     values<Value>(list_delta<TS<Float>>({{0, 2.0}, {1, 3.0}})))),
-                 values<Value>(list_delta<TS<Float>>({{0, 0.5}, {1, 0.5}})));
-    CHECK_OUTPUT((eval_node<stdlib::std_, TSL<TS<Int>, 2>, TSL<TS<Int>, 2>>(
-                     values<Value>(list_delta<TS<Int>>({{0, 1}, {1, 2}})),
-                     values<Value>(list_delta<TS<Int>>({{0, 2}, {1, 3}})))),
-                 values<Value>(list_delta<TS<Float>>({{0, std::sqrt(0.5)}, {1, std::sqrt(0.5)}})));
 }
 
 TEST_CASE("std operators: string operators support replace substr and container basics")
@@ -2984,23 +2949,6 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
     CHECK_THROWS_WITH(
         (eval_node<stdlib::to_window>(values<Int>(1), MIN_TD * 3, MIN_TD * 4)),
         Catch::Matchers::ContainsSubstring("to_window: min_window_period must be between zero and period"));
-    // rolling_average is a public graph operator in both C++ and Python.  Keep
-    // native coverage for both scalar-policy overloads so the ported upstream
-    // tests do not merely prove the Python facade.
-    CHECK_OUTPUT(eval_node<stdlib::rolling_average>(values<Int>(1, 2, 3, 4, 5),
-                                                     Int{3}),
-                 values<Float>(none, none, none, 3.0, 4.0));
-    CHECK_OUTPUT(eval_node<stdlib::rolling_average>(values<Int>(1, 2, 3, 4, 5),
-                                                     Int{3}, Int{2}),
-                 values<Float>(none, 1.5, 2.0, 3.0, 4.0));
-    auto duration_average =
-        eval_node<stdlib::rolling_average>(values<Int>(1, 2, 3, 4, 5), MIN_TD * 3);
-    REQUIRE(duration_average.size() == 8);
-    REQUIRE(duration_average.back().has_value());
-    CHECK(std::isnan(duration_average.back()->view().checked_as<Float>()));
-    duration_average.pop_back();
-    CHECK_OUTPUT(duration_average,
-                 values<Float>(none, none, none, 3.0, 4.0, 4.5, 5.0));
     CHECK_OUTPUT(eval_node<ResettableTickWindowGraph>(
                      values<Int>(1, 2, none, 3, 4),
                      values<Bool>(none, none, true, none, none)),
@@ -3013,10 +2961,6 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                      values<Int>(1, 2, none, 3),
                      values<Bool>(none, none, true, none)),
                  values<Int>(101, 203, 0, 103));
-    CHECK_OUTPUT(eval_node<WindowStdDdofGraph>(
-                     values<Int>(1, 2, 3, 4, 5)),
-                 values<Float>(none, none, 1.0, 1.0, 1.0));
-
     CHECK_OUTPUT(eval_node<stdlib::dedup>(values<Int>(1, 2, 2, 3, 3, 3, 4)),
                  values<Int>(1, 2, none, 3, none, none, 4));
     CHECK_OUTPUT((eval_node<stdlib::dedup, TSS<Int>>(
@@ -3074,7 +3018,7 @@ TEST_CASE("std operators: structural proxy lag recursively preserves nested TSD 
         feedback_expected);
 }
 
-TEST_CASE("std operators: schedule and resample are bounded by executor end time")
+TEST_CASE("std operators: schedule is bounded by executor end time")
 {
     stdlib::register_standard_operators();
 
@@ -3096,28 +3040,6 @@ TEST_CASE("std operators: schedule and resample are bounded by executor end time
                      values<Bool>(none, none, true, none, true));
     }
 
-    {
-        Wiring w;
-        auto   ts  = wire<stdlib::replay_impl, TS<Int>>(w, Str{"resample_in"});
-        auto   out = wire<stdlib::resample>(w, ts, MIN_TD * 2);
-        wire<stdlib::dense_record_impl>(w, out, Str{"resample_out"});
-
-        GraphBuilder graph_builder = std::move(w).finish();
-        set_replay_values<Int>(graph_builder.global_state(),
-                               "resample_in",
-                               values<Int>(1, none, 3));
-
-        GraphExecutorBuilder executor_builder;
-        executor_builder.graph_builder(std::move(graph_builder))
-            .start_time(MIN_ST)
-            .end_time(MIN_ST + MIN_TD * 6);
-        GraphExecutorValue executor = executor_builder.make_executor();
-        auto               view     = executor.view();
-        view.run();
-
-        CHECK_OUTPUT(get_recorded_values<Int>(view.graph().global_state(), "resample_out"),
-                     values<Int>(none, none, 3, none, 3));
-    }
 }
 
 TEST_CASE("std operators: control operators cover variadic booleans merge and selection")

@@ -103,6 +103,16 @@ NonexistentTimePolicy = _hgraph.NonexistentTimePolicy
 Boundary = _hgraph.Boundary
 from . import temporal
 
+# Compatibility graphs for Python APIs migrated to the optional analytics
+# distribution.  Their hgraph_analytics imports are intentionally delayed
+# until wiring so importing core hgraph does not acquire an optional runtime
+# dependency.
+from ._analytics_compat import (
+    as_array, center_of_mass_to_alpha, clip, corrcoef, count, cumsum, diff,
+    ewma, get_item, np_std, pct_change, quantile, resample, rolling_average,
+    span_to_alpha, std, var,
+)
+
 _OPERATOR_NAMES = frozenset(
     name for name in _hgraph.operator_names()
     if name not in _OPERATOR_OVERRIDE_NAMES

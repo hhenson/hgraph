@@ -19,8 +19,6 @@ from hgraph import (
     max_,
     sum_,
     mean,
-    std,
-    var,
     TIME_SERIES_TYPE,
     contains_, compute_node, compute_set_delta,
 )
@@ -198,22 +196,6 @@ def test_mean_tss_unary():
     output = eval_node(app, [set(), {1, 2, -1, 3}])
     assert math.isnan(output[0])
     assert output[1] == 1.25
-
-
-def test_std_tss_unary():
-    @graph
-    def app(tss: TSS[int]) -> TS[float]:
-        return std(tss)
-
-    assert eval_node(app, [set(), {1}, {1, 2}, {1, 2, -1, 3}]) == [0.0, 0.0, 0.7071067811865476, 1.707825127659933]
-
-
-def test_var_tss_unary():
-    @graph
-    def app(tss: TSS[int]) -> TS[float]:
-        return var(tss)
-
-    assert eval_node(app, [set(), {1}, {1, 2}, {1, 2, -1, 3}]) == [0.0, 0.0, 0.5, 2.9166666666666665]
 
 
 def test_str_tss():

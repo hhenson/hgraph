@@ -135,10 +135,6 @@ namespace hgraph::stdlib
         register_overload<mean, arithmetic_impl_detail::running_mean_impl<Int>>();
         register_overload<mean, arithmetic_impl_detail::running_mean_impl<Float>>();
         register_graph_overload<mean, arithmetic_impl_detail::multi_sum_impl<true>>();
-        register_overload<std_, arithmetic_impl_detail::running_moments_impl<Int, true>>();
-        register_overload<std_, arithmetic_impl_detail::running_moments_impl<Float, true>>();
-        register_overload<var_, arithmetic_impl_detail::running_moments_impl<Int, false>>();
-        register_overload<var_, arithmetic_impl_detail::running_moments_impl<Float, false>>();
         register_overload<div_, div_numbers<Float, Float>>();         // float / float -> float (with policy)
         register_overload<div_, div_numbers<Int, Float>>();
         register_overload<div_, div_numbers<Float, Int>>();

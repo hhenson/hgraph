@@ -22,7 +22,6 @@ from hgraph import (
     str_,
     lag,
     mean,
-    std,
     index_of,
     TIME_SERIES_TYPE_2,
     TIME_SERIES_TYPE_1,
@@ -246,39 +245,6 @@ def test_mean_tsls_multi(lhs, rhs, expected):
     @graph
     def g(lhs: TSL[TS[tp], Size[2]], rhs: TSL[TS[tp], Size[2]]) -> TSL[TS[float], Size[2]]:
         return mean(lhs, rhs)
-
-    assert eval_node(g, [lhs], [rhs]) == [expected]
-
-
-@pytest.mark.parametrize(
-    ["tsl", "expected"],
-    [
-        [(20,), 0.0],
-        [(20, 30), 7.0710678118654755],
-        [(3, 5, 2, 8, 10), 3.361547262794322],
-    ],
-)
-def test_std_tsl_unary(tsl, expected):
-    @graph
-    def g(tsl: TSL[TS[int], Size[len(tsl)]]) -> TS[float]:
-        return std(tsl)
-
-    assert eval_node(g, [tsl]) == [expected]
-
-
-@pytest.mark.parametrize(
-    ["lhs", "rhs", "expected"],
-    [
-        [(1, 2), (2, 3), {0: 0.7071067811865476, 1: 0.7071067811865476}],
-        [(1.0, 2.0), (2.0, 3.0), {0: 0.7071067811865476, 1: 0.7071067811865476}],
-    ],
-)
-def test_std_tsls_multi(lhs, rhs, expected):
-    tp = type(lhs[0])
-
-    @graph
-    def g(lhs: TSL[TS[tp], Size[2]], rhs: TSL[TS[tp], Size[2]]) -> TSL[TS[float], Size[2]]:
-        return std(lhs, rhs)
 
     assert eval_node(g, [lhs], [rhs]) == [expected]
 

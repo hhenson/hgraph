@@ -51,8 +51,6 @@ namespace hgraph::stdlib
         register_overload<sum_, tsb_numeric_aggregate_impl<TsbAggregate::Sum, Float>>();
         register_overload<mean, tsb_numeric_aggregate_impl<TsbAggregate::Mean, Int>>();
         register_overload<mean, tsb_numeric_aggregate_impl<TsbAggregate::Mean, Float>>();
-        register_overload<std_, tsb_numeric_aggregate_impl<TsbAggregate::Std, Int>>();
-        register_overload<std_, tsb_numeric_aggregate_impl<TsbAggregate::Std, Float>>();
         register_overload<eq_, collection_impl_detail::eq_tsb_impl>();
         register_graph_overload<sub_, collection_impl_detail::sub_str_invalid>();
         register_overload<combine_tsd, collection_impl_detail::combine_tsd_tsls>();
@@ -93,36 +91,18 @@ namespace hgraph::stdlib
         register_overload<sum_, collection_impl_detail::sum_tsl_unary<Float>>();
         register_overload<mean, collection_impl_detail::mean_tss_unary<Int>>();
         register_overload<mean, collection_impl_detail::mean_tss_unary<Float>>();
-        register_overload<std_, collection_impl_detail::std_tss_unary<Int>>();
-        register_overload<std_, collection_impl_detail::std_tss_unary<Float>>();
-        register_overload<var_, collection_impl_detail::var_tss_unary<Int>>();
-        register_overload<var_, collection_impl_detail::var_tss_unary<Float>>();
         register_overload<mean, collection_impl_detail::mean_tsd_unary<Int>>();
         register_overload<mean, collection_impl_detail::mean_tsd_unary<Float>>();
-        register_overload<std_, collection_impl_detail::std_tsd_unary<Int>>();
-        register_overload<std_, collection_impl_detail::std_tsd_unary<Float>>();
-        register_overload<var_, collection_impl_detail::var_tsd_unary<Int>>();
-        register_overload<var_, collection_impl_detail::var_tsd_unary<Float>>();
         register_overload<mean, collection_impl_detail::mean_tsl_unary<Int>>();
         register_overload<mean, collection_impl_detail::mean_tsl_unary<Float>>();
-        register_overload<std_, collection_impl_detail::std_tsl_unary<Int>>();
-        register_overload<std_, collection_impl_detail::std_tsl_unary<Float>>();
-        register_overload<var_, collection_impl_detail::var_tsl_unary<Int>>();
-        register_overload<var_, collection_impl_detail::var_tsl_unary<Float>>();
         register_graph_overload<sum_, tsl_binary_map<add_>>();
         register_graph_overload<sum_, tsl_rhs_broadcast_map<add_>>();
         register_graph_overload<sum_, tsl_lhs_broadcast_map<add_>>();
         register_graph_overload<sum_, tsb_binary_map<add_>>();
 
         register_numeric_binary_collection_overloads<mean, scalar_mean>();
-        register_numeric_binary_collection_overloads<std_, scalar_std>();
-        register_numeric_binary_collection_overloads<var_, scalar_var>();
         register_numeric_binary_tsl_lifted_maps<mean, scalar_mean>();
-        register_numeric_binary_tsl_lifted_maps<std_, scalar_std>();
-        register_numeric_binary_tsl_lifted_maps<var_, scalar_var>();
         register_graph_overload<mean, tsb_binary_map<mean>>();
-        register_graph_overload<std_, tsb_binary_map<std_>>();
-        register_graph_overload<var_, tsb_binary_map<var_>>();
 
         register_graph_overload<union_, collection_impl_detail::union_tss_fold>();
         register_graph_overload<intersection_, collection_impl_detail::intersection_tss_fold>();

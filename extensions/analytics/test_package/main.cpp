@@ -37,6 +37,11 @@ namespace
             static_cast<void>(hg::wire<hga::ewma>(w, input, hg::Float{0.2}));
             static_cast<void>(hg::wire<hga::pct_change, hg::TS<hg::Float>>(
                 w, input, hg::Int{12}, hg::stdlib::DivideByZero::Nan));
+            static_cast<void>(hg::wire<hga::std_, hg::TS<hg::Float>>(w, input));
+            static_cast<void>(hg::wire<hga::var_, hg::TS<hg::Float>>(w, input));
+            static_cast<void>(hg::wire<hga::rolling_mean, hg::TS<hg::Float>>(
+                w, input, hg::Int{4}, hg::Int{2}));
+            static_cast<void>(hg::wire<hga::resample>(w, input, hg::MIN_TD));
 
             hg::Value array{hg::ValuePlanFactory::instance().type_for(
                 hg::TypeRegistry::instance().array(
@@ -60,6 +65,8 @@ namespace
                               .as<hg::TSW<hg::Float, 4, 4>>();
             static_cast<void>(
                 hg::wire<hga::rolling_window, RollingFloat4>(w, window));
+            static_cast<void>(hg::wire<hga::std_, hg::TS<hg::Float>>(
+                w, window, hg::arg<"ddof">(hg::Int{1})));
         }
     };
 }  // namespace
