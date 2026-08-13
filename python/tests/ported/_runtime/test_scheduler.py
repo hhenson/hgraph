@@ -28,6 +28,7 @@ from hgraph import (
     evaluate_graph,
     GraphConfiguration, run_graph, sample,
     utc_now,
+    stop_engine,
 )
 from hgraph import const
 from hgraph.test import eval_node
@@ -107,49 +108,75 @@ def my_scheduler_realtime(ts: TS[int], tag: str = None, _scheduler: SCHEDULER = 
 @sink_node
 def sleep(s: SIGNAL, seconds: float):
     time.sleep(seconds)
+
+
+@compute_node
+def alarm_fired(ts: TS[tuple[int, datetime]]) -> SIGNAL:
+    """Tick once the rescheduled alarm has fired (``my_scheduler_realtime``
+    reports the firing as -1).
+
+    The wall-clock tests below END on this rather than on their ``end_time``.
+    Racing a fixed deadline is what made them flaky: the alarm lands ~150ms in,
+    the run was cut off at 350ms, and a loaded runner spends that margin on
+    something else - so the failure reported "the runner was slow", not "the
+    scheduler is wrong". Loosening the deadline only moves the load at which
+    that recurs, which is why it had already been raised twice. Ending on the
+    observation makes the deadline a BACKSTOP: the test now fails only if the
+    alarm never fires, which is the bug it exists to catch.
+    """
+    if ts.value[0] == -1:
+        return True
     
 def test_wall_clock_scheduler():
     @graph
     def g():
-        record(my_scheduler_realtime(100000, "TAG"))
+        out = my_scheduler_realtime(100000, "TAG")
+        record(out)
         my_scheduler_realtime(10000, "TAG")  # to make sure different alarms do not interfere
         sleep(schedule(timedelta(milliseconds=7), initial_delay=True), 0.01)
+        # End on the alarm, not on the clock - see alarm_fired.
+        stop_engine(alarm_fired(out))
 
     now = utc_now()
     with GlobalState():
+        # A BACKSTOP, not the measurement - see the reschedule test below.
         config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, start_time=now,
-                                    end_time=now + timedelta(milliseconds=250))
+                                    end_time=now + timedelta(seconds=5))
         evaluate_graph(g, config)
         values = get_recorded_value()
 
     assert [v[1][0] for v in values][:2] == [100000, -1]
     assert values[0][0] == now
-    assert values[1][0] >= now + timedelta(milliseconds=42)  # we will expect to accumulate 100/7*3 = 42.8ms lag
-    # Upper bound loosened from 107ms: real-time alarms jitter on shared CI
-    # runners (kept well under the 250ms end_time). The lower bound is the
-    # meaningful correctness check (the alarm did not fire early).
-    assert values[1][0] < now + timedelta(milliseconds=200)
+    # Lower bound only: the deliberate 10ms sleep per 7ms schedule accumulates
+    # ~42.8ms of lag, and the alarm must not pre-empt it. How much LATER it
+    # lands is runner load, not scheduler behaviour.
+    assert values[1][0] >= now + timedelta(milliseconds=42)
     
     
 def test_wall_clock_scheduler_reschedule():
     @graph
     def g():
-        record(my_scheduler_realtime(sample(schedule(timedelta(milliseconds=50), initial_delay=False, max_ticks=2), 100000), "TAG"))
+        out = my_scheduler_realtime(
+            sample(schedule(timedelta(milliseconds=50), initial_delay=False, max_ticks=2), 100000), "TAG")
+        record(out)
+        # End on the alarm, not on the clock - see alarm_fired.
+        stop_engine(alarm_fired(out))
 
     now = utc_now()
     with GlobalState():
-        # Per-tick trace output can consume more than this graph's complete
-        # real-time window on slow Windows CI runners and hide the rescheduled
-        # alarm that the test is meant to observe.
-        run_graph(g, run_mode=EvaluationMode.REAL_TIME, start_time=now, end_time=now + timedelta(milliseconds=350))
+        # A BACKSTOP, not the measurement: the run normally ends ~150ms in, when
+        # the alarm fires. Generous enough that no plausible runner load reaches
+        # it, so hitting it means the alarm genuinely never fired.
+        run_graph(g, run_mode=EvaluationMode.REAL_TIME, start_time=now, end_time=now + timedelta(seconds=5))
         values = get_recorded_value()
 
     assert [v[1][0] for v in values][:3] == [100000, 100000, -1]
     assert values[0][0] == now
-    # Upper bounds loosened from 60ms / +110ms: real-time alarms jitter on
-    # shared CI runners (kept well under the 350ms end_time). The lower bounds
-    # remain the meaningful correctness checks (the alarms did not fire early).
-    assert values[1][0] >= now + timedelta(milliseconds=50)  # we will expect to accumulate 100/7*3 = 42.8ms lag
-    assert values[1][0] < now + timedelta(milliseconds=250)
-    assert values[2][1][1] >= values[1][1][1] + timedelta(milliseconds=90)  # we will expect to accumulate 100/7*3 = 42.8ms lag
-    assert values[2][1][1] < values[1][1][1] + timedelta(milliseconds=300)
+    # Only LOWER bounds are asserted. An alarm firing early is a scheduler bug;
+    # an alarm firing late is a statement about how loaded the runner is, and
+    # asserting it tests the CI machine rather than hgraph. That is what these
+    # upper bounds were doing - they had already been loosened twice (60ms ->
+    # 250ms, +110ms -> +300ms) without ever becoming reliable. "Not absurdly
+    # late" is still covered, by the run's backstop end_time.
+    assert values[1][0] >= now + timedelta(milliseconds=50)
+    assert values[2][1][1] >= values[1][1][1] + timedelta(milliseconds=90)
