@@ -293,6 +293,7 @@ hgraph_add_test_objects(hgraph_record_test_objects
     test_record_replay_frame.cpp
     test_recording_columns.cpp
     test_table.cpp
+    test_table_round_trip.cpp
 )
 
 set(HGRAPH_TEST_OBJECT_LIBS

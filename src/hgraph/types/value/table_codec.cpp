@@ -616,81 +616,44 @@ namespace hgraph
         void append_sequence(const Column &, const ValueView &, arrow::ArrayBuilder &);
         Value read_sequence(const Column &, const arrow::Array &, std::int64_t);
 
+/**
+ * The atomic leaves the table codec can carry, as ONE list: the dispatch in
+ * ``leaf_ops_for`` and the inventory ``table_atomic_leaf_metas`` reports are
+ * both generated from it, so a leaf cannot be added to one without the other.
+ * That matters because the inventory is what the round-trip test sizes itself
+ * against - a hand-kept second copy would let a new leaf ship with the test
+ * still claiming full coverage.
+ */
+#define HGRAPH_TABLE_ATOMIC_LEAVES(X)                                             \
+    X(Bool, arrow::boolean(), bool)                                               \
+    X(Int, arrow::int64(), int)                                                   \
+    X(Float, arrow::float64(), float)                                             \
+    X(Str, arrow::utf8(), str)                                                    \
+    X(Bytes, arrow::binary(), bytes)                                              \
+    X(Date, arrow::date32(), date)                                                \
+    X(DateTime, arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"), datetime)        \
+    X(TimeDelta, arrow::duration(arrow::TimeUnit::MICRO), timedelta)              \
+    X(Time, arrow::time64(arrow::TimeUnit::MICRO), time)                          \
+    X(CivilDateTime, arrow::timestamp(arrow::TimeUnit::MICRO), civil_datetime)    \
+    X(Period, arrow::month_day_nano_interval(), period)                           \
+    X(ZoneId, arrow::utf8(), zone_id)                                             \
+    X(ZonedDateTime, zoned_datetime_type(), zoned_datetime)                       \
+    X(InstantRange, instant_range_type(), instant_range)                          \
+    X(CivilDateRange, civil_date_range_type(), civil_date_range)                  \
+    X(InstantRangeSet, arrow::fixed_size_list(instant_range_type(), 2),           \
+      instant_range_set)                                                          \
+    X(CivilDateRangeSet, arrow::fixed_size_list(civil_date_range_type(), 2),      \
+      civil_date_range_set)
+
         [[nodiscard]] LeafOps leaf_ops_for(const ValueTypeMetaData *meta)
         {
-            if (meta == scalar_descriptor<Bool>::value_meta())
-            {
-                return {arrow::boolean(), &append_bool, &read_bool};
-            }
-            if (meta == scalar_descriptor<Int>::value_meta()) { return {arrow::int64(), &append_int, &read_int}; }
-            if (meta == scalar_descriptor<Float>::value_meta())
-            {
-                return {arrow::float64(), &append_float, &read_float};
-            }
-            if (meta == scalar_descriptor<Str>::value_meta()) { return {arrow::utf8(), &append_str, &read_str}; }
-            if (meta == scalar_descriptor<Bytes>::value_meta())
-            {
-                return {arrow::binary(), &append_bytes, &read_bytes};
-            }
-            if (meta == scalar_descriptor<Date>::value_meta())
-            {
-                return {arrow::date32(), &append_date, &read_date};
-            }
-            if (meta == scalar_descriptor<DateTime>::value_meta())
-            {
-                return {arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"),
-                        &append_datetime, &read_datetime};
-            }
-            if (meta == scalar_descriptor<TimeDelta>::value_meta())
-            {
-                return {arrow::duration(arrow::TimeUnit::MICRO), &append_timedelta, &read_timedelta};
-            }
-            if (meta == scalar_descriptor<Time>::value_meta())
-            {
-                return {arrow::time64(arrow::TimeUnit::MICRO), &append_time, &read_time};
-            }
-            if (meta == scalar_descriptor<CivilDateTime>::value_meta())
-            {
-                return {arrow::timestamp(arrow::TimeUnit::MICRO),
-                        &append_civil_datetime, &read_civil_datetime};
-            }
-            if (meta == scalar_descriptor<Period>::value_meta())
-            {
-                return {arrow::month_day_nano_interval(), &append_period,
-                        &read_period};
-            }
-            if (meta == scalar_descriptor<ZoneId>::value_meta())
-            {
-                return {arrow::utf8(), &append_zone_id, &read_zone_id};
-            }
-            if (meta == scalar_descriptor<ZonedDateTime>::value_meta())
-            {
-                return {zoned_datetime_type(), &append_zoned_datetime,
-                        &read_zoned_datetime};
-            }
-            if (meta == scalar_descriptor<InstantRange>::value_meta())
-            {
-                return {instant_range_type(), &append_instant_range,
-                        &read_instant_range};
-            }
-            if (meta == scalar_descriptor<CivilDateRange>::value_meta())
-            {
-                return {civil_date_range_type(), &append_civil_date_range,
-                        &read_civil_date_range};
-            }
-            if (meta == scalar_descriptor<InstantRangeSet>::value_meta())
-            {
-                return {
-                    arrow::fixed_size_list(instant_range_type(), 2),
-                    &append_instant_range_set, &read_instant_range_set};
-            }
-            if (meta == scalar_descriptor<CivilDateRangeSet>::value_meta())
-            {
-                return {
-                    arrow::fixed_size_list(civil_date_range_type(), 2),
-                    &append_civil_date_range_set,
-                    &read_civil_date_range_set};
-            }
+#define HGRAPH_TABLE_LEAF_DISPATCH(Type, ArrowType, Suffix)                       \
+    if (meta == scalar_descriptor<Type>::value_meta())                            \
+    {                                                                             \
+        return {ArrowType, &append_##Suffix, &read_##Suffix};                     \
+    }
+            HGRAPH_TABLE_ATOMIC_LEAVES(HGRAPH_TABLE_LEAF_DISPATCH)
+#undef HGRAPH_TABLE_LEAF_DISPATCH
             if ((meta->value_kind() == ValueTypeKind::List ||
                  (meta->value_kind() == ValueTypeKind::Tuple && meta->has(ValueTypeFlags::VariadicTuple))) &&
                 meta->element_type != nullptr)
@@ -1229,6 +1192,18 @@ namespace hgraph
     {
         std::scoped_lock lock{g_converters_mutex};
         g_converters.clear();
+    }
+
+    std::vector<const ValueTypeMetaData *> table_atomic_leaf_metas()
+    {
+        // Built fresh rather than cached in a static: the metas are registry
+        // -owned, and a reset frees them.
+        std::vector<const ValueTypeMetaData *> metas;
+#define HGRAPH_TABLE_LEAF_META(Type, ArrowType, Suffix)                           \
+    metas.push_back(scalar_descriptor<Type>::value_meta());
+        HGRAPH_TABLE_ATOMIC_LEAVES(HGRAPH_TABLE_LEAF_META)
+#undef HGRAPH_TABLE_LEAF_META
+        return metas;
     }
 
     Frame single_row_frame(const TableConverter &converter, DateTime value_time, DateTime as_of,

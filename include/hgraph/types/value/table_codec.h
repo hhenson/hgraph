@@ -72,6 +72,20 @@ namespace hgraph
     HGRAPH_EXPORT void clear_table_converters() noexcept;
 
     /**
+     * Every atomic leaf scalar the table codec can carry, in dispatch order.
+     *
+     * This is the codec's own list, not a copy of it — the ``leaf_ops_for``
+     * dispatch is generated from the same enumeration — so it is a sound
+     * measure of what "all supported types" means. Tests size their coverage
+     * against it, which is what makes a newly added leaf fail a round-trip
+     * suite that has no sample for it rather than quietly narrow the suite.
+     *
+     * Composite leaves (a list or variadic tuple of a supported leaf) are
+     * derived from these and so are not listed separately.
+     */
+    [[nodiscard]] HGRAPH_EXPORT std::vector<const ValueTypeMetaData *> table_atomic_leaf_metas();
+
+    /**
      * Node-State payload carrying the converter resolved in ``start`` (the
      * lifecycle form of the builder pattern: compose once, read per tick).
      */
