@@ -5791,6 +5791,12 @@ are fixed when the graph is built.
 ``recordable_id`` : scalar; ``str``
    Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
 
+``as_of`` : scalar; ``RecordAsOf``
+   The as of value used by the selected overload. Optional in overloads that show ``= ...``.
+
+``removes`` : scalar; ``RecordRemoves``
+   The removes value used by the selected overload. Optional in overloads that show ``= ...``.
+
 Returns
 ~~~~~~~
 
@@ -5802,6 +5808,7 @@ Python example
 .. code-block:: python
 
    hg.record(price, key="price")
+   hg.record(positions, key="positions", removes=hg.RecordRemoves.TRACK)
 
 Accepted native overloads
 
@@ -5809,7 +5816,7 @@ Accepted native overloads
 
    record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ...) -> None
    record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ...) -> None
-   record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ...) -> None
+   record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ...) -> None
 
 .. _python-operator-reduce:
 

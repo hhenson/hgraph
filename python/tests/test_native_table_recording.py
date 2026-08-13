@@ -13,10 +13,10 @@ which already models them.
 import hgraph as hg
 
 
-def _record(ticks, tp):
+def _record(ticks, tp, **config):
     @hg.graph
     def g(ts: tp):
-        hg.record(ts, key="out", recordable_id="native")
+        hg.record(ts, key="out", recordable_id="native", **config)
 
     with hg.GlobalState():
         hg.set_record_replay_model("DataFrame")
@@ -104,3 +104,68 @@ def test_a_tsd_round_trips_through_record_and_replay():
 
 def test_a_flat_series_still_round_trips():
     assert _round_trip([1, 2, 3], hg.TS[int]) == [1, 2, 3]
+
+
+# --------------------------------------------------------------------------
+# Local configuration (RFC 0019, "Configuration is local, with a global
+# default"). The options were reachable only as C++ defaults constructed
+# inside ``start``; these pin them as arguments at the call site.
+# --------------------------------------------------------------------------
+
+
+def test_removals_are_recorded_when_tracked():
+    """The counterpart to ``test_removals_are_omitted_by_default``."""
+    frame = _record(
+        [{"a": 1.0}, {"a": hg.REMOVE_IF_EXISTS}],
+        hg.TSD[str, hg.TS[float]],
+        removes=hg.RecordRemoves.TRACK,
+    )
+
+    assert "__key_1_removed__" in _columns(frame)
+    # The removal is now its own row, flagged - rather than nothing at all.
+    assert _rows(frame) == 2
+    removed = frame["__key_1_removed__"]
+    assert (removed.to_pylist() if hasattr(removed, "to_pylist") else removed.to_list()) == [False, True]
+
+
+def test_the_as_of_column_can_be_omitted():
+    frame = _record([1, 2], hg.TS[int], as_of=hg.RecordAsOf.OMIT)
+
+    assert _columns(frame) == ["__date_time__", "value"]
+    # Dropping a column must not shift the ones after it.
+    values = frame["value"]
+    assert (values.to_pylist() if hasattr(values, "to_pylist") else values.to_list()) == [1, 2]
+
+
+def test_inherit_records_exactly_as_an_unconfigured_call():
+    """The default must stay a no-op, or every existing recording changes."""
+    plain = _record([1, 2], hg.TS[int])
+    inherited = _record(
+        [1, 2], hg.TS[int], as_of=hg.RecordAsOf.INHERIT, removes=hg.RecordRemoves.INHERIT
+    )
+
+    assert _columns(plain) == _columns(inherited)
+    assert _rows(plain) == _rows(inherited)
+
+
+def test_two_recordings_in_one_graph_differ_by_configuration():
+    """The point of local config: they differ by being CALLED differently,
+    not by a registry keyed on their name."""
+
+    @hg.graph
+    def g(ts: hg.TSD[str, hg.TS[float]]):
+        hg.record(ts, key="tracked", recordable_id="native",
+                  removes=hg.RecordRemoves.TRACK)
+        hg.record(ts, key="plain", recordable_id="native")
+
+    with hg.GlobalState():
+        hg.set_record_replay_model("DataFrame")
+        with hg.RecordReplayContext(mode=hg.RecordReplayEnum.RECORD):
+            hg.eval_node(g, [{"a": 1.0}, {"a": hg.REMOVE_IF_EXISTS}])
+        tracked = hg.frame_store_read("native.tracked")
+        plain = hg.frame_store_read("native.plain")
+
+    assert "__key_1_removed__" in _columns(tracked)
+    assert "__key_1_removed__" not in _columns(plain)
+    assert _rows(tracked) == 2
+    assert _rows(plain) == 1

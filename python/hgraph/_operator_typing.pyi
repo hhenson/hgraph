@@ -5919,6 +5919,12 @@ class _record_Operator(_Protocol):
     ``recordable_id`` : scalar; ``str``
        Stable identifier used to locate recorded data. Optional in overloads that show ``= ...``.
 
+    ``as_of`` : scalar; ``RecordAsOf``
+       The as of value used by the selected overload. Optional in overloads that show ``= ...``.
+
+    ``removes`` : scalar; ``RecordRemoves``
+       The removes value used by the selected overload. Optional in overloads that show ``= ...``.
+
     Returns
     ~~~~~~~
 
@@ -5930,12 +5936,13 @@ class _record_Operator(_Protocol):
     .. code-block:: python
 
        hg.record(price, key="price")
+       hg.record(positions, key="positions", removes=hg.RecordRemoves.TRACK)
 
     Accepted native overloads:
 
     - ``record(ts: TIME_SERIES_TYPE, key: str = ..., sparse: bool = ...) -> None``
     - ``record(ts: TIME_SERIES_TYPE, key: str = ..., recordable_id: str = ...) -> None``
-    - ``record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ...) -> None``
+    - ``record(ts: TIME_SERIES_TYPE, key: str, recordable_id: str = ..., as_of: RecordAsOf = ..., removes: RecordRemoves = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -5947,7 +5954,7 @@ class _record_Operator(_Protocol):
     @_overload
     def __call__(self, ts: _WiringPort | object, key: str = ..., recordable_id: str = ...) -> None: ...
     @_overload
-    def __call__(self, ts: _WiringPort | object, key: str, recordable_id: str = ...) -> None: ...
+    def __call__(self, ts: _WiringPort | object, key: str, recordable_id: str = ..., as_of: object = ..., removes: object = ...) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 record: _record_Operator

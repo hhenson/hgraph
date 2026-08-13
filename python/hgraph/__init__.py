@@ -18,7 +18,8 @@ from ._types import (TS, TSS, TSD, TSL, TSB, Size, TimeSeriesSchema, CONTEXT, RE
                      NUMBER, NUMBER_2,
                      DEFAULT, REF, K, V, SCHEMA, TS_SCHEMA,
                      SIGNAL, WINDOW_SIZE, WINDOW_SIZE_MIN, WindowSize, Array, ts_schema, ENUM)
-from ._compat import (CmpResult, DivideByZero, exception_time_series, try_except,
+from ._compat import (CmpResult, DivideByZero, RecordAsOf, RecordRemoves,
+                      exception_time_series, try_except,
                       TryExceptResult, TryExceptTsdMapResult, NodeError,
                       OperatorWiringNodeClass, BoolResult, CompoundScalar, JSON, TimeSeriesReference,
                       NodeException, accumulate, average,
@@ -74,6 +75,8 @@ _hgraph._set_set_delta_class(_SetDelta)
 _hgraph._set_delta_shaper(_simplify_delta)
 _hgraph._set_cmp_result_enum(CmpResult)
 _hgraph._set_divide_by_zero_enum(DivideByZero)
+_hgraph._set_record_as_of_enum(RecordAsOf)
+_hgraph._set_record_removes_enum(RecordRemoves)
 
 from ._wiring import _Combine as _CombineClass
 combine = _CombineClass()
@@ -139,7 +142,7 @@ def __dir__():
 __all__ = [
     "TS", "TSS", "TSD", "TSL", "TSB", "Size", "TimeSeriesSchema", "CONTEXT", "REQUIRED", "WiringError", "TimeSeries",
     "NUMBER", "NUMBER_2", "DEFAULT",
-    "WiringPort", "CmpResult", "DivideByZero", "NodeError", "exception_time_series", "try_except", "lift", "lower",
+    "WiringPort", "CmpResult", "DivideByZero", "RecordAsOf", "RecordRemoves", "NodeError", "exception_time_series", "try_except", "lift", "lower",
     "TryExceptResult", "TryExceptTsdMapResult", "OperatorWiringNodeClass", "graph", "run_graph", "eval_node", "wire", "map_", "reduce", "mesh_", "MeshWiringPort", "get_mesh", "REMOVE", "REMOVE_IF_EXISTS", "feedback", "delayed_binding", "switch_", "passive", "compute_node", "sink_node", "generator", "STATE", "SCHEDULER", "CLOCK", "EvaluationEngineApi", "NODE", "Node", "Traits", "component", "record_replay_scope", "RecordReplayEnum", "comparison_summary", "push_queue", "EvaluationMode", "context",
     "MIN_ST", "MIN_TD", "MIN_DT", "MAX_DT", "MAX_ET", "IN_MEMORY", "IN_MEMORY_DENSE", "DATA_FRAME",
     "default_path",

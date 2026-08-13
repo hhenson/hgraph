@@ -1,6 +1,7 @@
 #include <hgraph/lib/std/operators/arithmetic.h>
 #include <hgraph/lib/std/operators/comparison.h>
 #include <hgraph/lib/std/operators/higher_order.h>
+#include <hgraph/lib/std/operators/io.h>
 
 namespace hgraph
 {
@@ -16,6 +17,8 @@ namespace hgraph
     HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::DispatchCases);
     HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::MapCallConfig);
     HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::TryExceptCallConfig);
+    HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::RecordAsOf);
+    HGRAPH_DEFINE_STDLIB_SCALAR_BINDING(stdlib::RecordRemoves);
 
 #undef HGRAPH_DEFINE_STDLIB_SCALAR_BINDING
 }  // namespace hgraph

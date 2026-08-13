@@ -18,7 +18,7 @@ public operator they implement rather than listed as top-level operators.
    * - Surface
      - Names
    * - ``hgraph.__all__``
-     - 208
+     - 210
    * - Public operator groups
      - 188
    * - Public submodules
@@ -93,6 +93,8 @@ Top-level wildcard exports
    * - ``REMOVE``
    * - ``REMOVE_IF_EXISTS``
    * - ``REQUIRED``
+   * - ``RecordAsOf``
+   * - ``RecordRemoves``
    * - ``RecordReplayContext``
    * - ``RecordReplayEnum``
    * - ``RequirementsNotMetWiringError``

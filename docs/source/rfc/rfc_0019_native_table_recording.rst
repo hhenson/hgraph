@@ -363,9 +363,55 @@ is chosen so nothing is rewritten twice:
    recorder deleted, its public surface unchanged.
 7. **Segmented flushing.** Only when a run's output stops fitting in memory.
    Nothing earlier depends on it, because the default writes once at ``stop``.
+8. **Table ops and a real builder.** See below. Deliberately last: it
+   restructures how the walks are *dispatched*, and doing it before the
+   behaviour settled would mean designing the ops table against a moving
+   target.
 
 Steps 1–2 are where the performance is; steps 3–5 are where the parity is;
-step 7 waits for a workload that needs it.
+step 7 waits for a workload that needs it; step 8 is what makes it extensible.
+
+Table ops and a real builder (step 8)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The table machinery already reuses most of the universal vocabulary —
+``TsTableLayout`` is a **Plan** (interned by schema, describing a row's column
+order and which columns are keys, flags or values), the TS schema is the
+**Schema**, and ``recording_columns`` plus recorder construction is the
+**Builder**. What is missing is **Ops**.
+
+Three separate recursive walks — ``build_layout``, ``emit_rows_to`` and
+``apply_recorded_row`` — each switch on ``TSTypeKind`` (TSD / TSB / TS /
+Frame) in their own ``if``/``else`` chain. That has two costs:
+
+* **It is closed.** A type defined outside the core package cannot take part
+  in table recording, because there is nowhere to register; participating
+  means editing the chain. This is the extensibility the Python
+  multi-dispatch design was reaching for.
+* **Nothing enforces that the walks agree.** ``emit`` and ``apply`` must stay
+  mutual inverses, and today only a test catches it when they drift — which
+  is exactly how the compound-``TSD``-key gap surfaced in step 5.
+
+The shape: a ``TableTypeOps`` (``describe`` / ``emit`` / ``apply``) interned
+per schema in a registry like every other, with ``ts_table_layout`` as the
+builder that walks the schema, asks each node to describe itself, and interns
+the resulting Plan. "How is this type handled" then has one answer — look at
+its ops — instead of three walks that have to be read together.
+
+Two constraints bound the design:
+
+* **Ops resolve at BUILD time into the Plan, never per tick.** The per-tick
+  path is required to be lock-free and ``shared_ptr``-free, so a per-tick
+  registry lookup is not available. This is how Plan/Ops already work
+  everywhere else, so it is a constraint the pattern already satisfies.
+* **Extensibility is only real if the registry is reachable from the
+  extension SDK.** Otherwise this is a tidier core with the same closed set.
+  That is the acceptance test, and it connects to the scalar-registration
+  machinery of RFC 0003 / 0004 rather than being free.
+
+Nothing landed so far is invalidated: the Plan, the ``RowSink`` seam (which
+already separated *producing* cells from *consuming* them), the projection
+and the recorder all survive. Step 8 replaces how the three walks dispatch.
 
 Compatibility
 -------------

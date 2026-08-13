@@ -29,6 +29,42 @@ namespace hgraph::stdlib
             return record_replay::fq_recordable_id(traits, recordable_id) + "." + std::string{key};
         }
 
+        /**
+         * Fold the call site's choices over the wiring-time default.
+         *
+         * ``Inherit`` is what makes the configuration local WITH a global
+         * default: an unconfigured call records exactly as it did before, and
+         * two calls in one graph differ by being called differently rather
+         * than through a registry keyed on their name.
+         *
+         * A global ``Config::as_of`` names a fixed as-of for the run, so it
+         * selects ``Fixed`` unless the call site omits the column outright.
+         */
+        [[nodiscard]] inline table_ts_detail::TableRecordingOptions recording_options(
+            RecordAsOf as_of, RecordRemoves removes, const record_replay::Config &config)
+        {
+            using Options = table_ts_detail::TableRecordingOptions;
+            Options options;
+            switch (as_of)
+            {
+            case RecordAsOf::Omit: options.as_of = Options::AsOf::Omit; break;
+            case RecordAsOf::Track: options.as_of = Options::AsOf::Track; break;
+            case RecordAsOf::Inherit: break;
+            }
+            if (options.as_of != Options::AsOf::Omit && config.as_of.has_value())
+            {
+                options.as_of       = Options::AsOf::Fixed;
+                options.as_of_value = config.as_of;
+            }
+            switch (removes)
+            {
+            case RecordRemoves::Omit: options.removes = Options::Removes::Omit; break;
+            case RecordRemoves::Track: options.removes = Options::Removes::Track; break;
+            case RecordRemoves::Inherit: break;
+            }
+            return options;
+        }
+
         /** Heap recorder handle owned across start/eval/stop via node State. */
         struct RecorderHandle
         {
@@ -176,7 +212,9 @@ namespace hgraph::stdlib
 
         static std::vector<std::pair<std::string_view, Value>> defaults()
         {
-            return {{"recordable_id", Value{Str{}}}};
+            return {{"recordable_id", Value{Str{}}},
+                    {"as_of", Value{RecordAsOf::Inherit}},
+                    {"removes", Value{RecordRemoves::Inherit}}};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
@@ -185,7 +223,8 @@ namespace hgraph::stdlib
         }
 
         static void start(In<"ts", TsVar<"S">> ts, Scalar<"key", Str> key,
-                          Scalar<"recordable_id", Str> recordable_id, TraitsView traits,
+                          Scalar<"recordable_id", Str> recordable_id, Scalar<"as_of", RecordAsOf> as_of,
+                          Scalar<"removes", RecordRemoves> removes, TraitsView traits,
                           GlobalStateView gs, State<FrameRecorderState> state)
         {
             using record_replay_frame_detail::RecorderHandle;
@@ -197,8 +236,9 @@ namespace hgraph::stdlib
             // partitioned series used to fail here (RFC 0019).
             const auto &layout =
                 ts_table_layout(ts.base().schema(), config.date_key, config.as_of_key);
-            const TableRecordingOptions options{};   // step 3 default; local config lands with the wiring
-            const RecordingColumns      columns = recording_columns(layout, options);
+            const TableRecordingOptions options =
+                record_replay_frame_detail::recording_options(as_of.value(), removes.value(), config);
+            const RecordingColumns columns = recording_columns(layout, options);
 
             std::vector<std::size_t> output_of_layout_column(layout.keys.size(), RecorderHandle::dropped);
             for (std::size_t output = 0; output < columns.source.size(); ++output)
@@ -215,19 +255,24 @@ namespace hgraph::stdlib
         }
 
         static void eval(In<"ts", TsVar<"S">> ts, Scalar<"key", Str> key,
-                         Scalar<"recordable_id", Str> recordable_id, State<FrameRecorderState> state,
+                         Scalar<"recordable_id", Str> recordable_id, Scalar<"as_of", RecordAsOf> as_of,
+                         Scalar<"removes", RecordRemoves> removes, State<FrameRecorderState> state,
                          GlobalStateView gs, DateTime now)
         {
             static_cast<void>(key);
             static_cast<void>(recordable_id);
-            const auto as_of = record_replay::config(gs).as_of.value_or(now);
+            // Both were resolved into the recorder's shape at start; the row
+            // walk reads that shape from the handle, not from the arguments.
+            static_cast<void>(as_of);
+            static_cast<void>(removes);
+            const auto as_of_cell = record_replay::config(gs).as_of.value_or(now);
             using namespace table_ts_detail;
             auto *handle = state.get().handle;
             const auto &layout =
                 ts_table_layout(ts.base().schema(), record_replay::config(gs).date_key,
                                 record_replay::config(gs).as_of_key);
             record_replay_frame_detail::RecordingSink recording{.handle = handle};
-            emit_rows_to(layout, ts.base(), kToTableModeTick, now, as_of, handle->emit_removals,
+            emit_rows_to(layout, ts.base(), kToTableModeTick, now, as_of_cell, handle->emit_removals,
                          recording.sink());
         }
 
