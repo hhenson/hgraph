@@ -215,7 +215,10 @@ def test_release_workflow_targets_supported_platforms():
     test_workflow = (
         ROOT / ".github/workflows/test-platform-wheel.yml"
     ).read_text()
-    combined_workflow = "\n".join((workflow, platform_workflow, test_workflow))
+    native_workflow = (ROOT / ".github/workflows/native-cpp.yml").read_text()
+    combined_workflow = "\n".join(
+        (workflow, platform_workflow, test_workflow, native_workflow)
+    )
     nightly_workflow = (
         ROOT / ".github/workflows/parity-nightly.yml"
     ).read_text()
@@ -234,8 +237,8 @@ def test_release_workflow_targets_supported_platforms():
     assert "--exclude libhgraph_stdlib.so" in workflow
     assert "--exclude libnanobind-abi3.so" in workflow
     assert "tests/python_extension_consumer/check.py" in combined_workflow
-    assert "libarrow-acero=25" in workflow
-    for linux_workflow in (workflow, nightly_workflow):
+    assert "libarrow-acero=25" in native_workflow
+    for linux_workflow in (nightly_workflow, native_workflow):
         assert 'GCC_VERSION: "14"' in linux_workflow
         assert 'command -v "gcc-$GCC_VERSION"' in linux_workflow
         assert 'command -v "g++-$GCC_VERSION"' in linux_workflow
@@ -308,6 +311,33 @@ def test_platform_wheel_tests_start_after_only_their_matching_build():
         for test_name in dependencies:
             assert f"needs.{test_name}.result == 'success'" in publish_job
             assert f"      - {test_name}\n" in publish_job
+
+
+def test_native_cpp_validation_is_independent_of_wheel_publication():
+    release_workflow = (ROOT / ".github/workflows/release-wheels.yml").read_text()
+    native_workflow = (ROOT / ".github/workflows/native-cpp.yml").read_text()
+
+    assert "  native-cpp:\n" not in release_workflow
+    assert "  native-install:\n" not in release_workflow
+    assert "needs.native-cpp.result" not in release_workflow
+    assert "needs.native-install.result" not in release_workflow
+    assert "  native-cpp:\n" in native_workflow
+    assert "  native-shared-install:\n" in native_workflow
+
+    shared_job = workflow_job(native_workflow, "native-shared-install")
+    assert "-DHGRAPH_BUILD_SHARED=ON" in shared_job
+    assert "Verify IPO is enabled" in shared_job
+    assert "-flto(=auto)?" in shared_job
+    assert "Run optimized shared C++ tests" in shared_job
+    assert "Build and test installed-package consumer" in shared_job
+    assert "Build and test installed Kafka consumer" in shared_job
+    assert "Build and test installed analytics consumer" in shared_job
+
+    for publish_name in ("publish", "publish-kafka", "publish-analytics"):
+        publish_job = workflow_job(release_workflow, publish_name)
+        assert "native-cpp" not in publish_job
+        assert "native-install" not in publish_job
+        assert "native-shared-install" not in publish_job
 
 
 def test_workflow_actions_are_pinned_to_immutable_commits():

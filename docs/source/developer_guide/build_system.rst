@@ -64,6 +64,12 @@ Windows x86_64, and Apple Silicon macOS, then installs each platform wheel under
 CPython 3.12, 3.13, and 3.14. A bare tag matching ``x.x.x`` publishes the tested
 core, Kafka, and analytics wheels and source distributions through PyPI trusted
 publishing.
+Standalone C++ validation runs independently in
+``.github/workflows/native-cpp.yml``. It covers native Linux and macOS builds,
+plus a fully optimized Linux shared-library build with IPO, the complete native
+test suite, installation, and downstream core, Kafka, and analytics SDK
+consumers. This deliberately expensive validation remains visible on pull
+requests and ``main`` without delaying or gating publication of wheel artifacts.
 The tag is the shared release version authority: the publish jobs restamp the
 metadata of artifacts already tested for that exact commit, rather than
 rebuilding them. The CMake ``project(VERSION)`` declarations identify the native

@@ -514,171 +514,6 @@ jobs:
           path: parity-results
           if-no-files-found: error
 
-  native-cpp:
-    name: Native C++ / ${{ matrix.os }}
-    needs:
-      - validate-release
-      - reuse-build
-    if: needs.reuse-build.outputs.run-id == ''
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            parallel: "2"
-          - os: macos-26
-            parallel: "1"
-
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Enable shared compiler cache
-        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
-        with:
-          version: v0.15.0
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.12"
-      - name: Configure current Clang on macOS
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          echo "CC=/usr/bin/clang" >> "$GITHUB_ENV"
-          echo "CXX=/usr/bin/clang++" >> "$GITHUB_ENV"
-          /usr/bin/clang++ --version
-      - name: Configure GCC 14 on Linux
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          cc_path="$(command -v "gcc-$GCC_VERSION")"
-          cxx_path="$(command -v "g++-$GCC_VERSION")"
-          test "$("$cxx_path" -dumpfullversion -dumpversion | cut -d. -f1)" -eq "$GCC_VERSION"
-          echo "CC=$cc_path" >> "$GITHUB_ENV"
-          echo "CXX=$cxx_path" >> "$GITHUB_ENV"
-          "$cxx_path" --version
-      - name: Install native build dependencies
-        run: >-
-          python -m pip install --upgrade --only-binary=:all:
-          "cmake==4.4.2" "ninja==1.13.0" "pyarrow==25.0.0"
-      - name: Expose Arrow runtime libraries
-        shell: python
-        run: |
-          import os
-          from pathlib import Path
-          import pyarrow
-
-          with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:
-              path_file.write(str(Path(pyarrow.__file__).resolve().parent) + "\n")
-      - name: Configure native C++ tests
-        run: cmake -S . -B build-native -GNinja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF -DHGRAPH_USE_PYARROW_ARROW=ON -DHGRAPH_FETCH_SIMDJSON=ON -DHGRAPH_FETCH_DATE=ON -DHGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS=ON -DHGRAPH_WARNINGS_AS_ERRORS=ON -DHGRAPH_BUILD_KAFKA_EXTENSION=ON -DHGRAPH_KAFKA_FORCE_FETCH_LIBRDKAFKA=ON -DHGRAPH_BUILD_ANALYTICS_EXTENSION=ON
-      - name: Build native C++ tests
-        run: cmake --build build-native --parallel ${{ matrix.parallel }}
-      - name: Run native C++ tests
-        run: ctest --test-dir build-native --output-on-failure --parallel ${{ matrix.parallel }}
-
-  native-install:
-    name: Native C++ / Linux shared install
-    needs:
-      - validate-release
-      - reuse-build
-    if: needs.reuse-build.outputs.run-id == ''
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Enable shared compiler cache
-        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
-        with:
-          version: v0.15.0
-      - name: Configure GCC 14
-        shell: bash
-        run: |
-          cc_path="$(command -v "gcc-$GCC_VERSION")"
-          cxx_path="$(command -v "g++-$GCC_VERSION")"
-          test "$("$cxx_path" -dumpfullversion -dumpversion | cut -d. -f1)" -eq "$GCC_VERSION"
-          echo "CC=$cc_path" >> "$GITHUB_ENV"
-          echo "CXX=$cxx_path" >> "$GITHUB_ENV"
-          "$cxx_path" --version
-      - uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39 # v3
-        with:
-          environment-name: hgraph-native
-          cache-environment: true
-          create-args: >-
-            cmake>=3.26
-            ninja
-            libarrow=25
-            libarrow-compute=25
-            libarrow-acero=25
-            fmt
-            spdlog>=1.15
-            simdjson>=4.5
-      - name: Configure shared C++ tests
-        shell: micromamba-shell {0}
-        run: >-
-          cmake -S . -B build-shared -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_PREFIX_PATH="$CONDA_PREFIX"
-          -DBUILD_TESTING=ON
-          -DHGRAPH_BUILD_SHARED=ON
-          -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF
-          -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF
-          -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF
-          -DHGRAPH_FETCH_DATE=ON
-          -DHGRAPH_ENABLE_DEBUGGER_SMOKE_TESTS=ON
-          -DHGRAPH_WARNINGS_AS_ERRORS=ON
-          -DHGRAPH_BUILD_KAFKA_EXTENSION=ON
-          -DHGRAPH_KAFKA_FORCE_FETCH_LIBRDKAFKA=ON
-          -DHGRAPH_BUILD_ANALYTICS_EXTENSION=ON
-      - name: Build shared C++ tests
-        shell: micromamba-shell {0}
-        run: cmake --build build-shared --parallel 2
-      - name: Run shared C++ tests
-        shell: micromamba-shell {0}
-        run: ctest --test-dir build-shared --output-on-failure --parallel 2
-      - name: Install shared C++ package
-        shell: micromamba-shell {0}
-        run: cmake --install build-shared --prefix "$GITHUB_WORKSPACE/install-shared"
-      - name: Configure installed-package consumer
-        shell: micromamba-shell {0}
-        run: >-
-          cmake -S tests/install_consumer -B build-consumer -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/install-shared;$CONDA_PREFIX"
-      - name: Build and test installed-package consumer
-        shell: micromamba-shell {0}
-        run: |
-          cmake --build build-consumer --parallel 2
-          LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-            ctest --test-dir build-consumer --output-on-failure
-      - name: Configure installed Kafka consumer
-        shell: micromamba-shell {0}
-        run: >-
-          cmake -S extensions/kafka/test_package -B build-kafka-consumer -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/install-shared;$CONDA_PREFIX"
-      - name: Build and test installed Kafka consumer
-        shell: micromamba-shell {0}
-        run: |
-          cmake --build build-kafka-consumer --parallel 2
-          LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install-shared/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-            ctest --test-dir build-kafka-consumer --output-on-failure
-      - name: Configure installed analytics consumer
-        shell: micromamba-shell {0}
-        run: >-
-          cmake -S extensions/analytics/test_package
-          -B build-analytics-consumer -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/install-shared;$CONDA_PREFIX"
-      - name: Build and test installed analytics consumer
-        shell: micromamba-shell {0}
-        run: |
-          cmake --build build-analytics-consumer --parallel 2
-          LD_LIBRARY_PATH="$GITHUB_WORKSPACE/install-shared/lib:$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-            ctest --test-dir build-analytics-consumer --output-on-failure
-
   publish:
     name: Publish hgraph to PyPI
     if: >-
@@ -692,9 +527,7 @@ jobs:
           needs.build-sdist.result == 'success' &&
           needs.test-windows-wheel.result == 'success' &&
           needs.test-macos-wheel.result == 'success' &&
-          needs.test-linux-wheel.result == 'success' &&
-          needs.native-cpp.result == 'success' &&
-          needs.native-install.result == 'success'
+          needs.test-linux-wheel.result == 'success'
         )
       )
     needs:
@@ -704,8 +537,6 @@ jobs:
       - test-windows-wheel
       - test-macos-wheel
       - test-linux-wheel
-      - native-cpp
-      - native-install
       - build-linux-wheel
     runs-on: ubuntu-latest
     environment:
@@ -747,9 +578,7 @@ jobs:
           needs.build-sdist.result == 'success' &&
           needs.test-windows-wheel.result == 'success' &&
           needs.test-macos-wheel.result == 'success' &&
-          needs.test-linux-wheel.result == 'success' &&
-          needs.native-cpp.result == 'success' &&
-          needs.native-install.result == 'success'
+          needs.test-linux-wheel.result == 'success'
         )
       )
     needs:
@@ -759,8 +588,6 @@ jobs:
       - test-windows-wheel
       - test-macos-wheel
       - test-linux-wheel
-      - native-cpp
-      - native-install
       - build-linux-wheel
     runs-on: ubuntu-latest
     environment:
@@ -802,9 +629,7 @@ jobs:
           needs.build-sdist.result == 'success' &&
           needs.test-windows-wheel.result == 'success' &&
           needs.test-macos-wheel.result == 'success' &&
-          needs.test-linux-wheel.result == 'success' &&
-          needs.native-cpp.result == 'success' &&
-          needs.native-install.result == 'success'
+          needs.test-linux-wheel.result == 'success'
         )
       )
     needs:
@@ -814,8 +639,6 @@ jobs:
       - test-windows-wheel
       - test-macos-wheel
       - test-linux-wheel
-      - native-cpp
-      - native-install
       - build-linux-wheel
     runs-on: ubuntu-latest
     environment:
