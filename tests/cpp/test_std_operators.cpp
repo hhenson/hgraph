@@ -3105,6 +3105,17 @@ TEST_CASE("std operators: control operators cover variadic booleans merge and se
                                                  values<Int>(1, 2, 3),
                                                  values<Int>(4, 5, 6)),
                  values<Int>(1, 5, 3));
+    CHECK_OUTPUT(eval_node<stdlib::if_then_else>(
+                     values<Bool>(true, false, true),
+                     values<stdlib::CmpResult>(stdlib::CmpResult::LT,
+                                                stdlib::CmpResult::EQ,
+                                                stdlib::CmpResult::GT),
+                     values<stdlib::CmpResult>(stdlib::CmpResult::GT,
+                                                stdlib::CmpResult::LT,
+                                                stdlib::CmpResult::EQ)),
+                 values<stdlib::CmpResult>(stdlib::CmpResult::LT,
+                                            stdlib::CmpResult::LT,
+                                            stdlib::CmpResult::GT));
     CHECK_OUTPUT(eval_node<stdlib::if_cmp>(values<stdlib::CmpResult>(stdlib::CmpResult::LT,
                                                                      stdlib::CmpResult::EQ,
                                                                      stdlib::CmpResult::GT),

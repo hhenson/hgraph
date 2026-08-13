@@ -350,9 +350,13 @@ def module_exports(module_name: str) -> tuple[str, ...]:
 
 
 def _signature_text(value: Any) -> str:
-    """Return an inspect signature with process-specific sentinel reprs hidden."""
+    """Return an inspect signature using stable public type-variable names."""
     signature = str(inspect.signature(value))
-    return re.sub(r"<object object at 0x[0-9a-fA-F]+>", "...", signature)
+    signature = re.sub(r"<object object at 0x[0-9a-fA-F]+>", "...", signature)
+    # ``typing.TypeVar.__repr__`` prefixes invariant variables with ``~``.
+    # That is an implementation marker, not part of the public hgraph type
+    # vocabulary used by the catalogue and generated signatures.
+    return re.sub(r"~(?=[A-Za-z_][A-Za-z0-9_]*)", "", signature)
 
 
 def collect_inventory() -> dict[str, Any]:

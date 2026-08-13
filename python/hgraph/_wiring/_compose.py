@@ -4,7 +4,7 @@ import inspect
 
 import _hgraph
 
-from ._core import (WiringError, WiringPort, _current_wiring, _unwrap,
+from ._core import (_OperatorFunction, WiringError, WiringPort, _current_wiring, _unwrap,
                     operator_function, wire)
 from ._graph import _as_wired, _prepare_higher_order_call
 from ._markers import _unbounded_tuple_kind
@@ -715,6 +715,50 @@ class _CastOperator(_Operator):
 
 
 cast_ = _CastOperator(cast_)
+
+
+def downcast_(tp: type[SCALAR], ts: TS[SCALAR_1]) -> TS[SCALAR]:
+    """Narrow ``ts`` to the derived CompoundScalar type ``tp``.
+
+    The explicit target argument is the release/0.5-compatible spelling.
+    ``downcast_[TS[Derived]](ts)`` is also supported.
+    """
+
+
+def _selected_downcast(ts: TS[SCALAR_1]) -> TS[SCALAR]:
+    """Signature carrier for ``downcast_[TS[Derived]](ts)``."""
+
+
+class _SelectedDowncastOperator(_OperatorFunction):
+    def __init__(self, selected):
+        super().__init__(
+            selected.__name__,
+            output_type=selected._output_type,
+            sizes=selected._sizes,
+            ts_hint=selected._ts_hint,
+            resolutions=selected._resolutions,
+            signature=_selected_downcast,
+        )
+
+    def __call__(self, ts: TS[SCALAR_1]) -> TS[SCALAR]:
+        return super().__call__(ts)
+
+
+class _DowncastOperator(_OperatorFunction):
+    def __init__(self):
+        super().__init__("downcast_", signature=downcast_)
+
+    def __call__(self, tp: type[SCALAR], ts: TS[SCALAR_1]) -> TS[SCALAR]:
+        # ``tp`` is Python authoring syntax. The native operator receives the
+        # source port plus the fully resolved output schema and owns the
+        # checked Bundle narrowing at runtime.
+        return super().__call__(ts, output_type=TS[tp])
+
+    def __getitem__(self, item) -> _SelectedDowncastOperator:
+        return _SelectedDowncastOperator(super().__getitem__(item))
+
+
+downcast_ = _DowncastOperator()
 
 
 from ._graph import graph

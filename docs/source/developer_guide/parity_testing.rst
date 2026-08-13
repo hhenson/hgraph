@@ -232,6 +232,13 @@ and extending as new regressions are identified:
   operators with a raw scalar on either side.  Division, floor division,
   modulo, and power additionally vary the wiring-time ``DivideByZero`` enum,
   including reference-valid zero-handling paths;
+- ``compound_scalar_downcast`` preserves the released
+  ``downcast_(Derived, ts)`` positional-target spelling across a realistic
+  ``CompoundScalar`` event hierarchy while the same native checked narrowing
+  also backs the output-selected ``downcast_[TS[Derived]](ts)`` spelling;
+- ``enum_literal_selection`` selects between raw ``IntEnum`` and ``StrEnum``
+  members to ensure Python auto-const conversion retains their nominal enum
+  schema instead of treating them as their ``int`` or ``str`` base class;
 - ``temporal_expression`` drives date/datetime arithmetic into the upstream
   ``getattr_`` accessor tables — properties and method-call spellings, the
   ``(date - date).days`` shape included (the #82 class);

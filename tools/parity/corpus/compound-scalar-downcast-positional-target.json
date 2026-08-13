@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "compound-scalar-downcast-positional-target",
+  "description": "The release/0.5 positional target form narrows a base Event stream through an OrderEvent hierarchy to CreateEvent.",
+  "template": "compound_scalar_downcast",
+  "inputs": {
+    "event": [
+      {
+        "event_id": "event-1",
+        "order_id": "order-1",
+        "quantity": 10
+      },
+      null,
+      {
+        "event_id": "event-2",
+        "order_id": "order-2",
+        "quantity": 25
+      }
+    ]
+  },
+  "parameters": {},
+  "features": [
+    "boundary:python-owned",
+    "shape:TS",
+    "type:compound-scalar",
+    "type:polymorphic",
+    "conversion:checked-downcast",
+    "syntax:positional-target"
+  ]
+}

@@ -51,7 +51,7 @@ from ._graph import (
 from ._compose import (
     DebugContext, DelayedBinding, Feedback, _Collect, _Combine, _Convert, _Emit, _TsExprFor,
     _bind_switch_scalar_args, _combine_compound_scalars, _merge_cs, _resolve_requested_target,
-    _type_pattern_for_target, cast_, collect, combine, convert, delayed_binding, downcast_ref, emit, feedback,
+    _type_pattern_for_target, cast_, collect, combine, convert, delayed_binding, downcast_, downcast_ref, emit, feedback,
     MeshWiringPort, filter_by, get_mesh, map_, mesh_, no_key, pass_through, passive, reduce, switch_
 )
 from ._services import (
@@ -93,7 +93,7 @@ __all__ = [
     "_unbounded_tuple_kind", "_unwrap", "_wiring_stack", "_wrap_graph_fn", "adaptor",
     "adaptor_impl", "cast_", "collect", "combine", "comparison_summary", "component",
     "compute_node", "compute_set_delta", "context", "convert", "dispatch", "dispatch_",
-    "delayed_binding", "downcast_ref", "emit", "eval_node", "evaluate_const", "evaluate_graph", "feedback",
+    "delayed_binding", "downcast_", "downcast_ref", "emit", "eval_node", "evaluate_const", "evaluate_graph", "feedback",
     "filter_by", "from_graph", "generator", "get_service_inputs", "graph", "impl_input",
     "impl_output", "lift", "lower", "map_", "mesh_", "MeshWiringPort", "get_mesh", "no_key", "operator",
     "operator_function", "pass_through", "passive", "push_queue", "record_replay_scope",

@@ -150,6 +150,40 @@ def test_collection_size_rejects_reference_unsupported_string_is_empty():
         validate_recipe(recipe)
 
 
+def test_compound_scalar_downcast_recipe_rejects_malformed_events():
+    recipe = Recipe.from_dict(
+        {
+            "schema_version": 1,
+            "id": "test-invalid-compound-scalar-downcast",
+            "template": "compound_scalar_downcast",
+            "inputs": {
+                "event": [
+                    {"event_id": "event-1", "order_id": "order-1"}
+                ]
+            },
+            "parameters": {},
+            "features": ["type:compound-scalar"],
+        }
+    )
+    with pytest.raises(RecipeError, match="event_id, order_id, and quantity"):
+        validate_recipe(recipe)
+
+
+def test_enum_literal_selection_recipe_rejects_non_boolean_conditions():
+    recipe = Recipe.from_dict(
+        {
+            "schema_version": 1,
+            "id": "test-invalid-enum-literal-selection",
+            "template": "enum_literal_selection",
+            "inputs": {"condition": [True, 1, False]},
+            "parameters": {"kind": "int"},
+            "features": ["type:enum"],
+        }
+    )
+    with pytest.raises(RecipeError, match="condition ticks must be bool or null"):
+        validate_recipe(recipe)
+
+
 def test_recipe_fingerprint_is_independent_of_json_key_order():
     first = _scalar_recipe()
     raw = first.to_dict()
@@ -162,6 +196,14 @@ def test_recipe_fingerprint_is_independent_of_json_key_order():
 
 
 def test_canonicalization_preserves_tick_sensitive_value_semantics():
+    from enum import IntEnum, StrEnum
+
+    class IntegerChoice(IntEnum):
+        FIRST = 1
+
+    class StringChoice(StrEnum):
+        FIRST = "first"
+
     class Removed:
         def __init__(self, item):
             self.item = item
@@ -187,10 +229,22 @@ def test_canonicalization_preserves_tick_sensitive_value_semantics():
         "delta": FakeSetDelta(),
         "removed": Removed("old"),
         "remove": remove,
+        "int_enum": IntegerChoice.FIRST,
+        "str_enum": StringChoice.FIRST,
     }
     assert canonicalize(value) == {
         "$map": [
             ["delta", {"$set_delta": {"added": [1, 2], "removed": [3]}}],
+            [
+                "int_enum",
+                {
+                    "$enum": {
+                        "type": "test_canonicalization_preserves_tick_sensitive_value_semantics.<locals>.IntegerChoice",
+                        "name": "FIRST",
+                        "value": 1,
+                    }
+                },
+            ],
             [
                 "mapping",
                 {
@@ -202,6 +256,16 @@ def test_canonicalization_preserves_tick_sensitive_value_semantics():
             ],
             ["remove", {"$remove": True}],
             ["removed", {"$set_removed": "old"}],
+            [
+                "str_enum",
+                {
+                    "$enum": {
+                        "type": "test_canonicalization_preserves_tick_sensitive_value_semantics.<locals>.StringChoice",
+                        "name": "FIRST",
+                        "value": "first",
+                    }
+                },
+            ],
             ["tuple", {"$tuple": [1, 2]}],
         ]
     }

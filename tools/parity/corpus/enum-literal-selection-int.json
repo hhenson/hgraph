@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "enum-literal-selection-int",
+  "description": "if_then_else auto-lifts IntEnum branch literals while preserving their nominal enum type.",
+  "template": "enum_literal_selection",
+  "inputs": {
+    "condition": [
+      true,
+      false,
+      true
+    ]
+  },
+  "parameters": {
+    "kind": "int"
+  },
+  "features": [
+    "boundary:python-owned",
+    "shape:TS",
+    "type:enum",
+    "conversion:auto-const",
+    "topology:branch-selection"
+  ]
+}

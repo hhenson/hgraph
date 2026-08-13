@@ -999,6 +999,8 @@ namespace hgraph::python_bridge
             to_python.emplace(value, std::move(member));
             from_python.emplace(member_name, value);
         }
+        python_bridge::enum_type_registry()[
+            reinterpret_cast<PyTypeObject *>(cls.ptr())] = meta;
         python_bridge::enum_class_registry()[meta] = std::move(cls);
         return PyValueType{meta};
     });

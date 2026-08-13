@@ -168,6 +168,7 @@ NB_MODULE(_hgraph, m)
     m.def("reset_logger", [] { hgraph::log::reset_logger(); });
     m.def("reset_registries", [] {
         python_bridge::enum_class_registry().clear();   // meta pointers are re-interned
+        python_bridge::enum_type_registry().clear();
         python_bridge::enum_to_python_registry().clear();
         python_bridge::enum_from_python_registry().clear();
         python_bridge::bundle_class_registry().clear();

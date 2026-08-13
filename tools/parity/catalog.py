@@ -1642,6 +1642,96 @@ def _stream_dataclass(hg, recipe):
     }
 
 
+def _validate_compound_scalar_downcast(recipe):
+    if recipe.parameters:
+        raise RecipeError("compound_scalar_downcast takes no parameters")
+    for tick in recipe.inputs["event"]:
+        if tick is None:
+            continue
+        if not isinstance(tick, dict) or set(tick) != {
+            "event_id", "order_id", "quantity"
+        }:
+            raise RecipeError(
+                "compound_scalar_downcast events require event_id, order_id, and quantity"
+            )
+        if not isinstance(tick["event_id"], str) or not tick["event_id"]:
+            raise RecipeError("compound_scalar_downcast event_id must be a non-empty string")
+        if not isinstance(tick["order_id"], str) or not tick["order_id"]:
+            raise RecipeError("compound_scalar_downcast order_id must be a non-empty string")
+        if not isinstance(tick["quantity"], int) or isinstance(tick["quantity"], bool):
+            raise RecipeError("compound_scalar_downcast quantity must be an integer")
+
+
+def _compound_scalar_downcast(hg, recipe):
+    from dataclasses import dataclass
+
+    from hgraph.test import eval_node
+
+    @dataclass(frozen=True)
+    class Event(hg.CompoundScalar):
+        event_id: str
+
+    @dataclass(frozen=True)
+    class OrderEvent(Event):
+        order_id: str
+
+    @dataclass(frozen=True)
+    class CreateEvent(OrderEvent):
+        quantity: int
+
+    @hg.graph
+    def parity_graph(event: hg.TS[Event]) -> hg.TS[CreateEvent]:
+        # The explicit positional target is the released 0.5 public contract.
+        return hg.downcast_(CreateEvent, event)
+
+    events = [
+        CreateEvent(**tick) if tick is not None else None
+        for tick in decoded_inputs(hg, recipe)["event"]
+    ]
+    return eval_node(parity_graph, events)
+
+
+def _validate_enum_literal_selection(recipe):
+    if set(recipe.parameters) != {"kind"}:
+        raise RecipeError("enum_literal_selection requires only the kind parameter")
+    if recipe.parameters["kind"] not in {"int", "str"}:
+        raise RecipeError("enum_literal_selection kind must be 'int' or 'str'")
+    for tick in recipe.inputs["condition"]:
+        if tick is not None and not isinstance(tick, bool):
+            raise RecipeError(
+                "enum_literal_selection condition ticks must be bool or null"
+            )
+
+
+def _enum_literal_selection(hg, recipe):
+    from enum import IntEnum, StrEnum
+
+    from hgraph.test import eval_node
+
+    if recipe.parameters["kind"] == "int":
+        class IntegerChoice(IntEnum):
+            FIRST = 1
+            SECOND = 2
+
+        Choice = IntegerChoice
+    else:
+        class StringChoice(StrEnum):
+            FIRST = "first"
+            SECOND = "second"
+
+        Choice = StringChoice
+
+    @hg.graph
+    def parity_graph(condition: hg.TS[bool]) -> hg.TS[Choice]:
+        # Released hgraph lifts nominal enum members without an explicit const.
+        return hg.if_then_else(condition, Choice.FIRST, Choice.SECOND)
+
+    return eval_node(
+        parity_graph,
+        decoded_inputs(hg, recipe)["condition"],
+    )
+
+
 CATALOG = {
     "scalar_expression": TemplateSpec(
         name="scalar_expression",
@@ -1985,6 +2075,32 @@ CATALOG = {
         operators=("convert",),
         execute=_stream_dataclass,
     ),
+    "compound_scalar_downcast": TemplateSpec(
+        name="compound_scalar_downcast",
+        required_inputs=("event",),
+        features=(
+            "boundary:python-owned",
+            "shape:TS",
+            "type:compound-scalar",
+            "type:polymorphic",
+            "conversion:checked-downcast",
+        ),
+        operators=("downcast_",),
+        execute=_compound_scalar_downcast,
+    ),
+    "enum_literal_selection": TemplateSpec(
+        name="enum_literal_selection",
+        required_inputs=("condition",),
+        features=(
+            "boundary:python-owned",
+            "shape:TS",
+            "type:enum",
+            "conversion:auto-const",
+            "topology:branch-selection",
+        ),
+        operators=("if_then_else",),
+        execute=_enum_literal_selection,
+    ),
     "temporal_expression": TemplateSpec(
         name="temporal_expression",
         required_inputs=None,
@@ -2107,6 +2223,10 @@ def validate_recipe(recipe):
         _validate_nested_higher_order(recipe)
     elif recipe.template == "data_frame_recording":
         _validate_data_frame_recording(recipe)
+    elif recipe.template == "compound_scalar_downcast":
+        _validate_compound_scalar_downcast(recipe)
+    elif recipe.template == "enum_literal_selection":
+        _validate_enum_literal_selection(recipe)
     elif recipe.template == "feedback_accumulate":
         initial = recipe.parameters.get("initial", 0)
         if not isinstance(initial, int) or isinstance(initial, bool):

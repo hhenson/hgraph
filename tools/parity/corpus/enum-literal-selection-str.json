@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "enum-literal-selection-str",
+  "description": "if_then_else auto-lifts StrEnum branch literals while preserving their nominal enum type.",
+  "template": "enum_literal_selection",
+  "inputs": {
+    "condition": [
+      false,
+      true,
+      false
+    ]
+  },
+  "parameters": {
+    "kind": "str"
+  },
+  "features": [
+    "boundary:python-owned",
+    "shape:TS",
+    "type:enum",
+    "conversion:auto-const",
+    "topology:branch-selection"
+  ]
+}

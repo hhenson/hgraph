@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import Enum, IntEnum, StrEnum
 
 import pytest
 
@@ -39,6 +40,21 @@ from hgraph import (
     stop_engine,
 )
 from hgraph.test import eval_node
+
+
+class PlainChoice(Enum):
+    FIRST = 1
+    SECOND = 2
+
+
+class IntegerChoice(IntEnum):
+    FIRST = 1
+    SECOND = 2
+
+
+class StringChoice(StrEnum):
+    FIRST = "first"
+    SECOND = "second"
 
 
 def test_stop_engine_completes_the_current_cycle():
@@ -129,6 +145,28 @@ def test_if_then_else_nested():
         return if_then_else(const(False), m1, if_then_else(b, m2, m1))
 
     assert eval_node(g, [False, True]) == ["m1", "m2"]
+
+
+@pytest.mark.parametrize(
+    "choice_type",
+    [
+        PlainChoice,
+        IntegerChoice,
+        StringChoice,
+    ],
+)
+def test_if_then_else_lifts_enum_literals_without_losing_nominal_type(choice_type):
+    @graph
+    def app(condition: TS[bool]) -> TS[choice_type]:
+        return if_then_else(condition, choice_type.FIRST, choice_type.SECOND)
+
+    result = eval_node(app, [True, False, True])
+    assert result == [
+        choice_type.FIRST,
+        choice_type.SECOND,
+        choice_type.FIRST,
+    ]
+    assert all(type(value) is choice_type for value in result)
 
 
 def test_if_cmp():

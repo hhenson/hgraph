@@ -1529,44 +1529,6 @@ class _divmod__Operator(_Protocol):
 
 divmod_: _divmod__Operator
 
-class _downcast__Operator(_Protocol):
-    """Downcast values to an explicitly selected derived type with runtime checking.
-
-    Parameters
-    ~~~~~~~~~~
-
-    Time-series inputs are live graph edges. Wiring-time scalar choices
-    are fixed when the graph is built.
-
-    ``ts`` : time-series; ``TIME_SERIES_TYPE``
-       Base-typed input.
-
-    Returns
-    ~~~~~~~
-
-    The same values viewed through the selected derived schema.
-
-    Python example
-    ~~~~~~~~~~~~~~
-
-    .. code-block:: python
-
-       derived = hg.downcast_[TS[Derived]](base)
-
-    Accepted native overloads:
-
-    - ``downcast_(ts: TIME_SERIES_TYPE) -> OUT``
-
-    Time-series parameters accept wiring ports and compatible plain
-    values that can be lifted to constant sources. Generic names use
-    the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
-    ``SIZE``, ``OUT``, ``K`` and ``V``."""
-
-    def __call__(self, ts: _WiringPort | object) -> _WiringPort: ...
-    def __getitem__(self, item: _Any, /) -> _Self: ...
-
-downcast_: _downcast__Operator
-
 class _drop_Operator(_Protocol):
     """Suppress the first ``count`` source ticks and forward every later tick.
 
@@ -2839,7 +2801,7 @@ class _if_cmp_Operator(_Protocol):
 if_cmp: _if_cmp_Operator
 
 class _if_then_else_Operator(_Protocol):
-    """Select between two value streams using the latest boolean condition. A tick from the active branch is forwarded; a tick from the inactive branch is not.
+    """Select between two value streams using the latest boolean condition. A tick from the active branch is forwarded; a tick from the inactive branch is not. Python scalar branch values are lifted to constant sources.  This preserves the nominal type of ``Enum``, ``IntEnum``, and ``StrEnum`` members, so callers do not need to wrap them in typed ``const`` nodes.
 
     Parameters
     ~~~~~~~~~~
@@ -8497,7 +8459,6 @@ __all__ = (
     "difference",
     "div_",
     "divmod_",
-    "downcast_",
     "drop",
     "eq_",
     "evaluation_time_in_range",
