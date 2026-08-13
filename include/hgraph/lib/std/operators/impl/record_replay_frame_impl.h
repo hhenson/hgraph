@@ -399,7 +399,7 @@ namespace hgraph::stdlib
                                 record_replay::config(gs).as_of_key);
             if (layout.is_multi_row)
             {
-                const Frame &frame = ts.base().value().checked_as<Frame>();
+                const Frame frame = ts.base().value().checked_as<Frame>();
                 if (frame.has_value() && frame_rows(frame) == 0)
                 {
                     handle->discard = true;
