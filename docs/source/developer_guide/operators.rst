@@ -335,7 +335,6 @@ without its floating-point constants:
 .. code-block:: text
 
    rank(Concrete scalar leaf) = 0
-   rank(ScalarVar)            = 100
    rank(Concrete TS | Signal) = rank(value)            # 0 for a concrete leaf
    rank(TS(p))                = 1 + rank(p)
    rank(TSS(p))               = 1 + rank(p)
@@ -344,9 +343,43 @@ without its floating-point constants:
    rank(TSW(p, period, min))   = 1 + rank(p)
    rank(TSB(fields...))        = 1 + Σ rank(field)
    rank(REF(s))               = rank(s)
-   rank(Var)                  = LARGE                   # a bare top-level variable is least specific
+   rank(Var)                  = var_rank                # a variable costs its CURRENT var_rank
 
    candidate rank = structural rank + per-variable min(rank)
+
+``var_rank`` is a budget that **decays as you descend**, which is what makes an
+inner generic more specific than an outer one. It starts at:
+
+.. code-block:: text
+
+   10000   a top-level Input (TS) parameter
+     100   the scalar payload of a TS / TSS / TSW / TSD key
+       1   a standalone Scalar parameter
+
+and then, at each step down, ``var_rank -> max(1, var_rank / 2)``. A variable
+carrying **constraints** also pays the halved rate rather than the full one,
+since a constraint is itself a narrowing.
+
+Composite SCALARS rank too, by the same shape as time-series containers — this
+is easy to miss, because the table above reads as though only the TS side has
+structure:
+
+.. code-block:: text
+
+   rank(tuple[T, ...] | set | map | series | frame | array | bundle)
+       = 1 + Σ rank(child)        # children at max(1, var_rank / 2)
+
+   rank(bundle with a schema variable) = 1 + var_rank/2
+
+The practical consequence, and the reason this is worth stating: **adding a
+concrete or composite scalar parameter to an overload is essentially free.**
+A ``Scalar<"policy", SomeEnum>`` contributes 0; a
+``Scalar<"names", HomogeneousTuple<Str>>`` contributes 1 (its own structure,
+plus 0 for the concrete element). Neither can shift dispatch away from a
+sibling overload that differs on its time-series arguments, because those are
+separated by the 10000-scale. Do not avoid a well-typed scalar argument out of
+a fear of destabilising overload resolution — and equally, do not expect one
+to *win* a contest it should win on TS grounds.
 
 This yields ``TS<Int>`` < ``TS<ScalarVar>`` < a bare ``TsVar``, recursively
 (``TSL<TS<Int>,N>`` < ``TSL<TS<ScalarVar>,N>`` < ``TSL<Var,N>``) — the

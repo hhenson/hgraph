@@ -11,7 +11,10 @@
 #include <hgraph/types/record_replay.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/value/compact_storage.h>
 #include <hgraph/types/value/table_codec.h>
+#include <hgraph/types/value/value_builder.h>
 
 #include <memory>
 #include <string>
@@ -29,6 +32,36 @@ namespace hgraph::stdlib
             return record_replay::fq_recordable_id(traits, recordable_id) + "." + std::string{key};
         }
 
+        /** An EMPTY ``tuple[str, ...]``, as the rename arguments' default.
+            ``Value{*meta}`` will not do: that is an UNSET value, which the
+            operator registry rejects outright ("scalar default value must not
+            be empty") because an unset default is Python's ``None`` and only
+            means anything for a time-series parameter. This is a real, empty
+            list value - the shape that says "rename nothing". */
+        [[nodiscard]] inline Value empty_names()
+        {
+            const auto *meta = scalar_descriptor<HomogeneousTuple<Str>>::value_meta();
+            const auto  binding =
+                ValuePlanFactory::instance().type_for(scalar_descriptor<Str>::value_meta());
+            ListBuilder  builder{binding};
+            ListStorage  storage = builder.build_storage();
+            return Value{compact_list_type(binding, *meta), &storage};
+        }
+
+        /** Read a ``tuple[str, ...]`` wiring argument. Empty means "keep the
+            layout's own names", so an unconfigured call renames nothing. */
+        [[nodiscard]] inline std::vector<std::string> column_names(const ValueView &value)
+        {
+            std::vector<std::string> out;
+            const auto               list = value.as_indexed_view();
+            out.reserve(list.size());
+            for (std::size_t i = 0; i < list.size(); ++i)
+            {
+                out.emplace_back(list.at(i).checked_as<Str>());
+            }
+            return out;
+        }
+
         /**
          * Fold the call site's choices over the wiring-time default.
          *
@@ -41,10 +74,13 @@ namespace hgraph::stdlib
          * selects ``Fixed`` unless the call site omits the column outright.
          */
         [[nodiscard]] inline table_ts_detail::TableRecordingOptions recording_options(
-            RecordAsOf as_of, RecordRemoves removes, const record_replay::Config &config)
+            RecordAsOf as_of, RecordRemoves removes, const ValueView &partition_names,
+            const ValueView &removed_names, const record_replay::Config &config)
         {
             using Options = table_ts_detail::TableRecordingOptions;
             Options options;
+            options.partition_names = column_names(partition_names);
+            options.removed_names   = column_names(removed_names);
             switch (as_of)
             {
             case RecordAsOf::Omit: options.as_of = Options::AsOf::Omit; break;
@@ -214,7 +250,9 @@ namespace hgraph::stdlib
         {
             return {{"recordable_id", Value{Str{}}},
                     {"as_of", Value{RecordAsOf::Inherit}},
-                    {"removes", Value{RecordRemoves::Inherit}}};
+                    {"removes", Value{RecordRemoves::Inherit}},
+                    {"partition_names", record_replay_frame_detail::empty_names()},
+                    {"removed_names", record_replay_frame_detail::empty_names()}};
         }
 
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
@@ -224,8 +262,10 @@ namespace hgraph::stdlib
 
         static void start(In<"ts", TsVar<"S">> ts, Scalar<"key", Str> key,
                           Scalar<"recordable_id", Str> recordable_id, Scalar<"as_of", RecordAsOf> as_of,
-                          Scalar<"removes", RecordRemoves> removes, TraitsView traits,
-                          GlobalStateView gs, State<FrameRecorderState> state)
+                          Scalar<"removes", RecordRemoves> removes,
+                          Scalar<"partition_names", ScalarVar<"PN", HomogeneousTuple<Str>>> partition_names,
+                          Scalar<"removed_names", ScalarVar<"RN", HomogeneousTuple<Str>>>   removed_names,
+                          TraitsView traits, GlobalStateView gs, State<FrameRecorderState> state)
         {
             using record_replay_frame_detail::RecorderHandle;
             using namespace table_ts_detail;
@@ -236,8 +276,8 @@ namespace hgraph::stdlib
             // partitioned series used to fail here (RFC 0019).
             const auto &layout =
                 ts_table_layout(ts.base().schema(), config.date_key, config.as_of_key);
-            const TableRecordingOptions options =
-                record_replay_frame_detail::recording_options(as_of.value(), removes.value(), config);
+            const TableRecordingOptions options = record_replay_frame_detail::recording_options(
+                as_of.value(), removes.value(), partition_names.value(), removed_names.value(), config);
             const RecordingColumns columns = recording_columns(layout, options);
 
             std::vector<std::size_t> output_of_layout_column(layout.keys.size(), RecorderHandle::dropped);
@@ -256,15 +296,19 @@ namespace hgraph::stdlib
 
         static void eval(In<"ts", TsVar<"S">> ts, Scalar<"key", Str> key,
                          Scalar<"recordable_id", Str> recordable_id, Scalar<"as_of", RecordAsOf> as_of,
-                         Scalar<"removes", RecordRemoves> removes, State<FrameRecorderState> state,
-                         GlobalStateView gs, DateTime now)
+                         Scalar<"removes", RecordRemoves> removes,
+                         Scalar<"partition_names", ScalarVar<"PN", HomogeneousTuple<Str>>> partition_names,
+                         Scalar<"removed_names", ScalarVar<"RN", HomogeneousTuple<Str>>>   removed_names,
+                         State<FrameRecorderState> state, GlobalStateView gs, DateTime now)
         {
             static_cast<void>(key);
             static_cast<void>(recordable_id);
-            // Both were resolved into the recorder's shape at start; the row
-            // walk reads that shape from the handle, not from the arguments.
+            // All four were resolved into the recorder's shape at start; the
+            // row walk reads that shape from the handle, not from the arguments.
             static_cast<void>(as_of);
             static_cast<void>(removes);
+            static_cast<void>(partition_names);
+            static_cast<void>(removed_names);
             const auto as_of_cell = record_replay::config(gs).as_of.value_or(now);
             using namespace table_ts_detail;
             auto *handle = state.get().handle;

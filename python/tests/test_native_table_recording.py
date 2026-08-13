@@ -169,3 +169,46 @@ def test_two_recordings_in_one_graph_differ_by_configuration():
     assert "__key_1_removed__" not in _columns(plain)
     assert _rows(tracked) == 2
     assert _rows(plain) == 1
+
+
+def test_partition_columns_can_be_renamed():
+    """The native equivalent of the adaptor's ``partition_keys`` override."""
+    frame = _record(
+        [{"a": 1.0}], hg.TSD[str, hg.TS[float]], partition_names=("symbol",)
+    )
+
+    assert _columns(frame) == ["__date_time__", "__as_of__", "symbol", "value"]
+
+
+def test_removed_columns_can_be_renamed():
+    frame = _record(
+        [{"a": 1.0}, {"a": hg.REMOVE_IF_EXISTS}],
+        hg.TSD[str, hg.TS[float]],
+        removes=hg.RecordRemoves.TRACK,
+        partition_names=("symbol",),
+        removed_names=("symbol_gone",),
+    )
+
+    assert _columns(frame) == ["__date_time__", "__as_of__", "symbol_gone", "symbol", "value"]
+
+
+def test_a_rename_list_of_the_wrong_length_is_refused():
+    """One name per FLATTENED key column - a miscount would silently misname
+    columns, so it raises rather than applying to the first N."""
+    import pytest
+
+    with pytest.raises(Exception, match="2 partition names for 1 flattened key column"):
+        _record(
+            [{"a": 1.0}],
+            hg.TSD[str, hg.TS[float]],
+            partition_names=("one", "two"),
+        )
+
+
+def test_a_rename_list_of_the_wrong_element_type_is_refused():
+    """The argument is constrained to tuple[str, ...], not merely erased -
+    without the constraint any scalar would bind and fail much later."""
+    import pytest
+
+    with pytest.raises(Exception, match="no matching overload"):
+        _record([{"a": 1.0}], hg.TSD[str, hg.TS[float]], partition_names=(1, 2))
