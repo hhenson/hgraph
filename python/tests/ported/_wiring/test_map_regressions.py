@@ -145,6 +145,80 @@ def test_map_generic_bundle_child_can_dereference_its_element():
     ]
 
 
+def test_map_generic_bundle_parameter_accepts_keyword_mapping():
+    @hg.graph
+    def handler(
+        value: hg.TS[int], flag: hg.TS[bool], limit: hg.TS[int],
+    ) -> hg.TS[int]:
+        return hg.if_then_else(flag, value + limit, value - limit)
+
+    @hg.graph
+    def child(
+        value: hg.TS[int], params: hg.TSB[hg.TS_SCHEMA],
+    ) -> hg.TS[int]:
+        resolved = hg.dereference(params)
+        return handler(value=value, **resolved)
+
+    @hg.graph
+    def app(
+        values: hg.TSD[str, hg.TS[int]],
+        flag: hg.TS[bool],
+        limit: hg.TS[int],
+    ) -> hg.TSD[str, hg.TS[int]]:
+        return hg.map_(
+            child,
+            value=values,
+            params={"flag": flag, "limit": limit},
+            __keys__=values.key_set,
+        )
+
+    assert eval_node(
+        app,
+        [{"a": 2, "b": 3}, None],
+        [True, False],
+        [10, 5],
+    ) == [
+        {"a": 12, "b": 13},
+        {"a": -3, "b": -2},
+    ]
+
+
+def test_map_passive_structural_bundle_materializes_before_child_binding():
+    class Params(hg.TimeSeriesSchema):
+        flag: hg.TS[bool]
+        limit: hg.TS[int]
+
+    @hg.graph
+    def child(
+        value: hg.TS[int], params: hg.TSB[hg.TS_SCHEMA],
+    ) -> hg.TS[int]:
+        resolved = hg.dereference(params)
+        return hg.if_then_else(
+            resolved.flag, value + resolved.limit, value - resolved.limit,
+        )
+
+    @hg.graph
+    def app(
+        values: hg.TSD[str, hg.TS[int]],
+        flag: hg.TS[bool],
+        limit: hg.TS[int],
+    ) -> hg.TSD[str, hg.TS[int]]:
+        params = hg.passive(hg.TSB[Params].from_ts(flag=flag, limit=limit))
+        return hg.map_(
+            child, value=values, params=params, __keys__=values.key_set,
+        )
+
+    assert eval_node(
+        app,
+        [{"a": 2, "b": 3}, {"a": 4, "b": 5}],
+        [True, False],
+        [10, 5],
+    ) == [
+        {"a": 12, "b": 13},
+        {"a": -1, "b": 0},
+    ]
+
+
 def test_key_only_map_combines_captured_reference_fields():
     @hg.graph
     def app(
